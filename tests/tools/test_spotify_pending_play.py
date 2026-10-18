@@ -87,6 +87,11 @@ class _PlayerStub:
             return self.started
         return {"success": True, "status_code": 204, "empty": True}
 
+    remote = None  # what app_remote_credentials() gives: None until he signs in with app-remote-control
+
+    def app_remote_credentials(self):
+        return self.remote
+
     def transfer_playback(self, **kw):
         self.transfer_calls.append(kw)
         return {"success": True, "status_code": 204, "empty": True}
@@ -820,3 +825,51 @@ def test_a_play_that_never_reaches_the_phone_moves_playback_there_first(monkeypa
     assert _run(runs) == "done"
     assert stub.transfer_calls == [{"device_id": "phone-1", "play": True}]
     assert len(_phone_plays(stub)) == 2
+
+
+
+REMOTE = {"token": "tok-123", "client_id": "cid-9"}
+
+
+def test_a_phone_turn_also_tells_the_spotify_app_to_play_it(monkeypatch, spawned, car_turn) -> None:
+    # Plays sent through the Web API never start on his iPhone in the car (17:44: "nothing
+    # playing anywhere" after plays and transfers, all HTTP 204): once Spotify is up on the car,
+    # the phone tells the Spotify app itself (Spotify's iOS SDK, App Remote).
+    phone, runs = car_turn
+    phone.replies["spotify_remote_play"] = {"ok": True, "result": {"played": TRACK}}
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
+    stub.remote = dict(REMOTE)
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+    remote_runs = [r for r in runs if getattr(r, "func", None) is spotify_tool._remote_play_on_phone]
+    assert len(remote_runs) == 1
+    clock = _FakeClock()
+    assert remote_runs[0](sleep=clock.sleep) is True
+    assert ("iphone-1", "spotify_remote_play", {"uri": TRACK, **REMOTE}) in phone.calls
+
+
+def test_the_spotify_app_is_asked_again_while_it_comes_up(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    answers = iter([{"ok": False, "error": "couldn't reach the Spotify app: not running"},
+                    {"ok": True, "result": {"played": TRACK}}])
+    phone.replies["spotify_remote_play"] = None
+    monkeypatch.setattr(car_app_followup, "_invoke_device_skill",
+                        lambda device, skill, args, timeout=None: phone.calls.append((device, skill, dict(args)))
+                        or (next(answers) if skill == "spotify_remote_play" else phone.replies.get(skill)))
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
+    stub.remote = dict(REMOTE)
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+    remote = next(r for r in runs if getattr(r, "func", None) is spotify_tool._remote_play_on_phone)
+    assert remote(sleep=_FakeClock().sleep) is True
+    assert [c[1] for c in phone.calls].count("spotify_remote_play") == 2
+
+
+def test_without_the_permission_the_phone_is_not_asked(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]]))
+    _car_play(uris=[TRACK])
+    assert not any(getattr(r, "func", None) is spotify_tool._remote_play_on_phone for r in runs)
+    assert all(c[1] != "spotify_remote_play" for c in phone.calls)

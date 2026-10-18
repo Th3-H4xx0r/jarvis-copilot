@@ -181,3 +181,13 @@ def test_spotify_interactive_setup_empty_aborts(
     env_path = tmp_path / ".env"
     if env_path.exists():
         assert "HERMES_SPOTIFY_CLIENT_ID" not in env_path.read_text()
+
+
+def test_signing_in_always_asks_to_control_the_spotify_app() -> None:
+    # 2026-10-18: Spotify's servers accept plays for his iPhone that its Spotify app never
+    # acts on, so the phone tells the Spotify app to play directly (Spotify's iOS SDK App
+    # Remote), which needs this permission — kept even when re-using the scopes stored from
+    # an earlier sign-in.
+    assert "app-remote-control" in auth_mod._spotify_scope_list()
+    assert "app-remote-control" in auth_mod._spotify_scope_list("user-library-read")
+    assert auth_mod._spotify_scope_list("user-library-read app-remote-control").count("app-remote-control") == 1

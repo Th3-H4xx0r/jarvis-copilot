@@ -359,6 +359,37 @@ def _opening_note(device_note: str, window: int) -> str:
     )
 
 
+# Tries, a few seconds apart, while Spotify comes up on the car's screen.
+_REMOTE_PLAY_TRIES = 4
+_REMOTE_PLAY_GAP_S = 2.0
+
+
+def _remote_play_on_phone(phone_id: str, uri: str, credentials: Dict[str, str], *,
+                          sleep: Optional[Callable[[float], Any]] = None) -> bool:
+    """Tell the Spotify app on his phone to play ``uri`` itself (Spotify's iOS SDK, App Remote,
+    in the Jarvis app): plays sent through the Web API are taken and never start on his iPhone
+    in the car (2026-10-18 17:44: transfers and plays, all HTTP 204, "nothing playing anywhere").
+    The token never goes in a log."""
+    wait = sleep or time.sleep
+    for attempt in range(1, _REMOTE_PLAY_TRIES + 1):
+        wait(_REMOTE_PLAY_GAP_S)
+        result = car_app_followup._invoke_device_skill(
+            phone_id, "spotify_remote_play", {"uri": uri, **credentials}, timeout=15)
+        if isinstance(result, dict) and result.get("ok", True) and not result.get("error"):
+            logger.info("Spotify: the phone's Spotify app took %s (App Remote, try %d)", uri, attempt)
+            return True
+        logger.info("Spotify: App Remote try %d didn't play it: %s", attempt,
+                    (result or {}).get("error") if isinstance(result, dict) else result)
+    return False
+
+
+def _app_remote_credentials(client: Any) -> Optional[Dict[str, str]]:
+    try:
+        return client.app_remote_credentials()
+    except Exception:
+        return None
+
+
 def _phone_playing_note(phone: Dict[str, Any], opening: Dict[str, Any]) -> str:
     if phone.get("carplay"):
         return "Playing it in Spotify on the car."
@@ -416,6 +447,13 @@ def _play_without_active_device(
             )
             logger.info("Spotify play: asked %s to open %s; checking it plays there within %d s",
                         phone.get("name") or phone["device_id"], uri, int(_OPENED_PLAY_WINDOW_S))
+            credentials = _app_remote_credentials(client)
+            if credentials:
+                car_app_followup.start_background(
+                    functools.partial(_remote_play_on_phone, phone["device_id"], uri, credentials),
+                    "spotify-remote-play")
+            else:
+                logger.info("Spotify: no app-remote-control on this sign-in; only the Web API can try")
             return tool_result({
                 "success": True,
                 "action": "play",

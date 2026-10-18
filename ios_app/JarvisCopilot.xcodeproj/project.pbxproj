@@ -428,6 +428,7 @@
 		5C1C35ED7B8066DD08B04741 /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB853687443BF6D01424F199 /* ExerciseDetailView.swift */; };
 		5C1EED087E29D3A73FCA220E /* LiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80590D4742A1BA31D2A3DF28 /* LiveActivityTests.swift */; };
 		5C600257B309EB476B42CCEB /* DoorHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9072B9A9E9BAF1EC1542C2B /* DoorHubView.swift */; };
+		5C674B727FFC931415A30AD6 /* SpotifyRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2131295D6C8DC5C1BF8B911B /* SpotifyRemote.swift */; };
 		5CBC0A873379960BE356096F /* HabitMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90434BA821E195A628F6EBA8 /* HabitMath.swift */; };
 		5CC6984B9FC3AA409C071358 /* OnDeviceAISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827CB0FB97E09F1068A953EF /* OnDeviceAISettingsStore.swift */; };
 		5CCAE536BF3E0C5DF43817F7 /* DashcamSyncAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF92DEBDA1CDCB88B6640D5B /* DashcamSyncAttributes.swift */; };
@@ -798,6 +799,7 @@
 		B5E15D908A555E272321F8E6 /* RingWorkout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68F90FA4094E69A21A10278 /* RingWorkout.swift */; };
 		B629B663EA53833EA99AABDB /* RouteRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824F94160F0A771B6E1CFA66 /* RouteRenderTests.swift */; };
 		B63614C0D2D77FFA07097A16 /* StrengthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 438D0DAA806C23BD75CDA6F7 /* StrengthSession.swift */; };
+		B6A715FA2EB7DED93B566357 /* SpotifyRemoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFB64F0F30061B8E32B5218 /* SpotifyRemoteTests.swift */; };
 		B6DAE4A6340E0007944E594E /* CarLights.json in Resources */ = {isa = PBXBuildFile; fileRef = 68E47505B4129BAAF9A3D2A4 /* CarLights.json */; };
 		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		B702131C489F94D2E5DF658D /* AgentLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3B787CD98A2B37225ADAD4 /* AgentLiveActivity.swift */; };
@@ -1313,6 +1315,7 @@
 		1F4173328AB81A5A728A6B18 /* ToolRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolRow.swift; sourceTree = "<group>"; };
 		1FA7C724EE4EBCCDFEE94520 /* LiveProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveProtocol.swift; sourceTree = "<group>"; };
 		20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepDebtCard.swift; sourceTree = "<group>"; };
+		2131295D6C8DC5C1BF8B911B /* SpotifyRemote.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyRemote.swift; sourceTree = "<group>"; };
 		2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesAPI.swift; sourceTree = "<group>"; };
 		2178BAB61B6E8581D0A37620 /* IslandModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandModels.swift; sourceTree = "<group>"; };
 		21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessFormat.swift; sourceTree = "<group>"; };
@@ -1487,6 +1490,7 @@
 		4E40F4BE6C78673EA718AE58 /* BandMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMonitorTests.swift; sourceTree = "<group>"; };
 		4E8AC9A01B043EA1D328F5CE /* GlassesTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslator.swift; sourceTree = "<group>"; };
 		4EA5E5761C4DA35F367FAD51 /* IntegrationPlanCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationPlanCard.swift; sourceTree = "<group>"; };
+		4EFB64F0F30061B8E32B5218 /* SpotifyRemoteTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyRemoteTests.swift; sourceTree = "<group>"; };
 		4EFDB0B847063A1CBE9BCB80 /* AgentsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsModels.swift; sourceTree = "<group>"; };
 		4F8762B90BF3DAFD1DB92442 /* RouteFollowerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteFollowerTests.swift; sourceTree = "<group>"; };
 		4FDE6F832C56A99B29B9776A /* DashcamSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSetupView.swift; sourceTree = "<group>"; };
@@ -2507,6 +2511,7 @@
 				D009B96B2C66BD2172A1591D /* MediaControlSkillTests.swift */,
 				18E029E18AA14374F1AA0599 /* ControlButtonsTests.swift */,
 				030D385F82B889F07AD69A15 /* SendConfirmationsTests.swift */,
+				4EFB64F0F30061B8E32B5218 /* SpotifyRemoteTests.swift */,
 			);
 			path = Skills;
 			sourceTree = "<group>";
@@ -3564,6 +3569,7 @@
 				BB35718003FB55A2A8045E68 /* Views */,
 				C7D94BB5169588CC83EA64E9 /* SendConfirmCard.swift */,
 				B98C18A24786223E46B58DF2 /* SendConfirmations.swift */,
+				2131295D6C8DC5C1BF8B911B /* SpotifyRemote.swift */,
 			);
 			path = Skills;
 			sourceTree = "<group>";
@@ -4873,6 +4879,7 @@
 				E4DCB99B2708CCBA8FE70F90 /* VoiceLogFileTests.swift in Sources */,
 				12AD8EC49FA1C483B0F9D0CB /* CarPlayConfirmTests.swift in Sources */,
 				B9E96BC363DBDACB2BF81EB2 /* SendConfirmationsTests.swift in Sources */,
+				B6A715FA2EB7DED93B566357 /* SpotifyRemoteTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5618,6 +5625,7 @@
 				A16ADFA87A057B84FE5355A1 /* SendConfirmations.swift in Sources */,
 				61C186C07A15FA3ADE352760 /* CarPlayConfirmText.swift in Sources */,
 				5D4629C3E9509FBD8063CB0D /* VoiceEarconSounds.swift in Sources */,
+				5C674B727FFC931415A30AD6 /* SpotifyRemote.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

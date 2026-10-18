@@ -2172,9 +2172,15 @@ def get_gemini_oauth_auth_status() -> Dict[str, Any]:
 # =============================================================================
 
 
+# Asked for on every sign-in, even one re-using the scopes stored from the last: the
+# iPhone tells the Spotify app to play through Spotify's iOS SDK (App Remote) with this
+# token, because plays sent through Spotify's servers never start on it.
+SPOTIFY_REQUIRED_SCOPES = ("app-remote-control",)
+
+
 def _spotify_scope_list(raw_scope: Optional[str] = None) -> List[str]:
     scope_text = (raw_scope or DEFAULT_SPOTIFY_SCOPE).strip()
-    scopes = [part for part in scope_text.split() if part]
+    scopes = [part for part in scope_text.split() if part] + list(SPOTIFY_REQUIRED_SCOPES)
     seen: set[str] = set()
     ordered: List[str] = []
     for scope in scopes:

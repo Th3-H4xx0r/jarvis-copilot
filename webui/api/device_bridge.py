@@ -127,7 +127,9 @@ def _notify_registry_change() -> None:
 SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32_door_forget",
                                 "door_alarm_ring",
                                 # The call/text card the server shows and closes (agent/send_confirm.py).
-                                "confirm_card"})
+                                "confirm_card",
+                                # Spotify's App Remote play on the phone, with the server's token.
+                                "spotify_remote_play"})
 
 
 # ── Inbound device events ───────────────────────────────────────────────────

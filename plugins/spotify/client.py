@@ -80,6 +80,14 @@ class SpotifyClient:
         except AuthError as exc:
             raise SpotifyAuthRequiredError(str(exc)) from exc
 
+    def app_remote_credentials(self) -> Optional[Dict[str, str]]:
+        """The token and client id the phone's Spotify iOS SDK (App Remote) connects with —
+        only when this sign-in granted ``app-remote-control``."""
+        if "app-remote-control" not in str(self._runtime.get("scope") or "").split():
+            return None
+        token, client_id = self._runtime.get("access_token"), self._runtime.get("client_id")
+        return {"token": str(token), "client_id": str(client_id)} if token and client_id else None
+
     @property
     def base_url(self) -> str:
         return str(self._runtime.get("base_url") or "").rstrip("/")
