@@ -174,6 +174,16 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     car_directions' path — found near him, opened by coordinates in his maps app; the raw link opens only when
     it names no place or the place can't be found.
 
+- [ ] **24. Calls and songs from CarPlay only worked after tapping a phone notification** (2026-10-18 00:24–00:25)
+  - Found (voice.log + session tool results): `device_make_call` and `device_open_app spotify` both returned
+    "Sent to your phone — tap the notification" (foreground-only on a locked phone); `spotify_playback play`
+    failed "Spotify could not find an active playback device" — Spotify wasn't running until he tapped.
+  - Built: while CarPlay is up, a call is a `tel:` link opened on the car's screen (dials after Jarvis says who;
+    Stop cancels) and a CarPlay app (Spotify, Music, Podcasts, Audible, Pandora, YouTube Music, Waze, Maps,
+    WhatsApp, Calendar) opens on the car's screen after the reply; on the server, a Spotify play with no active
+    device plays on a listed one, or waits up to 30 s for Spotify to come online (newest request wins; pause
+    cancels) and tells the model to open Spotify instead of retrying.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).

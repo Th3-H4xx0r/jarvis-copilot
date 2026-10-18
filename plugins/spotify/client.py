@@ -37,6 +37,35 @@ class SpotifyAPIError(SpotifyError):
         self.response_body = response_body
         self.path = None
 
+    def _error_object(self) -> Dict[str, Any]:
+        try:
+            payload = json.loads(self.response_body or "")
+        except (TypeError, ValueError):
+            return {}
+        error_obj = payload.get("error") if isinstance(payload, dict) else None
+        return error_obj if isinstance(error_obj, dict) else {}
+
+    @property
+    def reason(self) -> Optional[str]:
+        """Spotify's machine-readable ``error.reason`` (e.g. ``NO_ACTIVE_DEVICE``)."""
+        reason = self._error_object().get("reason")
+        return str(reason) if reason else None
+
+    @property
+    def is_no_active_device(self) -> bool:
+        """404 because no Spotify Connect device is active (app not running anywhere).
+
+        The friendly message collapses every playback 404 into one sentence, so
+        match on the raw body: ``reason: NO_ACTIVE_DEVICE`` or, for responses
+        without a reason, Spotify's "No active device found" message.
+        """
+        if self.status_code != 404:
+            return False
+        if self.reason == "NO_ACTIVE_DEVICE":
+            return True
+        message = str(self._error_object().get("message") or "")
+        return "no active device" in message.lower()
+
 
 class SpotifyClient:
     def __init__(self) -> None:

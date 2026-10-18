@@ -136,6 +136,45 @@ final class CarDirectionsTests: XCTestCase {
         XCTAssertEqual(result?["launched"] as? Bool, true)
     }
 
+    /// "Call Shabd" from the car (2026-10-18 00:25): `make_call` became "tap the
+    /// notification". In CarPlay a `tel:` link opened on the car's screen places the
+    /// call there — after Jarvis says who it's calling, and Stop still cancels it.
+    func testACallIsPlacedFromTheCarScreen() async throws {
+        var queued: [URL] = []
+        let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("not a map"); return [:] }
+        let result = try await CarLinks.route("make_call", ["number": "(209) 627-7732"], carScreen: { true },
+                                              directions: noRoute, queue: { queued.append($0) })
+        _ = try await CarLinks.route("make_call", ["number": "+1 209 627 7732"], carScreen: { true },
+                                     directions: noRoute, queue: { queued.append($0) })
+        XCTAssertEqual(queued.map(\.absoluteString), ["tel:2096277732", "tel:+12096277732"])
+        XCTAssertEqual(result?["launched"] as? Bool, true)
+        XCTAssertNotNil(result?["note"])
+        let nothing = try await CarLinks.route("make_call", ["number": "mom"], carScreen: { true },
+                                               directions: noRoute, queue: { queued.append($0) })
+        XCTAssertNil(nothing, "no digits: the phone's own make_call answers")
+    }
+
+    /// "Open Spotify" became "tap the notification" too — so a play request had no
+    /// Spotify to play on. A CarPlay app opens on the car's screen instead.
+    func testACarPlayAppOpensOnTheCarScreen() async throws {
+        var queued: [URL] = []
+        let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("not a map"); return [:] }
+        for (args, want) in [(["app": "spotify"], "spotify://"), (["app": "Apple Music"], "music://"),
+                             (["name": "Waze"], "waze://"), (["app": "x", "scheme_url": "spotify://"], "spotify://")] {
+            let result = try await CarLinks.route("open_app", args, carScreen: { true },
+                                                  directions: noRoute, queue: { queued.append($0) })
+            XCTAssertEqual(result?["launched"] as? Bool, true, "\(args)")
+            XCTAssertEqual(queued.last?.absoluteString, want)
+        }
+        queued.removeAll()
+        for args in [["app": "instagram"], ["app": "x", "scheme_url": "shortcuts://x-callback-url/run-shortcut?name=x"]] {
+            let result = try await CarLinks.route("open_app", args, carScreen: { true },
+                                                  directions: noRoute, queue: { queued.append($0) })
+            XCTAssertNil(result, "not a CarPlay app: the phone's own open_app answers")
+        }
+        XCTAssertEqual(queued, [])
+    }
+
     func testWithoutCarPlayOrForOtherLinksItStepsAside() async throws {
         var queued: [URL] = []
         let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("no route expected"); return [:] }
@@ -148,6 +187,9 @@ final class CarDirectionsTests: XCTestCase {
         let other = try await CarLinks.route("set_timer", ["url": "maps://?daddr=x"],
                                              carScreen: { true }, directions: noRoute, queue: { queued.append($0) })
         XCTAssertNil(other)
+        let call = try await CarLinks.route("make_call", ["number": "2096277732"],
+                                            carScreen: { false }, directions: noRoute, queue: { queued.append($0) })
+        XCTAssertNil(call, "no car screen: the phone's own make_call runs")
         XCTAssertEqual(queued, [])
     }
 

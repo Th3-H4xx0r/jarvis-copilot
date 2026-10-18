@@ -132,9 +132,10 @@ final class CarHandoff {
     }
 }
 
-/// A map link Jarvis opens with `open_url` while CarPlay is up goes to the car's
-/// screen, like `car_directions` does. With the phone locked, `open_url` is
-/// otherwise a "tap to run" notification: unlock, tap, Jarvis, then Maps.
+/// What Jarvis does on the phone that iOS only allows in front — a map link, a
+/// call, opening an app — goes to the car's screen while CarPlay is up (Apple's way
+/// for a CarPlay voice app). With the phone locked each was otherwise a "tap to
+/// run" notification: unlock, tap, Jarvis, then the thing he asked for.
 @MainActor
 enum CarLinks {
     /// Apple Maps, Google Maps and Waze links, web or app.
@@ -166,7 +167,23 @@ enum CarLinks {
                       carScreen: () -> Bool,
                       directions: (String) async throws -> [String: Any],
                       queue: (URL) -> Void) async throws -> [String: Any]? {
-        guard skill == "open_url", carScreen(),
+        guard carScreen() else { return nil }
+        switch skill {
+        case "make_call":
+            // A `tel:` link opened on the car's screen places the call through CarPlay,
+            // once Jarvis has said who it's calling — Stop before then cancels it.
+            let number = ContactLookup.cleanNumber(SkillArgs.string(args, "number"))
+            guard number.contains(where: \.isNumber), let url = URL(string: "tel:\(number)") else { return nil }
+            queue(url)
+            return ["launched": true, "note": "Calling from the car when you finish speaking."]
+        case "open_app":
+            guard let url = carApp(args) else { return nil }
+            queue(url)
+            return ["launched": true, "note": "It opens on the car's screen when you finish speaking."]
+        default:
+            break
+        }
+        guard skill == "open_url",
               let url = URL(string: SkillArgs.string(args, "url")), isMap(url) else { return nil }
         let note = "Opening on the car's screen when you finish speaking."
         if let destination = destination(in: url), var route = try? await directions(destination) {
@@ -176,6 +193,27 @@ enum CarLinks {
         }
         queue(url)
         return ["launched": true, "note": note]
+    }
+
+    /// Apps with a screen in CarPlay, by the names Jarvis uses, and the link that
+    /// opens each. Anything else stays the phone's (it can't show on the car).
+    static let carApps: [String: String] = [
+        "spotify": "spotify://", "music": "music://", "apple music": "music://",
+        "podcasts": "podcasts://", "apple podcasts": "podcasts://", "audible": "audible://",
+        "pandora": "pandora://", "youtube music": "youtubemusic://", "waze": "waze://",
+        "maps": "maps://", "apple maps": "maps://", "google maps": "comgooglemaps://",
+        "whatsapp": "whatsapp://", "calendar": "calshow://",
+    ]
+
+    /// The CarPlay app `open_app` asks for: by name, or a bare link to one of them
+    /// (`spotify://`) — never a link with a payload (open_app's own gate).
+    static func carApp(_ args: [String: Any]) -> URL? {
+        let explicit = SkillArgs.string(args, "scheme_url").trimmingCharacters(in: .whitespaces).lowercased()
+        if !explicit.isEmpty {
+            return Set(carApps.values).contains(explicit) ? URL(string: explicit) : nil
+        }
+        let name = SkillArgs.text(args["app"] ?? args["name"]).trimmingCharacters(in: .whitespaces).lowercased()
+        return carApps[name].flatMap(URL.init(string:))
     }
 
     /// Where a map link goes, as text to search for: `daddr` (Apple, Google's
