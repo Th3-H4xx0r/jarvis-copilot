@@ -125,7 +125,9 @@ def _notify_registry_change() -> None:
 # /api/devices/skills/invoke. The door alarm's proxy and phone-ring skills would otherwise let an
 # injected or overheard request switch the siren off or blind the alarm without Face ID.
 SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32_door_forget",
-                                "door_alarm_ring"})
+                                "door_alarm_ring",
+                                # The call/text card the server shows and closes (agent/send_confirm.py).
+                                "confirm_card"})
 
 
 # ── Inbound device events ───────────────────────────────────────────────────

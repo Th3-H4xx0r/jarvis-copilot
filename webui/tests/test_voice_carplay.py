@@ -150,5 +150,13 @@ def test_the_note_rides_the_per_call_directive(monkeypatch, carplay):
         assert sess._voice_turn_directive.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())
         # Tools learn it too (a phone turn in the car vs. in his hand).
         assert turn_origin.is_carplay_session("sess-car") is carplay
+        assert turn_origin.is_voice_session("sess-car")
     finally:
         turn_origin.note_turn("sess-car", None)
+
+
+def test_voice_turns_ask_about_calls_and_texts_only_once():
+    # The server asks before a call or message on a voice turn (agent/send_confirm.py), with a
+    # card; a model that also asked first would ask him twice.
+    rules = voice._voice_turn_directive(None)
+    assert "straight away" in rules and "card" in rules

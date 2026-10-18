@@ -796,6 +796,9 @@ _VOICE_REPLY_DIRECTIVE = (
     "briefing (for example: date, weather, calendar, news), where you call ONE "
     "tool at a time and speak each part's result in one sentence as it "
     "arrives.\n"
+    "7. A call, text, email or message to someone: call its tool straight away, "
+    "without asking him first — it sends nothing yet; it shows him a card and "
+    "tells you what to ask. Ask exactly that, as one question.\n"
     "Answer with only the actual content — nothing else.]\n\n"
 )
 
@@ -1435,7 +1438,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         origin_text = turn_origin.directive(origin, "voice")
         if origin_text:
             s._voice_turn_directive = s._voice_turn_directive.rstrip() + "\n\n" + origin_text
-        turn_origin.note_turn(session_id, origin, carplay=carplay)
+        turn_origin.note_turn(session_id, origin, carplay=carplay, voice=True)
     except Exception:
         pass
     if not harness_path:

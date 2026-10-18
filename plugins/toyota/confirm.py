@@ -21,6 +21,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from agent.spoken_yes import is_plain_yes, own_words as _own_words, text_of
 from plugins.toyota import service
 from plugins.toyota.approver import TITLES
 from plugins.toyota.car import CarError, NotSignedIn, ToyotaCar
@@ -34,25 +35,9 @@ _MAX_CHATS = 500
 _UNATTENDED_PREFIXES = ("sa-", "subagent-", "live-", "bg_")
 _UNATTENDED_PLATFORMS = frozenset({"cron"})
 
-_FILLER = re.compile(r"^(?:(?:hey\s+)?jarvis|um+|uh+|oh|well|so|and)\b[\s,.!-]*", re.I)
-_YES = re.compile(
-    r"^(?:yes|yeah|yea|yep|yup|ya|yah|aye|sure|ok(?:ay)?|fine|alright|all\s+right|confirm(?:ed)?|do\s+it|"
-    r"go\s+ahead|go\s+for\s+it|affirmative|absolutely|definitely|of\s+course|correct|right|please|"
-    r"sounds\s+good|let'?s\s+(?:do\s+it|go)|send\s+it)\b", re.I)
-# Anything that makes it less than a plain yes: a no, a hold-on, a condition, a question.
-_DOUBT = re.compile(
-    r"\b(?:no|nope|nah|not|don'?t|do\s+not|never|cancel|stop|wait|hold\s+on|hang\s+on|never\s*mind|nevermind|"
-    r"actually|maybe|later|hmm+|but|instead|unless|if|why|what|which|how|who|when|where|isn'?t|aren'?t|"
-    r"shouldn'?t|wouldn'?t|can'?t|won'?t|didn'?t|doesn'?t)\b|\?", re.I)
-_MAX_WORDS = 14
-# What may follow the yes: more yes and manners ("Yes, please")...
-_AFTER_YES = frozenset("""
-    yes yeah yea yep yup ya yah aye sure ok okay fine alright right correct confirm confirmed absolutely
-    definitely of course please thanks thank you sir jarvis go ahead for it do that now then let's lets
-    send sounds good all and the my them both too also just um uh oh well so a to i is
-""".split())
-# ...and words naming what he was asked — only those ("Sure, unlock it" to "Unlock the car?", never
-# "Okay, lock it"). Anything else ("yeah, I was thinking about it") is not a plain yes: Jarvis asks again.
+# After the yes (agent/spoken_yes.py), words naming what he was asked — only those ("Sure, unlock it"
+# to "Unlock the car?", never "Okay, lock it"). Anything else ("yeah, I was thinking about it") is
+# not a plain yes: Jarvis asks again.
 _SAYS: dict[str, frozenset[str]] = {k: frozenset(v.split()) for k, v in {
     "start": "start car engine up remote",
     "lock": "lock car door doors up",
@@ -80,11 +65,6 @@ _ASKED: dict[str, tuple[re.Pattern, ...]] = {k: tuple(re.compile(c, re.I) for c 
     "hazards_off": (r"\bhazard|\bflashers", r"\boff\b"),
 }.items()}
 _QUESTION = re.compile(r"[^.?!\n]*\?")
-# The messaging gateway's wrappers around his own words (gateway/run.py): a voice note's transcript,
-# and the message he's replying to. A group chat's "[Name] …" is left alone — others can't confirm.
-_VOICE_NOTE = re.compile(r'^\[The user sent a voice message~ Here\'s what they said: "(.*)"\]$', re.S)
-_REPLYING = re.compile(r'^\[Replying to: ".*"\]\n\n', re.S)
-
 
 @dataclass
 class _Turn:
@@ -120,42 +100,19 @@ _chat_of: "OrderedDict[str, str | None]" = OrderedDict()
 _clock: Callable[[], float] = time.monotonic
 
 
-def _text(content: Any) -> str:
-    """The words of a message: a string, or the text parts of a multimodal list."""
-    if isinstance(content, list):
-        return " ".join(str(p.get("text") or "") for p in content
-                        if isinstance(p, dict) and p.get("type") in (None, "text", "input_text"))
-    return str(content or "")
+_text = text_of
 
 
 def own_words(user_message: Any) -> str:
     """His words in a turn's message, out of the messaging gateway's wrappers."""
-    t = _text(user_message).strip()
-    t = _REPLYING.sub("", t, count=1).strip()
-    voice = _VOICE_NOTE.match(t)
-    return voice.group(1).strip() if voice else t
+    return _own_words(user_message)
 
 
 def is_yes(words: Any, commands: Iterable[str] = (), echo: Any = "") -> bool:
     """A plain yes ("Yes.", "Yeah, do it", "Go ahead", "Sure, unlock it") — nothing that hedges, and
     nothing naming a command other than `commands`, the ones he was asked about. `echo`: the
     question he was asked; a mic that caught its last words ("car? Yes") doesn't spoil the yes."""
-    t = _text(words).replace("’", "'").strip()
-    heard = set(re.findall(r"[a-z']+", _text(echo).lower()))
-    for _ in range(4):
-        first = re.match(r"([A-Za-z']+)[\s,.?!-]*", t)
-        if not first or first.group(1).lower() not in heard or _YES.match(t):
-            break
-        t = t[first.end():]
-    while True:
-        stripped = _FILLER.sub("", t, count=1)
-        if stripped == t:
-            break
-        t = stripped
-    if not t or len(t.split()) > _MAX_WORDS or not _YES.match(t) or _DOUBT.search(t):
-        return False
-    allowed = _AFTER_YES.union(*(_SAYS.get(c, ()) for c in commands))
-    return all(word in allowed for word in re.findall(r"[a-z']+|\d+", t.lower()))
+    return is_plain_yes(words, frozenset().union(*(_SAYS.get(c, ()) for c in commands)), echo=echo)
 
 
 def was_asked(reply: Any, commands: Iterable[str]) -> bool:

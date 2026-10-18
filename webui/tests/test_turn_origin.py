@@ -125,3 +125,34 @@ def test_every_turn_names_the_device_as_it_is_registered(monkeypatch, device):
     text = turn_origin.directive(turn_origin.origin_for_handler(object()), "voice")
     assert text.startswith(f'[Turn context: the user is talking to you by voice from their device "{device["name"]}" '
                            f'(id {device["id"]}).')
+
+
+# ── voice turns (agent/send_confirm.py asks before calling or sending on them) ──
+
+_VOICE_PHONE = {"device_id": "iphone-1", "name": "iPhone", "kind": "mobile-ios"}
+
+
+def test_a_voice_turn_is_marked_and_a_chat_turn_after_it_is_not():
+    try:
+        turn_origin.note_turn("sess-v", _VOICE_PHONE, voice=True)
+        assert turn_origin.is_voice_session("sess-v")
+        turn_origin.note_turn("sess-v", _VOICE_PHONE)  # he typed the next one
+        assert not turn_origin.is_voice_session("sess-v")
+    finally:
+        turn_origin.note_turn("sess-v", None)
+
+
+def test_a_voice_turn_with_no_paired_device_is_still_voice():
+    # Web voice without a pairing cookie: no device, but he is talking.
+    try:
+        turn_origin.note_turn("sess-web", None, voice=True)
+        assert turn_origin.is_voice_session("sess-web")
+        assert turn_origin.device_for_session("sess-web") is None
+    finally:
+        turn_origin.note_turn("sess-web", None)
+    assert not turn_origin.is_voice_session("sess-web")
+
+
+def test_no_session_is_never_voice():
+    assert not turn_origin.is_voice_session(None)
+    assert not turn_origin.is_voice_session("")

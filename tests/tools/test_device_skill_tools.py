@@ -471,3 +471,16 @@ def test_offline_paired_device_keeps_its_tools_and_says_offline(monkeypatch):
     handler = {t["name"]: t for t in device_skill_tools.get_device_tools()}["device_pod_show"]["handler"]
     out = json.loads(handler(args={}))
     assert out["ok"] is False and "Jarvis Pod" in out["error"] and "offline" in out["error"]
+
+
+def test_the_call_and_text_card_is_never_a_model_tool(monkeypatch):
+    # The server shows and closes it itself (agent/send_confirm.py); a model that could close it
+    # could hide what it is about to send.
+    _reset(monkeypatch, [
+        {"device_id": "dev1", "device_name": "iPhone", "name": "confirm_card",
+         "description": "Show or close the call/text card.", "input_schema": {"type": "object", "properties": {}}},
+        {"device_id": "dev1", "device_name": "iPhone", "name": "open_app",
+         "description": "Open an app by name.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    names = {t["name"] for t in device_skill_tools.get_device_tools()}
+    assert "device_open_app" in names and "device_confirm_card" not in names

@@ -679,6 +679,17 @@ def run_conversation(
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
 
+    # A call or message Jarvis asked him about on a voice turn (agent/send_confirm.py): his yes in
+    # this turn's own words sends it before the model answers; anything else drops it.
+    try:
+        from agent import send_confirm
+        _send_note = send_confirm.on_turn(effective_task_id, agent.session_id, original_user_message,
+                                          list(messages))
+        if _send_note:
+            _plugin_user_context = "\n\n".join(p for p in (_plugin_user_context, _send_note) if p)
+    except Exception as exc:
+        logger.warning("send confirmation check failed: %s", exc)
+
     # Main conversation loop
     api_call_count = 0
     final_response = None

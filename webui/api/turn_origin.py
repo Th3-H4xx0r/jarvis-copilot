@@ -21,6 +21,9 @@ _SESSION_DEVICE: dict[str, str] = {}
 _SESSION_KIND: dict[str, str] = {}
 _SESSION_NAME: dict[str, str] = {}
 _SESSION_CARPLAY: dict[str, bool] = {}
+# Sessions whose current turn is spoken (api/voice.py), device or not: calls and messages to other
+# people wait for his yes on those (agent/send_confirm.py).
+_SESSION_VOICE: set[str] = set()
 
 _KIND_LABEL = {"mobile-ios": "the iPhone app", "desktop": "the Mac app", "browser": "the web app"}
 
@@ -90,12 +93,16 @@ def directive(origin: Optional[dict], channel: str) -> str:
     return " ".join(parts) + "]"
 
 
-def note_turn(session_id: str, origin: Optional[dict], carplay: bool = False) -> None:
-    """Remember the device for ``session_id``'s current turn (None forgets it), and
-    whether the phone started it in the car (a CarPlay voice turn)."""
+def note_turn(session_id: str, origin: Optional[dict], carplay: bool = False, voice: bool = False) -> None:
+    """Remember the device for ``session_id``'s current turn (None forgets it), whether the phone
+    started it in the car (a CarPlay voice turn), and whether it is spoken (``voice``)."""
     if not session_id:
         return
     with _LOCK:
+        if voice:
+            _SESSION_VOICE.add(session_id)
+        else:
+            _SESSION_VOICE.discard(session_id)
         if origin:
             _SESSION_DEVICE[session_id] = origin["device_id"]
             _SESSION_KIND[session_id] = origin.get("kind") or ""
@@ -106,6 +113,15 @@ def note_turn(session_id: str, origin: Optional[dict], carplay: bool = False) ->
             _SESSION_KIND.pop(session_id, None)
             _SESSION_NAME.pop(session_id, None)
             _SESSION_CARPLAY.pop(session_id, None)
+
+
+def is_voice_session(session_id: Optional[str]) -> bool:
+    """Whether ``session_id``'s current turn is spoken (any voice surface: phone, CarPlay, Mac,
+    web, Pod) rather than typed."""
+    if not session_id:
+        return False
+    with _LOCK:
+        return session_id in _SESSION_VOICE
 
 
 def origin_for_session(session_id: Optional[str]) -> Optional[dict]:

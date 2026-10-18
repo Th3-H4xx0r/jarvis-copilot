@@ -988,6 +988,20 @@ def handle_function_call(
             if function_name in {"write_file", "patch"}:
                 return json.dumps({"error": "Edit approval denied: approval guard failed"}, ensure_ascii=False)
 
+        # A call or message to someone else on a voice turn waits for his yes
+        # (agent/send_confirm.py): noted with how to run it, and the model asks.
+        try:
+            from agent import send_confirm
+            asked = send_confirm.gate(
+                function_name, function_args, task_id=task_id, session_id=session_id,
+                run=lambda: registry.dispatch(function_name, dict(function_args),
+                                              task_id=task_id, user_task=user_task),
+            )
+            if asked is not None:
+                return asked
+        except Exception as _confirm_err:
+            logger.warning("send confirmation gate error (sending anyway): %s", _confirm_err)
+
         # Notify the read-loop tracker when a non-read/search tool runs,
         # so the *consecutive* counter resets (reads after other work are fine).
         if function_name not in _READ_SEARCH_TOOLS:
