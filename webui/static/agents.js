@@ -1033,6 +1033,11 @@
     if (!ch || (ch.loading && !ch.messages.length)) {
       setHtml(el, '<div class="agents-note">Loading the conversation…</div>');
       el._agentsDom = null;
+    } else if (!ch.messages.length && ch.syncing) {
+      const pct = Math.round(100 * Math.min(1, (Number(ch.syncing.have) || 0) / (Number(ch.syncing.of) || 1)));
+      setHtml(el, '<div class="agents-note">Copying this chat from ' + esc((c && c.owner_name) || 'the Mac') +
+        '… ' + pct + '%</div>');
+      el._agentsDom = null;
     } else if (!ch.messages.length) {
       setHtml(el, emptyTranscriptHtml(c, ch));
       el._agentsDom = null;
@@ -1076,7 +1081,7 @@
     renderOutgoing(ckey);
     if (prepended) {
       box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
-    } else if (st.scrollToEnd && ch && !ch.loading) {
+    } else if (st.scrollToEnd && ch && ch.messages.length) {
       box.scrollTop = box.scrollHeight;
       st.scrollToEnd = false;
     } else if (nearBottom) {
@@ -1185,12 +1190,17 @@
   // Fold a page in (the iPhone's CodingStreamReducer): the last message grows
   // in place as a turn goes on, so a refresh re-reads it and anything after.
   function applyPage(ch, page, full) {
+    // A long Mac chat whose copy is still on its way: the server has only its
+    // oldest part, so it says how far it is. Keep what's shown.
+    ch.syncing = (page && page.syncing) || null;
+    if (ch.syncing) return true;
     const msgs = (page && page.messages) || [];
     const total = Number(page && page.total) || 0;
     if (!full) {
       const end = ch.start + ch.messages.length;
       if (total < end) return false;                      // the transcript shrank: reload
-      if (msgs.some((m) => m.i > end)) return false;      // a gap: reload rather than lose one
+      const fresh = msgs.filter((m) => m.i >= end).map((m) => m.i);
+      if (fresh.length && Math.min.apply(null, fresh) > end) return false;   // a gap: reload rather than lose one
     }
     if (full) {
       ch.messages = msgs.slice();

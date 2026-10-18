@@ -63,6 +63,26 @@ def test_trigger_debounces(monkeypatch):
     r.close()
 
 
+def test_a_hook_rescans_even_while_the_heartbeat_waits():
+    """A session resumed by hand fires SessionStart: its new pid must reach the
+    server now, not at the next heartbeat (a phone message meanwhile is typed
+    using the dead process's pid and fails)."""
+    import time
+    scans = []
+    r = RosterAgent(lambda f: None, run=_run(AGENTS), alive=lambda pid: True,
+                    debounce=0.05, heartbeat=60.0)
+    real = r.scan_now
+    monkey = lambda send=True: scans.append(1) or real(send)  # noqa: E731
+    r.scan_now = monkey
+    r.trigger("SessionStart")
+    time.sleep(0.2)
+    assert scans == [1] and r.next_heartbeat() == 60.0   # the heartbeat is armed now
+    r.trigger("SessionStart")
+    time.sleep(0.2)
+    assert scans == [1, 1]
+    r.close()
+
+
 def test_heartbeat_only_while_live():
     r = RosterAgent(lambda f: None, run=_run("[]"), alive=lambda pid: True)
     r.scan_now()

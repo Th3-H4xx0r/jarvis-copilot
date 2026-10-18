@@ -141,7 +141,7 @@ final class AgentSessionModel {
         case .lastTurn:
             guard let turn else { return [] }
             return AgentConversation.collapse(AgentConversation.items(turn, working: working))
-        case .loading, .empty:
+        case .loading, .empty, .copying:
             return []
         }
     }

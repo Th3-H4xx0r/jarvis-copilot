@@ -221,23 +221,47 @@ class AgentsLink:
             # Ctrl+Enter. Only a terminal Jarvis can't type into falls back to
             # handing it over at the Stop hook.
             # (Ctrl+Enter is Claude Code's key; Codex just gets it queued.)
-            from jc_client.instruction_delivery import type_into as _type_into
             now = bool(frame.get("now")) and agent == "claude"
-            ok, _why = _type_into(terminal, text, pid=run.get("pid") or self._pids.get(f"{agent}|{sid}"),
-                                  vscode=self.vscode, now=now)
+            ok, _why = self._type(agent, sid, run, terminal, text, now=now)
             if ok:
                 return self._report(did, "sent" if now else "queued", None)
         if frame.get("state") in _WORKING and agent in _STOP_QUEUE_AGENTS and self._queue:
             self._queue().add(sid, text)
             self._queued.setdefault(sid, []).append(did)
             return self._report(did, "queued", None)
-        from jc_client.instruction_delivery import type_into
-        ok, why = type_into(terminal, text, pid=run.get("pid") or self._pids.get(f"{agent}|{sid}"),
-                            vscode=self.vscode)
+        ok, why = self._type(agent, sid, run, terminal, text)
         if ok:
             return self._report(did, "sent", None)
         return self._report(did, "failed", f"Jarvis can't type into this session's terminal ({why}). "
                                            "Type it there, or send it while it's working.")
+
+    def _type(self, agent: str, sid: str, run: dict, terminal: dict, text: str,
+              now: bool = False) -> tuple:
+        """Types into the session's terminal. The run's pid can be out of date: a
+        session resumed by hand runs in a new process (one first run with --bg
+        has none), so when VS Code has no terminal for it, the process Claude
+        lists for the session now gets the message."""
+        from jc_client.instruction_delivery import type_into
+        pid = run.get("pid") or self._pids.get(f"{agent}|{sid}")
+        ok, why = type_into(terminal, text, pid=pid, vscode=self.vscode, now=now)
+        if ok or str(terminal.get("term_program") or "").lower() != "vscode":
+            return ok, why
+        fresh = self._listed_pid(agent, sid)
+        if fresh and fresh != pid:
+            return type_into(terminal, text, pid=fresh, vscode=self.vscode, now=now)
+        return ok, why
+
+    def _listed_pid(self, agent: str, sid: str):
+        """The interactive process Claude lists for this session, if any."""
+        try:
+            entries = self.roster.scan_now(send=False)
+        except Exception:  # noqa: BLE001
+            return None
+        for e in entries or []:
+            if e.get("agent") == agent and e.get("session_id") == sid \
+                    and e.get("kind") != "background" and e.get("pid"):
+                return e["pid"]
+        return None
 
     def _stale_pid(self, agent: str, sid: str):
         """The process still running this conversation's old copy here. Claude's

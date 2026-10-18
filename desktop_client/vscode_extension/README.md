@@ -45,5 +45,5 @@ jc-client → extension, each answered by exactly one
 | Request | Effect |
 |---|---|
 | `{"type":"send_text","req":1,"pid":12345,"text":"…"}` | bracketed-pastes the text into that terminal, then presses Return |
-| `{"type":"run","req":2,"cwd":"/abs/path/sub","command":"…"}` | new terminal named "Jarvis" in `cwd`, shown, runs the command; `ok:false` "folder not open" when no workspace folder contains `cwd` |
+| `{"type":"run","req":2,"cwd":"/abs/path/sub","command":"…"}` | new terminal named "Jarvis" in `cwd`, shown; answers at once, then runs the command once the shell is up and quiet (after the Python extension's venv activation; 1.5 s without shell integration); `ok:false` "folder not open" when no workspace folder contains `cwd` |
 | `{"type":"focus","req":3,"pid":12345}` | shows that terminal |

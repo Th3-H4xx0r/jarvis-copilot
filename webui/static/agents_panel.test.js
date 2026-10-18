@@ -61,7 +61,7 @@ function harness() {
   async function api(url, opts) {
     if (url.startsWith('/api/coding/agents/list')) return JSON.parse(JSON.stringify(state.list));
     if (url.startsWith('/api/coding/permission/pending')) return { pending: [] };
-    if (url.startsWith('/api/coding/agents/messages')) return { messages: [], total: 0, start: 0 };
+    if (url.startsWith('/api/coding/agents/messages')) return state.messages || { messages: [], total: 0, start: 0 };
     if (url.startsWith('/api/coding/agents/continue')) {
       continues.push(JSON.parse(opts.body));
       return new Promise(() => {});          // still moving
@@ -176,4 +176,21 @@ test('While it works, Enter queues the message and Ctrl+Enter or Send now sends 
 
   assert.deepStrictEqual(h.sends.map((s) => [s.text, !!s.now]),
     [['then lint', false], ['stop and fix the tests', true], ['and push', true]]);
+});
+
+test('A long Mac chat still copying to the server says so, then opens on its newest messages', async () => {
+  const h = harness();
+  h.els.agentsTranscript = { scrollHeight: 0, scrollTop: 0, clientHeight: 0 };
+  h.els.agentsMsgs = { innerHTML: '', insertAdjacentHTML() {}, querySelector: () => null };
+  // The server only has its oldest part yet: it says how far the copy is.
+  h.state.messages = { messages: [], total: 0, start: 0, syncing: { have: 25, of: 100 } };
+  await h.window.loadAgents();
+  await h.click({ act: 'open', ckey: 'claude|s1' });
+  assert.match(h.els.agentsMsgs.innerHTML, /Copying this chat from MacBook… 25%/);
+
+  // The copy landed (the list push): the newest page shows.
+  h.state.messages = { messages: [{ i: 60, role: 'user', text: 'the newest question' }], total: 61, start: 60 };
+  await h.window.loadAgents();
+  await h.settle(); await h.settle();
+  assert.match(h.els.agentsMsgs.innerHTML, /the newest question/);
 });

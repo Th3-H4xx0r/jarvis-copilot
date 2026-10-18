@@ -73,6 +73,9 @@ struct AgentSessionScreen: View {
                     switch choice {
                     case .loading:
                         AgentConversationSkeleton()
+                    case .copying(let progress):
+                        AgentConversationCopying(progress: progress,
+                                                 from: conv.map { $0.ownerName.isEmpty ? "the Mac" : $0.ownerName } ?? "the Mac")
                     case .empty:
                         if outgoing.isEmpty && request == nil && !working {
                             AgentConversationEmpty(agentName: agentName, error: model.error)
@@ -492,6 +495,27 @@ struct AgentConversationHeader: View {
 }
 
 /// While the first page of the conversation loads.
+/// A long Mac chat the server is still copying: how far, over the skeleton.
+/// It opens on its newest messages once the copy is whole.
+struct AgentConversationCopying: View {
+    let progress: CodingSyncProgress
+    let from: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Copying this chat from \(from)… \(Int((progress.fraction * 100).rounded()))%")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 18)
+            ProgressView(value: progress.fraction)
+                .tint(JcTheme.accent)
+                .padding(.horizontal, 60)
+            AgentConversationSkeleton()
+        }
+    }
+}
+
 struct AgentConversationSkeleton: View {
     @State private var dim = false
 

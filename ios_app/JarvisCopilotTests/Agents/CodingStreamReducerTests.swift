@@ -71,14 +71,46 @@ final class CodingStreamReducerTests: XCTestCase {
                        .applied(hadNew: true, hadNewAssistant: true))
     }
 
-    func testATailOfTwoOrMoreTakesTheFullReloadPath() {
-        // The Flutter guard measures every index against the PRE-merge length, so
-        // a two-message tail (i == count and i == count + 1) reads as a gap and
-        // heals with a full reload. Wasteful but never lossy — kept for parity.
+    func testATailOfTwoOrMoreIsAppended() {
+        // A prompt and its answer often land in one fetch. That's no gap: a
+        // full reload here re-downloaded the whole window every turn.
         var t = transcript(2)
-        let page = CodingChatPage(messages: [msg(2), msg(3)], total: 4)
-        XCTAssertEqual(CodingStreamReducer.apply(page, full: false, to: &t), .needsFullReload)
-        XCTAssertEqual(t.messages.count, 2, "the old list stands until the reload lands")
+        let page = CodingChatPage(messages: [msg(1), msg(2), msg(3)], total: 4, start: 1)
+        XCTAssertEqual(CodingStreamReducer.apply(page, full: false, to: &t),
+                       .applied(hadNew: true, hadNewAssistant: true))
+        XCTAssertEqual(t.messages.map(\.i), [0, 1, 2, 3])
+    }
+
+    // MARK: - A copy still on its way from the Mac
+
+    func testASyncingPageKeepsWhatIsShown() {
+        var t = transcript(3)
+        let page = CodingChatPage(syncing: CodingSyncProgress(have: 5, of: 50))
+        XCTAssertEqual(CodingStreamReducer.apply(page, full: false, to: &t),
+                       .applied(hadNew: false, hadNewAssistant: false))
+        XCTAssertEqual(t.messages.map(\.i), [0, 1, 2], "not its oldest part")
+        XCTAssertEqual(t.syncing, CodingSyncProgress(have: 5, of: 50))
+    }
+
+    func testAChatWhoseCopyIsOnItsWayWaitsForItThenOpensOnItsEnd() {
+        var t = CodingTranscript()
+        _ = CodingStreamReducer.apply(CodingChatPage(syncing: CodingSyncProgress(have: 5, of: 50)),
+                                      full: true, to: &t)
+        XCTAssertTrue(t.messages.isEmpty)
+        XCTAssertFalse(t.loading)
+        XCTAssertEqual(CodingStreamReducer.limit(t, paged: true), CodingStreamReducer.pageSize,
+                       "the next fetch still asks for the last page")
+        _ = CodingStreamReducer.apply(CodingChatPage(messages: (60..<100).map { msg($0) }, total: 100,
+                                                     start: 60), full: true, to: &t)
+        XCTAssertNil(t.syncing)
+        XCTAssertEqual(t.start, 60)
+    }
+
+    func testThePageSaysHowFarTheCopyIs() {
+        let page = CodingChatPage(json: ["messages": [], "total": 0, "syncing": ["have": 5, "of": 50]])
+        XCTAssertEqual(page.syncing, CodingSyncProgress(have: 5, of: 50))
+        XCTAssertEqual(page.syncing?.fraction ?? 0, 0.1, accuracy: 0.0001)
+        XCTAssertNil(CodingChatPage(json: ["messages": [], "total": 0]).syncing)
     }
 
     func testAnExistingMessageIsUpdatedInPlace() {

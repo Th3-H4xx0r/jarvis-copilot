@@ -2,7 +2,7 @@
   "name": "jarvis-terminal-bridge",
   "displayName": "Jarvis Terminal Bridge",
   "description": "Lets the local Jarvis client type into, run commands in, and focus this window's terminals.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "jarviscopilot",
   "license": "MIT",
   "engines": {

@@ -41,6 +41,10 @@ _WORKING = ("working", "thinking")
 _REVERSE_EVENTS = ("Stop", "PostToolUse", "UserPromptSubmit", "SubagentStop", "StopFailure")
 _TYPABLE_TERMS = ("vscode", "iterm.app")
 _MSG_CACHE_MAX = 16       # parsed transcripts kept (the webui's memory is capped)
+# A Mac chat's copy more than this far behind the Mac's file (a long chat the
+# server hadn't seen, on its way in parts) isn't served: what's here is its
+# oldest part, and the phone would open on it and fill downward.
+_SYNC_LAG = 1024 * 1024
 
 
 def short_title(title) -> Optional[str]:
@@ -113,6 +117,8 @@ class AgentsCore:
         self._last_tick = 0.0
         self._recover_pending = False
         self._msg_cache: OrderedDict = OrderedDict()
+        self._remote_size: dict = {}   # ckey -> the Mac's transcript size (from its parts)
+        self._sync_tenth: dict = {}    # ckey -> tenth of a long copy last pushed
         self._codex_pending: dict = {}   # approval id -> {ckey, kind, tool, summary, fingerprint}
         self._cache_lock = threading.Lock()
         self._lock = threading.RLock()
@@ -148,8 +154,15 @@ class AgentsCore:
             if cwd and (row is None or row.get("owner") == owner):
                 fields["cwd"] = cwd
             term = session.get("terminal") or {}
+            run = dict((row or {}).get("run") or {})
+            if (row or {}).get("status") == "ended" and owner != "server":
+                # Resumed by hand: a new process. The old one's pid or --bg id
+                # is stale until the roster names the new one.
+                run = {"kind": "interactive", **({"terminal": run["terminal"]}
+                                                 if run.get("terminal") else {})}
+                fields["run"] = run
             if term:
-                fields["run"] = dict((row or {}).get("run") or {}, terminal=term)
+                fields["run"] = dict(run, terminal=term)
             if not (row or {}).get("title") and event == "UserPromptSubmit":
                 title = short_title(payload.get("prompt"))
                 if title:
@@ -214,10 +227,33 @@ class AgentsCore:
             except (ValueError, TypeError):
                 raw = b""
             ok, size = tm.append_chunk(row, int(data.get("offset") or 0), raw)
+            try:
+                of = int(data.get("size") or 0)
+            except (TypeError, ValueError):
+                of = 0
+            if of > 0:
+                self._remote_size[ckey] = of
         self._send_frame(device_id, {"type": "agent_transcript_ack", "ckey": ckey, "ok": ok,
                                      "size": size})
-        if ok:
+        if ok and self._worth_a_push(ckey, size):
             self._changed()
+
+    def _syncing(self, ckey: str, have: int) -> Optional[dict]:
+        of = self._remote_size.get(ckey, 0)
+        return {"have": have, "of": of} if of - have > _SYNC_LAG else None
+
+    def _worth_a_push(self, ckey: str, have: int) -> bool:
+        """A live chat's new lines push at once; a long copy pushes each tenth
+        of the way (a push per part woke the phone ~700 times for one chat)."""
+        syncing = self._syncing(ckey, have)
+        if syncing is None:
+            self._sync_tenth.pop(ckey, None)
+            return True
+        tenth = have * 10 // syncing["of"]
+        if self._sync_tenth.get(ckey) == tenth:
+            return False
+        self._sync_tenth[ckey] = tenth
+        return True
 
     def on_need(self, device_id, data) -> None:
         row = self.conv.get(str(data.get("ckey") or ""))
@@ -396,9 +432,14 @@ class AgentsCore:
         try:
             path = tm.path_for(row)
             st = path.stat()
-            sig = (str(path), st.st_size, st.st_mtime_ns)
         except (OSError, ValueError):
+            path = st = None
+        syncing = self._syncing(ckey, st.st_size if st else 0) if row.get("owner") != "server" else None
+        if syncing:
+            return {"messages": [], "total": 0, "start": 0, "context": None, "syncing": syncing}
+        if st is None:
             return {"messages": [], "total": 0, "start": 0, "context": None}
+        sig = (str(path), st.st_size, st.st_mtime_ns)
         with self._cache_lock:
             cached = self._msg_cache.get(ckey)
         if cached is None or cached[0] != sig:

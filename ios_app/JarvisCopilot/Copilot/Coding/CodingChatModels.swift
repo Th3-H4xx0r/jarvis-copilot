@@ -236,6 +236,26 @@ struct LiveStatus: Equatable {
 /// The `/messages` page payload: the (possibly partial) message tail plus the
 /// session's live state so the chat header chip stays fresh without a second
 /// poll.
+/// How far the server's copy of a Mac chat has come (`syncing: {have, of}`,
+/// bytes) while a long one is still on its way: until then the server holds
+/// only the chat's oldest part, so it sends this instead of messages.
+struct CodingSyncProgress: Equatable {
+    let have: Int
+    let of: Int
+
+    var fraction: Double { of > 0 ? min(1, Double(have) / Double(of)) : 0 }
+
+    init(have: Int, of: Int) {
+        self.have = have
+        self.of = of
+    }
+
+    init?(json: Any?) {
+        guard let j = json as? [String: Any] else { return nil }
+        self.init(have: CodingJSON.int(j["have"]), of: CodingJSON.int(j["of"]))
+    }
+}
+
 struct CodingChatPage: Equatable {
     let messages: [CodingChatMessage]
     let total: Int
@@ -249,10 +269,12 @@ struct CodingChatPage: Equatable {
     let statusLine: String?
     /// Context-window gauge, or nil if the transcript has no usage yet.
     let context: ChatContext?
+    /// The server's copy is still coming from the Mac (no messages yet).
+    let syncing: CodingSyncProgress?
 
     init(messages: [CodingChatMessage] = [], total: Int = 0, start: Int? = nil,
          activityState: String? = nil, status: String = "", statusLine: String? = nil,
-         context: ChatContext? = nil) {
+         context: ChatContext? = nil, syncing: CodingSyncProgress? = nil) {
         self.messages = messages
         self.total = total
         self.start = start ?? messages.first?.i ?? 0
@@ -260,6 +282,7 @@ struct CodingChatPage: Equatable {
         self.status = status
         self.statusLine = statusLine
         self.context = context
+        self.syncing = syncing
     }
 
     init(json j: [String: Any]) {
@@ -270,7 +293,8 @@ struct CodingChatPage: Equatable {
             activityState: CodingJSON.str(j["activity_state"]),
             status: CodingJSON.text(j["status"]),
             statusLine: CodingJSON.str(j["status_line"]),
-            context: ChatContext.from(j["context"]))
+            context: ChatContext.from(j["context"]),
+            syncing: CodingSyncProgress(json: j["syncing"]))
     }
 }
 

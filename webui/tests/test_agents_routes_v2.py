@@ -156,6 +156,44 @@ def test_messages_reads_server_copy(env):
     assert [m["role"] for m in body["messages"]] == ["user", "assistant"]
 
 
+def _part(env, sid, data, offset, of):
+    env["core"].on_chunk("d1", {"ckey": f"claude|{sid}", "agent": "claude", "session_id": sid,
+                                "cwd": "/Users/p/app", "offset": offset, "size": of,
+                                "data_b64": base64.b64encode(data).decode()})
+
+
+def test_a_long_chat_still_on_its_way_says_so_then_opens_on_its_end(env, monkeypatch):
+    # The server only has a long chat's oldest part until its copy lands:
+    # showing that part made the phone open on the start and fill downward.
+    monkeypatch.setattr(agents_core, "_SYNC_LAG", 100)
+    _three(env)
+    data = "".join(json.dumps({"type": "user", "uuid": f"u{n}", "message": {
+        "role": "user", "content": f"step {n} " + "x" * 40}}) + "\n" for n in range(8)).encode()
+    _part(env, "s1", data[:150], 0, len(data))
+    status, body = call("GET", "/agents/messages?ckey=claude%7Cs1&limit=40")
+    assert status == 200 and body["messages"] == []
+    assert body["syncing"] == {"have": 150, "of": len(data)}
+    _part(env, "s1", data[150:], 150, len(data))
+    status, body = call("GET", "/agents/messages?ckey=claude%7Cs1&limit=40")
+    assert "syncing" not in body and body["total"] == 8
+    assert body["messages"][-1]["text"].startswith("step 7")
+
+
+def test_a_long_copy_pushes_the_list_each_tenth_not_each_part(env, monkeypatch):
+    monkeypatch.setattr(agents_core, "_SYNC_LAG", 10)
+    _three(env)
+    pushes = []
+    env["core"]._publish_cb = lambda topic, payload: pushes.append(topic)
+    data = b'{"type":"user"}\n' * 100
+    for off in range(0, len(data), 16):
+        _part(env, "s1", data[off:off + 16], off, len(data))
+    assert len(pushes) == 11   # each tenth of the way, then once it's whole
+    pushes.clear()
+    more = b'{"type":"user"}\n'
+    _part(env, "s1", more, len(data), len(data) + len(more))
+    assert len(pushes) == 1, "a live chat's new lines still push at once"
+
+
 def test_chunk_at_wrong_offset_asks_to_resend(env):
     _three(env)
     _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
@@ -349,6 +387,29 @@ def test_the_macs_stale_copy_is_not_adopted_after_the_server_run_ends(env):
     env["core"].on_hello("d1", {})
     moved = [f for _, f in env["frames"] if f["type"] == "agent_moved"]
     assert "claude|s1" in moved[-1]["ckeys"]
+
+
+def test_a_session_resumed_by_hand_is_live_without_its_old_process(env):
+    """Ended, then resumed by hand in a new process (`claude --resume`): its
+    SessionStart makes it live again, and the old run's pid or --bg id is
+    dropped until the roster names the new process: a message typed meanwhile
+    must not go looking for the dead one."""
+    core, tr = env["core"], env["tr"]
+    core.on_hello("d1", {})
+    for old in ({"pid": 1215, "kind": "interactive"}, {"bg_id": "bg1", "kind": "background"}):
+        core.on_roster("d1", {"entries": [dict(old, agent="claude", session_id="s1",
+                                               cwd="/Users/p/app")],
+                              "agents": ["claude", "codex"]})
+        core.on_roster("d1", {"entries": [], "agents": ["claude", "codex"]})
+        assert core.conv.get("claude|s1")["status"] == "ended"
+        tr.ingest("d1", "event", "claude", ev("SessionStart", source="resume",
+                                              term_program="vscode"))
+        row = core.conv.get("claude|s1")
+        assert row["status"] == "live", old
+        assert row["run"].get("kind") == "interactive" and "pid" not in row["run"] \
+            and "bg_id" not in row["run"], row["run"]
+        assert row["run"]["terminal"]["term_program"] == "vscode"
+        tr.ingest("d1", "event", "claude", ev("SessionEnd"))
 
 
 def test_resuming_a_moved_session_on_the_mac_merges_first(env):

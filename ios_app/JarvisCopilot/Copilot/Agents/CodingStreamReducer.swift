@@ -27,6 +27,9 @@ struct CodingTranscript: Equatable {
     var loading = true
     /// The server replied 409 — this session has no transcript yet.
     var noTranscript = false
+    /// The server's copy is still coming from the Mac (a long chat it hadn't
+    /// seen): what it has is the oldest part, so nothing is shown from it yet.
+    var syncing: CodingSyncProgress?
 
     var isWaiting: Bool { activityState == "waiting" }
 
@@ -81,12 +84,22 @@ enum CodingStreamReducer {
     }
 
     static func apply(_ page: CodingChatPage, full: Bool, to t: inout CodingTranscript) -> Merge {
+        if let syncing = page.syncing {
+            // Keep what's shown; with nothing shown, the screen says it's copying.
+            t.syncing = syncing
+            t.loading = false
+            t.noTranscript = false
+            return .applied(hadNew: false, hadNewAssistant: false)
+        }
+        t.syncing = nil
         if !full {
             // History shrank/reset server-side (restart, re-parse) — reload fully.
             if page.total < t.end { return .needsFullReload }
             // The server jumped past our tail (we missed an index) — heal fully so
             // a message can never silently vanish into a gap.
-            if page.messages.contains(where: { $0.i > t.end }) { return .needsFullReload }
+            let end = t.end
+            if let firstNew = page.messages.map(\.i).filter({ $0 >= end }).min(),
+               firstNew > end { return .needsFullReload }
         }
         // Both flags are measured against the PRE-merge tail.
         let hadNew = full

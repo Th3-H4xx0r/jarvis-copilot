@@ -279,13 +279,14 @@ struct AgentOutgoing: Identifiable, Equatable {
         return prompts.filter { $0.trimmingCharacters(in: .whitespacesAndNewlines) == want }.count
     }
 
-    /// Drops what the conversation now shows (it arrived). Sending and failed
-    /// ones stay.
+    /// Drops what the conversation now shows (it arrived) — even one whose send
+    /// hasn't answered yet: a server session's hooks can put it in the chat
+    /// first, and nothing would look again. Failed ones stay.
     static func reconcile(_ list: [AgentOutgoing], prompts: [String]) -> [AgentOutgoing] {
         list.filter { o in
             switch o.phase {
-            case .sending, .failed: return true
-            case .sent, .queued, .delivered: return count(o.text, in: prompts) <= o.baseline
+            case .failed: return true
+            case .sending, .sent, .queued, .delivered: return count(o.text, in: prompts) <= o.baseline
             }
         }
     }
@@ -297,11 +298,14 @@ struct AgentOutgoing: Identifiable, Equatable {
 /// the server has one, else the agent's own record of its last turn.
 enum AgentTranscriptChoice: Equatable {
     case loading, transcript, lastTurn, empty
+    /// The server's copy of this Mac chat is still on its way.
+    case copying(CodingSyncProgress)
 
     static func choose(transcriptId: String?, transcript: CodingTranscript,
                        turn: AgentTurn?, detailLoaded: Bool) -> AgentTranscriptChoice {
         if transcriptId != nil {
             if !transcript.messages.isEmpty { return .transcript }
+            if let syncing = transcript.syncing { return .copying(syncing) }
             // The first page is in flight: wait for it rather than flash the
             // last turn and then swap it out.
             if transcript.loading && !transcript.noTranscript { return .loading }

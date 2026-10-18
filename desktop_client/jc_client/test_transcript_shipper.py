@@ -26,6 +26,28 @@ def test_chunks_from_acked_offset(tmp_path):
     assert nxt["offset"] == 8
 
 
+def test_chunks_say_how_big_the_file_is(tmp_path):
+    p = tmp_path / "s1.jsonl"
+    p.write_text(L("a") + "\n")
+    sent = []
+    sh = TranscriptShipper(sent.append, chunk=8)
+    sh.watch("claude|s1", "claude", str(p), cwd="/x")
+    assert _frames(sent, "agent_transcript_chunk")[0]["size"] == p.stat().st_size
+
+
+def test_a_far_behind_copy_goes_in_bigger_parts(tmp_path):
+    p = tmp_path / "s1.jsonl"
+    p.write_bytes(b"x" * 100)
+    sent = []
+    sh = TranscriptShipper(sent.append, chunk=8, bulk_chunk=32, bulk_behind=50)
+    sh.watch("claude|s1", "claude", str(p), cwd="/x")
+    sh.on_ack("claude|s1", ok=True, size=32)
+    sh.on_ack("claude|s1", ok=True, size=64)
+    sizes = [len(base64.b64decode(c["data_b64"])) for c in _frames(sent, "agent_transcript_chunk")]
+    # 100 behind, then 68 behind: bulk; 36 behind: back to the live size.
+    assert sizes == [32, 32, 8]
+
+
 def test_need_rewinds_offset(tmp_path):
     p = tmp_path / "s1.jsonl"
     p.write_text(L("a") + "\n" + L("b") + "\n")

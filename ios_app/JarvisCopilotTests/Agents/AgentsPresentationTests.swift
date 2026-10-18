@@ -137,9 +137,10 @@ final class AgentsPresentationTests: XCTestCase {
         let sending = AgentOutgoing(text: "continue", baseline: 1)
         // The old "continue" is already there: the new one hasn't landed yet.
         XCTAssertEqual(AgentOutgoing.reconcile([sent, queued, failed, sending], prompts: ["continue"]).count, 4)
-        // A second "continue" shows up: the sent and queued ones go, the others stay.
+        // A second "continue" shows up: all but the failed one go — even one
+        // still sending (a server session can show it before the send answers).
         let left = AgentOutgoing.reconcile([sent, queued, failed, sending], prompts: ["continue", " continue\n"])
-        XCTAssertEqual(left.map(\.id), [failed.id, sending.id])
+        XCTAssertEqual(left.map(\.id), [failed.id])
         XCTAssertEqual(AgentOutgoing.count("continue", in: ["continue", "go", "continue "]), 2)
     }
 
@@ -159,6 +160,14 @@ final class AgentsPresentationTests: XCTestCase {
     func testItWaitsForTheFirstTranscriptPage() {
         XCTAssertEqual(AgentTranscriptChoice.choose(transcriptId: "claude|s1", transcript: CodingTranscript(),
                                                     turn: turn, detailLoaded: true), .loading)
+    }
+
+    func testAChatStillCopyingFromTheMacSaysSo() {
+        var t = CodingTranscript()
+        t.loading = false
+        t.syncing = CodingSyncProgress(have: 1, of: 4)
+        XCTAssertEqual(AgentTranscriptChoice.choose(transcriptId: "claude|s1", transcript: t, turn: turn,
+                                                    detailLoaded: true), .copying(CodingSyncProgress(have: 1, of: 4)))
     }
 
     func testItFallsBackToTheLastTurn() {

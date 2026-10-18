@@ -149,6 +149,7 @@ class RosterAgent:
         self._terms: dict = {}      # (agent, session_id) -> terminal context from hooks
         self._codex: dict = {}      # session_id -> {pid, cwd}
         self._timer: Optional[threading.Timer] = None
+        self._beat = False          # the pending timer is the heartbeat, not a hook's scan
         self._last: list = []
         # The agents the last scan could list: a failed `claude agents` leaves
         # Claude out, so the server doesn't take its silence for "all ended".
@@ -170,13 +171,24 @@ class RosterAgent:
     def trigger(self, reason: str = "") -> None:
         with self._lock:
             if self._timer is not None:
-                return
-            self._timer = threading.Timer(self._debounce, self._fire)
-            self._timer.daemon = True
-            self._timer.start()
+                if not self._beat:
+                    return                  # a scan is already on its way
+                # A hook (a session resumed by hand) can't wait for the heartbeat:
+                # the server would keep typing to the old process meanwhile.
+                self._timer.cancel()
+            self._arm(self._debounce, beat=False)
 
-    def _fire(self) -> None:
+    def _arm(self, delay: float, *, beat: bool) -> None:
+        """Start the one pending scan timer (lock held)."""
+        timer = threading.Timer(delay, lambda: self._fire(timer))
+        timer.daemon = True
+        self._timer, self._beat = timer, beat
+        timer.start()
+
+    def _fire(self, timer: Optional[threading.Timer] = None) -> None:
         with self._lock:
+            if timer is not None and timer is not self._timer:
+                return                      # replaced by a newer one
             self._timer = None
         try:
             self.scan_now()
@@ -186,9 +198,7 @@ class RosterAgent:
         if nxt is not None:
             with self._lock:
                 if self._timer is None:
-                    self._timer = threading.Timer(nxt, self._fire)
-                    self._timer.daemon = True
-                    self._timer.start()
+                    self._arm(nxt, beat=True)
 
     def next_heartbeat(self) -> Optional[float]:
         return self._heartbeat if self._last else None

@@ -31,6 +31,11 @@ from jc_client.transcript_merge import line_id, merge
 log = logging.getLogger(__name__)
 
 CHUNK = 256 * 1024
+# A copy far behind (a long chat the server has never seen) goes in bigger
+# parts: one in flight at a time, so the part size sets the pace. 2 MB is
+# ~2.7 MB as base64, well under the bridge's 8 MB frame cap.
+BULK_CHUNK = 2 * 1024 * 1024
+BULK_BEHIND = 4 * 1024 * 1024
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
@@ -76,9 +81,12 @@ def _join(lines: list) -> bytes:
 
 
 class TranscriptShipper:
-    def __init__(self, send: Callable[[dict], None], *, chunk: int = CHUNK) -> None:
+    def __init__(self, send: Callable[[dict], None], *, chunk: int = CHUNK,
+                 bulk_chunk: int = BULK_CHUNK, bulk_behind: int = BULK_BEHIND) -> None:
         self._send = send
         self._chunk = chunk
+        self._bulk_chunk = bulk_chunk
+        self._bulk_behind = bulk_behind
         self._lock = threading.RLock()
         self._watch: dict = {}     # ckey -> {agent, path, cwd, codex_rel, acked, sent}
         self._parts: dict = {}     # ckey -> {parts, got: {i: bytes}, frame}
@@ -129,15 +137,16 @@ class TranscriptShipper:
             return False
         if size <= w["sent"]:
             return False
+        part = self._bulk_chunk if size - w["sent"] > self._bulk_behind else self._chunk
         with open(w["path"], "rb") as fh:
             fh.seek(w["sent"])
-            data = fh.read(min(self._chunk, size - w["sent"]))
+            data = fh.read(min(part, size - w["sent"]))
         if not data:
             return False
         agent, _, sid = ckey.partition("|")
         self._send({"type": "event", "name": "agent_transcript_chunk", "data": {
             "ckey": ckey, "agent": agent, "session_id": sid, "cwd": w["cwd"],
-            "codex_rel": w["codex_rel"], "offset": w["sent"],
+            "codex_rel": w["codex_rel"], "offset": w["sent"], "size": size,
             "data_b64": base64.b64encode(data).decode()}})
         w["sent"] += len(data)
         w["inflight"] = True

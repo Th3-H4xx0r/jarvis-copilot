@@ -18,6 +18,11 @@ const HELLO_DEBOUNCE_MS = 150;
 // Claude Code and Codex read a paste and the Return that follows it as one
 // chunk if they arrive together; a short gap makes the Return a real submit.
 const ENTER_DELAY_MS = 150;
+// A command for a new terminal waits for its shell (see runWhenSettled).
+const SHELL_START_MS = 1500;
+const SHELL_READY_MAX_MS = 10000;
+const QUIET_MS = 1200;
+const SETTLE_MAX_MS = 15000;
 
 let sock = null;
 let backoff = MIN_BACKOFF_MS;
@@ -168,8 +173,8 @@ async function handle(msg) {
     if (!cwd || !folderContains(cwd)) return reply(req, false, 'folder not open');
     const t = vscode.window.createTerminal({ name: 'Jarvis', cwd });
     t.show(false);
-    t.sendText(String(msg.command || ''), true);
-    return reply(req, true);
+    reply(req, true);
+    return runWhenSettled(t, String(msg.command || ''));
   }
   if (msg.type === 'focus') {
     const t = await terminalByPid(msg.pid);
@@ -178,6 +183,46 @@ async function handle(msg) {
     return reply(req, true);
   }
   return reply(req, false, 'unknown request: ' + String(msg.type));
+}
+
+// A new terminal's shell is still starting, and the Python extension then
+// clears the prompt (^C) and types its venv activation: a command typed at
+// once is wiped. So wait for shell integration and for nothing to have run
+// for a moment, then run it; without shell integration, give the shell a beat.
+async function runWhenSettled(t, command) {
+  const w = vscode.window;
+  if (!w.onDidChangeTerminalShellIntegration || !w.onDidStartTerminalShellExecution) {
+    await sleep(SHELL_START_MS);
+    return t.sendText(command, true);
+  }
+  let running = 0;
+  let lastActivity = Date.now();
+  const subs = [
+    w.onDidStartTerminalShellExecution((e) => {
+      if (e.terminal === t) { running += 1; lastActivity = Date.now(); }
+    }),
+    w.onDidEndTerminalShellExecution((e) => {
+      if (e.terminal === t) { running = Math.max(0, running - 1); lastActivity = Date.now(); }
+    }),
+  ];
+  try {
+    if (!t.shellIntegration) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(done, SHELL_READY_MAX_MS);
+        const sub = w.onDidChangeTerminalShellIntegration((e) => { if (e.terminal === t) done(); });
+        function done() { clearTimeout(timer); sub.dispose(); resolve(); }
+      });
+      lastActivity = Date.now();
+    }
+    const deadline = Date.now() + SETTLE_MAX_MS;
+    while (Date.now() < deadline && (running > 0 || Date.now() - lastActivity < QUIET_MS)) {
+      await sleep(100);
+    }
+  } finally {
+    subs.forEach((s) => s.dispose());
+  }
+  if (t.shellIntegration) return t.shellIntegration.executeCommand(command);
+  return t.sendText(command, true);
 }
 
 function reply(req, ok, error) {

@@ -50,6 +50,22 @@ def test_instruction_typed_into_vscode_reports_sent():
     assert _events(up, "agent_delivery")[-1] == {"delivery_id": "d1", "state": "sent", "reason": None}
 
 
+def test_a_hand_resumed_session_is_typed_into_through_its_live_process():
+    """Resumed by hand, the session runs in a new process. The server's run can
+    still name the old, dead one (or none, for a session first run with --bg):
+    the message goes to the live process's terminal."""
+    link, up, _ = _link()
+    link.roster = FakeRoster([{"agent": "claude", "session_id": "s1", "pid": 901,
+                               "kind": "interactive"}])
+    for run in ({"pid": 1215}, {"kind": "background", "bg_id": "d9d8c516"}):
+        link.vscode.sent.clear()
+        link.handle_frame({"type": "agent_instruction", "delivery_id": "r1", "agent": "claude",
+                           "session_id": "s1", "text": "Hi", "state": "idle",
+                           "terminal": {"term_program": "vscode"}, "run": run})
+        assert link.vscode.sent == [(900, "Hi")], run
+        assert _events(up, "agent_delivery")[-1]["state"] == "sent"
+
+
 def test_instruction_for_working_session_is_queued():
     link, up, q = _link()
     link.handle_frame({"type": "agent_instruction", "delivery_id": "d2", "agent": "claude",

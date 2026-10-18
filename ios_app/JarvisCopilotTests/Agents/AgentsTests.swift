@@ -260,6 +260,24 @@ final class AgentsTests: XCTestCase {
         XCTAssertTrue(store.outgoing(for: "claude|s1").isEmpty)
     }
 
+    func testAMessageTheChatShowsBeforeTheSendAnswersLeaves() async throws {
+        let (client, transport) = JarvisAPI.mocked()
+        let answer = DispatchSemaphore(value: 0)
+        transport.route("/api/coding/agents/send") { _ in
+            answer.wait()
+            return MockTransport.Reply(body: try! JSONSerialization.data(
+                withJSONObject: ["delivery": ["state": "sent"]]))
+        }
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        let sending = Task { await store.send("What’s ur name", to: "claude|s1", prompts: ["Hi"]) }
+        while store.outgoing(for: "claude|s1").isEmpty { await Task.yield() }
+        // A server session's hooks put it in the chat before the send call answers.
+        store.reconcileOutgoing(ckey: "claude|s1", prompts: ["Hi", "What’s ur name"])
+        answer.signal()
+        await sending.value
+        XCTAssertTrue(store.outgoing(for: "claude|s1").isEmpty, "the chat already shows it")
+    }
+
     func testTheWaitingCountMatchesTheList() async {
         let (client, transport) = JarvisAPI.mocked()
         transport.route("/api/coding/agents/list", json: listJSON(
