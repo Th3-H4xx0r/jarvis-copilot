@@ -94,6 +94,9 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Built: soft bell notes (C5→G5 rising for listening, G5→C5 falling for thinking), quiet, slow decay.
   - 2026-10-18 he: "less annoying … more like the Gemini one or Siri one … more professional". Rebuilt: one soft
     glide each (D5→A5 lift for listening, A5→E5 settle when done), ~0.23 s, quieter, shimmer, click-free ends.
+  - He: "even more annoying … look up tones … especially for AI". Auditioned Android/Kenney (none), then Pixabay AI
+    sounds; he picked #5 "Notification, positive", shorter: L3 (first three notes, 0.32 s) for listening, D3 (first
+    two notes, lower, 0.17 s) for done. Embedded in VoiceEarconSounds.swift (phone + Mac), 340e223c56 / d0c17e2fb5.
 
 ## Round 4 — the Jarvis voice screen in CarPlay
 
@@ -233,6 +236,12 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     reaches the phone's player. 50900a7904 (deployed 17:11:19 UTC): a resend first transfers playback to the
     phone (play=true), and every command logs Spotify's HTTP status. If it's still silent, the next lever is
     Spotify's iOS SDK (App Remote) on the phone.
+  - 17:44 try: transfers + plays all HTTP 204, still "nothing playing anywhere" → Web API exhausted. His pick:
+    Spotify's iPhone kit. Built 78d9383aa8: SpotifyiOS 5.0.1 (exact) in the app, `spotify_remote_play` (server-only)
+    — after opening Spotify on the car the server hands the phone the song + its token and the app plays it via App
+    Remote (4 tries, 2 s apart). Sign-ins always ask for app-remote-control.
+  - [ ] He: developer.spotify.com app (client id 4e2794…) → add redirect `jarviscopilot://spotify-callback`, tick iOS,
+    bundle `com.jarviscopilot.jarviscopilotMobileAndIOS`; then sign in again over `ssh -L 43827:127.0.0.1:43827`.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
   message, Send/Call + ✕; Jarvis says it and the mic stays open for yes / no / a correction.
