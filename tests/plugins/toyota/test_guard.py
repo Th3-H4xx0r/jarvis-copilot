@@ -55,6 +55,9 @@ def test_the_plugin_puts_its_guard_on_ha_call_service(monkeypatch):
         def register_tool(self, **kw):
             pass
 
+        def register_hook(self, name, callback):
+            pass
+
     monkeypatch.setattr(ha_tool, "SERVICE_GUARDS", [])
     register(Ctx())
     register(Ctx())

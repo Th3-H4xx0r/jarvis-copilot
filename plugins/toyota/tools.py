@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable
 
-from plugins.toyota import service
+from plugins.toyota import confirm, service
 from plugins.toyota.car import CarError, NotSignedIn, ToyotaCar
 from plugins.toyota.commands import SERVICES, is_confirmed, needs_face_id
 from plugins.toyota.ha import HAClient, HAError, configured
@@ -34,9 +34,11 @@ COMMAND_SCHEMA = {
     "description": (
         "Send a remote command to Pranav's car through Toyota: start (remote start), stop, lock, "
         "unlock, trunk_lock, trunk_unlock, lights (headlights on), horn, buzzer, hazards_on, "
-        "hazards_off. Every command except stop needs his approval with Face ID on his iPhone: this "
-        "tool sends the approval to his phone and returns at once — tell him to approve it there; it "
-        "runs when he does. Don't ask him out loud first, and never repeat a command on your own."
+        "hazards_off. Every command except stop needs his yes first: call this tool right away "
+        "(don't ask him beforehand) and it returns the question to ask — nothing is sent yet. Ask "
+        "him that and end your reply; the server runs it only if his next message is a clear yes. "
+        "In a run he can't answer (scheduled or background), it sends a Face ID approval to his "
+        "iPhone instead — tell him to approve it there. Never repeat a command on your own."
     ),
     "parameters": {
         "type": "object",
@@ -102,10 +104,27 @@ def _request_approval(command: str) -> dict:
     return _api_request("POST", "/api/car/approvals", {"command": command}, timeout=15.0)
 
 
-def _handle_command(args: dict, **_: Any) -> str:
+def _ask_him(task_id: str, name: str) -> dict:
+    """In a chat he's in: note the command for his next message and hand Jarvis the question."""
+    done = confirm.ran_this_turn(task_id, name)
+    if done is not None:
+        return {"command": name, "result": done,
+                "message": "This already ran on his yes at the start of this turn — don't send it again."}
+    commands = confirm.ask(task_id, name)
+    asked = confirm.question(commands)
+    return {"needs_confirmation": True, "commands": commands, "ask": asked,
+            "message": f"Nothing has been sent yet. Ask him “{asked}” in your reply (not with clarify) and "
+                       "end your reply there. The server runs it only if his very next message is a clear yes "
+                       "(within 2 minutes) — you don't call toyota_command again for it. Don't say it's done "
+                       "before then."}
+
+
+def _handle_command(args: dict, task_id: str | None = None, **_: Any) -> str:
     name = str(args.get("command") or "")
     if name not in SERVICES:
         return json.dumps({"error": f"Unknown car command '{name}'. Use one of: {', '.join(SERVICES)}."})
+    if needs_face_id(name) and confirm.conversational(task_id):
+        return json.dumps(_ask_him(str(task_id), name))
     if needs_face_id(name):
         answer = _request_approval(name)
         if answer.get("_error") or not answer.get("ok"):

@@ -91,8 +91,9 @@ class ToyotaCar:
         return build_snapshot(m, await self.ha.states(ids))
 
     async def command(self, name: str, approved: bool = False) -> dict[str, Any]:
-        """`approved`: the caller checked a Face ID signature for this command (approver.py). A gated
-        command without one is refused here too, before anything touches Home Assistant."""
+        """`approved`: the caller checked his approval for this command — a Face ID signature
+        (approver.py) or his own yes to Jarvis's question (confirm.py). A gated command without one
+        is refused here too, before anything touches Home Assistant."""
         if name not in SERVICES:
             raise CarError(f"Unknown car command '{name}'. Use one of: {', '.join(SERVICES)}.")
         if needs_face_id(name) and approved is not True:

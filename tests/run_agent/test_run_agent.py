@@ -2735,6 +2735,28 @@ class TestRunConversation:
         assert any(msg.get("role") == "user" and msg.get("content") == "search something" for msg in pre_request_calls[0]["request_messages"])
         assert all("usage" in c and "response" in c and "assistant_message" in c for c in post_request_calls)
 
+    def test_turn_hook_gets_the_turn_task_id(self, agent):
+        # The car's yes check (plugins/toyota/confirm.py) keys the turn by the task id its tools see.
+        self._setup_agent(agent)
+        agent.client.chat.completions.create.side_effect = [_mock_response(content="Hi", finish_reason="stop")]
+        hook_calls = []
+
+        def _record_hook(name, **kwargs):
+            hook_calls.append((name, kwargs))
+            return []
+
+        with (
+            patch("jarviscopilot_cli.plugins.invoke_hook", side_effect=_record_hook),
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            agent.run_conversation("yes", task_id="chat-123")
+
+        turn_calls = [kw for name, kw in hook_calls if name == "pre_llm_call"]
+        assert len(turn_calls) == 1
+        assert turn_calls[0]["task_id"] == "chat-123" and turn_calls[0]["user_message"] == "yes"
+
     def test_content_with_tool_calls_stays_silent_for_non_cli_quiet_mode(self, agent):
         self._setup_agent(agent)
         agent.platform = None

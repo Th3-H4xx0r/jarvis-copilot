@@ -26,8 +26,10 @@ NEEDS: dict[str, str] = {
     "lights": "btn_lights", "horn": "btn_horn", "buzzer": "btn_buzzer",
     "hazards_on": "btn_hazards", "hazards_off": "btn_hazards",
 }
-# Pranav's rule: every command but stop needs Face ID on his iPhone — a signature from the phone's
-# Secure Enclave key (plugins/toyota/approver.py). Stop stays instant: turning the car off is safe.
+# Pranav's rule: every command but stop needs his approval — Face ID on his iPhone (a signature from
+# the phone's Secure Enclave key, plugins/toyota/approver.py) from the Car page and from runs he can't
+# answer, or his own yes when Jarvis asks in a chat or voice turn (plugins/toyota/confirm.py).
+# Stop stays instant: turning the car off is safe.
 FACE_ID: frozenset[str] = frozenset(SERVICES) - {"stop"}
 DONE: dict[str, str] = {
     "start": "Started", "stop": "Stopped", "lock": "Locked", "unlock": "Unlocked",

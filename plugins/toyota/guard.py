@@ -1,7 +1,7 @@
-"""Keeps the general Home Assistant tool (ha_call_service) from working the car around Face ID.
+"""Keeps the general Home Assistant tool (ha_call_service) from working the car around his approval.
 
-Every car command but stop goes through toyota_command, which needs Pranav's Face ID on his
-iPhone. Registered into tools.homeassistant_tool.SERVICE_GUARDS by this plugin's register().
+Every car command but stop goes through toyota_command, which needs Pranav's yes (or his Face ID on
+his iPhone). Registered into tools.homeassistant_tool.SERVICE_GUARDS by this plugin's register().
 """
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from typing import Any
 
 from plugins.toyota.entities import DOMAIN
 
-USE_THE_TOOL = "Use toyota_command for the car: its commands need Pranav's Face ID on his iPhone."
+USE_THE_TOOL = "Use toyota_command for the car: its commands need Pranav's approval."
 _GUARDED = {("lock", "lock"), ("lock", "unlock"), ("lock", "open"), ("button", "press")}
-# Everything toyota_command gates behind Face ID — all of it but Remote Stop and Refresh Status.
+# Everything toyota_command gates behind his approval — all of it but Remote Stop and Refresh Status.
 _PROTECTED_ROLES = ("lock", "btn_start", "btn_trunk_lock", "btn_trunk_unlock", "btn_lights", "btn_horn",
                     "btn_buzzer", "btn_hazards")
 _WIDE_TARGETS = ("device_id", "area_id", "floor_id", "label_id")

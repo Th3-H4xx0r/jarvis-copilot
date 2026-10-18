@@ -659,6 +659,7 @@ def run_conversation(
         from jarviscopilot_cli.plugins import invoke_hook as _invoke_hook
         _pre_results = _invoke_hook(
             "pre_llm_call",
+            task_id=effective_task_id,
             session_id=agent.session_id,
             user_message=original_user_message,
             conversation_history=list(messages),
