@@ -92,6 +92,8 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   opens it listening). The widget orb is the stay-on-screen button.
 - [ ] **13. Softer, more professional sounds**
   - Built: soft bell notes (C5→G5 rising for listening, G5→C5 falling for thinking), quiet, slow decay.
+  - 2026-10-18 he: "less annoying … more like the Gemini one or Siri one … more professional". Rebuilt: one soft
+    glide each (D5→A5 lift for listening, A5→E5 settle when done), ~0.23 s, quieter, shimmer, click-free ends.
 
 ## Round 4 — the Jarvis voice screen in CarPlay
 

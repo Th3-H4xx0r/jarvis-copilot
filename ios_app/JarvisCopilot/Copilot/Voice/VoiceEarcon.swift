@@ -22,22 +22,37 @@ protocol EarconPlaying: AnyObject {
 
 /// Plays the earcons as generated tones through the voice audio session, so they
 /// reach the car's speakers wherever the reply does (and ignore the silent switch).
-/// Soft, low, bell-like notes — a gentle rising fifth for "go ahead", the same
-/// fifth falling for "got it" — rather than beeps.
+/// Each is one soft glide, like Siri's and Gemini's (his ask, 2026-10-18: "less
+/// annoying … more professional"): a quick lift for "go ahead", a gentle fall for
+/// "got it" — no separate notes, no edges.
 final class ToneEarconPlayer: EarconPlaying {
+    /// One sound: the pitch slides `from` → `to` over `glideMs`, then rings out; `ms` long in all.
+    struct Glide: Equatable {
+        let from: Double
+        let to: Double
+        let glideMs: Int
+        let ms: Int
+    }
+
     private var players: [VoiceEarcon: AVAudioPlayer] = [:]
 
     /// Past the sound's end, room for the car's cabin to stop ringing with it.
     static let echoTailMs = 100
 
+    /// D5 rising to A5 for listening; A5 settling to E5 when he's done.
+    static func sound(_ earcon: VoiceEarcon) -> Glide {
+        switch earcon {
+        case .listening: return Glide(from: 587.33, to: 880.00, glideMs: 150, ms: 240)
+        case .thinking: return Glide(from: 880.00, to: 659.25, glideMs: 140, ms: 220)
+        }
+    }
+
     @discardableResult
     func play(_ earcon: VoiceEarcon) -> Int {
         if players[earcon] == nil {
-            // C5 → G5 rising; G5 → C5 falling.
-            let tones: [(hz: Double, ms: Int)] = earcon == .listening
-                ? [(hz: 523.25, ms: 130), (hz: 783.99, ms: 260)]
-                : [(hz: 783.99, ms: 130), (hz: 523.25, ms: 260)]
-            players[earcon] = try? AVAudioPlayer(data: Self.wav(tones), fileTypeHint: AVFileType.wav.rawValue)
+            let volume = earcon == .listening ? 0.15 : 0.12
+            players[earcon] = try? AVAudioPlayer(data: Self.wav(Self.sound(earcon), volume: volume),
+                                                 fileTypeHint: AVFileType.wav.rawValue)
             players[earcon]?.prepareToPlay()
         }
         guard let player = players[earcon] else { return 0 }
@@ -54,23 +69,31 @@ final class ToneEarconPlayer: EarconPlaying {
         return Int((heard * 1000).rounded()) + Self.echoTailMs
     }
 
-    /// 16-bit mono PCM WAV of the notes back to back. Each is a soft bell: a quick
-    /// 12 ms attack, an exponential decay (no hard edge, nothing sharp), a touch of
-    /// the octave for warmth, and a short fade so it never clicks.
-    static func wav(_ tones: [(hz: Double, ms: Int)], volume: Double = 0.2, rate: Int = 24000) -> Data {
+    /// 16-bit mono PCM WAV of one glide. The pitch moves on a musical (exponential)
+    /// curve that eases out, so it lands rather than slides; a second voice a hair
+    /// sharp gives it a soft shimmer and a quiet octave some warmth. A smooth fade in,
+    /// an easy decay, and a fade to true silence at the end: nothing that clicks.
+    static func wav(_ glide: Glide, volume: Double = 0.15, rate: Int = 24000) -> Data {
+        let count = rate * glide.ms / 1000
+        let glideCount = max(1, Double(rate * glide.glideMs / 1000))
+        let attack = Double(rate) * 0.018
+        let fade = Double(rate) * 0.04
+        let decay = Double(count) / 2.2
         var samples: [Int16] = []
-        for tone in tones {
-            let count = rate * tone.ms / 1000
-            let attack = Double(rate) * 0.012
-            let tail = max(1, rate * 10 / 1000)
-            let decay = Double(count) / 3.5
-            for i in 0..<count {
-                let t = Double(i)
-                let envelope = min(1, t / attack) * exp(-t / decay) * min(1, Double(count - 1 - i) / Double(tail))
-                let phase = 2 * .pi * tone.hz * t / Double(rate)
-                let value = (sin(phase) + 0.18 * sin(2 * phase)) / 1.18 * volume * envelope
-                samples.append(Int16(value * Double(Int16.max)))
-            }
+        samples.reserveCapacity(count)
+        var phase = 0.0, shimmer = 0.0
+        for i in 0..<count {
+            let t = Double(i)
+            let x = min(1, t / glideCount)
+            let eased = 1 - pow(1 - x, 3)
+            let hz = glide.from * pow(glide.to / glide.from, eased)
+            phase += 2 * .pi * hz / Double(rate)
+            shimmer += 2 * .pi * hz * 1.004 / Double(rate)
+            let rise = 0.5 - 0.5 * cos(.pi * min(1, t / attack))
+            let fall = 0.5 - 0.5 * cos(.pi * min(1, Double(count - 1 - i) / fade))
+            let envelope = rise * exp(-t / decay) * fall
+            let value = (sin(phase) + 0.35 * sin(shimmer) + 0.08 * sin(2 * phase)) / 1.43 * volume * envelope
+            samples.append(Int16(value * Double(Int16.max)))
         }
         var data = Data()
         func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
