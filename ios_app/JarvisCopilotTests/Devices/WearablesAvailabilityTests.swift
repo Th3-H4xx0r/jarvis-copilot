@@ -107,6 +107,20 @@ final class WearablesAvailabilityTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(whileLinked!), 5)
     }
 
+    /// The wearables list stamps linked devices on every redraw; a fresh time each pass wrote
+    /// preferences and made every card look changed, so a stamp under a minute old stays.
+    func testAStampWhileConnectedIsWrittenAtMostOnceAMinute() {
+        let recent = Date().timeIntervalSince1970 - 30
+        defaults.set(recent, forKey: "jc.lastSeen.\(WearableKeepAlive.ring)")
+        WearableIdentity.noteSeenNow(WearableKeepAlive.ring, defaults: defaults)
+        XCTAssertEqual(WearableIdentity.lastSeen(WearableKeepAlive.ring, defaults: defaults)?.timeIntervalSince1970, recent)
+
+        let old = Date().timeIntervalSince1970 - 90
+        defaults.set(old, forKey: "jc.lastSeen.\(WearableKeepAlive.ring)")
+        WearableIdentity.noteSeenNow(WearableKeepAlive.ring, defaults: defaults)
+        XCTAssertLessThan(Date().timeIntervalSince(WearableIdentity.lastSeen(WearableKeepAlive.ring, defaults: defaults)!), 5)
+    }
+
     /// There is no advertisement to read while we hold the link, so the last real
     /// signal reading has to survive — overwriting it with a zero would make the
     /// card claim the device is out of range.

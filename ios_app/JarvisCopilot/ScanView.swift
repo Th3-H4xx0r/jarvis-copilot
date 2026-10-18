@@ -286,6 +286,24 @@ struct ScanView: View {
 private struct ScanRadar: View {
     /// Overall footprint; the rings grow to fill it.
     var size: CGFloat = 140
+    /// The rings exist only while the Devices tab is on screen: every tab stays mounted, so a
+    /// radar behind another tab ticked SwiftUI every frame for as long as the app was open.
+    @State private var onScreen = false
+
+    var body: some View {
+        ZStack {
+            if onScreen { ScanRadarRings(size: size) }
+            JcIcon("dot.radiowaves.left.and.right")
+                .font(.system(size: size * 0.2, weight: .light))
+                .foregroundStyle(JcTheme.accent)
+        }
+        .frame(width: size, height: size)
+        .onTabVisibilityChange(.devices) { onScreen = $0 }
+    }
+}
+
+private struct ScanRadarRings: View {
+    let size: CGFloat
     @State private var animate = false
 
     var body: some View {
@@ -299,11 +317,7 @@ private struct ScanRadar: View {
                     .animation(.easeOut(duration: 2.4).repeatForever(autoreverses: false).delay(Double(i) * 0.8),
                                value: animate)
             }
-            JcIcon("dot.radiowaves.left.and.right")
-                .font(.system(size: size * 0.2, weight: .light))
-                .foregroundStyle(JcTheme.accent)
         }
-        .frame(width: size, height: size)
         .onAppear { animate = true }
     }
 }

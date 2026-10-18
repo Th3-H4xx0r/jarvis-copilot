@@ -44,8 +44,13 @@ enum WearableIdentity {
     /// `discovered` again and the RSSI we hold is the last one from before the
     /// link. Stamping the time without touching that reading is the whole point:
     /// the alternative is overwriting a real signal strength with a zero.
+    ///
+    /// At most once a minute: the wearables list stamps every linked device on each redraw, and a
+    /// fresh time every pass both wrote preferences and made every card look changed.
     static func noteSeenNow(_ device: String, defaults: UserDefaults = .standard) {
-        defaults.set(Date().timeIntervalSince1970, forKey: "jc.lastSeen.\(device)")
+        let now = Date().timeIntervalSince1970
+        if let last = defaults.object(forKey: "jc.lastSeen.\(device)") as? TimeInterval, now - last < 60, now >= last { return }
+        defaults.set(now, forKey: "jc.lastSeen.\(device)")
     }
 
     static func lastRSSI(_ device: String, defaults: UserDefaults = .standard) -> Int? {

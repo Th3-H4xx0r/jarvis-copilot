@@ -16,8 +16,17 @@ final class X5MeasureController: ObservableObject {
 
     init(manager: X5Manager) {
         self.manager = manager
+        // While a reading is up, and only then, as the R12's controller does: passing on every
+        // session change (battery, wear, gestures, HID) re-ran the whole Health tab, which stays
+        // mounted behind every other tab and in a pocket.
+        manager.session.$measurement
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &watching)
         manager.session.objectWillChange
-            .sink { [weak self] in self?.objectWillChange.send() }
+            .sink { [weak self] in
+                guard let self, self.session.measurement != nil else { return }
+                self.objectWillChange.send()
+            }
             .store(in: &watching)
     }
 
