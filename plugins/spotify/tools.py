@@ -235,6 +235,11 @@ def _describe_state(state: Dict[str, Any]) -> str:
             f"{f' (for {linked})' if linked else ''} at {state.get('progress_ms')} ms")
 
 
+def _status(result: Any) -> str:
+    """What Spotify answered a player command: its HTTP status (204 done, 202 queued)."""
+    return f"HTTP {result.get('status_code')}" if isinstance(result, dict) and result.get("status_code") else "taken"
+
+
 def _device_label(device: Dict[str, Any]) -> str:
     return str(device.get("name") or device.get("id"))
 
@@ -264,7 +269,13 @@ def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, An
                 pending.waited += 1
                 raise _NotPlayingYet(f"{_device_label(device)} took play #{pending.sent}; still loading")
             else:
-                client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+                if pending.sent and not state.get("device"):
+                    # The last play never reached its player (16:56, 17:03: "nothing playing
+                    # anywhere" after three plays): move playback to the phone, which wakes it.
+                    moved = client.transfer_playback(device_id=device["id"], play=True)
+                    logger.info("Spotify: moved playback to %s (%s)", _device_label(device), _status(moved))
+                took = client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+                logger.info("Spotify: play sent to %s (%s)", _device_label(device), _status(took))
             # Spotify takes a play for a phone that only just came up and then
             # never starts it (2026-10-18 06:49: "started", and silence). Done is
             # when Spotify says the phone plays the song — a resume has nothing to

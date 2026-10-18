@@ -57,6 +57,7 @@ class _PlayerStub:
         self.play_calls: list[dict] = []
         self.device_calls = 0
         self.pause_calls = 0
+        self.transfer_calls: list[dict] = []
         self.started: dict | None = None  # what a taken play left playing, like Spotify
 
     def start_playback(self, **kw):
@@ -84,6 +85,10 @@ class _PlayerStub:
             return self.playback_states[0]
         if self.started:
             return self.started
+        return {"success": True, "status_code": 204, "empty": True}
+
+    def transfer_playback(self, **kw):
+        self.transfer_calls.append(kw)
         return {"success": True, "status_code": 204, "empty": True}
 
     def pause_playback(self, **kw):
@@ -797,3 +802,21 @@ def test_a_song_that_never_starts_is_reported_not_done(monkeypatch, spawned, car
 
     assert _run(runs) == "timeout"
     assert spotify_tool._current_pending_play() is None
+
+
+def test_a_play_that_never_reaches_the_phone_moves_playback_there_first(monkeypatch, spawned, car_turn) -> None:
+    # 2026-10-18 16:56 and 17:03: the phone took three plays and Spotify said "nothing
+    # playing anywhere" every check — the play never reached its player. The resend
+    # transfers playback to the phone (which wakes its player) before playing again.
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}] * 5 + [_playing(TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    assert stub.transfer_calls == [{"device_id": "phone-1", "play": True}]
+    assert len(_phone_plays(stub)) == 2
