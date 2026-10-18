@@ -152,15 +152,53 @@ enum CarLinks {
     /// Run ahead of the phone's skills (`InvokeRunner`'s native route): nil steps
     /// aside. The map opens when Jarvis has finished saying where it's going.
     static func route(_ skill: String, _ args: [String: Any]) async throws -> [String: Any]? {
-        try await route(skill, args, carScreen: { CarScreen.isConnected }, queue: { CarHandoff.shared.queue($0) })
+        try await route(skill, args, carScreen: { CarScreen.isConnected },
+                        directions: { try await CarDirections.start(to: $0, presence: .shared) },
+                        queue: { CarHandoff.shared.queue($0) })
     }
 
+    /// A link's own text address opened the maps app with no route (an empty
+    /// `saddr`, a web link handed to the app): its destination takes
+    /// `car_directions`' path instead — found near him, opened by coordinates in
+    /// his maps app. The link itself opens only when it names no place, or the
+    /// place can't be found.
     static func route(_ skill: String, _ args: [String: Any],
-                      carScreen: () -> Bool, queue: (URL) -> Void) async throws -> [String: Any]? {
+                      carScreen: () -> Bool,
+                      directions: (String) async throws -> [String: Any],
+                      queue: (URL) -> Void) async throws -> [String: Any]? {
         guard skill == "open_url", carScreen(),
               let url = URL(string: SkillArgs.string(args, "url")), isMap(url) else { return nil }
+        let note = "Opening on the car's screen when you finish speaking."
+        if let destination = destination(in: url), var route = try? await directions(destination) {
+            route["launched"] = true
+            route["note"] = note
+            return route
+        }
         queue(url)
-        return ["launched": true, "note": "Opening on the car's screen when you finish speaking."]
+        return ["launched": true, "note": note]
+    }
+
+    /// Where a map link goes, as text to search for: `daddr` (Apple, Google's
+    /// app), `destination` (Google's web), `q` / `query` (a search), or the place
+    /// in a Google path (`/maps/dir/<from>/<to>`, `/maps/place/<name>`,
+    /// `/maps/search/<q>`). Nil for a link that names none (a short link).
+    static func destination(in url: URL) -> String? {
+        func text(_ raw: String?) -> String? {
+            let value = (raw ?? "").replacingOccurrences(of: "+", with: " ").trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        for name in ["daddr", "destination", "q", "query"] {
+            if let value = text(items.first(where: { $0.name == name })?.value) { return value }
+        }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        for marker in ["place", "search"] {
+            if let i = parts.firstIndex(of: marker), i + 1 < parts.count { return text(parts[i + 1]) }
+        }
+        if let i = parts.firstIndex(of: "dir") {
+            return text(parts[(i + 1)...].last { !$0.hasPrefix("@") && !$0.hasPrefix("data=") })
+        }
+        return nil
     }
 }
 

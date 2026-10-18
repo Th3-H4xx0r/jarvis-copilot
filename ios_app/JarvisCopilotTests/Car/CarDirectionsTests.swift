@@ -85,26 +85,68 @@ final class CarDirectionsTests: XCTestCase {
         }
     }
 
-    func testAMapLinkGoesToTheCarScreenWhenCarPlayIsUp() async throws {
+    /// His drive (2026-10-18): `car_directions` opened a route; the map links the
+    /// model sent itself (a text address, an empty `saddr`) opened the maps app
+    /// with no route. Every link's destination now takes car_directions' path.
+    func testTheDestinationIsReadFromAnyMapLink() throws {
+        let cases: [(String, String?)] = [
+            ("http://maps.apple.com/?saddr=Current%20Location&daddr=Costco%20Wholesale%2C%203836%20Richmond%20Ave%2C%20Houston%2C%20TX%2077027&dirflg=d",
+             "Costco Wholesale, 3836 Richmond Ave, Houston, TX 77027"),
+            ("https://www.google.com/maps/dir/?api=1&origin=Current+Location&destination=Costco+Wholesale+3836+Richmond+Ave+Houston+TX+77027&travelmode=driving",
+             "Costco Wholesale 3836 Richmond Ave Houston TX 77027"),
+            ("comgooglemaps://?saddr=&daddr=Costco+Wholesale+3836+Richmond+Ave+Houston+TX+77027&directionsmode=driving",
+             "Costco Wholesale 3836 Richmond Ave Houston TX 77027"),
+            ("https://www.google.com/maps/dir/Current+Location/Costco+Wholesale/", "Costco Wholesale"),
+            ("https://www.google.com/maps/place/Costco+Wholesale/@29.73,-95.43,15z", "Costco Wholesale"),
+            ("https://maps.apple.com/?q=Costco", "Costco"),
+            ("waze://?q=Costco&navigate=yes", "Costco"),
+            ("https://maps.app.goo.gl/abc123", nil),
+        ]
+        for (link, want) in cases {
+            XCTAssertEqual(CarLinks.destination(in: try XCTUnwrap(URL(string: link))), want, link)
+        }
+    }
+
+    func testAMapLinkTakesTheSameRouteAsCarDirections() async throws {
+        var asked: [String] = []
         var queued: [URL] = []
-        let link = "http://maps.apple.com/?daddr=Costco"
-        let result = try await CarLinks.route("open_url", ["url": link],
-                                              carScreen: { true }, queue: { queued.append($0) })
-        XCTAssertEqual(queued.map(\.absoluteString), [link])
+        let result = try await CarLinks.route(
+            "open_url", ["url": "http://maps.apple.com/?saddr=Current%20Location&daddr=Costco&dirflg=d"],
+            carScreen: { true },
+            directions: { asked.append($0); return ["ok": true, "place": "Costco Wholesale", "app": "Google Maps"] },
+            queue: { queued.append($0) })
+        XCTAssertEqual(asked, ["Costco"])
+        XCTAssertEqual(queued, [], "the link itself isn't opened: the route is")
         XCTAssertEqual(result?["launched"] as? Bool, true)
+        XCTAssertEqual(result?["place"] as? String, "Costco Wholesale")
         XCTAssertNotNil(result?["note"], "tells Jarvis where it opened")
+    }
+
+    func testALinkWithNoPlaceOrAPlaceNotFoundStillOpensAsIs() async throws {
+        var queued: [URL] = []
+        let short = "https://maps.app.goo.gl/abc123"
+        _ = try await CarLinks.route("open_url", ["url": short], carScreen: { true },
+                                     directions: { _ in XCTFail("nothing to search"); return [:] },
+                                     queue: { queued.append($0) })
+        let unknown = "maps://?daddr=Nowhere%20Special"
+        let result = try await CarLinks.route("open_url", ["url": unknown], carScreen: { true },
+                                              directions: { _ in throw DeviceError.badArgument("Couldn't find it") },
+                                              queue: { queued.append($0) })
+        XCTAssertEqual(queued.map(\.absoluteString), [short, unknown])
+        XCTAssertEqual(result?["launched"] as? Bool, true)
     }
 
     func testWithoutCarPlayOrForOtherLinksItStepsAside() async throws {
         var queued: [URL] = []
+        let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("no route expected"); return [:] }
         let none = try await CarLinks.route("open_url", ["url": "http://maps.apple.com/?daddr=Costco"],
-                                            carScreen: { false }, queue: { queued.append($0) })
+                                            carScreen: { false }, directions: noRoute, queue: { queued.append($0) })
         XCTAssertNil(none, "no car screen: the phone's own open_url runs")
         let web = try await CarLinks.route("open_url", ["url": "https://example.com"],
-                                           carScreen: { true }, queue: { queued.append($0) })
+                                           carScreen: { true }, directions: noRoute, queue: { queued.append($0) })
         XCTAssertNil(web)
         let other = try await CarLinks.route("set_timer", ["url": "maps://?daddr=x"],
-                                             carScreen: { true }, queue: { queued.append($0) })
+                                             carScreen: { true }, directions: noRoute, queue: { queued.append($0) })
         XCTAssertNil(other)
         XCTAssertEqual(queued, [])
     }

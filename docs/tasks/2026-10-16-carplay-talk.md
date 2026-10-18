@@ -164,6 +164,16 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   a Google/Waze map link with that app missing opens nothing (no Apple Maps fallback yet); after a server
   rollback the remembered "server clears stale streams" costs one failed turn.
 
+- [ ] **23. Directions sometimes open the route, sometimes just the maps app** (2026-10-18 00:10–00:13)
+  - Found (phone voice.log + the voice session's tool calls): the route opened when Jarvis called
+    `device_car_directions` (coordinates); when it opened a link itself — `http://maps.apple.com/?…&daddr=<text
+    address>`, `https://www.google.com/maps/dir/?…`, `comgooglemaps://?saddr=&daddr=…` — the car screen opened
+    the app with no route, and a link sent after car_directions replaced its working route. Jarvis's own memory
+    on the server (MEMORY.md:137, USER.md:155) teaches the open_url Apple/Google link habit.
+  - Built: with CarPlay up, any map link's destination (daddr / destination / q / a Google path) goes through
+    car_directions' path — found near him, opened by coordinates in his maps app; the raw link opens only when
+    it names no place or the place can't be found.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).
