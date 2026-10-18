@@ -78,6 +78,69 @@ def quit_app(name: str) -> dict:
     return {"ok": True, "name": name}
 
 
+# ── Messages ───────────────────────────────────────────────────────────────
+
+# The handle and the text arrive as `argv`, never pasted into the script: a
+# message can say anything. iMessage first; an SMS account (text forwarding from
+# his iPhone) when there is no iMessage one.
+_SEND_MESSAGE_SCRIPT = """
+on run argv
+    set handle to item 1 of argv
+    set body to item 2 of argv
+    tell application "Messages"
+        try
+            set svc to 1st account whose service type = iMessage
+            send body to participant handle of svc
+            return "iMessage"
+        on error
+            set svc to 1st account whose service type = SMS
+            send body to participant handle of svc
+            return "SMS"
+        end try
+    end tell
+end run
+"""
+
+
+def _message_handle(to: str) -> str:
+    """A phone number in E.164 (US numbers get +1) or an email; a name is refused."""
+    to = (to or "").strip()
+    if "@" in to:
+        return to
+    digits = re.sub(r"\D", "", to)
+    if len(digits) < 7:
+        raise ValueError("to must be a phone number or email — look the contact up first")
+    if to.startswith("+"):
+        return "+" + digits
+    return "+1" + digits if len(digits) == 10 else "+" + digits
+
+
+@skill(
+    "messages_send",
+    "Send a text message as the user through this Mac's Messages app (iMessage, "
+    "or SMS via his iPhone's text forwarding). `to` is a phone number or email — "
+    "look a contact's number up first. Use it to text someone while he is driving.",
+    {
+        "type": "object",
+        "properties": {
+            "to": {"type": "string", "description": "Phone number or email."},
+            "text": {"type": "string"},
+        },
+        "required": ["to", "text"],
+    },
+    destructive=True,
+)
+def messages_send(to: str, text: str) -> dict:
+    handle = _message_handle(to)
+    if not (text or "").strip():
+        raise ValueError("text required")
+    res = subprocess.run(
+        ["osascript", "-e", _SEND_MESSAGE_SCRIPT, handle, text],
+        capture_output=True, text=True, timeout=20, check=True,
+    )
+    return {"ok": True, "to": handle, "via": (res.stdout or "").strip() or "iMessage"}
+
+
 # ── Window management ─────────────────────────────────────────────────────
 
 

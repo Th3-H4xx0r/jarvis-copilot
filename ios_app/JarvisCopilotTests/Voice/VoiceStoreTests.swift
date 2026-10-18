@@ -728,6 +728,38 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .listening, "words of the user's own interrupt")
     }
 
+    /// In the car the reply plays through the car's speakers — far from the mic and
+    /// late — and the phone can't cancel its echo: one mis-heard word of Jarvis's own
+    /// reply interrupted it three times in a minute (CarPlay, 2026-10-18 01:10). There
+    /// it takes a stop word, or two words that aren't the reply's.
+    func testInTheCarOneStrayWordDoesNotInterruptButAStopWordDoes() async throws {
+        let rig = makeRig()
+        rig.store.inCar = { true }
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.2, ms: 400, frameMs: 100)
+        try await sayWords(rig, "Hughston")
+        XCTAssertEqual(rig.store.state, .speaking, "one stray word is the reply's echo, mis-heard")
+        try await sayWords(rig, "Hughston stop")
+        XCTAssertEqual(rig.store.state, .listening, "a stop word interrupts")
+    }
+
+    func testInTheCarTwoWordsOfHisOwnInterrupt() async throws {
+        let rig = makeRig()
+        rig.store.inCar = { true }
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.2, ms: 400, frameMs: 100)
+        try await sayWords(rig, "actually tomorrow")
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
+    func testOnThePhoneOneWordOfHisOwnStillInterrupts() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.2, ms: 400, frameMs: 100)
+        try await sayWords(rig, "actually")
+        XCTAssertEqual(rig.store.state, .listening, "the phone cancels its own speaker: one word is him")
+    }
+
     /// Noise that goes on (someone typing) must not hold the reply down.
     func testANoiseThatGoesOnDoesNotKeepTheReplyDown() async throws {
         let rig = makeRig()
@@ -1805,6 +1837,33 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
+    /// Directions, a call, an app: the reply hands off to the car, so it ends the
+    /// conversation — no listening chime and "Listening" as the map comes up
+    /// (2026-10-18 01:08), the mic off before the car switches screens.
+    func testAReplyThatHandsOffToTheCarEndsTheConversation() async throws {
+        let rig = makeRig()
+        let sounds = RecordingEarcons()
+        rig.store.earcons = sounds
+        rig.store.wantsEarcons = { true }
+        var finished = 0
+        rig.store.onTurnFinished = { finished += 1 }
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "Taking you to Costco on Richmond Avenue.")
+        rig.store.endAfterThisReply()
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle, "the conversation is over")
+        XCTAssertFalse(rig.input.isRunning, "the mic is off")
+        XCTAssertEqual(sounds.played, [.listening, .thinking], "no second listening sound")
+        XCTAssertEqual(finished, 1, "the map opens now")
+    }
+
     func testOneShotReplyHoldEndsAfterTwoMinutes() async throws {
         let rig = makeRig()
         try await oneShotAnswered(rig)
@@ -2015,6 +2074,23 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
         let sentBytes = try XCTUnwrap(rig.socket).sentData.reduce(0) { $0 + $1.count }
         XCTAssertGreaterThanOrEqual(sentBytes, saidMs * VoiceStore.micRate * 2 / 1000)
+        await rig.store.stopAll()
+    }
+
+    /// Each turn started while Jarvis is on the car's screen tells the server, which
+    /// adds "he's driving, on CarPlay" to that turn; the phone's own turns don't.
+    func testTurnsOnCarPlaySaySo() async throws {
+        let rig = makeRig()
+        rig.store.onCarPlay = { true }
+        await startListening(rig)
+        let car = try XCTUnwrap(rig.socket?.sentJSON.last { $0["type"] as? String == "begin_turn" })
+        XCTAssertEqual(car["carplay"] as? Bool, true)
+        await rig.store.stopAll()
+
+        rig.store.onCarPlay = { false }
+        await startListening(rig)
+        let phone = try XCTUnwrap(rig.socket?.sentJSON.last { $0["type"] as? String == "begin_turn" })
+        XCTAssertNil(phone["carplay"])
         await rig.store.stopAll()
     }
 

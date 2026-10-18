@@ -69,6 +69,14 @@ final class VoiceSessionTests: XCTestCase {
                        #"{"clear_stale_stream":true,"sample_rate":16000,"session_id":"voice-1","type":"begin_turn"}"#)
     }
 
+    /// Every turn from CarPlay says so: Jarvis acts for the car unless he says otherwise.
+    func testBeginTurnSaysWhenItComesFromCarPlay() {
+        let message = VoiceClientMessage.beginTurn(sampleRate: 16000, sessionID: "voice-1",
+                                                    model: nil, provider: nil, carplay: true)
+        XCTAssertEqual(message.encoded(),
+                       #"{"carplay":true,"sample_rate":16000,"session_id":"voice-1","type":"begin_turn"}"#)
+    }
+
     func testBeginTurnIncludesTheVoiceModelWhenChosen() {
         let message = VoiceClientMessage.beginTurn(sampleRate: 16000, sessionID: "s",
                                                     model: "gpt-5", provider: "openai")

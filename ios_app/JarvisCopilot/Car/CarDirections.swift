@@ -80,6 +80,8 @@ final class CarHandoff {
     private let open: (URL, @escaping (Bool) -> Void) -> Void
     private let sessionActive: () -> Bool
     private var pending: (url: URL, fallback: URL?)?
+    /// Something was handed to the car: the voice conversation ends after its reply.
+    var onQueued: (() -> Void)?
     private var capTask: Task<Void, Never>?
 
     /// `cap`: open anyway this long after the tool returned — a turn that never
@@ -95,6 +97,7 @@ final class CarHandoff {
     /// `fallback` (Apple Maps) opens if the car screen won't open `url`: the
     /// directions have been announced, so they must open somewhere.
     func queue(_ url: URL, fallback: URL? = nil) {
+        onQueued?()
         pending = (url, fallback)
         guard sessionActive() else { release(); return }
         capTask?.cancel()
@@ -176,6 +179,19 @@ enum CarLinks {
             guard number.contains(where: \.isNumber), let url = URL(string: "tel:\(number)") else { return nil }
             queue(url)
             return ["launched": true, "note": "Calling from the car when you finish speaking."]
+        case "send_sms":
+            // iOS never sends a text silently (the Mac sends it as him when it can):
+            // on CarPlay the message opens filled in on the car's screen to confirm.
+            // A photo attached keeps the phone's composer.
+            let number = ContactLookup.cleanNumber(SkillArgs.string(args, "number"))
+            var allowed = CharacterSet.urlQueryAllowed
+            allowed.remove(charactersIn: "&=+?#")
+            guard number.contains(where: \.isNumber), SkillArgs.string(args, "image_path").isEmpty,
+                  SkillArgs.string(args, "image_base64").isEmpty,
+                  let body = SkillArgs.string(args, "message").addingPercentEncoding(withAllowedCharacters: allowed),
+                  let url = URL(string: "sms:\(number)&body=\(body)") else { return nil }
+            queue(url)
+            return ["launched": true, "note": "The message opens filled in on the car's screen; he confirms Send there."]
         case "open_app":
             guard let url = carApp(args) else { return nil }
             queue(url)

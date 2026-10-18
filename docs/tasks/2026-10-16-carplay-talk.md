@@ -174,7 +174,7 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     car_directions' path — found near him, opened by coordinates in his maps app; the raw link opens only when
     it names no place or the place can't be found.
 
-- [ ] **24. Calls and songs from CarPlay only worked after tapping a phone notification** (2026-10-18 00:24–00:25)
+- [x] **24. Calls and songs from CarPlay only worked after tapping a phone notification** — he: "calls works" (2026-10-18 00:24–00:25)
   - Found (voice.log + session tool results): `device_make_call` and `device_open_app spotify` both returned
     "Sent to your phone — tap the notification" (foreground-only on a locked phone); `spotify_playback play`
     failed "Spotify could not find an active playback device" — Spotify wasn't running until he tapped.
@@ -183,6 +183,30 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     WhatsApp, Calendar) opens on the car's screen after the reply; on the server, a Spotify play with no active
     device plays on a listed one, or waits up to 30 s for Spotify to come online (newest request wins; pause
     cancels) and tells the model to open Spotify instead of retrying.
+
+- [ ] **25. Jarvis keeps interrupting itself while speaking (CarPlay Simulator)** (2026-10-18 01:10–01:11)
+  - Found (voice.log): echo cancellation on, but the mic heard the reply at ~0.10–0.14 with a learned echo floor
+    of ~0.08–0.10 (the reply plays on the car/Mac speakers, far and late — the phone can't cancel it). Each false
+    interrupt: a sound check ~0.6–0.8 s into a reply, then the words check found exactly ONE word "that isn't the
+    reply's" (a mis-heard word of Jarvis's own reply) → interrupt.
+  - Built: in the car (`VoiceStore.inCar`) it takes a stop word (stop, wait, Jarvis, cancel, hold, no…) or two
+    words that aren't the reply's; the phone's own speaker keeps one word.
+- [ ] **26. After directions launched, it went back to listening** (01:08:58)
+  - Found: the reply ended → Listening + the listening chime → the map opened ~1 s later and only then the mic
+    stopped.
+  - Built: anything handed to the car (directions, a call, an app — `CarHandoff.onQueued`) makes that reply end
+    the conversation (`VoiceStore.endAfterThisReply`): mic off, no chime, then the map/call/app opens.
+
+- [ ] **27. Every CarPlay voice turn carries "he's on CarPlay"** — phone sends `carplay: true` on `begin_turn` while
+  Jarvis is on the car's screen; the server adds a CarPlay note to that turn (driving, car tools, short replies,
+  never ask him to touch the phone) unless he says otherwise. (Server half in progress.)
+- [ ] **28. Music: open Spotify in the car first, then play once it's up — as the general CarPlay template**
+  - Plan: a server helper any tool can use — open the app on the car's screen (after the reply), wait in the
+    background until it's ready, then run the command; Spotify play is the first user. (In progress.)
+- [ ] **29. Texts only went to the phone as "tap to run"** (01:19: `device_send_sms` → queued). His pick: Mac first,
+  else car screen. Built: Mac client skill `messages_send` (Messages app, as him: iMessage, else SMS forwarding;
+  text passed as an argument, never into the script); on CarPlay the phone's `send_sms` opens the message filled
+  in on the car's screen to confirm. The CarPlay note tells Jarvis: Mac first.
 
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on

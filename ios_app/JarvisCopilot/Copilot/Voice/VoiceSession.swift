@@ -93,8 +93,10 @@ enum VoiceClientMessage: Equatable, Sendable {
     /// then, so model/provider ride along only for the Single harness.
     /// `clearStaleStream`: the server cancels a stream this session left running
     /// (only the phone asks; the web's chat may be running a long agent turn).
+    /// `carplay`: the turn comes from Jarvis on CarPlay — the server tells the model
+    /// he's driving, so it acts for the car unless he says otherwise.
     case beginTurn(sampleRate: Int, sessionID: String?, model: String?, provider: String?,
-                   harnessID: String? = nil, clearStaleStream: Bool = false)
+                   harnessID: String? = nil, clearStaleStream: Bool = false, carplay: Bool = false)
     /// Run the agent on this turn. `text` is our on-device transcript when we
     /// have one — the server then skips its own STT.
     ///
@@ -109,9 +111,11 @@ enum VoiceClientMessage: Equatable, Sendable {
 
     var payload: [String: Any] {
         switch self {
-        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID, let clearStaleStream):
+        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID, let clearStaleStream,
+                        let carplay):
             var o: [String: Any] = ["type": "begin_turn", "sample_rate": sampleRate]
             if clearStaleStream { o["clear_stale_stream"] = true }
+            if carplay { o["carplay"] = true }
             if let sessionID, !sessionID.isEmpty { o["session_id"] = sessionID }
             let harness = harnessID ?? ""
             if !harness.isEmpty { o["harness_id"] = harness }

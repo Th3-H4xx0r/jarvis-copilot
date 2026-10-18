@@ -154,6 +154,23 @@ final class CarDirectionsTests: XCTestCase {
         XCTAssertNil(nothing, "no digits: the phone's own make_call answers")
     }
 
+    /// "Text Shabd hello" (2026-10-18 01:19): `send_sms` became "tap the notification".
+    /// iOS never sends a text silently; the Mac sends it as him when it can, and on
+    /// CarPlay the phone's way is the message opened, filled in, on the car's screen
+    /// for him to confirm.
+    func testATextOpensFilledInOnTheCarScreen() async throws {
+        var queued: [URL] = []
+        let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("not a map"); return [:] }
+        let result = try await CarLinks.route("send_sms", ["number": "2096277732", "message": "hello there"],
+                                              carScreen: { true }, directions: noRoute, queue: { queued.append($0) })
+        XCTAssertEqual(queued.map(\.absoluteString), ["sms:2096277732&body=hello%20there"])
+        XCTAssertEqual(result?["launched"] as? Bool, true)
+        XCTAssertNotNil(result?["note"], "tells Jarvis he confirms it on the car's screen")
+        let none = try await CarLinks.route("send_sms", ["number": "", "message": "hi"], carScreen: { true },
+                                            directions: noRoute, queue: { queued.append($0) })
+        XCTAssertNil(none)
+    }
+
     /// "Open Spotify" became "tap the notification" too — so a play request had no
     /// Spotify to play on. A CarPlay app opens on the car's screen instead.
     func testACarPlayAppOpensOnTheCarScreen() async throws {
@@ -211,6 +228,15 @@ final class CarDirectionsTests: XCTestCase {
         XCTAssertEqual(opened, [url])
         handoff.turnFinished()
         XCTAssertEqual(opened, [url], "once")
+    }
+
+    /// Anything handed to the car's screen ends the voice conversation after its reply.
+    func testQueuingAHandoffEndsTheConversationAfterTheReply() {
+        var ended = 0
+        let handoff = CarHandoff(cap: 60, open: opener { _ in }, sessionActive: { true })
+        handoff.onQueued = { ended += 1 }
+        handoff.queue(url)
+        XCTAssertEqual(ended, 1)
     }
 
     func testHandoffDroppedOnStop() {

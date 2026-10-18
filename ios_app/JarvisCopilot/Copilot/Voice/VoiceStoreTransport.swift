@@ -79,7 +79,8 @@ extension VoiceStore {
                           harnessID: voiceTurnHarnessID(),
                           // The server clears a stream this session left running
                           // (the phone skips its own check once it said it can).
-                          clearStaleStream: true)
+                          clearStaleStream: true,
+                          carplay: onCarPlay())
     }
 
     /// Raise voice's claim on the process-wide `AVAudioSession` and make sure it

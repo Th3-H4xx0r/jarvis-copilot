@@ -176,6 +176,10 @@ final class VoiceStore {
     /// recogniser reports in steps of about 0.9 s — and then gives up once the
     /// mic has been under the bar for `bargeInCheckQuietMs`.
     static let bargeInCheckMinMs = 1200
+    /// One of these alone interrupts in the car (`inCar`), where one ordinary word
+    /// doesn't.
+    static let bargeInStopWords: Set<String> = ["stop", "wait", "jarvis", "cancel", "pause", "enough",
+                                                "quiet", "hold", "hang", "shut", "no", "nope"]
     static let bargeInCheckQuietMs = 500
     /// A sound that goes on this long with no words (typing, a TV) is let go,
     /// and nothing is checked again until the mic has been quiet.
@@ -323,6 +327,12 @@ final class VoiceStore {
     var earcons: EarconPlaying?
     /// Sounds for every turn, not only one-shot ones: set by the app to "in the car".
     var wantsEarcons: () -> Bool = { false }
+    /// The phone is in the car: the reply plays through the car's speakers, far from
+    /// the mic and late, where the phone can't cancel its echo. Set by the app.
+    var inCar: () -> Bool = { false }
+    /// Jarvis is on the car's screen (CarPlay): every turn says so, and the server
+    /// tells the model he's driving. Set by the app.
+    var onCarPlay: () -> Bool = { false }
     /// Mic audio ignored after an earcon (ms of audio, not wall time) for as long
     /// as the mic can still hear it, so the tone can't be heard as speech or as
     /// him cutting in.
@@ -780,6 +790,15 @@ final class VoiceStore {
         raise(.startRequested)
         armOneShotSilence()   // bounds the connect too: a dead zone can't hold the mic
         return true
+    }
+
+    /// This reply handed something to the car's screen (directions, a call, an app):
+    /// it ends the conversation instead of listening again — no "Listening" and chime
+    /// as the map comes up, the mic off before the car switches screens. The reply
+    /// under way counts as the answer (a one-shot's close).
+    func endAfterThisReply() {
+        guard machine.state.isActive, machine.mode == .realtime else { return }
+        machine.oneShot = true
     }
 
     /// The running conversation becomes one answer: the Talk widget opened Jarvis on
@@ -1450,6 +1469,10 @@ final class VoiceStore {
             self.bargeCheck?.heard = text
             let words = self.reply.userWords(in: text)
             guard !words.isEmpty else { return }
+            // In the car the phone can't cancel the reply's echo, and the recogniser
+            // mis-hears Jarvis's own words: one stray word isn't him. A stop word is,
+            // or a second word of his own; the check keeps listening for it.
+            if self.inCar(), words.count < 2, !words.contains(where: Self.bargeInStopWords.contains) { return }
             // The count only — what was said is never logged.
             self.note("barge-in: \(words.count) word(s) that aren't the reply's")
             self.confirmBargeIn()
