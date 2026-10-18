@@ -211,6 +211,13 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   text passed as an argument, never into the script); on CarPlay the phone's `send_sms` opens the message filled
   in on the car's screen to confirm. The CarPlay note tells Jarvis: Mac first.
 
+- [ ] **30. Music still silent / texts still failing on the Mac** (06:49–06:50 UTC)
+  - Music found: the song link opened Spotify on CarPlay; the phone's Spotify registered 2 s later and Spotify
+    ACCEPTED the play ("started") but never played it. Built: done only when Spotify reports the phone playing
+    the requested song; otherwise the play is sent again each tick (30 s window).
+  - Texts found: "Messages got an error: Can't get handle." — the script's variable `handle` is a Messages term.
+    Built: targetHandle / messageText; read-only probe as the client resolves the number via the variable.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).
