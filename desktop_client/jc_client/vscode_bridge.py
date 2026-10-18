@@ -10,7 +10,8 @@ a window to show a terminal.
 Wire format: newline-delimited JSON both ways.
 
 * extension → here: ``{"type": "hello", "window", "folders", "terminals", "submit"?}``
-  (``submit`` lists the keys it can press: "enter", and "now" = Ctrl+Enter)
+  (``submit`` lists the keys it can press: "enter", and "now" = Ctrl+Enter;
+  ``run`` is "settled" when its run waits for the new shell, from 0.1.3)
   (again whenever a terminal opens or closes) and
   ``{"type": "result", "req", "ok", "error"?}`` (one per request).
 * here → extension: ``{"type": "send_text"|"run"|"focus", "req", ...}``.
@@ -26,12 +27,19 @@ import os
 import socket
 import subprocess
 import threading
+import time
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
 _MAX_LINE = 4 * 1024 * 1024
 _MAX_ANCESTORS = 8
+# A window on an extension before 0.1.3 types a run's command into a shell
+# still starting, and VS Code's Python extension then wipes it (^C + venv
+# activation): the bridge waits this long for the new shell to show up, and
+# this long after for it to settle, then types the command itself.
+_NEW_SHELL_WAIT = 8.0
+_SHELL_SETTLE = 3.0
 
 
 def default_socket_path() -> str:
@@ -175,8 +183,31 @@ class VSCodeBridge:
                         best, best_len = conn, n
         if best is None:
             return False
-        return self._request(best, {"type": "run", "cwd": str(cwd), "command": str(command)},
-                             timeout)
+        if (best.hello or {}).get("run") == "settled":
+            # Its own run waits for the shell and the venv activation.
+            return self._request(best, {"type": "run", "cwd": str(cwd), "command": str(command)},
+                                 timeout)
+        before = best.pids()
+        if not self._request(best, {"type": "run", "cwd": str(cwd), "command": ""}, timeout):
+            return False
+        threading.Thread(target=self._type_when_settled, args=(best, before, str(command)),
+                         daemon=True, name="vscode-run").start()
+        return True
+
+    def _type_when_settled(self, conn: _Conn, before: set, command: str) -> None:
+        end = time.monotonic() + _NEW_SHELL_WAIT
+        new: set = set()
+        while conn.alive and time.monotonic() < end:
+            new = conn.pids() - before
+            if new:
+                break
+            time.sleep(0.1)
+        if not new:
+            log.warning("vscode: the new terminal never showed up; %r not typed", command)
+            return
+        time.sleep(_SHELL_SETTLE)
+        if not self.send_text(max(new), command):
+            log.warning("vscode: couldn't type %r into the new terminal", command)
 
     def focus(self, shell_pid: int, timeout: float = 3.0) -> bool:
         """Show the terminal whose shell is ``shell_pid``."""
@@ -305,7 +336,7 @@ def _clean_hello(msg: dict) -> dict:
         terminals.append(entry)
     submit = [str(s) for s in (msg.get("submit") or []) if isinstance(s, str)]
     return {"window": str(msg.get("window") or ""), "folders": folders, "terminals": terminals,
-            "submit": submit}
+            "submit": submit, "run": str(msg.get("run") or "")}
 
 
 def _containing_len(folder: str, path: str) -> int:

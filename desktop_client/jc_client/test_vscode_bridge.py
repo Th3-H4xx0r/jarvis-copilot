@@ -53,11 +53,13 @@ class FakeExtension:
         self.s.connect(path)
         threading.Thread(target=self._read, daemon=True).start()
 
-    def hello(self, submit=None):
+    def hello(self, submit=None, run=None):
         msg = {"type": "hello", "window": self.window, "folders": self.folders,
                "terminals": [{"id": i, "pid": p} for i, p in enumerate(self.pids)]}
         if submit is not None:
             msg["submit"] = submit
+        if run is not None:
+            msg["run"] = run
         self._send(msg)
         return self
 
@@ -169,8 +171,8 @@ def test_window_saying_no_or_silent_returns_false(bridge):
 
 
 def test_run_picks_window_by_folder(bridge):
-    outer = FakeExtension(bridge.path, "w1", ["/Users/x/proj"], [11]).hello()
-    inner = FakeExtension(bridge.path, "w2", ["/Users/x/proj/sub"], [22]).hello()
+    outer = FakeExtension(bridge.path, "w1", ["/Users/x/proj"], [11]).hello(run="settled")
+    inner = FakeExtension(bridge.path, "w2", ["/Users/x/proj/sub"], [22]).hello(run="settled")
     assert until(lambda: len(bridge.windows()) == 2)
 
     assert bridge.run_in_terminal("/Users/x/proj/sub/pkg", "claude --resume abc") is True
@@ -269,3 +271,33 @@ def test_send_now_reaches_a_window_still_on_the_old_extension(bridge):
     assert new.received[-1]["submit"] == "now" and new.received[-1]["text"] == "go"
     old.close()
     new.close()
+
+
+def test_a_resume_in_a_window_on_an_older_extension_waits_for_the_new_shell(bridge, monkeypatch):
+    """Extensions before 0.1.3 type a run's command into a shell still starting,
+    and VS Code's Python extension then wipes it (^C + venv activation). So
+    the bridge only has them open the terminal, waits for its shell to appear
+    and settle, and types the command into it then."""
+    monkeypatch.setattr(vscode_bridge, "_SHELL_SETTLE", 0.2)
+    win = FakeExtension(bridge.path, "w1", ["/Users/x/proj"], [11]).hello(submit=["enter", "now"])
+    assert until(lambda: len(bridge.windows()) == 1)
+    assert bridge.run_in_terminal("/Users/x/proj", "claude --resume abc") is True
+    assert [(m["type"], m["command"]) for m in win.received] == [("run", "")]
+
+    win.pids = [11, 12]           # the new terminal's shell
+    started = time.time()
+    win.hello(submit=["enter", "now"])
+    assert until(lambda: any(m["type"] == "send_text" for m in win.received), timeout=3.0)
+    assert time.time() - started >= 0.2, "not into a shell that is still starting"
+    typed = [m for m in win.received if m["type"] == "send_text"]
+    assert [(m["pid"], m["text"]) for m in typed] == [(12, "claude --resume abc")]
+    win.close()
+
+
+def test_a_window_whose_run_waits_for_the_shell_gets_the_command(bridge):
+    win = FakeExtension(bridge.path, "w1", ["/Users/x/proj"], [11]).hello(submit=["enter", "now"],
+                                                                           run="settled")
+    assert until(lambda: len(bridge.windows()) == 1)
+    assert bridge.run_in_terminal("/Users/x/proj", "claude --resume abc") is True
+    assert [(m["type"], m["command"]) for m in win.received] == [("run", "claude --resume abc")]
+    win.close()

@@ -117,6 +117,7 @@ async function sendHello() {
       folders: workspaceFolderPaths(),
       terminals: terms.map((t, i) => ({ id: i, name: t.name, pid: pids[i] })),
       submit: ['enter', 'now'],
+      run: 'settled',   // a run waits for the new shell (runWhenSettled)
     });
   } catch (e) {
     console.error('[jarvis-terminal-bridge] hello failed', e);

@@ -124,6 +124,8 @@ test('a run waits for the shell and its venv activation before typing', async ()
     ext.send({ type: 'run', req: 1, cwd: '/proj', command: 'claude --resume abc' });
     await until(() => ext.lines.some((l) => l.type === 'result' && l.req === 1));
     assert.ok(ext.lines.find((l) => l.req === 1).ok, 'answers at once: the terminal is open');
+    assert.strictEqual(ext.lines.find((l) => l.type === 'hello').run, 'settled',
+      'tells jc-client its run waits for the shell');
 
     const t = vscode.window.created;
     await sleep(200);

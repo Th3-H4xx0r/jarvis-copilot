@@ -34,10 +34,12 @@ the workspace folders change:
 
 ```json
 {"type":"hello","window":"<vscode.env.sessionId>","folders":["/abs/path"],
- "terminals":[{"id":0,"name":"zsh","pid":12345}]}
+ "terminals":[{"id":0,"name":"zsh","pid":12345}],"submit":["enter","now"],"run":"settled"}
 ```
 
-`pid` is the terminal's shell process id (`terminal.processId`).
+`pid` is the terminal's shell process id (`terminal.processId`). `run: "settled"` (0.1.3+) says a
+`run` waits for the new shell; for a window without it, jc-client opens the terminal with an empty
+command and types the command into the new shell itself once it has settled.
 
 jc-client → extension, each answered by exactly one
 `{"type":"result","req":<same id>,"ok":true|false,"error"?:"…"}`:
