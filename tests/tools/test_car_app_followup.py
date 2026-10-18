@@ -290,3 +290,48 @@ def test_turn_device_is_the_device_the_turn_came_from():
         assert followup.turn_device(None) is None
     finally:
         turn_origin.note_turn("sess-car", None)
+
+
+# ── open a link (open_url) instead of the bare app ──────────────────────────
+
+
+def test_request_open_with_a_url_asks_the_device_to_open_it_now():
+    phone = _Phone()
+
+    out = followup.request_open("spotify", "iphone-1", url="spotify:track:abc", now=True, invoke=phone)
+
+    assert phone.calls == [("iphone-1", "open_url", {"url": "spotify:track:abc", "now": True})]
+    assert out["opened"] is True
+
+
+def test_follow_up_starts_the_runner_in_the_background():
+    runs, acted = [], []
+
+    followup.follow_up(_ready_after(1), acted.append, spawn=lambda run, name: runs.append((run, name)),
+                       name="spotify-open-play")
+
+    assert len(runs) == 1 and runs[0][1] == "spotify-open-play"
+    clock = _FakeClock()
+    assert runs[0][0](sleep=clock.sleep, clock=clock) == "done"
+    assert acted == ["device"]
+
+
+# ── who the turn came from ──────────────────────────────────────────────────
+
+
+def test_turn_origin_and_turn_phone():
+    from api import turn_origin
+
+    turn_origin.note_turn("sess-car", {"device_id": "iphone-1", "name": "iPhone", "kind": "mobile-ios"},
+                          carplay=True)
+    turn_origin.note_turn("sess-web", {"device_id": "web-1", "name": "Brave", "kind": "browser"})
+    try:
+        car = followup.turn_origin("sess-car")
+        assert car["device_id"] == "iphone-1" and car["carplay"] is True
+        assert followup.turn_phone("sess-car") == car
+        assert followup.turn_origin("sess-web")["carplay"] is False
+        assert followup.turn_phone("sess-web") is None
+        assert followup.turn_origin(None) is None and followup.turn_phone("nope") is None
+    finally:
+        turn_origin.note_turn("sess-car", None)
+        turn_origin.note_turn("sess-web", None)

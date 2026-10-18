@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # a few seconds after Jarvis finishes speaking.
 _PENDING_PLAY_WINDOW_S = 30.0
 _PENDING_PLAY_POLL_INTERVAL_S = 1.5
+# A phone turn opens the song's own spotify: link on the phone instead (iPhone
+# Spotify opened on CarPlay and idle never shows up as a Connect device, so
+# waiting for one can't work); this long to see the phone play it.
+_OPENED_PLAY_WINDOW_S = 20.0
 
 
 def _check_spotify_available() -> bool:
@@ -105,8 +109,9 @@ def _describe_empty_playback(payload: Any, *, action: str) -> dict | None:
 class _PendingPlay:
     """One play request waiting for a Spotify Connect device to appear."""
 
-    def __init__(self, play_kwargs: Dict[str, Any]) -> None:
+    def __init__(self, play_kwargs: Dict[str, Any], phones_only: bool = False) -> None:
         self.play_kwargs = play_kwargs
+        self.phones_only = phones_only  # a phone turn: never the MacBook at home
         self.cancelled = threading.Event()
 
 
@@ -141,27 +146,63 @@ def _begin_play_request() -> int:
         return _play_generation
 
 
-def _register_pending_play(ticket: int, play_kwargs: Dict[str, Any]) -> Optional[_PendingPlay]:
+def _register_pending_play(ticket: int, play_kwargs: Dict[str, Any],
+                           phones_only: bool = False) -> Optional[_PendingPlay]:
     """Make this the one pending play, unless a newer play request already started."""
     global _pending_play
     with _pending_lock:
         if ticket != _play_generation:
             return None
-        pending = _PendingPlay(play_kwargs)
+        pending = _PendingPlay(play_kwargs, phones_only=phones_only)
         _pending_play = pending
         return pending
 
 
-def _pick_device(devices_payload: Any) -> Optional[Dict[str, Any]]:
-    """Best device to play on: unrestricted first, then smartphones first."""
+def _is_smartphone(device: Dict[str, Any]) -> bool:
+    return str(device.get("type") or "").lower() == "smartphone"
+
+
+def _pick_device(devices_payload: Any, *, phones_only: bool = False,
+                 exclude: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Best device to play on: unrestricted first, then smartphones, then the
+    active one. ``phones_only`` (a turn from his phone): only an unrestricted
+    smartphone — never the MacBook at home. ``exclude``: a device that just failed."""
     devices = devices_payload.get("devices") if isinstance(devices_payload, dict) else None
-    candidates = [d for d in devices or [] if isinstance(d, dict) and d.get("id")]
+    candidates = [d for d in devices or [] if isinstance(d, dict) and d.get("id") and d.get("id") != exclude]
+    if phones_only:
+        candidates = [d for d in candidates if _is_smartphone(d) and not d.get("is_restricted")]
     if not candidates:
         return None
     return min(
         candidates,
-        key=lambda d: (bool(d.get("is_restricted")), str(d.get("type") or "").lower() != "smartphone"),
+        key=lambda d: (bool(d.get("is_restricted")), not _is_smartphone(d), not d.get("is_active")),
     )
+
+
+def _play_uri(play_kwargs: Dict[str, Any]) -> Optional[str]:
+    """The spotify: link that plays the request: the (first) track, else the context."""
+    uris = play_kwargs.get("uris") or []
+    return (uris[0] if uris else None) or play_kwargs.get("context_uri")
+
+
+def _already_playing(client: Any, device: Dict[str, Any], play_kwargs: Dict[str, Any]) -> bool:
+    """Whether ``device`` already plays what was asked (Spotify started the link
+    the phone opened) — then starting it again would only restart it."""
+    want_track = (play_kwargs.get("uris") or [None])[0]
+    want_context = play_kwargs.get("context_uri")
+    if not (want_track or want_context):
+        return False
+    try:
+        state = client.get_playback_state()
+    except Exception:
+        return False
+    if not isinstance(state, dict) or state.get("empty") or not state.get("is_playing"):
+        return False
+    if str((state.get("device") or {}).get("id") or "") != str(device.get("id")):
+        return False
+    if want_track:
+        return str((state.get("item") or {}).get("uri") or "") == want_track
+    return str((state.get("context") or {}).get("uri") or "") == want_context
 
 
 def _device_label(device: Dict[str, Any]) -> str:
@@ -175,12 +216,15 @@ def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, An
     with _pending_lock:
         if pending.cancelled.is_set():
             raise car_app_followup.Cancelled("superseded by a newer request")
-        client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+        started = not _already_playing(client, device, pending.play_kwargs)
+        if started:
+            client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
         pending.cancelled.set()
         if _pending_play is pending:
             _pending_play = None
     logger.info(
-        "Spotify pending play started on %s (%s)",
+        "Spotify pending play %s on %s (%s)",
+        "started" if started else "was already playing",
         _device_label(device),
         device.get("type") or "unknown type",
     )
@@ -194,18 +238,19 @@ def _drop_pending_play(pending: _PendingPlay) -> None:
             _pending_play = None
 
 
-def _pending_play_followup(pending: _PendingPlay, client: Any) -> Dict[str, Any]:
+def _pending_play_followup(pending: _PendingPlay, client: Any, *, timeout_s: Optional[float] = None,
+                           label: str = "Spotify pending play") -> Dict[str, Any]:
     """A pending play as a car_app_followup follow-up: ready once Spotify lists a
-    device, then play there. ``pending.cancelled`` drops it (newest play wins,
-    pause cancels)."""
+    device (only a smartphone on a phone turn), then play there unless it already
+    plays it. ``pending.cancelled`` drops it (newest play wins, pause cancels)."""
     return {
-        "ready": lambda: _pick_device(client.get_devices()),
+        "ready": lambda: _pick_device(client.get_devices(), phones_only=pending.phones_only),
         "action": functools.partial(_start_pending_play, pending, client),
-        "timeout_s": _PENDING_PLAY_WINDOW_S,
+        "timeout_s": _PENDING_PLAY_WINDOW_S if timeout_s is None else timeout_s,
         "poll_s": _PENDING_PLAY_POLL_INTERVAL_S,
         "cancelled": pending.cancelled,
         "on_timeout": functools.partial(_drop_pending_play, pending),
-        "label": "Spotify pending play",
+        "label": label,
         "log": logger,
     }
 
@@ -249,35 +294,76 @@ def _opening_note(device_note: str, window: int) -> str:
     )
 
 
+def _phone_playing_note(phone: Dict[str, Any], opening: Dict[str, Any]) -> str:
+    if phone.get("carplay"):
+        return "Playing it in Spotify on the car."
+    said = str(opening.get("device_note") or "").strip().rstrip(".")
+    return "Playing it in Spotify on his phone" + (f" ({said})." if said else ".")
+
+
 def _play_without_active_device(
     client: Any,
     ticket: int,
     play_kwargs: Dict[str, Any],
     original: SpotifyAPIError,
     turn_session: Optional[str] = None,
+    failed_device: Optional[str] = None,
 ) -> str:
-    """Play hit 404 NO_ACTIVE_DEVICE: use a listed device, else wait for one —
-    opening Spotify on the phone the turn came from when it's known."""
-    device = _pick_device(client.get_devices())
+    """Play found no device to play on (404 NO_ACTIVE_DEVICE, or a phone turn's
+    explicit device 404'd).
+
+    * A listed device takes it — on a phone turn only a smartphone.
+    * A phone turn otherwise asks the phone to open the song's spotify: link now
+      (on CarPlay: on the car's screen; Spotify opens and plays it) and makes sure
+      in the background that the phone plays exactly that.
+    * Else (no open_url, nothing to open, or the web/Mac): open Spotify on the
+      turn's device and wait for a Spotify device to show up.
+    """
+    phone = car_app_followup.turn_phone(turn_session)
+    device = _pick_device(client.get_devices(), phones_only=bool(phone), exclude=failed_device)
     if device is not None:
-        result = client.start_playback(device_id=device["id"], **play_kwargs)
         label = _device_label(device)
-        return tool_result({
-            "success": True,
-            "action": "play",
-            "device": {"id": device["id"], "name": label, "type": device.get("type")},
-            "note": f"No Spotify device was active, so this is playing on {label}.",
-            "result": result,
-        })
-    pending = _register_pending_play(ticket, play_kwargs)
+        try:
+            result = client.start_playback(device_id=device["id"], **play_kwargs)
+        except SpotifyAPIError as exc:
+            if not (phone and exc.status_code == 404):
+                raise
+            logger.info("Spotify play: %s is listed but didn't take it (%s); opening it on the phone", label, exc)
+        else:
+            return tool_result({
+                "success": True,
+                "action": "play",
+                "device": {"id": device["id"], "name": label, "type": device.get("type")},
+                "note": f"No Spotify device was active, so this is playing on {label}.",
+                "result": result,
+            })
+    pending = _register_pending_play(ticket, play_kwargs, phones_only=bool(phone))
     if pending is None:  # a newer play request took over meanwhile
         raise original
+    uri = _play_uri(play_kwargs)
+    if phone and uri:
+        opening = car_app_followup.request_open("spotify", phone["device_id"], url=uri, now=True)
+        if opening["opened"]:
+            car_app_followup.follow_up(
+                **_pending_play_followup(pending, client, timeout_s=_OPENED_PLAY_WINDOW_S,
+                                         label="Spotify play opened on the phone"),
+                name="spotify-open-play",
+            )
+            logger.info("Spotify play: asked %s to open %s; checking it plays there within %d s",
+                        phone.get("name") or phone["device_id"], uri, int(_OPENED_PLAY_WINDOW_S))
+            return tool_result({
+                "success": True,
+                "action": "play",
+                "pending": True,
+                "note": _phone_playing_note(phone, opening),
+            })
+        logger.info("Spotify play: the phone couldn't open %s (%s); opening the app instead", uri, opening["error"])
     window = int(_PENDING_PLAY_WINDOW_S)
-    phone = car_app_followup.turn_device(turn_session)
-    if phone:
-        # On CarPlay the phone opens Spotify on the car's screen once Jarvis has
-        # spoken; the follow-up plays as soon as Spotify lists the device.
-        opening = car_app_followup.open_then("spotify", phone, **_pending_play_followup(pending, client))
+    device_id = phone["device_id"] if phone else car_app_followup.turn_device(turn_session)
+    if device_id:
+        # The bare app: on CarPlay the phone opens it on the car's screen once
+        # Jarvis has spoken; the follow-up plays as soon as Spotify lists a device.
+        opening = car_app_followup.open_then("spotify", device_id, **_pending_play_followup(pending, client))
         if opening["opened"]:
             return tool_result({
                 "success": True,
@@ -286,7 +372,7 @@ def _play_without_active_device(
                 "opening": "spotify",
                 "note": _opening_note(opening["device_note"], window),
             })
-        # The phone couldn't open it; the follow-up still waits for the model to.
+        # The device couldn't open it; the follow-up still waits for the model to.
     else:
         _spawn_pending_play_poller(pending, client)
     logger.info("Spotify play pending: no device online, waiting up to %d s for one", window)
@@ -342,10 +428,14 @@ def _handle_spotify_playback(args: dict, **kw) -> str:
             try:
                 result = client.start_playback(device_id=args.get("device_id"), **play_kwargs)
             except SpotifyAPIError as exc:
-                if not exc.is_no_active_device:
+                turn = kw.get("task_id")
+                # A phone turn whose explicit device 404s (his phone's Spotify id,
+                # asleep) goes the same way as no active device at all.
+                explicit_404 = bool(args.get("device_id")) and exc.status_code == 404
+                if not exc.is_no_active_device and not (explicit_404 and car_app_followup.turn_phone(turn)):
                     raise
-                return _play_without_active_device(client, ticket, play_kwargs, exc,
-                                                   turn_session=kw.get("task_id"))
+                return _play_without_active_device(client, ticket, play_kwargs, exc, turn_session=turn,
+                                                   failed_device=args.get("device_id"))
             return tool_result({"success": True, "action": action, "result": result})
         if action == "pause":
             _cancel_pending_play()  # "stop" must not let a waiting song start later

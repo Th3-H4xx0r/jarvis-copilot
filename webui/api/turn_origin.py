@@ -20,6 +20,7 @@ _LOCK = threading.Lock()
 _SESSION_DEVICE: dict[str, str] = {}
 _SESSION_KIND: dict[str, str] = {}
 _SESSION_NAME: dict[str, str] = {}
+_SESSION_CARPLAY: dict[str, bool] = {}
 
 _KIND_LABEL = {"mobile-ios": "the iPhone app", "desktop": "the Mac app", "browser": "the web app"}
 
@@ -89,8 +90,9 @@ def directive(origin: Optional[dict], channel: str) -> str:
     return " ".join(parts) + "]"
 
 
-def note_turn(session_id: str, origin: Optional[dict]) -> None:
-    """Remember the device for ``session_id``'s current turn (None forgets it)."""
+def note_turn(session_id: str, origin: Optional[dict], carplay: bool = False) -> None:
+    """Remember the device for ``session_id``'s current turn (None forgets it), and
+    whether the phone started it in the car (a CarPlay voice turn)."""
     if not session_id:
         return
     with _LOCK:
@@ -98,10 +100,12 @@ def note_turn(session_id: str, origin: Optional[dict]) -> None:
             _SESSION_DEVICE[session_id] = origin["device_id"]
             _SESSION_KIND[session_id] = origin.get("kind") or ""
             _SESSION_NAME[session_id] = origin.get("name") or ""
+            _SESSION_CARPLAY[session_id] = bool(carplay)
         else:
             _SESSION_DEVICE.pop(session_id, None)
             _SESSION_KIND.pop(session_id, None)
             _SESSION_NAME.pop(session_id, None)
+            _SESSION_CARPLAY.pop(session_id, None)
 
 
 def origin_for_session(session_id: Optional[str]) -> Optional[dict]:
@@ -114,6 +118,15 @@ def origin_for_session(session_id: Optional[str]) -> Optional[dict]:
         name = _SESSION_NAME.get(session_id or "", "")
     return {"device_id": device, "name": name, "kind": kind_for_session(session_id),
             "mac": is_mac_session(session_id)}
+
+
+def is_carplay_session(session_id: Optional[str]) -> bool:
+    """Whether ``session_id``'s current turn is a voice turn the phone started in
+    the car (begin_turn "carplay": true)."""
+    if not session_id:
+        return False
+    with _LOCK:
+        return _SESSION_CARPLAY.get(session_id, False)
 
 
 def device_for_session(session_id: Optional[str]) -> Optional[str]:

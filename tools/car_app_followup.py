@@ -27,6 +27,13 @@ Usage, from a tool handler (``task_id`` is the webui chat session id)::
         )
         return tool_result({"success": True, "pending": True, "note": out["note"]})
 
+When a link starts the thing itself, open the link instead of the bare app:
+``request_open(app, device, url=..., now=True)`` asks the phone's ``open_url`` to
+open it on the car's screen right away, then ``follow_up(ready, action, ...)``
+checks it took (Spotify: a ``spotify:track:`` link opens Spotify and plays it,
+because iPhone Spotify opened idle on CarPlay never shows up as a Connect device
+— see plugins/spotify/tools.py).
+
 Contract:
 
 * ``ready()`` is falsy until the app is up; what it returns is handed to
@@ -60,6 +67,7 @@ DEFAULT_POLL_S = 1.5
 # bounds a phone that is slow to wake so the voice turn isn't held up.
 OPEN_TIMEOUT_S = 10.0
 OPEN_SKILL = "open_app"
+OPEN_URL_SKILL = "open_url"
 
 
 class Cancelled(Exception):
@@ -69,14 +77,30 @@ class Cancelled(Exception):
 def turn_device(session_id: Optional[str]) -> Optional[str]:
     """The paired device the current turn came from (webui/api/turn_origin.py), or
     None. A webui turn's ``task_id`` is its chat session id."""
+    origin = turn_origin(session_id)
+    return origin["device_id"] if origin else None
+
+
+def turn_origin(session_id: Optional[str]) -> Optional[dict]:
+    """The current turn's device — ``device_id``, ``name``, ``kind``, ``mac``,
+    ``carplay`` (a voice turn the phone started in the car) — or None."""
     if not session_id:
         return None
     try:
-        from api import turn_origin
+        from api import turn_origin as _turn_origin
 
-        return turn_origin.device_for_session(session_id)
+        origin = _turn_origin.origin_for_session(session_id)
+        return {**origin, "carplay": _turn_origin.is_carplay_session(session_id)} if origin else None
     except Exception:
         return None
+
+
+def turn_phone(session_id: Optional[str]) -> Optional[dict]:
+    """``turn_origin`` when the turn came from his phone (the iPhone app), else None."""
+    origin = turn_origin(session_id)
+    if origin and str(origin.get("kind") or "").startswith("mobile"):
+        return origin
+    return None
 
 
 def _invoke_device_skill(device_id: str, skill: str, args: dict, timeout: float = OPEN_TIMEOUT_S) -> dict:
@@ -101,15 +125,20 @@ def _invoke_device_skill(device_id: str, skill: str, args: dict, timeout: float 
         return {"ok": False, "error": str(exc)}
 
 
-def request_open(app: str, device_id: str, *, invoke: Optional[Callable[..., dict]] = None,
-                 timeout_s: float = OPEN_TIMEOUT_S) -> dict:
-    """Ask ``device_id`` to open ``app``. Returns ``{"opened", "device_note", "error"}``;
-    ``device_note`` is what the device said (on CarPlay: it opens on the car's
-    screen when Jarvis finishes speaking)."""
-    args = {"app": app}
+def request_open(app: str, device_id: str, *, url: Optional[str] = None, now: bool = False,
+                 invoke: Optional[Callable[..., dict]] = None, timeout_s: float = OPEN_TIMEOUT_S) -> dict:
+    """Ask ``device_id`` to open ``app`` — or, with ``url``, to open that link (the
+    phone's ``open_url``; ``now`` asks it to open on the car's screen right away
+    instead of after the reply, e.g. a ``spotify:track:`` link Spotify plays).
+    Returns ``{"opened", "device_note", "error"}``; ``device_note`` is what the
+    device said (on CarPlay: it opens on the car's screen when Jarvis finishes)."""
+    if url:
+        skill, args = OPEN_URL_SKILL, {"url": url, **({"now": True} if now else {})}
+    else:
+        skill, args = OPEN_SKILL, {"app": app}
     try:
-        reply = invoke(device_id, OPEN_SKILL, args) if invoke else _invoke_device_skill(
-            device_id, OPEN_SKILL, args, timeout=timeout_s)
+        reply = invoke(device_id, skill, args) if invoke else _invoke_device_skill(
+            device_id, skill, args, timeout=timeout_s)
     except Exception as exc:
         reply = {"ok": False, "error": str(exc)}
     if not isinstance(reply, dict) or not reply.get("ok"):
@@ -190,6 +219,28 @@ def start_background(run: Callable[[], Any], name: str) -> threading.Thread:
     return thread
 
 
+def follow_up(
+    ready: Callable[[], Any],
+    action: Callable[[Any], Any],
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    poll_s: float = DEFAULT_POLL_S,
+    cancelled: Optional[threading.Event] = None,
+    on_timeout: Optional[Callable[[], Any]] = None,
+    label: str = "app follow-up",
+    log: Optional[logging.Logger] = None,
+    name: str = "app-follow-up",
+    spawn: Optional[Callable[[Callable[..., str], str], Any]] = None,
+) -> Any:
+    """Start ``run_followup`` in the background (for a caller that did its own
+    open request). Returns what ``spawn`` returns — the thread by default."""
+    runner = functools.partial(
+        run_followup, ready, action, timeout_s=timeout_s, poll_s=poll_s, cancelled=cancelled,
+        on_timeout=on_timeout, label=label, log=log,
+    )
+    return (spawn or start_background)(runner, name)
+
+
 def _app_title(app: str) -> str:
     app = app.strip()
     return app if any(c.isupper() for c in app) else app.title()
@@ -226,11 +277,9 @@ def open_then(
         opening = request_open(app, device_id, invoke=invoke, timeout_s=open_timeout_s)
     else:
         opening = {"opened": False, "device_note": "", "error": "no device to open it on"}
-    runner = functools.partial(
-        run_followup, ready, action, timeout_s=timeout_s, poll_s=poll_s, cancelled=cancelled,
-        on_timeout=on_timeout, label=label, log=log,
-    )
-    (spawn or start_background)(runner, f"open-then-{app.strip().lower().replace(' ', '-')}")
+    follow_up(ready, action, timeout_s=timeout_s, poll_s=poll_s, cancelled=cancelled,
+              on_timeout=on_timeout, label=label, log=log, spawn=spawn,
+              name=f"open-then-{app.strip().lower().replace(' ', '-')}")
     wait_s = int(timeout_s)
     name = _app_title(app)
     if opening["opened"]:

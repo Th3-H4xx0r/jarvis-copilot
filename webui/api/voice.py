@@ -893,16 +893,19 @@ def _maybe_stop_pod_listening(state: dict, wait: bool = False) -> None:
 # screen, AFTER the reply — and that reply ends the voice conversation. Texts go
 # through the Mac first: iOS can't send one silently from a locked phone.
 _CARPLAY_DIRECTIVE = (
-    "\n\n[CarPlay: he is driving and talking to you through Jarvis on CarPlay — phone "
-    "locked, hands on the wheel. Act for the car unless he says otherwise: directions → "
-    "device_car_directions; calls and apps open on the car's screen after you finish speaking; "
-    "for anything that needs an app open first (music, podcasts, a nav app), open it with "
-    "device_open_app, then run the command — tools that need the app wait for it in the "
-    "background. Texts: send them with his Mac's device_messages_send (it sends as him; if he "
-    "gave a name, look up the number with device_read_contacts first); only if the Mac isn't "
-    "reachable or that fails, use the phone's device_send_sms, which opens the message on the "
-    "car's screen for him to confirm with one tap. Keep replies short and spoken; never ask him "
-    "to look at, unlock or tap his phone.]"
+    "\n\n[CarPlay: he is driving and talking to you through Jarvis on CarPlay \u2014 phone "
+    "locked, hands on the wheel. Act for the car unless he says otherwise: directions \u2192 "
+    "device_car_directions; music \u2192 search, then spotify_playback play (it opens Spotify in "
+    "the car and starts the song \u2014 don't call device_open_app or check the state/devices "
+    "first); calls and apps open on the car's screen after you finish speaking; another app that "
+    "must be open first (podcasts, a nav app) \u2192 device_open_app, then the command (tools like "
+    "Spotify's play open their app themselves). Texts: send them with his Mac's "
+    "device_messages_send (it sends as him; if he gave a name, look up the number with "
+    "device_read_contacts first) \u2014 never text by controlling the Mac's screen (no "
+    "ui_look/ui_do or computer control). If device_messages_send fails, tell him why in one "
+    "sentence and offer the phone's device_send_sms, which opens the message on the car's screen "
+    "for him to confirm with one tap; use that directly only when the Mac isn't reachable. Keep "
+    "replies short and spoken; never ask him to look at, unlock or tap his phone.]"
 )
 
 
@@ -1432,7 +1435,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         origin_text = turn_origin.directive(origin, "voice")
         if origin_text:
             s._voice_turn_directive = s._voice_turn_directive.rstrip() + "\n\n" + origin_text
-        turn_origin.note_turn(session_id, origin)
+        turn_origin.note_turn(session_id, origin, carplay=carplay)
     except Exception:
         pass
     if not harness_path:

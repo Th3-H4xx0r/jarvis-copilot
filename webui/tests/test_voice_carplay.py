@@ -88,6 +88,23 @@ def test_the_directive_has_the_carplay_note_only_on_carplay():
     assert "unlock" in car
 
 
+def test_the_carplay_note_sends_music_straight_to_spotify_play():
+    # In the car the model opened Spotify itself, then checked the state and the
+    # device list (only the MacBook) and gave up: play opens Spotify on its own.
+    car = voice._voice_turn_directive(None, carplay=True)
+    assert "spotify_playback play" in car
+    assert "don't call device_open_app or check the state/devices first" in car
+
+
+def test_the_carplay_note_never_texts_by_controlling_the_mac():
+    # When device_messages_send failed, the model clicked through Messages on the
+    # Mac with ui_look/ui_do — slow; he wants it never.
+    car = voice._voice_turn_directive(None, carplay=True)
+    assert "never text by controlling the Mac's screen" in car
+    assert "ui_look/ui_do" in car
+    assert "tell him why in one sentence" in car
+
+
 def test_the_carplay_note_keeps_the_other_notes():
     car = voice._voice_turn_directive("Turn left on", carplay=True)
     assert "Turn left on" in car and "CarPlay" in car
@@ -122,8 +139,16 @@ def test_the_note_rides_the_per_call_directive(monkeypatch, carplay):
                         lambda s, **kw: {"error": "stop after the directive", "_status": 500})
     monkeypatch.setattr(voice, "get_voice_lane_config", lambda: {})
 
-    with pytest.raises(voice._VoiceAgentError):
-        list(voice._run_agent_turn_via_chat("sess-car", "play some music", carplay=carplay))
+    from api import turn_origin
 
-    assert ("CarPlay" in sess._voice_turn_directive) is carplay
-    assert sess._voice_turn_directive.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())
+    phone = {"device_id": "iphone-1", "name": "iPhone", "kind": "mobile-ios"}
+    try:
+        with pytest.raises(voice._VoiceAgentError):
+            list(voice._run_agent_turn_via_chat("sess-car", "play some music", origin=phone, carplay=carplay))
+
+        assert ("CarPlay" in sess._voice_turn_directive) is carplay
+        assert sess._voice_turn_directive.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())
+        # Tools learn it too (a phone turn in the car vs. in his hand).
+        assert turn_origin.is_carplay_session("sess-car") is carplay
+    finally:
+        turn_origin.note_turn("sess-car", None)

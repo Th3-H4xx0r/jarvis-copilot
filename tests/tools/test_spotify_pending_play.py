@@ -50,9 +50,10 @@ def _no_active_device() -> spotify_mod.SpotifyAPIError:
 class _PlayerStub:
     """Fake SpotifyClient: scripted start_playback failures + device polls."""
 
-    def __init__(self, *, play_errors=None, device_polls=None):
+    def __init__(self, *, play_errors=None, device_polls=None, playback_states=None):
         self.play_errors = list(play_errors or [])
         self.device_polls = list(device_polls or [])
+        self.playback_states = list(playback_states or [])
         self.play_calls: list[dict] = []
         self.device_calls = 0
         self.pause_calls = 0
@@ -70,6 +71,13 @@ class _PlayerStub:
         if len(self.device_polls) > 1:
             return {"devices": self.device_polls.pop(0)}
         return {"devices": self.device_polls[0] if self.device_polls else []}
+
+    def get_playback_state(self, **kw):
+        if len(self.playback_states) > 1:
+            return self.playback_states.pop(0)
+        if self.playback_states:
+            return self.playback_states[0]
+        return {"success": True, "status_code": 204, "empty": True}
 
     def pause_playback(self, **kw):
         self.pause_calls += 1
@@ -366,11 +374,14 @@ def test_pause_without_active_device_keeps_todays_error(monkeypatch, spawned) ->
     assert spawned == []
 
 
-# ── the turn's phone opens Spotify itself (car_app_followup) ───────────────
+# ── phone turns (CarPlay): open the song on the phone, never the MacBook ────
 #
-# On CarPlay the model used to be told to call open_app itself; now the play
-# asks the phone the turn came from to open Spotify (on the car's screen after
-# the reply) and starts the song once Spotify shows up as a device.
+# In the car (2026-10-18) iPhone Spotify opened on CarPlay and idle never showed
+# up as a Spotify Connect device, so waiting for one couldn't work — and the
+# only device listed was his MacBook at home. A phone turn now asks the phone to
+# open the song's own spotify: link (open_url, now=true — Spotify opens and
+# plays it), then makes sure in the background that the phone plays exactly
+# that. Turns from the web or the Mac keep today's device choice.
 
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -379,31 +390,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "webui"))
 
 from tools import car_app_followup  # noqa: E402
 
-CAR_NOTE = "It opens on the car's screen when you finish speaking."
+PLAYLIST = "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"
+MACBOOK = {"id": "mac-1", "name": "Pranav's MacBook Pro", "type": "Computer", "is_restricted": False, "is_active": False}
+PHONE_ACTIVE = {**PHONE, "is_active": True}
+DEVICE_NOT_FOUND_BODY = json.dumps({"error": {"status": 404, "message": "Device not found"}})
+OPENED = {"ok": True, "result": {"opened": True}}
+NO_OPEN_URL = {"ok": False, "error": "that device has no open_url skill"}
+APP_OPENING = {"ok": True, "result": {"launched": True, "note": "It opens on the car's screen when you finish speaking."}}
+
+
+def _playing(uri: str, *, device: str = "phone-1", context: str | None = None, is_playing: bool = True) -> dict:
+    return {
+        "is_playing": is_playing,
+        "device": {"id": device},
+        "item": {"uri": uri},
+        "context": {"uri": context} if context else None,
+    }
 
 
 class _Phone:
-    def __init__(self, reply=None):
+    """The turn's device: records skill calls, answers per skill."""
+
+    def __init__(self):
         self.calls: list = []
-        self.reply = reply if reply is not None else {"ok": True, "result": {"launched": True, "note": CAR_NOTE}}
+        self.replies = {"open_url": OPENED, "open_app": APP_OPENING}
 
     def __call__(self, device_id, skill, args, timeout=None):
         self.calls.append((device_id, skill, dict(args)))
-        return self.reply
+        return self.replies.get(skill, {"ok": False, "error": f"no {skill} skill"})
 
 
-@pytest.fixture
-def car_turn(monkeypatch: pytest.MonkeyPatch):
-    """A voice turn from the iPhone (session "sess-car"); open requests and
-    follow-up threads are captured instead of sent / started."""
+def _turn(monkeypatch, *, kind="mobile-ios", carplay=True):
+    """A turn from ``kind`` (session "sess-car"); skill calls and follow-up
+    threads are captured instead of sent / started."""
     from api import turn_origin
 
     phone = _Phone()
     runs: list = []
     monkeypatch.setattr(car_app_followup, "_invoke_device_skill", phone)
     monkeypatch.setattr(car_app_followup, "start_background", lambda run, name: runs.append(run))
-    turn_origin.note_turn("sess-car", {"device_id": "iphone-1", "name": "iPhone", "kind": "mobile-ios"})
-    yield phone, runs
+    turn_origin.note_turn("sess-car", {"device_id": "iphone-1", "name": "iPhone", "kind": kind}, carplay=carplay)
+    return phone, runs
+
+
+@pytest.fixture
+def car_turn(monkeypatch: pytest.MonkeyPatch):
+    from api import turn_origin
+
+    yield _turn(monkeypatch)
+    turn_origin.note_turn("sess-car", None)
+
+
+@pytest.fixture
+def web_turn(monkeypatch: pytest.MonkeyPatch):
+    from api import turn_origin
+
+    yield _turn(monkeypatch, kind="browser", carplay=False)
     turn_origin.note_turn("sess-car", None)
 
 
@@ -411,82 +453,229 @@ def _car_play(**args) -> dict:
     return json.loads(spotify_tool._handle_spotify_playback({"action": "play", **args}, task_id="sess-car"))
 
 
-def test_play_with_no_device_opens_spotify_on_the_turns_phone(monkeypatch, spawned, car_turn) -> None:
+def _run(runs, i=0) -> str:
+    clock = _FakeClock()
+    return runs[i](sleep=clock.sleep, clock=clock)
+
+
+def test_a_phone_turn_opens_the_song_on_the_phone_now_and_returns_at_once(monkeypatch, spawned, car_turn) -> None:
     phone, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[], [], [PHONE]])
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
     _use(monkeypatch, stub)
 
     payload = _car_play(uris=[TRACK])
 
-    assert phone.calls == [("iphone-1", "open_app", {"app": "spotify"})]
+    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
     assert payload["success"] is True and payload["pending"] is True
-    assert "Opening Spotify" in payload["note"]
-    assert "opens on the car's screen" in payload["note"]
-    assert "open_app spotify" not in payload["note"]  # the model must not open it again
-    assert spawned == [] and len(runs) == 1
-    assert len(stub.play_calls) == 1  # nothing played yet
+    assert "Playing it in Spotify on the car" in payload["note"]
+    assert len(stub.play_calls) == 1  # only the failed attempt: not on the MacBook
+    assert len(runs) == 1 and spawned == []
 
-    clock = _FakeClock()
-    assert runs[0](sleep=clock.sleep, clock=clock) == "done"
-    assert stub.play_calls[-1]["device_id"] == "phone-1"
-    assert stub.play_calls[-1]["uris"] == [TRACK]
+
+def test_a_phone_turn_opens_a_playlist_by_its_context_uri(monkeypatch, spawned, car_turn) -> None:
+    phone, _ = car_turn
+    _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]]))
+
+    _car_play(context_uri=PLAYLIST)
+
+    assert phone.calls == [("iphone-1", "open_url", {"url": PLAYLIST, "now": True})]
+
+
+def test_a_phone_turn_never_plays_on_a_computer(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK, {**MACBOOK, "is_active": True}]])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+    outcome = _run(runs)  # the MacBook is all there ever is
+
+    assert outcome == "timeout"
+    assert all(c.get("device_id") != "mac-1" for c in stub.play_calls)
     assert spotify_tool._current_pending_play() is None
 
 
-def test_newest_play_wins_while_spotify_is_opening(monkeypatch, spawned, car_turn) -> None:
+def test_the_phone_is_started_on_the_song_when_it_shows_up_on_another_track(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[_playing(OTHER_TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK], position_ms=1000)
+
+    assert _run(runs) == "done"
+    assert stub.play_calls[-1] == {"device_id": "phone-1", "context_uri": None, "uris": [TRACK],
+                                   "offset": None, "position_ms": 1000}
+    assert spotify_tool._current_pending_play() is None
+
+
+def test_nothing_is_restarted_when_the_phone_already_plays_the_song(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+                       playback_states=[_playing(TRACK)])
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    assert len(stub.play_calls) == 1  # just the original failed attempt
+
+
+def test_nothing_is_restarted_when_the_phone_already_plays_the_playlist(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[], [PHONE_ACTIVE]],
+                       playback_states=[_playing(TRACK, context=PLAYLIST)])
+    _use(monkeypatch, stub)
+    _car_play(context_uri=PLAYLIST)
+
+    assert _run(runs) == "done"
+    assert len(stub.play_calls) == 1
+
+
+def test_a_404_on_an_explicit_device_takes_the_same_path(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)], device_polls=[[MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK], device_id="72332cff")
+
+    assert "error" not in payload
+    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
+    assert len(runs) == 1
+
+
+def test_a_listed_phone_is_played_on_directly(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK, PHONE]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert stub.play_calls[-1]["device_id"] == "phone-1"
+    assert "Pranav's iPhone" in payload["note"]
+    assert phone.calls == [] and runs == []
+
+
+def test_a_listed_phone_that_404s_is_opened_instead(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(play_errors=[_no_active_device(), _api_error(404, DEVICE_NOT_FOUND_BODY)],
+                       device_polls=[[PHONE]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["pending"] is True
+    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
+    assert len(runs) == 1
+
+
+def test_newest_play_wins_while_the_phone_opens_the_song(monkeypatch, spawned, car_turn) -> None:
     _, runs = car_turn
     stub = _PlayerStub(play_errors=[_no_active_device(), _no_active_device()], device_polls=[[]])
     _use(monkeypatch, stub)
 
     _car_play(uris=[TRACK])
     _car_play(uris=[OTHER_TRACK])
-    assert len(runs) == 2
+    stub.device_polls = [[PHONE_ACTIVE]]
 
-    stub.device_polls = [[PHONE]]  # Spotify comes up on the car
-    clock = _FakeClock()
-    assert runs[0](sleep=clock.sleep, clock=clock) == "cancelled"
-    assert runs[1](sleep=clock.sleep, clock=clock) == "done"
+    assert _run(runs, 0) == "cancelled"
+    assert _run(runs, 1) == "done"
     assert [c["uris"] for c in stub.play_calls if c.get("device_id")] == [[OTHER_TRACK]]
 
 
-def test_pause_cancels_the_play_waiting_for_spotify_to_open(monkeypatch, spawned, car_turn) -> None:
+def test_pause_cancels_the_song_the_phone_is_opening(monkeypatch, spawned, car_turn) -> None:
     _, runs = car_turn
     stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]])
     _use(monkeypatch, stub)
     _car_play(uris=[TRACK])
 
     spotify_tool._handle_spotify_playback({"action": "pause"}, task_id="sess-car")
-    stub.device_polls = [[PHONE]]
-    clock = _FakeClock()
+    stub.device_polls = [[PHONE_ACTIVE]]
 
-    assert runs[0](sleep=clock.sleep, clock=clock) == "cancelled"
+    assert _run(runs) == "cancelled"
     assert len(stub.play_calls) == 1
 
 
-def test_waiting_for_spotify_to_open_gives_up_after_the_window(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]])
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
+def test_a_phone_turn_out_of_the_car_says_the_phone(monkeypatch, spawned) -> None:
+    from api import turn_origin
 
-    clock = _FakeClock()
-    assert runs[0](sleep=clock.sleep, clock=clock) == "timeout"
-    assert clock.now >= spotify_tool._PENDING_PLAY_WINDOW_S
-    assert len(stub.play_calls) == 1
-    assert spotify_tool._current_pending_play() is None
+    _turn(monkeypatch, carplay=False)
+    try:
+        _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]]))
+        payload = _car_play(uris=[TRACK])
+    finally:
+        turn_origin.note_turn("sess-car", None)
+
+    assert "Playing it in Spotify on his phone" in payload["note"]
 
 
-def test_a_phone_that_cannot_open_spotify_falls_back_to_asking_the_model(monkeypatch, spawned, car_turn) -> None:
+# ── a phone without open_url: open the app, then the pending play ──────────
+
+
+def test_a_phone_without_open_url_opens_spotify_and_waits_for_the_phone(monkeypatch, spawned, car_turn) -> None:
     phone, runs = car_turn
-    phone.reply = {"ok": False, "error": "device offline"}
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]])
+    phone.replies["open_url"] = NO_OPEN_URL
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK], [MACBOOK, PHONE]])
     _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert [c[1] for c in phone.calls] == ["open_url", "open_app"]
+    assert "Opening Spotify" in payload["note"]
+    assert "opens on the car's screen" in payload["note"]
+    assert "open_app spotify" not in payload["note"]
+    assert spawned == [] and len(runs) == 1
+
+    assert _run(runs) == "done"
+    assert stub.play_calls[-1]["device_id"] == "phone-1"
+    assert all(c.get("device_id") != "mac-1" for c in stub.play_calls)
+
+
+def test_a_phone_that_cannot_open_spotify_at_all_falls_back_to_asking_the_model(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    phone.replies = {}
+    _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]]))
 
     payload = _car_play(uris=[TRACK])
 
     assert payload["pending"] is True
     assert "open_app spotify" in payload["note"]
     assert len(runs) == 1  # still waits for Spotify to come up
+
+
+def test_resuming_with_nothing_to_open_opens_the_app(monkeypatch, spawned, car_turn) -> None:
+    phone, _ = car_turn
+    _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]]))
+
+    _car_play()  # "resume": no track, no playlist
+
+    assert [c[1] for c in phone.calls] == ["open_app"]
+
+
+# ── turns from the web / the Mac / nowhere: today's choice ──────────────────
+
+
+def test_a_web_turn_still_plays_on_the_listed_computer(monkeypatch, spawned, web_turn) -> None:
+    phone, runs = web_turn
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert stub.play_calls[-1]["device_id"] == "mac-1"
+    assert "MacBook" in payload["note"]
+    assert phone.calls == [] and runs == []
+
+
+def test_a_web_turn_keeps_the_error_for_a_missing_explicit_device(monkeypatch, spawned, web_turn) -> None:
+    phone, runs = web_turn
+    stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)], device_polls=[[MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK], device_id="72332cff")
+
+    assert "error" in payload
+    assert phone.calls == [] and runs == [] and len(stub.play_calls) == 1
 
 
 def test_a_turn_from_an_unknown_device_keeps_todays_note(monkeypatch, spawned, car_turn) -> None:
