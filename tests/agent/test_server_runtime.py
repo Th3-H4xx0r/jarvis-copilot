@@ -230,3 +230,16 @@ def test_job_state_reads_claudes_own_job_file(home):
     assert rt.job_state("1a2b3c4d")["state"] == "working"
     assert rt.job_state("ffffffff") == {}
     assert rt.job_state("../../etc") == {}
+
+
+def test_job_for_finds_the_servers_job_for_a_session(home):
+    jobs = home / ".claude" / "jobs"
+    for job, sid in (("29cb2db1", "29cb2db1-c2c7-4d53"), ("6f309e8b", "6f309e8b-64f2-4fee")):
+        (jobs / job).mkdir(parents=True)
+        (jobs / job / "state.json").write_text(json.dumps({"sessionId": sid, "state": "done"}))
+    (jobs / "pins.json").write_text("{}")
+    rt = ClaudeRuntime(run=Run())
+    assert rt.job_for("29cb2db1-c2c7-4d53") == "29cb2db1"
+    assert rt.job_for("aaaaaaaa-0000") is None
+    assert rt.job_session("6f309e8b") == "6f309e8b-64f2-4fee"
+    assert rt.job_session("ffffffff") is None

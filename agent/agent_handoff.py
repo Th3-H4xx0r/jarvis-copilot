@@ -134,9 +134,18 @@ class Handoff:
         if (row.get("agent") or "claude") == "codex":
             return {"kind": "headless", "handle": self.codex.start(cwd, resume_session_id=sid)}
         self.claude.ensure_trusted(cwd)
-        bg_origin = (row.get("run") or {}).get("kind") == "background"
-        return {"kind": "background",
-                "bg_id": self.claude.start(cwd, resume_session_id=sid, bg_origin=bg_origin)}
+        # A session Claude's daemon here already has a job for (it ran on the
+        # server before) resumes bare: with flags it starts a new session, and
+        # the phone's messages would go to a copy it never shows.
+        bare = (row.get("run") or {}).get("kind") == "background" or bool(self.claude.job_for(sid))
+        bg_id = self.claude.start(cwd, resume_session_id=sid, bg_origin=bare)
+        if not bare and self.claude.job_session(bg_id) not in (None, sid):
+            self.claude.stop(bg_id)
+            bg_id = self.claude.start(cwd, resume_session_id=sid, bg_origin=True)
+        if self.claude.job_session(bg_id) not in (None, sid):
+            self.claude.stop(bg_id)
+            raise RuntimeError("Claude started a new session instead of resuming this one")
+        return {"kind": "background", "bg_id": bg_id}
 
     # ── sending ──────────────────────────────────────────────────────────
     def send(self, ckey: str, text: str, now: bool = False) -> dict:

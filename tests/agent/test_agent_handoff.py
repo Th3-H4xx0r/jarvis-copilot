@@ -15,6 +15,7 @@ class FakeClaude:
     def __init__(self, fail=False):
         self.started, self.sent, self.stopped, self.trusted, self.fail = [], [], [], [], fail
         self.live = []
+        self.jobs, self.sessions = {}, {}   # session id -> server job id; job -> its session
 
     def ensure_trusted(self, cwd):
         self.trusted.append(cwd)
@@ -23,7 +24,21 @@ class FakeClaude:
         if self.fail:
             raise RuntimeError("claude refused")
         self.started.append((cwd, kw))
-        return "bg123456"
+        sid = kw.get("resume_session_id")
+        if sid in self.jobs and not kw.get("bg_origin"):
+            # Claude's daemon already has a job for it: a resume with flags
+            # (--settings) starts a new session instead of that one.
+            self.sessions["copy0001"] = "other-session"
+            return "copy0001"
+        job = self.jobs.get(sid, "bg123456")
+        self.sessions[job] = sid
+        return job
+
+    def job_for(self, session_id):
+        return self.jobs.get(session_id)
+
+    def job_session(self, bg_id):
+        return self.sessions.get(bg_id)
 
     def send(self, bg_id, text, timeout=8.0, now=False, hold_until=None, **kw):
         self.sent.append((bg_id, text))
@@ -82,6 +97,30 @@ def test_continue_asleep_resumes_and_sets_owner(env):
     cwd, kw = env["claude"].started[0]
     assert cwd == str(env["tmp"] / "cp" / "app") and kw["resume_session_id"] == "s1"
     assert env["claude"].trusted == [cwd]
+
+
+def test_a_session_the_server_ran_before_resumes_as_itself(env):
+    """It ran on the server, went back to the Mac and ended there (an
+    interactive run). Claude's daemon still has its job: a resume with flags
+    started a new session, so the phone's messages went to a copy it never
+    showed, and the conversation was marked ended."""
+    ck = _asleep(env, state="idle", status="ended")
+    env["claude"].jobs["s1"] = "s1aaaaaa"
+    out = env["h"].continue_on_server(ck)
+    assert out["ok"] is True
+    assert [kw["bg_origin"] for _, kw in env["claude"].started] == [True]
+    assert env["conv"].get(ck)["run"]["bg_id"] == "s1aaaaaa"
+
+
+def test_a_resume_that_comes_back_as_another_session_is_not_kept(env):
+    ck = _asleep(env, state="idle", status="ended")
+    env["claude"].jobs["s1"] = "s1aaaaaa"
+    env["claude"].job_for = lambda sid: None      # its job file couldn't be read
+    out = env["h"].continue_on_server(ck)
+    assert out["ok"] is True
+    assert env["claude"].stopped == ["copy0001"]
+    assert [kw["bg_origin"] for _, kw in env["claude"].started] == [False, True]
+    assert env["conv"].get(ck)["run"]["bg_id"] == "s1aaaaaa"
 
 
 def test_continue_offline_needs_confirm(env):

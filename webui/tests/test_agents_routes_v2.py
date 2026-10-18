@@ -41,6 +41,12 @@ class FakeClaude:
     def roster(self):
         return []
 
+    def job_for(self, session_id):
+        return None
+
+    def job_session(self, bg_id):
+        return None
+
 
 class FakeCodex:
     def available(self):

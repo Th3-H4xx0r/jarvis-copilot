@@ -132,13 +132,32 @@ class ClaudeRuntime:
         state.json``: state working/blocked/done..., updatedAt). {} if none."""
         if not re.fullmatch(r"[0-9a-f]{6,16}", str(bg_id or "")):
             return {}
-        cfg = os.environ.get("CLAUDE_CONFIG_DIR")
-        base = Path(cfg) if cfg else Path.home() / ".claude"
         try:
-            data = json.loads((base / "jobs" / bg_id / "state.json").read_text())
+            data = json.loads((self._jobs_dir() / bg_id / "state.json").read_text())
         except (OSError, ValueError):
             return {}
         return data if isinstance(data, dict) else {}
+
+    def job_for(self, session_id: str) -> Optional[str]:
+        """The job Claude's daemon here already has for a session, if any: it
+        resumes bare, since a resume with flags (--settings) starts a new
+        session instead of that one."""
+        if not session_id:
+            return None
+        try:
+            jobs = sorted(p.name for p in self._jobs_dir().iterdir())
+        except OSError:
+            return None
+        return next((j for j in jobs if self.job_session(j) == session_id), None)
+
+    def job_session(self, bg_id: str) -> Optional[str]:
+        """The session a job runs (a resume can come back as a new one)."""
+        return self.job_state(bg_id).get("sessionId") or None
+
+    @staticmethod
+    def _jobs_dir() -> Path:
+        cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        return (Path(cfg) if cfg else Path.home() / ".claude") / "jobs"
 
     def _config_path(self) -> Path:
         cfg = os.environ.get("CLAUDE_CONFIG_DIR")
