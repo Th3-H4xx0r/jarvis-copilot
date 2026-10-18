@@ -116,7 +116,7 @@ struct ChatAssistantTurnCard: View {
                     if message.isError {
                         errorText(text.text)
                     } else {
-                        ChatMarkdownText(text: text.text)
+                        ChatMarkdownText(text: text.text, embeds: true)
                     }
                 }
             }

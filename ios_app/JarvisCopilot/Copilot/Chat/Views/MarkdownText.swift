@@ -14,10 +14,13 @@ import SwiftUI
 /// (swift-correctness H7).
 struct ChatMarkdownText: View {
     let text: String
+    /// The main chat's live HTML pages and link previews. Off elsewhere (agent
+    /// transcripts, skill docs): their paths aren't files on the server.
+    var embeds = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(ChatMarkdownCache.blocks(for: rendered).enumerated()), id: \.offset) { _, block in
+            ForEach(Array(ChatMarkdownCache.blocks(for: rendered, embeds: embeds).enumerated()), id: \.offset) { _, block in
                 view(for: block)
             }
         }
@@ -85,6 +88,16 @@ struct ChatMarkdownText: View {
 
         case .table(let table):
             ChatMarkdownTable(table: table)
+
+        case .htmlPage(let path):
+            ChatHTMLCard(path: path)
+
+        case .linkPreview(let url):
+            if let link = URL(string: url) {
+                ChatLinkPreview(url: link)
+            } else {
+                Text(url).textSelection(.enabled)
+            }
         }
     }
 

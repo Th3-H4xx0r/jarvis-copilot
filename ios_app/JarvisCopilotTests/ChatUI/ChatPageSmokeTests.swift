@@ -163,6 +163,13 @@ final class ChatPageSmokeTests: XCTestCase {
         XCTAssertFalse(closed)
     }
 
+    func testChatEmbedsRender() {
+        // A live page card and an iMessage-style link card lay out without a
+        // pairing or network: the card shows its spinner, the link its host.
+        let markdown = "Here it is, sir.\n/root/workspace/costumes/couples_costumes.html\n\nhttps://www.apple.com/iphone/"
+        render(ChatMarkdownText(text: markdown, embeds: true).frame(width: 320))
+    }
+
     func testToolRowRendersRunningAndFinished() {
         render(VStack {
             ChatToolRow(tool: ToolInvocation(name: "device_take_photo", args: ["camera": "front"]))

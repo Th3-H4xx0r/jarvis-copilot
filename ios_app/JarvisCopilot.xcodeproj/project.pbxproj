@@ -316,6 +316,7 @@
 		44F8A17919EB9D0150CF7EA2 /* InmoSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE44256CEF1D868EF3E53F4 /* InmoSession.swift */; };
 		44FCFC6A2B4E3F97CA6BB91E /* IslandAuto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C06AE591CC79CC527BABB4B /* IslandAuto.swift */; };
 		456DAFDBBAE9C8A4D40AEA0A /* MoreToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07BA14ED0625D8F5D0AC60AD /* MoreToast.swift */; };
+		45CBE40A18982DB806D96828 /* ChatEmbeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6DECB8FC714762576F61B6E /* ChatEmbeds.swift */; };
 		45F1400A78C23218659FC297 /* CronsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5755F2FE11DCC354084458A /* CronsTests.swift */; };
 		4608CE48ABB2A6E99C139395 /* CodeMasterSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C318CF8270F8127766E1D341 /* CodeMasterSettingsPage.swift */; };
 		460C6E65E3AB16D9171480EE /* AmbientOpusEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3D404BBE1F88EE7584A34B /* AmbientOpusEncoder.swift */; };
@@ -2057,6 +2058,7 @@
 		D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureList.swift; sourceTree = "<group>"; };
 		D65CD119229EBC485E6DF632 /* BandSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandSession.swift; sourceTree = "<group>"; };
 		D69FA7730EB649964FC16077 /* JarvisWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisWatchApp.swift; sourceTree = "<group>"; };
+		D6DECB8FC714762576F61B6E /* ChatEmbeds.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatEmbeds.swift; sourceTree = "<group>"; };
 		D6E2B50C7BDAB19EBC8A962E /* NotesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotesModels.swift; sourceTree = "<group>"; };
 		D775A589B5EE75BEADF137C0 /* RouteModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteModels.swift; sourceTree = "<group>"; };
 		D8295AE63E6B2896E74A3267 /* LiveSpoolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpoolTests.swift; sourceTree = "<group>"; };
@@ -3882,6 +3884,7 @@
 				AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */,
 				73D8E90823BB19C7D62C4729 /* HarnessChip.swift */,
 				14A5A1C84749861FC4570518 /* HarnessJobCard.swift */,
+				D6DECB8FC714762576F61B6E /* ChatEmbeds.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -5586,6 +5589,7 @@
 				4608CE48ABB2A6E99C139395 /* CodeMasterSettingsPage.swift in Sources */,
 				C969054E3A9E794B9D2CEC62 /* CarTalkLink.swift in Sources */,
 				60A293841C7E9A3F71FD5739 /* VoiceLogFile.swift in Sources */,
+				45CBE40A18982DB806D96828 /* ChatEmbeds.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

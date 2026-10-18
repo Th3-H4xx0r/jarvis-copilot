@@ -214,4 +214,65 @@ final class MarkdownBlocksTests: XCTestCase {
         guard case .table(let table)? = MarkdownBlocks.split(md).first else { return XCTFail() }
         XCTAssertEqual(table.rows, [["x | y", ""]])
     }
+
+    // MARK: Chat embeds (HTML pages + link previews)
+
+    private func embeds(_ md: String) -> [MarkdownBlock] {
+        MarkdownBlocks.withEmbeds(MarkdownBlocks.split(md))
+    }
+
+    func testPathOnItsOwnLineBecomesThePage() {
+        XCTAssertEqual(embeds("Here it is, sir.\n/root/workspace/costumes/couples_costumes.html"), [
+            .paragraph("Here it is, sir."),
+            .htmlPage(path: "/root/workspace/costumes/couples_costumes.html"),
+        ])
+    }
+
+    func testPathInASentenceKeepsTheTextAndAddsThePageAfter() {
+        XCTAssertEqual(embeds("Saved to `/tmp/a.html`. Open it."), [
+            .paragraph("Saved to `/tmp/a.html`. Open it."),
+            .htmlPage(path: "/tmp/a.html"),
+        ])
+        XCTAssertEqual(embeds("- table: /tmp/b.html."), [
+            .list([MarkdownListItem(marker: "•", depth: 0, text: "table: /tmp/b.html.")]),
+            .htmlPage(path: "/tmp/b.html"),
+        ])
+    }
+
+    func testSamePathTwiceMakesOnePage() {
+        let pages = embeds("/tmp/a.html\n\nOpen /tmp/a.html again").filter {
+            if case .htmlPage = $0 { return true } else { return false }
+        }
+        XCTAssertEqual(pages.count, 1)
+    }
+
+    func testPathsThatAreNotServerFilesStayText() {
+        let md = "See https://example.com/page.html and `cat /tmp/x.html` and ~/y.html"
+        XCTAssertEqual(embeds(md), [.paragraph(md)])
+        XCTAssertEqual(embeds("```\nopen /tmp/a.html\n```"),
+                       [.code(language: "", text: "open /tmp/a.html", closed: true)])
+    }
+
+    func testLinkOnItsOwnLineBecomesAPreview() {
+        XCTAssertEqual(embeds("Here you go:\nhttps://www.amazon.com/dp/B083V5L7V6\nEnjoy"), [
+            .paragraph("Here you go:"),
+            .linkPreview(url: "https://www.amazon.com/dp/B083V5L7V6"),
+            .paragraph("Enjoy"),
+        ])
+        XCTAssertEqual(embeds("[Mario costume](https://example.com/mario)"),
+                       [.linkPreview(url: "https://example.com/mario")])
+        XCTAssertEqual(embeds("<https://example.com/x>"), [.linkPreview(url: "https://example.com/x")])
+    }
+
+    func testLinkInsideASentenceStaysALink() {
+        XCTAssertEqual(embeds("Buy it at https://example.com/x today"),
+                       [.paragraph("Buy it at https://example.com/x today")])
+    }
+
+    func testEmbedsAreOffByDefault() {
+        XCTAssertEqual(ChatMarkdownCache.blocks(for: "https://example.com/y"),
+                       [.paragraph("https://example.com/y")])
+        XCTAssertEqual(ChatMarkdownCache.blocks(for: "https://example.com/y", embeds: true),
+                       [.linkPreview(url: "https://example.com/y")])
+    }
 }

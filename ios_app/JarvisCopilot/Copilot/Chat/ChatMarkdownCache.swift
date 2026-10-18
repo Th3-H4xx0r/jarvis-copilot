@@ -44,10 +44,13 @@ enum ChatMarkdownCache {
     }()
 
     /// The block split of `text`, parsed at most once per distinct string.
-    static func blocks(for text: String) -> [MarkdownBlock] {
-        let key = text as NSString
+    /// `embeds` adds the main chat's HTML pages and link previews
+    /// (``MarkdownBlocks/withEmbeds(_:)``), cached under its own key.
+    static func blocks(for text: String, embeds: Bool = false) -> [MarkdownBlock] {
+        let key = (embeds ? "\u{1}" + text : text) as NSString
         if let hit = blockCache.object(forKey: key) { return hit.blocks }
-        let blocks = MarkdownBlocks.split(text)
+        let split = MarkdownBlocks.split(text)
+        let blocks = embeds ? MarkdownBlocks.withEmbeds(split) : split
         blockCache.setObject(BlocksBox(blocks), forKey: key)
         return blocks
     }

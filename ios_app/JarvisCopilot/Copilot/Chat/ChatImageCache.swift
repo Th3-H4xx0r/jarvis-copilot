@@ -70,6 +70,12 @@ enum ChatMedia {
         api.credentials.baseURL?.absoluteString ?? ""
     }
 
+    /// The cookie-gated `/api/media` URL behind a file on the server,
+    /// root-relative: join it onto ``apiBase(_:)``.
+    static func mediaSource(_ path: String) -> String {
+        "/api/media?path=" + (path.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? path)
+    }
+
     private static func replacement(for ref: String, whole: String, base: String) -> String {
         guard !ref.isEmpty else { return whole }
         let lower = ref.lowercased()

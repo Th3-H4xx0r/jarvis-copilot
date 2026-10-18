@@ -44,6 +44,12 @@ enum MarkdownBlock: Equatable, Sendable {
     /// padded/truncated to the header's width so the view never indexes past a
     /// short row that's still streaming in.
     case table(MarkdownTable)
+    /// A page the agent saved on the server (an absolute `.html` path), shown
+    /// live. Only produced by ``MarkdownBlocks/withEmbeds(_:)``.
+    case htmlPage(path: String)
+    /// A web link on a line of its own, drawn as an iMessage-style preview.
+    /// Only produced by ``MarkdownBlocks/withEmbeds(_:)``.
+    case linkPreview(url: String)
 }
 
 struct MarkdownTable: Equatable, Sendable {
@@ -169,6 +175,91 @@ enum MarkdownBlocks {
         flushAll()
         return out
     }
+
+    // MARK: Chat embeds
+
+    /// The main chat's extras on top of ``split(_:)``, mirroring the web UI's
+    /// `renderMd` embeds pre-pass:
+    ///
+    /// * an absolute `.html` path gets a live ``MarkdownBlock/htmlPage(path:)``
+    ///   card — in place of a line that is only the path, otherwise right after
+    ///   the block that names it — once per path per reply;
+    /// * a paragraph line that is nothing but a web link becomes a
+    ///   ``MarkdownBlock/linkPreview(url:)``. A link inside a sentence stays a link.
+    static func withEmbeds(_ blocks: [MarkdownBlock]) -> [MarkdownBlock] {
+        var out: [MarkdownBlock] = []
+        var seen = Set<String>()
+        func page(_ path: String) {
+            if seen.insert(path).inserted { out.append(.htmlPage(path: path)) }
+        }
+        for block in blocks {
+            switch block {
+            case .paragraph(let text):
+                var lines: [String] = []
+                func flush() {
+                    guard !lines.isEmpty else { return }
+                    let joined = lines.joined(separator: "\n")
+                    out.append(.paragraph(joined))
+                    htmlPaths(in: joined).forEach(page)
+                    lines = []
+                }
+                for line in text.components(separatedBy: "\n") {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if let url = standaloneLink(trimmed) {
+                        flush()
+                        out.append(.linkPreview(url: url))
+                    } else if let path = htmlPaths(in: trimmed).first,
+                              [path, "`\(path)`"].contains(trimmed) {
+                        flush()
+                        page(path)
+                    } else {
+                        lines.append(line)
+                    }
+                }
+                flush()
+            case .heading(_, let text), .quote(let text):
+                out.append(block)
+                htmlPaths(in: text).forEach(page)
+            case .list(let items):
+                out.append(block)
+                items.forEach { htmlPaths(in: $0.text).forEach(page) }
+            default:
+                out.append(block)
+            }
+        }
+        return out
+    }
+
+    /// Absolute `.html` paths in `text`, bare or in backticks. Skips URLs
+    /// (`https://x/a.html`), `~/` paths and a path inside a longer code span.
+    static func htmlPaths(in text: String) -> [String] {
+        guard text.contains(".html") else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return htmlPathPattern.matches(in: text, range: range).compactMap { match in
+            let group = match.range(at: 1).location != NSNotFound ? 1 : 2
+            return Range(match.range(at: group), in: text).map { String(text[$0]) }
+        }
+    }
+
+    private static let htmlPathPattern = try! NSRegularExpression(
+        pattern: #"(?:^|[^\w:/.~`(-])(?:`(/[^\s`'"<>()\[\]]+?\.html)`|(/[^\s`'"<>()\[\]]+?\.html)(?![\w/`-]|\.\w))"#)
+
+    /// `https://…`, `<https://…>` or `[label](https://…)` and nothing else.
+    private static func standaloneLink(_ line: String) -> String? {
+        let range = NSRange(line.startIndex..., in: line)
+        for pattern in linkLinePatterns {
+            guard let match = pattern.firstMatch(in: line, range: range),
+                  let url = Range(match.range(at: match.numberOfRanges - 1), in: line)
+            else { continue }
+            return String(line[url])
+        }
+        return nil
+    }
+
+    private static let linkLinePatterns = [
+        try! NSRegularExpression(pattern: #"^<?(https?://[^\s<>"]+?)>?$"#),
+        try! NSRegularExpression(pattern: #"^\[[^\]]+\]\((https?://[^\s)"]+)\)$"#),
+    ]
 
     // MARK: Line classifiers
 
