@@ -18,8 +18,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
     /// Apple's voice card over the bottom of the screen while talking (the Voice tab keeps the text above it).
     private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
-    /// The call/text card Jarvis asks with, over the Voice tab (SendConfirmations).
-    private lazy var confirm = CarPlayConfirmScreen(ui: ui)
 
     /// The car's own library page (filter, paging), apart from the phone's.
     private let library = DashcamLibraryModel()
@@ -83,14 +81,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         WidgetModelSnapshots.refreshIfNeeded()    // the dashboard widget's orb picture
         voice.onShowingChange = { [weak self] in self?.refresh() }
         voice.attach()
-        confirm.bringVoiceTabForward = { [weak self] in
-            guard let self else { return }
-            if self.tabBar?.selectedTemplate !== self.voiceTab || !self.stack.isEmpty {
-                self.ui.popToRootTemplate(animated: false, completion: nil)
-                self.tabBar?.select(self.voiceTab)
-            }
-        }
-        confirm.attach()
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -105,7 +95,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         if watchingDashcam { sync.watchStatus(false, by: "carplay"); watchingDashcam = false }
         stopLive()
         voice.stop()
-        confirm.detach()
         OrbFrames.clear()
     }
 
@@ -657,7 +646,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     // MARK: CPInterfaceControllerDelegate
 
     nonisolated func templateDidAppear(_ aTemplate: CPTemplate, animated: Bool) {
-        MainActor.assumeIsolated { cpDiag("didAppear \(type(of: aTemplate)) header=\(voiceTab.listHeader != nil)") }
+        MainActor.assumeIsolated {
+            cpDiag("didAppear \(type(of: aTemplate)) header=\(voiceTab.listHeader != nil)")
+            voice.templateAppeared(aTemplate)
+        }
     }
 
     nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
@@ -665,7 +657,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             cpDiag("didDisappear \(type(of: aTemplate))")
             // The voice screen went away without End/Done (the system took it): stop listening.
             if voice.owns(aTemplate) { voice.templateGone() }
-            if confirm.owns(aTemplate) { confirm.templateGone() }
             pruneStack()
         }
     }

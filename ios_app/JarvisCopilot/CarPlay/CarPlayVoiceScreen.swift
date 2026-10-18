@@ -1,5 +1,6 @@
 import AVFAudio
 import CarPlay
+import Combine
 import Observation
 import UIKit
 
@@ -72,6 +73,12 @@ final class CarPlayVoiceScreen {
     /// Showing the microphone message: it stays until Stop, not a timed hide.
     private var pinned = false
     private var hideTask: Task<Void, Never>?
+    /// The call or text waiting for his answer (SendConfirmations): while it waits the card
+    /// shows the person — photo, "Text Shabd: “hello”" — with Send and Cancel, and keeps
+    /// listening for a spoken yes or no. Never a screen of its own: pushing one hides this
+    /// card, and with it the microphone (2026-10-18 11:38).
+    private var confirm: SendConfirmations.Card?
+    private var confirmFeed: AnyCancellable?
 
     private var store: VoiceStore { .shared }
 
@@ -82,12 +89,19 @@ final class CarPlayVoiceScreen {
         guard !watching else { return }
         watching = true
         observe()
+        let center = SendConfirmations.shared
+        // @Published sends the new values before the store changes: use them.
+        confirmFeed = center.$card.combineLatest(center.$outcome)
+            .sink { [weak self] card, outcome in
+                Task { @MainActor in self?.confirmChanged(outcome == nil ? card : nil) }
+            }
         follow()
     }
 
     /// The car disconnected or Jarvis left the screen: stop following, end any session.
     func stop() {
         watching = false
+        confirmFeed = nil
         close()
     }
 
@@ -102,6 +116,15 @@ final class CarPlayVoiceScreen {
     /// Whether `template` is this screen's (the coordinator asks when a template disappears).
     func owns(_ other: CPTemplate) -> Bool { template === other }
 
+    /// A voice card appeared that isn't the live one: CarPlay brings back a card it only hid
+    /// (a screen pushed over it, then Back) after the session already ended with it. Its
+    /// Stop has nothing to stop and it would sit there saying "Speaking" — take it away.
+    func templateAppeared(_ other: CPTemplate) {
+        guard other is CPVoiceControlTemplate, other !== template, !isShowing else { return }
+        cpDiag("stray voice card; hiding it")
+        if #available(iOS 27.0, *) { ui.hideOverlayTemplate(animated: true, completion: nil) }
+    }
+
     /// The system took the screen away: recording can't go on without it.
     func templateGone() {
         guard isShowing else { return }
@@ -113,11 +136,7 @@ final class CarPlayVoiceScreen {
 
     private func show(talk: Bool) {
         let micAllowed = CarPlayVoiceState.micAllowed(AVAudioApplication.shared.recordPermission)
-        let template = CPVoiceControlTemplate(voiceControlStates: CarPlayVoiceState.shown.compactMap { state in
-            guard let id = CarPlayVoiceState.id(for: state) else { return nil }
-            return CPVoiceControlState(identifier: id, titleVariants: CarPlayVoiceState.titles(for: state, micAllowed: micAllowed),
-                                       image: OrbFrames.animated(for: state), repeats: true)
-        })
+        let template = makeTemplate(micAllowed: micAllowed)
         self.template = template
         isShowing = true
         pinned = !micAllowed
@@ -199,7 +218,7 @@ final class CarPlayVoiceScreen {
         case .activate(let id):
             hideTask?.cancel()
             hideTask = nil
-            activate(id)
+            activate(confirm.map(CarPlayConfirmText.stateID) ?? id)
             updateButtons()
         case .hideSoon:
             guard !pinned, hideTask == nil else { break }
@@ -214,8 +233,76 @@ final class CarPlayVoiceScreen {
     }
 
     private func activate(_ id: String) {
-        guard let template, CarPlayVoiceState.needsActivation(active: template.activeStateIdentifier, next: id) else { return }
-        template.activateVoiceControlState(withIdentifier: id)
+        guard let template else { return }
+        // A card made while a call/text waited has no "connecting" (five states at most).
+        let ids = template.voiceControlStates.map(\.identifier)
+        guard let next = ids.contains(id) ? id : (ids.contains(VoiceState.listening.rawValue) ? VoiceState.listening.rawValue : nil),
+              CarPlayVoiceState.needsActivation(active: template.activeStateIdentifier, next: next) else { return }
+        template.activateVoiceControlState(withIdentifier: next)
+    }
+
+    /// The card's states: the voice states with the orb — and, while a call or text waits, that
+    /// first (CarPlay opens on the first), in place of "connecting" (five at most).
+    private func makeTemplate(micAllowed: Bool) -> CPVoiceControlTemplate {
+        var states: [CPVoiceControlState] = []
+        if let confirm {
+            states.append(CPVoiceControlState(identifier: CarPlayConfirmText.stateID(confirm),
+                                              titleVariants: CarPlayConfirmText.titles(confirm),
+                                              image: CarPlayConfirmText.avatar(confirm), repeats: false))
+        }
+        for state in CarPlayVoiceState.shown where !(confirm != nil && state == .connecting) {
+            guard let id = CarPlayVoiceState.id(for: state) else { continue }
+            states.append(CPVoiceControlState(identifier: id, titleVariants: CarPlayVoiceState.titles(for: state, micAllowed: micAllowed),
+                                              image: OrbFrames.animated(for: state), repeats: true))
+        }
+        return CPVoiceControlTemplate(voiceControlStates: states)
+    }
+
+    /// A call or text started or stopped waiting for his answer.
+    private func confirmChanged(_ card: SendConfirmations.Card?) {
+        guard card?.id != confirm?.id || (card == nil) != (confirm == nil) else { return }
+        confirm = card
+        guard isShowing, let template else { return }   // a card opened later is made with it
+        if let card, !template.voiceControlStates.contains(where: { $0.identifier == CarPlayConfirmText.stateID(card) }) {
+            swapTemplate()
+        } else {
+            buttonsKey = nil
+            follow()
+        }
+    }
+
+    /// The same card with this call/text's state: put up in place of the old one. Its
+    /// disappearance isn't him closing it — the session goes on.
+    private func swapTemplate() {
+        let micAllowed = CarPlayVoiceState.micAllowed(AVAudioApplication.shared.recordPermission)
+        let new = makeTemplate(micAllowed: micAllowed)
+        template = new
+        buttonsKey = nil
+        updateButtons()
+        let present: () -> Void = { [weak self] in
+            guard let self, self.template === new else { return }
+            let shown: (Bool) -> Void = { [weak self] presented in
+                cpDiag("card swapped for a confirmation presented=\(presented)")
+                guard let self, self.template === new else { return }
+                guard presented else {
+                    self.isShowing = false
+                    self.template = nil
+                    if self.store.isActive { self.stopping = true; Task { await self.store.stopAll() } }
+                    return
+                }
+                self.follow()
+            }
+            if #available(iOS 27.0, *), self.isOverlay {
+                self.ui.showOverlayTemplate(new, animated: false) { presented, _ in shown(presented) }
+            } else {
+                self.ui.presentTemplate(new, animated: false) { presented, _ in shown(presented) }
+            }
+        }
+        if #available(iOS 27.0, *), isOverlay {
+            ui.hideOverlayTemplate(animated: false) { _, _ in present() }
+        } else {
+            ui.dismissTemplate(animated: false) { _, _ in present() }
+        }
     }
 
     /// Realtime: Mute / Unmute. Push-to-talk: Send ends the turn. Stop always — the
@@ -226,7 +313,7 @@ final class CarPlayVoiceScreen {
 
     private func updateButtons() {
         guard let template else { return }
-        let key = "\(store.mode.rawValue)-\(store.muted)"
+        let key = "\(store.mode.rawValue)-\(store.muted)-\(confirm?.id ?? "")"
         guard key != buttonsKey else { return }
         buttonsKey = key
         let primary: CPButton
@@ -244,7 +331,22 @@ final class CarPlayVoiceScreen {
         }
         let stop = CPButton(image: UIImage(systemName: "stop.fill") ?? UIImage()) { [weak self] _ in self?.close() }
         stop.title = "Stop"
-        for state in template.voiceControlStates { state.actionButtons = [primary, stop] }
+        let confirmButtons = confirm.map { card in
+            CarPlayConfirmText.buttons(card).map { spec -> CPButton in
+                let button = CPButton(image: UIImage(systemName: spec.symbol) ?? UIImage()) { _ in
+                    Task { await SendConfirmations.shared.tap(yes: spec.yes) }
+                }
+                button.title = spec.title
+                return button
+            }
+        }
+        for state in template.voiceControlStates {
+            if let confirm, state.identifier == CarPlayConfirmText.stateID(confirm), let confirmButtons {
+                state.actionButtons = confirmButtons
+            } else {
+                state.actionButtons = [primary, stop]
+            }
+        }
     }
 
     private func close(stopVoice: Bool = true) {
@@ -252,11 +354,16 @@ final class CarPlayVoiceScreen {
         hideTask?.cancel()
         hideTask = nil
         pinned = false
-        if stopVoice, store.isActive {
+        // Stop always stops: an errored session too (its mic may be retrying).
+        if stopVoice, store.state != .idle {
             stopping = true
             Task { await store.stopAll() }
         }
-        guard isShowing else { return }
+        guard isShowing else {
+            // A card the session no longer owns (it came back after a push) still goes.
+            if #available(iOS 27.0, *) { ui.hideOverlayTemplate(animated: true, completion: nil) }
+            return
+        }
         isShowing = false
         template = nil
         if #available(iOS 27.0, *), isOverlay {

@@ -1881,6 +1881,45 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
+    /// Tapped while Jarvis is still writing the question: cutting it off would leave no
+    /// question for the answer (the server drops it), so the answer waits for the reply.
+    func testATypedAnswerWhileThinkingWaitsForTheQuestion() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        XCTAssertEqual(rig.store.state, .thinking)
+        let socket = try XCTUnwrap(rig.socket)
+        let turnsBefore = socket.sentTypes.filter { $0 == "end_turn" }.count
+        await rig.store.submitTyped("Yes.")
+        await settleVoiceTasks()
+        XCTAssertNil(socket.lastMessage(ofType: "interrupt"), "the question is not cut off")
+        XCTAssertEqual(socket.sentTypes.filter { $0 == "end_turn" }.count, turnsBefore)
+        try await replyWithAudio(rig, text: "Should I text Shabd hello, sir?")
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(socket.lastMessage(ofType: "end_turn")?["text"] as? String, "Yes.")
+        await rig.store.stopAll()
+    }
+
+    /// A held answer never outlives its session: it must not go out as the first words of
+    /// some later conversation.
+    func testAHeldAnswerIsDroppedWhenTheSessionStops() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        await rig.store.submitTyped("Yes.")
+        await rig.store.stopAll()
+        await settleVoiceTasks()
+        await startListening(rig)
+        await settleVoiceTasks()
+        XCTAssertNil(rig.socket?.lastMessage(ofType: "end_turn")?["text"] as? String)
+        await rig.store.stopAll()
+    }
+
     /// The call/text card is up: a one-shot reply keeps the mic for his answer even when
     /// it doesn't end in "?" ("Okay, I'll text Shabd hello.").
     func testAOneShotReplyListensWhileACardWaitsForHisAnswer() async throws {

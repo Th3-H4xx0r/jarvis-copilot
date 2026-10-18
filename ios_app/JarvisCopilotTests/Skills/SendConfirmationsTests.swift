@@ -18,7 +18,7 @@ final class SendConfirmationsTests: XCTestCase {
     private func makeStore(_ known: [String: ContactCardInfo] = [:]) -> SendConfirmations {
         let store = SendConfirmations(contacts: Lookup(known: known), voice: nil)
         store.outcomeHold = .milliseconds(20)
-        store.answer = { [weak self] yes in self?.answers.append(yes) }
+        store.answer = { [weak self] yes in self?.answers.append(yes); return true }
         return store
     }
 
@@ -61,6 +61,14 @@ final class SendConfirmationsTests: XCTestCase {
         await show(store, id: "c2")
         await store.tap(yes: false)
         XCTAssertEqual(answers, [true, false])
+    }
+
+    func testAnAnswerThatCouldNotGoOutLeavesTheButtonsWorking() async {
+        let store = makeStore()
+        store.answer = { _ in false }   // no session could be opened for it
+        await show(store)
+        await store.tap(yes: true)
+        XCTAssertFalse(store.answering)
     }
 
     func testTheServersCloseTakesItDown() async throws {

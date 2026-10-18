@@ -239,7 +239,17 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     over the Voice tab (header = photo, name, what; Send/Call + Cancel buttons; message row), Send/✕ =
     "Yes."/"No." typed into the voice session (opens a one-answer session if it closed), one-shot keeps
     listening while a card waits. 221 phone tests green.
-  - Unverified: whether CarPlay draws the header's two buttons (fallback: say yes/no).
+  - His first try (11:38–11:46 local): the card showed (photo, name, "hello") but Send was greyed, the mic
+    stopped mid-question, Back left a dead "Speaking" card whose Stop did nothing, and the tabs looked shifted.
+    Found: a screen pushed over the voice card HIDES it — the voice screen took that as closed and stopped the
+    session; Back brought the dead card back. And the fast voice model said "Sending that message to Shabd…"
+    (no question), so his yes would have been dropped anyway.
+  - Fixed: the confirmation is now a state of the voice card itself (photo, "Text Shabd Veyyakula: “hello”",
+    Send / Cancel as its buttons — no pushed screen); a stray voice card is hidden the moment it appears and Stop
+    always stops (error state too); the server speaks its own question when the reply didn't ask (b2c3fb7014).
+    Review fixes: "Don't send it" echoing a question's "don't" never counts as yes; a re-drafted text replaces the
+    old one; a session id change mid-turn keeps the ask; phone_control texts gated; a Send tapped while Jarvis is
+    still thinking waits for the question; a held answer dies with its session; refused taps re-enable buttons.
 
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on

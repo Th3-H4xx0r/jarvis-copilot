@@ -102,9 +102,13 @@ final class SendConfirmations: ObservableObject {
     /// A button was tapped and its answer is on its way.
     @Published private(set) var answering = false
 
-    /// His answer, into the conversation. Set from `voice` (tests replace it).
-    var answer: (Bool) async -> Void = { _ in }
+    /// His answer, into the conversation; false when it couldn't go out. Set from `voice`
+    /// (tests replace it).
+    var answer: (Bool) async -> Bool = { _ in false }
     var outcomeHold: Duration = .seconds(1.6)
+    /// A tap whose answer never got an outcome (the session dropped it) frees the buttons.
+    var answerTimeout: Duration = .seconds(20)
+    private var answerWatch: Task<Void, Never>?
 
     private let contacts: ContactCardLooking
     private var expiry: Task<Void, Never>?
@@ -183,9 +187,19 @@ final class SendConfirmations: ObservableObject {
 
     /// Send (yes) or ✕ (no): his answer, once, into the conversation.
     func tap(yes: Bool) async {
-        guard card != nil, outcome == nil, !answering else { return }
+        guard let card, outcome == nil, !answering else { return }
         answering = true
-        await answer(yes)
+        guard await answer(yes) else {
+            answering = false
+            return
+        }
+        answerWatch?.cancel()
+        let wait = answerTimeout
+        answerWatch = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard !Task.isCancelled, let self, self.card?.id == card.id, self.outcome == nil else { return }
+            self.answering = false
+        }
     }
 
     private func close(id: String, outcome: Outcome) {

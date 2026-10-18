@@ -1005,6 +1005,13 @@ final class VoiceStore {
         }
         // Any way back to listening (connected, a barge-in, Interrupt, a missed turn).
         if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
+        // A typed answer held for the question goes out once the reply is over; one held
+        // past its session never goes out.
+        if !machine.state.isActive {
+            pendingTyped = nil
+        } else if pendingTyped != nil, before != .listening, machine.state == .listening {
+            Task { @MainActor [weak self] in self?.deliverPendingTyped() }
+        }
         if let earcon = VoiceEarcon.forTransition(from: before, to: machine.state),
            !(earcon == .listening && listeningChimed) {
             playEarcon(earcon)
@@ -1180,9 +1187,8 @@ final class VoiceStore {
 
     /// Called by the transport when the machine settles into `listening`.
     func deliverPendingWatchTurnIfReady() {
-        if let typed = pendingTypedText, machine.state == .listening {
-            pendingTypedText = nil
-            sendTyped(typed)
+        if pendingTyped != nil {
+            deliverPendingTyped()
             return
         }
         guard let text = pendingWatchText, machine.state == .listening else { return }
@@ -1194,27 +1200,42 @@ final class VoiceStore {
 
     /// A typed answer in the conversation — the call/text card's Send ("Yes.") or ✕
     /// ("No.") — sent as his words for this turn, exactly as a spoken one: the server
-    /// reads it like one. Mid-reply it stops the reply first; with no session it opens
-    /// one for this answer (one answer, then it closes).
-    func submitTyped(_ text: String) async {
+    /// reads it like one. While Jarvis is still writing the question it waits for the
+    /// reply (cutting it off would leave no question to answer); while Jarvis speaks it
+    /// stops the reply; with no session it opens one for this answer (one answer, then it
+    /// closes). False when it can't go out at all.
+    @discardableResult
+    func submitTyped(_ text: String) async -> Bool {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty else { return }
+        guard !typed.isEmpty else { return false }
         switch machine.state {
         case .listening:
             sendTyped(typed)
-        case .speaking, .thinking:
+        case .speaking:
             interrupt()
-            if machine.state == .listening { sendTyped(typed) } else { pendingTypedText = typed }
-        case .connecting:
-            pendingTypedText = typed
+            if machine.state == .listening { sendTyped(typed) } else { pendingTyped = (typed, clock.now) }
+        case .thinking, .connecting:
+            pendingTyped = (typed, clock.now)
         case .idle, .error:
-            pendingTypedText = typed
-            if !(await startOneShotTurn()) { pendingTypedText = nil }
+            pendingTyped = (typed, clock.now)
+            guard await startOneShotTurn() else {
+                pendingTyped = nil
+                return false
+            }
         }
+        return true
     }
 
-    /// Set aside until the session reaches `listening`.
-    private var pendingTypedText: String?
+    /// Set aside until the session is listening; dropped with the session, or when stale.
+    private var pendingTyped: (text: String, at: Date)?
+    private static let typedAnswerFreshFor: TimeInterval = 120
+
+    private func deliverPendingTyped() {
+        guard let held = pendingTyped, machine.state == .listening else { return }
+        pendingTyped = nil
+        guard clock.now.timeIntervalSince(held.at) < Self.typedAnswerFreshFor else { return }
+        sendTyped(held.text)
+    }
 
     private func sendTyped(_ text: String) {
         abortSpeechSession()   // this turn's words are already decided

@@ -1,51 +1,51 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// The call/text card on the car's screen: who, what, and Send (Call) / Cancel — then how it went.
+/// The call/text card on the car is a state of the voice card itself (2026-10-18 11:38: a screen
+/// pushed over it hid the voice card and stopped the mic mid-question): who and what as its
+/// title, the person's photo, Send (Call) / Cancel as its buttons.
 @MainActor
 final class CarPlayConfirmTests: XCTestCase {
 
-    private func card(kind: SendConfirmations.Item.Kind = .text, text: String = "hello",
-                      name: String? = "Shabd Patel") -> SendConfirmations.Card {
-        SendConfirmations.Card(id: "c1", items: [.init(kind: kind, to: "+12096277732", text: text, subject: "", via: "Mac")],
-                               deadline: .distantFuture, name: name, photo: nil)
+    private func card(_ kind: SendConfirmations.Item.Kind = .text, text: String = "hello",
+                      name: String? = "Shabd Veyyakula", id: String = "c1", more: Int = 0) -> SendConfirmations.Card {
+        let item = SendConfirmations.Item(kind: kind, to: "+12096277732", text: text, subject: "", via: "Mac")
+        return SendConfirmations.Card(id: id, items: Array(repeating: item, count: 1 + more),
+                                      deadline: .distantFuture, name: name, photo: nil)
     }
 
-    func testATextShowsWhoAndTheMessageWithSendAndCancel() {
-        let screen = CarPlayConfirmText.make(card(), outcome: nil, answering: false)
-        XCTAssertEqual(screen.title, "Shabd Patel")
-        XCTAssertEqual(screen.subtitle, "Text · +12096277732")
-        XCTAssertEqual(screen.rows, ["hello"])
-        XCTAssertEqual(screen.buttons.map(\.title), ["Send", "Cancel"])
-        XCTAssertEqual(screen.buttons.map(\.yes), [true, false])
-        XCTAssertTrue(screen.enabled)
+    func testATextSaysWhoAndWhatLongestFirst() {
+        XCTAssertEqual(CarPlayConfirmText.titles(card()), [
+            "Text Shabd Veyyakula: “hello”", "Text Shabd: “hello”", "Text Shabd Veyyakula?", "Text Shabd?",
+        ])
     }
 
-    func testACallShowsTheNumberAndCall() {
-        let screen = CarPlayConfirmText.make(card(kind: .call, text: ""), outcome: nil, answering: false)
-        XCTAssertEqual(screen.rows, ["+12096277732"])
-        XCTAssertEqual(screen.buttons.first?.title, "Call")
-        XCTAssertEqual(screen.buttons.first?.symbol, "phone.fill")
+    func testACallAsksToCall() {
+        XCTAssertEqual(CarPlayConfirmText.titles(card(.call, text: "")), ["Call Shabd Veyyakula?", "Call Shabd?"])
+        XCTAssertEqual(CarPlayConfirmText.buttons(card(.call, text: "")).first?.title, "Call")
     }
 
-    func testTheButtonsWaitWhileHisAnswerIsOnItsWay() {
-        XCTAssertFalse(CarPlayConfirmText.make(card(), outcome: nil, answering: true).enabled)
+    func testSomeoneNotInContactsIsTheirNumber() {
+        XCTAssertEqual(CarPlayConfirmText.titles(card(name: nil)).first, "Text +12096277732: “hello”")
     }
 
-    func testHowItWentReplacesTheButtons() {
-        let sent = CarPlayConfirmText.make(card(), outcome: .sent, answering: true)
-        XCTAssertEqual(sent.subtitle, "Sent")
-        XCTAssertTrue(sent.buttons.isEmpty)
-        XCTAssertEqual(CarPlayConfirmText.make(card(kind: .call, text: ""), outcome: .sent, answering: false).subtitle,
-                       "Calling…")
-        XCTAssertEqual(CarPlayConfirmText.make(card(), outcome: .failed, answering: false).subtitle,
-                       "Didn't go through")
+    func testSendAndCancelAreYesAndNo() {
+        let buttons = CarPlayConfirmText.buttons(card())
+        XCTAssertEqual(buttons.map(\.title), ["Send", "Cancel"])
+        XCTAssertEqual(buttons.map(\.yes), [true, false])
+        XCTAssertEqual(buttons.map(\.symbol), ["paperplane.fill", "xmark"])
+    }
+
+    func testEachCardIsItsOwnState() {
+        XCTAssertNotEqual(CarPlayConfirmText.stateID(card(id: "a")), CarPlayConfirmText.stateID(card(id: "b")))
+    }
+
+    func testSeveralAtOnceSayHowManyMore() {
+        XCTAssertEqual(CarPlayConfirmText.titles(card(more: 1)).first, "Text Shabd Veyyakula: “hello” +1")
     }
 
     func testTheAvatarIsDrawnWithOrWithoutAPhoto() {
-        if #available(iOS 26.4, *) {
-            XCTAssertEqual(CarPlayConfirmScreen.avatar(card()).size.width, 120)
-            XCTAssertEqual(CarPlayConfirmScreen.avatar(card(name: nil)).size.width, 120)
-        }
+        XCTAssertEqual(CarPlayConfirmText.avatar(card()).size.width, 120)
+        XCTAssertEqual(CarPlayConfirmText.avatar(card(name: nil)).size.width, 120)
     }
 }
