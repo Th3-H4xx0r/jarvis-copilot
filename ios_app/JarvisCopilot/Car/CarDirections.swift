@@ -158,7 +158,8 @@ enum CarLinks {
     static func route(_ skill: String, _ args: [String: Any]) async throws -> [String: Any]? {
         try await route(skill, args, carScreen: { CarScreen.isConnected },
                         directions: { try await CarDirections.start(to: $0, presence: .shared) },
-                        queue: { CarHandoff.shared.queue($0) })
+                        queue: { CarHandoff.shared.queue($0) },
+                        openNow: { CarScreen.open($0) { _ in } })
     }
 
     /// A link's own text address opened the maps app with no route (an empty
@@ -169,7 +170,8 @@ enum CarLinks {
     static func route(_ skill: String, _ args: [String: Any],
                       carScreen: () -> Bool,
                       directions: (String) async throws -> [String: Any],
-                      queue: (URL) -> Void) async throws -> [String: Any]? {
+                      queue: (URL) -> Void,
+                      openNow: (URL) -> Void = { _ in }) async throws -> [String: Any]? {
         guard carScreen() else { return nil }
         switch skill {
         case "make_call":
@@ -199,8 +201,15 @@ enum CarLinks {
         default:
             break
         }
-        guard skill == "open_url",
-              let url = URL(string: SkillArgs.string(args, "url")), isMap(url) else { return nil }
+        guard skill == "open_url", let url = URL(string: SkillArgs.string(args, "url")) else { return nil }
+        if isCarAppLink(url) {
+            // A song, a podcast: `now` (the server playing it) opens it on the car's
+            // screen at once — the app is the answer, and Spotify only plays what
+            // it's opened on. Otherwise after the reply, like the rest.
+            if (args["now"] as? Bool) == true { openNow(url) } else { queue(url) }
+            return ["launched": true, "note": "Opening it on the car's screen."]
+        }
+        guard isMap(url) else { return nil }
         let note = "Opening on the car's screen when you finish speaking."
         if let destination = destination(in: url), var route = try? await directions(destination) {
             route["launched"] = true
@@ -220,6 +229,12 @@ enum CarLinks {
         "maps": "maps://", "apple maps": "maps://", "google maps": "comgooglemaps://",
         "whatsapp": "whatsapp://", "calendar": "calshow://",
     ]
+
+    /// A link into one of the CarPlay apps that isn't a map (`spotify:track:…`).
+    static func isCarAppLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), !isMap(url) else { return false }
+        return Set(carApps.values.compactMap { URL(string: $0)?.scheme }).contains(scheme)
+    }
 
     /// The CarPlay app `open_app` asks for: by name, or a bare link to one of them
     /// (`spotify://`) — never a link with a payload (open_app's own gate).

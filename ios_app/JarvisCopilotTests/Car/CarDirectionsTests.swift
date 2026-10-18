@@ -171,6 +171,28 @@ final class CarDirectionsTests: XCTestCase {
         XCTAssertNil(none)
     }
 
+    /// "Play Blinding Lights" (2026-10-18 06:36): Spotify opened only after the reply,
+    /// and opened idle it never shows up for the server to play on. The server now
+    /// sends the song's own link marked `now`: it opens on the car's screen at once,
+    /// and Spotify starts it. Unmarked, a car app's link still waits for the reply.
+    func testACarAppLinkMarkedNowOpensOnTheCarScreenAtOnce() async throws {
+        var queued: [URL] = []
+        var opened: [URL] = []
+        let noRoute: (String) async throws -> [String: Any] = { _ in XCTFail("not a map"); return [:] }
+        let song = "spotify:track:0VjIjW4GlUZAMYd2vXMi3b"
+        let result = try await CarLinks.route("open_url", ["url": song, "now": true], carScreen: { true },
+                                              directions: noRoute, queue: { queued.append($0) },
+                                              openNow: { opened.append($0) })
+        XCTAssertEqual(opened.map(\.absoluteString), [song])
+        XCTAssertEqual(queued, [])
+        XCTAssertEqual(result?["launched"] as? Bool, true)
+        _ = try await CarLinks.route("open_url", ["url": song], carScreen: { true },
+                                     directions: noRoute, queue: { queued.append($0) },
+                                     openNow: { opened.append($0) })
+        XCTAssertEqual(queued.map(\.absoluteString), [song], "unmarked: after the reply")
+        XCTAssertEqual(opened.count, 1)
+    }
+
     /// "Open Spotify" became "tap the notification" too — so a play request had no
     /// Spotify to play on. A CarPlay app opens on the car's screen instead.
     func testACarPlayAppOpensOnTheCarScreen() async throws {
