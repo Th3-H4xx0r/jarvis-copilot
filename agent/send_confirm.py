@@ -88,6 +88,7 @@ class _Pending:
     at: float
     card_id: str
     device: Optional[str]
+    server_asked: bool = False   # the reply didn't ask, so the voice bridge asked for it
 
 
 @dataclass
@@ -102,6 +103,8 @@ class _Turn:
 
 _lock = threading.Lock()
 _turns: "OrderedDict[str, _Turn]" = OrderedDict()   # by chat (the session id)
+# By chat id, and by the turn's task id when that differs (a chat whose session id changes
+# mid-turn, on compression): both name the same waiting item.
 _pending: dict[str, _Pending] = {}
 _clock: Callable[[], float] = time.monotonic
 # One worker: a card's close never overtakes its show.
@@ -155,6 +158,10 @@ def classify(tool: str, args: Any) -> Optional[Item]:
         return Item("text", tool, s("number", "to"), text=s("message", "text", "body"), via=_VIA[tool])
     if tool == "device_open_url":
         return _from_url(s("url"))
+    if tool == "device_phone_control":
+        if s("action") != "send_message":
+            return None
+        return Item("text", tool, s("to", "recipient"), text=s("message", "body", "value"), via="iPhone")
     if tool == "send_email":
         to = s("to")
         if to.lower() in _own_addresses():
@@ -226,15 +233,14 @@ def _close(pending: _Pending, outcome: str) -> None:
 
 def _ask_text(item: Item) -> str:
     if item.kind == "call":
-        return ("Not called yet: he confirms first. In your reply ask one short question naming the person, "
-                "e.g. “Do you want me to call <name>, sir?” His yes places the call (the server checks his "
-                "answer) — don't call this tool again for it.")
+        return ("NOT CALLED YET — he confirms first. Reply with only this question, with the person's name: "
+                "“Do you want me to call <name>, sir?” The server reads his answer; don't call this tool "
+                "again for it.")
     what = {"text": "text", "email": "email", "message": "message"}[item.kind]
-    said = f"“{item.text}”" if item.text else "it"
-    return (f"Not sent yet: he confirms first. In your reply read it back and ask, naming the person, e.g. "
-            f"“I'll {what} <name>: {said}. Should I send it, sir?” His yes sends it (the server checks his "
-            "answer). If he changes something, call this tool again with the change; otherwise don't call "
-            "it again.")
+    said = f" “{item.text}”" if item.text else ""
+    return (f"NOT SENT YET — he confirms first. Reply with only this question, with the person's name: "
+            f"“Should I {what} <name>{said}, sir?” Never say it is sent or sending. The server reads his "
+            "answer; if he changes something, call this tool again with the change.")
 
 
 def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
@@ -245,19 +251,24 @@ def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
         return None
     tid = str(task_id or "")
     chat = str(session_id or tid)
-    if not chat or _unattended(tid) or not _voice_turn(chat):
+    keys = [k for k in dict.fromkeys((chat, tid)) if k]
+    if not keys or _unattended(tid) or not any(_voice_turn(k) for k in keys):
         return None
     item.run = run
     now = _clock()
     replaced: Optional[_Pending] = None
     with _lock:
-        turn = _turns.get(chat)
+        turn = next((_turns[k] for k in keys if k in _turns), None)
         seq = turn.seq if turn else 0
-        pending = _pending.get(chat)
+        pending = next((_pending[k] for k in keys if k in _pending), None)
         if pending is None or pending.seq != seq:
             replaced = pending
-            pending = _pending[chat] = _Pending([], seq, now, uuid.uuid4().hex[:12], _phone_for(chat))
-        pending.items.append(item)
+            pending = _Pending([], seq, now, uuid.uuid4().hex[:12], next(filter(None, map(_phone_for, keys)), None))
+        for k in keys:
+            _pending[k] = pending
+        # A new draft to the same person replaces the old one (a re-run turn, or the model
+        # fixing its own draft) — one yes never sends both.
+        pending.items = [i for i in pending.items if (i.tool, i.to) != (item.tool, item.to)] + [item]
         pending.at = now
     if replaced is not None:
         _close(replaced, "cancelled")
@@ -265,6 +276,26 @@ def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
     logger.info("asked before %s (%s)", item.label(), tool)
     return json.dumps({"status": "awaiting_confirmation", "needs_confirmation": True, "sent": False,
                        "ask": _ask_text(item)}, ensure_ascii=False)
+
+
+_SERVER_QUESTION = {"call": "Shall I place the call, sir?", "text": "Should I send the text, sir?",
+                    "email": "Should I send the email, sir?", "message": "Should I send the message, sir?"}
+
+
+def ask_if_unasked(chat: Any, reply: Any) -> Optional[str]:
+    """The voice bridge, as a turn's reply ends: when this turn noted a call or message and the
+    reply didn't ask about it (a fast model said "Sending that to Shabd now."), the question to
+    speak after it — and his answer to it counts. None when there is nothing to ask."""
+    key = str(chat or "")
+    with _lock:
+        turn, pending = _turns.get(key), _pending.get(key)
+        if pending is None or turn is None or pending.seq != turn.seq or was_asked(reply, pending.items):
+            return None
+        pending.server_asked = True
+        items = list(pending.items)
+    if len(items) > 1:
+        return "Should I send them all, sir?"
+    return _SERVER_QUESTION[items[0].kind]
 
 
 # ── his answer ──────────────────────────────────────────────────────────────
@@ -330,8 +361,11 @@ def on_turn(task_id: Any, session_id: Any, user_message: Any, history: Any = Non
         _turns.move_to_end(chat)
         while len(_turns) > _MAX_CHATS:
             old, _ = _turns.popitem(last=False)
-            _pending.pop(old, None)
-        pending = _pending.pop(chat, None)
+            _pending.pop(old, None)   # (an alias key, if any, goes with its own chat)
+        pending = _pending.get(chat) or _pending.get(tid)
+        if pending is not None:
+            for k in [k for k, p in _pending.items() if p is pending]:
+                del _pending[k]
     if pending is None:
         return None
     asked = "; ".join(i.label() for i in pending.items)
@@ -339,12 +373,13 @@ def on_turn(task_id: Any, session_id: Any, user_message: Any, history: Any = Non
     said = own_words(words)
     # After the yes: words for what was asked, and his reply's own ("Yeah, send it to Shabd").
     extra = frozenset().union(*(_SAYS[i.kind] for i in pending.items),
-                              re.findall(r"[a-z']+", reply.lower().replace("’", "'")))
+                              re.findall(r"[a-z']+", reply.lower().replace("’", "'")),
+                              ("the", "text", "email", "message", "call", "all", "them"))
     outcome = "cancelled"
     if now - pending.at > ANSWER_WITHIN:
         note = (f"[Not sent: {asked} went unanswered for over 2 minutes, so it was dropped. If he still "
                 "wants it, call the tool again so he can confirm.]")
-    elif not was_asked(reply, pending.items):
+    elif not (pending.server_asked or was_asked(reply, pending.items)):
         note = (f"[Not sent: {asked} was never put to him in your last reply, so it was dropped. If he "
                 "wants it, call the tool again and ask him.]")
     elif is_plain_yes(said, extra, echo=question):

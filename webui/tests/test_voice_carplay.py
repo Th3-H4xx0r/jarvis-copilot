@@ -160,3 +160,28 @@ def test_voice_turns_ask_about_calls_and_texts_only_once():
     # card; a model that also asked first would ask him twice.
     rules = voice._voice_turn_directive(None)
     assert "straight away" in rules and "card" in rules
+
+
+def test_the_server_asks_when_the_reply_did_not(monkeypatch):
+    # 2026-10-18 16:38: the fast voice model answered "Sending that message to Shabd…" — no
+    # question — so the bridge speaks the server's (agent/send_confirm.py) after the reply.
+    from agent import send_confirm
+
+    spoken, asked_with = [], []
+    monkeypatch.setattr(voice, "_ws_send_text", lambda conn, sock, text: True)
+    monkeypatch.setattr(voice, "_run_agent_turn_via_chat", lambda sid, transcript, **kw: iter(()))
+
+    def _segments(conn, sock, state, gen, timing=None):
+        voice._note_reply(state, "Sending that message to Shabd now.")
+        return False
+
+    monkeypatch.setattr(voice, "_stream_segments", _segments)
+    monkeypatch.setattr(voice, "_stream_segment", lambda conn, sock, state, seg: spoken.append(seg["text"]) or True)
+    monkeypatch.setattr(send_confirm, "ask_if_unasked",
+                        lambda chat, reply: asked_with.append((chat, reply)) or "Should I send the text, sir?")
+    state = _fresh_state()
+    state["reply_text"] = "an earlier turn's words"
+    _frame(state, "begin_turn", session_id="sess-car", text="text Shabd hello")
+    voice._bridge_pipeline(state, None, None)
+    assert asked_with == [("sess-car", "Sending that message to Shabd now.")]
+    assert spoken == ["Should I send the text, sir?"]

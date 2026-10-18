@@ -52,3 +52,10 @@ def test_his_own_words_come_out_of_the_wrappers():
     assert own_words('[The user sent a voice message~ Here\'s what they said: "yes go"]') == "yes go"
     assert own_words('[Replying to: "Send it?"]\n\nYes') == "Yes"
     assert own_words([{"type": "text", "text": "Yes"}]) == "Yes"
+
+
+@pytest.mark.parametrize("said", ["Don't send it", "Wait, don't send it", "No"])
+def test_a_doubt_that_echoes_the_question_is_still_doubt(said):
+    # The question itself may hold "don't" / "wait" ("Should I text Mom “don't wait up”, sir?"):
+    # taking those as the mic's echo of the question turned "Don't send it" into a yes.
+    assert not is_plain_yes(said, echo="Should I text Mom “don't wait up”, sir?")

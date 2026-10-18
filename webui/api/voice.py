@@ -3467,6 +3467,7 @@ def _note_reply(state: dict, text: str) -> None:
     words = state.setdefault("reply_words", [])
     words.extend(_reply_words(text))
     del words[:-_REPLY_WORDS_KEPT]
+    state["turn_reply"] = (str(state.get("turn_reply") or "") + " " + (text or "")).strip()
     state["reply_text"] = (str(state.get("reply_text") or "") + " " + (text or "")).strip()[-_REPLY_TEXT_KEPT:]
 
 
@@ -3583,6 +3584,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         turn_model = (state.get("model") or "").strip()
         turn_provider = (state.get("model_provider") or "").strip()
         state["last_user_text"] = transcript
+        state["turn_reply"] = ""
         _mark_span(timing, "prep_ms", _elapsed_ms(timing))
         handled = _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
@@ -3594,6 +3596,8 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             harness_id=state.get("harness_id", ""),
             carplay=bool(state.get("carplay")),
         ), timing=timing)
+        if not handled:
+            _ask_pending_confirmation(conn, sock, state, sid)
         _finish_turn_timing(conn, sock, timing)
         if not state.get("clarify_pending"):
             _maybe_stop_pod_listening(state)
@@ -3605,6 +3609,22 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             _stream_segment(conn, sock, state, {"kind": "text", "text": reply})
 
     _ws_send_text(conn, sock, _end_turn_frame(state))
+
+
+def _ask_pending_confirmation(conn, sock, state: dict, sid: str) -> None:
+    """A call or message this turn noted waits for his yes (agent/send_confirm.py). When the
+    reply didn't ask about it (a fast model said "Sending that to Shabd now."), ask here, after
+    it, so his answer has a question to answer."""
+    if state.get("interrupt") or not sid:
+        return
+    try:
+        from agent import send_confirm
+        question = send_confirm.ask_if_unasked(sid, state.get("turn_reply") or "")
+    except Exception:
+        print("[webui] voice: confirmation question check failed: " + traceback.format_exc(), flush=True)
+        return
+    if question:
+        _stream_segment(conn, sock, state, {"kind": "text", "text": question})
 
 
 def _end_turn_frame(state: dict) -> str:
@@ -3663,8 +3683,11 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))
         return
     state["clarify_pending"] = False
+    state["turn_reply"] = ""
     _mark_span(timing, "prep_ms", _elapsed_ms(timing))
     handled = _stream_segments(conn, sock, state, _run_agent_continuation_after_clarify(sid, transcript), timing=timing)
+    if not handled:
+        _ask_pending_confirmation(conn, sock, state, sid)
     _finish_turn_timing(conn, sock, timing)
     if not state.get("clarify_pending"):
         _maybe_stop_pod_listening(state)

@@ -64,12 +64,16 @@ def _without_echo(t: str, echo: Any) -> str:
     heard = set(re.findall(r"[a-z']+", text_of(echo).lower()))
     if not heard:
         return t
+    # Never his own doubt, even when the question held the same word ("Don't send it" to
+    # "Should I text Mom “don't wait up”?").
     asked = re.match(r"([^?]*)\?\s*(.*)$", t, re.S)
-    if asked and all(w in heard for w in re.findall(r"[a-z']+", asked.group(1).lower())):
+    if (asked and not _DOUBT.search(asked.group(1))
+            and all(w in heard for w in re.findall(r"[a-z']+", asked.group(1).lower()))):
         t = asked.group(2)
     for _ in range(4):
         first = re.match(r"([A-Za-z']+)[\s,.?!-]*", t)
-        if not first or first.group(1).lower() not in heard or _YES.match(t):
+        if (not first or first.group(1).lower() not in heard or _YES.match(t)
+                or _DOUBT.search(first.group(1)) or _NO.match(first.group(1))):
             break
         t = t[first.end():]
     return t

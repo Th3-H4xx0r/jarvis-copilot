@@ -230,3 +230,71 @@ def test_the_dispatcher_asks_on_a_voice_turn(world, monkeypatch):
     assert json.loads(out)["needs_confirmation"] is True and sent == []
     _turn("yes", reply="Do you want me to call Shabd, sir?", history_len=2)
     assert sent == ["device_make_call"]
+
+
+# ── review round (2026-10-18) ───────────────────────────────────────────────
+
+def test_a_new_draft_to_the_same_person_replaces_the_old(world):
+    _turn("text Shabd hello")
+    old, new = _Runs(), _Runs()
+    sc.gate("device_messages_send", dict(TEXT_ARGS), task_id=CHAT, session_id=CHAT, run=old)
+    sc.gate("device_messages_send", {**TEXT_ARGS, "text": "running late"}, task_id=CHAT, session_id=CHAT, run=new)
+    shown = [c for _, c in world["cards"] if c["action"] == "show"][-1]
+    assert [i["text"] for i in shown["items"]] == ["running late"]
+    _turn("yes", reply="I'll text Shabd “running late”. Should I send it, sir?", history_len=2)
+    assert (old.calls, new.calls) == (0, 1)
+
+
+def test_the_same_turn_run_again_queues_its_send_once(world):
+    # The web UI re-runs a failed turn with his message: its tool call comes again.
+    _turn("text Shabd hello")
+    first, again = _Runs(), _Runs()
+    sc.gate("device_messages_send", dict(TEXT_ARGS), task_id=CHAT, session_id=CHAT, run=first)
+    _turn("text Shabd hello")  # the re-run
+    sc.gate("device_messages_send", dict(TEXT_ARGS), task_id=CHAT, session_id=CHAT, run=again)
+    _turn("yes", reply=ASKED, history_len=2)
+    assert first.calls + again.calls == 1
+
+
+def test_a_chat_whose_id_changes_mid_turn_still_asks_and_finds_his_yes(world):
+    # Compression gives the chat a new session id partway through a voice turn.
+    world["voice"].clear()
+    world["voice"].add("old-id")
+    sc.on_turn("old-id", "old-id", "text Shabd hello", [])
+    runs = _Runs()
+    out = sc.gate("device_messages_send", dict(TEXT_ARGS), task_id="old-id", session_id="new-id", run=runs)
+    assert json.loads(out)["needs_confirmation"] is True
+    sc.on_turn("new-id", "new-id", "Yes.", [{"role": "assistant", "content": ASKED}])
+    assert runs.calls == 1
+
+
+def test_phone_control_texts_are_gated():
+    item = sc.classify("device_phone_control", {"action": "send_message", "to": "Shabd", "message": "hi"})
+    assert item is not None and (item.kind, item.to, item.text) == ("text", "Shabd", "hi")
+    assert sc.classify("device_phone_control", {"action": "open_settings"}) is None
+
+
+def test_the_server_asks_when_jarvis_did_not(world):
+    # 2026-10-18 16:38: the fast voice model said "Sending that message to Shabd…" — no
+    # question, so his yes could never count.
+    _, runs = _ask()
+    question = sc.ask_if_unasked(CHAT, "Sending that message to Shabd now.")
+    assert question and question.endswith("?") and "send" in question.lower()
+    _turn("Yes.", reply="Sending that message to Shabd now.", history_len=2)
+    assert runs.calls == 1
+
+
+def test_no_extra_question_when_jarvis_asked(world):
+    _ask()
+    assert sc.ask_if_unasked(CHAT, ASKED) is None
+
+
+def test_no_extra_question_without_something_waiting(world):
+    _turn("what's the weather")
+    assert sc.ask_if_unasked(CHAT, "It's sunny.") is None
+
+
+def test_no_extra_question_for_an_earlier_turns_ask(world):
+    _ask()
+    _turn("what's the weather", reply="Hmm.", history_len=2)   # drops it
+    assert sc.ask_if_unasked(CHAT, "It's sunny.") is None
