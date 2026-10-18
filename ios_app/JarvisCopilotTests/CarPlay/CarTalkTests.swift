@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import JarvisCopilot
 
@@ -33,32 +34,22 @@ final class CarTalkTests: XCTestCase {
         XCTAssertNil(VoiceEarcon.forTransition(from: .listening, to: .idle), "Stop is not a question")
     }
 
-    func testEarconToneIsAPlayableWav() {
-        let wav = ToneEarconPlayer.wav(ToneEarconPlayer.Glide(from: 587, to: 880, glideMs: 170, ms: 260), rate: 24000)
-        XCTAssertEqual(String(data: wav.prefix(4), encoding: .ascii), "RIFF")
-        XCTAssertEqual(wav.count, 44 + (24000 * 260 / 1000) * 2, "16-bit mono samples after the header")
+    /// His picks (2026-10-18, after two rounds of synthesised tones he found annoying): an AI
+    /// notification chime from Pixabay, cut to its first notes for "listening" (L3) and the same,
+    /// shorter and lower, for "done" (D3).
+    func testTheEarconsAreHisShortChimes() throws {
+        let listening = try AVAudioPlayer(data: VoiceEarconSounds.data(for: .listening))
+        let done = try AVAudioPlayer(data: VoiceEarconSounds.data(for: .thinking))
+        XCTAssertEqual(listening.duration, 0.32, accuracy: 0.03)
+        XCTAssertEqual(done.duration, 0.175, accuracy: 0.03)
     }
 
-    /// 2026-10-18 his ask: "less annoying … more like the Gemini or Siri one … more
-    /// professional" — one soft glide each, up for "go ahead", down for "got it".
-    func testEachEarconIsOneShortGlideUpForListeningDownForDone() {
-        let listening = ToneEarconPlayer.sound(.listening)
-        let done = ToneEarconPlayer.sound(.thinking)
-        XCTAssertLessThan(listening.from, listening.to)
-        XCTAssertGreaterThan(done.from, done.to)
-        XCTAssertLessThanOrEqual(listening.ms, 300)
-        XCTAssertLessThanOrEqual(done.ms, 300)
-    }
-
-    /// No click at either end, and never loud.
-    func testAnEarconStartsAndEndsInSilenceAndStaysSoft() {
+    /// The mic ignores itself while a sound plays: both stay short and end in silence.
+    func testEachEarconEndsInSilence() {
         for earcon in [VoiceEarcon.listening, .thinking] {
-            let samples = Self.samples(ToneEarconPlayer.wav(ToneEarconPlayer.sound(earcon)))
-            XCTAssertLessThan(abs(Int(samples.first ?? 1)), 200, "\(earcon) starts in silence")
-            XCTAssertLessThan(abs(Int(samples.last ?? 1)), 200, "\(earcon) ends in silence")
-            let peak = samples.map { abs(Double($0)) / Double(Int16.max) }.max() ?? 1
-            XCTAssertLessThan(peak, 0.2, "\(earcon) stays soft")
-            XCTAssertGreaterThan(peak, 0.05, "\(earcon) is still heard")
+            let samples = Self.samples(VoiceEarconSounds.data(for: earcon))
+            XCTAssertFalse(samples.isEmpty)
+            XCTAssertLessThan(abs(Int(samples.last ?? 1)), 400, "\(earcon) fades out")
         }
     }
 

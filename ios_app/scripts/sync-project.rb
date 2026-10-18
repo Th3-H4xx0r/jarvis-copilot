@@ -146,8 +146,12 @@ begin
   # run on the phone, so it moves only when someone decides it should.
   #   FluidAudio — CoreML Parakeet / SenseVoice for Live's on-device language
   #   correction. Its models are downloaded at run time, not bundled.
+  #   SpotifyiOS — Spotify's iOS SDK (App Remote): the phone tells the Spotify app to
+  #   play a song itself, because plays sent through Spotify's Web API never start on
+  #   his iPhone in the car (2026-10-18).
   SWIFT_PACKAGES = [
     { url: 'https://github.com/FluidInference/FluidAudio.git', version: '0.16.1', product: 'FluidAudio' },
+    { url: 'https://github.com/spotify/ios-sdk.git', version: '5.0.1', product: 'SpotifyiOS' },
   ].freeze
 
   def ensure_packages(project, target, packages)

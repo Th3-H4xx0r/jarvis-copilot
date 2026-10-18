@@ -155,6 +155,7 @@
 		2314F4CDCD02AD30802F3A55 /* NotificationActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01172EA46E63A9C64888D03F /* NotificationActionsTests.swift */; };
 		2362DC357F3498A223E88CE5 /* BandDeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB9846406F52B64E7BE07FBB /* BandDeviceView.swift */; };
 		238825A95C794F89F6364E7A /* RingStatsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96790BC8E23FE3AA4932DABA /* RingStatsSections.swift */; };
+		23FCA64A8CE741E2ACFE4B85 /* SpotifyiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 4CBAC2EBCA37AC0FD2661EE8 /* SpotifyiOS */; };
 		241BE35B973590CD32111922 /* ModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60AE7B30050678209FB5F068 /* ModelsAPI.swift */; };
 		241FD27051FC237FFA506091 /* PodSetupFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9ED059DAAEDB954A3DE400 /* PodSetupFlowTests.swift */; };
 		2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */; };
@@ -430,6 +431,7 @@
 		5CBC0A873379960BE356096F /* HabitMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90434BA821E195A628F6EBA8 /* HabitMath.swift */; };
 		5CC6984B9FC3AA409C071358 /* OnDeviceAISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827CB0FB97E09F1068A953EF /* OnDeviceAISettingsStore.swift */; };
 		5CCAE536BF3E0C5DF43817F7 /* DashcamSyncAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF92DEBDA1CDCB88B6640D5B /* DashcamSyncAttributes.swift */; };
+		5D4629C3E9509FBD8063CB0D /* VoiceEarconSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */; };
 		5DC3ACD77FC8018DB10408B9 /* StrengthSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABE242D91A7C647AC3E0274 /* StrengthSummaryView.swift */; };
 		5EEE51CB407DD2E09584391A /* BackgroundLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */; };
 		5EF53A822CE4BC8B55A6D562 /* VoiceStoreTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F449B9A02840155A5FAD6C5 /* VoiceStoreTransportTests.swift */; };
@@ -1634,6 +1636,7 @@
 		761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPageSmokeTests.swift; sourceTree = "<group>"; };
 		7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkillsTests.swift; sourceTree = "<group>"; };
 		7643318B60F7983387FCC184 /* CarApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarApprovals.swift; sourceTree = "<group>"; };
+		76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceEarconSounds.swift; sourceTree = "<group>"; };
 		7676A5D714B05EC1504F8395 /* DashcamDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDevice.swift; sourceTree = "<group>"; };
 		76A4E3847E7B8475E457549C /* IOSSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOSSkills.swift; sourceTree = "<group>"; };
 		76E2F4CF0FD8E7B48221EECB /* LocalConnectionNotifierTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalConnectionNotifierTests.swift; sourceTree = "<group>"; };
@@ -2266,6 +2269,7 @@
 			files = (
 				48EBED01AF2D775CA72C979B /* OnDeviceLLM in Frameworks */,
 				2486E4F0943A0893606C1C13 /* FluidAudio in Frameworks */,
+				23FCA64A8CE741E2ACFE4B85 /* SpotifyiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3624,6 +3628,7 @@
 				0393646E148583432A47D9FD /* SpeechEngineStore.swift */,
 				6AA94FC9CCFDC9B72A6CA1BA /* VoiceEarcon.swift */,
 				7736238E3E03F52545366F38 /* VoiceLogFile.swift */,
+				76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -4377,6 +4382,7 @@
 			packageProductDependencies = (
 				5FE8DCA271A7868ED473E098 /* OnDeviceLLM */,
 				EEE4E2C730CC268239B00CE4 /* FluidAudio */,
+				4CBAC2EBCA37AC0FD2661EE8 /* SpotifyiOS */,
 			);
 			productName = JarvisCopilot;
 			productReference = F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */;
@@ -4443,6 +4449,7 @@
 			packageReferences = (
 				437F339FC221FA9B1FC91E13 /* XCLocalSwiftPackageReference "OnDeviceLLM" */,
 				7F8B8DED985EAB9E9A844864 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				1318E5794B6B3FFEEFA73D35 /* XCRemoteSwiftPackageReference "ios-sdk" */,
 			);
 			productRefGroup = AA456876F5B490EF67C72CA6 /* Products */;
 			projectDirPath = "";
@@ -5610,6 +5617,7 @@
 				58308A96D0B17D9FF784B57B /* SendConfirmCard.swift in Sources */,
 				A16ADFA87A057B84FE5355A1 /* SendConfirmations.swift in Sources */,
 				61C186C07A15FA3ADE352760 /* CarPlayConfirmText.swift in Sources */,
+				5D4629C3E9509FBD8063CB0D /* VoiceEarconSounds.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6108,6 +6116,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		1318E5794B6B3FFEEFA73D35 /* XCRemoteSwiftPackageReference "ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/spotify/ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 5.0.1;
+			};
+		};
 		7F8B8DED985EAB9E9A844864 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
@@ -6119,6 +6135,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4CBAC2EBCA37AC0FD2661EE8 /* SpotifyiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1318E5794B6B3FFEEFA73D35 /* XCRemoteSwiftPackageReference "ios-sdk" */;
+			productName = SpotifyiOS;
+		};
 		5FE8DCA271A7868ED473E098 /* OnDeviceLLM */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = OnDeviceLLM;
