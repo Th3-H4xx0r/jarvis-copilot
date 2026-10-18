@@ -114,6 +114,7 @@ class _PendingPlay:
         self.phones_only = phones_only  # a phone turn: never the MacBook at home
         self.cancelled = threading.Event()
         self.sent = 0  # plays sent that Spotify took but the device hasn't started yet
+        self.waited = 0  # checks since the last one, while it loads
 
 
 class _NotPlayingYet(Exception):
@@ -191,28 +192,56 @@ def _play_uri(play_kwargs: Dict[str, Any]) -> Optional[str]:
     return (uris[0] if uris else None) or play_kwargs.get("context_uri")
 
 
-def _already_playing(client: Any, device: Dict[str, Any], play_kwargs: Dict[str, Any]) -> bool:
-    """Whether ``device`` already plays what was asked (Spotify started the link
-    the phone opened) — then starting it again would only restart it."""
-    want_track = (play_kwargs.get("uris") or [None])[0]
-    want_context = play_kwargs.get("context_uri")
-    if not (want_track or want_context):
-        return False
+def _playback_state(client: Any) -> Dict[str, Any]:
     try:
         state = client.get_playback_state()
-    except Exception:
-        return False
-    if not isinstance(state, dict) or state.get("empty") or not state.get("is_playing"):
+    except Exception as exc:
+        return {"error": str(exc)}
+    return state if isinstance(state, dict) else {}
+
+
+def _holds(state: Dict[str, Any], device: Dict[str, Any], play_kwargs: Dict[str, Any]) -> bool:
+    """Whether ``device`` has what was asked loaded (playing or not). A track
+    Spotify swapped for his country's copy names the asked one in ``linked_from``."""
+    want_track = (play_kwargs.get("uris") or [None])[0]
+    want_context = play_kwargs.get("context_uri")
+    if not (want_track or want_context) or state.get("empty") or not state.get("device"):
         return False
     if str((state.get("device") or {}).get("id") or "") != str(device.get("id")):
         return False
     if want_track:
-        return str((state.get("item") or {}).get("uri") or "") == want_track
+        item = state.get("item") or {}
+        return want_track in (str(item.get("uri") or ""), str((item.get("linked_from") or {}).get("uri") or ""))
     return str((state.get("context") or {}).get("uri") or "") == want_context
+
+
+def _already_playing(client: Any, device: Dict[str, Any], play_kwargs: Dict[str, Any]) -> bool:
+    """Whether ``device`` already plays what was asked (Spotify started the link
+    the phone opened) — then starting it again would only restart it."""
+    state = _playback_state(client)
+    return bool(state.get("is_playing")) and _holds(state, device, play_kwargs)
+
+
+def _describe_state(state: Dict[str, Any]) -> str:
+    if state.get("error"):
+        return f"no state ({state['error']})"
+    if state.get("empty") or not state.get("device"):
+        return "nothing playing anywhere"
+    device = state.get("device") or {}
+    item = state.get("item") or {}
+    linked = (item.get("linked_from") or {}).get("uri")
+    return (f"{'playing' if state.get('is_playing') else 'paused'} on {device.get('name') or '?'} "
+            f"({device.get('id')}, active={device.get('is_active')}): {item.get('uri')}"
+            f"{f' (for {linked})' if linked else ''} at {state.get('progress_ms')} ms")
 
 
 def _device_label(device: Dict[str, Any]) -> str:
     return str(device.get("name") or device.get("id"))
+
+
+# Checks a taken play gets to start before it is sent again: each play restarts the
+# song, so one sent every check (2026-10-18 16:02: 15 in 30 s) never finishes loading.
+_RESEND_AFTER_CHECKS = 3
 
 
 def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, Any]) -> None:
@@ -222,16 +251,27 @@ def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, An
     with _pending_lock:
         if pending.cancelled.is_set():
             raise car_app_followup.Cancelled("superseded by a newer request")
-        playing = _already_playing(client, device, pending.play_kwargs)
+        state = _playback_state(client)
+        logger.info("Spotify reports for the play on %s: %s", _device_label(device), _describe_state(state))
+        holds = _holds(state, device, pending.play_kwargs)
+        playing = holds and bool(state.get("is_playing"))
         started = not playing
         if started:
-            client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+            if holds:
+                # Loaded but paused: carry on from there, not from the top.
+                client.start_playback(device_id=device["id"])  # raises → next tick
+            elif pending.sent and pending.waited < _RESEND_AFTER_CHECKS:
+                pending.waited += 1
+                raise _NotPlayingYet(f"{_device_label(device)} took play #{pending.sent}; still loading")
+            else:
+                client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
             # Spotify takes a play for a phone that only just came up and then
             # never starts it (2026-10-18 06:49: "started", and silence). Done is
             # when Spotify says the phone plays the song — a resume has nothing to
             # check, so for that the take is enough.
             if _play_uri(pending.play_kwargs):
                 pending.sent += 1
+                pending.waited = 0
                 raise _NotPlayingYet(f"{_device_label(device)} took play #{pending.sent}; not playing yet")
         pending.cancelled.set()
         if _pending_play is pending:

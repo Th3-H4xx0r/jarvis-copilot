@@ -705,7 +705,7 @@ def test_a_play_the_phone_took_but_did_not_start_is_sent_again(monkeypatch, spaw
     stub = _PlayerStub(
         play_errors=[_no_active_device()],
         device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}, {"empty": True}, _playing(TRACK)],
+        playback_states=[{"empty": True}] * 5 + [_playing(TRACK)],
     )
     _use(monkeypatch, stub)
     _car_play(uris=[TRACK])
@@ -713,6 +713,76 @@ def test_a_play_the_phone_took_but_did_not_start_is_sent_again(monkeypatch, spaw
     assert _run(runs) == "done"
     phone_plays = [c for c in stub.play_calls if c.get("device_id") == "phone-1"]
     assert len(phone_plays) == 2, "sent again until Spotify says it's playing"
+
+
+def _phone_plays(stub) -> list[dict]:
+    return [c for c in stub.play_calls if c.get("device_id") == "phone-1"]
+
+
+def test_a_taken_play_is_not_restarted_while_it_loads(monkeypatch, spawned, car_turn) -> None:
+    # 2026-10-18 16:02: the play went to the phone again every check (15 in 30 s) —
+    # each one restarts the song, so one that needs a few seconds to load never does.
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}, {"empty": True}, {"empty": True}, _playing(TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    assert len(_phone_plays(stub)) == 1
+
+
+def test_a_song_the_phone_holds_paused_is_resumed_not_restarted(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}, _playing(TRACK, is_playing=False), _playing(TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    first, resume = _phone_plays(stub)
+    assert first.get("uris") == [TRACK]
+    assert resume == {"device_id": "phone-1"}, "a resume, not the song from the top"
+
+
+def test_a_relinked_song_counts_as_playing(monkeypatch, spawned, car_turn) -> None:
+    # Spotify may play its own copy of a track for his country: the item is another
+    # uri, and `linked_from` is the one asked for.
+    _, runs = car_turn
+    relinked = _playing("spotify:track:0000000000000000000000")
+    relinked["item"]["linked_from"] = {"uri": TRACK}
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}, relinked],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    assert len(_phone_plays(stub)) == 1
+
+
+def test_each_check_logs_what_spotify_reports(monkeypatch, spawned, car_turn, caplog) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[_playing(TRACK, device="mac-1", is_playing=False), _playing(TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    with caplog.at_level(logging.INFO, logger=spotify_tool.logger.name):
+        assert _run(runs) == "done"
+    checks = [r.getMessage() for r in caplog.records if "Spotify reports" in r.getMessage()]
+    assert checks and "mac-1" in checks[0] and "paused" in checks[0] and TRACK in checks[0]
 
 
 def test_a_song_that_never_starts_is_reported_not_done(monkeypatch, spawned, car_turn, caplog) -> None:
