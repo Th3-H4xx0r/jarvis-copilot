@@ -4649,6 +4649,14 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/media":
         return _handle_media(handler, parsed)
 
+    if parsed.path == "/api/link-preview":
+        from api.link_preview import fetch_preview
+        url = parse_qs(parsed.query).get("url", [""])[0].strip()
+        preview = fetch_preview(url) if url else None
+        if preview is None:
+            return j(handler, {"error": "no preview"}, status=404)
+        return j(handler, preview)
+
     if parsed.path == "/api/file/raw":
         return _handle_file_raw(handler, parsed)
 

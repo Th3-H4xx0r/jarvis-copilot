@@ -2505,6 +2505,39 @@ function renderMd(raw){
     flush(lines.length);
     return out.join('\n');
   })(s);
+  // ── Embeds pre-pass (outside fenced code) ───────────────────────────────────
+  // A bare absolute .html path (or one wrapped in backticks) becomes a MEDIA:
+  // token, so a page Jarvis saved shows as the live HTML viewer even when it
+  // only wrote the path. A line that is nothing but a web link becomes an
+  // iMessage-style preview card (\x00K, restored next to MEDIA below).
+  const _lp_stash=[];
+  s=(function _applyEmbeds(input){
+    const seen=new Set();
+    let inFence=false, fenceLen=0;
+    return input.split('\n').map(line=>{
+      if(inFence){
+        if(_isBacktickFenceClose(line,fenceLen)){inFence=false;fenceLen=0;}
+        return line;
+      }
+      const fenceOpen=_matchBacktickFenceLine(line);
+      if(fenceOpen){inFence=true;fenceLen=fenceOpen.len;return line;}
+      const t=line.trim();
+      const link=t.match(/^<?(https?:\/\/[^\s<>"]+?)>?$/)||t.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)"]+)\)$/);
+      if(link){
+        const url=link[2]||link[1], label=link[2]?link[1]:url;
+        _lp_stash.push(`<div class="link-preview-load" data-url="${esc(url)}"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a></div>`);
+        return '\n\x00K'+(_lp_stash.length-1)+'\x00\n';
+      }
+      return line.replace(/(^|[^\w:\/.~`(-])(?:`(\/[^\s`'"<>()\[\]]+?\.html)`|(\/[^\s`'"<>()\[\]]+?\.html)(?![\w\/`-]|\.\w))/g,(m,lead,quoted,bare,at,str)=>{
+        const path=quoted||bare;
+        if(seen.has(path)) return m;
+        seen.add(path);
+        // A space keeps trailing punctuation ("…page.html.") out of the MEDIA ref.
+        const next=str.charAt(at+m.length);
+        return lead+'MEDIA:'+path+(next&&!/\s/.test(next)?' ':'');
+      });
+    }).join('\n');
+  })(s);
   // ── MEDIA: token stash (must run first, before any other processing) ───────
   // Detect MEDIA:<path-or-url> tokens emitted by the agent (e.g. screenshots,
   // generated images) and replace them with inline <img> or download links.
@@ -2892,7 +2925,7 @@ function renderMd(raw){
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
   const parts=s.split(/\n{2,}/);
-  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
+  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]|^\x00K/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
   s=s.replace(/\x00E(\d+)\x00/g,(_,i)=>_pre_stash[+i]);
   // ── Restore MEDIA stash → inline images or download links ─────────────────
   s=s.replace(/\x00D(\d+)\x00/g,(_,i)=>{
@@ -2981,6 +3014,7 @@ function renderMd(raw){
     }
     return `<a class="msg-media-link" href="${esc(apiUrl+'&download=1')}" download="${fname}">📎 ${fname}</a>`;
   });
+  s=s.replace(/\x00K(\d+)\x00/g,(_,i)=>_lp_stash[+i]);
 
   // ── End MEDIA restore ──────────────────────────────────────────────────────
   // Restore blockquote stash. Done last so the inner HTML (already produced
@@ -6523,6 +6557,7 @@ function postProcessRenderedMessages(container) {
   loadExcalidrawInline(container);
   loadPdfInline(container);
   loadHtmlInline(container);
+  loadLinkPreviews(container);
   renderMermaidBlocks(container);
   renderKatexBlocks(container);
   initTreeViews(container);
@@ -6976,6 +7011,42 @@ function loadPdfInline(container){
 }
 
 // ── HTML inline preview (sandboxed iframe) ─────────────────────────────────
+// Scripts run and links open in a new tab, but never allow-same-origin: the
+// page must not reach the WebUI's cookies or storage.
+const HTML_PREVIEW_SANDBOX='allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox';
+function _htmlPreviewHeader(fname,openUrl){
+  return `<div class="html-preview-header"><span class="html-preview-name">${li('globe',12)} ${esc(fname)}</span><span class="html-preview-actions"><a href="${openUrl}" target="_blank" rel="noopener" class="html-open-link">${t('html_open_full')} ↗</a><button type="button" class="html-preview-expand" title="Full screen" aria-label="Full screen">⤢</button></span></div>`;
+}
+
+// Full screen: a fresh iframe in a body-level overlay. The inline card can't
+// just go position:fixed — a frosted-glass ancestor (backdrop-filter) would
+// trap it inside the message bubble.
+function openHtmlViewer(wrap){
+  const frame=wrap&&wrap.querySelector('.html-preview-iframe');
+  if(!frame) return;
+  closeHtmlViewer();
+  const overlay=document.createElement('div');
+  overlay.className='html-viewer-overlay';
+  overlay.innerHTML=`<div class="html-preview-header"><span class="html-preview-name">${li('globe',13)} ${esc(wrap.dataset.name||'')}</span><button type="button" class="html-viewer-close" title="Close" aria-label="Close">${li('x',16)}</button></div>`;
+  const big=document.createElement('iframe');
+  big.className='html-viewer-iframe';
+  big.setAttribute('sandbox',HTML_PREVIEW_SANDBOX);
+  big.setAttribute('srcdoc',frame.getAttribute('srcdoc')||'');
+  overlay.appendChild(big);
+  document.body.appendChild(overlay);
+}
+function closeHtmlViewer(){
+  document.querySelectorAll('.html-viewer-overlay').forEach(o=>o.remove());
+}
+document.addEventListener('click',e=>{
+  const t=e.target;
+  if(!t||!t.closest) return;
+  const expand=t.closest('.html-preview-expand');
+  if(expand){ openHtmlViewer(expand.closest('.html-preview-wrap')); return; }
+  if(t.closest('.html-viewer-close')) closeHtmlViewer();
+});
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeHtmlViewer(); });
+
 function loadHtmlInline(container){
   const HTML_MAX_SIZE=256*1024; // 256 KB cap for inline HTML preview
   const root=container||document;
@@ -6992,13 +7063,38 @@ function loadHtmlInline(container){
           return;
         }
         const openUrl='api/media?path='+encodeURIComponent(path)+'&inline=1';
-        const safeHtml=html.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        el.outerHTML=`<div class="html-preview-wrap"><div class="html-preview-header"><span>${t('html_sandbox_label')}</span><a href="${openUrl}" target="_blank" rel="noopener" class="html-open-link">${t('html_open_full')} ↗</a></div><iframe srcdoc="${safeHtml}" sandbox="allow-scripts" class="html-preview-iframe" loading="lazy"></iframe></div>`;
+        // Links in the page open in a new tab instead of inside the card.
+        const page=html.replace(/^(\s*<!doctype[^>]*>)?/i,m=>m+'<base target="_blank">');
+        const safeHtml=page.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        el.outerHTML=`<div class="html-preview-wrap" data-name="${esc(fname)}">${_htmlPreviewHeader(fname,openUrl)}<iframe srcdoc="${safeHtml}" sandbox="${HTML_PREVIEW_SANDBOX}" class="html-preview-iframe" loading="lazy"></iframe></div>`;
       })
       .catch(()=>{
         const dlUrl='api/media?path='+encodeURIComponent(path)+'&download=1';
         el.outerHTML=`<div class="html-preview-fallback"><a class="msg-media-link" href="${dlUrl}" download="${esc(fname)}">📎 ${esc(fname)}</a><br><span style="color:var(--muted);font-size:12px">${t('html_error')}</span></div>`;
       });
+  });
+}
+
+// ── Link previews (iMessage-style card for a link on its own line) ─────────
+// The placeholder already holds a plain link, so a site with no preview
+// (or a failed fetch) just stays a link.
+const _linkPreviewCache=new Map();
+function loadLinkPreviews(container){
+  const root=container||document;
+  root.querySelectorAll('.link-preview-load:not([data-loaded])').forEach(el=>{
+    el.setAttribute('data-loaded','1');
+    const url=el.dataset.url;
+    if(!_linkPreviewCache.has(url)){
+      _linkPreviewCache.set(url,fetch('api/link-preview?url='+encodeURIComponent(url))
+        .then(r=>r.ok?r.json():null).catch(()=>null));
+    }
+    _linkPreviewCache.get(url).then(p=>{
+      if(!p||!(p.title||p.image)) return;
+      const img=p.image?`<img class="link-preview-img" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'';
+      el.innerHTML=`<a class="link-preview" href="${esc(url)}" target="_blank" rel="noopener">${img}<span class="link-preview-meta"><span class="link-preview-title">${esc(p.title||url)}</span><span class="link-preview-site">${esc(p.site||'')}</span></span></a>`;
+      const pic=el.querySelector('.link-preview-img');
+      if(pic) pic.addEventListener('error',()=>pic.remove(),{once:true});
+    });
   });
 }
 
