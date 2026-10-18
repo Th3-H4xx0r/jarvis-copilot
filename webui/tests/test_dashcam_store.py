@@ -910,6 +910,12 @@ def test_upload_rules_validate(store):
     assert len(errors) == 3
 
 
+def test_pulls_and_uploads_can_wait_for_the_charger(store):
+    saved, errors = store.update_settings({"rules": {"normal_when": "charging", "upload_when": "charging"}})
+    assert errors == []
+    assert saved["rules"]["normal_when"] == "charging" and saved["rules"]["upload_when"] == "charging"
+
+
 def test_settings_defaults_and_validation(store):
     s = store.get_settings()
     assert s["rules"] == ds.DEFAULT_SETTINGS["rules"]

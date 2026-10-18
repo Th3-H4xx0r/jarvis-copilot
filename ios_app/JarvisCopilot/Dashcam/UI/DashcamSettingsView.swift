@@ -72,7 +72,7 @@ struct DashcamSettingsView: View {
 
     private var uploadCard: some View {
         CardGroup("Upload to the cloud", footer: sync.rules.upload
-                  ? "Uploads run while clips download. On the camera's Wi‑Fi they go over mobile data (LTE). 4K front + rear is about 2.5 GB per 10 minutes of driving. A clip leaves the phone once every destination has it, unless you keep clips on the phone."
+                  ? "\(sync.rules.uploadData.detail) Uploads run while clips download. On the camera's Wi‑Fi they go over mobile data (LTE). 4K front + rear is about 2.5 GB per 10 minutes of driving. A clip leaves the phone once every destination has it, unless you keep clips on the phone."
                   : "Clips stay on the phone until uploads are switched back on.") {
             Row { Toggle("Upload clips", isOn: ruleBinding(\.upload)).tint(JcTheme.accent) }
             if sync.rules.upload {
@@ -191,8 +191,11 @@ struct DashcamSettingsView: View {
     static func menu<V: Hashable, Options: View>(_ title: String, selection: Binding<V>,
                                                  @ViewBuilder options: () -> Options) -> some View {
         LabeledContent(title) {
+            // One line: the menu button doesn't grow with wrapped text, so a long value ran into the
+            // row below. Values are kept to a word or two; the footers explain them.
             Picker(title, selection: selection, content: options)
                 .labelsHidden()
+                .lineLimit(1)
                 .tint(JcTheme.accent)
         }
     }

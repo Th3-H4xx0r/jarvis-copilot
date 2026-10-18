@@ -60,6 +60,28 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertEqual(back, r)
     }
 
+    /// "Charging only": normal footage and uploads wait for the charger; events still come off
+    /// the camera at once.
+    func testOnlyWhileChargingWaitsForPower() {
+        var r = DashcamRules()
+        r.normal = .all
+        r.normalWhen = .charging
+        XCTAssertFalse(r.wants(file(.normal), parked: true, charging: false, normalBytesOnPhone: 0))
+        XCTAssertTrue(r.wants(file(.normal), parked: false, charging: true, normalBytesOnPhone: 0))
+        XCTAssertTrue(r.wants(file(.event), parked: false, charging: false, normalBytesOnPhone: 0))
+        r.uploadWhen = .charging
+        XCTAssertFalse(r.mayUpload(.event, metered: false, parked: true, charging: false))
+        XCTAssertTrue(r.mayUpload(.event, metered: false, parked: false, charging: true))
+        XCTAssertEqual(DashcamRules(json: r.json), r)
+    }
+
+    /// The settings show a value on one line next to its title: a long one ran into the row below.
+    func testEveryRuleValueFitsOnOneLine() {
+        let labels = DashcamRules.Normal.allCases.map(\.label) + DashcamRules.When.allCases.map(\.label)
+            + DashcamRules.UploadData.allCases.map(\.label)
+        for label in labels { XCTAssertLessThanOrEqual(label.count, 14, label) }
+    }
+
     func testRulesRoundTripThroughJSONAndClampTheCap() {
         var r = DashcamRules()
         r.normal = .all; r.normalWhen = .parked; r.phoneCapGB = 64; r.keepOnPhone = true

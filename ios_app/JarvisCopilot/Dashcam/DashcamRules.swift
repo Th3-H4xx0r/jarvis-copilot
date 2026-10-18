@@ -15,17 +15,40 @@ struct DashcamRules: Equatable, Sendable {
         }
     }
     enum When: String, CaseIterable, Sendable {
-        case any, parked
-        var label: String { self == .any ? "Any time" : "Only when parked" }
+        case any, parked, charging
+        var label: String {
+            switch self {
+            case .any: return "Any time"
+            case .parked: return "Parked only"
+            case .charging: return "Charging only"
+            }
+        }
+        /// Whether this rule lets the work go now.
+        func allows(parked: Bool, charging: Bool) -> Bool {
+            switch self {
+            case .any: return true
+            case .parked: return parked
+            case .charging: return charging
+            }
+        }
     }
     /// What may go to the cloud over mobile data (LTE — also the way out while on the camera's Wi‑Fi).
     enum UploadData: String, CaseIterable, Sendable {
         case all, events, never
+        /// A word or two: the setting's value shows on one line (the long one wrapped into the row below).
         var label: String {
             switch self {
             case .all: return "Everything"
-            case .events: return "Events now, the rest on Wi‑Fi or charging"
-            case .never: return "Nothing — Wi‑Fi only"
+            case .events: return "Events only"
+            case .never: return "Nothing"
+            }
+        }
+        /// What the value means, for the card's footer.
+        var detail: String {
+            switch self {
+            case .all: return "Everything uploads over mobile data too."
+            case .events: return "Events upload over mobile data at once; the rest waits for Wi‑Fi or the charger."
+            case .never: return "Nothing uploads over mobile data: Wi‑Fi only."
             }
         }
     }
@@ -57,7 +80,7 @@ struct DashcamRules: Equatable, Sendable {
     /// isn't his battery — normal footage held off mobile data goes then too (an evening's drive was
     /// 11 GB over LTE, most of a day's charge).
     func mayUpload(_ kind: DashcamClipKind, metered: Bool, parked: Bool, charging: Bool = false) -> Bool {
-        guard upload, uploadWhen == .any || parked else { return false }
+        guard upload, uploadWhen.allows(parked: parked, charging: charging) else { return false }
         guard metered else { return true }
         switch uploadData {
         case .all: return true
@@ -76,8 +99,9 @@ struct DashcamRules: Equatable, Sendable {
     /// Whether to download `file` now.
     /// - Parameters:
     ///   - parked: the phone hasn't been in a moving car for a few minutes.
+    ///   - charging: the phone is on power (charging or full).
     ///   - normalBytesOnPhone: normal footage already on the phone (counts toward the cap).
-    func wants(_ file: DashcamFile, parked: Bool, normalBytesOnPhone: Int64) -> Bool {
+    func wants(_ file: DashcamFile, parked: Bool, charging: Bool = false, normalBytesOnPhone: Int64) -> Bool {
         switch file.kind {
         case .event, .parking, .photo:
             return true
@@ -87,7 +111,7 @@ struct DashcamRules: Equatable, Sendable {
             case .front: guard file.lens == .front else { return false }
             case .all: break
             }
-            if normalWhen == .parked && !parked { return false }
+            if !normalWhen.allows(parked: parked, charging: charging) { return false }
             return normalBytesOnPhone + file.size <= phoneCapBytes
         }
     }

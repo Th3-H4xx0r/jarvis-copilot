@@ -80,12 +80,12 @@ DISK_RESERVE_BYTES = 2 * 1024 ** 3     # an upload is refused (staging_full) if 
 
 DEFAULT_SETTINGS = {
     "rules": {"normal": "all",          # off | front | all (auto sync pulls everything by default)
-              "normal_when": "any",     # any | parked
+              "normal_when": "any",     # any | parked | charging
               "phone_cap_gb": 20,       # 1..512, applies to normal footage only
               "keep_on_phone": False,
               "upload": True,           # cloud uploads on/off
               "upload_data": "all",     # all | events | never — what may use mobile data
-              "upload_when": "any"},    # any | parked
+              "upload_when": "any"},    # any | parked | charging
     "staging_cap_bytes": 4 * 1024 ** 3,
 }
 
@@ -286,8 +286,8 @@ class DashcamStore:
         for key, value in rules.items():
             if key == "normal" and value not in ("off", "front", "all"):
                 errors.append("rules.normal must be off, front or all")
-            elif key == "normal_when" and value not in ("any", "parked"):
-                errors.append("rules.normal_when must be any or parked")
+            elif key == "normal_when" and value not in ("any", "parked", "charging"):
+                errors.append("rules.normal_when must be any, parked or charging")
             elif key == "phone_cap_gb" and not (isinstance(value, int) and not isinstance(value, bool)
                                                 and 1 <= value <= 512):
                 errors.append("rules.phone_cap_gb must be a whole number from 1 to 512")
@@ -295,8 +295,8 @@ class DashcamStore:
                 errors.append(f"rules.{key} must be true or false")
             elif key == "upload_data" and value not in ("all", "events", "never"):
                 errors.append("rules.upload_data must be all, events or never")
-            elif key == "upload_when" and value not in ("any", "parked"):
-                errors.append("rules.upload_when must be any or parked")
+            elif key == "upload_when" and value not in ("any", "parked", "charging"):
+                errors.append("rules.upload_when must be any, parked or charging")
             elif key not in DEFAULT_SETTINGS["rules"]:
                 errors.append(f"unknown rule {key!r}")
         if "staging_cap_bytes" in patch:

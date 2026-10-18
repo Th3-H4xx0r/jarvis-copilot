@@ -573,6 +573,8 @@ final class DashcamSync: ObservableObject {
             forced.contains(f.path) || ranges.contains { f.end >= $0.from && f.start <= $0.to }
         }
         let isParked = inPlayback ? true : await parked()
+        // "Charging only": normal footage waits for the charger (checked again every pass).
+        let onPower = charging()
         // Normal footage on the phone, walked once a pass (it used to be walked for every listed clip, on
         // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
         // The cap also covers the MP4 copies made for Drive and the player: they once took 130 GB on their own.
@@ -584,7 +586,7 @@ final class DashcamSync: ObservableObject {
             // Deleted from the phone on purpose: stays deleted until "Download again".
             if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
-            return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone)
+            return isForced(f) || rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone)
         }
 
         // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else —
@@ -667,7 +669,7 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { break }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone) { continue }
+            if !isForced(f), !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
             if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size }
             if !onCameraProvider() { break }
@@ -878,6 +880,8 @@ final class DashcamSync: ObservableObject {
             uploadNote = "Google Drive sign-in expired — clips wait on the phone. Sign in again in Destinations."
         } else if let until = await uploader.driveQuotaUntil, until > Date() {
             uploadNote = "Google Drive's shared rclone key is out of quota — retrying by itself. Your own Google key fixes it (Destinations)."
+        } else if rules.uploadWhen == .charging, !onPower, pendingUploads > 0 {
+            uploadNote = "Clips upload once the phone is charging."
         } else {
             uploadNote = nil
         }
