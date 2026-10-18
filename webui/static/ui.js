@@ -7076,8 +7076,8 @@ function loadHtmlInline(container){
 }
 
 // ── Link previews (iMessage-style card for a link on its own line) ─────────
-// The placeholder already holds a plain link, so a site with no preview
-// (or a failed fetch) just stays a link.
+// A site that won't hand over its preview (Amazon answers bots with a 503)
+// still gets the small card Messages draws: the link and its site name.
 const _linkPreviewCache=new Map();
 function loadLinkPreviews(container){
   const root=container||document;
@@ -7089,9 +7089,10 @@ function loadLinkPreviews(container){
         .then(r=>r.ok?r.json():null).catch(()=>null));
     }
     _linkPreviewCache.get(url).then(p=>{
-      if(!p||!(p.title||p.image)) return;
-      const img=p.image?`<img class="link-preview-img" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'';
-      el.innerHTML=`<a class="link-preview" href="${esc(url)}" target="_blank" rel="noopener">${img}<span class="link-preview-meta"><span class="link-preview-title">${esc(p.title||url)}</span><span class="link-preview-site">${esc(p.site||'')}</span></span></a>`;
+      let host='';
+      try{host=new URL(url).hostname.replace(/^www\./,'');}catch(_){}
+      const img=p&&p.image?`<img class="link-preview-img" src="${esc(p.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'';
+      el.innerHTML=`<a class="link-preview" href="${esc(url)}" target="_blank" rel="noopener">${img}<span class="link-preview-meta"><span class="link-preview-title">${esc((p&&p.title)||url)}</span><span class="link-preview-site">${esc((p&&p.site)||host)}</span></span></a>`;
       const pic=el.querySelector('.link-preview-img');
       if(pic) pic.addEventListener('error',()=>pic.remove(),{once:true});
     });
