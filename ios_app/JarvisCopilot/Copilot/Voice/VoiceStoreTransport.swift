@@ -677,7 +677,8 @@ extension VoiceStore {
                 // and hands back whichever it meets FIRST, so a reply that also
                 // carries another array (`sessions`, `items`, …) would quietly
                 // give us the wrong one.
-                kinds = try await api.get("/api/devices").array(key: "devices")
+                // No skill catalogues (~90 KB): only who's online.
+                kinds = try await api.get("/api/devices", query: ["skills": "0"]).array(key: "devices")
                     .compactMap { $0 as? [String: Any] }
                     .filter { $0.bool("online") ?? false }
                     .map(deviceIconKind)

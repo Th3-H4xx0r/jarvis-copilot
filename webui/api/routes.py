@@ -3782,6 +3782,10 @@ def handle_get(handler, parsed) -> bool:
             skills_for_device = None
         _ONLINE_WINDOW_SECONDS = 60.0
         _now = time.time()
+        # ?skills=0 leaves out each device's skill catalogue (the phone's own is ~90 KB): the
+        # phone's dashboard, voice strip, pod list and desktop picker read names, kinds and
+        # who's online, ~40 times an hour.
+        with_skills = parse_qs(parsed.query).get("skills", ["1"])[0].strip().lower() not in ("0", "false", "no")
         out = []
         for d in rows:
             dd = dict(d)
@@ -3810,7 +3814,9 @@ def handle_get(handler, parsed) -> bool:
                     is_sync_capable_kind(d.get("kind"))
             except Exception:
                 dd["sync_capable"] = (str(d.get("kind") or "").lower() == "desktop")
-            if skills_for_device is not None:
+            if not with_skills:
+                dd.pop("skills", None)
+            elif skills_for_device is not None:
                 dd["skills"] = skills_for_device(d.get("id", "")) or []
             else:
                 dd["skills"] = []

@@ -198,7 +198,8 @@ struct CodingSessionsAPI {
     /// desktops (offline ones are still returned but flagged). Tolerates the body
     /// being a bare list or missing the `devices` key.
     func listDevices() async throws -> [CodingDevice] {
-        let data = try await api.get("/api/devices").data
+        // No skill catalogues (~90 KB): only which desktops can sync.
+        let data = try await api.get("/api/devices", query: ["skills": "0"]).data
         let any = data.isEmpty ? nil : try? JSONSerialization.jsonObject(with: data)
         let raw = (any as? [String: Any]).map { CodingJSON.maps($0["devices"]) } ?? CodingJSON.maps(any)
         return raw.map(CodingDevice.init(json:)).filter { !$0.id.isEmpty && $0.desktopCapable }

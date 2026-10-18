@@ -222,7 +222,8 @@ struct JarvisPodVoice: Equatable, Sendable {
 
 struct JarvisPodAPI: Sendable {
     func pods() async throws -> [JarvisPodDevice] {
-        let list = try await JarvisAPI.shared.get("/api/devices").array(key: "devices")
+        // No skill catalogues (~90 KB): only which devices are pods.
+        let list = try await JarvisAPI.shared.get("/api/devices", query: ["skills": "0"]).array(key: "devices")
         return JarvisPodDevice.from(devices: list.compactMap { $0 as? [String: Any] })
     }
 

@@ -58,7 +58,7 @@ final class ChatDashboardStore {
 
         @MainActor static func live() -> Sources {
             Sources(wearables: { WearablesHub.shared.roster() },
-                    devices: { try await DevicesAPI().list() },
+                    devices: { try await DevicesAPI().list(skills: false) },
                     codingSessions: { try await CodingSessionsAPI().listLiveSessions() },
                     quota: { try await QuotaAPI().all() })
         }
