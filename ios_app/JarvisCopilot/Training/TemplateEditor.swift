@@ -65,11 +65,12 @@ struct TemplateEditor: View {
                     .disabled(!canSave)
                 }
             }
-            .confirmationDialog("Delete \(base.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            .alert("Delete \(base.name)?", isPresented: $confirmingDelete) {
                 Button("Delete Template", role: .destructive) {
                     store.deleteTemplate(id: base.id)
                     dismiss()
                 }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Workouts you did from it stay in your history.")
             }

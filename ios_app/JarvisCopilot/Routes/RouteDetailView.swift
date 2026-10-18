@@ -112,11 +112,12 @@ struct RouteDetailView: View {
                 }
             }
         }
-        .confirmationDialog("Delete this workout?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .alert("Delete this workout?", isPresented: $confirmingDelete) {
             Button("Delete Workout", role: .destructive) {
                 WorkoutEditing.delete(workout)
                 dismiss()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It goes from Jarvis Health and Apple Health, with its route.")
         }

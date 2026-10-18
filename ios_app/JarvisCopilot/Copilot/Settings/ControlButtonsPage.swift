@@ -397,11 +397,12 @@ struct ControlButtonEditor: View {
                 .disabled(!canSave)
             }
         }
-        .confirmationDialog("Delete this button?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("Delete this button?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 store.delete(draft.id)
                 dismiss()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("A Control Center control pointed at it stops doing anything.")
         }

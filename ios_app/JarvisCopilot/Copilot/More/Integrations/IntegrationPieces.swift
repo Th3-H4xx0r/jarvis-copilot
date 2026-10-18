@@ -288,8 +288,8 @@ private struct IntegrationConfirmModifier: ViewModifier {
     let store: IntegrationsStore
 
     func body(content: Content) -> some View {
-        content.confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible,
-                                   presenting: pending) { item in
+        content.alert(title, isPresented: isPresented,
+                      presenting: pending) { item in
             switch item {
             case .collection(let collection):
                 Button("Delete \(collection.count.formatted()) records", role: .destructive) {

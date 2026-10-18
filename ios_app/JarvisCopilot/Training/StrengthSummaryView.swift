@@ -36,8 +36,7 @@ struct StrengthSummaryView: View {
             }
             .padding(.bottom, 28)
         }
-        .confirmationDialog(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } }),
-                            titleVisibility: .visible, presenting: prompt) { which in
+        .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } }), presenting: prompt) { which in
             switch which {
             case .structure(let template):
                 Button("Update Template") {
@@ -54,6 +53,7 @@ struct StrengthSummaryView: View {
                 }
                 Button("Keep Original") { onSave?() }
             }
+            Button("Cancel", role: .cancel) {}
         } message: { which in
             switch which {
             case .structure: Text("You changed its exercises or sets. Update the template to match this workout?")
@@ -72,7 +72,7 @@ struct StrengthSummaryView: View {
         } message: {
             Text("Start it again from the workout picker in one tap.")
         }
-        .confirmationDialog("Discard this workout?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+        .alert("Discard this workout?", isPresented: $confirmingDiscard) {
             Button("Discard Workout", role: .destructive) { onDiscard?() }
             Button("Keep It", role: .cancel) {}
         } message: {

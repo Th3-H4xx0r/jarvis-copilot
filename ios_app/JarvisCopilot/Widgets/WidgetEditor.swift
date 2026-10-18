@@ -82,13 +82,14 @@ struct WidgetEditor: View {
                 WidgetBlockInspector(block: blockBinding(ref), onDelete: { removeBlock(ref) })
             }
         }
-        .confirmationDialog("Delete this widget?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("Delete this widget?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 Task {
                     await store.delete(draft.id)
                     dismiss()
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Widgets showing it go back to asking for a design.")
         }

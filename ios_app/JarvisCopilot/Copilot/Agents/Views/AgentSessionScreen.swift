@@ -118,11 +118,20 @@ struct AgentSessionScreen: View {
                 }
                 .padding(.bottom, 12)
             }
-            .modifier(AgentOpensAtTheEnd())
+            .modifier(AgentOpensAtTheEnd(follow: atBottom))
             .environment(\.agentLoadDetails, AgentLoadDetails { i in Task { await model.loadDetails(i) } })
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
-            .modifier(AgentTracksBottom(atBottom: $atBottom))
+            .modifier(AgentTracksBottom(atBottom: $atBottom) { proxy.scrollTo(Self.bottom, anchor: .bottom) })
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                // Typing means reading the end: bring it above the keyboard, and
+                // keep it there as the keyboard and new messages change the size.
+                atBottom = true
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                proxy.scrollTo(Self.bottom, anchor: .bottom)
+            }
             .onChange(of: AgentChatFollow.Key(
                 lastID: items.last?.id, lastSignature: items.last.map { "\($0)" } ?? "",
                 outgoing: outgoing.count, hasRequest: request != nil, working: working,
@@ -193,7 +202,7 @@ struct AgentSessionScreen: View {
                 AgentProjectSettingsSheet(projectId: pid, api: store.api)
             }
         }
-        .confirmationDialog("Stop this session?", isPresented: $confirmStop, titleVisibility: .visible) {
+        .alert("Stop this session?", isPresented: $confirmStop) {
             Button("Stop", role: .destructive) { Task { await store.stop(ckey) } }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -201,12 +210,12 @@ struct AgentSessionScreen: View {
                  ? "It ends on the server. You can resume it later."
                  : "Jarvis interrupts \(agentName) on \(conv?.ownerName ?? "the Mac"), then ends it if it doesn’t stop.")
         }
-        .confirmationDialog("Resume where?", isPresented: $askResume, titleVisibility: .visible) {
+        .alert("Resume where?", isPresented: $askResume) {
             Button("On the server") { Task { await store.resume(ckey, onServer: true) } }
             Button("On the Mac") { Task { await store.resume(ckey, onServer: false) } }
             Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Continue on the server?", isPresented: $confirmOffline, titleVisibility: .visible) {
+        .alert("Continue on the server?", isPresented: $confirmOffline) {
             Button("Continue on server") { Task { await store.continueOnServer([ckey], confirmOffline: true) } }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -395,17 +404,36 @@ enum AgentChatFollow {
     }
 }
 
-/// Tracks whether the scroll view sits at (or near) its end. iOS 17 can't
+/// Tracks whether the scroll view sits at (or near) its end, and keeps the end
+/// in view when something covers the bottom while you're there — the keyboard
+/// coming up shrinks what's shown without moving the content, which hid the
+/// newest messages and then stopped the chat following new ones. iOS 17 can't
 /// read scroll geometry, so there it always counts as at the end.
 private struct AgentTracksBottom: ViewModifier {
     @Binding var atBottom: Bool
+    var pinToEnd: () -> Void
+
+    private struct Edge: Equatable {
+        /// The height of what's shown (the container is already inside the
+        /// insets: top bar, composer, keyboard).
+        var shown: CGFloat
+        var nearEnd: Bool
+    }
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.onScrollGeometryChange(for: Bool.self) { g in
-                g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 120
-            } action: { _, now in
-                atBottom = now
+            content.onScrollGeometryChange(for: Edge.self) { g in
+                // The offset counts from under the top inset, so what's shown ends
+                // at offset + top inset + container height.
+                let end = g.contentOffset.y + g.contentInsets.top + g.containerSize.height
+                return Edge(shown: g.containerSize.height, nearEnd: end >= g.contentSize.height - 120)
+            } action: { old, new in
+                if new.shown < old.shown - 1 && old.nearEnd {
+                    atBottom = true
+                    pinToEnd()
+                } else {
+                    atBottom = new.nearEnd
+                }
             }
         } else {
             content
@@ -414,11 +442,16 @@ private struct AgentTracksBottom: ViewModifier {
 }
 
 /// Opens at the newest message while a short conversation still starts at
-/// the top (a bottom anchor alone would leave a gap above it).
+/// the top (a bottom anchor alone would leave a gap above it). While you're at
+/// the end it stays pinned there as the size changes — the keyboard coming up,
+/// a message arriving or growing — and leaves you be once you scroll up.
 private struct AgentOpensAtTheEnd: ViewModifier {
+    var follow: Bool
+
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
             content.defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(follow ? .bottom : nil, for: .sizeChanges)
         } else {
             content
         }

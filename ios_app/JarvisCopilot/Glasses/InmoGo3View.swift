@@ -118,8 +118,9 @@ struct InmoGo3View: View {
         .wearableRename(isPresented: $renaming, current: name) {
             WearableNames.shared.rename(WearableKeepAlive.glasses, to: $0)
         }
-        .confirmationDialog("Forget these glasses?", isPresented: $confirmForget, titleVisibility: .visible) {
+        .alert("Forget these glasses?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) { link.forget() }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Jarvis stops treating this headset as your GO3. Unpair it in Settings › Bluetooth to disconnect it.")
         }

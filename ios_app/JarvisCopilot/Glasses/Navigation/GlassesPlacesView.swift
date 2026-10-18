@@ -80,10 +80,11 @@ struct GlassesPlacesView: View {
             }
         }
         .navigationTitle("Navigation")
-        .confirmationDialog(picked?.name ?? "Save place", isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } })) {
+        .alert(picked?.name ?? "Save place", isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } })) {
             ForEach(GlassesPlace.Kind.allCases, id: \.self) { kind in
                 Button("Save as \(kind == .other ? "a place" : kind.rawValue.capitalized)") { save(kind) }
             }
+            Button("Cancel", role: .cancel) {}
         }
         .onAppear { locationStatus = locationAsker.authorizationStatus }
     }

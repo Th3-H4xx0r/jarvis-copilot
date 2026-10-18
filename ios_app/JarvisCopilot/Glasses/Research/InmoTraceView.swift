@@ -138,11 +138,12 @@ struct InmoTraceView: View {
             case .failure(let error): failure = error.localizedDescription
             }
         }
-        .confirmationDialog("Delete this session and its imported copies?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("Delete this session and its imported copies?", isPresented: $confirmDelete) {
             Button("Delete session", role: .destructive) {
                 guard let id = selected else { return }
                 run { try await store.delete(id); selected = nil; exportURL = nil; try await reload() }
             }
+            Button("Cancel", role: .cancel) {}
         } message: { Text("The original files in Files or on your Mac are kept.") }
     }
 

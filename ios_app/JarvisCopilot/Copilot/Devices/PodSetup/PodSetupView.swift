@@ -107,7 +107,7 @@ struct PodSetupView: View {
                     .accessibilityLabel("Cancel")
                 }
             }
-            .confirmationDialog("Stop setting up the pod?", isPresented: $confirmCancel, titleVisibility: .visible) {
+            .alert("Stop setting up the pod?", isPresented: $confirmCancel) {
                 Button("Stop setup", role: .destructive) { close() }
                 Button("Keep going", role: .cancel) {}
             }

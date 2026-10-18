@@ -95,8 +95,8 @@ struct RingFirmwareSection: View {
                 }
             }
         }
-        .confirmationDialog("Flash \(selected?.version ?? "this image") to the ring?",
-                            isPresented: $confirmFlash, titleVisibility: .visible) {
+        .alert("Flash \(selected?.version ?? "this image") to the ring?",
+               isPresented: $confirmFlash) {
             Button("Flash", role: .destructive) {
                 if let image = selected {
                     flashing = image
@@ -104,6 +104,7 @@ struct RingFirmwareSection: View {
                     flasher.flash(image, over: session)
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("A few minutes, and cannot be cancelled. Keep the ring close. It "
                  + "reboots into the new firmware only once the image is verified.")

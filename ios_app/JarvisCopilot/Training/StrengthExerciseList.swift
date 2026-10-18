@@ -38,8 +38,7 @@ struct StrengthExerciseList: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
         }
-        .confirmationDialog("Superset with", isPresented: Binding(get: { linking != nil }, set: { if !$0 { linking = nil } }),
-                            titleVisibility: .visible, presenting: linking) { exercise in
+        .alert("Superset with", isPresented: Binding(get: { linking != nil }, set: { if !$0 { linking = nil } }), presenting: linking) { exercise in
             // The exercise is handed in, not read back: the dialog clears
             // `linking` as it closes.
             ForEach(session.log.exercises.filter { $0.id != exercise }) { other in

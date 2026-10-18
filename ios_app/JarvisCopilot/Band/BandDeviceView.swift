@@ -388,10 +388,11 @@ struct BandSettingsView: View {
             await loadAlarms()
         }
         .onAppear { keepAlive = manager.keepAliveEnabled }
-        .confirmationDialog("Forget the band?", isPresented: $confirmForget, titleVisibility: .visible) {
+        .alert("Forget the band?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) {
                 Task { await manager.forget(); dismiss() }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Its history stays on this phone.")
         }

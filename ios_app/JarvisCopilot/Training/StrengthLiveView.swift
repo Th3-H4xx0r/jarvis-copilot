@@ -35,14 +35,14 @@ struct StrengthLiveView: View {
         }
         .animation(.snappy, value: session.focus != nil)
         .animation(.snappy, value: session.rest != nil)
-        .confirmationDialog(undone > 0 ? "\(undone) sets aren't done" : "Finish workout?",
-                            isPresented: $confirmingFinish, titleVisibility: .visible) {
+        .alert(undone > 0 ? "\(undone) sets aren't done" : "Finish workout?",
+               isPresented: $confirmingFinish) {
             Button(undone > 0 ? "Finish Anyway" : "Finish") { workout.end() }
             Button("Keep Going", role: .cancel) {}
         } message: {
             if undone > 0 { Text("Unticked sets don't count toward the workout's totals or records.") }
         }
-        .confirmationDialog("Cancel this workout?", isPresented: $confirmingCancel, titleVisibility: .visible) {
+        .alert("Cancel this workout?", isPresented: $confirmingCancel) {
             Button("Cancel Workout", role: .destructive) { workout.cancelStrength() }
             Button("Keep Going", role: .cancel) {}
         } message: {

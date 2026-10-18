@@ -43,12 +43,13 @@ struct X5SettingsView: View {
         }
         .navigationTitle("X5 settings")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Power the X5 off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
+        .alert("Power the X5 off?", isPresented: $confirmPowerOff) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It turns back on when you put it on its charger.")
         }
-        .confirmationDialog("Clear the ring's history?", isPresented: $confirmClear, titleVisibility: .visible) {
+        .alert("Clear the ring's history?", isPresented: $confirmClear) {
             Button("Clear ring history", role: .destructive) {
                 apply {
                     try await session.clearHistory()
@@ -56,16 +57,18 @@ struct X5SettingsView: View {
                     if let id = manager.deviceID { X5Cursors(deviceID: id).reset() }
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Deletes what is stored on the ring. Everything already on this phone is kept.")
         }
-        .confirmationDialog("Forget this X5?", isPresented: $confirmForget, titleVisibility: .visible) {
+        .alert("Forget this X5?", isPresented: $confirmForget) {
             Button("Forget ring", role: .destructive) {
                 Task {
                     await manager.forget()
                     dismiss()
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Unpairs it from Jarvis. Its history stays on this phone.")
         }

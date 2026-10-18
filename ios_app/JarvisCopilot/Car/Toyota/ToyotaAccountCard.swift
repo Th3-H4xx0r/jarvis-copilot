@@ -16,13 +16,14 @@ struct ToyotaAccountCard: View {
                 Row { Text(error).font(.footnote).foregroundStyle(JcTheme.danger) }
             }
         }
-        .confirmationDialog("Sign out of Toyota?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+        .alert("Sign out of Toyota?", isPresented: $confirmSignOut) {
             Button("Sign Out", role: .destructive) {
                 error = nil
                 Task {
                     do { try await store.signOut() } catch { self.error = apiErrorMessage(error) }
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Jarvis and the Car page lose the remote, status and climate until you sign in again.")
         }

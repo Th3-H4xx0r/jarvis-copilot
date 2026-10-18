@@ -48,9 +48,8 @@ struct AgentsSleepCard: View {
         }
         .background(JcTheme.glassFill, in: shape)
         .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
-        .confirmationDialog("Continue on the server?", isPresented: Binding(
-            get: { !confirming.isEmpty }, set: { if !$0 { confirming = [] } }),
-                            titleVisibility: .visible) {
+        .alert("Continue on the server?", isPresented: Binding(
+            get: { !confirming.isEmpty }, set: { if !$0 { confirming = [] } })) {
             Button(confirming.count == 1 ? "Continue on server" : "Continue \(confirming.count) on server") {
                 let ckeys = confirming
                 confirming = []

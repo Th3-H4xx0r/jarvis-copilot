@@ -109,12 +109,12 @@ struct HabitEditor: View {
                         .disabled(trimmed.isEmpty)
                 }
             }
-            .confirmationDialog("Delete \(habit?.name ?? "this habit")?", isPresented: $confirmingDelete,
-                                titleVisibility: .visible) {
+            .alert("Delete \(habit?.name ?? "this habit")?", isPresented: $confirmingDelete) {
                 Button("Delete it and all its relapses", role: .destructive) {
                     if let habit { store.delete(habit) }
                     dismiss()
                 }
+                Button("Cancel", role: .cancel) {}
             }
         }
     }

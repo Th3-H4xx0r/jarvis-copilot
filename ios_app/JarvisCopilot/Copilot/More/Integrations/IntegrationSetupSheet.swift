@@ -42,8 +42,7 @@ struct IntegrationSetupSheet: View {
         // The agent calls integration_ready when it is done; that is the only
         // thing that ends this screen's conversation.
         .onChange(of: chat.messagesTick) { _, _ in setup.noticeReady(in: chat.messages) }
-        .confirmationDialog("Stop setting this up?", isPresented: $confirmingExit,
-                            titleVisibility: .visible) {
+        .alert("Stop setting this up?", isPresented: $confirmingExit) {
             Button("Delete what was created", role: .destructive) {
                 Task {
                     await chat.cancel()          // it builds as it goes; stop it first

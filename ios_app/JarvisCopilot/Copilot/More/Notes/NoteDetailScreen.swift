@@ -47,10 +47,11 @@ struct NoteDetailScreen: View {
                     .accessibilityLabel("Delete")
             }
         }
-        .confirmationDialog("Delete this note on the server?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("Delete this note on the server?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 Task { if await store.delete(noteID) { dismiss() } }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("The Mac keeps its own copy.")
         }

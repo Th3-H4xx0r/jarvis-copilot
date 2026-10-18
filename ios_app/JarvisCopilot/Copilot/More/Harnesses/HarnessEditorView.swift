@@ -69,9 +69,8 @@ struct HarnessEditorView: View {
             HarnessNodeSheet(harness: $harness, nodeID: ref.id, readOnly: readOnly,
                              problems: problems.filter { $0.node == ref.id })
         }
-        .confirmationDialog("Wire", isPresented: Binding(get: { editingEdge != nil },
-                                                          set: { if !$0 { editingEdge = nil } }),
-                            titleVisibility: .visible) { edgeActions }
+        .alert("Wire", isPresented: Binding(get: { editingEdge != nil },
+                                set: { if !$0 { editingEdge = nil } })) { edgeActions }
     }
 
     // MARK: Canvas
@@ -174,6 +173,7 @@ struct HarnessEditorView: View {
                 editingEdge = nil
             }
         }
+        Button("Cancel", role: .cancel) { editingEdge = nil }
     }
 
     /// A Route wire's label goes through ``HarnessGraph/relabelWire`` so the

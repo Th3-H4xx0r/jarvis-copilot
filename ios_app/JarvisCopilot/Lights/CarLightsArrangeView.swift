@@ -87,8 +87,9 @@ struct CarLightsArrangeView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Save") { if let selected { store.rename(selected, to: newName) } }
             }
-            .confirmationDialog("Put every lamp back where it started?", isPresented: $confirmReset, titleVisibility: .visible) {
+            .alert("Put every lamp back where it started?", isPresented: $confirmReset) {
                 Button("Reset layout", role: .destructive) { store.reset(); selected = nil }
+                Button("Cancel", role: .cancel) {}
             }
             .onChange(of: tool) { _, _ in note = nil; draft = nil; stripStart = nil }
         }

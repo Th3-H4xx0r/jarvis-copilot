@@ -188,13 +188,14 @@ struct WidgetDesignViewer: View {
         .navigationTitle(info.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { data = WidgetDataFile.read() }
-        .confirmationDialog("Delete this widget?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .alert("Delete this widget?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 Task {
                     await store.delete(info.id)
                     dismiss()
                 }
             }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

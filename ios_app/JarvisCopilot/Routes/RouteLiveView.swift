@@ -43,7 +43,7 @@ struct RouteLiveView: View {
             }
         }
         .animation(.snappy(duration: 0.3), value: expanded)
-        .confirmationDialog("End workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+        .alert("End workout?", isPresented: $confirmingEnd) {
             Button("End workout", role: .destructive) { workout.end() }
             Button("Keep going", role: .cancel) {}
         }

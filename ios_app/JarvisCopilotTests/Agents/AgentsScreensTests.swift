@@ -166,6 +166,63 @@ final class AgentChatOpensAtEndTests: XCTestCase {
         XCTAssertEqual(olderPages, 0, "opening doesn't page in older messages on its own")
     }
 
+    func testItsEndStaysInViewAsTheKeyboardComesUpAndMessagesArrive() async throws {
+        final class Box: @unchecked Sendable {
+            var total = 60
+            var list = Fx.list
+        }
+        let box = Box()
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/list") { _ in
+            MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: box.list))
+        }
+        transport.route("/api/coding/permission/pending", json: ["pending": []])
+        transport.route("/api/coding/agents/messages") { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let before = query.first { $0.name == "before" }?.value.flatMap(Int.init)
+            return MockTransport.Reply(body: try! JSONSerialization.data(
+                withJSONObject: Fx.longPage(before: before, total: box.total)))
+        }
+        let topics = BridgeTopics()
+        topics.send = { _ in }
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: topics)
+        await store.refresh()
+        store.requestOpen(Fx.working)
+        let router = AppRouter()
+        router.selectedTab = .agents
+
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let host = UIHostingController(rootView: AgentsPage(store: store).environment(router))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        try await Task.sleep(nanoseconds: 4_000_000_000)
+        let chat = try XCTUnwrap(Self.scrollViews(in: window).max { $0.contentSize.height < $1.contentSize.height })
+        XCTAssertGreaterThanOrEqual(Self.shownEnd(chat), chat.contentSize.height - 40, "opens at its end")
+
+        // The keyboard comes up: the chat's visible part shrinks by its height.
+        host.additionalSafeAreaInsets.bottom = 336
+        NotificationCenter.default.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertGreaterThanOrEqual(Self.shownEnd(chat), chat.contentSize.height - 40,
+                                    "the newest message isn't hidden behind the keyboard")
+
+        // A new message arrives while you type.
+        box.total = 61
+        box.list = Fx.touching(Fx.working, in: Fx.list)
+        await store.refresh()
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        XCTAssertGreaterThanOrEqual(Self.shownEnd(chat), chat.contentSize.height - 40, "it follows the new one")
+    }
+
+    /// The bottom edge of what the chat shows, in content coordinates.
+    private static func shownEnd(_ chat: UIScrollView) -> CGFloat {
+        chat.contentOffset.y + chat.bounds.height - chat.adjustedContentInset.bottom
+    }
+
     private static func scrollViews(in view: UIView) -> [UIScrollView] {
         (view as? UIScrollView).map { [$0] } ?? [] + view.subviews.flatMap { scrollViews(in: $0) }
     }
@@ -236,6 +293,23 @@ private enum Fx {
         "ts": now,
     ]
 
+    /// `list` with one conversation's last event moved to now (its screen reloads).
+    static func touching(_ ckey: String, in list: [String: Any]) -> [String: Any] {
+        var out = list
+        let projects = (list["projects"] as? [[String: Any]] ?? []).map { p -> [String: Any] in
+            var p = p
+            p["sessions"] = (p["sessions"] as? [[String: Any]] ?? []).map { c -> [String: Any] in
+                var c = c
+                if c["ckey"] as? String == ckey { c["last_event_at"] = Date().timeIntervalSince1970 + 1 }
+                return c
+            }
+            return p
+        }
+        out["projects"] = projects
+        out["ts"] = Date().timeIntervalSince1970 + 1
+        return out
+    }
+
     static let emptyList: [String: Any] = ["card": NSNull(), "needs_you": [] as [Any], "projects": [] as [Any]]
 
     static let approvalRequest: [String: Any] = [
@@ -288,8 +362,7 @@ private enum Fx {
 
     /// A 60-message conversation served 40 at a time from the end, with long
     /// markdown replies like a real report.
-    static func longPage(before: Int?) -> [String: Any] {
-        let total = 60
+    static func longPage(before: Int?, total: Int = 60) -> [String: Any] {
         let end = min(before ?? total, total)
         let start = max(0, end - 40)
         let reply = (1...6).map { n in

@@ -111,13 +111,15 @@ struct RingSettingsView: View {
             }
         }
 
-        .confirmationDialog("Power the ring off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
+        .alert("Power the ring off?", isPresented: $confirmPowerOff) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It turns back on when you put it on its charger. Some firmware restarts instead.")
         }
-        .confirmationDialog("Factory reset the ring?", isPresented: $confirmReset, titleVisibility: .visible) {
+        .alert("Factory reset the ring?", isPresented: $confirmReset) {
             Button("Erase ring", role: .destructive) { apply { try await session.factoryReset() } }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This erases the data and settings stored on the ring. History already on this phone is kept.")
         }

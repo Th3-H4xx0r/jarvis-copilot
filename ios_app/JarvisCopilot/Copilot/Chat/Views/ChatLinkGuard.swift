@@ -41,10 +41,10 @@ struct ChatLinkGuardModifier: ViewModifier {
                 }
                 return .systemAction
             })
-            .confirmationDialog("Open this link?",
-                                isPresented: Binding(get: { pending != nil },
-                                                     set: { if !$0 { pending = nil } }),
-                                presenting: pending) { url in
+            .alert("Open this link?",
+                   isPresented: Binding(get: { pending != nil },
+                                        set: { if !$0 { pending = nil } }),
+                   presenting: pending) { url in
                 Button("Open", role: .destructive) {
                     pending = nil
                     UIApplication.shared.open(url)

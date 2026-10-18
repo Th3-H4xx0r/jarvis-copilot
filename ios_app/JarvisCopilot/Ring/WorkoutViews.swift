@@ -304,7 +304,7 @@ struct WorkoutLiveView: View {
             }
             .padding(.bottom, 28)
         }
-        .confirmationDialog("End workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+        .alert("End workout?", isPresented: $confirmingEnd) {
             Button("End workout", role: .destructive) { workout.end() }
             Button("Keep going", role: .cancel) {}
         }
@@ -537,11 +537,12 @@ struct WorkoutSummaryView: View {
             }
         }
         .toolbar { if fromHistory { options } }
-        .confirmationDialog("Delete this workout?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .alert("Delete this workout?", isPresented: $confirmingDelete) {
             Button("Delete Workout", role: .destructive) {
                 WorkoutEditing.delete(workout)
                 dismiss()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It goes from Jarvis Health and Apple Health.")
         }

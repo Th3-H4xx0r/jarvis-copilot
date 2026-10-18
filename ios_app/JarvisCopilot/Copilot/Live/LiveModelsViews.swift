@@ -124,10 +124,9 @@ struct LiveHearingSection: View {
                   + "checks the lines the phone can't place.")
         }
         .onAppear { models.refresh() }
-        .confirmationDialog(confirming.map { "Download \(LiveBytes.text($0.bytesToGet))?" } ?? "",
-                            isPresented: Binding(get: { confirming != nil },
-                                                 set: { if !$0 { confirming = nil } }),
-                            titleVisibility: .visible) {
+        .alert(confirming.map { "Download \(LiveBytes.text($0.bytesToGet))?" } ?? "",
+               isPresented: Binding(get: { confirming != nil },
+                                    set: { if !$0 { confirming = nil } })) {
             if let choice = confirming {
                 Button("Download") { models.choose(choice) }
                 Button("Not now", role: .cancel) {}
@@ -221,8 +220,8 @@ struct LiveSpeakersSection: View {
             LiveSettingsNote("Two people talking at the very same moment still share one "
                            + "line: the words are one recording of both.")
         }
-        .confirmationDialog("Download \(LiveBytes.text(LiveModelKind.speakers.approxBytes))?",
-                            isPresented: $confirming, titleVisibility: .visible) {
+        .alert("Download \(LiveBytes.text(LiveModelKind.speakers.approxBytes))?",
+               isPresented: $confirming) {
             Button("Download") { models.setSplitsSpeakers(true) }
             Button("Not now", role: .cancel) {}
         } message: {
@@ -372,10 +371,9 @@ struct LiveDownloadsScreen: View {
         }
         .jcScreen("Downloads")
         .onAppear { models.refresh() }
-        .confirmationDialog(removing.map { "Remove \($0.shortName)?" } ?? "",
-                            isPresented: Binding(get: { removing != nil },
-                                                 set: { if !$0 { removing = nil } }),
-                            titleVisibility: .visible) {
+        .alert(removing.map { "Remove \($0.shortName)?" } ?? "",
+               isPresented: Binding(get: { removing != nil },
+                                    set: { if !$0 { removing = nil } })) {
             if let kind = removing {
                 Button("Remove \(LiveBytes.text(kind.approxBytes))", role: .destructive) {
                     models.remove(kind)

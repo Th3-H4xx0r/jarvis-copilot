@@ -67,8 +67,8 @@ struct DoorAlarmPage: View {
             WearableNames.shared.rename(DoorAlarmDevice.kind, to: name)
         }
         .sheet(item: $editing) { contact in DoorContactEditor(store: store, contact: contact) }
-        .confirmationDialog(store.refusal?.message ?? "", isPresented: Binding(
-            get: { store.refusal != nil }, set: { if !$0 { store.refusal = nil } }), titleVisibility: .visible) {
+        .alert(store.refusal?.message ?? "", isPresented: Binding(
+            get: { store.refusal != nil }, set: { if !$0 { store.refusal = nil } })) {
             if let refusal = store.refusal {
                 Button("Arm anyway, ignoring \(refusal.open.map(\.name).joined(separator: ", "))") {
                     Task { await store.arm(refusal.mode, bypass: refusal.open.map(\.id)) }

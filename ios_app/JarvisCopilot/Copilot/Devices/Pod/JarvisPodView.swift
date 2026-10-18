@@ -151,13 +151,13 @@ struct JarvisPodView: View {
             guard !name.isEmpty else { return }
             Task { await store.rename(podID, to: name) }
         }
-        .confirmationDialog("Delete \u{201C}\(pendingDelete?.title ?? "")\u{201D}?",
-                            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                            titleVisibility: .visible) {
+        .alert("Delete \u{201C}\(pendingDelete?.title ?? "")\u{201D}?",
+               isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
                 if let home = pendingDelete { Task { await store.deleteHome(podID, home: home.id) } }
                 pendingDelete = nil
             }
+            Button("Cancel", role: .cancel) {}
         }
         .onChange(of: settings, initial: true) { _, s in
             if let s {
@@ -170,16 +170,18 @@ struct JarvisPodView: View {
         } message: {
             Text("Hold the pod's BOOT button for 5 seconds. It forgets its Wi-Fi and pairing and shows a new QR code — scan it from Devices.")
         }
-        .confirmationDialog("Restart the pod?", isPresented: $confirmReboot, titleVisibility: .visible) {
+        .alert("Restart the pod?", isPresented: $confirmReboot) {
             Button("Restart") { Task { await store.reboot(podID) } }
+            Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Revoke this pod?", isPresented: $confirmRevoke, titleVisibility: .visible) {
+        .alert("Revoke this pod?", isPresented: $confirmRevoke) {
             Button("Revoke", role: .destructive) {
                 Task {
                     try? await DevicesAPI().revoke(podID)
                     await store.refresh(force: true)
                 }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("It stops reaching Jarvis until it's set up again.")
         }
