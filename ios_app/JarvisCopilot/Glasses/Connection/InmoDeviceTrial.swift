@@ -33,7 +33,7 @@ import Foundation
             var connectAttempts = 0
             while !session.isReady, Date() < connectDeadline {
                 connectAttempts += 1
-                do { try await session.ensureConnected() }
+                do { try await session.ensureConnected(force: true) }
                 catch { try? await Task.sleep(nanoseconds: 2_000_000_000) }
             }
             record["connect_attempts"] = connectAttempts

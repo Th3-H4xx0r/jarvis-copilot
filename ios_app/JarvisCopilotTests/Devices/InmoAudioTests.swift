@@ -104,6 +104,17 @@ final class InmoAudioTests: XCTestCase {
 
     /// With the glasses away, a failed reconnect used to retry 2 s later forever (a connect waits
     /// 20 s): every ~22 s all night, each state change re-sending the phone's skill list.
+    /// With the glasses out of reach, any caller (a lens card, the keepalive, a workout) started a
+    /// new 20 s connect the moment the last one failed: every ~21 s for an hour (Oct 17).
+    @MainActor
+    func testControlConnectsBackOffAfterFailuresToFiveMinutes() {
+        XCTAssertEqual(InmoSession.retryDelay(after: 1), 15)
+        XCTAssertEqual(InmoSession.retryDelay(after: 2), 30)
+        XCTAssertEqual(InmoSession.retryDelay(after: 4), 120)
+        XCTAssertEqual(InmoSession.retryDelay(after: 6), 300)
+        XCTAssertEqual(InmoSession.retryDelay(after: 500), 300)
+    }
+
     @MainActor
     func testAIReconnectsBackOffToFiveMinutes() {
         XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 0), 2)

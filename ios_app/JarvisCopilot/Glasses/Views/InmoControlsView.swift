@@ -30,7 +30,7 @@ struct InmoControlsView: View {
                         Task {
                             do {
                                 if session.isReady { session.disconnect() }
-                                else { try await session.ensureConnected() }
+                                else { try await session.ensureConnected(force: true) }
                             } catch { self.error = "Connect: \(error.localizedDescription) Close INMO and try again." }
                         }
                     }.buttonStyle(.borderedProminent)

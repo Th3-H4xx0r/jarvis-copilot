@@ -7,6 +7,7 @@ import Contacts
 #endif
 #if os(iOS)
 import UIKit
+import AVFoundation
 #endif
 
 enum InmoConnectionState: String { case idle, discovering, connecting, discoveringServices, subscribing, authenticating, ready, setupRequired, unavailable, failed, disconnected }
@@ -249,6 +250,7 @@ struct InmoPendingCards {
             .sink { [weak self] _ in Task { @MainActor in _ = self?.owner } }
         #endif
         central = makeCentral()
+        watchForGlassesBack()
     }
     private func makeCentral(retiringPrevious: Bool = false) -> CBCentralManager {
         let key = "inmoGO3.centralRestorationIdentifier"
@@ -263,8 +265,18 @@ struct InmoPendingCards {
     func setOwnerIdentity(_ identity: Data) throws {
         try identityStore.save(identity)
     }
-    func ensureConnected() async throws {
+    /// A connect that failed makes the next wait: 15 s, 30 s … 5 min. Each attempt holds a scan
+    /// and a pending connect for 20 s, then retires its Bluetooth central for a new one; with the
+    /// glasses out of reach, whichever caller asked next (a lens card, the keepalive, a workout)
+    /// started another at once — every ~21 s for an hour (Oct 17, 15 % battery in that hour).
+    /// `force` is someone asking on purpose (Connect, setup); a new audio device clears the wait
+    /// (the glasses' own link is back), and opening Jarvis caps it at a minute (`reconnectOnOpen`).
+    func ensureConnected(force: Bool = false) async throws {
         if isReady { return }
+        if force { retryAfter = nil }
+        if let retryAfter, Date() < retryAfter, !connectionInProgress {
+            throw InmoProtocolError.unavailable("GO3 out of reach; trying again in \(Int(retryAfter.timeIntervalSinceNow.rounded(.up))) s.")
+        }
         let id = UUID()
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -273,6 +285,33 @@ struct InmoPendingCards {
             }
         }, onCancel: { Task { @MainActor in self.connectionWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError()) } })
     }
+    private var connectFailures = 0
+    private var lastConnectFailure: Date?
+    private var retryAfter: Date?
+    private var wakeups: [NSObjectProtocol] = []
+
+    static func retryDelay(after failures: Int) -> TimeInterval {
+        min(300, 15 * pow(2, Double(min(max(failures - 1, 0), 10))))
+    }
+
+    /// Opening Jarvis: try now unless the last failure is under a minute old, rather than wait
+    /// out a long backoff (but not a 20 s scan for every open between sets at the gym).
+    func reconnectOnOpen() async throws {
+        if let wait = retryAfter, let last = lastConnectFailure { retryAfter = min(wait, last.addingTimeInterval(60)) }
+        try await ensureConnected()
+    }
+
+    /// A new audio device may be the glasses' own link coming back: clear the wait.
+    private func watchForGlassesBack() {
+        #if os(iOS)
+        wakeups.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init)
+            guard reason == .newDeviceAvailable else { return }
+            MainActor.assumeIsolated { self?.retryAfter = nil }
+        })
+        #endif
+    }
+
     private var connectionInProgress: Bool {
         switch state {
         case .discovering, .connecting, .discoveringServices, .subscribing, .authenticating, .ready: return true
@@ -315,6 +354,11 @@ struct InmoPendingCards {
     func disconnect() { fail("Disconnected", state: .disconnected) }
     private func fail(_ message: String, state next: InmoConnectionState = .failed) {
         InmoRuntimeDiagnostics.note("connection failure: " + message)
+        if next == .failed, connectionInProgress, state != .ready {
+            connectFailures += 1
+            lastConnectFailure = Date()
+            retryAfter = Date().addingTimeInterval(Self.retryDelay(after: connectFailures))
+        }
         generation = UUID(); deadline?.cancel(); central.stopScan(); waitingForBluetooth = false; restoredPeripheralPending = false
         let old = peripheral; peripheral = nil
         if let old {
@@ -490,7 +534,7 @@ struct InmoPendingCards {
                     if response.firstField(1)?.varint == 3, let result = response.firstField(4) {
                         let resultFields = try result.nested()
                         guard resultFields.firstField(1)?.varint == 1, (resultFields.firstField(3)?.varint ?? 0) == 0 else { fail("GO3 rejected the existing-owner reconnect identity.", state: .setupRequired); return }
-                        state = .ready; lastError = nil; deadline?.cancel(); incomingLogBudget = 80; UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: "inmoGO3.controlPeripheral")
+                        state = .ready; lastError = nil; deadline?.cancel(); incomingLogBudget = 80; connectFailures = 0; retryAfter = nil; UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: "inmoGO3.controlPeripheral")
                         let waiters = connectionWaiters; connectionWaiters.removeAll(); for c in waiters.values { c.resume() }
                         let current = generation
                         Task {

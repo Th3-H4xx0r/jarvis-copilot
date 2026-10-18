@@ -270,7 +270,7 @@ final class WearablesHub: ObservableObject {
         ring.enterForeground()
         x5.enterForeground()
         band.enterForeground()
-        if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.ensureConnected() } }
+        if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.reconnectOnOpen() } }
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
     }
@@ -645,7 +645,7 @@ final class WearablesHub: ObservableObject {
             if x5.connected?.id != found.id || !x5.linkIsUp { x5.connect(found) }
             return await waitUntil(timeout: timeout) { self.x5.state == .ready }
         case WearableKeepAlive.glasses:
-            do { try await glasses.session.ensureConnected(); return glasses.isConnected } catch { return false }
+            do { try await glasses.session.ensureConnected(force: true); return glasses.isConnected } catch { return false }
         default:
             return false
         }
