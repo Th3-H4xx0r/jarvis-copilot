@@ -63,6 +63,29 @@ def test_resume_falls_back_to_terminal_app():
     assert argv[0] == "/usr/bin/osascript" and "cd '/Users/p/my app' && claude --resume s1" in argv
 
 
+def test_a_session_from_an_unknown_terminal_reopens_in_the_vscode_window_with_its_folder():
+    # A session first started with --bg has no terminal on record: Continue on
+    # Mac opened it in Terminal.app, where Jarvis can't type while it's idle.
+    vs, run = FakeVSCode(), Rec()
+    rt = LocalRuntime(run=run, vscode=vs)
+    assert rt.resume_in_terminal("claude", "s1", "/Users/p/app", {}) == "vscode"
+    assert vs.runs == [("/Users/p/app", "claude --resume s1")]
+    assert run.calls == [], "no Terminal.app window"
+
+
+def test_a_session_from_an_unknown_terminal_uses_terminal_app_without_a_vscode_window():
+    run = Rec()
+    rt = LocalRuntime(run=run, vscode=FakeVSCode(ok=False))
+    assert rt.resume_in_terminal("claude", "s1", "/Users/p/app", {}) == "terminal"
+
+
+def test_a_session_from_terminal_app_reopens_there():
+    vs, run = FakeVSCode(), Rec()
+    rt = LocalRuntime(run=run, vscode=vs)
+    assert rt.resume_in_terminal("claude", "s1", "/Users/p/app", {"term_program": "Apple_Terminal"}) == "terminal"
+    assert vs.runs == []
+
+
 def test_stop_escalates():
     seen, alive = [], {"n": 0}
 

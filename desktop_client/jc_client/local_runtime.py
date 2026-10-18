@@ -164,7 +164,11 @@ class LocalRuntime:
 
     def open_in_terminal(self, cwd: str, cmd: str, terminal: dict) -> str:
         line = f"cd {shlex.quote(cwd)} && {cmd}"
-        if self._vscode is not None and str(terminal.get("term_program") or "").lower() == "vscode":
+        # No terminal on record (a session first started with --bg) goes to the
+        # VS Code window with its folder open, where Jarvis can type into it.
+        known = terminal.get("term_program") or terminal.get("iterm")
+        if self._vscode is not None and (not known
+                                         or str(terminal.get("term_program")).lower() == "vscode"):
             if self._vscode.run_in_terminal(cwd, cmd):
                 return "vscode"
         if terminal.get("iterm") or str(terminal.get("term_program") or "").lower() == "iterm.app":
