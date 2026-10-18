@@ -55,6 +55,7 @@ enum PhoneSkills {
             SystemSkills.flashlightOn(b.torch),
             SystemSkills.flashlightOff(b.torch),
             SystemSkills.makeCall(b.urls),
+            SendConfirmations.skill(),
             MediaSkills.getLocation(b.location),
             MediaSkills.takePhoto(b.photos),
             MediaSkills.pickPhoto(b.photos),

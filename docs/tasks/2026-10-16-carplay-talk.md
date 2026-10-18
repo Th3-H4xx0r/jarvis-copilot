@@ -230,6 +230,16 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
   message, Send/Call + ✕; Jarvis says it and the mic stays open for yes / no / a correction.
+  - Built (server 66fcb98727, deployed 16:30:25 UTC): `agent/send_confirm.py` — on a voice turn
+    device_make_call / send_sms / messages_send, tel:/sms:/mailto:/FaceTime/WhatsApp links, send_email (not to
+    himself) and send_message (not his own home channel) are noted, not sent; the model is told to ask; his next
+    turn's own words are read by the server (plain yes → sent before the model answers; no / correction / a yes
+    to another question / 2 min → dropped). Plain-yes matcher shared with car commands (`agent/spoken_yes.py`).
+  - Built (phone): `SendConfirmations` + `confirm_card` skill (server-only), card over the app, CarPlay screen
+    over the Voice tab (header = photo, name, what; Send/Call + Cancel buttons; message row), Send/✕ =
+    "Yes."/"No." typed into the voice session (opens a one-answer session if it closed), one-shot keeps
+    listening while a card waits. 221 phone tests green.
+  - Unverified: whether CarPlay draws the header's two buttons (fallback: say yes/no).
 
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on

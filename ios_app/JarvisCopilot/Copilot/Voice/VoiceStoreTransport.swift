@@ -309,9 +309,10 @@ extension VoiceStore {
             flushSegment()
             if followup { awaitFollowup() }
             let producedReply = audio.isBusy || !reply.isEmpty
-            // A one-shot reply that asks ("Unlock the car?") waits for his answer.
+            // A one-shot reply that asks ("Unlock the car?"), or one whose call/text card
+            // is waiting, waits for his answer.
             machine.replyAsks = machine.oneShot
-                && reply.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
+                && (reply.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") || awaitingAnswer())
             toolStatus = nil
             if VoiceTurnMachine.failureReasons.contains(reason), !producedReply {
                 // Drop the cached session id so the NEXT connect re-resolves the

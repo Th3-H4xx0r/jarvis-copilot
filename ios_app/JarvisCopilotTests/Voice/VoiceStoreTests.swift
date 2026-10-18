@@ -1837,6 +1837,71 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
+    // MARK: Typed answers (the call/text card's Send / ✕)
+
+    /// The card's Send is his "Yes." in the conversation: this turn's words, sent as a
+    /// spoken turn would be — the server reads it like one.
+    func testATypedAnswerWhileListeningGoesOutAsThisTurnsWords() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await rig.store.submitTyped("Yes.")
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .thinking)
+        let endTurn = try XCTUnwrap(rig.socket?.lastMessage(ofType: "end_turn"))
+        XCTAssertEqual(endTurn["text"] as? String, "Yes.")
+        XCTAssertEqual(rig.store.userTranscript, "Yes.")
+        await rig.store.stopAll()
+    }
+
+    /// Tapped while Jarvis is still asking: the question stops and the answer goes out.
+    func testATypedAnswerMidReplyCutsTheReplyFirst() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "I'll text Shabd hello. Should I send it, sir?")
+        XCTAssertEqual(rig.store.state, .speaking)
+        await rig.store.submitTyped("No.")
+        await settleVoiceTasks()
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertNotNil(socket.lastMessage(ofType: "interrupt"))
+        XCTAssertEqual(socket.lastMessage(ofType: "end_turn")?["text"] as? String, "No.")
+        XCTAssertEqual(rig.store.state, .thinking)
+        await rig.store.stopAll()
+    }
+
+    /// The session already closed (the card waits up to two minutes): the tap opens one
+    /// for this answer — one answer, then it closes.
+    func testATypedAnswerWithNoSessionOpensOneForIt() async throws {
+        let rig = makeRig()
+        await rig.store.submitTyped("Yes.")
+        await waitUntilVoice { rig.socket?.lastMessage(ofType: "end_turn") != nil }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.socket?.lastMessage(ofType: "end_turn")?["text"] as? String, "Yes.")
+        XCTAssertTrue(rig.store.machine.oneShot)
+        await rig.store.stopAll()
+    }
+
+    /// The call/text card is up: a one-shot reply keeps the mic for his answer even when
+    /// it doesn't end in "?" ("Okay, I'll text Shabd hello.").
+    func testAOneShotReplyListensWhileACardWaitsForHisAnswer() async throws {
+        let rig = makeRig()
+        rig.store.awaitingAnswer = { true }
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "Okay, I'll text Shabd hello.")
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening, "waiting for his yes")
+        await rig.store.stopAll()
+    }
+
     /// Directions, a call, an app: the reply hands off to the car, so it ends the
     /// conversation — no listening chime and "Listening" as the map comes up
     /// (2026-10-18 01:08), the mic off before the car switches screens.

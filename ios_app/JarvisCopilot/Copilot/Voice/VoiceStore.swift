@@ -333,6 +333,9 @@ final class VoiceStore {
     /// Jarvis is on the car's screen (CarPlay): every turn says so, and the server
     /// tells the model he's driving. Set by the app.
     var onCarPlay: () -> Bool = { false }
+    /// A call or text Jarvis asked about is waiting for his answer (its card is up): a
+    /// one-shot reply keeps the mic for it, question mark or not. Set by the app.
+    var awaitingAnswer: () -> Bool = { false }
     /// Mic audio ignored after an earcon (ms of audio, not wall time) for as long
     /// as the mic can still hear it, so the tone can't be heard as speech or as
     /// him cutting in.
@@ -1177,9 +1180,50 @@ final class VoiceStore {
 
     /// Called by the transport when the machine settles into `listening`.
     func deliverPendingWatchTurnIfReady() {
+        if let typed = pendingTypedText, machine.state == .listening {
+            pendingTypedText = nil
+            sendTyped(typed)
+            return
+        }
         guard let text = pendingWatchText, machine.state == .listening else { return }
         pendingWatchText = nil
         submitWatchText(text)
+    }
+
+    // MARK: - Typed answers
+
+    /// A typed answer in the conversation — the call/text card's Send ("Yes.") or ✕
+    /// ("No.") — sent as his words for this turn, exactly as a spoken one: the server
+    /// reads it like one. Mid-reply it stops the reply first; with no session it opens
+    /// one for this answer (one answer, then it closes).
+    func submitTyped(_ text: String) async {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return }
+        switch machine.state {
+        case .listening:
+            sendTyped(typed)
+        case .speaking, .thinking:
+            interrupt()
+            if machine.state == .listening { sendTyped(typed) } else { pendingTypedText = typed }
+        case .connecting:
+            pendingTypedText = typed
+        case .idle, .error:
+            pendingTypedText = typed
+            if !(await startOneShotTurn()) { pendingTypedText = nil }
+        }
+    }
+
+    /// Set aside until the session reaches `listening`.
+    private var pendingTypedText: String?
+
+    private func sendTyped(_ text: String) {
+        abortSpeechSession()   // this turn's words are already decided
+        pendingRetryText = text
+        note("typed answer")
+        raise(.endOfSpeech)
+        // After `.clearReply`, so his answer stays on screen.
+        userTranscript = text
+        pushLiveActivity()
     }
 
     private func submitWatchText(_ text: String) {
