@@ -83,7 +83,14 @@ begin
       next if ref.nil?
       path = ref.real_path.to_s
       if path.end_with?('.swift') && path.start_with?(File.join(project.project_dir, dir)) && !File.exist?(path)
-        target.source_build_phase.remove_build_file(bf)
+        # Out of EVERY target first: a Copilot/Shared file is compiled into the
+        # widget too, and its build file there would outlive the reference
+        # (no parent) and crash the widget's sync below.
+        project.native_targets.each do |t|
+          t.source_build_phase.files.dup.each do |other|
+            t.source_build_phase.remove_build_file(other) if other.file_ref == ref
+          end
+        end
         ref.remove_from_project
         warn "sync-project: removed stale #{path}"
       end

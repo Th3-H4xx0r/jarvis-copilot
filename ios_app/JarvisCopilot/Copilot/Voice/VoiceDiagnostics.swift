@@ -39,7 +39,7 @@ enum VoiceDiagnostics {
     /// character count because it is the user's own words.
     static func describe(sent message: VoiceClientMessage) -> String {
         switch message {
-        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID):
+        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID, _):
             return "ws→ begin_turn rate=\(sampleRate)"
                 + " session=\(present(sessionID))"
                 + " model=\(model ?? "-") provider=\(provider ?? "-") harness=\(harnessID ?? "-")"
@@ -132,6 +132,11 @@ enum VoiceDiagnostics {
         fputs("[voice] \(line)\n", stderr)
         #else
         if mirrorsToConsole { fputs("[voice] \(line)\n", stderr) }
+        #endif
+        // The phone keeps its own copy (`VoiceLogFile`); the Mac's host is the tray.
+        // Not every reply audio frame: dozens a second, they'd fill it in minutes.
+        #if !JC_MAC_VOICE
+        if !line.contains("ws← audio ") { VoiceLogFile.shared.append("[voice] " + line) }
         #endif
     }
 

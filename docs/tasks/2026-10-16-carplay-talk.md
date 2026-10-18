@@ -119,6 +119,51 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     of how loud he spoke — steady noise, not him; a quiet room ends sooner the old way, so nothing changes
     there. The mic log line now prints the quietest frame (floor=) next to the loudest.
 
+## Round 5 — "CarPlay needs some very big fixes" (2026-10-17)
+
+- [ ] **17. "Could not start recording: … audio session does not permit microphone capture"** (phone Voice, 13:12)
+  - Found: the shared voice engine is built once and cached. A reply stream whose engine start fails leaves
+    `streamInUse` set forever, so the engine is never released; built while the session was playback-only
+    (the glasses path), it has no mic node, and every mic start fails (all retries, hence the doubled prefix)
+    until Jarvis is killed.
+  - Built: asked for the mic, an engine with no mic is rebuilt (a playing reply carried over); a stream or mic
+    whose engine start fails no longer stays "in use". Test fails with his exact error without the fix.
+- [ ] **18. Tap → talking takes up to 5 s; target < 1 s**
+  - Found (18:34–18:45 log): serial start ≈ 1.5 s — CarPlay waits for the voice card to present (~0.6 s) before
+    starting voice, the audio session switch to the car mic (~0.5 s), the engine (~0.25 s), plus a
+    `/api/session` round trip ("clear a stale stream") before `begin_turn` — that one took 4.2 s at 18:36.
+  - Built: CarPlay starts voice beside the card's animation; "Listening" + the chime (Live Activity too) the
+    moment the mic is live, words held until the connection is up; the server clears a stale stream on
+    `begin_turn` (`ready: clears_stale_stream`), so the phone skips its round trip.
+- [ ] **19. Widget with Jarvis in the background: `!int`, mic can't start**
+  - Found: iOS refuses a backgrounded app a recording session; Apple's CarPlay voice-app session (play and
+    record, default mode, no mixing) is exactly what it refuses. His pick: every orb tap opens Jarvis's car
+    screen already listening (no in-place attempt).
+  - Built: the orb is a `widgetURL` (`jarviscopilot://voice?once=1`, Apple's way for a CarPlay app's widget);
+    the car screen starts listening for one answer — if its own "voice first" start got there first, that
+    conversation becomes the one answer. The background intent, its toggle and snapshot are gone.
+- [ ] **20. Directions say "sent to your phone"; Maps only after unlock → notification → Jarvis → Maps**
+  - Found (server log 18:14 UTC): the voice model followed the server skill `directions-from-current-location`
+    (get location → web search → `device_open_url` Apple Maps link) and never called `device_car_directions`;
+    a link opened on a backgrounded phone becomes a tap-to-open notification.
+  - Built: the skill now calls `device_car_directions` first (backup `SKILL.md.bak-2026-10-17` on the
+    server); any map link `open_url` gets while CarPlay is up opens on the car's screen after the reply.
+- [ ] **21. Voice log survives a disconnected cable** — the console capture dies when the phone drops; the
+  phone keeps its own rolling voice log file to pull afterwards.
+  - Built: `Library/Caches/voice.log` (+ `voice.1.log`, 1 MB each), voice + CarPlay lines with the date;
+    pull with `xcrun devicectl device copy from … --domain-type appDataContainer --source Library/Caches/voice.log`.
+
+- [ ] **22. A one-shot reply that asks ("Unlock the car?") listens for his answer** (asked by the car-confirm
+  session: car commands now wait for a plain yes as the next message). Built: `VoiceTurnMachine.replyAsks`,
+  set on `end_turn` when the reply ends in "?"; listens once more, then closes as usual.
+- Bug sweep (round 5): fixed — server clears only when `begin_turn` asks (`clear_stale_stream`; the web and the
+  Pod open voice on chats running long agent turns); a widget tap mid-reply or in hold-to-talk restarts as one
+  answer instead of closing unheard; the words held while connecting cover the whole one-shot connect (10 s);
+  stale one-answer flag; a failed reply resume no longer drops the rebuilt mic engine; car tab + island follow
+  `shownState`; the log skips per-frame audio; the card re-states itself once presented. Deferred (minor):
+  a Google/Waze map link with that app missing opens nothing (no Apple Maps fallback yet); after a server
+  rollback the remembered "server clears stale streams" costs one failed turn.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).

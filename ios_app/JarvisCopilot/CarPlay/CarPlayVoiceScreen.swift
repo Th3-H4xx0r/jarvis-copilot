@@ -58,6 +58,8 @@ enum CarPlayVoiceMirror {
 final class CarPlayVoiceScreen {
     private let ui: CPInterfaceController
     private var template: CPVoiceControlTemplate?
+    /// The next start is the Talk widget's: one answer, then the mic goes off.
+    private var wantsOneAnswer = false
     private(set) var isShowing = false {
         didSet { if isShowing != oldValue { cpDiag("card isShowing=\(isShowing)"); onShowingChange?() } }
     }
@@ -90,8 +92,10 @@ final class CarPlayVoiceScreen {
     }
 
     /// Talk: open the screen and start listening (or just start, when it's already open).
-    func start() {
+    /// `oneShot`: one answer, then the mic goes off (the Talk widget's orb).
+    func start(oneShot: Bool = false) {
         stopping = false
+        if oneShot { wantsOneAnswer = true }
         if isShowing { begin() } else { show(talk: true) }
     }
 
@@ -119,6 +123,10 @@ final class CarPlayVoiceScreen {
         pinned = !micAllowed
         buttonsKey = nil
         updateButtons()
+        // Voice starts now, beside the card's animation: waiting for the card to
+        // finish presenting put ~0.6 s between the tap and the mic. If CarPlay
+        // refuses the card, the completion below stops it again.
+        if micAllowed, talk { begin() } else { wantsOneAnswer = false }
         let shown: (Bool) -> Void = { [weak self] presented in
             cpDiag("overlay presented=\(presented)")
             guard let self, self.template === template else { return }
@@ -128,11 +136,10 @@ final class CarPlayVoiceScreen {
                 if self.store.isActive { self.stopping = true; Task { await self.store.stopAll() } }
                 return
             }
-            if !micAllowed {
-                self.activate(VoiceState.error.rawValue)
-            } else if talk {
-                self.begin()
-            }
+            if !micAllowed { self.activate(VoiceState.error.rawValue) }
+            // The state may have changed while the card was animating in: say it again
+            // now that it is on screen.
+            if let id = template.activeStateIdentifier { template.activateVoiceControlState(withIdentifier: id) }
             self.follow()
         }
         if #available(iOS 27.0, *) {
@@ -153,8 +160,20 @@ final class CarPlayVoiceScreen {
     }
 
     private func begin() {
+        let once = wantsOneAnswer
+        wantsOneAnswer = false
         Task {
-            if !store.isActive { await store.primaryAction() }
+            if once {
+                // The car's own start may already be running: it becomes the one answer,
+                // or — mid-reply, or holding to talk — it starts over as one.
+                let started = store.isActive ? false : await store.startOneShotTurn()
+                if !started, store.isActive, !store.answerOnce() {
+                    await store.stopAll()
+                    _ = await store.startOneShotTurn()
+                }
+            } else if !store.isActive {
+                await store.primaryAction()
+            }
             follow()
         }
     }
@@ -162,7 +181,7 @@ final class CarPlayVoiceScreen {
     private func observe() {
         guard watching else { return }
         withObservationTracking {
-            _ = store.state; _ = store.muted; _ = store.error
+            _ = store.shownState; _ = store.muted; _ = store.error
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.follow()
@@ -174,7 +193,7 @@ final class CarPlayVoiceScreen {
     /// Mirror the session onto the screen.
     private func follow() {
         guard watching else { return }
-        switch CarPlayVoiceMirror.step(state: store.state, hasError: store.error != nil, showing: isShowing, stopping: stopping) {
+        switch CarPlayVoiceMirror.step(state: store.shownState, hasError: store.error != nil, showing: isShowing, stopping: stopping) {
         case .none: break
         case .show: show(talk: false)
         case .activate(let id):
@@ -229,6 +248,7 @@ final class CarPlayVoiceScreen {
     }
 
     private func close(stopVoice: Bool = true) {
+        wantsOneAnswer = false
         hideTask?.cancel()
         hideTask = nil
         pinned = false

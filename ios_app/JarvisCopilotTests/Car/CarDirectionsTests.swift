@@ -67,6 +67,48 @@ final class CarDirectionsTests: XCTestCase {
         { url, done in opened(url); done(!failing.contains(url.scheme ?? "")) }
     }
 
+    /// The voice model opened directions with `open_url` (an Apple Maps link).
+    /// With the phone locked that became a "tap to run" notification; with
+    /// CarPlay up, a map link opens on the car's screen instead.
+    func testMapLinksAreRecognised() throws {
+        for link in ["http://maps.apple.com/?saddr=Current%20Location&daddr=Costco&dirflg=d",
+                     "https://maps.apple.com/?daddr=Costco", "maps://?daddr=Costco",
+                     "comgooglemaps://?daddr=Costco&directionsmode=driving",
+                     "https://www.google.com/maps/dir/?api=1&destination=Costco",
+                     "https://maps.google.com/?daddr=Costco", "https://maps.app.goo.gl/abc123",
+                     "waze://?q=Costco&navigate=yes", "https://waze.com/ul?q=Costco"] {
+            XCTAssertTrue(CarLinks.isMap(try XCTUnwrap(URL(string: link))), link)
+        }
+        for link in ["https://www.google.com/search?q=costco", "https://example.com/maps",
+                     "tel:5551234", "https://apple.com"] {
+            XCTAssertFalse(CarLinks.isMap(try XCTUnwrap(URL(string: link))), link)
+        }
+    }
+
+    func testAMapLinkGoesToTheCarScreenWhenCarPlayIsUp() async throws {
+        var queued: [URL] = []
+        let link = "http://maps.apple.com/?daddr=Costco"
+        let result = try await CarLinks.route("open_url", ["url": link],
+                                              carScreen: { true }, queue: { queued.append($0) })
+        XCTAssertEqual(queued.map(\.absoluteString), [link])
+        XCTAssertEqual(result?["launched"] as? Bool, true)
+        XCTAssertNotNil(result?["note"], "tells Jarvis where it opened")
+    }
+
+    func testWithoutCarPlayOrForOtherLinksItStepsAside() async throws {
+        var queued: [URL] = []
+        let none = try await CarLinks.route("open_url", ["url": "http://maps.apple.com/?daddr=Costco"],
+                                            carScreen: { false }, queue: { queued.append($0) })
+        XCTAssertNil(none, "no car screen: the phone's own open_url runs")
+        let web = try await CarLinks.route("open_url", ["url": "https://example.com"],
+                                           carScreen: { true }, queue: { queued.append($0) })
+        XCTAssertNil(web)
+        let other = try await CarLinks.route("set_timer", ["url": "maps://?daddr=x"],
+                                             carScreen: { true }, queue: { queued.append($0) })
+        XCTAssertNil(other)
+        XCTAssertEqual(queued, [])
+    }
+
     func testAMapThatWontOpenFallsBackToAppleMaps() {
         var opened: [URL] = []
         let handoff = CarHandoff(cap: 60, open: opener({ opened.append($0) }, failing: ["comgooglemaps"]),

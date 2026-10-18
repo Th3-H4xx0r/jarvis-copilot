@@ -6,7 +6,9 @@ import Foundation
 // MARK: - Server → client
 
 enum VoiceServerFrame: Equatable, Sendable {
-    case ready
+    /// `clearsStaleStream`: the server clears a stream left running for the
+    /// session itself, on `begin_turn` — the phone needn't check first.
+    case ready(clearsStaleStream: Bool)
     /// The user's speech, as the server's STT hears it.
     case transcript(String)
     /// A chunk of the assistant's reply text.
@@ -40,7 +42,7 @@ enum VoiceServerFrame: Equatable, Sendable {
     static func decode(object msg: [String: Any]) -> VoiceServerFrame {
         switch msg.string("type") ?? "" {
         case "ready":
-            return .ready
+            return .ready(clearsStaleStream: msg.bool("clears_stale_stream") ?? false)
         case "transcript":
             return .transcript(msg.string("text") ?? "")
         case "assistant_text":
@@ -89,8 +91,10 @@ enum VoiceClientMessage: Equatable, Sendable {
     /// Opens (or resets) the server's per-turn audio buffer.
     /// `harnessID` is the Voice chip's agent harness; the server picks the model
     /// then, so model/provider ride along only for the Single harness.
+    /// `clearStaleStream`: the server cancels a stream this session left running
+    /// (only the phone asks; the web's chat may be running a long agent turn).
     case beginTurn(sampleRate: Int, sessionID: String?, model: String?, provider: String?,
-                   harnessID: String? = nil)
+                   harnessID: String? = nil, clearStaleStream: Bool = false)
     /// Run the agent on this turn. `text` is our on-device transcript when we
     /// have one — the server then skips its own STT.
     ///
@@ -105,8 +109,9 @@ enum VoiceClientMessage: Equatable, Sendable {
 
     var payload: [String: Any] {
         switch self {
-        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID):
+        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID, let clearStaleStream):
             var o: [String: Any] = ["type": "begin_turn", "sample_rate": sampleRate]
+            if clearStaleStream { o["clear_stale_stream"] = true }
             if let sessionID, !sessionID.isEmpty { o["session_id"] = sessionID }
             let harness = harnessID ?? ""
             if !harness.isEmpty { o["harness_id"] = harness }

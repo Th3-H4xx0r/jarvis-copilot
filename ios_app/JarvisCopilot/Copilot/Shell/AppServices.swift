@@ -318,10 +318,6 @@ final class AppServices {
             (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
         }
         ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
-        // The CarPlay Talk widget's button: one tap talks (in the background), a second stops.
-        CarTalkBridge.toggle = { [weak self] in
-            await CarTalkFeed.shared.toggle(voice: VoiceStore.shared) { self?.liveActivity.reportVoice($0) }
-        }
         // Listening / thinking sounds: every car turn (the widget's, and the CarPlay voice tab).
         VoiceStore.shared.earcons = ToneEarconPlayer()
         VoiceStore.shared.wantsEarcons = { CarPresence.shared.inCar }

@@ -26,7 +26,11 @@ final class InvokeRunner {
         static func err(_ message: String) -> Outcome { Outcome(result: nil, error: message) }
     }
 
-    static let shared = InvokeRunner(nativeRoute: InmoAIChannel.routeMedia)
+    static let shared = InvokeRunner(nativeRoute: { skill, args in
+        // Map links go to the car's screen while CarPlay is up; glasses media stays in the app.
+        if let result = try await CarLinks.route(skill, args) { return result }
+        return try await InmoAIChannel.routeMedia(skill, args)
+    })
 
     /// Preference key for the kill switch. Its own key rather than a
     /// SettingsStore field: the runner has to answer `paused` before any store

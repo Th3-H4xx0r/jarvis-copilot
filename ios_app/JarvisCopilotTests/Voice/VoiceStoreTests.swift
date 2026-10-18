@@ -1746,6 +1746,65 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertNotNil(rig.store.replyHoldUntil, "the reply stays on the card for a while")
     }
 
+    /// The Talk widget opens Jarvis on the car, and the car's own "voice first"
+    /// start can get there before the widget's link: that conversation becomes
+    /// the widget's one answer instead of listening on after it.
+    func testAConversationAlreadyStartedBecomesOneAnswer() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        XCTAssertTrue(rig.store.answerOnce())
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "It's 72 degrees.")
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle, "one answer per tap")
+        XCTAssertFalse(rig.input.isRunning)
+    }
+
+    /// Mid-reply, or holding to talk, it can't simply become one answer: the
+    /// reply under way would count as the answer (and close the session without
+    /// hearing him), and a hold-to-talk turn has none. The car restarts it instead.
+    func testOnlyAConversationWaitingForHisQuestionBecomesOneAnswer() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "It's 72 degrees.")
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertFalse(rig.store.answerOnce(), "a reply is under way")
+        await rig.store.stopAll()
+
+        let quality = makeRig(mode: .quality)
+        await startListening(quality)
+        XCTAssertFalse(quality.store.answerOnce(), "hold to talk has no answer to close on")
+        await quality.store.stopAll()
+    }
+
+    /// "Unlock the car?": the server waits for a plain yes as his next message, so
+    /// a one-shot reply that ends in a question keeps the mic for that answer.
+    func testAOneShotReplyThatAsksKeepsListeningForTheAnswer() async throws {
+        let rig = makeRig()
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "Unlock the car?")
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening, "waiting for his yes")
+        XCTAssertTrue(rig.input.isRunning)
+        await rig.store.stopAll()
+    }
+
     func testOneShotReplyHoldEndsAfterTwoMinutes() async throws {
         let rig = makeRig()
         try await oneShotAnswered(rig)
@@ -1836,26 +1895,6 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertTrue(rig.store.error?.contains("background") ?? false, rig.store.error ?? "nil")
     }
 
-    /// The tap's intent only returns once the mic is live: iOS lets the app start
-    /// recording in the background only while that intent runs.
-    func testACarTalkTapReturnsWithTheMicLive() async {
-        let rig = makeRig()
-        await CarTalkFeed(defaults: isolatedCarTalkDefaults()).toggle(voice: rig.store) { _ in }
-        XCTAssertEqual(rig.store.state, .listening)
-        XCTAssertTrue(rig.input.isRunning)
-        await rig.store.stopAll()
-    }
-
-    func testAFailedCarTalkTapShowsOnTheWidget() async {
-        let rig = makeRig()
-        rig.audioSession.activateError = NSError(domain: NSOSStatusErrorDomain, code: 561145187)
-        let defaults = isolatedCarTalkDefaults()
-        await CarTalkFeed(defaults: defaults).toggle(voice: rig.store) { _ in }
-        let shown = CarTalkSnapshot.load(defaults)
-        XCTAssertEqual(shown.state, "error")
-        XCTAssertTrue(shown.line.contains("background"), shown.line)
-    }
-
     /// The whole one-shot turn holds the car's mixing session — never the
     /// call-style one a backgrounded app is refused.
     func testOneShotUsesTheMixingCarSession() async {
@@ -1919,15 +1958,74 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
-    func testARefusedCarTalkTapLeavesNoFalseListening() async {
+    /// In the car the chime and "Listening" come the moment the mic is live: the
+    /// connection opens behind it and what he says meanwhile is held for it. Waiting
+    /// for the socket put its whole round trip between the tap and talking.
+    func testInTheCarListeningStartsWhenTheMicIsLiveNotWhenConnected() async throws {
         let rig = makeRig()
-        rig.input.permission = false
-        var reports: [VoiceLiveActivitySnapshot] = []
-        let feed = CarTalkFeed(defaults: isolatedCarTalkDefaults())
-        await feed.toggle(voice: rig.store) { reports.append($0) }
-        await feed.toggle(voice: rig.store) { reports.append($0) }
-        XCTAssertEqual(reports.last?.state, "idle", "the card must not say Listening with the mic off")
-        XCTAssertFalse(reports.last?.activity.isEmpty ?? true, "and it says why")
+        let sounds = RecordingEarcons()
+        rig.store.earcons = sounds
+        rig.store.wantsEarcons = { true }
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .connecting)
+        rig.input.emitFrames(amplitude: 0.0, ms: 100)   // the mic is live
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.shownState, .listening)
+        XCTAssertEqual(sounds.played, [.listening])
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state == .listening }
+        await settleVoiceTasks()
+        XCTAssertEqual(sounds.played, [.listening], "one chime, not a second when the connection comes up")
+        await rig.store.stopAll()
+    }
+
+    /// The server clears a stale stream itself on `begin_turn` and its `ready`
+    /// says so: the phone's own check — a round trip before every turn, 4.2 s on a
+    /// slow night (18:36, 2026-10-16) — is skipped from then on.
+    func testOnceTheServerClearsStaleStreamsAStartSkipsItsOwnCheck() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        try XCTUnwrap(rig.socket).receive(json: ["type": "ready", "mode": "bridge", "clears_stale_stream": true])
+        await settleVoiceTasks()
+        await rig.store.stopAll()
+        func checks() -> Int { rig.transport.requests.filter { $0.url?.path == "/api/session" }.count }
+        let before = checks()
+        await startListening(rig)
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertEqual(checks(), before, "no stale-stream round trip before begin_turn")
+        let begin = try XCTUnwrap(rig.socket?.sentJSON.last { $0["type"] as? String == "begin_turn" })
+        XCTAssertEqual(begin["clear_stale_stream"] as? Bool, true, "the server clears it instead")
+        await rig.store.stopAll()
+    }
+
+    /// "Listening" now shows while the connection is still opening, so he can be
+    /// talking for as long as a one-shot waits to connect: none of it may be lost.
+    func testEverythingSaidWhileConnectingReachesTheServer() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        let saidMs = VoiceStore.oneShotSilenceMs - 1000
+        rig.input.emitFrames(amplitude: 0.3, ms: saidMs)
+        await settleVoiceTasks()
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        let sentBytes = try XCTUnwrap(rig.socket).sentData.reduce(0) { $0 + $1.count }
+        XCTAssertGreaterThanOrEqual(sentBytes, saidMs * VoiceStore.micRate * 2 / 1000)
+        await rig.store.stopAll()
+    }
+
+    func testBeforeTheMicIsLiveItStillSaysConnecting() async {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.shownState, .connecting)
+        rig.connector.releaseConnect()
+        await rig.store.stopAll()
     }
 
     func testOneShotRefusesWhileASessionRuns() async {
@@ -1975,9 +2073,4 @@ final class RecordingEarcons: EarconPlaying {
         played.append(earcon)
         return lastsMs
     }
-}
-
-func isolatedCarTalkDefaults(_ function: String = #function) -> UserDefaults {
-    let name = "CarTalk-\(function)-\(UUID().uuidString)"
-    return UserDefaults(suiteName: name)!
 }

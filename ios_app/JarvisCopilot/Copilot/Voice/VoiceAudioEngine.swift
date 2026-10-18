@@ -66,7 +66,7 @@ final class VoiceAudioEngine {
 
     /// The format the mic tap delivers: mono, voice-processed, at the I/O rate.
     func micFormat() throws -> AVAudioFormat {
-        _ = try graph()
+        _ = try graphWithMic()
         guard let microphoneNode else { throw VoiceAudioError.micUnavailable("audio session does not permit microphone capture") }
         let format = microphoneNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
@@ -77,12 +77,18 @@ final class VoiceAudioEngine {
 
     func startMic(bufferSize: AVAudioFrameCount,
                   tap: @escaping AVAudioNodeTapBlock) throws {
-        let engine = try graph()
+        let engine = try graphWithMic()
         guard let input = microphoneNode else { throw VoiceAudioError.micUnavailable("audio session does not permit microphone capture") }
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: bufferSize, format: input.outputFormat(forBus: 0), block: tap)
         micInUse = true
-        try run(engine)
+        do { try run(engine) } catch {
+            // A mic that never started must not hold the engine (see `startStream`).
+            input.removeTap(onBus: 0)
+            micInUse = false
+            releaseIfIdle()
+            throw error
+        }
     }
 
     func stopMic() {
@@ -98,7 +104,15 @@ final class VoiceAudioEngine {
         try connectPlayer(rate: sampleRate, in: engine)
         onRenderLevel = onLevel
         streamInUse = true
-        try run(engine)
+        do { try run(engine) } catch {
+            // A stream that never started must not hold the engine: left "in use",
+            // nothing ever released it, and whatever session it was built for (one
+            // with no mic) stuck for the rest of the launch.
+            streamInUse = false
+            onRenderLevel = nil
+            releaseIfIdle()
+            throw error
+        }
         player?.play()
     }
 
@@ -162,6 +176,41 @@ final class VoiceAudioEngine {
 
     // MARK: - Graph
 
+    /// The engine, with a mic. One built while the session could only play — the
+    /// glasses' playback-only session, a reply with no voice claim — has none, and
+    /// kept alive by that reply it failed every mic start after it ("audio session
+    /// does not permit microphone capture") until Jarvis was killed. Once the
+    /// session records it is rebuilt, the reply it was playing carried over.
+    private func graphWithMic() throws -> AVAudioEngine {
+        let engine = try graph()
+        guard microphoneNode == nil, Self.sessionPermitsMicrophone else { return engine }
+        onEvent?("audio engine had no mic (built for playback only); rebuilding with one")
+        let resumeStream = streamInUse
+        let rate = Int(playerFormat?.sampleRate ?? Double(Self.defaultStreamRate))
+        let level = onRenderLevel
+        tearDown()
+        streamInUse = false
+        _ = try graph()
+        if resumeStream, let level {
+            do { try startStream(sampleRate: rate, onLevel: level) } catch {
+                JcLog.dropped(JcLog.voice, "resume reply stream after rebuilding for the mic", error)
+            }
+        }
+        // Again: a reply that failed to resume released the engine just rebuilt.
+        return try graph()
+    }
+
+    /// Whether the session's category records; only then may the graph build its
+    /// input half (see `graph()`).
+    private static var sessionPermitsMicrophone: Bool {
+        #if os(iOS)
+        let category = AVAudioSession.sharedInstance().category
+        return category == .playAndRecord || category == .record
+        #else
+        return true
+        #endif
+    }
+
     private func graph() throws -> AVAudioEngine {
         if let engine { return engine }
         let engine = AVAudioEngine()
@@ -169,13 +218,7 @@ final class VoiceAudioEngine {
         // only. Creating an input node and enabling VoiceProcessingIO here can
         // raise an Objective-C exception (not catchable with Swift do/catch).
         // Only microphone-capable sessions may build that half of the graph.
-        #if os(iOS)
-        let category = AVAudioSession.sharedInstance().category
-        let permitsMicrophone = category == .playAndRecord || category == .record
-        #else
-        let permitsMicrophone = true
-        #endif
-        let input = permitsMicrophone ? engine.inputNode : nil
+        let input = Self.sessionPermitsMicrophone ? engine.inputNode : nil
         let player = AVAudioPlayerNode()
         player.volume = replyVolume
         engine.attach(player)

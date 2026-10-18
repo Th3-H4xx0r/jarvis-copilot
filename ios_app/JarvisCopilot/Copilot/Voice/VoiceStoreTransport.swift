@@ -27,7 +27,7 @@ extension VoiceStore {
             // Clear any stream the server still thinks is running for this
             // session (e.g. the app was backgrounded mid-turn) — otherwise the
             // next turn fails with "session already has an active stream".
-            await voice.cancelActiveStream(sessionID: sid)
+            if !settings.serverClearsStaleStream { await voice.cancelActiveStream(sessionID: sid) }
             try await socketReady
             startup.socket = clock.now
             // Resolving the session is round trips through the tunnel; a Stop
@@ -76,7 +76,10 @@ extension VoiceStore {
         return .beginTurn(sampleRate: Self.micRate, sessionID: sessionID,
                           model: fields["model"] as? String,
                           provider: fields["model_provider"] as? String,
-                          harnessID: voiceTurnHarnessID())
+                          harnessID: voiceTurnHarnessID(),
+                          // The server clears a stream this session left running
+                          // (the phone skips its own check once it said it can).
+                          clearStaleStream: true)
     }
 
     /// Raise voice's claim on the process-wide `AVAudioSession` and make sure it
@@ -109,6 +112,7 @@ extension VoiceStore {
     func startMic(generation: Int) async {
         guard generation == micGeneration, wantsCapture, !audioInterrupted else { return }
         captureReady = false
+        if machine.state == .connecting { pushLiveActivity() }   // not listening until it's live again
         do {
             // Both modes route through here, so this is the one place that can
             // guarantee the session is recordable before the engine is built.
@@ -259,8 +263,10 @@ extension VoiceStore {
             return
         }
         switch frame {
-        case .ready:
-            break
+        case .ready(let clearsStaleStream):
+            if settings.serverClearsStaleStream != clearsStaleStream {
+                settings.serverClearsStaleStream = clearsStaleStream
+            }
 
         case .transcript(let text):
             userTranscript = text
@@ -302,6 +308,9 @@ extension VoiceStore {
             flushSegment()
             if followup { awaitFollowup() }
             let producedReply = audio.isBusy || !reply.isEmpty
+            // A one-shot reply that asks ("Unlock the car?") waits for his answer.
+            machine.replyAsks = machine.oneShot
+                && reply.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
             toolStatus = nil
             if VoiceTurnMachine.failureReasons.contains(reason), !producedReply {
                 // Drop the cached session id so the NEXT connect re-resolves the
@@ -649,8 +658,9 @@ extension VoiceStore {
         let holding = replyHoldUntil != nil && machine.state == .idle
         let snapshot = VoiceLiveActivitySnapshot(
             // `connecting` shows as `thinking`: the island has no distinct art
-            // for it and flipping between the two reads as a glitch.
-            state: machine.state == .connecting ? "thinking" : machine.state.rawValue,
+            // for it and flipping between the two reads as a glitch. Once the mic
+            // is live it is listening (`shownState`).
+            state: shownState == .connecting ? "thinking" : shownState.rawValue,
             transcript: voiceFirstLine(userTranscript),
             activity: voiceOutputLine(error: error, toolStatus: toolStatus,
                                       state: machine.state, assistantText: reply.text,

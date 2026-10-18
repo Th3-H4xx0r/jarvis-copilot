@@ -92,9 +92,11 @@ final class VoiceStore {
     static let resumeGraceMs = 1600
     /// Most audio kept while the socket is still opening. The mic starts at the
     /// tap, alongside the connection, so words said in that window are held and
-    /// sent once `begin_turn` is out. Bounded, newest kept: a connect that hangs
-    /// must not grow the buffer, and it is the latest words that matter.
-    static let preConnectBufferMs = 3000
+    /// sent once `begin_turn` is out. "Listening" shows from the first mic frame
+    /// (`shownState`), so he may be talking for as long as a one-shot waits to
+    /// connect: that whole window (320 KB). Bounded, newest kept: a connect that
+    /// hangs must not grow the buffer, and it is the latest words that matter.
+    static let preConnectBufferMs = oneShotSilenceMs
     /// How long a pre-warmed socket waits for a turn before it is closed. Each
     /// open socket holds a thread on the server.
     static let warmSocketIdleMs = 60_000
@@ -233,6 +235,11 @@ final class VoiceStore {
     var reply = VoiceReply()
 
     var state: VoiceState { machine.state }
+    /// What the screens show: "Listening" the moment the mic is live, while the
+    /// connection is still opening behind it — what he says meanwhile is held and
+    /// sent once it is up. Waiting for the socket put its round trip between the
+    /// tap and being able to talk.
+    var shownState: VoiceState { state == .connecting && captureReady ? .listening : state }
     var mode: VoiceMode { machine.mode }
     /// How speech becomes text — see `VoiceTranscription`.
     var transcription: VoiceTranscription { settings.transcription }
@@ -320,6 +327,9 @@ final class VoiceStore {
     /// as the mic can still hear it, so the tone can't be heard as speech or as
     /// him cutting in.
     private var earconQuietMs = 0
+    /// The listening sound already played while connecting (the mic went live
+    /// first), so the connection coming up doesn't play it again.
+    private var listeningChimed = false
     /// This session is a car turn: it holds the mixing car audio session for its
     /// whole length (set before the first claim, cleared at teardown).
     private(set) var carAudio = false
@@ -519,6 +529,7 @@ final class VoiceStore {
             if event == .began {
                 self.audioInterrupted = true
                 self.captureReady = false
+                self.pushLiveActivity()   // `shownState` falls back to connecting
                 self.amplitude = 0
                 self.micHealthTimer?.cancel()
                 // Supersede startup retries as well as a live engine. A retry
@@ -736,18 +747,17 @@ final class VoiceStore {
         raise(.startRequested)
     }
 
-    /// One question, one answer, then the session closes: the CarPlay Talk widget.
-    /// Realtime whatever the phone's voice mode is (the widget has no Send button).
-    /// False when the mic is refused or a session is already running.
+    /// One question, one answer, then the session closes: the CarPlay Talk widget's
+    /// orb, which opens Jarvis on the car's screen. Realtime whatever the phone's
+    /// voice mode is (the car has no Send button). False when the mic is refused or
+    /// a session is already running (see `answerOnce()` for that case).
     @discardableResult
     func startOneShotTurn() async -> Bool {
         guard !machine.state.isActive else { return false }
         startup = VoiceStartupTimer(tap: clock.now)
         guard await ensureMic(), await ensureTranscription() else { return false }
         guard !machine.state.isActive else { return false }
-        // The audio session NOW, while the Talk widget's intent is still running:
-        // iOS lets a backgrounded app start recording only inside that intent, and
-        // the transport and mic below claim it a moment later on their own tasks.
+        // The audio session now, so a refusal is said here, before anything half-starts.
         carAudio = true
         do {
             try acquireAudioSession()
@@ -772,13 +782,18 @@ final class VoiceStore {
         return true
     }
 
-    /// Wait (up to `timeoutMs`) for a starting turn to be live — listening — or to
-    /// have failed. The Talk widget's intent waits on this before it returns.
-    func waitUntilLive(timeoutMs: Int = 8000) async {
-        let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
-        while machine.state == .connecting, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
+    /// The running conversation becomes one answer: the Talk widget opened Jarvis on
+    /// the car, and the car's own "voice first" start got there before the widget's
+    /// link. Only a realtime conversation still waiting for his question: mid-reply,
+    /// the reply under way would count as the answer and close the session without
+    /// hearing him, and a hold-to-talk turn has none. False: the caller restarts it.
+    @discardableResult
+    func answerOnce() -> Bool {
+        guard machine.state == .listening || machine.state == .connecting,
+              !machine.oneShot, machine.mode == .realtime else { return false }
+        machine.oneShot = true
+        if machine.state == .listening || machine.state == .connecting { armOneShotSilence() }
+        return true
     }
 
     /// Why iOS refused the audio session, in words, with its four-letter code —
@@ -804,6 +819,13 @@ final class VoiceStore {
 
     /// A one-shot turn still connecting, or listening and hearing nothing, after
     /// `oneShotSilenceMs`: give up and let go of the mic.
+    /// The car's sounds (every turn in the car, any one-shot turn). The mic then
+    /// ignores what it hears of the sound for as long as it plays.
+    private func playEarcon(_ earcon: VoiceEarcon) {
+        guard machine.oneShot || wantsEarcons(), let earcons else { return }
+        earconQuietMs = earcons.play(earcon)
+    }
+
     private func armOneShotSilence() {
         oneShotSilenceTimer?.cancel()
         oneShotSilenceTimer = clock.schedule(after: Self.oneShotSilenceMs) { [weak self] in
@@ -962,9 +984,10 @@ final class VoiceStore {
         // Any way back to listening (connected, a barge-in, Interrupt, a missed turn).
         if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
         if let earcon = VoiceEarcon.forTransition(from: before, to: machine.state),
-           machine.oneShot || wantsEarcons(), let earcons {
-            earconQuietMs = earcons.play(earcon)
+           !(earcon == .listening && listeningChimed) {
+            playEarcon(earcon)
         }
+        if machine.state != .connecting { listeningChimed = false }
         if !machine.state.isActive, let mode = modeAfterOneShot {
             modeAfterOneShot = nil
             machine.mode = mode
@@ -1232,7 +1255,14 @@ final class VoiceStore {
 
     private func handleMicFrame(_ chunk: Data) {
         guard wantsCapture, !audioInterrupted, !chunk.isEmpty else { return }
+        let micJustWentLive = !captureReady
         captureReady = true
+        if micJustWentLive, machine.state == .connecting {
+            // Listening starts here, not when the connection is up (`shownState`).
+            playEarcon(.listening)
+            listeningChimed = true
+            pushLiveActivity()
+        }
         micRecoveryAttempts = 0
         if startup.tap != nil, startup.mic == nil {
             startup.mic = clock.now

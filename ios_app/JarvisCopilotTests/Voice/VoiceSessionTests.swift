@@ -8,7 +8,9 @@ final class VoiceSessionTests: XCTestCase {
     // MARK: - Server → client
 
     func testDecodesEveryFrameTheServerSends() {
-        XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"ready"}"#), .ready)
+        XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"ready"}"#), .ready(clearsStaleStream: false))
+        XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"ready","mode":"bridge","clears_stale_stream":true}"#),
+                       .ready(clearsStaleStream: true))
         XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"transcript","text":"hello"}"#),
                        .transcript("hello"))
         XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"assistant_text","text":"Hi."}"#),
@@ -56,6 +58,15 @@ final class VoiceSessionTests: XCTestCase {
                                                     model: nil, provider: nil)
         XCTAssertEqual(message.encoded(),
                        #"{"sample_rate":16000,"session_id":"voice-1","type":"begin_turn"}"#)
+    }
+
+    /// The phone asks the server to clear a stream its session left running (the
+    /// web and the Pod don't: their chat may be running a long agent turn).
+    func testBeginTurnCanAskTheServerToClearAStaleStream() {
+        let message = VoiceClientMessage.beginTurn(sampleRate: 16000, sessionID: "voice-1",
+                                                    model: nil, provider: nil, clearStaleStream: true)
+        XCTAssertEqual(message.encoded(),
+                       #"{"clear_stale_stream":true,"sample_rate":16000,"session_id":"voice-1","type":"begin_turn"}"#)
     }
 
     func testBeginTurnIncludesTheVoiceModelWhenChosen() {
@@ -131,7 +142,7 @@ final class VoiceSessionTests: XCTestCase {
         socket.receive(text: "garbage")
         socket.receive(binary: Data([1, 2, 3]))
 
-        XCTAssertEqual(frames, [.ready, .audio(Data([1, 2, 3]))],
+        XCTAssertEqual(frames, [.ready(clearsStaleStream: false), .audio(Data([1, 2, 3]))],
                        "unparseable text is dropped, not surfaced as a frame")
     }
 

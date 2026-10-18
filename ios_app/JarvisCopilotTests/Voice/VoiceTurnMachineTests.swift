@@ -477,6 +477,33 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertFalse(m.oneShot)
     }
 
+    /// The reply asked him something ("Unlock the car?" — car commands now wait
+    /// for a plain yes): listen for that one answer, then close as usual.
+    func testOneShotWhoseReplyAsksListensForOneMoreAnswer() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        oneShotThroughReply(&m)
+        m.replyAsks = true
+        _ = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .listening, "his yes is still to come")
+        XCTAssertTrue(m.oneShot)
+        _ = m.apply(.endOfSpeech); _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
+        let drained = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .idle, "after the answer to the question, it closes")
+        XCTAssertTrue(drained.contains(.oneShotFinished))
+    }
+
+    func testOneShotWhoseReplyAsksAlsoListensAfterTheResumeGrace() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        m.oneShot = true
+        _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
+        _ = m.apply(.serverOutput)
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
+        m.replyAsks = true
+        _ = m.apply(.resumeGraceElapsed)
+        XCTAssertEqual(m.state, .listening)
+    }
+
     func testOneShotResumeGraceEndsTurn() {
         var m = VoiceTurnMachine(mode: .realtime)
         m.oneShot = true

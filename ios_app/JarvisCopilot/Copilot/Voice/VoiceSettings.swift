@@ -40,6 +40,10 @@ final class VoiceSettings {
     static let liveModeKey = "jc_voice_live_mode"
     /// Written by the Siri intent / Control-Center control before the app is up.
     static let pendingVoiceKey = "jc_pending_voice"
+    /// The voice server clears a stale stream itself on `begin_turn` (its `ready`
+    /// said so), so a start needn't check first. Remembered: it is only learnt once
+    /// a socket is open, and the first start of a launch is the one that counts.
+    static let serverClearsStaleStreamKey = "jc_voice_server_clears_stale_stream"
 
     private let store: KeyValueStore
 
@@ -84,6 +88,11 @@ final class VoiceSettings {
             _voice = clean
             store.set(clean, forKey: Self.voiceKey)
         }
+    }
+
+    var serverClearsStaleStream: Bool {
+        get { store.bool(Self.serverClearsStaleStreamKey) ?? false }
+        set { store.set(newValue, forKey: Self.serverClearsStaleStreamKey) }
     }
 
     var mode: VoiceMode {

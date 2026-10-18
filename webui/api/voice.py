@@ -15,7 +15,7 @@ WS protocol (mirrors JarvisClaw's s2s.proto in spirit, JSON+binary over WS):
                    {"type":"end_turn"}
                    {"type":"interrupt"}
   Server → Client:
-    Text frame:    {"type":"ready","mode":"bridge"}
+    Text frame:    {"type":"ready","mode":"bridge","clears_stale_stream":true}
                    {"type":"transcript","text":"...","is_final":true}
                    {"type":"assistant_text","text":"..."}
                    {"type":"audio_meta","format":"pcm_s16le"|"mp3","sample_rate":24000}
@@ -1148,6 +1148,64 @@ def _cancel_active_voice_stream(state: dict) -> None:
         print("[webui] voice: cancel_stream failed: " + traceback.format_exc(), flush=True)
 
 
+# How long a session's running turn counts as live before begin_turn treats it
+# as orphaned. Same value as the phone's VoiceAPI.liveTurnGraceSeconds: a turn
+# that just started is live — the phone was backgrounded by an action the turn
+# itself took (opening a URL or an app) and voice is re-opening on return — and
+# cancelling it produced "Task cancelled" right after a correct reply.
+_STALE_STREAM_GRACE_SECONDS = 180.0
+
+
+def _clear_stale_session_stream(state: dict) -> None:
+    """Cancel a stream the socket's session left running (the app was
+    backgrounded mid-turn), so the next turn doesn't fail with "session already
+    has an active stream".
+
+    The phone used to do this over HTTP before every begin_turn (GET
+    /api/session, then /api/chat/cancel) — seconds on a slow server, blocking the
+    turn. The ``ready`` frame's ``clears_stale_stream`` tells it the server now
+    does it here. Same rule as the phone: only a stream older than the grace (or
+    with no start time), and never this socket's own running turn. Cancels
+    through ``cancel_stream``, exactly as /api/chat/cancel does. Best effort:
+    runs in the recv loop, so it logs and returns instead of raising.
+    """
+    sid = (state.get("session_id") or "").strip()
+    if not sid:
+        return
+    try:
+        from api.config import STREAMS, STREAMS_LOCK  # type: ignore
+        with STREAMS_LOCK:
+            if not STREAMS:
+                return  # nothing is running anywhere: skip the session read
+        from api import models as _models  # type: ignore
+        try:
+            s = _models.get_session(sid, metadata_only=True)
+        except KeyError:
+            return
+        stream_id = getattr(s, "active_stream_id", None)
+        if not stream_id:
+            return
+        with STREAMS_LOCK:
+            if stream_id not in STREAMS:
+                return  # already dead; chat start clears the leftover flags itself
+        turn = state.get("turn_thread")
+        if (turn is not None and turn.is_alive()
+                and _ACTIVE_VOICE_STREAMS.get(sid) == stream_id):
+            return  # this socket's own turn, still streaming
+        try:
+            started = float(getattr(s, "pending_started_at", None))
+        except (TypeError, ValueError):
+            started = None
+        if started and time.time() - started < _STALE_STREAM_GRACE_SECONDS:
+            return  # live, not orphaned
+        from api.streaming import cancel_stream  # type: ignore
+        cancelled = cancel_stream(stream_id)
+        print(f"[webui] voice: begin_turn cleared stale stream {stream_id} "
+              f"for session {sid} (cancelled={cancelled})", flush=True)
+    except Exception:
+        print("[webui] voice: clearing a stale stream failed: " + traceback.format_exc(), flush=True)
+
+
 # A voice model pick that just failed (quota / rate limit / auth) — keyed by
 # (model, provider), value = time it may be retried. Keeps the phone's pick
 # intact while sparing every following turn the doomed round trip.
@@ -2213,7 +2271,10 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
         "closed": False,
         "origin": origin,  # the paired device on this socket (api/turn_origin.py)
     }
-    _ws_send_text(conn, sock, json.dumps({"type": "ready", "mode": "bridge"}))
+    # clears_stale_stream: a begin_turn with clear_stale_stream cancels a stream
+    # the session left running (see _clear_stale_session_stream), so the phone
+    # can skip doing it over HTTP.
+    _ws_send_text(conn, sock, json.dumps({"type": "ready", "mode": "bridge", "clears_stale_stream": True}))
     try:
         while not state["closed"]:
             try:
@@ -2428,6 +2489,13 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
             state["client"] = client
         if "noise_cancel" in msg:  # the pod's "Noise cancelling" setting
             state["noise_cancel"] = bool(msg.get("noise_cancel"))
+        if sid and msg.get("clear_stale_stream"):
+            # A stream this session left running would 409 the first turn.
+            # Cleared here when the client asks (the phone, which used to clear it
+            # over HTTP first; ready: clears_stale_stream). The web and the Pod
+            # don't ask: they open voice on a chat that may be running a long
+            # agent turn, and turning the mic on there must not cancel it.
+            _clear_stale_session_stream(state)
     elif t == "speech_pause":
         # The Jarvis Pod heard the user pause: transcribe what's in so far now, so the
         # text is ready (or nearly) when its end_turn follows ~0.45 s later.

@@ -132,6 +132,38 @@ final class CarHandoff {
     }
 }
 
+/// A map link Jarvis opens with `open_url` while CarPlay is up goes to the car's
+/// screen, like `car_directions` does. With the phone locked, `open_url` is
+/// otherwise a "tap to run" notification: unlock, tap, Jarvis, then Maps.
+@MainActor
+enum CarLinks {
+    /// Apple Maps, Google Maps and Waze links, web or app.
+    static func isMap(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if ["maps", "comgooglemaps", "comgooglemapsurl", "waze"].contains(scheme) { return true }
+        guard scheme == "http" || scheme == "https" else { return false }
+        let host = (url.host ?? "").lowercased()
+        if ["maps.apple.com", "maps.google.com", "maps.app.goo.gl", "waze.com", "www.waze.com"].contains(host) {
+            return true
+        }
+        return ["google.com", "www.google.com"].contains(host) && url.path.hasPrefix("/maps")
+    }
+
+    /// Run ahead of the phone's skills (`InvokeRunner`'s native route): nil steps
+    /// aside. The map opens when Jarvis has finished saying where it's going.
+    static func route(_ skill: String, _ args: [String: Any]) async throws -> [String: Any]? {
+        try await route(skill, args, carScreen: { CarScreen.isConnected }, queue: { CarHandoff.shared.queue($0) })
+    }
+
+    static func route(_ skill: String, _ args: [String: Any],
+                      carScreen: () -> Bool, queue: (URL) -> Void) async throws -> [String: Any]? {
+        guard skill == "open_url", carScreen(),
+              let url = URL(string: SkillArgs.string(args, "url")), isMap(url) else { return nil }
+        queue(url)
+        return ["launched": true, "note": "Opening on the car's screen when you finish speaking."]
+    }
+}
+
 /// `car_directions`: the closest match near him, opened in his maps app on the car screen.
 @MainActor
 enum CarDirections {

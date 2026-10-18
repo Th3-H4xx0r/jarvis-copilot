@@ -42,6 +42,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     /// this can be lost, so the voice card waits for it.
     private var rootReady = false
     private var voiceWaiting = false
+    /// The start waiting for the root screen is the Talk widget's (one answer).
+    private var voiceWaitingOnce = false
     private var cancellables: Set<AnyCancellable> = []
 
     private var sync: DashcamSync { .shared }
@@ -67,7 +69,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             cpDiag("root ready ok=\(ok)")
             guard let self, self.running else { return }
             self.rootReady = true
-            if self.voiceWaiting { self.voiceWaiting = false; self.handle(.startVoice) }
+            if self.voiceWaiting {
+                self.voiceWaiting = false
+                self.handle(self.voiceWaitingOnce ? .talkOnce : .startVoice)
+                self.voiceWaitingOnce = false
+            }
         }
         refresh()
         observeStores()
@@ -140,7 +146,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         guard running else { return }
         withObservationTracking {
             let v = VoiceStore.shared
-            _ = v.state; _ = v.error
+            _ = v.shownState; _ = v.error
             _ = v.userTranscript; _ = v.livePartial; _ = v.assistantText; _ = v.spokenWords
             _ = WearableNames.shared.names   // the car's name is the tab's title
         } onChange: { [weak self] in
@@ -179,7 +185,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     private var voiceStateText: String {
         let v = VoiceStore.shared
-        return CarPlayScreens.voiceStateText(state: v.state, error: v.error,
+        return CarPlayScreens.voiceStateText(state: v.shownState, error: v.error,
                                              micAllowed: AVAudioApplication.shared.recordPermission != .denied)
     }
 
@@ -436,16 +442,17 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         switch action {
         case .none: break
         case .push(let screen): push(screen)
-        case .startVoice:
+        case .startVoice, .talkOnce:
+            let once = action == .talkOnce
             guard paired else { alert("Pair Jarvis on your iPhone first."); return }
-            cpDiag("startVoice rootReady=\(rootReady)")
-            guard rootReady else { voiceWaiting = true; return }
+            cpDiag("startVoice once=\(once) rootReady=\(rootReady)")
+            guard rootReady else { voiceWaiting = true; voiceWaitingOnce = voiceWaitingOnce || once; return }
             // The Voice tab is the voice screen: go there, then start listening.
             if tabBar?.selectedTemplate !== voiceTab || !stack.isEmpty {
                 ui.popToRootTemplate(animated: false, completion: nil)
                 tabBar?.select(voiceTab)
             }
-            voice.start()
+            voice.start(oneShot: once)
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
         case .control(let id, let value):
@@ -653,4 +660,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 }
 
 /// TEMPORARY (2026-10-03): traces the voice card / header hand-off on the car; remove once settled.
-func cpDiag(_ message: String) { print("[cp-diag] \(String(format: "%.3f", Date().timeIntervalSince1970)) \(message)") }
+func cpDiag(_ message: String) {
+    let line = "[cp-diag] \(String(format: "%.3f", Date().timeIntervalSince1970)) \(message)"
+    print(line)
+    VoiceLogFile.shared.append(line)
+}

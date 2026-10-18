@@ -65,6 +65,30 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertFalse(engine.isRunning)
     }
 
+    /// The engine is kept while a reply needs it. Built under the playback-only
+    /// session it has no mic, and every mic start after it failed with "audio
+    /// session does not permit microphone capture" until Jarvis was killed
+    /// (13:12, 2026-10-17). Once the session can record, the mic gets one.
+    func testTheMicGetsAnEngineWithAMicAfterAPlaybackOnlyReply() throws {
+        let arbiter = AudioSessionArbiter()
+        try arbiter.hold(.externalVoice)
+        let engine = VoiceAudioEngine()
+        defer {
+            engine.stopStream()
+            try? arbiter.release(.voice)
+            try? arbiter.release(.externalVoice)
+        }
+        try engine.startStream(sampleRate: 24000, onLevel: { _ in })
+        try arbiter.release(.externalVoice)
+        try arbiter.hold(.voice)
+        do {
+            _ = try engine.micFormat()
+        } catch VoiceAudioError.micUnavailable(let why) where why == "no input route" {
+            throw XCTSkip("this simulator has no audio input")
+        }
+        XCTAssertNotNil(engine.streamFormat, "the reply it was playing is carried over")
+    }
+
     // MARK: - The truth table (none / keepalive / voice / both)
 
     func testNobodyHoldingMeansTheSessionIsNotActive() {

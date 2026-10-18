@@ -57,11 +57,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         for context in URLContexts { open(context.url) }
     }
 
-    /// The widget's `jarviscopilot://voice` starts talking on the car; anything
-    /// else goes through the phone's usual router.
+    /// The widgets' `jarviscopilot://voice` starts talking on the car — the Talk
+    /// widget's orb for one answer; anything else goes through the phone's usual router.
     private func open(_ url: URL) {
         if CarPlayLinks.isVoice(url) {
-            coordinator?.handle(.startVoice)
+            coordinator?.handle(CarPlayLinks.wantsOneAnswer(url) ? .talkOnce : .startVoice)
         } else {
             AppServices.shared.open(url: url)
         }
@@ -72,5 +72,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 enum CarPlayLinks {
     static func isVoice(_ url: URL) -> Bool {
         url.scheme == "jarviscopilot" && (url.host == "voice" || url.path == "/voice")
+    }
+
+    /// `?once=1`: the Talk widget's orb — one answer, then the mic goes off.
+    static func wantsOneAnswer(_ url: URL) -> Bool {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.contains { $0.name == "once" && $0.value == "1" } ?? false
     }
 }

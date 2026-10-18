@@ -64,6 +64,8 @@ enum CarPlayAction: Equatable {
     case none
     case push(CarPlayScreen)
     case startVoice
+    /// The Talk widget's orb: start listening for one answer.
+    case talkOnce
     case dashcam(CarPlayDashcamCommand)
     case clip(id: String, CarPlayClipCommand)
     /// Use one of the car's controls.

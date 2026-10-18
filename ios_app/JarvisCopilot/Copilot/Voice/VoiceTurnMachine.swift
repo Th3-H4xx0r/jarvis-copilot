@@ -111,12 +111,26 @@ struct VoiceTurnMachine: Equatable {
     /// This one-shot turn got an answer. Without one (a bump read as speech,
     /// "didn't catch that") it listens again instead of closing.
     private(set) var oneShotAnswered = false
+    /// This one-shot turn's reply asked him something ("Unlock the car?" — car
+    /// commands wait for a plain yes as his next message): listen for that one
+    /// answer instead of closing. Set by the store from the reply's text.
+    var replyAsks = false
 
     init(mode: VoiceMode = .realtime) { self.mode = mode }
 
     /// The reply of a one-shot turn has played out: close the session rather
     /// than hand the mic back.
+    /// The answered reply asked him something: its answer is one more turn, so
+    /// the one-shot listens for it (once) instead of closing.
+    private mutating func takeTheQuestionsAnswer() -> Bool {
+        guard replyAsks, !awaitingFollowup else { return false }
+        replyAsks = false
+        oneShotAnswered = false
+        return true
+    }
+
     private mutating func finishOneShot() -> [VoiceTurnEffect] {
+        replyAsks = false
         oneShot = false
         awaitingFollowup = false
         oneShotAnswered = false
@@ -140,6 +154,7 @@ struct VoiceTurnMachine: Equatable {
         case .startRequested:
             guard !state.isActive else { return [] }
             oneShotAnswered = false
+            replyAsks = false
             serverProducedOutput = false
             discardingInterruptedTurn = false
             serverTurnDone = false
@@ -212,7 +227,7 @@ struct VoiceTurnMachine: Equatable {
                 if serverTurnOpen { return [.cancelResume, .armThinkingWatchdog] }
                 // The turn is over and its reply has played: listen now.
                 if serverTurnDone, state == .thinking {
-                    if oneShot, oneShotAnswered {
+                    if oneShot, oneShotAnswered, !takeTheQuestionsAnswer() {
                         return awaitingFollowup ? [.cancelResume] : finishOneShot()
                     }
                     state = .listening
@@ -234,7 +249,7 @@ struct VoiceTurnMachine: Equatable {
             // already refuses to schedule a resume while the turn is open; this
             // is the same rule for a timer that was already in flight.
             guard !serverTurnOpen else { return [] }
-            if oneShot, oneShotAnswered {
+            if oneShot, oneShotAnswered, !takeTheQuestionsAnswer() {
                 return awaitingFollowup ? [] : finishOneShot()
             }
             state = .listening
@@ -295,6 +310,7 @@ struct VoiceTurnMachine: Equatable {
         case .stopRequested:
             oneShot = false
             awaitingFollowup = false
+            replyAsks = false
             serverTurnOpen = false
             discardingInterruptedTurn = false
             let wasError = state == .error
