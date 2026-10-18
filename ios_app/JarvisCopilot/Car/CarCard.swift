@@ -34,6 +34,7 @@ struct CarCard: View {
                 if CarModel.hasBundledModel {
                     // High and to the right: the status pills keep the bottom left.
                     CarSceneView(presentation: .card, lit: inCar)
+                        .environment(\.sceneStills, true)
                         .frame(width: 262, height: 150)
                         .padding(.trailing, -22)
                         .padding(.top, 6)

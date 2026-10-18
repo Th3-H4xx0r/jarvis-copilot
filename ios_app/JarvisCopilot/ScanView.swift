@@ -331,6 +331,7 @@ private struct ScaleCard: View {
         ZStack(alignment: .topLeading) {
             ScaleSceneView(state: .idle, weightText: nil, entrance: false,
                            presentation: .card)
+                .environment(\.sceneStills, true)
                 .frame(width: 275, height: 190)
                 .offset(x: 116, y: -4)
                 .allowsHitTesting(false)
@@ -397,6 +398,7 @@ private struct BottleCard: View {
                 // is cropped mid-body.
                 BottleSceneView(spin: true, tilt: -0.16,
                                 cameraX: -0.31, cameraY: 0.16, cameraZ: 2.6)
+                    .environment(\.sceneStills, true)
                     .frame(height: Self.cardHeight + Self.bleed)
                     .padding(.bottom, -Self.bleed)
             } else {

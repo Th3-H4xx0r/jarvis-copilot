@@ -294,6 +294,7 @@ struct RingCard: View {
             HStack {
                 Spacer()
                 RingSceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
+                    .environment(\.sceneStills, true)
                     .frame(width: 124, height: 124)
                     .padding(.trailing, 12)
                     .allowsHitTesting(false)

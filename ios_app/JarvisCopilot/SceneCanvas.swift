@@ -1,3 +1,4 @@
+import Metal
 import SceneKit
 import SwiftUI
 
@@ -49,11 +50,15 @@ final class SceneCanvasView: SCNView {
     }
 }
 
-/// A transparent `SCNView` for the wearable models.
-///
-/// SwiftUI's `SceneView` gives no way to reach the view's `backgroundColor` /
-/// `isOpaque`, so a `.clear` scene background still drew on an opaque white backing.
-struct SceneCanvas: UIViewRepresentable {
+extension EnvironmentValues {
+    /// Draw 3D models as one still frame, a transparent picture, instead of a live `SCNView`. The
+    /// Wearables cards set it: that list stays mounted behind every tab, and a page of turning
+    /// models cost battery and memory. The live model is for the device's own screen.
+    @Entry var sceneStills = false
+}
+
+/// A transparent model view: a live `SCNView`, or, where `sceneStills` is set, one frame of it.
+struct SceneCanvas: View {
     let scene: SCNScene
     let camera: SCNNode
     /// A continuous render costs power: only while something is animating.
@@ -68,6 +73,137 @@ struct SceneCanvas: UIViewRepresentable {
     var onPan: ((UIPanGestureRecognizer) -> Void)? = nil
     /// Called every frame on SceneKit's render thread, before it draws — for an entrance driven by
     /// the frames actually being drawn. Taken once, when the view is made.
+    var onRender: ((TimeInterval) -> Void)? = nil
+    /// What the model looks like, for its still: a change draws the still again (lit, armed …).
+    var look: AnyHashable = 0
+
+    @Environment(\.sceneStills) private var stills
+
+    var body: some View {
+        if stills {
+            SceneStill(scene: scene, camera: camera, look: look)
+        } else {
+            LiveSceneCanvas(scene: scene, camera: camera, rendersContinuously: rendersContinuously,
+                            preferredFramesPerSecond: preferredFramesPerSecond, onHorizontalPan: onHorizontalPan,
+                            onTap: onTap, onPan: onPan, onRender: onRender)
+        }
+    }
+}
+
+/// One frame of a model, drawn offscreen into a transparent image: no `SCNView`, nothing that
+/// animates or holds a drawable. Drawn again when its size or `look` changes, and only with the
+/// app in front (a background app may not use the GPU).
+struct SceneStill: View {
+    let scene: SCNScene
+    /// nil: the scene's own camera.
+    let camera: SCNNode?
+    var look: AnyHashable = 0
+
+    @State private var image: UIImage?
+    @State private var drawn: Drawn?
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.scenePhase) private var scenePhase
+
+    private struct Drawn: Hashable {
+        var width: Double
+        var height: Double
+        var look: AnyHashable
+    }
+
+    private struct Want: Hashable {
+        var drawn: Drawn
+        var active: Bool
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let want = Drawn(width: geo.size.width, height: geo.size.height, look: look)
+            Group {
+                if let image { Image(uiImage: image).resizable() } else { Color.clear }
+            }
+            .task(id: Want(drawn: want, active: scenePhase == .active)) {
+                // A background app may not use the GPU. Asked of the app, not `scenePhase`: a view
+                // hosted outside a SwiftUI scene reads `.background` for good. (The phase change
+                // still re-runs this, so a still missed in the background is drawn on return.)
+                guard UIApplication.shared.applicationState != .background,
+                      want != drawn, want.width >= 1, want.height >= 1 else { return }
+                // A new look (lit, armed) is often a short fade: draw it where it settles.
+                if let drawn, drawn.look != want.look { try? await Task.sleep(for: .milliseconds(600)) }
+                guard !Task.isCancelled else { return }
+                let shot = await SceneStillRenderer.image(scene: scene, camera: camera, size: geo.size, scale: displayScale)
+                guard !Task.isCancelled else { return }
+                image = shot
+                drawn = want
+            }
+        }
+    }
+}
+
+/// Every still through one kept renderer, one at a time, off the main thread (as `CarModel.build`
+/// builds the car). A first frame compiles the model's shaders, seconds for the car in the
+/// simulator: on the main thread that stalled the app, and fresh renderers side by side (two car
+/// cards) loaded the GPU long enough to upset the live car opened next.
+enum SceneStillRenderer {
+    private static let queue = DispatchQueue(label: "jc.scene-stills", qos: .utility)
+    /// Made and used on `queue` only.
+    nonisolated(unsafe) private static var renderer: SCNRenderer?
+
+    /// The scene from `camera` (or its own) at `size` points, on a transparent background.
+    static func image(scene: SCNScene, camera: SCNNode?, size: CGSize, scale: CGFloat) async -> UIImage? {
+        let job = Job(scene: scene, camera: camera)
+        return await withCheckedContinuation { done in
+            queue.async { done.resume(returning: job.render(size: size, scale: scale)) }
+        }
+    }
+
+    /// Returns once every still asked for so far is drawn (a test that times a live model next).
+    static func idle() async {
+        await withCheckedContinuation { done in queue.async { done.resume() } }
+    }
+
+    /// Plain SceneKit, nothing tied to the main actor; the scene isn't being drawn anywhere else.
+    private struct Job: @unchecked Sendable {
+        let scene: SCNScene
+        let camera: SCNNode?
+
+        func render(size: CGSize, scale: CGFloat) -> UIImage? {
+            guard size.width >= 1, size.height >= 1 else { return nil }
+            if SceneStillRenderer.renderer == nil, let device = MTLCreateSystemDefaultDevice() {
+                let made = SCNRenderer(device: device, options: nil)
+                made.autoenablesDefaultLighting = false
+                SceneStillRenderer.renderer = made
+            }
+            guard let renderer = SceneStillRenderer.renderer else { return nil }
+            renderer.scene = scene
+            renderer.pointOfView = camera ?? scene.rootNode.childNodes { node, _ in node.camera != nil }.first
+            let background = scene.background.contents
+            if background == nil { scene.background.contents = UIColor.clear }
+            defer {
+                if background == nil { scene.background.contents = nil }
+                // Not kept alive by the renderer once it's drawn.
+                renderer.scene = nil
+                renderer.pointOfView = nil
+            }
+            let shot = renderer.snapshot(atTime: 0, with: CGSize(width: size.width * scale, height: size.height * scale),
+                                         antialiasingMode: .multisampling4X)
+            guard let cg = shot.cgImage else { return nil }
+            return UIImage(cgImage: cg, scale: scale, orientation: .up)
+        }
+    }
+}
+
+/// A transparent `SCNView` for the wearable models.
+///
+/// SwiftUI's `SceneView` gives no way to reach the view's `backgroundColor` /
+/// `isOpaque`, so a `.clear` scene background still drew on an opaque white backing.
+private struct LiveSceneCanvas: UIViewRepresentable {
+    let scene: SCNScene
+    let camera: SCNNode
+    let rendersContinuously: Bool
+    var preferredFramesPerSecond = 30
+    var onHorizontalPan: ((UIPanGestureRecognizer) -> Void)? = nil
+    var onTap: ((CGPoint, SCNView) -> Void)? = nil
+    var onPan: ((UIPanGestureRecognizer) -> Void)? = nil
     var onRender: ((TimeInterval) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }

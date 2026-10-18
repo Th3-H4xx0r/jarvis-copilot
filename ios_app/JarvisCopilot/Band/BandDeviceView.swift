@@ -12,6 +12,7 @@ struct BandCard: View {
             HStack {
                 Spacer()
                 BandSceneView(spin: true, cameraDistance: 5.6)
+                    .environment(\.sceneStills, true)
                     .frame(width: 124, height: 124)
                     .padding(.trailing, 12)
                     .allowsHitTesting(false)

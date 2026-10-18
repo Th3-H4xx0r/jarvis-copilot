@@ -19,6 +19,7 @@ struct GlassesCard: View {
                 Spacer()
                 // Turning costs a continuous render; a card for glasses never seen stays still.
                 GlassesSceneView(spin: route.connected || lastSeen != nil, lit: route.connected)
+                    .environment(\.sceneStills, true)
                     .frame(width: 124, height: 124)
                     .padding(.trailing, 12)
                     .allowsHitTesting(false)

@@ -498,7 +498,12 @@ enum InmoGo3Model {
         }
 
         /// The display comes up green while the glasses are connected, and fades out when not.
-        func setLit(_ on: Bool) {
+        /// Not `animated` for a still: an action only runs while a view draws the scene.
+        func setLit(_ on: Bool, animated: Bool = true) {
+            guard animated else {
+                displays.forEach { $0.removeAction(forKey: "lit"); $0.opacity = on ? 1 : 0 }
+                return
+            }
             let fade = SCNAction.fadeOpacity(to: on ? 1 : 0, duration: 0.45)
             fade.timingMode = .easeOut
             displays.forEach { $0.runAction(fade, forKey: "lit") }

@@ -19,6 +19,7 @@ struct GlassesSceneView: View {
     /// Optional so previews and tests without the shell still render.
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.sceneStills) private var stills
 
     private var animating: Bool {
         spin && scenePhase == .active
@@ -28,7 +29,7 @@ struct GlassesSceneView: View {
     var body: some View {
         Group {
             if let live {
-                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating)
+                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating, look: lit)
             } else {
                 Color.clear
             }
@@ -38,9 +39,9 @@ struct GlassesSceneView: View {
             let scene = InmoGo3Model.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance,
                                           spinSeconds: spinSeconds)
             if entrance { scene.playEntrance() }
-            if lit { scene.setLit(true) }
+            if lit { scene.setLit(true, animated: !stills) }
             live = scene
         }
-        .onChange(of: lit) { _, on in live?.setLit(on) }
+        .onChange(of: lit) { _, on in live?.setLit(on, animated: !stills) }
     }
 }

@@ -692,7 +692,12 @@ enum CarModel {
             return CGPoint(x: size.width * CGFloat(0.5 + right / 2), y: size.height * CGFloat(0.5 - up / 2))
         }
 
-        func setLit(_ on: Bool) {
+        /// Not `animated` for a still: an action only runs while a view draws the scene.
+        func setLit(_ on: Bool, animated: Bool = true) {
+            guard animated else {
+                lit.forEach { $0.removeAction(forKey: "lit"); $0.opacity = on ? 1 : 0 }
+                return
+            }
             let fade = SCNAction.fadeOpacity(to: on ? 1 : 0, duration: 0.5)
             fade.timingMode = .easeOut
             lit.forEach { $0.runAction(fade, forKey: "lit") }
@@ -754,6 +759,7 @@ struct CarSceneView: View {
     @State private var onScreen = false
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.sceneStills) private var stills
 
     private var animating: Bool {
         spin && onScreen && scenePhase == .active
@@ -768,7 +774,8 @@ struct CarSceneView: View {
                 SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating || entering,
                             preferredFramesPerSecond: 60,
                             onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil,
-                            onRender: turnsIntoPlace ? { time in entranceFrame(live, time) } : nil)
+                            onRender: turnsIntoPlace ? { time in entranceFrame(live, time) } : nil,
+                            look: lit)
                     .opacity(hidden ? 0 : 1)
                     .transition(.opacity)
             } else {
@@ -782,7 +789,7 @@ struct CarSceneView: View {
         .task {
             guard live == nil else { return }
             let scene = await CarModel.build(presentation, spin: spin, spinSeconds: spinSeconds)
-            if lit { scene.setLit(true) }
+            if lit { scene.setLit(true, animated: !stills) }
             if turnsIntoPlace {
                 scene.readyEntrance()
                 entering = true
@@ -790,7 +797,7 @@ struct CarSceneView: View {
             }
             live = scene
         }
-        .onChange(of: lit) { _, on in live?.setLit(on) }
+        .onChange(of: lit) { _, on in live?.setLit(on, animated: !stills) }
     }
 
     /// Render thread, every frame of the entrance: show the car as its turn starts; stop drawing

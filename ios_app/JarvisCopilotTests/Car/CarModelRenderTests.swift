@@ -120,12 +120,15 @@ final class CarModelRenderTests: XCTestCase {
         }
     }
 
-    func testCardAndPageRender() throws {
+    func testCardAndPageRender() async throws {
         try RenderHarness.write(VStack(spacing: 14) {
             CarCard(name: "Camry", subtitle: "2026 Toyota Camry SE", inCar: false, lastSeen: Date().addingTimeInterval(-7200))
             CarCard(name: "Camry", subtitle: "2026 Toyota Camry SE", inCar: true, lastSeen: nil, pendingUploads: 3)
             WearableControlsSection(controls: []) { _, _ in }
         }.padding(16), size: CGSize(width: 402, height: 640), name: "car-cards.png")
+        // The cards' car is a still: let its first render (seconds of shader compiling in the
+        // simulator) finish before a test times a live car's frames.
+        await SceneStillRenderer.idle()
 
         let recorder = ControlRecorder()
         try RenderHarness.write(WearableControlsSection(controls: [

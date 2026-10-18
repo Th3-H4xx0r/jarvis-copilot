@@ -13,8 +13,35 @@ struct DoorHubView: View {
     var state: Look
     var compact: Bool = true
 
+    @Environment(\.sceneStills) private var stills
+
     var body: some View {
-        DoorHubScene(look: state, compact: compact)
+        if stills {
+            DoorHubStill(look: state, compact: compact)
+        } else {
+            DoorHubScene(look: state, compact: compact)
+        }
+    }
+}
+
+/// The hub as one still picture (`sceneStills`): built once, its look applied, drawn again when
+/// the look changes.
+private struct DoorHubStill: View {
+    let look: DoorHubView.Look
+    let compact: Bool
+    @State private var scene: SCNScene?
+
+    var body: some View {
+        Group {
+            if let scene { SceneStill(scene: scene, camera: nil, look: look) } else { Color.clear }
+        }
+        .onAppear {
+            guard scene == nil else { return }
+            let made = DoorHubScene.makeScene(compact: compact)
+            DoorHubScene.apply(look, to: made)
+            scene = made
+        }
+        .onChange(of: look) { _, now in DoorHubScene.apply(now, to: scene) }
     }
 }
 

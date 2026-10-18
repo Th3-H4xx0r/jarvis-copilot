@@ -42,6 +42,7 @@ struct DoorAlarmCard: View {
             HStack(alignment: .top) {
                 Spacer()
                 DoorHubView(state: DoorHubView.Look(alarm))
+                    .environment(\.sceneStills, true)
                     .frame(width: 210, height: 150)
                     .padding(.trailing, -10)
                     .padding(.top, 6)
