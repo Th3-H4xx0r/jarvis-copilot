@@ -128,7 +128,7 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     until Jarvis is killed.
   - Built: asked for the mic, an engine with no mic is rebuilt (a playing reply carried over); a stream or mic
     whose engine start fails no longer stays "in use". Test fails with his exact error without the fix.
-- [ ] **18. Tap → talking takes up to 5 s; target < 1 s**
+- [x] **18. Tap → talking takes up to 5 s; target < 1 s**
   - Found (18:34–18:45 log): serial start ≈ 1.5 s — CarPlay waits for the voice card to present (~0.6 s) before
     starting voice, the audio session switch to the car mic (~0.5 s), the engine (~0.25 s), plus a
     `/api/session` round trip ("clear a stale stream") before `begin_turn` — that one took 4.2 s at 18:36.
@@ -142,13 +142,13 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Built: the orb is a `widgetURL` (`jarviscopilot://voice?once=1`, Apple's way for a CarPlay app's widget);
     the car screen starts listening for one answer — if its own "voice first" start got there first, that
     conversation becomes the one answer. The background intent, its toggle and snapshot are gone.
-- [ ] **20. Directions say "sent to your phone"; Maps only after unlock → notification → Jarvis → Maps**
+- [x] **20. Directions say "sent to your phone"; Maps only after unlock → notification → Jarvis → Maps**
   - Found (server log 18:14 UTC): the voice model followed the server skill `directions-from-current-location`
     (get location → web search → `device_open_url` Apple Maps link) and never called `device_car_directions`;
     a link opened on a backgrounded phone becomes a tap-to-open notification.
   - Built: the skill now calls `device_car_directions` first (backup `SKILL.md.bak-2026-10-17` on the
     server); any map link `open_url` gets while CarPlay is up opens on the car's screen after the reply.
-- [ ] **21. Voice log survives a disconnected cable** — the console capture dies when the phone drops; the
+- [x] **21. Voice log survives a disconnected cable** — the console capture dies when the phone drops; the
   phone keeps its own rolling voice log file to pull afterwards.
   - Built: `Library/Caches/voice.log` (+ `voice.1.log`, 1 MB each), voice + CarPlay lines with the date;
     pull with `xcrun devicectl device copy from … --domain-type appDataContainer --source Library/Caches/voice.log`.
@@ -164,7 +164,7 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   a Google/Waze map link with that app missing opens nothing (no Apple Maps fallback yet); after a server
   rollback the remembered "server clears stale streams" costs one failed turn.
 
-- [ ] **23. Directions sometimes open the route, sometimes just the maps app** (2026-10-18 00:10–00:13)
+- [x] **23. Directions sometimes open the route, sometimes just the maps app** (2026-10-18 00:10–00:13) — he: "it seems to work now"
   - Found (phone voice.log + the voice session's tool calls): the route opened when Jarvis called
     `device_car_directions` (coordinates); when it opened a link itself — `http://maps.apple.com/?…&daddr=<text
     address>`, `https://www.google.com/maps/dir/?…`, `comgooglemaps://?saddr=&daddr=…` — the car screen opened
