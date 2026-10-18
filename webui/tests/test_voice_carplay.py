@@ -1,0 +1,129 @@
+"""CarPlay voice turns: the phone says so on begin_turn ("carplay": true) and the
+turn's directive tells the model he is driving — directions on the car, apps
+and calls open on the car's screen after the reply, texts through the Mac.
+
+The note rides the per-call voice directive (session._voice_turn_directive →
+agent._turn_user_context), never the cached system prompt. Without the flag
+nothing changes.
+"""
+import pathlib
+import sys
+import threading
+import types
+
+import pytest
+
+_WEBUI_DIR = pathlib.Path(__file__).resolve().parent.parent
+if str(_WEBUI_DIR) not in sys.path:
+    sys.path.insert(0, str(_WEBUI_DIR))
+
+import api.voice as voice  # noqa: E402
+
+
+def _fresh_state():
+    return {
+        "lock": threading.Lock(),
+        "pcm_buf": bytearray(),
+        "interrupt": False,
+        "clarify_pending": False,
+        "sample_rate": 16000,
+        "session_id": "",
+    }
+
+
+def _frame(state, kind, **fields):
+    voice._handle_control_frame({"type": kind, **fields}, state, None, None)
+
+
+# ── begin_turn carries the flag for the turn ───────────────────────────────
+
+
+def test_begin_turn_with_carplay_marks_the_turn():
+    state = _fresh_state()
+    _frame(state, "begin_turn", carplay=True)
+    assert state["carplay"] is True
+
+
+def test_begin_turn_without_the_flag_is_not_carplay():
+    state = _fresh_state()
+    _frame(state, "begin_turn")
+    assert not state.get("carplay")
+
+
+def test_a_later_begin_turn_without_the_flag_clears_it():
+    state = _fresh_state()
+    _frame(state, "begin_turn", carplay=True)
+    _frame(state, "begin_turn")
+    assert not state.get("carplay")
+
+
+def test_end_turn_can_update_the_flag_mid_session(monkeypatch):
+    # A phone that sends begin_turn once per socket may still say on end_turn
+    # that CarPlay connected or went away; an end_turn without the key keeps it.
+    monkeypatch.setattr(voice, "_run_turn_body", lambda state, conn, sock: None)
+    state = _fresh_state()
+    _frame(state, "begin_turn")
+    _frame(state, "end_turn", carplay=True)
+    state["turn_thread"].join(timeout=2)
+    assert state["carplay"] is True
+    _frame(state, "end_turn")
+    state["turn_thread"].join(timeout=2)
+    assert state["carplay"] is True
+    _frame(state, "end_turn", carplay=False)
+    state["turn_thread"].join(timeout=2)
+    assert state["carplay"] is False
+
+
+# ── the directive ──────────────────────────────────────────────────────────
+
+
+def test_the_directive_has_the_carplay_note_only_on_carplay():
+    plain = voice._voice_turn_directive(None)
+    car = voice._voice_turn_directive(None, carplay=True)
+    assert "CarPlay" not in plain
+    assert car.startswith(plain.rstrip())
+    assert "CarPlay" in car
+    for tool in ("device_car_directions", "device_open_app", "device_messages_send", "device_send_sms"):
+        assert tool in car, tool
+    assert "unlock" in car
+
+
+def test_the_carplay_note_keeps_the_other_notes():
+    car = voice._voice_turn_directive("Turn left on", carplay=True)
+    assert "Turn left on" in car and "CarPlay" in car
+
+
+def test_the_pipeline_passes_the_flag_to_the_turn(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(voice, "_ws_send_text", lambda conn, sock, text: True)
+    monkeypatch.setattr(voice, "_stream_segments", lambda conn, sock, state, gen, timing=None: True)
+    monkeypatch.setattr(
+        voice, "_run_agent_turn_via_chat",
+        lambda sid, transcript, **kw: captured.update(kw) or iter(()),
+    )
+    state = _fresh_state()
+    _frame(state, "begin_turn", session_id="sess-car", carplay=True, text="play some music")
+    voice._bridge_pipeline(state, None, None)
+    assert captured.get("carplay") is True
+
+
+@pytest.mark.parametrize("carplay", [True, False])
+def test_the_note_rides_the_per_call_directive(monkeypatch, carplay):
+    """End to end through _run_agent_turn_via_chat: the note lands on the
+    session's one-call voice directive (folded into the API-call user context),
+    and only on a CarPlay turn."""
+    from api import models, routes
+
+    sess = types.SimpleNamespace(session_id="sess-car", model="m", model_provider="p",
+                                 source_tag="voice", workspace="")
+    monkeypatch.setattr(models, "get_session", lambda sid: sess)
+    monkeypatch.setattr(routes, "_resolve_compatible_session_model_state", lambda m, p: ("m", "p", False))
+    monkeypatch.setattr(routes, "_start_chat_stream_for_session",
+                        lambda s, **kw: {"error": "stop after the directive", "_status": 500})
+    monkeypatch.setattr(voice, "get_voice_lane_config", lambda: {})
+
+    with pytest.raises(voice._VoiceAgentError):
+        list(voice._run_agent_turn_via_chat("sess-car", "play some music", carplay=carplay))
+
+    assert ("CarPlay" in sess._voice_turn_directive) is carplay
+    assert sess._voice_turn_directive.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())

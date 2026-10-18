@@ -888,9 +888,28 @@ def _maybe_stop_pod_listening(state: dict, wait: bool = False) -> None:
         worker.join(timeout=6)
 
 
-def _voice_turn_directive(heard_before_interrupt, client: str = ""):
+# A turn the phone started while it's in the car (begin_turn "carplay": true). While
+# CarPlay is up the phone sends calls, CarPlay apps and map links to the car's
+# screen, AFTER the reply — and that reply ends the voice conversation. Texts go
+# through the Mac first: iOS can't send one silently from a locked phone.
+_CARPLAY_DIRECTIVE = (
+    "\n\n[CarPlay: he is driving and talking to you through Jarvis on CarPlay — phone "
+    "locked, hands on the wheel. Act for the car unless he says otherwise: directions → "
+    "device_car_directions; calls and apps open on the car's screen after you finish speaking; "
+    "for anything that needs an app open first (music, podcasts, a nav app), open it with "
+    "device_open_app, then run the command — tools that need the app wait for it in the "
+    "background. Texts: send them with his Mac's device_messages_send (it sends as him; if he "
+    "gave a name, look up the number with device_read_contacts first); only if the Mac isn't "
+    "reachable or that fails, use the phone's device_send_sms, which opens the message on the "
+    "car's screen for him to confirm with one tap. Keep replies short and spoken; never ask him "
+    "to look at, unlock or tap his phone.]"
+)
+
+
+def _voice_turn_directive(heard_before_interrupt, client: str = "", carplay: bool = False):
     base = _voice_turn_directive_heard(heard_before_interrupt)
-    return base + _CLIENT_DIRECTIVES.get((client or "").strip().lower(), "")
+    base += _CLIENT_DIRECTIVES.get((client or "").strip().lower(), "")
+    return base + (_CARPLAY_DIRECTIVE if carplay else "")
 
 
 def _voice_turn_directive_heard(heard_before_interrupt):
@@ -1259,7 +1278,7 @@ def _voice_harness_markers(s, harness_id, explicit_override) -> bool:
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
                              lane: str = "", heard_before_interrupt=None, client: str = "",
-                             origin=None, unsure=(), harness_id: str = ""):
+                             origin=None, unsure=(), harness_id: str = "", carplay: bool = False):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1405,7 +1424,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # The voice rules ride in the SYSTEM prompt for this one call (consumed
         # by the streaming thread) — not prefixed to the user message, which is
         # what the Chats tab shows verbatim.
-        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt, client) + _unsure_note(unsure)
+        s._voice_turn_directive = (_voice_turn_directive(heard_before_interrupt, client, carplay=carplay)
+                                   + _unsure_note(unsure))
         # Which paired device is speaking (api/turn_origin.py): in the system text,
         # and the default target for device tools this turn.
         from api import turn_origin
@@ -1486,7 +1506,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             except Exception:
                 pass
     if fallback_to_fast:
-        yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast", client=client, origin=origin)
+        yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast", client=client, origin=origin,
+                                            carplay=carplay)
 
 
 # ---------------------------------------------------------------------------
@@ -2489,6 +2510,9 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
             state["client"] = client
         if "noise_cancel" in msg:  # the pod's "Noise cancelling" setting
             state["noise_cancel"] = bool(msg.get("noise_cancel"))
+        # The phone in the car: every turn it starts there says so; one that doesn't
+        # isn't a CarPlay turn (the directive's CarPlay note — _CARPLAY_DIRECTIVE).
+        state["carplay"] = bool(msg.get("carplay"))
         if sid and msg.get("clear_stale_stream"):
             # A stream this session left running would 409 the first turn.
             # Cleared here when the client asks (the phone, which used to clear it
@@ -2546,6 +2570,8 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         et_text = (msg.get("text") or "").strip()
         if et_text:
             state["pretranscript"] = et_text
+        if "carplay" in msg:  # CarPlay connected / went away mid-session
+            state["carplay"] = bool(msg.get("carplay"))
         # plan 0.1 — optional client-supplied timestamps (epoch ms) for the
         # endpoint_ms span: how long the CLIENT's own endpointing/silence
         # detection took after real speech ended before it sent this frame.
@@ -3560,6 +3586,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             origin=state.get("origin"),
             unsure=state.pop("unsure_words", ()),
             harness_id=state.get("harness_id", ""),
+            carplay=bool(state.get("carplay")),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if not state.get("clarify_pending"):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import time
@@ -17,6 +18,7 @@ from plugins.spotify.client import (
     normalize_spotify_uri,
     normalize_spotify_uris,
 )
+from tools import car_app_followup
 from tools.registry import tool_error, tool_result
 
 logger = logging.getLogger(__name__)
@@ -166,6 +168,48 @@ def _device_label(device: Dict[str, Any]) -> str:
     return str(device.get("name") or device.get("id"))
 
 
+def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, Any]) -> None:
+    """The follow-up's action: play on the device that showed up, unless a newer
+    play or a pause got there first (checked under the lock every play takes)."""
+    global _pending_play
+    with _pending_lock:
+        if pending.cancelled.is_set():
+            raise car_app_followup.Cancelled("superseded by a newer request")
+        client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+        pending.cancelled.set()
+        if _pending_play is pending:
+            _pending_play = None
+    logger.info(
+        "Spotify pending play started on %s (%s)",
+        _device_label(device),
+        device.get("type") or "unknown type",
+    )
+
+
+def _drop_pending_play(pending: _PendingPlay) -> None:
+    global _pending_play
+    with _pending_lock:
+        pending.cancelled.set()
+        if _pending_play is pending:
+            _pending_play = None
+
+
+def _pending_play_followup(pending: _PendingPlay, client: Any) -> Dict[str, Any]:
+    """A pending play as a car_app_followup follow-up: ready once Spotify lists a
+    device, then play there. ``pending.cancelled`` drops it (newest play wins,
+    pause cancels)."""
+    return {
+        "ready": lambda: _pick_device(client.get_devices()),
+        "action": functools.partial(_start_pending_play, pending, client),
+        "timeout_s": _PENDING_PLAY_WINDOW_S,
+        "poll_s": _PENDING_PLAY_POLL_INTERVAL_S,
+        "cancelled": pending.cancelled,
+        "on_timeout": functools.partial(_drop_pending_play, pending),
+        "label": "Spotify pending play",
+        "log": logger,
+    }
+
+
 def _run_pending_play(
     pending: _PendingPlay,
     client: Any,
@@ -181,70 +225,28 @@ def _run_pending_play(
     it) or ``"timeout"``. Synchronous so tests can drive it with a fake clock;
     production runs it on a daemon thread (``_spawn_pending_play_poller``).
     """
-    global _pending_play
-    window = _PENDING_PLAY_WINDOW_S if window_s is None else window_s
-    interval = _PENDING_PLAY_POLL_INTERVAL_S if interval_s is None else interval_s
-    wait = sleep or pending.cancelled.wait  # Event.wait wakes early on cancel
-    deadline = clock() + window
-    last_error: Optional[Exception] = None
-    while True:
-        wait(interval)
-        if pending.cancelled.is_set():
-            logger.info("Spotify pending play cancelled: superseded by a newer request")
-            return "cancelled"
-        device = None
-        try:
-            device = _pick_device(client.get_devices())
-        except Exception as exc:
-            last_error = exc
-        if device is not None:
-            with _pending_lock:
-                if pending.cancelled.is_set():
-                    logger.info("Spotify pending play cancelled: superseded by a newer request")
-                    return "cancelled"
-                try:
-                    client.start_playback(device_id=device["id"], **pending.play_kwargs)
-                except Exception as exc:
-                    last_error = exc  # device just came up; try again next tick
-                else:
-                    pending.cancelled.set()
-                    if _pending_play is pending:
-                        _pending_play = None
-                    logger.info(
-                        "Spotify pending play started on %s (%s)",
-                        _device_label(device),
-                        device.get("type") or "unknown type",
-                    )
-                    return "played"
-        if clock() >= deadline:
-            with _pending_lock:
-                pending.cancelled.set()
-                if _pending_play is pending:
-                    _pending_play = None
-            logger.warning(
-                "Spotify pending play gave up after %.0f s: no Spotify device came online%s",
-                window,
-                f" (last error: {last_error})" if last_error else "",
-            )
-            return "timeout"
-
-
-def _pending_play_worker(pending: _PendingPlay, client: Any) -> None:
-    try:
-        _run_pending_play(pending, client)
-    except Exception:
-        logger.exception("Spotify pending play poller crashed")
+    followup = _pending_play_followup(pending, client)
+    if window_s is not None:
+        followup["timeout_s"] = window_s
+    if interval_s is not None:
+        followup["poll_s"] = interval_s
+    outcome = car_app_followup.run_followup(**followup, sleep=sleep, clock=clock)
+    return "played" if outcome == "done" else outcome
 
 
 def _spawn_pending_play_poller(pending: _PendingPlay, client: Any) -> threading.Thread:
-    thread = threading.Thread(
-        target=_pending_play_worker,
-        args=(pending, client),
-        name="spotify-pending-play",
-        daemon=True,
+    return car_app_followup.start_background(
+        functools.partial(_run_pending_play, pending, client), "spotify-pending-play")
+
+
+def _opening_note(device_note: str, window: int) -> str:
+    """What the model hears when the turn's phone is opening Spotify itself."""
+    said = device_note.strip()
+    said = f" \u2014 {said[:1].lower()}{said[1:].rstrip('.')}" if said else ""
+    return (
+        f"Opening Spotify{said}. The song starts as soon as it's up (within {window} s); "
+        "don't call open_app or play again."
     )
-    thread.start()
-    return thread
 
 
 def _play_without_active_device(
@@ -252,8 +254,10 @@ def _play_without_active_device(
     ticket: int,
     play_kwargs: Dict[str, Any],
     original: SpotifyAPIError,
+    turn_session: Optional[str] = None,
 ) -> str:
-    """Play hit 404 NO_ACTIVE_DEVICE: use a listed device, else wait for one."""
+    """Play hit 404 NO_ACTIVE_DEVICE: use a listed device, else wait for one —
+    opening Spotify on the phone the turn came from when it's known."""
     device = _pick_device(client.get_devices())
     if device is not None:
         result = client.start_playback(device_id=device["id"], **play_kwargs)
@@ -268,8 +272,23 @@ def _play_without_active_device(
     pending = _register_pending_play(ticket, play_kwargs)
     if pending is None:  # a newer play request took over meanwhile
         raise original
-    _spawn_pending_play_poller(pending, client)
     window = int(_PENDING_PLAY_WINDOW_S)
+    phone = car_app_followup.turn_device(turn_session)
+    if phone:
+        # On CarPlay the phone opens Spotify on the car's screen once Jarvis has
+        # spoken; the follow-up plays as soon as Spotify lists the device.
+        opening = car_app_followup.open_then("spotify", phone, **_pending_play_followup(pending, client))
+        if opening["opened"]:
+            return tool_result({
+                "success": True,
+                "action": "play",
+                "pending": True,
+                "opening": "spotify",
+                "note": _opening_note(opening["device_note"], window),
+            })
+        # The phone couldn't open it; the follow-up still waits for the model to.
+    else:
+        _spawn_pending_play_poller(pending, client)
     logger.info("Spotify play pending: no device online, waiting up to %d s for one", window)
     return tool_result({
         "success": True,
@@ -325,7 +344,8 @@ def _handle_spotify_playback(args: dict, **kw) -> str:
             except SpotifyAPIError as exc:
                 if not exc.is_no_active_device:
                     raise
-                return _play_without_active_device(client, ticket, play_kwargs, exc)
+                return _play_without_active_device(client, ticket, play_kwargs, exc,
+                                                   turn_session=kw.get("task_id"))
             return tool_result({"success": True, "action": action, "result": result})
         if action == "pause":
             _cancel_pending_play()  # "stop" must not let a waiting song start later

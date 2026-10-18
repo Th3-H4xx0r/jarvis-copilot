@@ -199,10 +199,13 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
 
 - [ ] **27. Every CarPlay voice turn carries "he's on CarPlay"** — phone sends `carplay: true` on `begin_turn` while
   Jarvis is on the car's screen; the server adds a CarPlay note to that turn (driving, car tools, short replies,
-  never ask him to touch the phone) unless he says otherwise. (Server half in progress.)
+  never ask him to touch the phone) unless he says otherwise. Built: `_CARPLAY_DIRECTIVE` in webui/api/voice.py,
+  on the per-call voice directive (not the cached system prompt); it also carries the texting rule (Mac first).
 - [ ] **28. Music: open Spotify in the car first, then play once it's up — as the general CarPlay template**
-  - Plan: a server helper any tool can use — open the app on the car's screen (after the reply), wait in the
-    background until it's ready, then run the command; Spotify play is the first user. (In progress.)
+  - Built: `tools/car_app_followup.py` — THE template: `open_then(app, device, ready, action)` asks the turn's
+    phone to open the app (on CarPlay: on the car's screen after the reply, which ends the conversation), returns
+    a pending result at once, and runs the command in the background once `ready()` is true (30 s cap, cancellable,
+    retries while the app warms up). Spotify play uses it: opens Spotify itself, plays once a Spotify device is up.
 - [ ] **29. Texts only went to the phone as "tap to run"** (01:19: `device_send_sms` → queued). His pick: Mac first,
   else car screen. Built: Mac client skill `messages_send` (Messages app, as him: iMessage, else SMS forwarding;
   text passed as an argument, never into the script); on CarPlay the phone's `send_sms` opens the message filled
