@@ -89,6 +89,10 @@ struct ButtonPress: Equatable, Sendable {
     var physical = true
     /// A switch flipped to this value; nil for a plain press.
     var on: Bool? = nil
+    /// The live state id the tile or card showed when pressed. If the button's state has moved on
+    /// since (armed while it still read "Stop arming"), the press is refused, never turned into a
+    /// different action.
+    var shownState: String? = nil
 
     /// How the widget extension queues a press it can't run: `id[=on|=off][|w=<widget>][|shortcut]`.
     /// Entries from older builds ("id", "id=on") read the same as before.
@@ -97,14 +101,17 @@ struct ButtonPress: Equatable, Sendable {
         if let on { entry += on ? "=on" : "=off" }
         if let widgetID, !widgetID.isEmpty { entry += "|w=" + widgetID }
         if !physical { entry += "|shortcut" }
+        if let shownState, !shownState.isEmpty { entry += "|s=" + shownState }
         return entry
     }
 
-    init(buttonID: String, widgetID: String? = nil, physical: Bool = true, on: Bool? = nil) {
+    init(buttonID: String, widgetID: String? = nil, physical: Bool = true, on: Bool? = nil,
+         shownState: String? = nil) {
         self.buttonID = buttonID
         self.widgetID = widgetID
         self.physical = physical
         self.on = on
+        self.shownState = shownState
     }
 
     init(queueEntry: String) {
@@ -114,6 +121,7 @@ struct ButtonPress: Equatable, Sendable {
         for part in parts.dropFirst() {
             if part.hasPrefix("w=") { widgetID = String(part.dropFirst(2)) }
             if part == "shortcut" { physical = false }
+            if part.hasPrefix("s=") { shownState = String(part.dropFirst(2)) }
         }
     }
 }
