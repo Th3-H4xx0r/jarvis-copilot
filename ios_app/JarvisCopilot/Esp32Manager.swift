@@ -458,8 +458,10 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// board is in range — app suspended or not — and state restoration relaunches the app
     /// for it if iOS had ended it. (A force-quit app is not relaunched; iOS rule.)
     func holdRelayLink() {
+        guard let record = Self.knownBoards.first(where: { Esp32NotificationRelay.isOn(for: $0.deviceID) }) else { return }
+        // A link a skill opened for a moment stays up when the relay wants it.
+        if onDemand { onDemand = false }
         guard !sessionWanted, bluetoothReady,
-              let record = Self.knownBoards.first(where: { Esp32NotificationRelay.isOn(for: $0.deviceID) }),
               let uuid = record.peripheralID.flatMap(UUID.init(uuidString:)),
               let p = central.retrievePeripherals(withIdentifiers: [uuid]).first else { return }
         JcLog.devices.debug("esp32 holding the notification relay link to \(record.name)")
