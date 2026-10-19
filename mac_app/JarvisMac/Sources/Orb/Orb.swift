@@ -98,6 +98,13 @@ enum OrbMotion {
         if beat > 0 || mood == .listening { return 1.0 / 30 }
         return mood == .idle ? nil : 1.0 / 12
     }
+
+    /// The breathing pulse, 0…1: out and back every 2 × 1.1 s (2 × 0.7 s while
+    /// waiting), eased like an easeInOut.
+    static func pulse(at elapsed: TimeInterval, mood: OrbMood) -> Double {
+        let half = mood == .waiting ? 0.7 : 1.1
+        return (1 - cos(.pi * elapsed / half)) / 2
+    }
 }
 
 /// The Jarvis orb: the same liquid-glass shader as the voice panel and the
@@ -108,37 +115,40 @@ struct OrbView: View {
     var mood: OrbMood = .idle
     var skin: OrbSkin = .current
     var size: CGFloat = 18
-    /// 0…1 extra glow, e.g. the music level (the orb "dances").
-    var beat: Double = 0
+    /// The orb moves with the music: a soft beat while something plays.
+    var dancing = false
 
     @State private var origin = Date()
-    @State private var phase = false
 
     var body: some View {
-        let motion = OrbMotion.interval(mood: mood, beat: beat)
+        let motion = OrbMotion.interval(mood: mood, beat: dancing ? 1 : 0)
+        // One clock moves everything — the shader, the pulse, the beat — so the
+        // orb redraws at `motion`'s rate, and not at all at rest. (A repeatForever
+        // pulse redrew the island every display frame, and never stopped once an
+        // agent had worked: ~4% of the main thread for as long as the app ran.)
         TimelineView(.animation(minimumInterval: motion ?? 1, paused: motion == nil)) { timeline in
-            let t = timeline.date.timeIntervalSince(origin).truncatingRemainder(dividingBy: 38.4)
+            let elapsed = timeline.date.timeIntervalSince(origin)
+            let t = elapsed.truncatingRemainder(dividingBy: 38.4)
             let surface = size / 0.53          // the sphere fills 53% of the shader surface
+            let pulse = mood.pulses ? OrbMotion.pulse(at: elapsed, mood: mood) : 0
+            let beat = dancing ? 0.5 + 0.5 * sin(elapsed * 2 * .pi * 0.9) : 0
             Rectangle()
                 .fill(.white)
                 .colorEffect(ShaderLibrary.default.setupOrb(.float2(surface, surface), .float(t)))
                 .frame(width: surface, height: surface)
                 .hueRotation(.degrees(skin.hue))
+                .frame(width: size, height: size)
+                .overlay {
+                    if let tint = mood.tint {
+                        Circle()
+                            .stroke(tint.opacity(0.55 + 0.4 * pulse), lineWidth: max(1.2, size * 0.07))
+                            .frame(width: size * 1.08, height: size * 1.08)
+                            .shadow(color: tint.opacity(0.7), radius: size * 0.18)
+                    }
+                }
+                .scaleEffect((mood.pulses ? 0.96 + 0.09 * pulse : 1) + 0.08 * beat)
         }
-        .frame(width: size, height: size)
-        .overlay {
-            if let tint = mood.tint {
-                Circle()
-                    .stroke(tint.opacity(phase ? 0.95 : 0.55), lineWidth: max(1.2, size * 0.07))
-                    .frame(width: size * 1.08, height: size * 1.08)
-                    .shadow(color: tint.opacity(0.7), radius: size * 0.18)
-            }
-        }
-        .scaleEffect((mood.pulses ? (phase ? 1.05 : 0.96) : 1) + 0.08 * beat)
-        .animation(mood.pulses ? .easeInOut(duration: mood == .waiting ? 0.7 : 1.1).repeatForever(autoreverses: true)
-                               : .easeOut(duration: 0.2), value: phase)
-        .onAppear { phase = mood.pulses }
-        .onChange(of: mood) { _, m in phase = m.pulses }
+        .animation(.easeOut(duration: 0.2), value: mood.pulses)
         .accessibilityHidden(true)
     }
 }

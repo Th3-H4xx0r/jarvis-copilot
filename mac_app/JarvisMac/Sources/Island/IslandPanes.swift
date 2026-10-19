@@ -20,7 +20,9 @@ struct ChatPane: View {
             header
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Lazy: opening the island builds the turns on screen, not
+                    // the whole conversation (that froze every open ~100 ms).
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if chat.lines.isEmpty { empty }
                         ForEach(Array(chat.lines.enumerated()), id: \.element.id) { i, line in
                             // Same speaker: 6 pt; a change of speaker gets air.

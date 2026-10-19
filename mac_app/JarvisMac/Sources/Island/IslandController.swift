@@ -7,6 +7,8 @@ import SwiftUI
 @Observable
 final class IslandUI {
     var state: IslandStateMachine.State = .hidden
+    /// The open island is being built, out of sight, before it springs open.
+    var preparing = false
     var geometry = IslandGeometry(screenWidth: 1512, safeAreaTop: 32, auxiliaryLeftWidth: nil,
                                   auxiliaryRightWidth: nil, menuBarHeight: 37)
     var hovering = false
@@ -498,8 +500,38 @@ final class IslandController {
         if wanted != interval { start(interval: wanted) }
     }
 
-    private func sync() {
+    /// The open island has been built (out of sight): once it is laid out and
+    /// drawn, it springs open. A timer, not `async`: a queued block can run
+    /// before the run loop's display flush, a timer only after it.
+    func openBuilt() {
+        guard ui.preparing else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.004) { [weak self] in self?.springOpen() }
+    }
+
+    private func springOpen() {
+        guard ui.preparing else { return }
+        ui.preparing = false
+        sync(built: true)
+    }
+
+    private func sync(built: Bool = false) {
+        // Folded again before it opened.
+        if ui.preparing && machine.state != .expanded { ui.preparing = false }
         if ui.state != machine.state {
+            // Opening: build the open island first and spring once it's built
+            // (openBuilt). Built in the spring's first frame, a tab held that
+            // frame up to ~100 ms and the island lurched open.
+            if machine.state == .expanded && !built {
+                if !ui.preparing {
+                    ui.preparing = true
+                    // Never left waiting if the build doesn't report (the screen asleep).
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(0.3))
+                        self?.springOpen()
+                    }
+                }
+                return
+            }
             let folding = ui.state == .expanded && machine.state != .expanded
             if folding { onFolded?(); goHomeAfterFold() }
             let flight = OrbFlightPlan.direction(

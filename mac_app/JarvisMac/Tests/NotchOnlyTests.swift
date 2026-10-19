@@ -40,6 +40,19 @@ final class NotchOnlyTests: XCTestCase {
         XCTAssertEqual(OrbMotion.interval(mood: .waiting, beat: 0), 1.0 / 12)
     }
 
+    /// The pulse is a function of the orb's clock (no repeatForever animation,
+    /// which redrew every display frame and never stopped): rest, full, rest
+    /// again each cycle, quicker while waiting on you.
+    func testThePulseBreathesOnTheOrbsOwnClock() {
+        XCTAssertEqual(OrbMotion.pulse(at: 0, mood: .working), 0, accuracy: 1e-9)
+        XCTAssertEqual(OrbMotion.pulse(at: 1.1, mood: .working), 1, accuracy: 1e-9)
+        XCTAssertEqual(OrbMotion.pulse(at: 2.2, mood: .working), 0, accuracy: 1e-9)
+        XCTAssertEqual(OrbMotion.pulse(at: 0.7, mood: .waiting), 1, accuracy: 1e-9)
+        for t in stride(from: 0.0, to: 5, by: 0.05) {
+            XCTAssert((0...1).contains(OrbMotion.pulse(at: t, mood: .working)))
+        }
+    }
+
     /// The pointer is polled quickly only near the island; far away, once a
     /// second (a mouse-moved monitor wakes it as the pointer comes close).
     func testTheIslandPollsSlowlyWhenThePointerIsFarAway() {

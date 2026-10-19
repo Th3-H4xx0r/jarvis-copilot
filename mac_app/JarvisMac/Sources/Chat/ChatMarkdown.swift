@@ -30,8 +30,34 @@ enum ChatMarkdown {
         case table(Table)
     }
 
-    /// The reply as blocks, `MEDIA:` lines already turned into images.
-    static func blocks(_ text: String) -> [Block] { split(ChatMedia.rewrite(text)) }
+    /// The reply as blocks, `MEDIA:` lines already turned into images. Parsed
+    /// once per distinct text (the phone's ChatMarkdownCache): every open of
+    /// the island and every token of a streaming reply re-renders the turns.
+    static func blocks(_ text: String) -> [Block] {
+        let key = text as NSString
+        if let hit = blockCache.object(forKey: key) { return hit.value }
+        let blocks = split(ChatMedia.rewrite(text))
+        blockCache.setObject(Box(blocks), forKey: key)
+        return blocks
+    }
+
+    private final class Box<T> {
+        let value: T
+        init(_ value: T) { self.value = value }
+    }
+
+    // NSCache is internally synchronised and evicts under memory pressure.
+    nonisolated(unsafe) private static let blockCache: NSCache<NSString, Box<[Block]>> = {
+        let cache = NSCache<NSString, Box<[Block]>>()
+        cache.countLimit = 256
+        return cache
+    }()
+
+    nonisolated(unsafe) private static let inlineCache: NSCache<NSString, Box<AttributedString>> = {
+        let cache = NSCache<NSString, Box<AttributedString>>()
+        cache.countLimit = 1_024
+        return cache
+    }()
 
     static func split(_ text: String) -> [Block] {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
@@ -123,10 +149,14 @@ enum ChatMarkdown {
         return out
     }
 
-    /// Bold, italics, `code` and links inside one block.
+    /// Bold, italics, `code` and links inside one block, parsed once per text.
     static func inline(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+        let key = s as NSString
+        if let hit = inlineCache.object(forKey: key) { return hit.value }
+        let value = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(s)
+        inlineCache.setObject(Box(value), forKey: key)
+        return value
     }
 
     // MARK: line classifiers

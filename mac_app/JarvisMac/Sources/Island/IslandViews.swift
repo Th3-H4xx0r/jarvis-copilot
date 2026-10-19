@@ -51,16 +51,27 @@ struct IslandRootView: View {
                     compact
                         .transition(.opacity.animation(.easeOut(duration: 0.14)))
                 case .expanded:
+                    EmptyView()
+                }
+                // Built a turn before the island springs open (out of sight: the
+                // folded shape clips it), and laid out once at the open size —
+                // the growing shape only reveals it. Built mid-spring, or sized
+                // by the springing shape, it stuttered the spring.
+                if ui.state == .expanded || ui.preparing {
+                    let open = openSize
                     ExpandedIsland(model: model, ui: ui, controller: controller)
-                        .frame(width: ui.expandedWidth)
+                        .frame(width: open.width, height: open.height, alignment: .top)
+                        .onAppear { controller.openBuilt() }
                         .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.07)),
                                                 removal: .opacity.animation(.easeOut(duration: 0.08))))
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
-            .background(shape.fill(Color.black))
             .clipShape(shape)
-            .shadow(color: .black.opacity(ui.state == .expanded ? 0.45 : 0), radius: 14, y: 6)
+            // The shadow is the black shape's, not the content's: a shadow over
+            // the whole content is redrawn offscreen on every frame of the spring.
+            .background(shape.fill(Color.black)
+                .shadow(color: .black.opacity(ui.state == .expanded ? 0.45 : 0), radius: 14, y: 6))
             .animation(Self.morph, value: size)
             Spacer(minLength: 0)
         }
@@ -93,27 +104,24 @@ struct IslandRootView: View {
         case .compact:
             return CGSize(width: ui.compactWidth, height: ui.geometry.height)
         case .expanded:
-            return CGSize(width: ui.expandedWidth,
-                          height: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
-                                                      measured: ui.agentsMeasure, voiceMini: ui.voiceMini))
+            return openSize
         }
+    }
+
+    /// The open island at its tab's height.
+    private var openSize: CGSize {
+        CGSize(width: ui.expandedWidth,
+               height: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
+                                           measured: ui.agentsMeasure, voiceMini: ui.voiceMini))
     }
 
     private var compact: some View {
         HStack(spacing: 0) {
             Group {
-                if MusicController.shared.now?.isPlaying == true, model.mood == .idle {
-                    // The orb moves with the music: a soft beat while something plays.
-                    TimelineView(.periodic(from: .now, by: 0.25)) { ctx in
-                        let t = ctx.date.timeIntervalSinceReferenceDate
-                        OrbView(mood: .idle, skin: OrbSkin.current, size: max(12, ui.geometry.height - 14),
-                                beat: 0.5 + 0.5 * sin(t * 2 * .pi * 0.9))
-                            .animation(.easeInOut(duration: 0.25), value: t)
-                    }
-                } else {
-                    OrbView(mood: model.connected ? model.mood : .idle, skin: OrbSkin.current,
-                            size: max(12, ui.geometry.height - 14))
-                }
+                // The orb moves with the music (on its own clock, at 30 fps).
+                let dancing = MusicController.shared.now?.isPlaying == true && model.mood == .idle
+                OrbView(mood: model.connected && !dancing ? model.mood : .idle, skin: OrbSkin.current,
+                        size: max(12, ui.geometry.height - 14), dancing: dancing)
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { ui.orbEar = $0 }
             .opacity(ui.hidesEar ? 0 : 1)
