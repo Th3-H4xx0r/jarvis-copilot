@@ -141,6 +141,7 @@
 		202CB7D0FDE90C5FF546927D /* WatchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C412DA32916AA322252F7 /* WatchViewModel.swift */; };
 		20321F8055AC19E205D75845 /* ModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D89067327C774329148C3B3 /* ModelSelectionTests.swift */; };
 		20549939B16322F08DE89AC8 /* X5RingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51EF7F153081587C4D1E1074 /* X5RingTests.swift */; };
+		2059C7E1D3BB806883DACEC3 /* ButtonLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4515750C14DE5BA184BE9DF /* ButtonLiveState.swift */; };
 		2073C8F5A1ECF84DE20A7363 /* InsightsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */; };
 		20942FCEED5E141C12EC1AD2 /* InmoTeleprompter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2DCCFAD52533B6A5D0D97B /* InmoTeleprompter.swift */; };
 		20F4BDF6C2711BC5546B4AD5 /* ScrollReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98268B38A607FD59C5EC1AA1 /* ScrollReveal.swift */; };
@@ -935,6 +936,7 @@
 		D1886BCDACA135FCDE337936 /* WorkspacesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AC17D45E7912672EDE9E317 /* WorkspacesUITests.swift */; };
 		D1943F7CD1323AACE8BA35A4 /* HarnessModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95FDDF67D08A36EB285749D4 /* HarnessModels.swift */; };
 		D1C6D20B918D65A03AF0438A /* ChatSyncBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E66E4787E369D034F83B1305 /* ChatSyncBus.swift */; };
+		D1CC3E8712FC76DD5FC939BD /* ButtonLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4515750C14DE5BA184BE9DF /* ButtonLiveState.swift */; };
 		D1D00F66AF12A3BBC0E35A07 /* JarvisStopwatchAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */; };
 		D1D6DEF8A6BE4E8B54F56543 /* CodeMemoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0985B21DFAA429C2AC487C63 /* CodeMemoryStore.swift */; };
 		D223285C92BC19C16AC8EDCA /* NotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A5AE9B26C4B75A08852A2A /* NotesStore.swift */; };
@@ -1879,6 +1881,7 @@
 		A33935E7C9CB99535BE3966A /* DashcamDrivesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDrivesView.swift; sourceTree = "<group>"; };
 		A3C9E5F17B2D4E6A9F0C8B21 /* BackgroundKeepalive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundKeepalive.swift; sourceTree = "<group>"; };
 		A3F89193A08A684698BC94D5 /* VoiceControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceControls.swift; sourceTree = "<group>"; };
+		A4515750C14DE5BA184BE9DF /* ButtonLiveState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonLiveState.swift; sourceTree = "<group>"; };
 		A4772431738F5BBF9EEF2999 /* CarPlayCarTabTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayCarTabTests.swift; sourceTree = "<group>"; };
 		A4EEFFC51554853D9366A083 /* VoiceLaunch.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunch.swift; sourceTree = "<group>"; };
 		A525B24E6E393BB06F66E26E /* DataSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DataSkills.swift; sourceTree = "<group>"; };
@@ -4034,6 +4037,7 @@
 				132AAD600C97329A4954EDA6 /* CarCardText.swift */,
 				22B331F4042BEC1DC983D09B /* CarTalkLink.swift */,
 				20ED061D8FC3A1B3E6629303 /* WidgetAgent.swift */,
+				A4515750C14DE5BA184BE9DF /* ButtonLiveState.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -4618,6 +4622,7 @@
 				F53DA9847912BB45A6AB26A0 /* JarvisCarTalkWidget.swift in Sources */,
 				8C37F34ADB77B935A1B6FCD5 /* CarTalkLink.swift in Sources */,
 				AC9F27C23FEE2517EFE0823E /* WidgetAgent.swift in Sources */,
+				D1CC3E8712FC76DD5FC939BD /* ButtonLiveState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5696,6 +5701,7 @@
 				538620EB5EE1F11C553B61C4 /* ServerDevices.swift in Sources */,
 				F9C0ADE306D91C71841AFE90 /* ActionPickerIndex.swift in Sources */,
 				E8A296BBD328F81083C3D465 /* ActionPickerView.swift in Sources */,
+				2059C7E1D3BB806883DACEC3 /* ButtonLiveState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -25,6 +25,11 @@ struct ControlButtonInfo: Codable, Identifiable, Hashable, Sendable {
     /// Disarms or drives the car without Face ID: a widget always shows this button's own name
     /// and symbol, never a design's label, so a widget Jarvis wrote can't disguise it.
     var skipsFaceID: Bool? = nil
+    /// The button's live states over time (door alarm, car, a wearable switch, his own states);
+    /// nil for a button without states. The control draws the one for "now".
+    var timeline: ButtonTimeline? = nil
+    /// Show the time left on the tile while a state counts down.
+    var showsCountdown: Bool? = nil
 
     var tintColor: Color? {
         guard let tint, let value = UInt32(tint.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16)
