@@ -5,6 +5,11 @@ keeps the public half and runs a gated command (everything but stop) only with a
 over ``jarvis-car|<command>|<nonce>|<unix_ts>`` from that key: under a minute old, the nonce never
 seen before. A request from Jarvis becomes an approval the phone signs instead.
 
+A second phone key, the button key, has no Face ID: it signs Control Center / widget / ring presses
+set to skip Face ID, over ``jarvis-button|<domain>|<command>|<nonce>|<unix_ts>``. The Face ID key
+vouches for it once; it is dropped whenever the Face ID key is replaced, and it only ever passes for
+the door alarm's disarm/silence and the car's commands — never an approval or a key change.
+
 Lives in the webui process, which owns the key file, the used nonces and the approvals. Limits, by
 design: anything that can act as this server's user (a shell on it) can call Home Assistant
 directly with the server's token — Face ID guards every client and tool, not a compromised host.
@@ -32,6 +37,8 @@ TITLES = {
     "horn": "Sound the horn", "buzzer": "Sound the buzzer", "hazards_on": "Turn on the hazards",
     "hazards_off": "Turn off the hazards",
 }
+# What the button key may sign, per domain. Arming needs no proof at all; everything else stays Face ID.
+BUTTON_COMMANDS = {"jarvis-home": frozenset({"disarm", "silence"}), "jarvis-car": frozenset(TITLES)}
 
 
 class ApprovalError(Exception):
@@ -51,6 +58,17 @@ def message(command: str, nonce: str, ts: int, domain: str = "jarvis-car") -> by
 def register_message(public_key: str, ts: int) -> bytes:
     """What a key registration is signed over — its own prefix, never a command's."""
     return f"jarvis-car-register|{public_key}|{ts}".encode()
+
+
+def button_message(command: str, nonce: str, ts: int, domain: str = "jarvis-car") -> bytes:
+    """What a button press that skips Face ID is signed over — its own prefix, so a button
+    signature never passes as a Face ID one, or the other way round."""
+    return f"jarvis-button|{domain}|{command}|{nonce}|{ts}".encode()
+
+
+def button_register_message(button_key: str, ts: int) -> bytes:
+    """What the Face ID key signs to vouch for a button key."""
+    return f"jarvis-button-register|{button_key}|{ts}".encode()
 
 
 def _key_file() -> Path:
@@ -88,11 +106,12 @@ def _load_key(raw_b64: str):
 
 
 class Approver:
-    """The registered key and the nonces it has already signed.
+    """The registered keys (Face ID, and the optional button key) and the nonces already signed.
 
-    The key is read once and then kept in memory: a later change to the file (by anything but
-    ``register``) is ignored until the webui restarts. A file that exists but can't be read locks
-    everything rather than reopening registration.
+    The keys are read once and then kept in memory: a later change to the file (by anything but
+    ``register``/``register_button``/``clear_button``) is ignored until the webui restarts. A file
+    that exists but can't be read locks everything rather than reopening registration; a button key
+    in it that doesn't parse is just dropped (presses fall back to Face ID).
     """
 
     def __init__(self, path: Path | None = None, clock: Callable[[], float] = time.time) -> None:
@@ -105,6 +124,8 @@ class Approver:
         self._lock = threading.Lock()
         self._loaded = False
         self._key: str | None = None
+        self._button: str | None = None
+        self._registered_at: Any = None
         self._locked = False
 
     def _load(self) -> None:
@@ -118,15 +139,48 @@ class Approver:
                 raise ValueError("no public_key")
             _load_key(key)
             self._key = key
+            self._registered_at = data.get("registered_at")
         except FileNotFoundError:
             self._key = None
+            return
         except (OSError, ValueError, ApprovalError):
             self._locked = True
+            return
+        button = data.get("button_key")
+        if isinstance(button, str) and button and button != self._key:
+            try:
+                _load_key(button)
+                self._button = button
+            except ApprovalError:
+                pass
+
+    def _save(self, key: str, button: str | None, registered_at: Any) -> None:
+        """Atomically replace the key file. Call with the lock held."""
+        payload: dict[str, Any] = {"public_key": key}
+        if registered_at is not None:
+            payload["registered_at"] = registered_at
+        if button:
+            payload["button_key"] = button
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".approver-", dir=str(self.path.parent))
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(json.dumps(payload))
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self.path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
     def registered(self) -> str | None:
         with self._lock:
             self._load()
             return self._key
+
+    def button_key(self) -> str | None:
+        with self._lock:
+            self._load()
+            return self._button
 
     def _require_unlocked(self) -> None:
         if self._locked:
@@ -150,26 +204,70 @@ class Approver:
         self._check_time(stamp)
         self._check_signature(signer, _signature(signature), register_message(public_key, stamp),
                               "the old key" if current else "the new key")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps({"public_key": public_key, "registered_at": int(self.clock())})
+        at = int(self.clock())
         with self._lock:
-            fd, tmp = tempfile.mkstemp(prefix=".approver-", dir=str(self.path.parent))
-            try:
-                with os.fdopen(fd, "w") as handle:
-                    handle.write(payload)
-                os.chmod(tmp, 0o600)
-                os.replace(tmp, self.path)
-            finally:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
-            self._key = public_key
+            # A new Face ID key drops the button key: the phone vouches for one again.
+            self._save(public_key, None, at)
+            self._key, self._button, self._registered_at = public_key, None, at
 
-    def _check_time(self, stamp: int) -> None:
+    def register_button(self, public_key: Any, ts: Any = None, signature: Any = None,
+                        from_host: bool = False) -> None:
+        """The button key is vouched for by the Face ID key (a signature over
+        button_register_message), never by itself. Never from the host loopback."""
+        if from_host:
+            raise ApprovalError("Register the button key from the iPhone.", "forbidden")
+        public_key = str(public_key or "").strip()
+        _load_key(public_key)
+        with self._lock:
+            self._load()
+            self._require_unlocked()
+            current = self._key
+        if not current:
+            raise ApprovalError("No iPhone is set up to approve with Face ID yet.", "approver_unknown")
+        if public_key == current:
+            raise ApprovalError("The button key must be a different key from the Face ID one.", "bad_key")
+        stamp = _stamp(ts)
+        self._check_time(stamp)
+        self._check_signature(_load_key(current), _signature(signature), button_register_message(public_key, stamp),
+                              "the Face ID key")
+        marker = f"button-register|{public_key}|{stamp}"   # never a nonce: those can't hold "|"
+        now = self.clock()
+        with self._lock:
+            if self._key != current:
+                raise ApprovalError("The Face ID key changed meanwhile. Try again.", "stale")
+            if self._button == public_key:
+                return
+            self._forget_used(now)
+            # A cleared button key can't be brought back by replaying its registration.
+            if marker in self._used:
+                raise ApprovalError("That registration was already used.", "replayed")
+            self._save(current, public_key, self._registered_at)
+            self._button = public_key
+            self._used[marker] = now
+
+    def clear_button(self, from_host: bool = False) -> None:
+        """Forget the button key: presses that skip Face ID fall back to it. Never from the host loopback."""
+        if from_host:
+            raise ApprovalError("Remove the button key from the iPhone.", "forbidden")
+        with self._lock:
+            self._load()
+            self._require_unlocked()
+            if not self._button or not self._key:
+                return
+            self._save(self._key, None, self._registered_at)
+            self._button = None
+
+    def _forget_used(self, now: float) -> None:
+        for old, at in list(self._used.items()):
+            if now - at > NONCE_MEMORY:
+                del self._used[old]
+
+    def _check_time(self, stamp: int, what: str = "Face ID approval") -> None:
         now = self.clock()
         if abs(now - stamp) > MAX_AGE:
-            raise ApprovalError("That Face ID approval is too old. Try again.", "stale")
+            raise ApprovalError(f"That {what} is too old. Try again.", "stale")
         if stamp < self.started - 1:
-            raise ApprovalError("That Face ID approval is from before the server restarted. Try again.", "stale")
+            raise ApprovalError(f"That {what} is from before the server restarted. Try again.", "stale")
 
     @staticmethod
     def _check_signature(key: Any, sig: bytes, signed: bytes, whose: str) -> None:
@@ -182,29 +280,36 @@ class Approver:
         except InvalidSignature as exc:
             raise ApprovalError(f"The signature isn't from {whose}.", "bad_signature") from exc
 
-    def verify(self, command: str, nonce: Any, ts: Any, signature: Any, domain: str = "jarvis-car") -> None:
-        """Raise ApprovalError unless this is a fresh, unused signature by the registered key."""
+    def verify(self, command: str, nonce: Any, ts: Any, signature: Any, domain: str = "jarvis-car",
+               by_button: bool = False) -> None:
+        """Raise ApprovalError unless this is a fresh, unused signature by the registered key — or,
+        ``by_button``, by the button key over button_message, for BUTTON_COMMANDS only."""
         with self._lock:
             self._load()
             self._require_unlocked()
-            current = self._key
-        if not current:
+            current = self._button if by_button else self._key
+        if by_button:
+            if command not in BUTTON_COMMANDS.get(domain, ()):
+                raise ApprovalError("A button can't do that without Face ID.", "forbidden")
+            if not current:
+                raise ApprovalError("This server has no button key. Approve it with Face ID.", "button_key_unknown")
+        elif not current:
             raise ApprovalError("No iPhone is set up to approve car commands yet.", "approver_unknown")
         nonce = str(nonce or "")
         if not nonce or len(nonce) > 128 or "|" in nonce:
             raise ApprovalError("The approval is missing its one-time code.", "bad_request")
         stamp = _stamp(ts)
         sig = _signature(signature)
-        self._check_time(stamp)
+        self._check_time(stamp, "button press" if by_button else "Face ID approval")
+        signed = (button_message if by_button else message)(command, nonce, stamp, domain)
         try:
-            self._check_signature(_load_key(current), sig, message(command, nonce, stamp, domain), "this iPhone")
+            self._check_signature(_load_key(current), sig, signed, "this iPhone")
         except ApprovalError as exc:
-            raise ApprovalError("Face ID approval didn't check out on this server.", exc.code) from exc
+            what = "The button press" if by_button else "Face ID approval"
+            raise ApprovalError(f"{what} didn't check out on this server.", exc.code) from exc
         now = self.clock()
         with self._lock:
-            for old, at in list(self._used.items()):
-                if now - at > NONCE_MEMORY:
-                    del self._used[old]
+            self._forget_used(now)
             if nonce in self._used:
                 raise ApprovalError("That approval was already used.", "replayed")
             self._used[nonce] = now
