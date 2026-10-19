@@ -56,7 +56,7 @@ def button_state(alarm: dict) -> dict:
         return _state("door.arming", "Stop arming", "stop.circle.fill", "Home in" if mode == "home" else "Away in",
                       started=alarm.get("since"), ends=alarm.get("deadline"))
     if state == "entry":
-        return _state("door.entry", "Disarm", "lock.open.fill", f"Entry — {name}", alert=True,
+        return _state("door.entry", "Disarm", "lock.open.fill", f"{name} opened", alert=True,
                       started=alarm.get("since"), ends=alarm.get("deadline"))
     if state == "triggered":
         siren = bool(alarm.get("siren_on"))

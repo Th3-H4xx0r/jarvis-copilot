@@ -179,7 +179,7 @@ def test_content_has_every_key_the_swift_decoder_needs():
 def test_entry_and_triggered_are_alerts():
     base = {"mode": "away", "deadline": 1.0, "since": 0.0, "contact_name": "Front Door", "triggered_at": 0.0}
     entry = live_buttons.button_state({**base, "state": "entry", "siren_on": False})
-    assert (entry["title"], entry["caption"], entry["alert"]) == ("Disarm", "Entry — Front Door", True)
+    assert (entry["title"], entry["caption"], entry["alert"]) == ("Disarm", "Front Door opened", True)
     loud = live_buttons.button_state({**base, "state": "triggered", "siren_on": True})
     quiet = live_buttons.button_state({**base, "state": "triggered", "siren_on": False})
     assert loud["title"] == "Silence" and loud["alert"]
@@ -292,7 +292,7 @@ def test_entry_then_alarm_then_silence_then_disarm(env):
     assert svc.alarm.state == "entry"
     start = [e for e in log if e[0] == "start"]
     assert len(start) == 1 and start[0][2]["state"]["title"] == "Disarm"
-    assert start[0][2]["state"]["caption"] == "Entry — Front Door" and start[0][2]["state"]["alert"] is True
+    assert start[0][2]["state"]["caption"] == "Front Door opened" and start[0][2]["state"]["alert"] is True
     live.card = True       # the phone reported the started card's token
     log.clear()
     clock[0] += 30
