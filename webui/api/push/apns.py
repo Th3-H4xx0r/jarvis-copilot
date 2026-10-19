@@ -375,3 +375,64 @@ def send_live_activity(push_token: str, content_state: dict, *,
         }
     except Exception as exc:
         return {"ok": False, "error": f"APNs send: {exc}"}
+
+
+# ── Control refresh (WidgetKit push) ─────────────────────────────────────────
+# A Control Center control with a ``.pushHandler`` gets its own push token (the
+# phone reports it via /api/live/control-tokens). A ``widgets`` push to it makes
+# iOS reload the app's controls NOW, so a tile flips (Stop arming → Disarm)
+# within seconds while the app sleeps. The topic gets a ".push-type.widgets"
+# suffix; the body carries no data — the control re-reads the App Group.
+
+
+def widgets_topic(cfg: dict) -> str:
+    return f"{cfg['topic']}.push-type.widgets"
+
+
+def build_widgets_body() -> dict:
+    return {"aps": {"content-changed": True}}
+
+
+def _apns_widgets_headers(cfg: dict, jwt: str, *,
+                          expiration: Optional[int] = None) -> dict:
+    return {
+        "authorization": f"bearer {jwt}",
+        "apns-topic": widgets_topic(cfg),
+        "apns-push-type": "widgets",
+        "apns-priority": "10",
+        "apns-expiration": str(int(expiration or 0)),
+        "content-type": "application/json",
+    }
+
+
+def send_control_refresh(push_token: str, *, timeout: float = 10.0,
+                         expiration: Optional[int] = None) -> dict:
+    """Ask iOS to reload the controls behind a control push token. Never raises."""
+    if not _KEY_FILE.exists():
+        return {"ok": False, "error": "APNs auth key not configured"}
+    cfg = _load_config()
+    if not cfg:
+        return {"ok": False, "error": "APNs config missing or invalid"}
+    if not _have_httpx():
+        return {"ok": False, "error": "APNs requires httpx[http2]"}
+    try:
+        jwt = _get_jwt(cfg)
+    except Exception as exc:
+        logger.warning("APNs JWT sign failed: %s", exc)
+        return {"ok": False, "error": f"APNs JWT: {exc}"}
+
+    use_sandbox = bool(cfg.get("use_sandbox"))
+    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
+    url = f"https://{host}/3/device/{push_token}"
+    headers = _apns_widgets_headers(cfg, jwt, expiration=expiration)
+    try:
+        r = _apns_post(url, headers, json.dumps(build_widgets_body()), timeout)
+        if r.status_code == 200:
+            return {"ok": True}
+        return {
+            "ok": False,
+            "error": f"APNs HTTP {r.status_code}: {r.text[:200]}",
+            "status": r.status_code,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"APNs send: {exc}"}
