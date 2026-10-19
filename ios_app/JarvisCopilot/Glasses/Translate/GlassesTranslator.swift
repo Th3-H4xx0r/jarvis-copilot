@@ -96,6 +96,12 @@ final class GlassesTranslator {
         observer = InmoSession.shared.addEventObserver { [weak self] in self?.receive($0) }
     }
 
+    /// The pair the Translate screen's pickers keep; nil leaves that side as it is.
+    func setLanguages(source: String?, target: String?) {
+        if let source { defaults.set(source, forKey: Self.sourceKey) }
+        if let target { defaults.set(target, forKey: Self.targetKey) }
+    }
+
     static func base(_ code: String) -> String { String(code.split(separator: "-").first ?? Substring(code)) }
     static func name(_ code: String) -> String { Locale.current.localizedString(forLanguageCode: base(code)) ?? code }
 

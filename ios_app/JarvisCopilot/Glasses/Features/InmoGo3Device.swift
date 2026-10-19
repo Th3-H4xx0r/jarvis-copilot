@@ -19,6 +19,8 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
     private var cameraMode: Int?
     /// Feature owners attach handlers here; unsupported features never claim success.
     var featureHandlers: [String: ([String: Any]) async throws -> [String: Any]] = [:]
+    /// What the AI Notes, Translate, Live captions and Talk screens call; tests swap it.
+    lazy var screenControls: GlassesScreenControls = LiveGlassesScreenControls()
 
     init(session: InmoSession = .shared, identity: String? = nil, defaults: UserDefaults = .standard) {
         self.session = session
@@ -87,8 +89,8 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         .init(id: "shutter", group: "Camera and gallery", title: "Shutter and recording start/stop", skill: "glasses_camera_action", evidence: "Source CameraCommand 5/6/7", reason: nil),
         .init(id: "gallery", group: "Camera and gallery", title: "Inventory, Wi-Fi sync, progress, cancel and export", skill: "glasses_media_list", evidence: "Observed paired BT/Wi-Fi checksums", reason: nil),
         .init(id: "galleryOther", group: "Camera and gallery", title: "Screenshot, thumbnails and selected deletion", skill: nil, evidence: "Source gallery/UI", reason: "Screenshot shortcut identity and safe selected-deletion response pending"),
-        .init(id: "translation", group: "Language", title: "Translation modes, languages, subtitles and speech", skill: nil, evidence: "Source translation/subtitle modules", reason: "Phone translation service, model support and end-to-end validation pending"),
-        .init(id: "notes", group: "Notes and recording", title: "AI notes: glasses mic, live lens transcript, glasses photos, Jarvis summary (Glasses → AI Notes)", skill: nil, evidence: "Official app's FastSpeedNote traffic, captured 2026-09-27", reason: nil),
+        .init(id: "translation", group: "Language", title: "Translation modes, languages, subtitles and speech", skill: "glasses_translate", evidence: "Source translation/subtitle modules; Glasses → Translate", reason: nil),
+        .init(id: "notes", group: "Notes and recording", title: "AI notes: glasses mic, live lens transcript, glasses photos, Jarvis summary (Glasses → AI Notes)", skill: "glasses_notes", evidence: "Official app's FastSpeedNote traffic, captured 2026-09-27", reason: nil),
         .init(id: "navigation", group: "Navigation and modules", title: "Walking/cycling routes, turn-by-turn guidance, minimap and arrival (Apple Maps)", skill: "glasses_navigate", evidence: "Source NavigationProto + official Android flow", reason: nil),
         .init(id: "maintenance", group: "System maintenance", title: "Versions, diagnostics, disconnect and local forget", skill: "glasses_status", evidence: "Observed status plus iOS connection diagnostics", reason: nil),
         .init(id: "restricted", group: "System maintenance", title: "Power off, factory reset, unbind and firmware installation", skill: nil, evidence: "Source vendor maintenance", reason: "Outside ordinary automation; intentionally unavailable"),
@@ -104,11 +106,20 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         list += [command("glasses_media_download", "Download a selected inventory item and return an app-local artifact.", ["id": ["type": "string"]], ["id"]), command("glasses_teleprompter_upload", "Upload original text with observed document checksum convention.", ["text": text, "title": ["type": "string"]], ["text"]), command("glasses_teleprompter_page", "Previous or next teleprompter page.", ["direction": ["type": "string", "enum": ["previous", "next"]]], ["direction"]), command("glasses_teleprompter_progress", "Synchronize independent line and percentage positions.", ["line": ["type": "integer", "minimum": 1], "percent": ["type": "number", "minimum": 0, "maximum": 100]], ["line"]), command("glasses_show_transcription", "Show partial or final Jarvis transcription.", ["text": text, "final": ["type": "boolean"]], ["text"]), command("glasses_show_answer", "Show Jarvis answer text and state.", ["text": text, "final": ["type": "boolean"]], ["text"])]
         list += [command("glasses_navigate", "Start walking or cycling turn-by-turn directions on the lens to a place found by name or address near the user; the place is also saved to the lens's Navigation list.", ["destination": ["type": "string"], "mode": ["type": "string", "enum": ["walk", "bike"]]], ["destination"]),
                  command("glasses_navigate_stop", "Stop turn-by-turn directions on the lens.")]
+        let on: [String: Any] = ["type": "boolean"]
+        let language: [String: Any] = ["type": "string", "enum": Self.translateLanguages]
+        list += [command("glasses_notes", "Start an AI note recorded through the glasses' microphone, stop and save it, or have Jarvis summarise the newest note.", ["action": ["type": "string", "enum": ["start", "stop", "summarise"]]], ["action"]),
+                 command("glasses_translate", "Turn live translation on the lens on or off, from the language the other person speaks to the one shown (omitted languages keep the last pair).", ["on": on, "from": language, "to": language], ["on"]),
+                 command("glasses_captions", "Show Live Jarvis's captions (who is speaking and what they say) on the lens, or stop showing them.", ["on": on], ["on"]),
+                 command("glasses_talk", "Open Jarvis on the glasses and listen through their microphone, as the Talk to Jarvis button does."),
+                 command("glasses_jarvis_ai", "Turn Use Jarvis for Glasses AI on or off, so the glasses' wake word and AI button reach Jarvis.", ["on": on], ["on"])]
         if experimentalEnabled { list.append(Self.cameraAction) }
         list.append(command("glasses_resume_music", "Resume paused music on the INMO glasses from the phone: dismiss the open Jarvis chat and release its audio, double-press GO, then send the screen-off side tap. Use when asked to resume music after chatting on the glasses. Always sends the final side tap; use for paused music only and never retry the toggle blindly. Result sent is not playback confirmation."))
         if experimentalEnabled { list += InmoAdvancedControls.capabilities }
         return list
     }
+    static let screenSkills: Set<String> = ["glasses_notes", "glasses_translate", "glasses_captions", "glasses_talk", "glasses_jarvis_ai"]
+    static var translateLanguages: [String] { GlassesTranslateView.languages.map(\.code) }
     static let cameraAction = DeviceCapability(name: "glasses_camera_action", description: "Experimental source-derived shutter/start/stop; device verification pending.", inputSchema: DeviceCapability.schema(["action": ["type": "string", "enum": ["shutter", "start_recording", "stop_recording"]]], required: ["action"]))
     static let experimentalReason = "Turn on Experimental Controls in Glasses"
     /// While Experimental Controls is off: the hidden experimental tools, and `glasses_settings`,
@@ -140,6 +151,7 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
             return history.snapshot(since: Date().addingTimeInterval(-Double(hours) * 3600))
         }
         if name == "glasses_settings", args["setting"] == nil { return ["settings": Self.settings.keys.sorted(), "experimental_enabled": experimentalEnabled, "evidence": "Source-derived; local opt-in required"] }
+        if Self.screenSkills.contains(name) { return try await screenSkill(name, args) }
         guard isConnected else { throw DeviceError.notConnected }
         if let handler = featureHandlers[name] { return try await handler(args) }
         var bytes: Data
@@ -199,6 +211,27 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         try await session.send(bytes)
         recentResult = "\(name): sent · awaiting device state"
         return ["state": "sent", "command": name, "confirmed": false, "requested": args, "observed": snapshot()]
+    }
+    /// Screen features connect on their own (notes, translation, Talk) or need no link at all.
+    private func screenSkill(_ name: String, _ args: [String: Any]) async throws -> [String: Any] {
+        switch name {
+        case "glasses_notes":
+            guard let action = args["action"] as? String, ["start", "stop", "summarise"].contains(action) else { throw DeviceError.badArgument("action must be start, stop or summarise") }
+            return try await screenControls.note(action)
+        case "glasses_translate":
+            let on = try boolean(args, "on")
+            let from = try language(args, "from"), to = try language(args, "to")
+            if let from, let to, from == to { throw DeviceError.badArgument("from and to must be different languages") }
+            return try await screenControls.translate(on: on, from: from, to: to)
+        case "glasses_captions": return screenControls.captions(on: try boolean(args, "on"))
+        case "glasses_talk": return try await screenControls.talk()
+        default: return await screenControls.jarvisAI(on: try boolean(args, "on"))
+        }
+    }
+    private func language(_ args: [String: Any], _ key: String) throws -> String? {
+        guard let value = args[key] else { return nil }
+        guard let code = value as? String, Self.translateLanguages.contains(code) else { throw DeviceError.badArgument("\(key) must be one of \(Self.translateLanguages.joined(separator: ", "))") }
+        return code
     }
     private func integer(_ args: [String: Any], _ key: String, range: ClosedRange<Int>, defaultValue: Int? = nil) throws -> Int {
         let value: Int
