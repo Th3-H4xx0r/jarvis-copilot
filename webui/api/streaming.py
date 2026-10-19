@@ -152,6 +152,15 @@ WebUI progress contract:
 - For direct answers or very short tasks, skip progress updates and answer normally.
 """.strip()
 
+# His chats show a card for every call or message to someone (agent/send_confirm.py): a
+# model that asks first makes him confirm twice (2026-10-19: Haiku asked a clarify, then the card).
+_WEBUI_SEND_CARD_PROMPT = (
+    "Calls and messages to someone (a text, iMessage, email, WhatsApp or other app message): call the "
+    "tool straight away — never ask him to confirm first, no clarify and no question in your reply. "
+    "Jarvis shows him the person, their photo and your exact words and holds it until he taps Send, "
+    "so asking first makes him confirm twice. If he cancels, say so in a few words."
+)
+
 
 def _log_ttft(stream_id, started_monotonic):
     """Time to the first streamed token of a chat turn, as a span line in the
@@ -245,6 +254,7 @@ def _webui_ephemeral_system_prompt(personality_prompt: Optional[str]) -> str:
     if personality_prompt:
         parts.append(str(personality_prompt).strip())
     parts.append(_WEBUI_VISIBLE_PROGRESS_PROMPT)
+    parts.append(_WEBUI_SEND_CARD_PROMPT)
     return "\n\n".join(part for part in parts if part)
 
 
