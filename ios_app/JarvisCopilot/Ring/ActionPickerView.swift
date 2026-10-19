@@ -293,13 +293,25 @@ struct SecureActionEditor: View {
 
     private var skipSection: some View {
         Section {
-            Toggle("Skip Face ID", isOn: Binding(get: { skip }, set: { turn($0) }))
+            Toggle(skipLabel, isOn: Binding(get: { skip }, set: { turn($0) }))
                 .disabled(working)
         } footer: {
             Text(skip
                  ? "Pressing this button in Control Center runs it straight away — anyone holding your "
                    + "iPhone could. On a widget, the ring, a Shortcut, Siri or Jarvis it still asks for Face ID."
                  : "Asks for Face ID each time. From Control Center or a widget, a notification asks — tap it.")
+        }
+    }
+
+    /// An Arm button shows Disarm once armed: its switch is about that.
+    private var skipLabel: String {
+        switch action {
+        case .door(.armHome, _), .door(.armAway, _), .door(.armNow, _), .door(.cancelArming, _):
+            return "Disarm without Face ID"
+        case .car(let command, _) where !CarButtonCommand.needsFaceID(command):
+            return "Start without Face ID"
+        default:
+            return "Skip Face ID"
         }
     }
 

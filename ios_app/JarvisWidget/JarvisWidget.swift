@@ -127,17 +127,46 @@ struct JarvisButtonControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         AppIntentControlConfiguration(kind: ControlButtonShelf.controlKind,
                                       provider: JarvisButtonProvider()) { button in
-            // The hidden press intent: a Control Center press is a person's, unlike a Shortcut's.
-            ControlWidgetButton(action: PressJarvisButtonIntent(button: button, token: ControlButtonShelf.pressToken())) {
-                Label(button?.name ?? "Jarvis button", systemImage: button?.symbol ?? "bolt.circle")
+            // What the button shows and does right now ("Stop arming", "Disarm"), if it follows anything.
+            let live = button?.info.timeline?.state(at: .now)
+            // The hidden press intent: a Control Center press is a person's, unlike a Shortcut's. It
+            // carries the state it showed, so a press on a tile that has gone stale does nothing.
+            ControlWidgetButton(action: PressJarvisButtonIntent(button: button, token: ControlButtonShelf.pressToken(),
+                                                                state: live?.id)) {
+                JarvisButtonLabel(info: button?.info, live: live)
             }
-            .tint(button?.info.tintColor)
+            .tint(live?.alert == true ? .red : button?.info.tintColor)
         }
         .displayName("Jarvis button")
         .description("Runs one of the buttons set up in Jarvis settings.")
         .promptsForUserConfiguration()
         // The server's refresh push: the tile re-reads its state while the app sleeps.
         .pushHandler(JarvisControlPushHandler.self)
+    }
+}
+
+/// A Jarvis button's face: its live state's title and icon with the time left (or what it is now)
+/// under it — or just its name and icon when it follows nothing.
+@available(iOS 18.0, *)
+struct JarvisButtonLabel: View {
+    let info: ControlButtonInfo?
+    let live: ButtonLiveState?
+
+    var body: some View {
+        if let live {
+            Label {
+                Text(live.title)
+                if let ends = live.endsAt, ends > .now, info?.showsCountdown != false {
+                    Text(live.caption.map { "\($0) " } ?? "") + Text(timerInterval: Date.now...ends, countsDown: true)
+                } else if let caption = live.caption {
+                    Text(caption)
+                }
+            } icon: {
+                Image(systemName: live.symbol)
+            }
+        } else {
+            Label(info?.name ?? "Jarvis button", systemImage: info?.symbol ?? "bolt.circle")
+        }
     }
 }
 

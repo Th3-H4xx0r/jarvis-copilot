@@ -252,19 +252,24 @@ struct PressJarvisButtonIntent: LiveActivityIntent {
     @Parameter(title: "Token")
     var token: String?
 
+    /// The live state the tile showed (`ButtonLiveState.id`); a press whose state has moved on is refused.
+    @Parameter(title: "State")
+    var state: String?
+
     init() {}
 
-    init(button: ControlButtonEntity?, widget: String? = nil, token: String? = nil) {
+    init(button: ControlButtonEntity?, widget: String? = nil, token: String? = nil, state: String? = nil) {
         self.button = button
         self.widget = widget
         self.token = token
+        self.state = state
     }
 
     @MainActor
     func perform() async throws -> some IntentResult {
         guard let id = button?.id else { return .result() }
         let own = token != nil && token == ControlButtonShelf.pressToken()
-        await ControlButtonShelf.dispatch(ButtonPress(buttonID: id, widgetID: widget, physical: own))
+        await ControlButtonShelf.dispatch(ButtonPress(buttonID: id, widgetID: widget, physical: own, shownState: state))
         return .result()
     }
 }

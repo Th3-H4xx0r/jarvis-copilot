@@ -117,6 +117,11 @@ enum WidgetDataCatalog {
             Entry(key: "phone.battery", label: "Phone battery", area: "phone", kind: .number, unit: "%"),
             Entry(key: "phone.charging", label: "Phone charging", area: "phone", kind: .bool),
             Entry(key: "alarm.next", label: "Next alarm or timer", area: "phone", kind: .text),
+            Entry(key: "door.state", label: "Door alarm state", area: "home", kind: .text),
+            Entry(key: "door.mode", label: "Door alarm mode", area: "home", kind: .text),
+            Entry(key: "door.deadline", label: "Door alarm countdown ends", area: "home", kind: .number),
+            Entry(key: "car.locked", label: "Car locked", area: "car", kind: .bool),
+            Entry(key: "car.running", label: "Car engine running", area: "car", kind: .bool),
             Entry(key: "time.updated", label: "Last updated", area: "time", kind: .text),
         ]
         for device in wearables {

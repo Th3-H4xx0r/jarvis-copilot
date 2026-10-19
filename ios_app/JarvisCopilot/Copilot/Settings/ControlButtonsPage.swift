@@ -19,6 +19,16 @@ struct ControlButton: Codable, Identifiable, Equatable {
     var captionKind: Caption = .state
     var captionText = ""
     var lastResult: String?
+    /// Follows its device's live state (door alarm, car, a wearable switch): the tile and what a
+    /// press does change with it. Off = a fixed tile that always runs `action`.
+    var followsLive = true
+    /// His own states: follow a live value and change name, icon and action with it.
+    var states: ButtonStates?
+    /// While a state counts down: the time left on the tile, and a Lock Screen card + Dynamic Island.
+    var showsCountdown = true
+    var showsLiveActivity = true
+    /// Worked out by `LiveButtons` and written for the widget extension to draw.
+    var timeline: ButtonTimeline?
 
     /// The line under a switch's name.
     enum Caption: String, Codable, CaseIterable {
@@ -70,6 +80,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
     // written but never read back.
     private enum CodingKeys: String, CodingKey {
         case id, name, symbol, action, offAction, keepsState, isOn, offSymbol, tint, captionKind, captionText, lastResult
+        case followsLive, states, showsCountdown, showsLiveActivity, timeline
         case caption, skipsFaceID
     }
 
@@ -87,6 +98,11 @@ struct ControlButton: Codable, Identifiable, Equatable {
         captionKind = try c.decodeIfPresent(Caption.self, forKey: .captionKind) ?? .state
         captionText = try c.decodeIfPresent(String.self, forKey: .captionText) ?? ""
         lastResult = try c.decodeIfPresent(String.self, forKey: .lastResult)
+        followsLive = try c.decodeIfPresent(Bool.self, forKey: .followsLive) ?? true
+        states = try? c.decodeIfPresent(ButtonStates.self, forKey: .states)
+        showsCountdown = try c.decodeIfPresent(Bool.self, forKey: .showsCountdown) ?? true
+        showsLiveActivity = try c.decodeIfPresent(Bool.self, forKey: .showsLiveActivity) ?? true
+        timeline = try? c.decodeIfPresent(ButtonTimeline.self, forKey: .timeline)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,6 +121,12 @@ struct ControlButton: Codable, Identifiable, Equatable {
         try c.encodeIfPresent(lastResult, forKey: .lastResult)
         try c.encodeIfPresent(caption, forKey: .caption)
         try c.encodeIfPresent(skipsFaceID ? true : nil, forKey: .skipsFaceID)
+        // Only the switches he turned off are written: the widget reads `showsCountdown` (nil = on).
+        try c.encodeIfPresent(followsLive ? nil : false, forKey: .followsLive)
+        try c.encodeIfPresent(states, forKey: .states)
+        try c.encodeIfPresent(showsCountdown ? nil : false, forKey: .showsCountdown)
+        try c.encodeIfPresent(showsLiveActivity ? nil : false, forKey: .showsLiveActivity)
+        try c.encodeIfPresent(timeline, forKey: .timeline)
     }
 }
 
@@ -122,6 +144,14 @@ final class ControlButtonStore: ObservableObject {
     private let keepAliveIsOn: (String) -> Bool
     private let widgetAgent: (String) -> WidgetAgent?
     private let forgetButtonKey: () -> Void
+    /// What a press runs now for a button with live states (`LiveButtons`); and what to tell it
+    /// after a press ran (so a car Lock reads Unlock straight away).
+    var resolvePress: (ControlButton, String?) async -> ButtonStateResolver.Press = { button, shown in
+        await LiveButtons.shared.press(button, shownState: shown)
+    }
+    var didRun: (ControlButton, RingAction, String) async -> Void = { button, action, line in
+        await LiveButtons.shared.didRun(button, action: action, line: line)
+    }
     private var keepAliveWatch: NSObjectProtocol?
 
     init(defaults: UserDefaults = ControlButtonShelf.defaults,
@@ -185,12 +215,25 @@ final class ControlButtonStore: ObservableObject {
     /// One press from Control Center. A Jarvis prompt's reply comes back as a notification —
     /// Control Center has nowhere to show it — and so does a failure; anything else is silent.
     /// A button that keeps its state flips it.
-    func press(_ id: String, widget: String? = nil, physical: Bool = true) async {
+    func press(_ id: String, widget: String? = nil, physical: Bool = true, shownState: String? = nil) async {
         guard let button = button(id) else { return }
         if button.keepsState { return await set(id, !button.isOn, widget: widget, physical: physical) }
-        let line = await runAction(button.action, context(button, widget: widget, physical: physical))
+        // A button with live states runs what it shows NOW; a press that saw an older state does
+        // nothing but say what it shows now (never Stop arming → Disarm).
+        let action: RingAction
+        switch await resolvePress(button, shownState) {
+        case .run(let current):
+            action = current
+        case .changed(let now):
+            let line = "It's \((now.caption ?? now.title).lowercased()) now — press again to \(now.title.lowercased())"
+            record(id, line)
+            await notify(button.name, line)
+            return
+        }
+        let line = await runAction(action, context(button, widget: widget, physical: physical))
         record(id, line)
-        await report(button, line)
+        await report(button, line, ran: action)
+        await didRun(button, action, line)
     }
 
     /// A switch turned on or off. A Keep Alive switch sets exactly that state and shows what it
@@ -213,9 +256,24 @@ final class ControlButtonStore: ObservableObject {
     func run(_ press: ButtonPress) async {
         if let on = press.on {
             await set(press.buttonID, on, widget: press.widgetID, physical: press.physical)
+        } else if press.buttonID == LiveButtons.doorCardID {
+            // Stop on a door card the server started (no button behind it).
+            await LiveButtons.shared.pressDoorCard(shownState: press.shownState)
         } else {
-            await self.press(press.buttonID, widget: press.widgetID, physical: press.physical)
+            await self.press(press.buttonID, widget: press.widgetID, physical: press.physical,
+                             shownState: press.shownState)
         }
+    }
+
+    /// Writes the live states `LiveButtons` worked out; only redraws Control Center when one changed.
+    func applyTimelines(_ timelines: [String: ButtonTimeline?]) {
+        var changed = false
+        for index in buttons.indices {
+            guard let new = timelines[buttons[index].id], buttons[index].timeline != new else { continue }
+            buttons[index].timeline = new
+            changed = true
+        }
+        if changed { persist() }
     }
 
     /// Presses that landed in the widget extension while the app wasn't there to run them.
@@ -256,10 +314,10 @@ final class ControlButtonStore: ObservableObject {
         persist()
     }
 
-    private func report(_ button: ControlButton, _ line: String) async {
+    private func report(_ button: ControlButton, _ line: String, ran: RingAction? = nil) async {
         JcLog.services.notice("control button \(button.name, privacy: .public): \(line, privacy: .public)")
         let alarmOrCar: Bool
-        switch button.action {
+        switch ran ?? button.action {
         case .door, .car: alarmOrCar = true
         default: alarmOrCar = false
         }
@@ -405,6 +463,7 @@ struct ControlButtonEditor: View {
                         }
                     }
                 }
+                if !draft.keepsState { liveSection }
                 CardGroup("Look") {
                     symbolRow(draft.keepsState ? "Icon when on" : "Icon", symbol: draft.symbol) { draft.symbol = $0 }
                     if draft.keepsState {
@@ -446,6 +505,42 @@ struct ControlButtonEditor: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("A Control Center control pointed at it stops doing anything.")
+        }
+    }
+
+    /// What the button follows and what it shows while something counts down.
+    private var liveSection: some View {
+        let automatic = LiveButtons.source(ControlButton(id: draft.id, name: draft.name, symbol: draft.symbol,
+                                                         action: draft.action)) != nil
+        return CardGroup("Live", footer: automatic
+                         ? "It changes with what's happening — Arm Away shows Stop arming while it arms, then "
+                           + "Disarm. A press does what the tile shows at that moment."
+                         : "Give it your own states to make it change with a live value.") {
+            if automatic {
+                Row { Toggle("Follow what's happening", isOn: $draft.followsLive) }
+                RowDivider()
+            }
+            NavigationLink {
+                ButtonStatesEditor(states: draft.states) { draft.states = $0 }
+            } label: {
+                Row {
+                    HStack {
+                        Text("My own states")
+                        Spacer()
+                        Text(draft.states.map { WidgetDataCatalog.entry($0.follows)?.label ?? $0.follows } ?? "Off")
+                            .foregroundStyle(.secondary).lineLimit(1)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if (automatic && draft.followsLive) || draft.states != nil {
+                RowDivider()
+                Row { Toggle("Countdown on the tile", isOn: $draft.showsCountdown) }
+                RowDivider()
+                Row { Toggle("Lock Screen & Dynamic Island", isOn: $draft.showsLiveActivity) }
+            }
         }
     }
 

@@ -26,7 +26,7 @@ final class ControlButtonsTests: XCTestCase {
     }
 
     private func store() -> ControlButtonStore {
-        ControlButtonStore(defaults: defaults,
+        let s = ControlButtonStore(defaults: defaults,
                            reloadControls: { [unowned self] in reloads += 1 },
                            runAction: { [unowned self] action, context in
                                ran.append(action)
@@ -36,6 +36,10 @@ final class ControlButtonsTests: XCTestCase {
                            notify: { [unowned self] title, body in notes.append((title, body)) },
                            keepAliveIsOn: { [unowned self] in keepAlive[$0] ?? false },
                            widgetAgent: { [unowned self] in designs[$0] })
+        // No live states here: a press runs the button's own action.
+        s.resolvePress = { button, _ in .run(button.action) }
+        s.didRun = { _, _, _ in }
+        return s
     }
 
     private func button(_ name: String, _ action: RingAction, symbol: String = "bolt.fill") -> ControlButton {

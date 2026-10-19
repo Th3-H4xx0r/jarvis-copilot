@@ -280,11 +280,13 @@ enum RingAction: Codable, Equatable {
         return true
     }
 
-    /// Disarms, silences or drives the car without asking for Face ID.
+    /// Disarms, silences or drives the car without asking for Face ID. A door or car button follows
+    /// live state (an Arm button shows Disarm once armed, Lock shows Unlock), so the flag counts for
+    /// whatever it shows.
     var skipsFaceID: Bool {
         switch self {
-        case .door(let command, let skip): return skip && command.needsFaceID
-        case .car(let command, let skip): return skip && CarButtonCommand.needsFaceID(command)
+        case .door(let command, let skip): return skip && command != .status
+        case .car(let command, let skip): return skip && command != CarButtonCommand.status
         default: return false
         }
     }

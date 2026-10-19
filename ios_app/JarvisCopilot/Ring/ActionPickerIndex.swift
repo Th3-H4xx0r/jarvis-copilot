@@ -164,9 +164,14 @@ enum ActionPickerIndex {
     static func doorRows() -> [ActionPickerRow] {
         DoorButtonCommand.allCases.map { command in
             let action = RingAction.door(command)
-            return ActionPickerRow(id: "door.\(command.rawValue)", title: command.title,
-                             detail: command.needsFaceID ? "Face ID, or skip it for this button" : "",
-                             kind: command.needsFaceID ? .form(.secure(action)) : .pick(action),
+            let detail: String
+            switch command {
+            case .armHome, .armAway: detail = "Shows Stop arming, then Disarm"
+            case .disarm, .silence: detail = "Face ID, or skip it for this button"
+            default: detail = ""
+            }
+            return ActionPickerRow(id: "door.\(command.rawValue)", title: command.title, detail: detail,
+                             kind: command == .status ? .pick(action) : .form(.secure(action)),
                              searchText: "door alarm security \(command.rawValue)")
         }
     }
@@ -174,10 +179,10 @@ enum ActionPickerIndex {
     static func carRows() -> [ActionPickerRow] {
         CarButtonCommand.all.map { command in
             let action = RingAction.car(command: command)
-            let secure = CarButtonCommand.needsFaceID(command)
+            let status = command == CarButtonCommand.status
             return ActionPickerRow(id: "car.\(command)", title: CarButtonCommand.title(command),
-                             detail: secure ? "Face ID, or skip it for this button" : "",
-                             kind: secure ? .form(.secure(action)) : .pick(action),
+                             detail: status ? "" : "Face ID, or skip it for this button",
+                             kind: status ? .pick(action) : .form(.secure(action)),
                              searchText: "car toyota \(command)")
         }
     }

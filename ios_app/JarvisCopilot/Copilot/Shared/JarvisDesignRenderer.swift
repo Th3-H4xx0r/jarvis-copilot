@@ -553,9 +553,11 @@ final class JCDesignRenderer {
         // A button that skips Face ID always shows its own name and icon: designs can be written
         // by Jarvis, and must not be able to dress a disarm up as something else.
         let own = info?.skipsFaceID == true
-        let label = (own ? nil : n.ref("label")?.string(ctx)) ?? info?.name ?? "Button"
-        let symbol = (own ? nil : n.string("symbol")) ?? info?.symbol ?? "bolt.fill"
-        let color = n.ref("color")?.color(ctx) ?? info?.tintColor ?? tint
+        // A button that follows live state shows what a press does now, whatever the design says.
+        let live = info?.timeline?.state(at: Date())
+        let label = live?.title ?? (own ? nil : n.ref("label")?.string(ctx)) ?? info?.name ?? "Button"
+        let symbol = live?.symbol ?? (own ? nil : n.string("symbol")) ?? info?.symbol ?? "bolt.fill"
+        let color = live?.alert == true ? Color.red : (n.ref("color")?.color(ctx) ?? info?.tintColor ?? tint)
         let face = Label(label, systemImage: symbol)
             .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13, weight: .semibold))
             .foregroundStyle(.white)
@@ -564,7 +566,8 @@ final class JCDesignRenderer {
             .frame(maxWidth: .infinity)
             .background(color.opacity(info == nil ? 0.12 : 0.35), in: Capsule())
         if let info {
-            Button(intent: PressJarvisButtonIntent(button: ControlButtonEntity(info), widget: designID)) { face }
+            Button(intent: PressJarvisButtonIntent(button: ControlButtonEntity(info), widget: designID,
+                                                   state: live?.id)) { face }
                 .buttonStyle(.plain)
         } else {
             face.opacity(0.5)

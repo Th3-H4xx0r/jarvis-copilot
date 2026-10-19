@@ -316,6 +316,8 @@ final class AppServices {
         //      a press if it has to. A press that reached the widget extension instead waits
         //      in the App Group until now.
         ControlButtonBridge.run = { press in await ControlButtonStore.shared.run(press) }
+        // Lock Screen cards the server started (or left from before a relaunch) are picked up.
+        ButtonActivityController.shared.observe()
         // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).
         AgentDecisionBridge.decide = { fingerprint, decision in
             (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
@@ -418,6 +420,8 @@ final class AppServices {
                 Task { await ControlPushTokenUploader.shared.uploadIfChanged() }   // tiles' refresh-push tokens → server
                 // A disarm or car command a background press couldn't Face ID: the tap brought us here.
                 await SecureActionPending.drain()
+                // Buttons that follow the door, the car or a wearable catch up with what happened.
+                await LiveButtons.shared.refresh()
                 WidgetDataHub.shared.refreshSoon()
                 WidgetModelSnapshots.refreshIfNeeded()
                 await WidgetSync.shared.sync()

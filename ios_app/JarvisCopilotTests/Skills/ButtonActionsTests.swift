@@ -93,9 +93,12 @@ final class ButtonActionsTests: XCTestCase {
 
     func testSkipOnlyCountsForCommandsThatNeedFaceID() throws {
         XCTAssertTrue(RingAction.door(.disarm, skipFaceID: true).skipsFaceID)
-        XCTAssertFalse(RingAction.door(.armHome, skipFaceID: true).skipsFaceID)
-        XCTAssertFalse(RingAction.car(command: "stop", skipFaceID: true).skipsFaceID)
+        XCTAssertTrue(RingAction.door(.armHome, skipFaceID: true).skipsFaceID,
+                      "an Arm button shows Disarm once armed: its switch counts for that")
+        XCTAssertFalse(RingAction.door(.status, skipFaceID: true).skipsFaceID)
+        XCTAssertTrue(RingAction.car(command: "stop", skipFaceID: true).skipsFaceID, "Stop shows Start once off")
         XCTAssertTrue(RingAction.car(command: "unlock", skipFaceID: true).skipsFaceID)
+        XCTAssertFalse(RingAction.car(command: "unlock").skipsFaceID)
         for action in [RingAction.door(.disarm, skipFaceID: true), .car(command: "lock"),
                        .serverDevice(deviceID: "pod", skill: "pod_status", arguments: [:])] {
             XCTAssertEqual(try JSONDecoder().decode(RingAction.self, from: JSONEncoder().encode(action)), action)

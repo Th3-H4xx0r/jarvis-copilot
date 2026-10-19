@@ -251,6 +251,14 @@ enum WearableQuickActions {
         "bottle_sterilise": ("Sterilise now", "Stop sterilising"),
     ]
 
+    /// The one-tap names for a command's on and off sides ("Sterilise now" / "Stop sterilising").
+    static func names(for skill: String) -> (on: String, off: String) {
+        if let named = labels[skill] { return named }
+        let words = skill.split(separator: "_").map(String.init)
+        let title = (words.count > 1 ? words.dropFirst() : words[...]).joined(separator: " ").capitalized
+        return ("\(title) on", "\(title) off")
+    }
+
     /// The boolean a command is switched by: `on`, or `enabled` / `power` where a device names it so
     /// (dashcam recording, light power).
     static let switchKeys = ["on", "enabled", "power"]
@@ -261,9 +269,7 @@ enum WearableQuickActions {
         // A command that needs more than its switch to run can't be a one-tap.
         let required = Set((capability.inputSchema["required"] as? [String]) ?? []).subtracting([key, "confirm"])
         guard required.isEmpty else { return [] }
-        let words = capability.name.split(separator: "_").map(String.init)
-        let title = (words.count > 1 ? words.dropFirst() : words[...]).joined(separator: " ").capitalized
-        let names = labels[capability.name] ?? ("\(title) on", "\(title) off")
+        let names = names(for: capability.name)
         // Starting a cycle the device asks to confirm is confirmed by choosing it here.
         let on = properties["confirm"] != nil ? [key: "true", "confirm": "true"] : [key: "true"]
         return [Quick(label: names.on, arguments: on), Quick(label: names.off, arguments: [key: "false"])]

@@ -56,6 +56,7 @@ enum PhoneSkills {
             SystemSkills.flashlightOff(b.torch),
             SystemSkills.makeCall(b.urls),
             SendConfirmations.skill(),
+            LiveButtons.skill(),
             SpotifyRemote.skill(),
             MediaSkills.getLocation(b.location),
             MediaSkills.takePhoto(b.photos),

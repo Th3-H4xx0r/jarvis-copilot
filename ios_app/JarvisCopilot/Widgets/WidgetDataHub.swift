@@ -25,7 +25,7 @@ extension WidgetDataProvider {
 final class WidgetDataHub {
     static let shared = WidgetDataHub(providers: [
         HealthWidgetData(), WearablesWidgetData(), ChatWidgetData(), CodingWidgetData(),
-        ServerWidgetData(), PhoneWidgetData(),
+        ServerWidgetData(), PhoneWidgetData(), LiveWidgetData(),
     ])
 
     static let widgetKind = "JarvisDesignWidget"
@@ -432,6 +432,14 @@ struct ServerWidgetData: WidgetDataProvider {
     func values() async -> [String: JCJSON] {
         let status = BridgeClient.shared.status
         return ["server.connected": .bool(status == .online), "server.status": .string(status.text)]
+    }
+}
+
+/// The door alarm and the car as the live buttons last saw them (`LiveButtons`).
+@MainActor
+struct LiveWidgetData: WidgetDataProvider {
+    func values() async -> [String: JCJSON] {
+        LiveButtons.shared.widgetValues()
     }
 }
 
