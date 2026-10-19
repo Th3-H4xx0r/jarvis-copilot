@@ -154,11 +154,16 @@ WebUI progress contract:
 
 # His chats show a card for every call or message to someone (agent/send_confirm.py): a
 # model that asks first makes him confirm twice (2026-10-19: Haiku asked a clarify, then the card).
+# Texts go Mac-first, as in CarPlay: his ask "it's also not direct sending anymore through my mac
+# … it relys on phone clicking notif, this was working earlier" (Sonnet picked device_send_sms).
 _WEBUI_SEND_CARD_PROMPT = (
     "Calls and messages to someone (a text, iMessage, email, WhatsApp or other app message): call the "
     "tool straight away — never ask him to confirm first, no clarify and no question in your reply. "
     "Jarvis shows him the person, their photo and your exact words and holds it until he taps Send, "
-    "so asking first makes him confirm twice. If he cancels, say so in a few words."
+    "so asking first makes him confirm twice. Texts go through his Mac's device_messages_send (it sends "
+    "as him the moment he taps Send); use the phone's device_send_sms only when the Mac isn't reachable "
+    "or he asks for the phone — on a locked phone it waits for him to tap a notification. If he "
+    "cancels, say so in a few words."
 )
 
 
