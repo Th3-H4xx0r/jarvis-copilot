@@ -120,7 +120,8 @@ def test_routes_register_the_phone_key_once(tmp_path):
     first, second = Phone(), Phone()
     now = int(time.time())
     proof = {"public_key": first.public, "ts": now, "signature": first.sign_register(first.public, now)}
-    assert handle_car_request("GET", "/approver", None, ha=FakeHA(), approver=keys)[1] == {"registered": False, "public_key": None}
+    assert handle_car_request("GET", "/approver", None, ha=FakeHA(), approver=keys)[1] == \
+        {"registered": False, "public_key": None, "button_key": None}
     status, payload = handle_car_request("POST", "/approver", proof, ha=FakeHA(), approver=keys, host_signed=True)
     assert status == 403 and payload["code"] == "forbidden", "the agent's loopback can't register a key"
     assert handle_car_request("POST", "/approver", {"public_key": first.public}, ha=FakeHA(), approver=keys)[0] == 400
@@ -203,3 +204,92 @@ def test_a_command_toyota_has_not_confirmed_is_pending_not_unreachable(phone_key
     slow.reply("WS", "call_service", HATimeout("Home Assistant didn't answer within 75 s"))
     status, payload = handle_car_request("POST", "/command", signed(phone, "start"), ha=slow, approver=keys)
     assert status == 504 and "check the car" in payload["error"]
+
+
+# ── Buttons that skip Face ID: the button key (approver.py) ──
+
+def button_signed(button, command, nonce=None):
+    import time
+    import uuid
+
+    nonce = nonce or uuid.uuid4().hex
+    ts = int(time.time())
+    return {"command": command, "nonce": nonce, "ts": ts, "signature": button.sign_button(command, nonce, ts),
+            "by": "button"}
+
+
+@pytest.fixture
+def button_keys(phone_keys):
+    import time
+
+    from .test_approver import Phone
+
+    phone, keys, waiting = phone_keys
+    button = Phone()
+    phone.register_button_on(keys, button, int(time.time()))
+    return phone, button, keys, waiting
+
+
+def test_routes_register_get_and_clear_the_button_key(phone_keys):
+    import time
+
+    from .test_approver import Phone
+
+    phone, keys, _ = phone_keys
+    button, now = Phone(), int(time.time())
+    kw = dict(ha=FakeHA(), approver=keys)
+    body = {"public_key": button.public, "ts": now, "signature": phone.sign_button_register(button.public, now)}
+    assert handle_car_request("GET", "/approver", None, **kw)[1]["button_key"] is None
+    status, payload = handle_car_request("POST", "/approver/button", body, host_signed=True, **kw)
+    assert status == 403 and payload["code"] == "forbidden", "Jarvis can't register a button key"
+    selfish = {**body, "signature": button.sign_button_register(button.public, now)}
+    status, payload = handle_car_request("POST", "/approver/button", selfish, **kw)
+    assert status == 403 and payload["code"] == "bad_signature", "only the Face ID key vouches for it"
+    assert handle_car_request("POST", "/approver/button", body, **kw) == (200, {"ok": True})
+    assert handle_car_request("GET", "/approver", None, **kw)[1] == \
+        {"registered": True, "public_key": phone.public, "button_key": button.public}
+    status, payload = handle_car_request("DELETE", "/approver/button", None, host_signed=True, **kw)
+    assert status == 403 and keys.button_key() == button.public
+    assert handle_car_request("DELETE", "/approver/button", None, **kw) == (200, {"ok": True})
+    assert handle_car_request("GET", "/approver", None, **kw)[1]["button_key"] is None
+    assert handle_car_request("DELETE", "/approver", None, **kw)[0] == 404
+
+
+def test_routes_a_button_proof_runs_a_car_command_and_says_so(button_keys):
+    phone, button, keys, _ = button_keys
+    ha = signed_in_ha()
+    status, payload = handle_car_request("POST", "/command", button_signed(button, "unlock"), ha=ha, approver=keys)
+    assert status == 200 and payload["result"] == "Unlocked" and payload["source"] == "button"
+    assert len(ha.services()) == 1
+    as_face_id = {k: v for k, v in button_signed(button, "lock").items() if k != "by"}
+    status, payload = handle_car_request("POST", "/command", as_face_id, ha=ha, approver=keys)
+    assert status == 403 and payload["code"] == "bad_signature", "a button signature is never a Face ID one"
+    status, payload = handle_car_request("POST", "/command", {**signed(phone, "lock"), "by": "button"},
+                                         ha=ha, approver=keys)
+    assert status == 403 and payload["code"] == "bad_signature", "nor a Face ID signature a button one"
+    status, payload = handle_car_request("POST", "/command", button_signed(button, "lock"), ha=ha, approver=keys,
+                                         host_signed=True)
+    assert status == 403 and payload["code"] == "forbidden", "Jarvis never presses a button"
+    assert len(ha.services()) == 1
+    status, payload = handle_car_request("POST", "/command", signed(phone, "lock"), ha=ha, approver=keys)
+    assert status == 200 and "source" not in payload, "Face ID commands carry no button source"
+
+
+def test_routes_unknown_button_key_is_named_in_the_error(phone_keys):
+    from .test_approver import Phone
+
+    phone, keys, _ = phone_keys
+    ha = signed_in_ha()
+    status, payload = handle_car_request("POST", "/command", button_signed(Phone(), "unlock"), ha=ha, approver=keys)
+    assert status == 403 and payload["code"] == "button_key_unknown" and ha.services() == []
+
+
+def test_routes_a_button_proof_never_answers_an_approval(button_keys):
+    phone, button, keys, waiting = button_keys
+    ha = signed_in_ha()
+    kw = dict(ha=ha, approver=keys, approvals=waiting, notify=lambda item: None)
+    approval = handle_car_request("POST", "/approvals", {"command": "unlock"}, host_signed=True, **kw)[1]["approval"]
+    proof = button_signed(button, "unlock", nonce=approval["id"])
+    status, payload = handle_car_request("POST", f"/approvals/{approval['id']}/approve", proof, **kw)
+    assert status == 403 and payload["code"] == "forbidden" and ha.services() == []
+    assert [a["id"] for a in handle_car_request("GET", "/approvals", None, **kw)[1]["approvals"]] == [approval["id"]]

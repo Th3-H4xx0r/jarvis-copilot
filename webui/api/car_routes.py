@@ -3,17 +3,20 @@
 ``handle_car_request(method, path, body, ha=None)`` returns ``(status, payload)`` for
 ``j(handler, payload, status=status)``. Everything goes to Pranav's Home Assistant, which runs the
 Toyota integration; nothing here talks to Toyota. The sign-in body (email, password, code) is
-handed to Home Assistant's sign-in flow and never stored or logged. GET/POST only::
+handed to Home Assistant's sign-in flow and never stored or logged. GET/POST (+ one DELETE)::
 
     GET  /state                          -> {account, car|null, error?}
     POST /refresh                        -> {ok}                       (wakes the car)
-    POST /command {command, nonce?, ts?, signature?} -> {ok, command, result}
-                                         (every command but stop: a Face ID signature — approver.py)
-    GET  /approver                       -> {registered, public_key?}
+    POST /command {command, nonce?, ts?, signature?, by?: "button"} -> {ok, command, result, source?}
+                                         (every command but stop: a Face ID signature — approver.py;
+                                          by "button": the button key's, never from Jarvis, source "button")
+    GET  /approver                       -> {registered, public_key?, button_key?}
     POST /approver {public_key, ts?, signature?}   -> {ok}   (a new key needs the old key's signature)
+    POST /approver/button {public_key, ts, signature} -> {ok}  (signed by the Face ID key; phone only)
+    DELETE /approver/button              -> {ok}                         (phone only)
     GET  /approvals                      -> {approvals: [...]}           (Jarvis's, waiting for Face ID)
     POST /approvals {command}            -> {ok, approval}               (the toyota_command tool)
-    POST /approvals/<id>/approve {ts, signature} -> {ok, command, result}
+    POST /approvals/<id>/approve {ts, signature} -> {ok, command, result}   (Face ID only, never by button)
     POST /approvals/<id>/deny            -> {ok}
     POST /climate {custom?, temp?, defrost_front?, defrost_rear?} -> {ok, climate}
     POST /signin {email, password}       -> {ok, step: code|done, flow_id?}
@@ -59,7 +62,7 @@ def _notify_phone(item):
 def handle_car_request(method, path, body, ha=None, approver=None, approvals=None, notify=None,
                        host_signed=False):
     """``host_signed``: the request came over the host-signed loopback — the agent's side. It may ask
-    for an approval, never register a key or answer one."""
+    for an approval, never register a key, answer an approval or use the button key."""
     from plugins.toyota import approver as approval
     from plugins.toyota import service
     from plugins.toyota.account import SignInError, ToyotaAccount
@@ -79,15 +82,16 @@ def handle_car_request(method, path, body, ha=None, approver=None, approvals=Non
         await service.require_signed_in(ha)
         return ToyotaCar(ha)
 
-    async def run_command(name, proof_nonce=None, proof=None):
+    async def run_command(name, proof_nonce=None, proof=None, by_button=False):
         if name not in SERVICES:
             raise CarError(f"Unknown car command '{name}'.")
         approved = False
         if needs_face_id(name):
-            keys.verify(name, proof_nonce, proof.get("ts"), proof.get("signature"))
+            keys.verify(name, proof_nonce, proof.get("ts"), proof.get("signature"), by_button=by_button)
             approved = True
         car = await signed_in_car()
-        return await car.command(name, approved=approved)
+        result = await car.command(name, approved=approved)
+        return {**result, "source": "button"} if by_button else result
 
     async def dispatch():
         if method == "GET":
@@ -95,9 +99,14 @@ def handle_car_request(method, path, body, ha=None, approver=None, approvals=Non
                 return 200, await service.car_state(ha)
             if p == "/approver":
                 key = keys.registered()
-                return 200, {"registered": key is not None, "public_key": key}
+                return 200, {"registered": key is not None, "public_key": key, "button_key": keys.button_key()}
             if p == "/approvals":
                 return 200, {"approvals": waiting.pending()}
+            return 404, {"ok": False, "error": "unknown car endpoint"}
+        if method == "DELETE":
+            if p == "/approver/button":
+                keys.clear_button(from_host=host_signed)
+                return 200, {"ok": True}
             return 404, {"ok": False, "error": "unknown car endpoint"}
         if method != "POST":
             return 405, {"ok": False, "error": f"method {method} not allowed"}
@@ -105,9 +114,16 @@ def handle_car_request(method, path, body, ha=None, approver=None, approvals=Non
             return 200, await (await signed_in_car()).refresh()
         if p == "/command":
             name = str(body.get("command") or "")
-            return 200, await run_command(name, body.get("nonce"), body)
+            by_button = body.get("by") == "button"
+            if by_button and host_signed:
+                return 403, {"ok": False, "error": "Only Pranav's iPhone presses his buttons.", "code": "forbidden"}
+            return 200, await run_command(name, body.get("nonce"), body, by_button=by_button)
         if p == "/approver":
             keys.register(body.get("public_key"), body.get("ts"), body.get("signature"), from_host=host_signed)
+            return 200, {"ok": True}
+        if p == "/approver/button":
+            keys.register_button(body.get("public_key"), body.get("ts"), body.get("signature"),
+                                 from_host=host_signed)
             return 200, {"ok": True}
         if p == "/approvals":
             if not host_signed:
@@ -126,6 +142,8 @@ def handle_car_request(method, path, body, ha=None, approver=None, approvals=Non
             if parts[2] == "deny":
                 waiting.take(approval_id)
                 return 200, {"ok": True}
+            if body.get("by") == "button":
+                return 403, {"ok": False, "error": "Jarvis's approvals are answered with Face ID.", "code": "forbidden"}
             item = waiting.peek(approval_id)
             keys.verify(item["command"], approval_id, body.get("ts"), body.get("signature"))
             waiting.take(approval_id)

@@ -471,18 +471,19 @@ class DoorService:
         self._execute(effects)
         return self.state()
 
-    def _verify(self, action: str, proof: dict, nonce: Any = None) -> None:
+    def _verify(self, action: str, proof: dict, nonce: Any = None, by_button: bool = False) -> None:
         self.approver.verify(action, nonce if nonce is not None else proof.get("nonce"), proof.get("ts"),
-                             proof.get("signature"), domain=DOMAIN)
+                             proof.get("signature"), domain=DOMAIN, by_button=by_button)
 
-    def disarm(self, proof: dict, source: str = "app") -> dict:
+    # by_button: signed by the phone's button key (a press set to skip Face ID), not Face ID.
+    def disarm(self, proof: dict, source: str = "app", by_button: bool = False) -> dict:
         self._require()
-        self._verify("disarm", proof or {})
+        self._verify("disarm", proof or {}, by_button=by_button)
         return self._do("disarm", source)
 
-    def silence(self, proof: dict, source: str = "app") -> dict:
+    def silence(self, proof: dict, source: str = "app", by_button: bool = False) -> dict:
         self._require()
-        self._verify("silence", proof or {})
+        self._verify("silence", proof or {}, by_button=by_button)
         return self._do("silence", source)
 
     def _do(self, action: str, source: str) -> dict:

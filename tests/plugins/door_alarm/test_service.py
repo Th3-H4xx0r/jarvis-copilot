@@ -77,10 +77,21 @@ class FakeCloud:
 
 
 class FakeApprover:
+    """Face ID signs "good"; the button key (when there is one) signs "button"."""
+
     def __init__(self):
         self.calls = []
+        self.button_calls = []
+        self.has_button = True
 
-    def verify(self, command, nonce, ts, signature, domain="jarvis-car"):
+    def verify(self, command, nonce, ts, signature, domain="jarvis-car", by_button=False):
+        if by_button:
+            self.button_calls.append((command, nonce, domain))
+            if not self.has_button:
+                raise ApprovalError("This server has no button key.", "button_key_unknown")
+            if signature != "button":
+                raise ApprovalError("The button press didn't check out on this server.", "bad_signature")
+            return
         self.calls.append((command, nonce, domain))
         if signature != "good":
             raise ApprovalError("Face ID approval didn't check out on this server.", "bad_signature")

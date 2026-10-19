@@ -9,14 +9,17 @@
   overheard request (the Pod is in the house) must not be able to weaken the alarm.
 - ``caller == "board"`` = a paired ESP32 or the Pod (they advertise esp32_/pod_ skills): read only.
 - anyone else with a paired session = Pranav's phone or browser.
+``by: "button"`` = signed by the phone's button key (a press set to skip Face ID, approver.py): taken
+for /disarm and /silence only, never from Jarvis, never to answer an approval.
 The local key never leaves the server. Routes::
 
     GET  /state | /settings | /approvals | /setup | /setup/devices | /proxies | /network | /firmware
     GET  /history?limit=&contact=
     POST /arm {mode, bypass?, source?}            409 {open_contacts} when a watched door is open
-    POST /disarm | /silence {nonce, ts, signature}           (phone, Face ID, jarvis-home domain)
+    POST /disarm | /silence {nonce, ts, signature, by?: "button"}   (phone, jarvis-home domain;
+                                                  Face ID, or the button key with history source "button")
     POST /approvals {action}                                  (Jarvis only)
-    POST /approvals/<id>/approve {ts, signature} | /approvals/<id>/deny     (phone only)
+    POST /approvals/<id>/approve {ts, signature} | /approvals/<id>/deny     (phone only, Face ID only)
     POST /set {code, value}                       504 when the hub doesn't confirm
     POST /settings {alarm?, contacts?, siren?}    POST /rename {name}
     POST /setup/credentials {access_id, secret, region} | /setup/pick {dev_id} | /setup/proxy {board_id}
@@ -136,10 +139,11 @@ def handle_door_request(method, path, body, host_signed=False, service=None, cal
             return 200, svc.cancel_arming()
         if p == "/arm_now":
             return 200, svc.arm_now(source="Jarvis" if host_signed else "app")
+        by_button = body.get("by") == "button"
         if p == "/disarm":
-            return 200, svc.disarm(body)
+            return 200, svc.disarm(body, source="button" if by_button else "app", by_button=by_button)
         if p == "/silence":
-            return 200, svc.silence(body)
+            return 200, svc.silence(body, source="button" if by_button else "app", by_button=by_button)
         if p == "/approvals":
             if not host_signed:
                 return forbid("Only Jarvis asks for door alarm approvals.")
@@ -150,6 +154,8 @@ def handle_door_request(method, path, body, host_signed=False, service=None, cal
             if parts[2] == "deny":
                 svc.deny_approval(parts[1])
                 return 200, {"ok": True}
+            if by_button:
+                return forbid("Jarvis's approvals are answered with Face ID.")
             return 200, svc.answer_approval(parts[1], body)
         if p == "/set":
             if host_signed and armed:

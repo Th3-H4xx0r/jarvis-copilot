@@ -7172,6 +7172,13 @@ def handle_delete(handler, parsed) -> bool:
             "DELETE", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/car/"):   # DELETE /api/car/approver/button
+        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
+        from api.auth import _check_host_signature
+        status, payload = handle_car_request("DELETE", parsed.path[len(CAR_PATH_PREFIX):], body,
+                                             host_signed=_check_host_signature(handler))
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/dashcam/"):
         from api import dashcam_relay
         from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
