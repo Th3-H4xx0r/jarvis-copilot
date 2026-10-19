@@ -5074,6 +5074,16 @@ def handle_post(handler, parsed) -> bool:
                                               caller=door_caller(handler))
         return j(handler, payload, status=status)
 
+    # The phone's live-button push tokens (exact paths: the rest of /api/live/ is Live Jarvis).
+    if parsed.path in ("/api/live/control-tokens", "/api/live/activity-token"):
+        from api.auth import _check_host_signature
+        from api.live_routes import LIVE_PATH_PREFIX, handle_live_request, live_caller
+        device_id, caller = live_caller(handler)
+        status, payload = handle_live_request("POST", parsed.path[len(LIVE_PATH_PREFIX):], body,
+                                              host_signed=_check_host_signature(handler),
+                                              caller=caller, device_id=device_id)
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/dashcam/"):
         from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
         from api.dashcam_store import store_for_request as dashcam_store

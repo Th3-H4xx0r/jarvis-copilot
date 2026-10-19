@@ -129,7 +129,10 @@ SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32
                                 # The call/text card the server shows and closes (agent/send_confirm.py).
                                 "confirm_card",
                                 # Spotify's App Remote play on the phone, with the server's token.
-                                "spotify_remote_play"})
+                                "spotify_remote_play",
+                                # The door alarm's state for the phone's live buttons (live_buttons.py):
+                                # a forged one would make a tile say "Disarmed" while the alarm is on.
+                                "live_state"})
 
 
 # ── Inbound device events ───────────────────────────────────────────────────

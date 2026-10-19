@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from plugins.door_alarm import schema
+from plugins.door_alarm import live_buttons, schema
 from plugins.door_alarm.alarm import Alarm, ArmRefused, Effect  # noqa: F401  (ArmRefused re-exported)
 from plugins.door_alarm.hub import Hub
 from plugins.door_alarm.store import DoorStore
@@ -27,6 +27,8 @@ CONTACT_KEYS = {"name": str, "instant": bool, "active_home": bool, "notify_disar
 STATE_TEXT = {"disarmed": "Disarmed", "arming": "Arming — exit delay", "armed_away": "Armed away",
               "armed_home": "Armed home", "entry": "Door opened — entry delay", "triggered": "ALARM"}
 NOT_SET_UP = "The door alarm isn't set up yet. Open Devices → Door Alarm → Setup on the iPhone."
+#: A door card token registered this long before a new arming / entry belongs to a card nobody ended.
+LIVE_TOKEN_FRESH = 60.0
 
 
 class NotSetUp(Exception):
@@ -59,9 +61,43 @@ class _Bridge:
         from api import device_bridge
         return device_bridge.device_offering(skill)
 
+    def offering_all(self, skill: str) -> list[str]:
+        """Every reachable device offering ``skill`` (live sockets first, then push-reachable phones)."""
+        from api import device_bridge
+        out: list[str] = []
+        for s in device_bridge.all_device_skills():
+            device = s.get("device_id")
+            if s.get("name") == skill and device and device not in out:
+                out.append(device)
+        return out
+
     def is_connected(self, device: str) -> bool:
         from api import device_bridge
         return device in device_bridge.connected_device_ids()
+
+
+class _Live:
+    """The phones' live buttons (webui/api/live_routes.py): Control Center tiles and the door card."""
+
+    def activity(self, source: str, content_state: dict, **kw) -> int:
+        from api import live_routes
+        return live_routes.push_activity(source, content_state, **kw)
+
+    def start(self, source: str, content_state: dict, **kw) -> int:
+        from api import live_routes
+        return live_routes.start_activity(source, content_state, **kw)
+
+    def needs_start(self, source: str) -> bool:
+        from api import live_routes
+        return live_routes.needs_start(source)
+
+    def forget_stale(self, source: str, before: float) -> None:
+        from api import live_routes
+        live_routes.forget_stale(source, before=before)
+
+    def refresh_controls(self) -> int:
+        from api import live_routes
+        return live_routes.refresh_controls()
 
 
 def _push(title: str, body: str, data: dict | None = None, category: str | None = None, level: str | None = None) -> int:
@@ -145,7 +181,8 @@ class DoorService:
     def __init__(self, store: DoorStore | None = None, clock: Callable[[], float] = time.time,
                  bridge=None, push: Callable | None = None, cloud: Callable | None = None,
                  approver=None, approvals=None, run_prompt: Callable[[str], None] | None = None,
-                 run: Callable[[Callable], Any] | None = None, confirm_timeout: float = 5.0) -> None:
+                 run: Callable[[Callable], Any] | None = None, confirm_timeout: float = 5.0,
+                 live=None, live_run: Callable[[Callable], Any] | None = None, live_grace: float = 3.0) -> None:
         self.store = store or DoorStore()
         self.clock = clock
         self.bridge = bridge or _Bridge()
@@ -164,11 +201,19 @@ class DoorService:
         # writes stay in order (a siren "on" can't land after the disarm's "off").
         self._run_alerts = run or _Worker("door-alerts")
         self._run_hub = run or _Worker("door-hub")
+        # A third: the live buttons can wait on an asleep phone (live_state over a silent push)
+        # without holding up the alarm's own alerts.
+        self._run_live = live_run or run or _Worker("door-live")
+        self.live = live or _Live()
+        self._live_grace = live_grace
         self.confirm_timeout = confirm_timeout
         self.lock = threading.RLock()
         self.hub = Hub(self.store, clock)
         cfg = self.store.config()
         self.alarm = Alarm(cfg.get("alarm") or {}, contacts=self.hub.contacts, clock=clock, state=self.store.state())
+        shown = self.alarm.public()
+        self._live_key = live_buttons.key(shown)
+        self._live_shown = (shown["state"], live_buttons.button_state(shown))
         self._waiters: list[tuple[str, Any, threading.Event]] = []
         self._warned: dict[str, float] = {}
         self._saved_volume: Optional[tuple[str, Any]] = None
@@ -666,6 +711,82 @@ class DoorService:
             page = self._pod_state_page(after)
             if page:
                 self._run_alerts(lambda: self._pod_show(page))
+        self._live_changed()
+
+    # ── live buttons (live_buttons.py) ──
+
+    def _live_changed(self) -> None:
+        """Tell the phones' live buttons when what a door button shows changes — the state, the
+        siren, a new deadline — not on every hub report. Called under the lock; the work itself
+        runs on the door-live queue, off it."""
+        alarm = self.alarm.public()
+        key = live_buttons.key(alarm)
+        if key == self._live_key:
+            return
+        self._live_key = key
+        (before, last), shown = self._live_shown, live_buttons.button_state(alarm)
+        self._live_shown = (alarm["state"], shown)
+        now = self.clock()
+        self._run_live(lambda: self._live_fan_out(key, before, last, alarm, shown, now))
+
+    def _live_try(self, what: str, fn: Callable) -> Any:
+        try:
+            return fn()
+        except Exception:
+            log.warning("door alarm: live buttons: %s failed", what, exc_info=True)
+            return None
+
+    def _live_devices(self) -> list[str]:
+        """The phones that run the hidden live_state skill (every one that offers it)."""
+        try:
+            find = getattr(self.bridge, "offering_all", None)
+            if find is not None:
+                return [d for d in find("live_state") if d]
+            device = self.bridge.offering("live_state")
+            return [device] if device else []
+        except Exception:
+            log.info("door alarm: couldn't list the phones for live_state", exc_info=True)
+            return []
+
+    def _live_fan_out(self, key: tuple, before: str, last: dict, alarm: dict, shown: dict, now: float) -> None:
+        """Card, phone, tiles — in that order, each best effort. The card goes first (it needs nothing
+        from the app); live_state before the tile refresh, so a woken app has re-drawn its timelines
+        by the time the tiles re-read them."""
+        lb, src, state = live_buttons, live_buttons.SOURCE, alarm["state"]
+        episode = before not in lb.ACTIVE and state in lb.ACTIVE
+        stale = lb.stale_after(alarm, now)
+        if episode:
+            self._live_try("forgetting stale cards", lambda: self.live.forget_stale(src, now - LIVE_TOKEN_FRESH))
+        if state in lb.ACTIVE:
+            self._live_try("card update", lambda: self.live.activity(
+                src, lb.content(shown), event="update", stale_after=stale, expiration=int(now) + stale))
+        elif before in lb.ACTIVE:
+            self._live_try("card end", lambda: self.live.activity(
+                src, lb.content(last, finished=True, result=lb.result(before, state)), event="end",
+                dismissal_after=lb.DISMISS_AFTER, expiration=int(now) + 3600))
+        for device in self._live_devices():
+            self._safe_invoke(device, "live_state", {"source": src, "alarm": alarm}, timeout=8.0)
+        self._live_try("tile refresh", self.live.refresh_controls)
+        if episode:
+            self._live_start(key, alarm, shown, stale)
+
+    def _live_start(self, key: tuple, alarm: dict, shown: dict, stale: int) -> None:
+        """Arming or an entry delay the phone didn't start itself (the Door page, the web, the Pod,
+        Jarvis, a door opening): push-to-start the card on each phone that wants one and has none —
+        after a moment for the app to report a card it started on its own."""
+        lb, src = live_buttons, live_buttons.SOURCE
+        if not self._live_try("card check", lambda: self.live.needs_start(src)):
+            return
+        until = time.monotonic() + self._live_grace
+        while time.monotonic() < until:
+            time.sleep(0.25)
+            if not self._live_try("card check", lambda: self.live.needs_start(src)):
+                return
+        if key != self._live_key:   # a newer change is already queued: it would start a stale card
+            return
+        self._live_try("card start", lambda: self.live.start(
+            src, lb.content(shown), attributes_type=lb.ATTRIBUTES_TYPE, attributes=dict(lb.ATTRIBUTES),
+            alert=lb.start_alert(alarm), stale_after=stale, expiration=int(self.clock()) + stale))
 
     # ── effects ──
 
