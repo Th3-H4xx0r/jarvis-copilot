@@ -189,6 +189,26 @@ final class ChatReplyDetailsTests: XCTestCase {
 
     // MARK: a text or call to confirm
 
+    /// A page Jarvis wrote on this Mac with a Mac tool (run_shell → /tmp/example.html) isn't on the
+    /// server: the card reads it off this disk — a regular file under the cap, nothing else.
+    func testAPageWrittenOnThisMacLoadsFromItsDisk() async throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("jc-page-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let page = dir.appendingPathComponent("example.html")
+        try Data("<h1>Hi</h1>".utf8).write(to: page)
+        let read = await ChatHTMLCard.pageFromThisMac(page.path)
+        XCTAssertEqual(read.map { String(decoding: $0, as: UTF8.self) }, "<h1>Hi</h1>")
+        let missing = await ChatHTMLCard.pageFromThisMac(dir.appendingPathComponent("nope.html").path)
+        XCTAssertNil(missing)
+        let folder = await ChatHTMLCard.pageFromThisMac(dir.path)
+        XCTAssertNil(folder, "a folder isn't a page")
+        let big = dir.appendingPathComponent("big.html")
+        try Data(count: ChatHTMLCard.maxBytes + 1).write(to: big)
+        let tooBig = await ChatHTMLCard.pageFromThisMac(big.path)
+        XCTAssertNil(tooBig, "over the cap")
+    }
+
     func testASendApprovalIsTheCardsContract() {
         var s = ChatStreamState()
         fold([("approval", #"{"pending": {"kind": "send", "approval_id": "3f9c", "command": "Text Mom: “On my way”", "description": "Send this text?", "pattern_key": "send_confirm", "pattern_keys": ["send_confirm"], "send": {"kind": "text", "to": "+15551234567", "name": "Mom Appleseed", "photo": "", "text": "On my way, be there at 7", "subject": "", "via": "iPhone"}}}"#)],

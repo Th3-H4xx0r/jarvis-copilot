@@ -9,12 +9,14 @@ import WebKit
 
 // MARK: - HTML page
 
-/// A page the agent saved on the server — a table, a chart — live inside the
-/// reply, with a button that opens it in its own window.
+/// A page the agent saved — on the server, or on this Mac with a Mac tool — a
+/// table, a chart, live inside the reply, with a button that opens it in its
+/// own window.
 ///
 /// Fetched through the island's API origin (it carries the session, like the
-/// chat's pictures) and never cached: the agent often rewrites the same file
-/// ("make the table blue"), and a cached copy would keep showing the old page.
+/// chat's pictures), else read off this Mac's disk, and never cached: the agent
+/// often rewrites the same file ("make the table blue"), and a cached copy would
+/// keep showing the old page.
 struct ChatHTMLCard: View {
     let path: String
 
@@ -85,14 +87,37 @@ struct ChatHTMLCard: View {
         // streaming in settles first.
         try? await Task.sleep(for: .milliseconds(350))
         guard !Task.isCancelled else { return }
-        guard let url = ChatMedia.url(for: ChatMedia.mediaSource(path), origin: AppModel.shared.apiOrigin),
-              let (data, response) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 30)),
-              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty, data.count <= Self.maxBytes
-        else {
-            if !Task.isCancelled { failedPath = path }
+        // The server's file, as the web and the phone show it; else this Mac's own:
+        // a page Jarvis wrote here with a Mac tool (run_shell) is only on this disk.
+        var data = await Self.pageFromServer(path)
+        if data == nil { data = await Self.pageFromThisMac(path) }
+        guard !Task.isCancelled else { return }
+        guard let data else {
+            failedPath = path
             return
         }
         page = (path, String(decoding: data, as: UTF8.self))
+    }
+
+    @MainActor
+    private static func pageFromServer(_ path: String) async -> Data? {
+        guard let url = ChatMedia.url(for: ChatMedia.mediaSource(path), origin: AppModel.shared.apiOrigin),
+              let (data, response) = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 30)),
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty, data.count <= maxBytes
+        else { return nil }
+        return data
+    }
+
+    /// The page at `path` on this Mac: a regular file under the size cap, read off the main thread.
+    static func pageFromThisMac(_ path: String) async -> Data? {
+        let limit = maxBytes
+        return await Task.detached(priority: .userInitiated) {
+            let url = URL(fileURLWithPath: path)
+            guard let info = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  info.isRegularFile == true, let size = info.fileSize, size > 0, size <= limit
+            else { return nil }
+            return try? Data(contentsOf: url)
+        }.value
     }
 }
 
