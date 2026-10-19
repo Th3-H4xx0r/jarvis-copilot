@@ -179,6 +179,35 @@ final class ChatStreamReducerTests: XCTestCase {
         XCTAssertNil(state.outcome, "the turn is blocked, not finished")
     }
 
+    /// A call or message the turn is paused on (agent/send_confirm.py): the card's person,
+    /// photo and words; other approvals aren't drawn; it goes when the turn ends.
+    func testASendApprovalPausesTheTurnOnACard() throws {
+        let photo = Data([0xFF, 0xD8, 0xFF]).base64EncodedString()
+        XCTAssertTrue(apply("approval", ["pending": [
+            "kind": "send", "approval_id": "a1", "command": "Text Mom: “hi”",
+            "send": ["kind": "text", "to": "+12096277732", "name": "Mom",
+                     "photo": "data:image/jpeg;base64,\(photo)", "text": "hi", "subject": "", "via": "iPhone"],
+        ]]))
+        let send = try XCTUnwrap(state.send)
+        XCTAssertEqual(send.approvalID, "a1")
+        XCTAssertEqual(send.photo, Data([0xFF, 0xD8, 0xFF]))
+        XCTAssertEqual(send.card.title, "Mom")
+        XCTAssertEqual(send.card.subtitle, "Text · +12096277732")
+        XCTAssertEqual(send.card.message, "hi")
+        XCTAssertEqual(send.card.actionTitle, "Send")
+        XCTAssertNil(state.outcome, "the turn is paused, not finished")
+        _ = apply("done")
+        XCTAssertNil(state.send, "a finished turn waits on nothing")
+
+        state = ChatStreamState(startedAt: t0)
+        XCTAssertFalse(apply("approval", ["command": "rm -rf /tmp/x", "description": "recursive delete"]))
+        XCTAssertNil(state.send)
+        XCTAssertTrue(apply("approval", ["kind": "send", "approval_id": "a2",
+                                         "send": ["kind": "call", "to": "+15550100"]]))
+        XCTAssertEqual(state.send?.card.title, "+15550100", "no contact: the number")
+        XCTAssertEqual(state.send?.card.actionTitle, "Call")
+    }
+
     func testClarifyAcceptsAPlainChoicesKeyAndIgnoresAnEmptyQuestion() {
         _ = apply("clarify", ["question": "Q", "choices": ["x"]])
         XCTAssertEqual(state.clarify?.choices, ["x"])

@@ -715,6 +715,21 @@
   .approval-desc{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5;}
   .approval-cmd{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-family:"SF Mono",ui-monospace,monospace;font-size:12px;color:var(--pre-text);white-space:pre-wrap;word-break:break-all;margin-bottom:14px;max-height:120px;overflow-y:auto;}
   .approval-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  /* A call or message about to go: the person, the words, Send / Cancel. */
+  .approval-send{display:none;}
+  .approval-card.is-send .approval-send{display:block;}
+  .approval-card.is-send :is(.approval-header,.approval-desc,.approval-cmd,.approval-btns){display:none;}
+  .approval-card.is-send .approval-inner{border-color:var(--border2);}
+  .approval-send-who{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+  .approval-send-avatar{width:46px;height:46px;border-radius:50%;flex:none;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--accent-bg);color:var(--accent-text);font-weight:600;font-size:17px;border:1px solid var(--border2);}
+  .approval-send-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+  .approval-send-names{min-width:0;}
+  .approval-send-name{font-size:16px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .approval-send-sub{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .approval-send-msg{background:var(--hover-bg);border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.45;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:140px;overflow-y:auto;margin-bottom:14px;}
+  .approval-send-msg:empty{display:none;}
+  .approval-send-btns{display:flex;gap:8px;}
+  .approval-send-btns .approval-btn{flex:1;justify-content:center;padding:10px 16px;font-size:13px;}
   .approval-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid var(--border2);background:var(--hover-bg);color:var(--text);cursor:pointer;transition:all .15s;white-space:nowrap;}
   .approval-btn:hover{background:rgba(255,255,255,0.12);transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,0.2);}
   .approval-btn:active{transform:translateY(0);box-shadow:none;}

@@ -13,6 +13,12 @@ agent/conversation_loop.py — his own words, never model text) a plain yes runs
 answers; a plain no, a correction, a yes to some other question, or two minutes of nothing drops it.
 The card's Send / ✕ are his "Yes." / "No." on the voice session. Car commands work the same way
 (plugins/toyota/confirm.py); both read the answer with agent/spoken_yes.py.
+
+Typed chat turns (his ask, same day: "show a card with the contact name, profile picture, along with
+the message to send and add a send button … for the chat surfaces … mac, ios, and web"; his pick: the
+turn pauses until he taps): the chat streaming the turn shows the card as an ``approval`` of kind
+"send" (tools.approval.ask_gateway) with the name and photo from his iPhone's contacts, and the tool
+runs only on its Send. Turns with no chat on screen (messaging platforms, scripts) send as before.
 """
 from __future__ import annotations
 
@@ -58,6 +64,8 @@ _SAYS = {
 }
 _VIA = {"device_messages_send": "Mac", "device_send_sms": "iPhone", "device_make_call": "iPhone",
         "send_email": "email"}
+# The iPhone's server-only skill: shows / closes the voice card, and names a contact for a chat card.
+_CARD_SKILL = "confirm_card"
 
 
 @dataclass
@@ -210,7 +218,7 @@ def _send_card(device: str, payload: dict) -> None:
     def go() -> None:
         try:
             from api import device_bridge
-            device_bridge.invoke_skill(device, "confirm_card", payload, timeout=10)
+            device_bridge.invoke_skill(device, _CARD_SKILL, payload, timeout=10)
         except Exception:
             logger.info("confirm card %s not delivered to %s", payload.get("action"), device, exc_info=True)
 
@@ -245,15 +253,18 @@ def _ask_text(item: Item) -> str:
 
 def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
          run: Callable[[], Any]) -> Optional[str]:
-    """None: go ahead. Otherwise the tool's result: noted for his answer, nothing sent."""
+    """None: go ahead. Otherwise the tool's result, nothing sent: noted for his answer (a voice turn),
+    or a chat card he cancelled or left."""
     item = classify(tool, args)
     if item is None:
         return None
     tid = str(task_id or "")
     chat = str(session_id or tid)
     keys = [k for k in dict.fromkeys((chat, tid)) if k]
-    if not keys or _unattended(tid) or not any(_voice_turn(k) for k in keys):
+    if not keys or _unattended(tid):
         return None
+    if not any(_voice_turn(k) for k in keys):
+        return _ask_on_card(item, keys)
     item.run = run
     now = _clock()
     replaced: Optional[_Pending] = None
@@ -276,6 +287,76 @@ def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
     logger.info("asked before %s (%s)", item.label(), tool)
     return json.dumps({"status": "awaiting_confirmation", "needs_confirmation": True, "sent": False,
                        "ask": _ask_text(item)}, ensure_ascii=False)
+
+
+# ── a typed chat turn: the card in the chat, Send or Cancel ─────────────────
+
+_VERB = {"call": "Call", "text": "Text", "email": "Email", "message": "Message"}
+_CARD_QUESTION = {"call": "Place this call?", "text": "Send this text?", "email": "Send this email?",
+                  "message": "Send this message?"}
+CONTACT_WAIT = 2.5  # seconds his iPhone gets to name the person on the card
+
+
+def _chat_listening(keys: list[str]) -> Optional[str]:
+    """The session whose chat is streaming this turn (so it can show the card), or None."""
+    try:
+        from tools import approval
+    except Exception:
+        return None
+    candidates = [approval.get_current_session_key(""), *keys]
+    return next((k for k in candidates if k and approval.has_gateway_listener(k)), None)
+
+
+def _contact(to: str) -> dict:
+    """The person's full name and photo from his iPhone's contacts, as the voice card shows them
+    ({} when it doesn't know them, isn't reachable, or takes too long)."""
+    if not to or ":" in to:          # a channel target (telegram:…), not a person in his contacts
+        return {}
+    try:
+        from api import device_bridge
+        device = device_bridge.device_offering(_CARD_SKILL)
+        if not device:
+            return {}
+        out = device_bridge.invoke_skill(device, _CARD_SKILL, {"action": "lookup", "id": "lookup", "to": to},
+                                         timeout=CONTACT_WAIT)
+    except Exception:
+        logger.info("no contact for the card", exc_info=True)
+        return {}
+    found = out.get("result") if isinstance(out, dict) and out.get("ok") else None
+    name = str(found.get("name") or "").strip() if isinstance(found, dict) else ""
+    if not name:
+        return {}
+    photo = str(found.get("photo") or "")
+    return {"name": name, "photo": f"data:image/jpeg;base64,{photo}" if photo else ""}
+
+
+def _ask_on_card(item: Item, keys: list[str]) -> Optional[str]:
+    """A typed turn: the chat shows the card (photo, name, message, Send / Cancel) and the turn waits
+    for it. None: he tapped Send, go ahead. Otherwise the tool's result: nothing was sent."""
+    session = _chat_listening(keys)
+    if session is None:
+        return None      # no chat on screen to ask (a messaging platform, a script): sends as before
+    who = _contact(item.to)
+    said = f": “{item.text[:200]}”" if item.text else ""
+    data = {"kind": "send", "approval_id": uuid.uuid4().hex,
+            "command": f"{_VERB[item.kind]} {who.get('name') or item.to}{said}",
+            "description": _CARD_QUESTION[item.kind],
+            "pattern_key": "send_confirm", "pattern_keys": ["send_confirm"],
+            "send": {**item.card(), "name": who.get("name", ""), "photo": who.get("photo", "")}}
+    from tools import approval
+    choice = approval.ask_gateway(session, data, timeout=ANSWER_WITHIN)
+    logger.info("card for %s: %s", item.label(), choice)
+    if choice in ("once", "session", "always"):
+        return None
+    done = "called" if item.kind == "call" else "sent"
+    if choice == "deny":
+        note = (f"He tapped Cancel on the card: nothing was {done}. Say so in a few words; don't try again "
+                "unless he asks (he may tell you what to change).")
+    elif choice == "timeout":
+        note = f"He didn't answer the card within {int(ANSWER_WITHIN // 60)} minutes: nothing was {done}. Tell him."
+    else:
+        note = f"The confirmation card couldn't be shown, so nothing was {done}. Tell him."
+    return json.dumps({"status": "not_sent", "sent": False, "note": note}, ensure_ascii=False)
 
 
 _SERVER_QUESTION = {"call": "Shall I place the call, sir?", "text": "Should I send the text, sir?",

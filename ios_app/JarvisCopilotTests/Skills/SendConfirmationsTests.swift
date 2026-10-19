@@ -39,6 +39,24 @@ final class SendConfirmationsTests: XCTestCase {
         XCTAssertEqual(card.subtitle, "Text · +12096277732")
     }
 
+    /// A chat's card (web, Mac, this app's chat) asks the phone who it is: the full name and a
+    /// small JPEG of the photo, or nothing for someone not in his contacts.
+    func testLookupNamesAContactForAChatCard() async throws {
+        let big = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 300)).image { ctx in
+            UIColor.orange.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        }.pngData()
+        let store = makeStore(["+12096277732": ContactCardInfo(name: "Shabd Patel", photo: big)])
+        let found = await store.handle(["action": "lookup", "id": "lookup", "to": "+12096277732"])
+        XCTAssertEqual(found["name"] as? String, "Shabd Patel")
+        let jpeg = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(found["photo"] as? String)))
+        let image = try XCTUnwrap(UIImage(data: jpeg))
+        XCTAssertLessThanOrEqual(max(image.size.width, image.size.height), 120)
+        XCTAssertEqual(jpeg.prefix(2), Data([0xFF, 0xD8]), "a JPEG")
+        let missing = await store.handle(["action": "lookup", "id": "lookup", "to": "+15550100"])
+        XCTAssertEqual(missing["found"] as? Bool, false)
+        XCTAssertNil(store.card, "a lookup shows nothing")
+    }
+
     func testSomeoneNotInContactsShowsTheNumberAndInitials() async throws {
         let store = makeStore()
         await show(store, kind: "call", to: "(209) 627-7732", text: "")

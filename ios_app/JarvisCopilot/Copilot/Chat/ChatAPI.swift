@@ -156,6 +156,12 @@ struct ChatAPI {
         _ = try await api.post("/api/clarify/respond", json: ["session_id": sessionID, "response": answer])
     }
 
+    /// Answer the approval the turn is paused on ("once" = Send, "deny" = Cancel).
+    func respondApproval(sessionID: String, choice: String, approvalID: String) async throws {
+        _ = try await api.post("/api/approval/respond",
+                               json: ["session_id": sessionID, "choice": choice, "approval_id": approvalID])
+    }
+
     /// Upload one composer attachment to `/api/upload` (multipart). Returns the
     /// full result map (`{filename, path, mime, size, is_image}`) — the shape
     /// `/api/chat/start` expects in its `attachments[]`.

@@ -1709,7 +1709,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       const d=JSON.parse(e.data);
       showApprovalForSession(activeSid, d, 1);
       playNotificationSound();
-      sendBrowserNotification('Approval required',d.description||'Tool approval needed');
+      if(d.kind==='send') sendBrowserNotification('Confirm before sending',d.command||d.description||'');
+      else sendBrowserNotification('Approval required',d.description||'Tool approval needed');
     });
 
     source.addEventListener('clarify',e=>{
@@ -2516,6 +2517,7 @@ function showApprovalCard(pending, pendingCount) {
   const sameApproval = card.classList.contains("visible") && _approvalSignature === sig;
   $("approvalDesc").textContent = desc;
   $("approvalCmd").textContent = cmd;
+  const isSend = _renderApprovalSend(pending.kind === "send" ? pending.send : null);
   _approvalSessionId = sid;
   _approvalCurrentId = pending.approval_id || null;
   _approvalSignature = sig;
@@ -2534,13 +2536,46 @@ function showApprovalCard(pending, pendingCount) {
     _clearApprovalHideTimer();
   }
   // Re-enable buttons in case a previous approval disabled them
-  ["approvalBtnOnce","approvalBtnSession","approvalBtnAlways","approvalBtnDeny"].forEach(id => {
+  _APPROVAL_BUTTONS.forEach(id => {
     const b = $(id); if (b) { b.disabled = false; b.classList.remove("loading"); }
   });
   card.classList.add("visible");
   if (typeof applyLocaleToDOM === "function") applyLocaleToDOM();
+  // A text or call to someone goes only on a click — never a stray Enter on a focused Send.
   const onceBtn = $("approvalBtnOnce");
-  if (onceBtn) setTimeout(() => onceBtn.focus({preventScroll: true}), 50);
+  if (onceBtn && !isSend) setTimeout(() => onceBtn.focus({preventScroll: true}), 50);
+}
+
+const _APPROVAL_BUTTONS = ["approvalBtnOnce","approvalBtnSession","approvalBtnAlways","approvalBtnDeny",
+                           "approvalSendGo","approvalSendCancel"];
+
+// A call or message Jarvis is about to make (agent/send_confirm.py): the person as his
+// iPhone's contacts know them (photo or initials), the words, and Send (Call) / Cancel,
+// answered like any approval: Send = "once", Cancel = "deny". Returns whether it is one.
+function _renderApprovalSend(send) {
+  const card = $("approvalCard");
+  card.classList.toggle("is-send", !!send);
+  if (!send) return false;
+  const name = String(send.name || "").trim();
+  const to = String(send.to || "");
+  const avatar = $("approvalSendAvatar");
+  avatar.textContent = "";
+  if (/^data:image\/[a-z]+;base64,/i.test(send.photo || "")) {
+    const img = document.createElement("img");
+    img.src = send.photo;
+    img.alt = "";
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = name.split(/\s+/).slice(0, 2).map(w => (w.match(/\p{L}/u) || [""])[0]).join("").toUpperCase() || "?";
+  }
+  const via = String(send.via || "");
+  const what = {call: via === "FaceTime" ? "FaceTime" : "Call", text: "Text", email: "Email",
+                message: via ? via.charAt(0).toUpperCase() + via.slice(1) : "Message"}[send.kind] || "Message";
+  $("approvalSendName").textContent = name || to;
+  $("approvalSendSub").textContent = to ? what + " · " + to : what;
+  $("approvalSendMsg").textContent = [send.subject, send.text].filter(Boolean).join("\n");
+  $("approvalSendGo").textContent = send.kind === "call" ? "Call" : "Send";
+  return true;
 }
 
 async function respondApproval(choice) {
@@ -2548,7 +2583,7 @@ async function respondApproval(choice) {
   if (!sid) return;
   const approvalId = _approvalCurrentId;
   // Disable all buttons immediately to prevent double-submit
-  ["approvalBtnOnce","approvalBtnSession","approvalBtnAlways","approvalBtnDeny"].forEach(id => {
+  _APPROVAL_BUTTONS.forEach(id => {
     const b = $(id);
     if (b) { b.disabled = true; if (b.id === "approvalBtn" + choice.charAt(0).toUpperCase() + choice.slice(1)) b.classList.add("loading"); }
   });

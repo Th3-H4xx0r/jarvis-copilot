@@ -25,9 +25,12 @@ final class DefaultContactCardLookup: ContactCardLooking {
             CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
             CNContactThumbnailImageDataKey as CNKeyDescriptor,
         ]
+        // A name ("Mom") as the Mac's Messages takes it, else a number or an address.
         let predicate = trimmed.contains("@")
             ? CNContact.predicateForContacts(matchingEmailAddress: trimmed)
-            : CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: trimmed))
+            : trimmed.filter(\.isNumber).count < 3
+                ? CNContact.predicateForContacts(matchingName: trimmed)
+                : CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: trimmed))
         guard let contact = try? CNContactStore().unifiedContacts(matching: predicate, keysToFetch: keys).first,
               let name = CNContactFormatter.string(from: contact, style: .fullName), !name.isEmpty
         else { return nil }
@@ -131,10 +134,11 @@ final class SendConfirmations: ObservableObject {
     static func skill() -> AnySkill {
         AnySkill(
             name: skillName,
-            description: "Show or close the call/text confirmation card. Server use only.",
+            description: "Show or close the call/text confirmation card, or name a contact for one. Server use only.",
             inputSchema: SkillSchema.object([
-                "action": SkillSchema.string("show | close"),
+                "action": SkillSchema.string("show | close | lookup"),
                 "id": SkillSchema.string(),
+                "to": SkillSchema.string("lookup: a number, address or name"),
             ], required: ["action", "id"])
         ) { args in
             await SendConfirmations.shared.handle(args)
@@ -153,9 +157,26 @@ final class SendConfirmations: ObservableObject {
             let seconds = (args["expires_in"] as? Double) ?? (args["expires_in"] as? Int).map(Double.init) ?? 120
             await show(Card(id: id, items: items, deadline: Date().addingTimeInterval(max(0, seconds))))
             return ["shown": true]
+        case "lookup":
+            // A chat's card (web, Mac, this app's chat) shows the person as this phone knows them.
+            guard let info = await contacts.lookup(SkillArgs.string(args, "to")) else { return ["found": false] }
+            return ["name": info.name, "photo": Self.cardPhoto(info.photo)?.base64EncodedString() ?? ""]
         default:
-            return ["error": "action must be show or close"]
+            return ["error": "action must be show, close or lookup"]
         }
+    }
+
+    /// A contact's photo small enough to ride in a chat event: a 120 px JPEG.
+    static func cardPhoto(_ data: Data?) -> Data? {
+        guard let data, let image = UIImage(data: data) else { return nil }
+        let side: CGFloat = 120
+        let scale = min(1, side / max(image.size.width, image.size.height, 1))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }.jpegData(compressionQuality: 0.8)
     }
 
     private static func item(_ raw: [String: Any]) -> Item? {

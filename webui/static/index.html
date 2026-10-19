@@ -514,6 +514,21 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <span id="approvalHeading" data-i18n="approval_heading">Approval required</span>
           </div>
+          <!-- A call or message Jarvis is about to make: who, what, Send / Cancel (agent/send_confirm.py) -->
+          <div class="approval-send" id="approvalSend">
+            <div class="approval-send-who">
+              <div class="approval-send-avatar" id="approvalSendAvatar" aria-hidden="true"></div>
+              <div class="approval-send-names">
+                <div class="approval-send-name" id="approvalSendName"></div>
+                <div class="approval-send-sub" id="approvalSendSub"></div>
+              </div>
+            </div>
+            <div class="approval-send-msg" id="approvalSendMsg"></div>
+            <div class="approval-send-btns">
+              <button class="approval-btn" id="approvalSendCancel" onclick="respondApproval('deny')">Cancel</button>
+              <button class="approval-btn once" id="approvalSendGo" onclick="respondApproval('once')">Send</button>
+            </div>
+          </div>
           <div class="approval-desc" id="approvalDesc"></div>
           <div class="approval-cmd" id="approvalCmd"></div>
           <div class="approval-counter" id="approvalCounter" style="display:none;font-size:0.75em;opacity:0.6;margin-top:4px;"></div>

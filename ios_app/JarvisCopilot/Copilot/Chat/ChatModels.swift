@@ -201,6 +201,43 @@ struct ClarifyPrompt: Identifiable, Equatable, Sendable {
     var id: String { question }
 }
 
+/// A call or message Jarvis is about to make, paused for his tap (agent/send_confirm.py):
+/// the server's `approval` of kind "send", with the person as his contacts know them.
+/// Send answers it "once" and the tool runs; Cancel answers "deny" and nothing goes.
+struct ChatSendRequest: Equatable, Sendable {
+    var approvalID: String
+    var kind: String
+    var to: String
+    var name: String
+    var photo: Data?
+    var text: String
+    var subject: String
+    var via: String
+
+    init?(json: [String: Any]) {
+        let pending = json["pending"] as? [String: Any] ?? json
+        guard pending.string("kind") == "send", let send = pending["send"] as? [String: Any],
+              let approvalID = pending.string("approval_id"), !approvalID.isEmpty else { return nil }
+        self.approvalID = approvalID
+        kind = send.string("kind") ?? "text"
+        to = send.string("to") ?? ""
+        name = send.string("name") ?? ""
+        photo = (send.string("photo") ?? "").split(separator: ",", maxSplits: 1).last
+            .flatMap { Data(base64Encoded: String($0)) }
+        text = send.string("text") ?? ""
+        subject = send.string("subject") ?? ""
+        via = send.string("via") ?? ""
+    }
+
+    /// As the voice card reads it — same person, line and buttons.
+    var card: SendConfirmations.Card {
+        let item = SendConfirmations.Item(kind: SendConfirmations.Item.Kind(rawValue: kind) ?? .text, to: to,
+                                          text: text, subject: subject, via: via)
+        return SendConfirmations.Card(id: approvalID, items: [item], deadline: .distantFuture,
+                                      name: name.isEmpty ? nil : name, photo: photo)
+    }
+}
+
 // MARK: - Messages
 
 /// A chat message. User messages carry a single text block; assistant messages

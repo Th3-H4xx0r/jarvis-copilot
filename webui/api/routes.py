@@ -10416,7 +10416,7 @@ def _handle_approval_respond(handler, body):
     # Unblock the agent thread waiting in the gateway approval queue.
     # This is the primary signal when streaming is active — the agent
     # thread is parked in entry.event.wait() and needs to be woken up.
-    resolve_gateway_approval(sid, choice, resolve_all=False)
+    resolve_gateway_approval(sid, choice, resolve_all=False, approval_id=approval_id)
     return j(handler, {"ok": True, "choice": choice})
 
 

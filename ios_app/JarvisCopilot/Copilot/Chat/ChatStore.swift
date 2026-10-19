@@ -78,6 +78,8 @@ final class ChatStore {
     var error: String?
     /// The agent's open clarify question; answering it resumes the blocked turn.
     var pendingClarify: ClarifyPrompt?
+    /// A call or message the turn is paused on: the card with Send / Cancel.
+    var pendingSend: ChatSendRequest?
 
     // MARK: Composer
 
@@ -103,6 +105,7 @@ final class ChatStore {
     @ObservationIgnored private var liveStreamID: String?
     @ObservationIgnored private var turnStartedAt = Date()
     @ObservationIgnored private var lastPublishedClarify: ClarifyPrompt?
+    @ObservationIgnored private var lastPublishedSend: ChatSendRequest?
     /// Consecutive failed background list refreshes. A quiet poll that has been
     /// failing for a while is not "quiet", it is broken (silent-failures M20).
     @ObservationIgnored private var quietListFailures = 0
@@ -309,6 +312,7 @@ final class ChatStore {
         error = nil
         setMessages([])
         pendingClarify = nil
+        pendingSend = nil
         historyLoading = true
         sessionTitle = sessions.first { $0.id == id }?.displayTitle ?? "Chat"
         do {
@@ -377,6 +381,7 @@ final class ChatStore {
         setMessages([])
         error = nil
         pendingClarify = nil
+        pendingSend = nil
     }
 
     private func ensureSession() async throws -> String {
@@ -412,6 +417,7 @@ final class ChatStore {
         liveMessageID = live.id
         liveStreamID = nil
         lastPublishedClarify = nil
+        lastPublishedSend = nil
         turnStartedAt = clock.now
         streaming = true
 
@@ -450,6 +456,20 @@ final class ChatStore {
             // (swift-correctness H12 / silent-failures H6).
             pendingClarify = asked
             lastPublishedClarify = asked
+            error = "Couldn't send your answer: \(apiErrorMessage(failure))"
+        }
+    }
+
+    /// Send (or Cancel) the call or message the turn is paused on; the turn then goes on.
+    func respondSend(yes: Bool) async {
+        guard let asked = pendingSend, let id = sessionID, !id.isEmpty else { pendingSend = nil; return }
+        pendingSend = nil
+        do {
+            try await chatAPI.respondApproval(sessionID: id, choice: yes ? "once" : "deny", approvalID: asked.approvalID)
+        } catch let failure {
+            // Still paused on the server: put the card back.
+            pendingSend = asked
+            lastPublishedSend = asked
             error = "Couldn't send your answer: \(apiErrorMessage(failure))"
         }
     }
@@ -733,6 +753,10 @@ final class ChatStore {
         if state.clarify != lastPublishedClarify {
             lastPublishedClarify = state.clarify
             pendingClarify = state.clarify
+        }
+        if state.send != lastPublishedSend {
+            lastPublishedSend = state.send
+            pendingSend = state.send
         }
     }
 

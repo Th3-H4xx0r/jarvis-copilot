@@ -1078,7 +1078,8 @@ document.addEventListener('keydown',async e=>{
   if(e.key==='Enter'&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey){
     const card=$('approvalCard');
     const tag=(document.activeElement||{}).tagName||'';
-    if(card&&card.classList.contains('visible')&&tag!=='TEXTAREA'&&tag!=='INPUT'&&tag!=='SELECT'){
+    // Not a text or call to someone: that goes only on a click of its Send.
+    if(card&&card.classList.contains('visible')&&!card.classList.contains('is-send')&&tag!=='TEXTAREA'&&tag!=='INPUT'&&tag!=='SELECT'){
       e.preventDefault();
       if(typeof respondApproval==='function') respondApproval('once');
       return;

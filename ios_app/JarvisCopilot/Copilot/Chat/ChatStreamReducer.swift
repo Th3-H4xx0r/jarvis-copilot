@@ -15,6 +15,8 @@ struct ChatStreamState: Equatable, Sendable {
     /// Set when the server names the session mid-turn.
     var sessionTitle: String?
     var clarify: ClarifyPrompt?
+    /// A call or message waiting on his Send.
+    var send: ChatSendRequest?
 
     /// nil while the turn is still running.
     var outcome: Outcome?
@@ -131,6 +133,12 @@ enum ChatStreamReducer {
             state.clarify = ClarifyPrompt(question: question, choices: choices)
             return true
 
+        case "approval":
+            // Only a call or message to someone is drawn here.
+            guard let send = ChatSendRequest(json: object), send != state.send else { return false }
+            state.send = send
+            return true
+
         case "title":
             let title = (object.string("title") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { return false }
@@ -143,6 +151,7 @@ enum ChatStreamReducer {
 
         case "cancel", "cancelled":
             state.outcome = .cancelled
+            state.send = nil
             return true
 
         case "done", "stream_end", "complete":
@@ -159,6 +168,7 @@ enum ChatStreamReducer {
                 state.message.appendToken(text)
             }
             state.outcome = .done
+            state.send = nil
             return true
 
         default:
@@ -172,6 +182,7 @@ enum ChatStreamReducer {
     /// if a cancel came in before anything was said.
     static func finish(_ state: inout ChatStreamState, cancelled: Bool = false, now: Date = Date()) {
         state.message.streaming = false
+        state.send = nil                 // the turn is over: nothing waits on his tap
         state.message.closeOpenTools()
         state.message.dropEmptyTextBlocks()
 
@@ -189,6 +200,7 @@ enum ChatStreamReducer {
     /// partial answer above it.
     static func fail(_ state: inout ChatStreamState, _ message: String) {
         state.message.streaming = false
+        state.send = nil
         state.message.isError = true
         state.message.closeOpenTools()
         state.message.dropEmptyTextBlocks()

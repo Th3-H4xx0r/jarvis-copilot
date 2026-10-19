@@ -147,3 +147,61 @@ struct ContactAvatar: View {
         .accessibilityHidden(true)
     }
 }
+
+/// The same card in a chat, where a typed turn waits on it (agent/send_confirm.py): above the
+/// composer like the clarify bar — photo or initials, the name, "Text · +1 209…", the message, and
+/// Cancel / Send (Call).
+struct ChatSendBar: View {
+    let request: ChatSendRequest
+    let onAnswer: (Bool) -> Void
+
+    var body: some View {
+        let card = request.card
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ContactAvatar(card: card, size: 46)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(card.title)
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                    Text(card.subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            if !card.message.isEmpty {
+                Text(card.message)
+                    .font(.subheadline)
+                    .lineLimit(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            }
+            HStack(spacing: 10) {
+                Button { onAnswer(false) } label: {
+                    Text("Cancel").frame(maxWidth: .infinity, minHeight: 24)
+                }
+                .buttonStyle(.jcGlass(tint: .secondary, full: true))
+                Button { onAnswer(true) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: card.actionSymbol)
+                        Text(card.actionTitle)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 24)
+                }
+                .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+            }
+        }
+        .padding(14)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .contain)
+    }
+}

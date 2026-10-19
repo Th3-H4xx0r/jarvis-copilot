@@ -298,3 +298,109 @@ def test_no_extra_question_for_an_earlier_turns_ask(world):
     _ask()
     _turn("what's the weather", reply="Hmm.", history_len=2)   # drops it
     assert sc.ask_if_unasked(CHAT, "It's sunny.") is None
+
+
+# ── a typed chat turn: the card in the chat (2026-10-18, round 3) ───────────
+# His ask: "show a card with the contact name, profile picture, along with the message to send and
+# add a send button … for the chat surfaces"; his pick: the turn pauses until he taps.
+
+TYPED = "sess-typed"
+
+
+@pytest.fixture
+def chat(monkeypatch):
+    """A typed chat on screen: the cards it was shown, and what it answers (by approval id)."""
+    from tools import approval
+
+    sc.reset_for_tests()
+    monkeypatch.setattr(sc, "_voice_turn", lambda chat: False)
+    monkeypatch.setattr(sc, "_contact", lambda to: {"name": "Shabd Patel", "photo": "data:image/jpeg;base64,AAA"})
+    shown: list[dict] = []
+    answers: list[str] = []
+
+    def on_card(data):
+        shown.append(data)
+        if answers:
+            approval.resolve_gateway_approval(TYPED, answers.pop(0), approval_id=data["approval_id"])
+
+    approval.register_gateway_notify(TYPED, on_card)
+    yield {"shown": shown, "answers": answers}
+    approval.unregister_gateway_notify(TYPED)
+    sc.reset_for_tests()
+
+
+def _typed(tool="device_messages_send", args=None):
+    return sc.gate(tool, dict(args or TEXT_ARGS), task_id=TYPED, session_id=TYPED, run=_Runs())
+
+
+def test_a_typed_turn_shows_the_card_and_send_goes_ahead(chat):
+    chat["answers"].append("once")
+    assert _typed() is None                       # Send: the dispatcher runs the tool
+    card = chat["shown"][-1]
+    assert card["kind"] == "send" and card["approval_id"]
+    assert card["send"] == {"kind": "text", "to": "+12096277732", "text": "hello", "subject": "",
+                            "via": "Mac", "name": "Shabd Patel", "photo": "data:image/jpeg;base64,AAA"}
+    assert card["command"] == "Text Shabd Patel: “hello”" and card["description"] == "Send this text?"
+
+
+def test_cancel_on_the_card_sends_nothing(chat):
+    chat["answers"].append("deny")
+    out = json.loads(_typed("device_make_call", {"number": "2096277732"}))
+    assert out["sent"] is False and "Cancel" in out["note"] and "called" in out["note"]
+
+
+def test_a_card_left_unanswered_sends_nothing(chat, monkeypatch):
+    monkeypatch.setattr(sc, "ANSWER_WITHIN", 0.05)
+    out = json.loads(_typed())
+    assert out["sent"] is False and "didn't answer" in out["note"]
+
+
+def test_without_a_chat_on_screen_it_sends_as_before(chat):
+    assert sc.gate("device_messages_send", dict(TEXT_ARGS), task_id="telegram-1", session_id="telegram-1",
+                   run=_Runs()) is None
+    assert chat["shown"] == []
+
+
+def test_two_cards_are_answered_by_their_own_ids():
+    from tools import approval
+
+    first = approval._ApprovalEntry({"approval_id": "a"})
+    second = approval._ApprovalEntry({"approval_id": "b"})
+    with approval._lock:
+        approval._gateway_queues["s2"] = [first, second]
+    assert approval.resolve_gateway_approval("s2", "deny", approval_id="b") == 1
+    assert (second.result, first.result) == ("deny", None)      # Cancel on the second card only
+    assert approval.resolve_gateway_approval("s2", "once") == 1  # no id: the oldest, as before
+    assert first.result == "once"
+
+
+def test_the_contact_comes_from_his_iphone(monkeypatch):
+    import sys
+    import types
+
+    asked = []
+    bridge = types.SimpleNamespace(
+        device_offering=lambda skill: "iphone-1" if skill == "confirm_card" else None,
+        invoke_skill=lambda device, skill, args, timeout: asked.append((device, args, timeout))
+        or {"ok": True, "result": {"name": "Shabd Patel", "photo": "QUJD"}},
+    )
+    monkeypatch.setitem(sys.modules, "api", types.SimpleNamespace(device_bridge=bridge))
+    assert sc._contact("+12096277732") == {"name": "Shabd Patel", "photo": "data:image/jpeg;base64,QUJD"}
+    assert asked == [("iphone-1", {"action": "lookup", "id": "lookup", "to": "+12096277732"}, sc.CONTACT_WAIT)]
+    assert sc._contact("telegram:@shabd") == {}               # a channel, not a contact
+    bridge.invoke_skill = lambda *a, **k: {"ok": False, "error": "action must be show or close"}
+    assert sc._contact("+12096277732") == {}                  # an older phone: initials on the card
+
+
+def test_the_dispatcher_waits_for_send_on_a_typed_turn(chat, monkeypatch):
+    import model_tools
+
+    sent = []
+    monkeypatch.setattr(model_tools.registry, "dispatch", lambda name, args, **kw: sent.append(name) or "{}")
+    chat["answers"].append("deny")
+    out = model_tools.handle_function_call("device_make_call", {"number": "2096277732"},
+                                           task_id=TYPED, session_id=TYPED)
+    assert json.loads(out)["sent"] is False and sent == []
+    chat["answers"].append("once")
+    model_tools.handle_function_call("device_make_call", {"number": "2096277732"}, task_id=TYPED, session_id=TYPED)
+    assert sent == ["device_make_call"]

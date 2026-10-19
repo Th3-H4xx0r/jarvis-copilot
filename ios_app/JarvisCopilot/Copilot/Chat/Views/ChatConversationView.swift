@@ -60,6 +60,11 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     Task { await store.respondClarify(answer) }
                 }
             }
+            if let send = store.pendingSend {
+                ChatSendBar(request: send) { yes in
+                    Task { await store.respondSend(yes: yes) }
+                }
+            }
             footer
             if showsComposer {
                 ChatComposer(store: store, placeholder: placeholder, draft: $draft,

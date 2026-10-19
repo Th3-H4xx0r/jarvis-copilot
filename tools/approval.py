@@ -707,13 +707,13 @@ def unregister_gateway_notify(session_key: str) -> None:
 
 
 def resolve_gateway_approval(session_key: str, choice: str,
-                             resolve_all: bool = False) -> int:
+                             resolve_all: bool = False, approval_id: str = "") -> int:
     """Called by the gateway's /approve or /deny handler to unblock
     waiting agent thread(s).
 
     When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    resolved at once (``/approve all``).  Otherwise the one named by
+    *approval_id* (a card answered on screen), else the oldest (FIFO).
 
     Returns the number of approvals resolved (0 means nothing was pending).
     """
@@ -721,9 +721,13 @@ def resolve_gateway_approval(session_key: str, choice: str,
         queue = _gateway_queues.get(session_key)
         if not queue:
             return 0
+        named = next((e for e in queue if approval_id and e.data.get("approval_id") == approval_id), None)
         if resolve_all:
             targets = list(queue)
             queue.clear()
+        elif named is not None:
+            queue.remove(named)
+            targets = [named]
         else:
             targets = [queue.pop(0)]
         if not queue:
@@ -739,6 +743,60 @@ def has_blocking_approval(session_key: str) -> bool:
     """Check if a session has one or more blocking gateway approvals waiting."""
     with _lock:
         return bool(_gateway_queues.get(session_key))
+
+
+def has_gateway_listener(session_key: str) -> bool:
+    """A chat is streaming this session's turn and can show an approval card."""
+    with _lock:
+        return bool(session_key) and session_key in _gateway_notify_cbs
+
+
+def ask_gateway(session_key: str, data: dict, timeout: float) -> Optional[str]:
+    """Put a decision card on the chat running this session's turn (its
+    ``approval`` event, answered through the same respond endpoint as a
+    dangerous-command approval) and block until it is answered.
+
+    Returns the choice ("once", "deny", …), "timeout" when nobody answered in
+    time or the run ended first, "unavailable" when the card couldn't be sent,
+    or None when no chat is listening.
+    """
+    with _lock:
+        notify_cb = _gateway_notify_cbs.get(session_key)
+    if notify_cb is None:
+        return None
+    entry = _ApprovalEntry(dict(data))
+
+    def drop() -> None:
+        with _lock:
+            queue = _gateway_queues.get(session_key, [])
+            if entry in queue:
+                queue.remove(entry)
+            if not queue:
+                _gateway_queues.pop(session_key, None)
+
+    with _lock:
+        _gateway_queues.setdefault(session_key, []).append(entry)
+    try:
+        notify_cb(entry.data)
+    except Exception as exc:
+        logger.warning("Gateway decision notify failed: %s", exc)
+        drop()
+        return "unavailable"
+    try:
+        from tools.environments.base import touch_activity_if_due
+    except Exception:  # pragma: no cover
+        touch_activity_if_due = None
+    now = time.monotonic()
+    deadline = now + max(timeout, 0)
+    activity = {"last_touch": now, "start": now}
+    # Short slices keep the agent's inactivity watchdog fed while he decides.
+    while (left := deadline - time.monotonic()) > 0:
+        if entry.event.wait(timeout=min(1.0, left)):
+            break
+        if touch_activity_if_due is not None:
+            touch_activity_if_due(activity, "waiting for his answer on a card")
+    drop()
+    return entry.result or "timeout"
 
 
 def submit_pending(session_key: str, approval: dict):
