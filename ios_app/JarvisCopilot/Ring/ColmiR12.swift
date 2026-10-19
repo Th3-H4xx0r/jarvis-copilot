@@ -15,10 +15,13 @@ protocol RingBackend: AnyObject {
     func releaseIfIdle()
     /// Workouts on the ring, when the backend runs them.
     var workouts: RingWorkoutController? { get }
+    /// The ring's gesture actions and chosen mode, once its id is known.
+    var inputs: RingInputStore? { get }
 }
 
 extension RingBackend {
     var workouts: RingWorkoutController? { nil }
+    var inputs: RingInputStore? { nil }
 }
 
 extension RingManager: RingBackend {
@@ -227,6 +230,20 @@ final class ColmiR12: WearableDevice {
                     "url": ["type": "string", "description": "HTTPS URL to download the .bin from instead."],
                     "confirm": ["type": "boolean"],
                 ], required: ["confirm"])),
+            DeviceCapability(
+                name: "ring_set_input_mode",
+                description: "What the ring's gestures do: jarvis (run the actions set for them), music (play/pause and tracks) or off; kept for the ring if it is away.",
+                inputSchema: DeviceCapability.schema([
+                    "mode": ["type": "string", "enum": RingInputMode.r12.map(\.rawValue)],
+                ], required: ["mode"])),
+            DeviceCapability(
+                name: "ring_sync_clock",
+                description: "Set the ring's clock to the phone's time.",
+                inputSchema: DeviceCapability.schema()),
+            DeviceCapability(
+                name: "ring_reload_settings",
+                description: "Read the ring's settings and battery again from the ring itself.",
+                inputSchema: DeviceCapability.schema()),
         ]
     }
 
@@ -262,6 +279,20 @@ final class ColmiR12: WearableDevice {
         case "ring_raw_command": return try await raw(args)
         case "ring_firmware_update": return try await firmwareUpdate(args)
         case "ring_read_accelerometer": return try await accelerometer(args)
+        case "ring_set_input_mode": return try await setInputMode(args)
+        case "ring_sync_clock":
+            return try await live { _ in
+                try await self.session.syncClock()
+                return ["ok": true]
+            }
+        case "ring_reload_settings":
+            return try await live { _ in
+                await self.session.refreshSettings()
+                await self.session.refreshBattery()
+                var out: [String: Any] = ["ok": true, "settings": self.settingsJSON()]
+                if let battery = self.session.battery { out["battery_percent"] = battery.percent }
+                return out
+            }
         default: throw DeviceError.unknownCommand(name)
         }
     }
@@ -616,6 +647,23 @@ final class ColmiR12: WearableDevice {
             if let sedentary { try await self.session.setSedentary(sedentary) }
             return ["settings": self.settingsJSON()]
         }
+    }
+
+    /// Settings → Gestures' mode picker: kept for the ring, then put on it when it can be reached
+    /// (the ring also takes the kept mode whenever it connects).
+    private func setInputMode(_ args: [String: Any]) async throws -> [String: Any] {
+        guard let raw = args["mode"] as? String, let mode = RingInputMode(rawValue: raw), RingInputMode.r12.contains(mode) else {
+            throw DeviceError.badArgument("'mode' must be one of " + RingInputMode.r12.map(\.rawValue).joined(separator: ", "))
+        }
+        guard let inputs = backend.inputs else { throw DeviceError.notConnected }
+        inputs.setMode(mode)
+        let applied = (try? await live { _ in
+            await self.session.setInputMode(mode)
+            return self.session.inputMode
+        })
+        var out: [String: Any] = ["ok": true, "mode": mode.rawValue, "applied": applied != nil]
+        if let applied { out["ring_mode"] = applied.rawValue } else { out["note"] = "Saved. The ring gets it the next time it connects." }
+        return out
     }
 
     private func power(_ args: [String: Any]) async throws -> [String: Any] {

@@ -15,6 +15,7 @@ final class FakeRingBackend: RingBackend {
     var isConnected: Bool { connected }
     var connectionText: String { connected ? "Connected" : "Idle" }
     var displayName: String? = "R12_TEST"
+    var inputs: RingInputStore?
 
     init(directory: URL) {
         session = RingSession(transport: makeRingTransport(link))
@@ -74,6 +75,7 @@ final class ColmiR12Tests: XCTestCase {
             "ring_set_monitoring", "ring_set_touch_mode", "ring_set_goals", "ring_set_profile",
             "ring_set_preferences", "ring_power", "ring_get_log", "ring_raw_command",
             "ring_read_accelerometer", "ring_firmware_update",
+            "ring_set_input_mode", "ring_sync_clock", "ring_reload_settings",
         ])
         XCTAssertEqual(ColmiR12.model, "Colmi R12")
     }

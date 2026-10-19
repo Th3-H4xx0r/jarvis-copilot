@@ -155,6 +155,10 @@ final class X5Ring: WearableDevice {
                 description: "Restart the X5 (keeps its data).",
                 inputSchema: DeviceCapability.schema()),
             DeviceCapability(
+                name: "x5_power_off",
+                description: "Turn the X5 off until it is next charged; confirm must be true.",
+                inputSchema: DeviceCapability.schema(["confirm": ["type": "boolean"]], required: ["confirm"])),
+            DeviceCapability(
                 name: "x5_get_log",
                 description: "The X5's decoded command and gesture log, newest first.",
                 inputSchema: DeviceCapability.schema(["limit": ["type": "integer", "minimum": 1, "maximum": 200]])),
@@ -186,6 +190,15 @@ final class X5Ring: WearableDevice {
         case "x5_restart":
             return try await live { _ in
                 try await self.session.restart()
+                return ["ok": true]
+            }
+        case "x5_power_off":
+            // Settings → Power off… asks first; so does this.
+            guard args["confirm"] as? Bool == true else {
+                throw DeviceError.badArgument("'confirm' must be true — the ring turns off until it is put on its charger")
+            }
+            return try await live { _ in
+                try await self.session.powerOff()
                 return ["ok": true]
             }
         case "x5_get_log": return recentLog(args)

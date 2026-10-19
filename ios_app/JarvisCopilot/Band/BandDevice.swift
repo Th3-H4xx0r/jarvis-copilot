@@ -15,9 +15,16 @@ protocol BandBackend: AnyObject {
     func ensureConnected(timeout: TimeInterval) async -> Bool
     func waitForSetup(timeout: TimeInterval) async
     func releaseIfIdle()
+    /// Who measures and when (Monitoring → Measurements).
+    var scheduler: BandMeasureScheduler? { get }
+}
+
+extension BandBackend {
+    var scheduler: BandMeasureScheduler? { nil }
 }
 
 extension BandManager: BandBackend {
+    var scheduler: BandMeasureScheduler? { measureScheduler }
     var isConnected: Bool { state == .ready }
     var connectionText: String { state.text }
     var displayName: String? { connected?.name }
@@ -175,7 +182,38 @@ final class BandDevice: WearableDevice {
                 name: "band_get_log",
                 description: "The band's raw command log (hex frames both ways), newest first.",
                 inputSchema: DeviceCapability.schema(["limit": ["type": "integer", "minimum": 1, "maximum": 200]])),
+            DeviceCapability(
+                name: "band_set_units",
+                description: "Set the units readings show in, in the app and on the band: temperature, blood glucose, blood fat and uric acid (any of them).",
+                inputSchema: DeviceCapability.schema([
+                    "temperature": ["type": "string", "enum": TemperatureUnit.allCases.map(\.rawValue)],
+                    "glucose": ["type": "string", "enum": GlucoseUnit.allCases.map(\.rawValue)],
+                    "blood_fat": ["type": "string", "enum": BloodFatUnit.allCases.map(\.rawValue)],
+                    "uric_acid": ["type": "string", "enum": UricAcidUnit.allCases.map(\.rawValue)],
+                ])),
+            DeviceCapability(
+                name: "band_night_tracking",
+                description: "Turn sleep tracking on or off: the band measuring on its own through the overnight window while the phone manages measuring.",
+                inputSchema: DeviceCapability.schema(["on": ["type": "boolean"]], required: ["on"])),
+            DeviceCapability(
+                name: "band_set_measurement_plan",
+                description: "Set who manages measuring (the band all day, or the phone asking for each reading), the minutes between each reading the phone asks for (0 is off), and the overnight window.",
+                inputSchema: DeviceCapability.schema(Self.planProperties)),
         ]
+    }
+
+    /// Monitoring → Measurements' fields.
+    static let planTypes = BandMeasurePlan.types.map(\.name) + [BandMeasurePlan.hrv]
+    static var planProperties: [String: [String: Any]] {
+        let time: [String: Any] = ["type": "string", "description": "24-hour HH:MM"]
+        var props: [String: [String: Any]] = [
+            "managed_by": ["type": "string", "enum": [BandMeasureControl.band, .phone].map(\.rawValue)],
+            "night_start": time, "night_end": time,
+        ]
+        for name in planTypes {
+            props[name] = ["type": "integer", "enum": BandMeasurePlan.choices, "description": "Minutes between readings; 0 is off."]
+        }
+        return props
     }
 
     func snapshot() -> [String: Any] {
@@ -246,6 +284,13 @@ final class BandDevice: WearableDevice {
                 return ["ok": true]
             }
         case "band_get_log": return recentLog(args)
+        case "band_set_units": return try await setUnits(args)
+        case "band_night_tracking":
+            guard let on = args["on"] as? Bool else { throw DeviceError.badArgument("'on' is required") }
+            let scheduler = try measureScheduler()
+            scheduler.setNight(tracking: on, start: scheduler.plan.nightStart, end: scheduler.plan.nightEnd)
+            return planJSON(scheduler.plan)
+        case "band_set_measurement_plan": return try await setMeasurementPlan(args)
         default: throw DeviceError.unknownCommand(name)
         }
     }
@@ -590,6 +635,96 @@ final class BandDevice: WearableDevice {
             ["at": iso(entry.date), "direction": entry.outgoing ? "out" : "in", "hex": entry.hex]
         }
         return ["entries": Array(rows), "connected": isConnected]
+    }
+
+    // MARK: Units and measuring plan
+
+    /// The band page's Units card: the app's own unit (what every screen draws), then the band's copy.
+    private func setUnits(_ args: [String: Any]) async throws -> [String: Any] {
+        func pick<U: RawRepresentable & CaseIterable>(_ key: String, _: U.Type) throws -> U? where U.RawValue == String {
+            guard let value = args[key] else { return nil }
+            guard let raw = value as? String, let unit = U(rawValue: raw) else {
+                throw DeviceError.badArgument("'\(key)' must be one of " + U.allCases.map(\.rawValue).joined(separator: ", "))
+            }
+            return unit
+        }
+        let temperature = try pick("temperature", TemperatureUnit.self), glucose = try pick("glucose", GlucoseUnit.self)
+        let fat = try pick("blood_fat", BloodFatUnit.self), uric = try pick("uric_acid", UricAcidUnit.self)
+        var changes: [(BandSettings.Unit, Bool)] = []
+        let defaults = UserDefaults.standard
+        if let temperature { defaults.set(temperature.rawValue, forKey: "temperatureUnit"); changes.append((.temperature, temperature == .celsius)) }
+        if let glucose { defaults.set(glucose.rawValue, forKey: GlucoseUnit.key); changes.append((.glucose, glucose == .mmolL)) }
+        if let fat { defaults.set(fat.rawValue, forKey: BloodFatUnit.key); changes.append((.bloodFat, fat == .mmolL)) }
+        if let uric { defaults.set(uric.rawValue, forKey: UricAcidUnit.key); changes.append((.uricAcid, uric == .umolL)) }
+        guard !changes.isEmpty else { throw DeviceError.badArgument("give temperature, glucose, blood_fat or uric_acid") }
+        Task { await HealthUnitSync.sendIfChanged() }
+        var out: [String: Any] = ["ok": true, "units": [
+            "temperature": TemperatureUnit.current.rawValue, "glucose": GlucoseUnit.current.rawValue,
+            "blood_fat": BloodFatUnit.current.rawValue, "uric_acid": UricAcidUnit.current.rawValue,
+        ]]
+        do {
+            try await live { _ in for (unit, metric) in changes { try await self.session.setUnit(unit, metric: metric) } }
+            out["band_updated"] = true
+        } catch DeviceError.notConnected {
+            out["band_updated"] = false
+            out["note"] = "Saved in the app; the band's own screens keep the old unit until it is set while connected."
+        } catch {
+            out["band_updated"] = false
+            out["band_error"] = error.localizedDescription
+        }
+        return out
+    }
+
+    /// Monitoring → Measurements: managed by, each type's interval, and the overnight window.
+    /// Everything is checked before anything changes; handing measuring over needs the band.
+    private func setMeasurementPlan(_ args: [String: Any]) async throws -> [String: Any] {
+        let scheduler = try measureScheduler()
+        var control: BandMeasureControl?
+        if let raw = args["managed_by"] {
+            guard let text = raw as? String, let value = BandMeasureControl(rawValue: text) else {
+                throw DeviceError.badArgument("'managed_by' must be band or phone")
+            }
+            control = value
+        }
+        var intervals: [String: Int] = [:]
+        for name in Self.planTypes where args[name] != nil {
+            guard let minutes = args[name] as? Int, BandMeasurePlan.choices.contains(minutes) else {
+                throw DeviceError.badArgument("'\(name)' must be one of " + BandMeasurePlan.choices.map(String.init).joined(separator: ", "))
+            }
+            intervals[name] = minutes
+        }
+        func minute(_ key: String) throws -> Int? {
+            guard let value = args[key] else { return nil }
+            guard let text = value as? String else { throw DeviceError.badArgument("'\(key)' must be HH:MM") }
+            let (h, m) = try Self.clock(text)
+            return h * 60 + m
+        }
+        let start = try minute("night_start"), end = try minute("night_end")
+        guard control != nil || !intervals.isEmpty || start != nil || end != nil else {
+            throw DeviceError.badArgument("give managed_by, an interval, night_start or night_end")
+        }
+        if let control, control != scheduler.plan.control {
+            do { try await scheduler.setControl(control) } catch BandError.notConnected { throw DeviceError.notConnected }
+            guard scheduler.plan.control == control else { throw DeviceError.notConnected }
+        }
+        for (name, minutes) in intervals { scheduler.setInterval(minutes, named: name) }
+        if start != nil || end != nil {
+            let plan = scheduler.plan
+            scheduler.setNight(tracking: plan.nightTracking, start: start ?? plan.nightStart, end: end ?? plan.nightEnd)
+        }
+        return planJSON(scheduler.plan)
+    }
+
+    private func measureScheduler() throws -> BandMeasureScheduler {
+        guard let scheduler = backend.scheduler else { throw DeviceError.notConnected }
+        return scheduler
+    }
+
+    private func planJSON(_ plan: BandMeasurePlan) -> [String: Any] {
+        func hhmm(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
+        return ["ok": true, "managed_by": plan.control.rawValue,
+                "intervals": Dictionary(uniqueKeysWithValues: Self.planTypes.map { ($0, plan.interval($0)) }),
+                "night_tracking": plan.nightTracking, "night_start": hhmm(plan.nightStart), "night_end": hhmm(plan.nightEnd)]
     }
 
     static func clock(_ text: String) throws -> (h: Int, m: Int) {
