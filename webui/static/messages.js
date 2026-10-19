@@ -2566,7 +2566,9 @@ function _renderApprovalSend(send) {
     img.alt = "";
     avatar.appendChild(img);
   } else {
-    avatar.textContent = name.split(/\s+/).slice(0, 2).map(w => (w.match(/\p{L}/u) || [""])[0]).join("").toUpperCase() || "?";
+    const initials = name.split(/\s+/).slice(0, 2).map(w => (w.match(/\p{L}/u) || [""])[0]).join("").toUpperCase();
+    if (initials) avatar.textContent = initials;
+    else avatar.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4.2"/><path d="M3.5 21c.6-4.6 4.2-7.2 8.5-7.2s7.9 2.6 8.5 7.2z"/></svg>';
   }
   const via = String(send.via || "");
   const what = {call: via === "FaceTime" ? "FaceTime" : "Call", text: "Text", email: "Email",

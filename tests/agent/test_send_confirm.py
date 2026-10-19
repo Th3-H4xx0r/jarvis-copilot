@@ -398,10 +398,13 @@ def test_the_contact_comes_from_his_iphone(monkeypatch):
         or {"ok": True, "result": {"name": "Shabd Patel", "photo": "QUJD"}},
     )
     monkeypatch.setitem(sys.modules, "api", types.SimpleNamespace(device_bridge=bridge))
+    sc.reset_for_tests()
     assert sc._contact("+12096277732") == {"name": "Shabd Patel", "photo": "data:image/jpeg;base64,QUJD"}
     assert asked == [("iphone-1", {"action": "lookup", "id": "lookup", "to": "+12096277732"}, sc.CONTACT_WAIT)]
+    assert sc._contact("+12096277732")["name"] == "Shabd Patel" and len(asked) == 1   # known: no wait
     assert sc._contact("telegram:@shabd") == {}               # a channel, not a contact
-    bridge.invoke_skill = lambda *a, **k: {"ok": False, "error": "action must be show or close"}
+    sc.reset_for_tests()
+    bridge.invoke_skill = lambda *a, **k: {"ok": True, "result": {"error": "action must be show or close"}}
     assert sc._contact("+12096277732") == {}                  # an older phone: initials on the card
 
 

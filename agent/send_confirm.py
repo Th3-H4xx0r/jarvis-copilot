@@ -294,7 +294,9 @@ def gate(tool: str, args: Any, *, task_id: Any = None, session_id: Any = None,
 _VERB = {"call": "Call", "text": "Text", "email": "Email", "message": "Message"}
 _CARD_QUESTION = {"call": "Place this call?", "text": "Send this text?", "email": "Send this email?",
                   "message": "Send this message?"}
-CONTACT_WAIT = 2.5  # seconds his iPhone gets to name the person on the card
+CONTACT_WAIT = 4.0  # seconds his iPhone gets to name the person on the card
+CONTACT_TTL = 3600.0  # a person named once comes up at once for an hour
+_known: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()   # to → (when, name and photo)
 
 
 def _chat_listening(keys: list[str]) -> Optional[str]:
@@ -312,6 +314,11 @@ def _contact(to: str) -> dict:
     ({} when it doesn't know them, isn't reachable, or takes too long)."""
     if not to or ":" in to:          # a channel target (telegram:…), not a person in his contacts
         return {}
+    now = _clock()
+    with _lock:
+        hit = _known.get(to)
+        if hit is not None and now - hit[0] < CONTACT_TTL:
+            return hit[1]
     try:
         from api import device_bridge
         device = device_bridge.device_offering(_CARD_SKILL)
@@ -327,7 +334,12 @@ def _contact(to: str) -> dict:
     if not name:
         return {}
     photo = str(found.get("photo") or "")
-    return {"name": name, "photo": f"data:image/jpeg;base64,{photo}" if photo else ""}
+    who = {"name": name, "photo": f"data:image/jpeg;base64,{photo}" if photo else ""}
+    with _lock:
+        _known[to] = (now, who)
+        while len(_known) > 200:
+            _known.popitem(last=False)
+    return who
 
 
 def _ask_on_card(item: Item, keys: list[str]) -> Optional[str]:
@@ -484,3 +496,4 @@ def reset_for_tests() -> None:
     with _lock:
         _turns.clear()
         _pending.clear()
+        _known.clear()
