@@ -5,7 +5,11 @@ A widget design is the same declarative layout tree as a Dynamic Island design
 
     {schema: 1, id, version?, name, icon?, tint?,
      presentations: {small|medium|large|extraLarge|circular|rectangular|inline: node},
-     builder?: <the app's block-builder layout, stored as-is>}
+     builder?: <the app's block-builder layout, stored as-is>,
+     agent?: {kind: "default"} | {kind: "harness", id} | {kind: "model", id, provider?}}
+
+``agent`` overrides what the widget's buttons run their Ask Jarvis prompts on (absent = each
+button's own choice). It names a model or harness only — never anything about Face ID.
 
 Node, value and condition checks are island_schema's, run with ``WIDGET_RULES``:
 the island's node types minus ``regions`` (an island-only root) plus ``chart``,
@@ -111,6 +115,30 @@ def _non_finite(value: Any, path: str, errors: list[str]) -> None:
             _non_finite(v, f"{path}[{i}]", errors)
 
 
+# agent kind -> {field: max length}; "provider" may be absent or null, the rest are required.
+_AGENT_FIELDS = {"default": {}, "harness": {"id": 128}, "model": {"id": 256, "provider": 128}}
+
+
+def _check_agent(agent: Any, errors: list[str]) -> None:
+    if agent is None:   # null reads as absent: each button's own choice
+        return
+    kinds = ", ".join(_AGENT_FIELDS)
+    if not isinstance(agent, dict) or not isinstance(agent.get("kind"), str) or agent["kind"] not in _AGENT_FIELDS:
+        errors.append(f"agent must be an object whose kind is one of {kinds}")
+        return
+    kind = agent["kind"]
+    fields = _AGENT_FIELDS[kind]
+    extra = sorted(set(agent) - {"kind", *fields})
+    if extra:
+        errors.append(f"agent: {kind} takes no {', '.join(extra)}")
+    for field, limit in fields.items():
+        value = agent.get(field)
+        if field == "provider" and value is None:
+            continue
+        if not isinstance(value, str) or not value or len(value) > limit:
+            errors.append(f"agent.{field} must be a string of 1-{limit} characters")
+
+
 def validate_design(design: Any, catalog_keys: Iterable[str] | None = None
                     ) -> tuple[list[str], list[str]]:
     """Return ``(errors, warnings)``; no errors means the design may be stored.
@@ -140,6 +168,7 @@ def validate_design(design: Any, catalog_keys: Iterable[str] | None = None
     tint = design.get("tint")
     if tint is not None and not (isinstance(tint, str) and _is_color_literal(tint)):
         errors.append("tint must be a hex (#RGB/#RRGGBB/#RRGGBBAA) or named color")
+    _check_agent(design.get("agent"), errors)
 
     try:
         size = len(json.dumps(design, allow_nan=True))

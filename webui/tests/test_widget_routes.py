@@ -444,3 +444,49 @@ def test_a_binding_default_is_allowed_and_must_be_text():
     errors, _ = ws.validate_design(_design(presentations={
         "small": {"type": "stat", "value": {"src": "health.steps", "default": {"x": 1}}}}))
     assert any("default" in e for e in errors)
+
+
+# ── agent: what the widget's buttons run their Ask Jarvis prompts on ─────────
+
+@pytest.mark.parametrize("agent", [
+    {"kind": "default"},
+    {"kind": "harness", "id": "fast-lane"},
+    {"kind": "model", "id": "claude-sonnet-5", "provider": "anthropic"},
+    {"kind": "model", "id": "celeris-1"},
+    {"kind": "model", "id": "celeris-1", "provider": None},
+])
+def test_each_agent_shape_is_accepted_and_round_trips(store, agent):
+    assert ws.validate_design(_design(agent=agent))[0] == []
+    status, payload = H("POST", "/designs", _design(agent=agent), store)
+    assert status == 200 and payload["design"]["agent"] == agent
+    assert H("GET", "/designs/steps", None, store)[1]["design"]["agent"] == agent
+
+
+@pytest.mark.parametrize("agent", [
+    "harness",
+    ["default"],
+    {},
+    {"kind": "auto"},
+    {"kind": ["harness"]},
+    {"kind": "harness"},
+    {"kind": "harness", "id": ""},
+    {"kind": "harness", "id": 7},
+    {"kind": "harness", "id": "h" * 129},
+    {"kind": "model"},
+    {"kind": "model", "id": "m" * 257},
+    {"kind": "model", "id": "m", "provider": 5},
+    {"kind": "default", "id": "x"},
+    {"kind": "harness", "id": "h", "skip_face_id": True},
+])
+def test_a_bad_agent_is_refused(store, agent):
+    errors, _ = ws.validate_design(_design(agent=agent))
+    assert errors and all(e.startswith("agent") for e in errors), errors
+    status, payload = H("POST", "/designs", _design(agent=agent), store)
+    assert status == 400 and payload["error"].startswith("agent")
+    assert store.get_design("steps") is None
+
+
+def test_a_design_without_agent_is_unchanged(store):
+    saved, errors, _ = store.upsert_design(_design())
+    assert errors == [] and "agent" not in saved and "agent" not in store.get_design("steps")
+    assert ws.validate_design(_design(agent=None))[0] == [], "null reads as each button's own"
