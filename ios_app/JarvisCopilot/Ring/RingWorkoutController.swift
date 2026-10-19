@@ -23,6 +23,14 @@ final class RingWorkoutController: ObservableObject {
         case ending
         case finished(RingWorkout)
         case failed(String)
+
+        /// A workout is under way: from the countdown until it has ended.
+        var isActive: Bool {
+            switch self {
+            case .countdown, .starting, .running, .paused, .ending: return true
+            default: return false
+            }
+        }
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -332,12 +340,7 @@ final class RingWorkoutController: ObservableObject {
     var strengthStore: TrainingStore { training ?? .shared }
 
     /// A workout is under way (the link is held and the measurer steps aside).
-    var isActive: Bool {
-        switch phase {
-        case .countdown, .starting, .running, .paused, .ending: return true
-        default: return false
-        }
-    }
+    var isActive: Bool { phase.isActive }
 
     /// The live screen is up: during a workout and while its summary shows.
     var isPresenting: Bool {

@@ -34,7 +34,8 @@ final class EnergyLedger: @unchecked Sendable {
         var cpu: [String: Double] = [:]
         /// What woke the radio or the CPU: `bridge.in`, `bridge.out`, `bridge.out_bytes`, `bridge.drop`,
         /// `register.sent.<caller>` / `register.same.<caller>` (skill catalogue sent, or unchanged and
-        /// kept home), `keepalive.reassert` / `restart`, `net.<feature>`, `net.bg.<feature>`,
+        /// kept home), `keepalive.reassert` / `restart`, `keepalive.smart.sleep` / `wake` (Smart let it
+        /// go on cellular, or took it back), `net.<feature>`, `net.bg.<feature>`,
         /// `bytes.<feature>`.
         var counts: [String: Int] = [:]
         /// The battery level (0–1) when the hour began and ended.

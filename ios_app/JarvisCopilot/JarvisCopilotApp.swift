@@ -74,8 +74,9 @@ struct JarvisCopilotApp: App {
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
             // With the socket up the server sends invokes live and queues nothing: asking is a wasted
             // request every time iOS runs this (~3 an hour). Silent pushes still drain.
-            // A wake is a chance to put back a keepalive iOS stopped (a call, Siri) and never resumed.
-            await BridgeClient.shared.syncKeepalive()
+            // A wake is a chance to put back a keepalive iOS stopped (a call, Siri) and never resumed,
+            // or one Smart let go on cellular that now has a reason to hold (the charger, Wi‑Fi).
+            await SmartKeepalive.shared.refresh()
             if await BridgeClient.shared.status != .online {
                 await BridgeClient.shared.drainQueue(foreground: false)
             }

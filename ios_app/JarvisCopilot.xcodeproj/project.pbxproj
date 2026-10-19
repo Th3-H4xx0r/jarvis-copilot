@@ -887,6 +887,7 @@
 		C8962CE34CB8C60477680A9A /* AudioInputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD3843097850821EB958726 /* AudioInputEngine.swift */; };
 		C8A07494419A603D23EABE7D /* KanbanStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */; };
 		C91188379B1CA9905D2435C8 /* LiveSpeakerTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */; };
+		C92924A3F8B4D969A00B063F /* SmartKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */; };
 		C951B6E6413AC78801ABBB41 /* DetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EE315366F1707545A1FADD /* DetailSheet.swift */; };
 		C95653DFD84438A6A5E802D5 /* AgentsPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D5ABF0AE1ED1A637779780 /* AgentsPresentationTests.swift */; };
 		C969054E3A9E794B9D2CEC62 /* CarTalkLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22B331F4042BEC1DC983D09B /* CarTalkLink.swift */; };
@@ -1001,6 +1002,7 @@
 		E3B78E85FE5FFD8C4FE67C0A /* JarvisDesignRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 467C4CA86BD7FC595DAB93F1 /* JarvisDesignRenderer.swift */; };
 		E3BDBF66D4187D6B2839CAF4 /* HabitsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A687417AAF3B91F5B7FB0B /* HabitsView.swift */; };
 		E3BE58BB6B9C6810259C0C0B /* DataSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = A525B24E6E393BB06F66E26E /* DataSkills.swift */; };
+		E3E530AC39A42BAA04852890 /* SmartKeepaliveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */; };
 		E3F920E91A7F95E543CC7843 /* CarDirectionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DDDE57FE987D235C185E16 /* CarDirectionsTests.swift */; };
 		E41084047CAE909ED88FACBC /* RestingHeartRate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */; };
 		E41E345C1690B27939EAFCE1 /* X5GestureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272E675A6D3B764552D4CB0A /* X5GestureTests.swift */; };
@@ -1640,6 +1642,7 @@
 		761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPageSmokeTests.swift; sourceTree = "<group>"; };
 		7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkillsTests.swift; sourceTree = "<group>"; };
 		7643318B60F7983387FCC184 /* CarApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarApprovals.swift; sourceTree = "<group>"; };
+		76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SmartKeepaliveTests.swift; sourceTree = "<group>"; };
 		76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceEarconSounds.swift; sourceTree = "<group>"; };
 		7676A5D714B05EC1504F8395 /* DashcamDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDevice.swift; sourceTree = "<group>"; };
 		76A4E3847E7B8475E457549C /* IOSSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOSSkills.swift; sourceTree = "<group>"; };
@@ -1704,6 +1707,7 @@
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
 		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
+		851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SmartKeepalive.swift; sourceTree = "<group>"; };
 		8525CA4201FDCC140611DEF8 /* CarTalkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarTalkTests.swift; sourceTree = "<group>"; };
 		8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLiveCameraTests.swift; sourceTree = "<group>"; };
 		858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureSource.swift; sourceTree = "<group>"; };
@@ -2762,6 +2766,7 @@
 				18F0D88DF1A2FAFE47BE1F6C /* AgentLiveActivityTests.swift */,
 				975E31E42A842EE614B01831 /* AgentActivityRenderTests.swift */,
 				41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */,
+				76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4017,6 +4022,7 @@
 				7C4BFDAE02FF39DDFA6D3307 /* WearableControls.swift */,
 				DEF634F684255E22206A46C5 /* WearableControlsSection.swift */,
 				F2AB49951D6DCEFDA46066AF /* WearableLinks.swift */,
+				851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */,
 			);
 			name = .;
 			path = .;
@@ -4877,6 +4883,7 @@
 				A5DE7E1EF7EEEB097C7E7402 /* CodingStreamReducerTests.swift in Sources */,
 				2EFF3A3A037E2F499D9F6213 /* SceneStillTests.swift in Sources */,
 				E4DCB99B2708CCBA8FE70F90 /* VoiceLogFileTests.swift in Sources */,
+				E3E530AC39A42BAA04852890 /* SmartKeepaliveTests.swift in Sources */,
 				12AD8EC49FA1C483B0F9D0CB /* CarPlayConfirmTests.swift in Sources */,
 				B9E96BC363DBDACB2BF81EB2 /* SendConfirmationsTests.swift in Sources */,
 				B6A715FA2EB7DED93B566357 /* SpotifyRemoteTests.swift in Sources */,
@@ -5620,6 +5627,7 @@
 				4608CE48ABB2A6E99C139395 /* CodeMasterSettingsPage.swift in Sources */,
 				C969054E3A9E794B9D2CEC62 /* CarTalkLink.swift in Sources */,
 				60A293841C7E9A3F71FD5739 /* VoiceLogFile.swift in Sources */,
+				C92924A3F8B4D969A00B063F /* SmartKeepalive.swift in Sources */,
 				45CBE40A18982DB806D96828 /* ChatEmbeds.swift in Sources */,
 				58308A96D0B17D9FF784B57B /* SendConfirmCard.swift in Sources */,
 				A16ADFA87A057B84FE5355A1 /* SendConfirmations.swift in Sources */,

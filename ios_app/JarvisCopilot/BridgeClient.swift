@@ -90,7 +90,10 @@ final class BridgeClient: NSObject, ObservableObject {
         BackgroundKeepalive.shared.sync(active: (enabled && backgroundKeepalive && isPaired && !isInSustainedOutage
                                                  // Low Power Mode asks every app to stop background work, and the
                                                  // silent audio plus a ping every 40 s is exactly that.
-                                                 && !ProcessInfo.processInfo.isLowPowerModeEnabled)
+                                                 && !ProcessInfo.processInfo.isLowPowerModeEnabled
+                                                 // In use or for 30 min after, on Wi‑Fi, charging, in the car or a
+                                                 // workout; out on cellular and idle, commands come by push.
+                                                 && SmartKeepalive.shared.wantsAwake)
                                         // Dashcam clips moving keep the app awake too: uploads and the sync Live
                                         // Activity otherwise freeze the moment the app goes to the background.
                                         || DashcamSync.shared.holdsKeepalive)
@@ -100,6 +103,13 @@ final class BridgeClient: NSObject, ObservableObject {
             disconnect()
             Task { await drainQueue(foreground: false) }
         }
+    }
+
+    /// Smart keepalive's answer may have changed. When it now holds in the background (home on
+    /// Wi‑Fi, on the charger, in the car) the socket was closed as it slept: open it again.
+    func smartKeepaliveChanged() {
+        syncKeepalive()
+        if BackgroundKeepalive.shared.isRunning, socket == nil, enabled, isPaired { connect() }
     }
 
     /// How long the socket may stay down before the keepalive is not worth its
@@ -374,6 +384,10 @@ final class BridgeClient: NSObject, ObservableObject {
         syncKeepalive()
         guard enabled, isPaired, let base = apiBaseURL() else { return }
         guard socket == nil else { return }
+        // In the background without the keepalive (Smart let go, Low Power Mode) iOS suspends us
+        // within seconds and the socket goes half-open: the server would route invokes into it
+        // instead of pushing. A reconnect timer from an earlier drop must not open one.
+        guard !Self.appInBackground || BackgroundKeepalive.shared.isRunning else { return }
 
         var components = URLComponents(url: base.appendingPathComponent("api/devices/bridge/ws"),
                                        resolvingAgainstBaseURL: false)
