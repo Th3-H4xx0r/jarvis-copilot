@@ -127,7 +127,8 @@ struct JarvisButtonControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         AppIntentControlConfiguration(kind: ControlButtonShelf.controlKind,
                                       provider: JarvisButtonProvider()) { button in
-            ControlWidgetButton(action: RunJarvisButtonIntent(button: button)) {
+            // The hidden press intent: a Control Center press is a person's, unlike a Shortcut's.
+            ControlWidgetButton(action: PressJarvisButtonIntent(button: button, token: ControlButtonShelf.pressToken())) {
                 Label(button?.name ?? "Jarvis button", systemImage: button?.symbol ?? "bolt.circle")
             }
             .tint(button?.info.tintColor)
@@ -160,7 +161,7 @@ struct JarvisSwitchControl: ControlWidget {
         AppIntentControlConfiguration(kind: ControlButtonShelf.switchKind,
                                       provider: JarvisSwitchProvider()) { button in
             ControlWidgetToggle(isOn: button?.info.isOn ?? false,
-                                action: SetJarvisButtonIntent(button: button)) {
+                                action: SetJarvisButtonIntent(button: button, token: ControlButtonShelf.pressToken())) {
                 Label(button?.name ?? "Jarvis switch", systemImage: button?.symbol ?? "switch.2")
             } valueLabel: { isOn in
                 // The value label's symbol is the one Control Center draws for that state.

@@ -660,13 +660,18 @@ struct BoardChat {
     /// `joinRunningTurn` decides what a busy session means: the chat screen rides
     /// along with the turn already running (often its own, after the phone's stream
     /// broke); a board event throws `Failure.busy` so it can wait its turn.
-    func run(sessionID: String, message: String, model: ChatModel? = nil, joinRunningTurn: Bool,
+    func run(sessionID: String, message: String, model: ChatModel? = nil, choice: TurnChoice? = nil,
+             joinRunningTurn: Bool,
              onUpdate: (ChatStreamState) -> Void = { _ in }) async throws -> ChatStreamState {
         let chat = ChatAPI(api: api)
         let sessions = SessionsAPI(api: api)
         var state = ChatStreamState(startedAt: clock.now)
+        // A `choice` names the harness (or a model with no harness) outright; without one the
+        // turn runs `model` as before.
         var events = watched(chat.sendMessage(sessionID: sessionID, text: message,
-                                              model: model?.id, provider: model?.providerID))
+                                              model: choice?.model ?? model?.id,
+                                              provider: choice?.provider ?? model?.providerID,
+                                              harnessID: choice?.harnessID))
         var reattaches = 0
         while true {
             do {

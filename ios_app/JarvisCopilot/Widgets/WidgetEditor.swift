@@ -220,6 +220,27 @@ struct WidgetEditor: View {
                     WidgetColorSwatches(selection: $draft.tint)
                 }
             }
+            RowDivider()
+            // His pick: a widget can run its buttons' Ask Jarvis on its own model or harness.
+            NavigationLink {
+                AgentChoicePage(title: "Buttons run on", pick: AgentPick(widget: draft.agent), forWidget: true) {
+                    draft.agent = $0.widgetAgent
+                }
+            } label: {
+                Row {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Buttons run on")
+                            Text("For Ask Jarvis buttons on this widget").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(AgentPick(widget: draft.agent).label).foregroundStyle(.secondary).lineLimit(1)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 

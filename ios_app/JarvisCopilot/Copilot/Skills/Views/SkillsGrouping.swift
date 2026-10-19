@@ -71,27 +71,36 @@ enum SkillsGrouping {
 /// One input derived from a skill's JSON Schema.
 struct SkillArgField: Identifiable, Equatable, Sendable {
     enum Kind: String, Equatable, Sendable {
-        case text, number, integer, boolean, choice
+        /// `list` is an array, typed comma-separated ("heart_rate,spo2"); `object` a group of
+        /// settings filled field by field and kept as `SkillArgsForm.objectText`.
+        case text, number, integer, boolean, choice, list, object
     }
 
     var key: String
     var kind: Kind
     var detail: String
     var required: Bool
-    /// Non-empty only for `.choice`.
+    /// A `.choice`'s values, or the values a `.list` may hold.
     var options: [String]
 
     var valueType: String = "string"
+    /// What a `.list` holds: "string", "integer", "number" or "boolean".
+    var itemType: String = "string"
+    /// An `.object`'s own settings.
+    var subfields: [SkillArgField] = []
     var id: String { key }
 
     init(key: String, kind: Kind, detail: String = "", required: Bool = false,
-         options: [String] = [], valueType: String = "string") {
+         options: [String] = [], valueType: String = "string", itemType: String = "string",
+         subfields: [SkillArgField] = []) {
         self.key = key
         self.kind = kind
         self.detail = detail
         self.required = required
         self.options = options
         self.valueType = valueType
+        self.itemType = itemType
+        self.subfields = subfields
     }
 }
 
@@ -110,12 +119,17 @@ enum SkillArgsForm {
             guard let spec = value as? [String: Any] else {
                 return SkillArgField(key: key, kind: .text, required: required.contains(key))
             }
+            let kind = kind(of: spec)
+            let items = spec["items"] as? [String: Any] ?? [:]
+            let options = kind == .list ? items["enum"] : spec["enum"]
             return SkillArgField(key: key,
-                                 kind: kind(of: spec),
+                                 kind: kind,
                                  detail: SkillArgs.text(spec["description"]),
                                  required: required.contains(key),
-                                 options: (spec["enum"] as? [Any])?.map { SkillArgs.text($0) } ?? [],
-                                 valueType: spec["type"] as? String ?? "string")
+                                 options: (options as? [Any])?.map { SkillArgs.text($0) } ?? [],
+                                 valueType: spec["type"] as? String ?? "string",
+                                 itemType: items["type"] as? String ?? "string",
+                                 subfields: kind == .object ? fields(from: spec) : [])
         }
         return fields.sorted {
             $0.required == $1.required ? $0.key < $1.key : ($0.required && !$1.required)
@@ -128,7 +142,52 @@ enum SkillArgsForm {
         case "boolean": return .boolean
         case "integer": return .integer
         case "number":  return .number
+        // A list of plain values; a list of objects stays a "structured input".
+        case "array":
+            let items = SkillArgs.text((spec["items"] as? [String: Any])?["type"])
+            return ["string", "integer", "number", "boolean", ""].contains(items) ? .list : .text
+        case "object":  return spec["properties"] is [String: Any] ? .object : .text
         default:        return .text
+        }
+    }
+
+    /// An `.object`'s field values as the one string the form keeps for it.
+    static func objectText(_ values: [String: String]) -> String {
+        let kept = values.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !kept.isEmpty, let data = try? JSONSerialization.data(withJSONObject: kept, options: [.sortedKeys])
+        else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The field values inside an `.object`'s string.
+    static func objectValues(_ text: String) -> [String: String] {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return object.mapValues { SkillArgs.text($0) }
+    }
+
+    /// A schema default as the form's text for that field.
+    static func initialText(_ value: Any, field: SkillArgField) -> String {
+        switch field.kind {
+        case .list:
+            return (value as? [Any])?.map { SkillArgs.text($0) }.joined(separator: ",") ?? SkillArgs.text(value)
+        case .object:
+            return objectText((value as? [String: Any])?.mapValues { SkillArgs.text($0) } ?? [:])
+        default:
+            return SkillArgs.text(value)
+        }
+    }
+
+    private static func listItems(_ raw: String) -> [String] {
+        raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private static func typed(_ raw: String, as type: String) -> Any? {
+        switch type {
+        case "integer": return Int(raw)
+        case "number": return Double(raw)
+        case "boolean": return ["true", "false"].contains(raw) ? raw == "true" : nil
+        default: return raw
         }
     }
 
@@ -156,6 +215,10 @@ enum SkillArgsForm {
                 }
             case .text:
                 out[field.key] = raw
+            case .list:
+                out[field.key] = listItems(raw).compactMap { typed($0, as: field.itemType) }
+            case .object:
+                out[field.key] = arguments(objectValues(raw), fields: field.subfields)
             }
         }
         return out
@@ -174,6 +237,24 @@ enum SkillArgsForm {
                 continue
             }
             guard result[field.key] != nil else { throw DeviceError.badArgument("Invalid \(field.key)") }
+            switch field.kind {
+            case .list:
+                for item in listItems(trimmed) {
+                    if !field.options.isEmpty && !field.options.contains(item) {
+                        throw DeviceError.badArgument("\(item) isn't a choice for \(field.key)")
+                    }
+                    if typed(item, as: field.itemType) == nil {
+                        throw DeviceError.badArgument("\(item) isn't a valid \(field.itemType) for \(field.key)")
+                    }
+                }
+                continue
+            case .object:
+                let spec = props[field.key] ?? [:]
+                result[field.key] = try validatedArguments(objectValues(trimmed), schema: spec)
+                continue
+            default:
+                break
+            }
             if !field.options.isEmpty && !field.options.contains(trimmed) {
                 throw DeviceError.badArgument("Choose a listed value for \(field.key)")
             }

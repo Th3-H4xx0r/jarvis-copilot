@@ -373,6 +373,23 @@ struct SkillArgFieldView: View {
                         .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+            case .list where !field.options.isEmpty:
+                SkillArgChips(options: field.options, text: $text)
+            case .object:
+                // Each setting in the group, kept together as one string (`SkillArgsForm.objectText`).
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(field.subfields) { sub in
+                        SkillArgFieldView(field: sub, text: Binding(
+                            get: { SkillArgsForm.objectValues(text)[sub.key] ?? "" },
+                            set: { value in
+                                var values = SkillArgsForm.objectValues(text)
+                                values[sub.key] = value
+                                text = SkillArgsForm.objectText(values)
+                            }))
+                    }
+                }
+                .padding(.leading, 12)
+                .overlay(alignment: .leading) { Rectangle().fill(JcTheme.glassBorder).frame(width: 1) }
             case .boolean:
                 Toggle(isOn: Binding(get: { text.lowercased() == "true" },
                                      set: { text = $0 ? "true" : "false" })) {
@@ -382,14 +399,48 @@ struct SkillArgFieldView: View {
                 }
                 .tint(JcTheme.accent)
             default:
-                TextField(field.detail.isEmpty ? field.key : field.detail, text: $text)
-                    .keyboardType(field.kind == .text ? .default : .numbersAndPunctuation)
+                TextField(field.kind == .list ? "Comma-separated" : field.detail.isEmpty ? field.key : field.detail,
+                          text: $text)
+                    .keyboardType(field.kind == .text || field.kind == .list ? .default : .numbersAndPunctuation)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .jcFieldStyle()
             }
             if !field.detail.isEmpty && field.kind != .text {
                 Text(field.detail).font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+            }
+        }
+    }
+}
+
+/// A list field with known values: tap each one in or out. Kept as "a,b" in the options' order.
+struct SkillArgChips: View {
+    let options: [String]
+    @Binding var text: String
+
+    private var picked: Set<String> {
+        Set(text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], alignment: .leading, spacing: 8) {
+            ForEach(options, id: \.self) { option in
+                let on = picked.contains(option)
+                Button {
+                    var next = picked
+                    if on { next.remove(option) } else { next.insert(option) }
+                    text = options.filter(next.contains).joined(separator: ",")
+                } label: {
+                    Text(option.replacingOccurrences(of: "_", with: " "))
+                        .font(.system(size: 13, weight: on ? .semibold : .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(on ? JcTheme.accent.opacity(0.22) : JcTheme.glassFill, in: Capsule())
+                        .overlay(Capsule().strokeBorder(on ? JcTheme.accent : JcTheme.glassBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
         }
     }

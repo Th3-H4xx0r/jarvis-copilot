@@ -262,15 +262,31 @@ struct RingInputEvent: Equatable {
 /// What Jarvis does when a ring input fires.
 enum RingAction: Codable, Equatable {
     case none
-    /// Anything Jarvis can do: the text runs as a Jarvis turn with all its tools.
-    case prompt(String)
+    /// Anything Jarvis can do: the text runs as a Jarvis turn with all its tools, on the model or
+    /// harness chosen for it (nil = Same as default).
+    case prompt(String, agent: AgentChoice? = nil)
     /// One named action — a phone skill or a ring skill — run the way Jarvis runs it.
     case skill(id: String, arguments: [String: String])
     case wearable(deviceID: String, skill: String, arguments: [String: String])
+    /// The door alarm. `skipFaceID` only counts for disarm and silence, and only on a person's press.
+    case door(DoorButtonCommand, skipFaceID: Bool = false)
+    /// A car command: a `ToyotaCommand` raw value, or "status".
+    case car(command: String, skipFaceID: Bool = false)
+    /// A tool of a device the server holds itself — the Pod, an ESP32 board on its own Wi-Fi.
+    case serverDevice(deviceID: String, skill: String, arguments: [String: String])
 
     var isSet: Bool {
         if case .none = self { return false }
         return true
+    }
+
+    /// Disarms, silences or drives the car without asking for Face ID.
+    var skipsFaceID: Bool {
+        switch self {
+        case .door(let command, let skip): return skip && command.needsFaceID
+        case .car(let command, let skip): return skip && CarButtonCommand.needsFaceID(command)
+        default: return false
+        }
     }
 
     /// One line describing the action, for the settings row and the log.
@@ -278,11 +294,19 @@ enum RingAction: Codable, Equatable {
         switch self {
         case .none:
             return "Nothing"
-        case .prompt(let text):
-            return "Ask Jarvis: \(text)"
-        case .wearable(let deviceID, let skill, let arguments):
+        case .prompt(let text, let agent):
+            switch agent {
+            case .harness(let id)?: return "Ask Jarvis: \(text) · \(id)"
+            case .model(let id, _)?: return "Ask Jarvis: \(text) · \(id)"
+            case nil: return "Ask Jarvis: \(text)"
+            }
+        case .wearable(let deviceID, let skill, let arguments), .serverDevice(let deviceID, let skill, let arguments):
             let values = arguments.keys.sorted().map { "\($0): \(arguments[$0]!)" }.joined(separator: ", ")
             return "\(skill.replacingOccurrences(of: "_", with: " ")) · \(deviceID.suffix(6))" + (values.isEmpty ? "" : " — \(values)")
+        case .door(let command, let skip):
+            return "Door alarm: \(command.title)" + (skip && command.needsFaceID ? " (no Face ID)" : "")
+        case .car(let command, let skip):
+            return "Car: \(CarButtonCommand.title(command))" + (skip && CarButtonCommand.needsFaceID(command) ? " (no Face ID)" : "")
         case .skill(let id, let arguments):
             guard let option = RingActionCatalogue.option(id) else { return id }
             guard let parameter = option.parameter, let value = arguments[parameter.key], !value.isEmpty else {
@@ -490,17 +514,28 @@ final class RingInputStore: ObservableObject {
 /// and `ring_*` skills through the device registry.
 @MainActor
 enum RingActionRunner {
-    /// Returns one line for the log.
-    static func run(_ action: RingAction) async -> String {
+    /// Returns one line for the log. `context` says where it was run from: which chat an Ask
+    /// Jarvis lands in and a widget's model override.
+    static func run(_ action: RingAction, context: RingActionContext = .ring) async -> String {
         switch action {
         case .none:
             return "nothing set"
-        case .prompt(let text):
-            return await ask(text)
+        case .prompt(let text, let agent):
+            return await ask(text, agent: agent, context: context)
+        case .door(let command, let skip):
+            return await SecureActionRunner().door(command, skipFaceID: skip, physical: context.physical)
+        case .car(let command, let skip):
+            return await SecureActionRunner().car(command, skipFaceID: skip, physical: context.physical)
+        case .serverDevice(let deviceID, let skill, let values):
+            return await ServerDevices.run(deviceID: deviceID, skill: skill, values: values)
         case .wearable(let deviceID, let skill, let values):
             guard let device = DeviceRegistry.shared.device(id: deviceID),
                   let capability = device.capabilities.first(where: { $0.name == skill }) else {
-                return "Wearable action unavailable. Enable Share with Jarvis on the target device."
+                // An ESP32 board on its own Wi-Fi is the server's to reach, not this phone's.
+                if await ServerDevices.offers(deviceID: deviceID, skill: skill) {
+                    return await ServerDevices.run(deviceID: deviceID, skill: skill, values: values)
+                }
+                return Self.unavailable(deviceID: deviceID, skill: skill)
             }
             do {
                 var args = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
@@ -511,6 +546,29 @@ enum RingActionRunner {
             guard let option = RingActionCatalogue.option(id) else { return "unknown action \(id)" }
             return await invoke(option.skill, merged(option, arguments))
         }
+    }
+
+    /// The chat a turn was sent to no longer exists (he deleted it).
+    static func chatGone(_ error: Error) -> Bool {
+        if case .http(404, _) = error as? APIError { return true }
+        if case .failed(let message) = error as? BoardChat.Failure { return message.contains("not found") }
+        return false
+    }
+
+    /// Why a saved wearable action can't run right now, in his words. Always says "unavailable":
+    /// that word is what makes a Control Center button tell him about it.
+    static func unavailable(deviceID: String, skill: String) -> String {
+        let name = skill.replacingOccurrences(of: "_", with: " ")
+        if let device = DeviceRegistry.shared.device(id: deviceID) {
+            if let entry = device.unavailableCapabilities.first(where: { $0.capability.name == skill }) {
+                return "\(name) unavailable: \(entry.reason)"
+            }
+            return "\(name) unavailable: \(type(of: device).model) doesn't offer it any more"
+        }
+        guard BridgeClient.isExposed(deviceID) else {
+            return "\(name) unavailable: turn on Share with Jarvis for that device"
+        }
+        return "\(name) unavailable: the device isn't set up on this iPhone right now"
     }
 
     private static func merged(_ option: RingActionOption, _ arguments: [String: String]) -> [String: Any] {
@@ -547,13 +605,24 @@ enum RingActionRunner {
         return "\(skill): \(text.prefix(120))"
     }
 
-    /// A prompt runs as a Jarvis turn in one conversation kept for the ring.
-    private static func ask(_ text: String) async -> String {
+    /// A prompt runs as a Jarvis turn in the context's chat (the ring's, or the button's own), on
+    /// the chosen model or harness — named explicitly every time.
+    private static func ask(_ text: String, agent: AgentChoice?, context: RingActionContext) async -> String {
         guard BridgeClient.shared.isPaired else { return "Jarvis is not paired in this app" }
         do {
             let chat = BoardChat()
-            let session = try await chat.sessionID(for: "ring.inputs", title: "Ring")
-            let turn = try await chat.run(sessionID: session, message: text, joinRunningTurn: false)
+            let choice = ActionAgent.turn(choice: agent, override: context.widgetAgent,
+                                          defaultHarness: await ActionAgent.defaultHarness())
+            var session = try await chat.sessionID(for: context.chatKey, title: context.chatTitle)
+            let turn: ChatStreamState
+            do {
+                turn = try await chat.run(sessionID: session, message: text, choice: choice, joinRunningTurn: false)
+            } catch where Self.chatGone(error) {
+                // He deleted the button's chat: start a new one rather than failing every press.
+                chat.forgetSession(for: context.chatKey)
+                session = try await chat.sessionID(for: context.chatKey, title: context.chatTitle)
+                turn = try await chat.run(sessionID: session, message: text, choice: choice, joinRunningTurn: false)
+            }
             let reply = turn.message.plainText
             let line = reply.split(whereSeparator: \.isNewline).last.map(String.init) ?? reply
             return line.isEmpty ? "done" : line

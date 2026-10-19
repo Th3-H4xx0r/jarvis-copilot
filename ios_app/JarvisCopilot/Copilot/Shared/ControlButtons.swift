@@ -22,6 +22,9 @@ struct ControlButtonInfo: Codable, Identifiable, Hashable, Sendable {
     var offSymbol: String? = nil
     /// "#RRGGBB" for the lit symbol; nil is the system's.
     var tint: String? = nil
+    /// Disarms or drives the car without Face ID: a widget always shows this button's own name
+    /// and symbol, never a design's label, so a widget Jarvis wrote can't disguise it.
+    var skipsFaceID: Bool? = nil
 
     var tintColor: Color? {
         guard let tint, let value = UInt32(tint.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16)
@@ -51,6 +54,18 @@ enum ControlButtonShelf {
         defaults.set((defaults.stringArray(forKey: pendingKey) ?? []) + [id], forKey: pendingKey)
     }
 
+    /// A secret only the app and its Control Center controls know. A Control Center press carries
+    /// it; a Shortcut that calls the press intent can't, so it never counts as his own press (the
+    /// only kind that may skip Face ID).
+    static func pressToken(defaults: UserDefaults = defaults) -> String {
+        if let token = defaults.string(forKey: tokenKey), !token.isEmpty { return token }
+        let token = UUID().uuidString + UUID().uuidString
+        defaults.set(token, forKey: tokenKey)
+        return token
+    }
+
+    private static let tokenKey = "jc.controlButtons.pressToken"
+
     static func takePending(defaults: UserDefaults = defaults) -> [String] {
         let ids = defaults.stringArray(forKey: pendingKey) ?? []
         defaults.removeObject(forKey: pendingKey)
@@ -58,13 +73,53 @@ enum ControlButtonShelf {
     }
 }
 
+/// One press of a button: which button, the widget it was on (for that widget's model
+/// override), and whether a person pressed it — Control Center or a widget — rather than a
+/// Shortcut or Siri. Only a physical press may skip Face ID.
+struct ButtonPress: Equatable, Sendable {
+    var buttonID: String
+    var widgetID: String? = nil
+    /// His own press in Control Center (it carried the press token). Only these may skip Face ID —
+    /// never a widget (a design Jarvis wrote could hide a button), a Shortcut or Siri.
+    var physical = true
+    /// A switch flipped to this value; nil for a plain press.
+    var on: Bool? = nil
+
+    /// How the widget extension queues a press it can't run: `id[=on|=off][|w=<widget>][|shortcut]`.
+    /// Entries from older builds ("id", "id=on") read the same as before.
+    var queueEntry: String {
+        var entry = buttonID
+        if let on { entry += on ? "=on" : "=off" }
+        if let widgetID, !widgetID.isEmpty { entry += "|w=" + widgetID }
+        if !physical { entry += "|shortcut" }
+        return entry
+    }
+
+    init(buttonID: String, widgetID: String? = nil, physical: Bool = true, on: Bool? = nil) {
+        self.buttonID = buttonID
+        self.widgetID = widgetID
+        self.physical = physical
+        self.on = on
+    }
+
+    init(queueEntry: String) {
+        let parts = queueEntry.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        let head = parts[0].split(separator: "=", maxSplits: 1).map(String.init)
+        self.init(buttonID: head[0], on: head.count == 2 ? head[1] == "on" : nil)
+        for part in parts.dropFirst() {
+            if part.hasPrefix("w=") { widgetID = String(part.dropFirst(2)) }
+            if part == "shortcut" { physical = false }
+        }
+    }
+}
+
 /// Where a press is run. The app installs these at launch; in the widget extension they stay
 /// nil and the press is queued instead.
 @MainActor
 enum ControlButtonBridge {
-    static var run: ((String) async -> Void)?
-    /// A switch flipped to a value.
-    static var set: ((String, Bool) async -> Void)?
+    static var run: ((ButtonPress) async -> Void)?
+    /// A switch flipped to a value (`press.on`).
+    static var set: ((ButtonPress) async -> Void)?
 }
 
 struct ControlButtonEntity: AppEntity {
@@ -131,7 +186,8 @@ struct ConfigureJarvisSwitchIntent: ControlConfigurationIntent {
     var button: ControlButtonEntity?
 }
 
-/// Flips a switch. Like a press, run in the app's process.
+/// Flips a switch from Control Center or a widget. Like a press, run in the app's process.
+/// Not discoverable, so no Shortcut can flip it: a flip is always a person's.
 struct SetJarvisButtonIntent: SetValueIntent, LiveActivityIntent {
     static let title: LocalizedStringResource = "Turn a Jarvis switch on or off"
     static let isDiscoverable = false
@@ -142,26 +198,67 @@ struct SetJarvisButtonIntent: SetValueIntent, LiveActivityIntent {
     @Parameter(title: "On")
     var value: Bool
 
+    /// The widget design it sits on, for that widget's model override.
+    @Parameter(title: "Widget")
+    var widget: String?
+
+    /// `ControlButtonShelf.pressToken()` when Control Center built it.
+    @Parameter(title: "Token")
+    var token: String?
+
     init() {}
 
-    init(button: ControlButtonEntity?) {
+    init(button: ControlButtonEntity?, widget: String? = nil, token: String? = nil) {
         self.button = button
+        self.widget = widget
+        self.token = token
     }
 
     @MainActor
     func perform() async throws -> some IntentResult {
         guard let id = button?.id else { return .result() }
-        if let set = ControlButtonBridge.set {
-            await set(id, value)
-        } else {
-            ControlButtonShelf.queue(id + (value ? "=on" : "=off"))
-        }
+        let own = token != nil && token == ControlButtonShelf.pressToken()
+        await ControlButtonShelf.dispatch(ButtonPress(buttonID: id, widgetID: widget, physical: own, on: value))
         return .result()
     }
 }
 
-/// Runs one button. A Live Activity intent so iOS performs it in the app's process — launching
-/// the app in the background if it isn't running — where the action can actually run.
+/// A press from Control Center or a widget. Hidden from Shortcuts and Siri, which use
+/// `RunJarvisButtonIntent`; and it only counts as his own press when it carries the press token,
+/// which only Control Center's control is built with.
+struct PressJarvisButtonIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Press a Jarvis button"
+    static let isDiscoverable = false
+
+    @Parameter(title: "Button")
+    var button: ControlButtonEntity?
+
+    @Parameter(title: "Widget")
+    var widget: String?
+
+    @Parameter(title: "Token")
+    var token: String?
+
+    init() {}
+
+    init(button: ControlButtonEntity?, widget: String? = nil, token: String? = nil) {
+        self.button = button
+        self.widget = widget
+        self.token = token
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard let id = button?.id else { return .result() }
+        let own = token != nil && token == ControlButtonShelf.pressToken()
+        await ControlButtonShelf.dispatch(ButtonPress(buttonID: id, widgetID: widget, physical: own))
+        return .result()
+    }
+}
+
+/// Runs one button from a Shortcut, Siri or an automation. A Live Activity intent so iOS performs
+/// it in the app's process — launching the app in the background if it isn't running — where the
+/// action can actually run. Never skips Face ID.
 struct RunJarvisButtonIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Run a Jarvis button"
     static let description = IntentDescription("Runs one of the buttons set up in Jarvis settings.")
@@ -178,11 +275,20 @@ struct RunJarvisButtonIntent: LiveActivityIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard let id = button?.id else { return .result() }
-        if let run = ControlButtonBridge.run {
-            await run(id)
-        } else {
-            ControlButtonShelf.queue(id)
-        }
+        await ControlButtonShelf.dispatch(ButtonPress(buttonID: id, physical: false))
         return .result()
+    }
+}
+
+extension ControlButtonShelf {
+    /// Hands a press to the app, or queues it when this is the widget extension.
+    @MainActor
+    static func dispatch(_ press: ButtonPress) async {
+        let handler = press.on == nil ? ControlButtonBridge.run : ControlButtonBridge.set
+        if let handler {
+            await handler(press)
+        } else {
+            queue(press.queueEntry)
+        }
     }
 }

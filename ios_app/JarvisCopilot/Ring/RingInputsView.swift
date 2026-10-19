@@ -239,164 +239,6 @@ struct RingInputsSection: View {
     }
 }
 
-/// Picks what one input does: a prompt Jarvis runs, or one of the phone's own actions.
-struct RingActionPicker: View {
-    @ObservedObject private var devices = DeviceRegistry.shared
-    let title: String
-    let current: RingAction
-    let onSave: (RingAction) -> Void
-
-    /// Any action Jarvis can run — a ring gesture's, a Control Center button's.
-    init(title: String, current: RingAction, onSave: @escaping (RingAction) -> Void) {
-        self.title = title
-        self.current = current
-        self.onSave = onSave
-    }
-
-    init(store: RingInputStore, input: RingInput) {
-        self.init(title: input.label, current: store.action(for: input)) { store.set($0, for: input) }
-    }
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var prompt = ""
-    @State private var selected: String?
-    @State private var value = ""
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                CardGroup("Ask Jarvis", footer: "Runs as a Jarvis turn with every tool it has — \"turn off the "
-                    + "lights\", \"text Mum I'm on my way\", \"what's my next meeting\".") {
-                    Row {
-                        TextField("What should Jarvis do?", text: $prompt, axis: .vertical)
-                            .lineLimit(1...3)
-                    }
-                    RowDivider()
-                    Row {
-                        Button("Use this prompt") { save(.prompt(prompt)) }
-                            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-
-                ForEach(RingActionCatalogue.groups, id: \.self) { group in
-                    CardGroup(group) {
-                        let options = RingActionCatalogue.options.filter { $0.group == group }
-                        ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                            if index > 0 { RowDivider() }
-                            optionRow(option)
-                        }
-                    }
-                }
-
-                CardGroup("Wearable actions", footer: "Enable Share with Jarvis on a wearable to see its actions here. Saved actions always target the device you choose.") {
-                    if devices.devices.isEmpty {
-                        Row { Text("No shared wearables yet").foregroundStyle(.secondary) }
-                    }
-                    ForEach(devices.devices, id: \.deviceID) { device in
-                        ForEach(device.capabilities, id: \.name) { capability in
-                            ForEach(WearableQuickActions.actions(for: capability), id: \.label) { quick in
-                                Button {
-                                    save(.wearable(deviceID: device.deviceID, skill: capability.name,
-                                                   arguments: quick.arguments))
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(quick.label)
-                                        Text("\(type(of: device).model) · \(device.deviceID.suffix(6))")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    .padding(16)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                RowDivider()
-                            }
-                            NavigationLink {
-                                RingWearableActionEditor(current: current, onSave: onSave, deviceID: device.deviceID,
-                                    model: type(of: device).model, capability: capability)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
-                                    Text("\(type(of: device).model) · \(device.deviceID.suffix(6))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }.padding(16)
-                            }
-                            RowDivider()
-                        }
-                    }
-                }
-                CardGroup("Off") {
-                    Row {
-                        Button("Do nothing", role: .destructive) { save(.none) }
-                    }
-                }
-            }
-            .padding(.vertical, 16)
-            .padding(.bottom, 30)
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: load)
-    }
-
-    private func optionRow(_ option: RingActionOption) -> some View {
-        Row {
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    selected = option.id
-                    value = option.arguments[option.parameter?.key ?? ""] ?? ""
-                    if option.parameter == nil { save(.skill(id: option.id, arguments: [:])) }
-                } label: {
-                    HStack {
-                        Text(option.label).font(.subheadline)
-                        Spacer(minLength: 0)
-                        if isCurrent(option) {
-                            JcIcon("checkmark").font(.caption).foregroundStyle(.green)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if let note = option.note, selected == option.id {
-                    Text(note).font(.caption2).foregroundStyle(.secondary)
-                }
-                if let parameter = option.parameter, selected == option.id {
-                    HStack {
-                        TextField(parameter.placeholder, text: $value)
-                            .textFieldStyle(.roundedBorder)
-                            .autocorrectionDisabled()
-                        Button("Save") { save(.skill(id: option.id, arguments: [parameter.key: value])) }
-                            .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-            }
-        }
-    }
-
-    private func isCurrent(_ option: RingActionOption) -> Bool {
-        if case .skill(let id, _) = current { return id == option.id }
-        return false
-    }
-
-    private func load() {
-        switch current {
-        case .prompt(let text):
-            prompt = text
-        case .skill(let id, let arguments):
-            selected = id
-            value = RingActionCatalogue.option(id)?.parameter.flatMap { arguments[$0.key] } ?? ""
-        case .none, .wearable:
-            break
-        }
-    }
-
-    private func save(_ action: RingAction) {
-        onSave(action)
-        dismiss()
-    }
-}
-
-
 /// One-tap versions of a wearable command with an on/off switch (`on: boolean`), so stopping is
 /// as easy to pick as starting — "Stop sterilising" next to "Sterilise now".
 enum WearableQuickActions {
@@ -409,25 +251,34 @@ enum WearableQuickActions {
         "bottle_sterilise": ("Sterilise now", "Stop sterilising"),
     ]
 
+    /// The boolean a command is switched by: `on`, or `enabled` / `power` where a device names it so
+    /// (dashcam recording, light power).
+    static let switchKeys = ["on", "enabled", "power"]
+
     static func actions(for capability: DeviceCapability) -> [Quick] {
         let properties = capability.inputSchema["properties"] as? [String: [String: Any]] ?? [:]
-        guard properties["on"]?["type"] as? String == "boolean" else { return [] }
+        guard let key = switchKeys.first(where: { properties[$0]?["type"] as? String == "boolean" }) else { return [] }
+        // A command that needs more than its switch to run can't be a one-tap.
+        let required = Set((capability.inputSchema["required"] as? [String]) ?? []).subtracting([key, "confirm"])
+        guard required.isEmpty else { return [] }
         let words = capability.name.split(separator: "_").map(String.init)
         let title = (words.count > 1 ? words.dropFirst() : words[...]).joined(separator: " ").capitalized
         let names = labels[capability.name] ?? ("\(title) on", "\(title) off")
         // Starting a cycle the device asks to confirm is confirmed by choosing it here.
-        let on = properties["confirm"] != nil ? ["on": "true", "confirm": "true"] : ["on": "true"]
-        return [Quick(label: names.on, arguments: on), Quick(label: names.off, arguments: ["on": "false"])]
+        let on = properties["confirm"] != nil ? [key: "true", "confirm": "true"] : [key: "true"]
+        return [Quick(label: names.on, arguments: on), Quick(label: names.off, arguments: [key: "false"])]
     }
 }
 
-/// Uses the exact parameter schema advertised to chat; saves stable target identity.
+/// Uses the exact parameter schema advertised to chat; saves stable target identity. `onServer`:
+/// a board the server holds (the Pod, an ESP32 on Wi-Fi), run through the server.
 struct RingWearableActionEditor: View {
     let current: RingAction
     let onSave: (RingAction) -> Void
     let deviceID: String
     let model: String
     let capability: DeviceCapability
+    var onServer = false
     @Environment(\.dismiss) private var dismiss
     @State private var values: [String: String] = [:]
     @State private var error: String?
@@ -450,7 +301,8 @@ struct RingWearableActionEditor: View {
                 Button("Save") {
                     do {
                         _ = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
-                        onSave(.wearable(deviceID: deviceID, skill: capability.name, arguments: values))
+                        onSave(onServer ? .serverDevice(deviceID: deviceID, skill: capability.name, arguments: values)
+                                        : .wearable(deviceID: deviceID, skill: capability.name, arguments: values))
                         dismiss()
                     } catch { self.error = error.localizedDescription }
                 }
@@ -459,12 +311,14 @@ struct RingWearableActionEditor: View {
         .navigationTitle(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if case .wearable(let target, let skill, let stored) = current,
+            if case .wearable(let target, let skill, let stored) = current, !onServer,
                target == deviceID, skill == capability.name { values = stored }
+            else if case .serverDevice(let target, let skill, let stored) = current, onServer,
+                    target == deviceID, skill == capability.name { values = stored }
             else {
                 let props = capability.inputSchema["properties"] as? [String: [String: Any]] ?? [:]
                 for field in SkillArgsForm.fields(from: capability.inputSchema) {
-                    if let value = props[field.key]?["default"] { values[field.key] = SkillArgs.text(value) }
+                    if let value = props[field.key]?["default"] { values[field.key] = SkillArgsForm.initialText(value, field: field) }
                     else if field.kind == .boolean && field.required { values[field.key] = "false" }
                 }
             }

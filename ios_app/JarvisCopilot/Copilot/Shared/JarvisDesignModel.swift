@@ -81,9 +81,11 @@ struct JCDesign: Decodable {
     var icon: String = ""
     var tint: String = ""
     var presentations: JCPresentations = JCPresentations()
+    /// What this widget's buttons run their Ask Jarvis on; nil = each button's own choice.
+    var agent: WidgetAgent?
 
     enum CodingKeys: String, CodingKey {
-        case schema, id, version, name, icon, tint, presentations
+        case schema, id, version, name, icon, tint, presentations, agent
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -95,6 +97,7 @@ struct JCDesign: Decodable {
         tint = (try? c.decode(String.self, forKey: .tint)) ?? ""
         presentations = (try? c.decode(JCPresentations.self, forKey: .presentations))
             ?? JCPresentations()
+        agent = try? c.decodeIfPresent(WidgetAgent.self, forKey: .agent)
     }
     init() {}
 }

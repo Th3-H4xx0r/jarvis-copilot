@@ -65,9 +65,11 @@ struct ToyotaAPI: Sendable {
     }
 
     /// Runs a command after a completed tap-and-hold — with the Face ID proof for all but Stop.
-    func run(_ command: ToyotaCommand, proof: ToyotaApprover.Proof?) async throws -> String {
+    /// `byButton`: the proof is the button key's (a Jarvis button set to skip Face ID).
+    func run(_ command: ToyotaCommand, proof: ToyotaApprover.Proof?, byButton: Bool = false) async throws -> String {
         var body: [String: Any] = ["command": command.rawValue]
         if let proof { body.merge(["nonce": proof.nonce, "ts": proof.ts, "signature": proof.signature]) { $1 } }
+        if byButton { body["by"] = "button" }
         let o = try await actions.post(Self.prefix + "/command", json: body, timeout: Self.commandTimeout).object()
         guard o["ok"] as? Bool != false else {
             throw APIError.badResponse(o["error"] as? String ?? o["ask"] as? String ?? "the car didn't take it")
@@ -106,6 +108,17 @@ struct ToyotaAPI: Sendable {
     func registerApprover(publicKey: String, ts: Int, signature: String) async throws {
         _ = try await actions.post(Self.prefix + "/approver",
                                    json: ["public_key": publicKey, "ts": ts, "signature": signature], timeout: 20)
+    }
+
+    /// The button key, signed by the Face ID key over `jarvis-button-register|<key>|<ts>`.
+    func registerButtonKey(publicKey: String, ts: Int, signature: String) async throws {
+        _ = try await actions.post(Self.prefix + "/approver/button",
+                                   json: ["public_key": publicKey, "ts": ts, "signature": signature], timeout: 20)
+    }
+
+    /// No button skips Face ID any more: the server drops the button key.
+    func clearButtonKey() async throws {
+        _ = try await actions.delete(Self.prefix + "/approver/button")
     }
 
     func approvals() async throws -> [CarApproval] {

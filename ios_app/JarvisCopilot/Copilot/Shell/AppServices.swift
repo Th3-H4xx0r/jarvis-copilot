@@ -315,12 +315,12 @@ final class AppServices {
         // 10b. Control Center buttons run here — iOS launches the app in the background for
         //      a press if it has to. A press that reached the widget extension instead waits
         //      in the App Group until now.
-        ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
+        ControlButtonBridge.run = { press in await ControlButtonStore.shared.run(press) }
         // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).
         AgentDecisionBridge.decide = { fingerprint, decision in
             (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
         }
-        ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
+        ControlButtonBridge.set = { press in await ControlButtonStore.shared.run(press) }
         // Listening / thinking sounds: every car turn (the widget's, and the CarPlay voice tab).
         VoiceStore.shared.earcons = ToneEarconPlayer()
         VoiceStore.shared.wantsEarcons = { CarPresence.shared.inCar }
@@ -415,6 +415,8 @@ final class AppServices {
                 await self.push.drainNow()
                 await self.runner.drainPending()
                 await ControlButtonStore.shared.runPending()
+                // A disarm or car command a background press couldn't Face ID: the tap brought us here.
+                await SecureActionPending.drain()
                 WidgetDataHub.shared.refreshSoon()
                 WidgetModelSnapshots.refreshIfNeeded()
                 await WidgetSync.shared.sync()

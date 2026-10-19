@@ -56,6 +56,10 @@ struct ControlButton: Codable, Identifiable, Equatable {
         }
     }
 
+    /// Either side disarms, silences or drives the car without Face ID: a widget then always shows
+    /// this button's own name and icon.
+    var skipsFaceID: Bool { action.skipsFaceID || offAction.skipsFaceID }
+
     /// The wearable whose Keep Alive this button switches, if that is what it does.
     var keepAliveDevice: String? {
         guard case .skill(let id, _) = action, id.hasPrefix("keep_alive_") else { return nil }
@@ -66,7 +70,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
     // written but never read back.
     private enum CodingKeys: String, CodingKey {
         case id, name, symbol, action, offAction, keepsState, isOn, offSymbol, tint, captionKind, captionText, lastResult
-        case caption
+        case caption, skipsFaceID
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +104,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
         try c.encode(captionText, forKey: .captionText)
         try c.encodeIfPresent(lastResult, forKey: .lastResult)
         try c.encodeIfPresent(caption, forKey: .caption)
+        try c.encodeIfPresent(skipsFaceID ? true : nil, forKey: .skipsFaceID)
     }
 }
 
@@ -112,9 +117,11 @@ final class ControlButtonStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let reloadControls: () -> Void
-    private let runAction: (RingAction) async -> String
+    private let runAction: (RingAction, RingActionContext) async -> String
     private let notify: (String, String) async -> Void
     private let keepAliveIsOn: (String) -> Bool
+    private let widgetAgent: (String) -> WidgetAgent?
+    private let forgetButtonKey: () -> Void
     private var keepAliveWatch: NSObjectProtocol?
 
     init(defaults: UserDefaults = ControlButtonShelf.defaults,
@@ -124,16 +131,26 @@ final class ControlButtonStore: ObservableObject {
                  ControlCenter.shared.reloadControls(ofKind: ControlButtonShelf.switchKind)
              }
          },
-         runAction: @escaping (RingAction) async -> String = { await RingActionRunner.run($0) },
+         runAction: @escaping (RingAction, RingActionContext) async -> String = {
+             await RingActionRunner.run($0, context: $1)
+         },
          notify: @escaping (String, String) async -> Void = { title, body in
              try? await DefaultNotifier().post(LocalNotificationRequest(title: title, body: body))
          },
-         keepAliveIsOn: @escaping (String) -> Bool = { WearableKeepAlive.isOn($0) }) {
+         keepAliveIsOn: @escaping (String) -> Bool = { WearableKeepAlive.isOn($0) },
+         widgetAgent: @escaping (String) -> WidgetAgent? = { WidgetDesignCache.load($0)?.agent },
+         forgetButtonKey: @escaping () -> Void = {
+             guard ButtonKeyRegistration.isRegistered else { return }
+             ButtonKeyRegistration.isRegistered = false
+             Task { try? await ToyotaAPI().clearButtonKey() }
+         }) {
         self.defaults = defaults
         self.reloadControls = reloadControls
         self.runAction = runAction
         self.notify = notify
         self.keepAliveIsOn = keepAliveIsOn
+        self.widgetAgent = widgetAgent
+        self.forgetButtonKey = forgetButtonKey
         if let data = defaults.data(forKey: ControlButtonShelf.key),
            let stored = try? JSONDecoder().decode([ControlButton].self, from: data) {
             buttons = stored
@@ -168,36 +185,49 @@ final class ControlButtonStore: ObservableObject {
     /// One press from Control Center. A Jarvis prompt's reply comes back as a notification —
     /// Control Center has nowhere to show it — and so does a failure; anything else is silent.
     /// A button that keeps its state flips it.
-    func press(_ id: String) async {
+    func press(_ id: String, widget: String? = nil, physical: Bool = true) async {
         guard let button = button(id) else { return }
-        if button.keepsState { return await set(id, !button.isOn) }
-        let line = await runAction(button.action)
+        if button.keepsState { return await set(id, !button.isOn, widget: widget, physical: physical) }
+        let line = await runAction(button.action, context(button, widget: widget, physical: physical))
         record(id, line)
         await report(button, line)
     }
 
     /// A switch turned on or off. A Keep Alive switch sets exactly that state and shows what it
     /// really is; any other action runs and the switch keeps the state it was flipped to.
-    func set(_ id: String, _ on: Bool) async {
+    func set(_ id: String, _ on: Bool, widget: String? = nil, physical: Bool = true) async {
         guard var button = button(id) else { return }
         var action = !on && button.offAction.isSet ? button.offAction : button.action
         if button.keepAliveDevice != nil, case .skill(let option, var arguments) = action {
             arguments["state"] = on ? "on" : "off"
             action = .skill(id: option, arguments: arguments)
         }
-        let line = await runAction(action)
+        let line = await runAction(action, context(button, widget: widget, physical: physical))
         button.isOn = button.keepAliveDevice.map(keepAliveIsOn) ?? on
         button.lastResult = line
         replace(button)
         await report(button, line)
     }
 
+    /// One press handed over by an intent.
+    func run(_ press: ButtonPress) async {
+        if let on = press.on {
+            await set(press.buttonID, on, widget: press.widgetID, physical: press.physical)
+        } else {
+            await self.press(press.buttonID, widget: press.widgetID, physical: press.physical)
+        }
+    }
+
     /// Presses that landed in the widget extension while the app wasn't there to run them.
     func runPending() async {
         for entry in ControlButtonShelf.takePending(defaults: defaults) {
-            let parts = entry.split(separator: "=", maxSplits: 1).map(String.init)
-            if parts.count == 2 { await set(parts[0], parts[1] == "on") } else { await press(entry) }
+            await run(ButtonPress(queueEntry: entry))
         }
+    }
+
+    /// The button's own chat, and the model override of the widget it was pressed on.
+    private func context(_ button: ControlButton, widget: String?, physical: Bool) -> RingActionContext {
+        .button(button, widgetAgent: widget.flatMap(widgetAgent), physical: physical && widget == nil)
     }
 
     /// Relights the Keep Alive switches from the real setting.
@@ -228,7 +258,15 @@ final class ControlButtonStore: ObservableObject {
 
     private func report(_ button: ControlButton, _ line: String) async {
         JcLog.services.notice("control button \(button.name, privacy: .public): \(line, privacy: .public)")
+        let alarmOrCar: Bool
+        switch button.action {
+        case .door, .car: alarmOrCar = true
+        default: alarmOrCar = false
+        }
         if case .prompt = button.action {
+            await notify(button.name, line)
+        } else if alarmOrCar && !line.hasPrefix("Tap the notification") {
+            // The alarm and the car say what they did: Control Center has nowhere to show it.
             await notify(button.name, line)
         } else if line.contains(" failed") || line.hasPrefix("unknown action") || line.contains("unavailable") {
             await notify(button.name, line)
@@ -237,6 +275,9 @@ final class ControlButtonStore: ObservableObject {
 
     private func persist() {
         if let data = try? JSONEncoder().encode(buttons) { defaults.set(data, forKey: ControlButtonShelf.key) }
+        // No button skips Face ID any more: the server forgets the button key, so turning one back on
+        // asks Face ID again rather than being a bare switch for whoever holds the phone.
+        if !buttons.contains(where: \.skipsFaceID) { forgetButtonKey() }
         reloadControls()
     }
 

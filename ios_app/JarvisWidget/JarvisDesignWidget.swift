@@ -48,7 +48,7 @@ struct JarvisDesignWidgetView: View {
     @ViewBuilder
     private var content: some View {
         if let design = entry.design, let node = design.node(for: size) {
-            JCDesignRenderer(tint: jcParseColor(design.tint) ?? JcAccent.color)
+            JCDesignRenderer(tint: jcParseColor(design.tint) ?? JcAccent.color, designID: design.id)
                 .render(node, JCBindingContext(data: entry.data))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let design = entry.design {

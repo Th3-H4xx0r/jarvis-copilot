@@ -8,6 +8,8 @@ final class ControlButtonsTests: XCTestCase {
     private var defaults: UserDefaults!
     private var reloads = 0
     private var ran: [RingAction] = []
+    private var contexts: [RingActionContext] = []
+    private var designs: [String: WidgetAgent] = [:]
     private var notes: [(String, String)] = []
     private var reply = "done"
     private var keepAlive: [String: Bool] = [:]
@@ -17,6 +19,8 @@ final class ControlButtonsTests: XCTestCase {
         defaults = UserDefaults(suiteName: "ControlButtonsTests-\(UUID().uuidString)")
         reloads = 0
         ran = []
+        contexts = []
+        designs = [:]
         notes = []
         reply = "done"
     }
@@ -24,9 +28,14 @@ final class ControlButtonsTests: XCTestCase {
     private func store() -> ControlButtonStore {
         ControlButtonStore(defaults: defaults,
                            reloadControls: { [unowned self] in reloads += 1 },
-                           runAction: { [unowned self] action in ran.append(action); return reply },
+                           runAction: { [unowned self] action, context in
+                               ran.append(action)
+                               contexts.append(context)
+                               return reply
+                           },
                            notify: { [unowned self] title, body in notes.append((title, body)) },
-                           keepAliveIsOn: { [unowned self] in keepAlive[$0] ?? false })
+                           keepAliveIsOn: { [unowned self] in keepAlive[$0] ?? false },
+                           widgetAgent: { [unowned self] in designs[$0] })
     }
 
     private func button(_ name: String, _ action: RingAction, symbol: String = "bolt.fill") -> ControlButton {
@@ -114,11 +123,70 @@ final class ControlButtonsTests: XCTestCase {
     func testTheIntentHandsThePressToTheApp() async throws {
         let saved = ControlButtonBridge.run
         defer { ControlButtonBridge.run = saved }
-        var pressed: [String] = []
+        var pressed: [ButtonPress] = []
         ControlButtonBridge.run = { pressed.append($0) }
         let entity = ControlButtonEntity(ControlButtonInfo(id: "b1", name: "B", symbol: "bolt.fill"))
+        _ = try await PressJarvisButtonIntent(button: entity, token: ControlButtonShelf.pressToken()).perform()
+        _ = try await PressJarvisButtonIntent(button: entity, widget: "w1").perform()
+        _ = try await PressJarvisButtonIntent(button: entity, token: "guessed").perform()
         _ = try await RunJarvisButtonIntent(button: entity).perform()
-        XCTAssertEqual(pressed, ["b1"])
+        XCTAssertEqual(pressed, [ButtonPress(buttonID: "b1", physical: true),
+                                 ButtonPress(buttonID: "b1", widgetID: "w1", physical: false),
+                                 ButtonPress(buttonID: "b1", physical: false),
+                                 ButtonPress(buttonID: "b1", physical: false)],
+                       "only Control Center's own press (with the token) is his; widgets, guesses and Shortcuts aren't")
+    }
+
+    // MARK: which chat and model a press runs on
+
+    func testEachButtonsAskJarvisRunsInItsOwnChat() async {
+        let s = store()
+        let a = button("Plan", .prompt("plan my day")), b = button("Lights", .prompt("lights off"))
+        s.save(a)
+        s.save(b)
+        await s.press(a.id)
+        await s.press(b.id)
+        XCTAssertEqual(contexts.map(\.chatKey), ["button.\(a.id)", "button.\(b.id)"])
+        XCTAssertEqual(contexts.map(\.chatTitle), ["Plan", "Lights"])
+    }
+
+    func testAPressFromAWidgetCarriesThatWidgetsOverride() async {
+        let s = store()
+        let b = button("Plan", .prompt("plan", agent: .harness("deep")))
+        s.save(b)
+        designs["home"] = .harness("fast")
+        await s.run(ButtonPress(buttonID: b.id, widgetID: "home"))
+        await s.run(ButtonPress(buttonID: b.id))
+        XCTAssertEqual(contexts.map(\.widgetAgent), [.harness("fast"), nil])
+    }
+
+    func testSwitchBothSidesUseTheButtonChat() async {
+        let s = store()
+        var b = button("Lamp", .prompt("lamp on"))
+        b.keepsState = true
+        b.offAction = .prompt("lamp off")
+        s.save(b)
+        await s.set(b.id, true)
+        await s.set(b.id, false)
+        XCTAssertEqual(Set(contexts.map(\.chatKey)), ["button.\(b.id)"])
+    }
+
+    func testQueuedPressesKeepTheirWidgetAndWhoPressed() async {
+        let s = store()
+        let b = button("Lamp", .prompt("lamp"))
+        s.save(b)
+        designs["home"] = .default
+        ControlButtonShelf.queue(ButtonPress(buttonID: b.id).queueEntry, defaults: defaults)
+        ControlButtonShelf.queue(ButtonPress(buttonID: b.id, widgetID: "home").queueEntry, defaults: defaults)
+        ControlButtonShelf.queue(ButtonPress(buttonID: b.id, physical: false).queueEntry, defaults: defaults)
+        await s.runPending()
+        XCTAssertEqual(contexts.map(\.widgetAgent), [nil, .default, nil])
+        XCTAssertEqual(contexts.map(\.physical), [true, false, false],
+                       "a widget press never skips Face ID, even though a person tapped it")
+        XCTAssertEqual(ButtonPress(queueEntry: b.id + "=on"), ButtonPress(buttonID: b.id, on: true),
+                       "an entry an older build queued still reads")
+        XCTAssertEqual(ButtonPress(queueEntry: "x=off|w=home|shortcut"),
+                       ButtonPress(buttonID: "x", widgetID: "home", physical: false, on: false))
     }
 
     // MARK: buttons that keep their state

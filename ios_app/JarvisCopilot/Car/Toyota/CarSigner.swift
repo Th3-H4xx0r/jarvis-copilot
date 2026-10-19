@@ -196,6 +196,51 @@ final class ToyotaApprover {
     /// After the server refused a signature (reset, key replaced): check the registration again next time.
     func forgetRegistration() { registered = nil }
 
+    // MARK: Buttons that skip Face ID
+
+    /// Face ID once: a proof for `command` AND, signed by the same Face ID, this phone's button key
+    /// registered with the server — so buttons set to skip Face ID work from then on.
+    func proofRegisteringButtonKey(for command: String, title: String, domain: String,
+                                   key: ButtonKeySigner = SecureEnclaveButtonKey.shared) async throws -> Proof {
+        let auth = try await signer.authenticate(reason: title)
+        try await ensureRegistered(auth: auth)
+        // Restoring the button key is a bonus: a failure there must not cost him this command.
+        do {
+            try await registerButtonKey(key, auth: auth)
+        } catch {
+            JcLog.dropped(JcLog.services, "re-registering the button key", error)
+        }
+        let nonce = UUID().uuidString
+        let ts = Int(now().timeIntervalSince1970)
+        let signature = try await signer.sign(Data("\(domain)|\(command)|\(nonce)|\(ts)".utf8), auth: auth)
+        return Proof(nonce: nonce, ts: ts, signature: signature.base64EncodedString())
+    }
+
+    /// Registers the button key on its own (turning Skip Face ID on): one Face ID.
+    func registerButtonKey(_ key: ButtonKeySigner = SecureEnclaveButtonKey.shared) async throws {
+        let auth = try await signer.authenticate(reason: "Let Jarvis buttons skip Face ID")
+        try await ensureRegistered(auth: auth)
+        try await registerButtonKey(key, auth: auth)
+    }
+
+    /// A proof signed by the button key — no Face ID. `jarvis-button|…` so it can never pass as a
+    /// Face ID proof; the server checks it only for disarm, silence and car commands.
+    func buttonProof(for command: String, domain: String,
+                     key: ButtonKeySigner = SecureEnclaveButtonKey.shared) throws -> Proof {
+        let nonce = UUID().uuidString
+        let ts = Int(now().timeIntervalSince1970)
+        let signature = try key.sign(Data("jarvis-button|\(domain)|\(command)|\(nonce)|\(ts)".utf8))
+        return Proof(nonce: nonce, ts: ts, signature: signature.base64EncodedString())
+    }
+
+    private func registerButtonKey(_ key: ButtonKeySigner, auth: CarSignerAuth) async throws {
+        let theirs = try key.publicKey()
+        let ts = Int(now().timeIntervalSince1970)
+        let signature = try await signer.sign(Data("jarvis-button-register|\(theirs)|\(ts)".utf8), auth: auth)
+        try await api.registerButtonKey(publicKey: theirs, ts: ts, signature: signature.base64EncodedString())
+        ButtonKeyRegistration.isRegistered = true
+    }
+
     /// The first time, this iPhone's key registers itself — signing `jarvis-car-register|<key>|<ts>`
     /// with the Face ID just passed, so nothing that can't sign with it can register a key.
     private func ensureRegistered(auth: CarSignerAuth) async throws {

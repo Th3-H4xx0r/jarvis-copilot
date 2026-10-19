@@ -12,8 +12,13 @@ final class JCDesignRenderer {
     private let maxDepth = 12
     private let maxNodes = 160
     let tint: Color
+    /// The widget design being drawn; its buttons pass it with each press for its model override.
+    let designID: String?
 
-    init(tint: Color) { self.tint = tint }
+    init(tint: Color, designID: String? = nil) {
+        self.tint = tint
+        self.designID = designID
+    }
 
     func render(_ node: JCNode?, _ ctx: JCBindingContext, depth: Int = 0) -> AnyView {
         guard let node = node, depth <= maxDepth, count < maxNodes else {
@@ -545,8 +550,11 @@ final class JCDesignRenderer {
     private func jcButton(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
         let id = n.string("button") ?? ""
         let info = ControlButtonShelf.infos().first { $0.id == id }
-        let label = n.ref("label")?.string(ctx) ?? info?.name ?? "Button"
-        let symbol = n.string("symbol") ?? info?.symbol ?? "bolt.fill"
+        // A button that skips Face ID always shows its own name and icon: designs can be written
+        // by Jarvis, and must not be able to dress a disarm up as something else.
+        let own = info?.skipsFaceID == true
+        let label = (own ? nil : n.ref("label")?.string(ctx)) ?? info?.name ?? "Button"
+        let symbol = (own ? nil : n.string("symbol")) ?? info?.symbol ?? "bolt.fill"
         let color = n.ref("color")?.color(ctx) ?? info?.tintColor ?? tint
         let face = Label(label, systemImage: symbol)
             .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13, weight: .semibold))
@@ -556,7 +564,7 @@ final class JCDesignRenderer {
             .frame(maxWidth: .infinity)
             .background(color.opacity(info == nil ? 0.12 : 0.35), in: Capsule())
         if let info {
-            Button(intent: RunJarvisButtonIntent(button: ControlButtonEntity(info))) { face }
+            Button(intent: PressJarvisButtonIntent(button: ControlButtonEntity(info), widget: designID)) { face }
                 .buttonStyle(.plain)
         } else {
             face.opacity(0.5)
@@ -568,14 +576,14 @@ final class JCDesignRenderer {
     private func jcToggle(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
         let id = n.string("button") ?? ""
         let info = ControlButtonShelf.infos().first { $0.id == id }
-        let label = n.ref("label")?.string(ctx) ?? info?.name ?? "Switch"
+        let label = (info?.skipsFaceID == true ? nil : n.ref("label")?.string(ctx)) ?? info?.name ?? "Switch"
         let on = info?.isOn ?? false
         let symbol = on ? (info?.symbol ?? "switch.2") : (info?.offSymbol ?? info?.symbol ?? "switch.2")
         let face = Label(label, systemImage: symbol)
             .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13, weight: .semibold))
             .lineLimit(1)
         if let info {
-            Toggle(isOn: on, intent: SetJarvisButtonIntent(button: ControlButtonEntity(info))) { face }
+            Toggle(isOn: on, intent: SetJarvisButtonIntent(button: ControlButtonEntity(info), widget: designID)) { face }
                 .toggleStyle(.switch)
                 .tint(info.tintColor ?? tint)
                 .foregroundStyle(.white)

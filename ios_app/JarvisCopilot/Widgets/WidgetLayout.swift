@@ -179,6 +179,8 @@ struct WidgetDesignDraft: Codable, Equatable, Identifiable {
     var tint: String?
     /// By `WidgetSize.rawValue`.
     var layouts: [String: WidgetLayout]
+    /// What the buttons on this widget run their Ask Jarvis on; nil = each button's own.
+    var agent: WidgetAgent? = nil
 
     static func blank(name: String) -> WidgetDesignDraft {
         WidgetDesignDraft(id: slug(name), name: name, icon: "square.grid.2x2", tint: nil,
@@ -209,6 +211,9 @@ struct WidgetDesignDraft: Codable, Equatable, Identifiable {
         var design: [String: Any] = ["schema": 1, "id": id, "name": name, "icon": icon,
                                      "presentations": presentations]
         if let tint { design["tint"] = tint }
+        if let agent, let object = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(agent)) {
+            design["agent"] = object
+        }
         if let builder = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(self)) { design["builder"] = builder }
         return (try? JSONSerialization.data(withJSONObject: design, options: [.sortedKeys])) ?? Data()
     }

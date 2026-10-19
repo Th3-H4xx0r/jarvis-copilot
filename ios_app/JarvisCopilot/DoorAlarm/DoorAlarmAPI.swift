@@ -32,9 +32,10 @@ struct DoorAlarmAPI: Sendable {
         DoorState(json: try await api.post(Self.prefix + "/" + name, timeout: 20).object())
     }
 
-    /// `action` is "disarm" or "silence".
-    func send(_ action: String, proof: ToyotaApprover.Proof) async throws -> DoorState {
-        let body: [String: Any] = ["nonce": proof.nonce, "ts": proof.ts, "signature": proof.signature]
+    /// `action` is "disarm" or "silence". `byButton`: the proof is the button key's.
+    func send(_ action: String, proof: ToyotaApprover.Proof, byButton: Bool = false) async throws -> DoorState {
+        var body: [String: Any] = ["nonce": proof.nonce, "ts": proof.ts, "signature": proof.signature]
+        if byButton { body["by"] = "button" }
         return DoorState(json: try await api.post(Self.prefix + "/" + action, json: body, timeout: 20).object())
     }
 
