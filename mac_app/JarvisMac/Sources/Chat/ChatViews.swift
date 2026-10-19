@@ -71,7 +71,8 @@ struct ChatNoteRow: View {
     }
 }
 
-/// Jarvis's turn: no bubble — a quiet label, its tools in one box, the reply.
+/// Jarvis's turn: no bubble — a quiet label, its thought process, its tools in
+/// one box, the reply; settled, a copy button and who answered with its numbers.
 struct ChatTurnView: View {
     let turn: ChatTurn
 
@@ -80,6 +81,9 @@ struct ChatTurnView: View {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles").font(.system(size: 10.5, weight: .medium)).foregroundStyle(JcAccent.color)
                 Text("Jarvis").font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.8))
+            }
+            if turn.hasReasoning {
+                ChatReasoningCard(text: turn.reasoning, active: turn.streaming && !turn.hasText)
             }
             if !turn.tools.isEmpty {
                 let box = RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -100,6 +104,14 @@ struct ChatTurnView: View {
             if let note = turn.note {
                 Text(note).font(.system(size: 11.5)).foregroundStyle(ChatStyle.muted)
             }
+            let footer = turn.footer
+            let copyable = turn.hasText && !turn.streaming && turn.error == nil
+            if copyable || !footer.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if copyable { ChatCopyButton(text: turn.text) }
+                    if !footer.isEmpty { ChatFooterLine(text: footer) }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -114,6 +126,87 @@ struct ChatTurnView: View {
         }
         .background(ChatStyle.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+}
+
+/// The quiet line under a settled reply ("Claude Opus 5.5 · 3.2 s · 40.2k in ·
+/// 12 out"): rounded, tabular and faint, so it reads as metadata.
+struct ChatFooterLine: View {
+    let text: String
+
+    var body: some View {
+        Text(text).font(.system(size: 10.5, weight: .medium, design: .rounded)).monospacedDigit()
+            .foregroundStyle(ChatStyle.faint)
+            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+}
+
+/// Copy the whole reply (its markdown); a check for a moment once it's copied.
+struct ChatCopyButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            withAnimation(.snappy(duration: 0.18)) { copied = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.6))
+                withAnimation(.easeOut(duration: 0.2)) { copied = false }
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(copied ? JcAccent.color : ChatStyle.muted)
+                .frame(width: 18, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(copied ? "Copied" : "Copy message")
+        .accessibilityLabel(copied ? "Copied" : "Copy message")
+    }
+}
+
+/// The model's thought process, the phone's ReasoningCard at island size:
+/// collapsed (it's context, not the answer), "Thinking…" while it's all
+/// that's arriving; click to read it.
+struct ChatReasoningCard: View {
+    let text: String
+    var active = false
+    @State private var expanded = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles").font(.system(size: 9.5, weight: .medium))
+                    Text(active ? "Thinking\u{2026}" : "Thought process").font(.system(size: 11, weight: .medium))
+                    Spacer(minLength: 6)
+                    Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).opacity(0.7)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .foregroundStyle(active ? JcAccent.color : ChatStyle.muted)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                ScrollView {
+                    Text(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.system(size: 11.5)).foregroundStyle(ChatStyle.text.opacity(0.85))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 180)
+                .padding(.horizontal, 10).padding(.bottom, 8)
+            }
+        }
+        .background(shape.fill(JcAccent.color.opacity(0.04)))
+        .overlay(shape.strokeBorder(JcAccent.color.opacity(0.10), lineWidth: 0.5))
     }
 }
 
@@ -258,6 +351,92 @@ struct ChatApprovalCard: View {
     }
 }
 
+/// A text, call, email or message Jarvis is about to send: who to (their
+/// photo, else initials), how it goes, the message in a soft bubble, and
+/// Cancel or Send (Call). The turn waits on it, like the phone's card.
+struct ChatSendCard: View {
+    let send: ChatSend
+    var error: String?
+    let answer: (ChatApproval.Choice) -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 11) {
+                ChatContactAvatar(send: send, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(send.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(send.subtitle).font(.system(size: 11.5)).foregroundStyle(ChatStyle.muted)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                .help(send.to)
+                Spacer(minLength: 6)
+                Image(systemName: send.actionSymbol).font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(JcAccent.color)
+            }
+            if !send.subject.isEmpty || !send.text.isEmpty {
+                let bubble = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                VStack(alignment: .leading, spacing: 4) {
+                    if !send.subject.isEmpty {
+                        Text(send.subject).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(ChatStyle.text)
+                    }
+                    if !send.text.isEmpty {
+                        Text(send.text).font(.system(size: ChatStyle.body)).lineSpacing(2).foregroundStyle(ChatStyle.text)
+                            .lineLimit(12)
+                    }
+                }
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 13).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(bubble.fill(JcAccent.soft.opacity(0.13)))
+                .overlay(bubble.strokeBorder(JcAccent.soft.opacity(0.10), lineWidth: 0.5))
+            }
+            if let error { Text(error).font(.system(size: 11)).foregroundStyle(ChatStyle.danger) }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                ChatPillButton(title: "Cancel", color: ChatStyle.text) { answer(.deny) }
+                ChatPillButton(title: send.actionTitle, color: JcAccent.color, strong: true, icon: send.actionSymbol) {
+                    answer(.once)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(shape.fill(JcAccent.color.opacity(0.05)))
+        .overlay(shape.strokeBorder(JcAccent.color.opacity(0.35), lineWidth: 0.75))
+    }
+}
+
+/// The person's photo in a circle; without one, their initials, else a person.
+struct ChatContactAvatar: View {
+    let send: ChatSend
+    var size: CGFloat = 40
+
+    var body: some View {
+        Group {
+            if let photo = ChatImageCache.shared.cached(send.photo) {
+                Image(nsImage: photo).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Circle().fill(JcAccent.color.opacity(0.18))
+                    if send.initials.isEmpty {
+                        Image(systemName: "person.fill").font(.system(size: size * 0.42)).foregroundStyle(JcAccent.color)
+                    } else {
+                        Text(send.initials).font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
+                            .foregroundStyle(JcAccent.color)
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        .accessibilityHidden(true)
+    }
+}
+
 /// Jarvis's question: its choices, or your own words.
 struct ChatClarifyCard: View {
     let clarify: ChatClarify
@@ -343,14 +522,19 @@ struct ChatPillButton: View {
     let title: String
     let color: Color
     var strong = false
+    var icon: String? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 12, weight: strong ? .semibold : .medium)).foregroundStyle(color)
-                .padding(.horizontal, 12).frame(height: 28)
-                .chatGlass(in: Capsule())
-                .contentShape(Capsule())
+            HStack(spacing: 5) {
+                if let icon { Image(systemName: icon).font(.system(size: 10.5, weight: .semibold)) }
+                Text(title).font(.system(size: 12, weight: strong ? .semibold : .medium))
+            }
+            .foregroundStyle(color)
+            .padding(.horizontal, 12).frame(height: 28)
+            .chatGlass(in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }
@@ -408,6 +592,14 @@ struct ChatMarkdownView: View {
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1).padding(.vertical, 2)
         case .image(let alt, let source):
             ChatImageView(alt: alt, source: source)
+        case .htmlPage(let path):
+            ChatHTMLCard(path: path)
+        case .linkPreview(let url):
+            if let link = URL(string: url) {
+                ChatLinkPreview(url: link)
+            } else {
+                Text(url).textSelection(.enabled)
+            }
         case .table(let table):
             ScrollView(.horizontal, showsIndicators: false) {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {

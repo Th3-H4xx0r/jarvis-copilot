@@ -515,8 +515,11 @@ final class IslandController {
     }
 
     private func sync(built: Bool = false) {
-        // Folded again before it opened.
-        if ui.preparing && machine.state != .expanded { ui.preparing = false }
+        // Folded again before it opened: it leaves Voice as a fold does.
+        if ui.preparing && machine.state != .expanded {
+            ui.preparing = false
+            if ui.tab == .voice { ui.tab = ui.lastTab }
+        }
         if ui.state != machine.state {
             // Opening: build the open island first and spring once it's built
             // (openBuilt). Built in the spring's first frame, a tab held that

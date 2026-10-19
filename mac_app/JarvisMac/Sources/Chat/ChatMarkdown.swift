@@ -2,7 +2,8 @@ import Foundation
 
 /// The block layer of the chat's markdown, ported from the phone's
 /// MarkdownBlocks: headings, fenced code, lists, quotes, rules, standalone
-/// images, tables and paragraphs. A line scanner, not a CommonMark parser — it
+/// images, tables and paragraphs, plus the main chat's embeds (a page the agent
+/// saved, a link on its own line). A line scanner, not a CommonMark parser — it
 /// has to make sense of every prefix of a reply while tokens are arriving (an
 /// unterminated fence is still code). Inline styling is left to
 /// `AttributedString(markdown:)` in the view.
@@ -28,18 +29,110 @@ enum ChatMarkdown {
         /// A line that is only `![alt](src)` — drawn as the picture.
         case image(alt: String, source: String)
         case table(Table)
+        /// A page the agent saved on the server (an absolute `.html` path),
+        /// shown live. Only made by `withEmbeds`.
+        case htmlPage(path: String)
+        /// A web link on a line of its own, drawn as a preview card. Only made
+        /// by `withEmbeds`.
+        case linkPreview(url: String)
     }
 
-    /// The reply as blocks, `MEDIA:` lines already turned into images. Parsed
-    /// once per distinct text (the phone's ChatMarkdownCache): every open of
-    /// the island and every token of a streaming reply re-renders the turns.
+    /// The reply as blocks, `MEDIA:` lines already turned into images and
+    /// pages and links into their cards. Parsed once per distinct text (the
+    /// phone's ChatMarkdownCache): every open of the island and every token of
+    /// a streaming reply re-renders the turns.
     static func blocks(_ text: String) -> [Block] {
         let key = text as NSString
         if let hit = blockCache.object(forKey: key) { return hit.value }
-        let blocks = split(ChatMedia.rewrite(text))
+        let blocks = withEmbeds(split(ChatMedia.rewrite(text)))
         blockCache.setObject(Box(blocks), forKey: key)
         return blocks
     }
+
+    // MARK: embeds
+
+    /// The phone's (and the web's) embeds pass over `split`:
+    ///
+    /// * an absolute `.html` path gets a live `.htmlPage` card — in place of a
+    ///   line that is only the path, otherwise right after the block that
+    ///   names it — once per path per reply;
+    /// * a paragraph line that is nothing but a web link becomes a
+    ///   `.linkPreview`. A link inside a sentence stays a link.
+    ///
+    /// Code blocks are left alone: a path or link in a fence is code.
+    static func withEmbeds(_ blocks: [Block]) -> [Block] {
+        var out: [Block] = []
+        var seen = Set<String>()
+        func page(_ path: String) {
+            if seen.insert(path).inserted { out.append(.htmlPage(path: path)) }
+        }
+        for block in blocks {
+            switch block {
+            case .paragraph(let text):
+                var lines: [String] = []
+                func flush() {
+                    guard !lines.isEmpty else { return }
+                    let joined = lines.joined(separator: "\n")
+                    out.append(.paragraph(joined))
+                    htmlPaths(in: joined).forEach(page)
+                    lines = []
+                }
+                for line in text.components(separatedBy: "\n") {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if let url = standaloneLink(trimmed) {
+                        flush()
+                        out.append(.linkPreview(url: url))
+                    } else if let path = htmlPaths(in: trimmed).first, [path, "`\(path)`"].contains(trimmed) {
+                        flush()
+                        page(path)
+                    } else {
+                        lines.append(line)
+                    }
+                }
+                flush()
+            case .heading(_, let text), .quote(let text):
+                out.append(block)
+                htmlPaths(in: text).forEach(page)
+            case .list(let items):
+                out.append(block)
+                items.forEach { htmlPaths(in: $0.text).forEach(page) }
+            default:
+                out.append(block)
+            }
+        }
+        return out
+    }
+
+    /// Absolute `.html` paths in `text`, bare or in backticks — the web's
+    /// regex. Skips URLs (`https://x/a.html`), `~/` paths and a path inside a
+    /// longer code span.
+    static func htmlPaths(in text: String) -> [String] {
+        guard text.contains(".html") else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return htmlPathPattern.matches(in: text, range: range).compactMap { match in
+            let group = match.range(at: 1).location != NSNotFound ? 1 : 2
+            return Range(match.range(at: group), in: text).map { String(text[$0]) }
+        }
+    }
+
+    private static let htmlPathPattern = try! NSRegularExpression(
+        pattern: #"(?:^|[^\w:/.~`(-])(?:`(/[^\s`'"<>()\[\]]+?\.html)`|(/[^\s`'"<>()\[\]]+?\.html)(?![\w/`-]|\.\w))"#)
+
+    /// `https://…`, `<https://…>` or `[label](https://…)` and nothing else.
+    static func standaloneLink(_ line: String) -> String? {
+        let range = NSRange(line.startIndex..., in: line)
+        for pattern in linkLinePatterns {
+            guard let match = pattern.firstMatch(in: line, range: range),
+                  let url = Range(match.range(at: match.numberOfRanges - 1), in: line) else { continue }
+            return String(line[url])
+        }
+        return nil
+    }
+
+    private static let linkLinePatterns = [
+        try! NSRegularExpression(pattern: #"^<?(https?://[^\s<>"]+?)>?$"#),
+        try! NSRegularExpression(pattern: #"^\[[^\]]+\]\((https?://[^\s)"]+)\)$"#),
+    ]
 
     private final class Box<T> {
         let value: T

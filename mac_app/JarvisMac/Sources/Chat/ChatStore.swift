@@ -62,6 +62,10 @@ final class MacChatStore {
     var pendingApproval: ChatApproval? { demoApproval ?? live?.approval }
     var pendingClarify: ChatClarify? { demoClarify ?? live?.clarify }
 
+    /// The open island stays open: a reply on its way, a card waiting on you
+    /// (a send to confirm, a command, a question), or words not yet sent.
+    var holdsIsland: Bool { busy || pendingApproval != nil || pendingClarify != nil || !draft.isEmpty }
+
     var provider: Provider {
         didSet { UserDefaults.standard.set(provider.rawValue, forKey: "chat.provider"); loadLocalModels() }
     }
@@ -209,6 +213,7 @@ final class MacChatStore {
     /// The reply is over, however it ended: never a "Thinking…" left behind.
     private func settle() {
         if var state = live {
+            state.stamp()
             state.turn.finish()
             if !state.turn.hasOutput, state.turn.error == nil, !state.turn.stopped, state.turn.note == nil {
                 state.turn.note = "No reply"
@@ -405,20 +410,22 @@ final class MacChatStore {
                 end = try await follow(running)
                 continue
             }
-            if let stored = snap.lastAssistantText { adopt(stored, replacing: true) }
+            adopt(snap, replacing: true)
             break
         }
         // A turn that said nothing (or whose words we half missed): the server's
         // record is authoritative.
         if let state = live, !state.turn.stopped, state.turn.error == nil, reattached || !state.turn.hasText,
-           let stored = await snapshot(session)?.lastAssistantText {
-            adopt(stored, replacing: reattached)
+           let snap = await snapshot(session), snap.lastAssistantText != nil {
+            adopt(snap, replacing: reattached)
         }
     }
 
-    private func adopt(_ text: String, replacing: Bool) {
-        guard var state = live, replacing || !state.turn.hasText else { return }
+    /// The server's stored reply: its words, and who answered with its numbers.
+    private func adopt(_ snap: ChatSnapshot, replacing: Bool) {
+        guard var state = live, let text = snap.lastAssistantText, replacing || !state.turn.hasText else { return }
         state.turn.text = text
+        if let record = snap.lastRecord { state.turn.fill(from: record) }
         live = state
         publish()
     }
@@ -529,6 +536,8 @@ final class MacChatStore {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["model": localModel, "messages": history, "stream": true])
+        // Who answered, for the line under the reply.
+        live?.turn.meta = HarnessMeta(model: localModel)
         let (bytes, response) = try await URLSession.shared.bytes(for: req)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw ChatError("\(provider.label) answered with an error.")

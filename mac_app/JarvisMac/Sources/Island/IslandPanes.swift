@@ -5,8 +5,9 @@ private let dim = Color.white.opacity(0.55)
 
 /// Chat with Jarvis (or a model on this Mac) from the notch, laid out like the
 /// phone's chat: your turns in a soft bubble, Jarvis's turns open with their
-/// tools in one box, approvals and questions answered in place. Drop files on
-/// it; ⌃⌥W adds the window you were in.
+/// tools in one box and close with who answered; a text or call to confirm,
+/// approvals and questions answered in place. Drop files on it; ⌃⌥W adds the
+/// window you were in.
 struct ChatPane: View {
     let ui: IslandUI
     @Bindable var chat = MacChatStore.shared
@@ -30,8 +31,14 @@ struct ChatPane: View {
                             row(line).padding(.top, gap).id(line.id)
                         }
                         if let a = chat.pendingApproval {
-                            ChatApprovalCard(approval: a, error: chat.answerError) { chat.answerApproval($0) }
-                                .padding(.top, 12)
+                            Group {
+                                if let send = a.send {
+                                    ChatSendCard(send: send, error: chat.answerError) { chat.answerApproval($0) }
+                                } else {
+                                    ChatApprovalCard(approval: a, error: chat.answerError) { chat.answerApproval($0) }
+                                }
+                            }
+                            .padding(.top, 12)
                         }
                         if let c = chat.pendingClarify {
                             ChatClarifyCard(clarify: c, error: chat.answerError) { chat.answerClarify($0) }
@@ -53,8 +60,9 @@ struct ChatPane: View {
             focused = true
             if chat.provider != .jarvis { chat.loadLocalModels() }
         }
-        .onChange(of: chat.draft) { _, d in ui.pinned = !d.isEmpty || chat.busy }
-        .onChange(of: chat.busy) { _, b in ui.pinned = b || !chat.draft.isEmpty }
+        // Held open while a reply comes, a card waits on you or a draft is
+        // unsent — from the moment the tab shows, not only once one changes.
+        .onChange(of: chat.holdsIsland, initial: true) { _, hold in ui.pinned = hold }
         .onDisappear { ui.pinned = false }
     }
 
@@ -63,7 +71,8 @@ struct ChatPane: View {
         let last = chat.lines.last
         return [chat.lines.count, last?.turn.text.count ?? 0, last?.turn.tools.count ?? 0,
                 last?.turn.tools.filter(\.done).count ?? 0, chat.pendingApproval == nil ? 0 : 1,
-                chat.pendingClarify == nil ? 0 : 1]
+                chat.pendingClarify == nil ? 0 : 1, last?.turn.streaming == true ? 1 : 0,
+                last?.turn.reasoning.isEmpty == false ? 1 : 0]
     }
 
     @ViewBuilder private func row(_ line: MacChatStore.Line) -> some View {
@@ -227,7 +236,7 @@ struct ChatPane: View {
         panel.begin { response in
             MainActor.assumeIsolated {
                 if response == .OK { chat.attach(panel.urls) }
-                ui.pinned = !chat.draft.isEmpty || chat.busy
+                ui.pinned = chat.holdsIsland
             }
         }
     }

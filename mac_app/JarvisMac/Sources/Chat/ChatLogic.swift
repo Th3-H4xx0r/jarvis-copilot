@@ -169,11 +169,47 @@ struct ChatTurn: Equatable {
     var error: String?
     /// A muted line under the reply ("No reply", why the server stopped).
     var note: String?
+    /// The model's thought process, when the stream carries one.
+    var reasoning = ""
+    /// Tokens in / out and the time it took.
+    var stats: ChatTurnStats?
+    /// Who answered: the model, its route, a hand-off.
+    var meta: HarnessMeta?
 
     var hasText: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var hasReasoning: Bool { !reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var hasOutput: Bool { hasText || !tools.isEmpty }
-    /// The three dots: still working, nothing said, no tool spinning.
-    var showsDots: Bool { streaming && !hasText && !tools.contains { !$0.done } }
+    /// The three dots: still working, nothing said, no tool spinning, not thinking out loud.
+    var showsDots: Bool { streaming && !hasText && !hasReasoning && !tools.contains { !$0.done } }
+
+    /// The quiet line under a settled reply, the phone's footer: who answered,
+    /// then the numbers — "Claude Opus 5.5 · 3.2 s · routed deep 82% · 40.2k in
+    /// (98% cached) · 12 out". Empty while it streams (half-counted numbers
+    /// flickering under a reply are noise).
+    var footer: String {
+        guard !streaming else { return "" }
+        let by = HarnessFormat.answeredBy(meta)
+        // The harness's time is the turn's; the stats say theirs only without it.
+        let timed = !by.isEmpty && (meta?.ms ?? 0) > 0
+        return [by, stats?.line(time: !timed) ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// What the server stored with the reply fills in what the stream didn't say.
+    mutating func fill(from record: ChatReplyRecord) {
+        if meta == nil { meta = record.meta }
+        if let stored = record.stats {
+            var s = stats ?? ChatTurnStats()
+            if !s.hasTokens {
+                s.inputTokens = stored.inputTokens
+                s.cachedTokens = stored.cachedTokens
+                s.outputTokens = stored.outputTokens
+                s.estimated = stored.estimated
+            }
+            if s.durationMs == nil { s.durationMs = stored.durationMs }
+            stats = s
+        }
+        if !hasReasoning { reasoning = record.reasoning }
+    }
 
     mutating func startTool(name: String, args: [String: Any], preview: String?) {
         let (name, args) = ChatToolArgs.unwrap(name: name, args: args)
@@ -220,16 +256,38 @@ struct ChatStreamState: Equatable {
     var approval: ChatApproval?
     var clarify: ChatClarify?
     var end: End?
+    /// When you sent it: the footer's time.
+    var startedAt = Date()
 
     /// True when something you can see changed.
     @discardableResult
-    mutating func apply(_ e: ChatSSE.Event) -> Bool {
+    mutating func apply(_ e: ChatSSE.Event, now: Date = Date()) -> Bool {
         if let id = e.streamID { streamID = id }
         let o = e.object
         switch e.name {
         case "token", "delta", "text":
             guard let t = e.token else { return false }
             turn.text += t
+            return true
+
+        case "reasoning", "thinking":
+            let t = o["text"] ?? o["delta"] ?? ""
+            guard !t.isEmpty else { return false }
+            turn.reasoning += t
+            return true
+
+        case "turn_meta":
+            // Only the closing frame carries the final numbers (time, hand-off).
+            guard o["phase"] == "end", let meta = HarnessMeta(json: e.json), meta != turn.meta else { return false }
+            turn.meta = meta
+            return true
+
+        case "metering", "usage":
+            // Every second while a turn runs; only this turn's own numbers count
+            // (the outer ones are the session's), so it rarely changes anything.
+            var stats = turn.stats ?? ChatTurnStats()
+            guard stats.absorb(usage: e.json, turnOnly: true) else { return false }
+            turn.stats = stats
             return true
 
         case "interim_assistant":
@@ -269,36 +327,49 @@ struct ChatStreamState: Equatable {
 
         case "error", "apperror":
             turn.error = e.error
-            close(.failed)
+            close(.failed, now: now)
             return true
 
         case "cancel", "cancelled":
             turn.stopped = true
             let why = (o["message"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !why.isEmpty, !why.lowercased().hasPrefix("cancelled") { turn.note = why }
-            close(.cancelled)
+            close(.cancelled, now: now)
             return true
 
         case "done", "stream_end", "complete":
+            var stats = turn.stats ?? ChatTurnStats()
+            if stats.absorb(usage: e.json) { turn.stats = stats }
+            let session = e.json["session"] as? [String: Any] ?? [:]
+            let messages = session["messages"] as? [[String: Any]] ?? []
             if !turn.hasText {
                 // Some engines stream nothing and send the answer only here.
-                let session = e.json["session"] as? [String: Any] ?? [:]
-                let stored = ChatSnapshot.lastAssistantText(in: session["messages"] as? [[String: Any]] ?? [])
+                let stored = ChatSnapshot.lastAssistantText(in: messages)
                 if let t = o["answer"] ?? stored, !t.isEmpty { turn.text = t }
             }
-            close(.done)
+            if let record = ChatReplyRecord(messages: messages) { turn.fill(from: record) }
+            close(.done, now: now)
             return true
 
         default:
-            return false  // metering, title, turn_meta…: alive, nothing to draw
+            return false  // title, keep-alives…: alive, nothing to draw
         }
     }
 
-    private mutating func close(_ how: End) {
+    private mutating func close(_ how: End, now: Date = Date()) {
         if end == nil { end = how }
         approval = nil
         clarify = nil
+        stamp(now: now)
         turn.finish()
+    }
+
+    /// The time it took, from Send to now, unless it's already known.
+    mutating func stamp(now: Date = Date()) {
+        guard turn.stats?.durationMs == nil else { return }
+        var stats = turn.stats ?? ChatTurnStats()
+        stats.durationMs = max(0, Int((now.timeIntervalSince(startedAt) * 1_000).rounded()))
+        turn.stats = stats
     }
 }
 
@@ -306,11 +377,15 @@ struct ChatStreamState: Equatable {
 struct ChatSnapshot: Equatable {
     let activeStreamID: String?
     let lastAssistantText: String?
+    /// Who answered it and its numbers, as stored.
+    let lastRecord: ChatReplyRecord?
 
     init(json: [String: Any]) {
         let s = json["session"] as? [String: Any] ?? json
         activeStreamID = (s["active_stream_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        lastAssistantText = Self.lastAssistantText(in: s["messages"] as? [[String: Any]] ?? [])
+        let messages = s["messages"] as? [[String: Any]] ?? []
+        lastAssistantText = Self.lastAssistantText(in: messages)
+        lastRecord = ChatReplyRecord(messages: messages)
     }
 
     /// The reply after the last thing you said — never an older turn's.
@@ -350,11 +425,15 @@ struct ChatApproval: Equatable {
     let command: String
     let description: String
     let id: String?
+    /// A text, call, email or message about to go out (`kind: "send"`): drawn
+    /// as the person and the message with Send (Call) and Cancel.
+    let send: ChatSend?
 
-    init(command: String, description: String, id: String? = nil) {
+    init(command: String, description: String, id: String? = nil, send: ChatSend? = nil) {
         self.command = command
         self.description = description
         self.id = id
+        self.send = send
     }
 
     init?(json: [String: Any]) {
@@ -362,13 +441,88 @@ struct ChatApproval: Equatable {
         command = (p["command"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         description = (p["description"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         id = (p["approval_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        guard !command.isEmpty || !description.isEmpty else { return nil }
+        send = p["kind"] as? String == "send" ? ChatSend(json: p["send"] as? [String: Any]) : nil
+        guard !command.isEmpty || !description.isEmpty || send != nil else { return nil }
     }
 
     static func respondBody(session: String, choice: Choice, approvalID: String?) -> [String: Any] {
         var body: [String: Any] = ["session_id": session, "choice": choice.rawValue]
         if let approvalID { body["approval_id"] = approvalID }
         return body
+    }
+}
+
+/// Who Jarvis is about to text, call, email or message, and what it says —
+/// the server pauses the turn on it (agent/send_confirm.py). Send (Call)
+/// answers the approval "once" and it goes; Cancel answers "deny". Worded like
+/// the phone's card (SendConfirmations.Card).
+struct ChatSend: Equatable {
+    enum Kind: String { case call, text, email, message }
+
+    let kind: Kind
+    /// The number or address.
+    let to: String
+    /// The contact's full name, or "".
+    let name: String
+    /// The contact's photo as a `data:` URL, or "".
+    let photo: String
+    let text: String
+    let subject: String
+    /// What it goes through: "iPhone", "Mac", "WhatsApp", "FaceTime"…
+    let via: String
+
+    init(kind: Kind, to: String, name: String = "", photo: String = "", text: String = "", subject: String = "",
+         via: String = "") {
+        self.kind = kind
+        self.to = to
+        self.name = name
+        self.photo = photo
+        self.text = text
+        self.subject = subject
+        self.via = via
+    }
+
+    init?(json: [String: Any]?) {
+        guard let json else { return nil }
+        func field(_ key: String) -> String { (json[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let to = field("to"), name = field("name")
+        guard !to.isEmpty || !name.isEmpty else { return nil }
+        self.init(kind: Kind(rawValue: field("kind").lowercased()) ?? .message, to: to, name: name,
+                  photo: field("photo"), text: field("text"), subject: field("subject"), via: field("via"))
+    }
+
+    /// The person: their name, else the number or address.
+    var title: String { name.isEmpty ? to : name }
+
+    /// "Text · +1 555…" under a name; with only a handle (already the title)
+    /// what goes and how: "Text · iPhone".
+    var subtitle: String {
+        let what: String
+        switch kind {
+        case .call: what = via == "FaceTime" ? "FaceTime" : "Call"
+        case .text: what = "Text"
+        case .email: what = "Email"
+        // "whatsapp" → "Whatsapp"; a name with its own capitals ("WhatsApp") as is.
+        case .message: what = via.isEmpty ? "Message" : via.contains(where: \.isUppercase) ? via : via.capitalized
+        }
+        if !name.isEmpty, !to.isEmpty { return "\(what) · \(to)" }
+        let shown = via.isEmpty || what.lowercased() == via.lowercased() ? "" : " · \(via)"
+        return what + shown
+    }
+
+    var actionTitle: String { kind == .call ? "Call" : "Send" }
+
+    var actionSymbol: String {
+        switch kind {
+        case .call: return "phone.fill"
+        case .email: return "envelope.fill"
+        case .text, .message: return "paperplane.fill"
+        }
+    }
+
+    /// "JA" for Jane Appleseed; "" without a name (the card draws a person).
+    var initials: String {
+        String(name.split(separator: " ").prefix(2).compactMap { $0.first(where: \.isLetter) }).uppercased()
     }
 }
 
@@ -576,6 +730,12 @@ enum ChatMedia {
               imageExtensions.contains(String(path[path.index(after: dot)...]).lowercased()) else { return ref }
         let encoded = ref.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? ref
         return "![image](\(base)/api/media?path=\(encoded))"
+    }
+
+    /// The `/api/media` URL behind a file on the server, root-relative (join it
+    /// onto the island's API origin with `url(for:origin:)`).
+    static func mediaSource(_ path: String) -> String {
+        "/api/media?path=" + (path.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? path)
     }
 
     /// Where an image's bytes come from: the web as is; a server path through
