@@ -323,7 +323,7 @@ def chat(monkeypatch):
         if answers:
             approval.resolve_gateway_approval(TYPED, answers.pop(0), approval_id=data["approval_id"])
 
-    approval.register_gateway_notify(TYPED, on_card)
+    approval.register_gateway_notify(TYPED, on_card, cards=True)
     yield {"shown": shown, "answers": answers}
     approval.unregister_gateway_notify(TYPED)
     sc.reset_for_tests()
@@ -359,6 +359,19 @@ def test_without_a_chat_on_screen_it_sends_as_before(chat):
     assert sc.gate("device_messages_send", dict(TEXT_ARGS), task_id="telegram-1", session_id="telegram-1",
                    run=_Runs()) is None
     assert chat["shown"] == []
+
+
+def test_a_messaging_platform_turn_sends_as_before(chat):
+    # Telegram & co. register approval listeners too, but draw no cards: no card, no wait.
+    from tools import approval
+
+    approval.register_gateway_notify("telegram-1", lambda data: chat["shown"].append(data))
+    try:
+        assert sc.gate("device_messages_send", dict(TEXT_ARGS), task_id="telegram-1",
+                       session_id="telegram-1", run=_Runs()) is None
+        assert chat["shown"] == []
+    finally:
+        approval.unregister_gateway_notify("telegram-1")
 
 
 def test_two_cards_are_answered_by_their_own_ids():

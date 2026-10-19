@@ -3413,7 +3413,8 @@ def _run_agent_streaming(
             )
             def _approval_notify_cb(approval_data):
                 put('approval', approval_data)
-            _reg_notify(session_id, _approval_notify_cb)
+            # cards: this chat draws the send card (agent/send_confirm.py).
+            _reg_notify(session_id, _approval_notify_cb, cards=True)
             _approval_registered = True
         except ImportError:
             logger.debug("Approval module not available, falling back to polling")

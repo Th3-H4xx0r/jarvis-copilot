@@ -304,7 +304,7 @@ def _chat_listening(keys: list[str]) -> Optional[str]:
     except Exception:
         return None
     candidates = [approval.get_current_session_key(""), *keys]
-    return next((k for k in candidates if k and approval.has_gateway_listener(k)), None)
+    return next((k for k in candidates if k and approval.shows_cards(k)), None)
 
 
 def _contact(to: str) -> dict:

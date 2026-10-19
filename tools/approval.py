@@ -679,18 +679,26 @@ class _ApprovalEntry:
 
 _gateway_queues: dict[str, list] = {}        # session_key → [_ApprovalEntry, …]
 _gateway_notify_cbs: dict[str, object] = {}  # session_key → callable(approval_data)
+_gateway_card_sessions: set[str] = set()     # sessions whose listener draws cards
 
 
-def register_gateway_notify(session_key: str, cb) -> None:
+def register_gateway_notify(session_key: str, cb, *, cards: bool = False) -> None:
     """Register a per-session callback for sending approval requests to the user.
 
     The callback signature is ``cb(approval_data: dict) -> None`` where
     *approval_data* contains ``command``, ``description``, and
     ``pattern_keys``.  The callback bridges sync→async (runs in the agent
     thread, must schedule the actual send on the event loop).
+
+    *cards*: the listener is a Jarvis chat (web, iPhone, Mac) that draws
+    richer approvals, such as the send card (agent/send_confirm.py).
     """
     with _lock:
         _gateway_notify_cbs[session_key] = cb
+        if cards:
+            _gateway_card_sessions.add(session_key)
+        else:
+            _gateway_card_sessions.discard(session_key)
 
 
 def unregister_gateway_notify(session_key: str) -> None:
@@ -701,6 +709,7 @@ def unregister_gateway_notify(session_key: str) -> None:
     """
     with _lock:
         _gateway_notify_cbs.pop(session_key, None)
+        _gateway_card_sessions.discard(session_key)
         entries = _gateway_queues.pop(session_key, [])
     for entry in entries:
         entry.event.set()
@@ -745,10 +754,12 @@ def has_blocking_approval(session_key: str) -> bool:
         return bool(_gateway_queues.get(session_key))
 
 
-def has_gateway_listener(session_key: str) -> bool:
-    """A chat is streaming this session's turn and can show an approval card."""
+def shows_cards(session_key: str) -> bool:
+    """A Jarvis chat (web, iPhone, Mac) is streaming this session's turn and can show
+    a card on it — not a messaging platform's text approval."""
     with _lock:
-        return bool(session_key) and session_key in _gateway_notify_cbs
+        return bool(session_key) and session_key in _gateway_card_sessions \
+            and session_key in _gateway_notify_cbs
 
 
 def ask_gateway(session_key: str, data: dict, timeout: float) -> Optional[str]:
