@@ -227,6 +227,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         AgentLiveActivity()
         JarvisStopwatchActivity()
         RingWorkoutActivity()
+        // A Jarvis button's countdown: arming, remote start, a sterilise cycle.
+        ButtonActivity()
         // Live Jarvis recording the room.
         LiveCaptureActivity()
         // The dashcam syncing (on its Wi-Fi, clips moving).
