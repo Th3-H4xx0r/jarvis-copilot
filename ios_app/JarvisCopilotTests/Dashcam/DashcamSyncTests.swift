@@ -91,6 +91,7 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
     func state() async throws -> DashcamServerState {
         DashcamServerState(rules: rules, destinations: [], counts: [:], stagingBytes: 0, stagingCap: 0)
     }
+    func updateRules(_ rules: DashcamRules) async throws { self.rules = rules }
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?) {
         ([], nil)
     }

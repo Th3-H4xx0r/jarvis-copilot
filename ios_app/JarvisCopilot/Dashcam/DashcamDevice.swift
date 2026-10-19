@@ -102,6 +102,18 @@ final class DashcamDevice: WearableDevice {
                     "from": ["type": "string", "description": "Start, ISO-8601 (e.g. 2026-10-01T20:38:00Z)."],
                     "to": ["type": "string", "description": "End, ISO-8601."],
                 ], required: ["from", "to"])),
+            DeviceCapability(name: "dashcam_set_options", description: """
+                Turn the phone's dashcam switches on or off: auto_download (find and pull new clips on its own), \
+                upload (clips to the cloud), keep_on_phone (after upload) and lock_screen_progress (sync progress \
+                on the Lock Screen).
+                """, inputSchema: DeviceCapability.schema([
+                    "auto_download": ["type": "boolean"], "upload": ["type": "boolean"],
+                    "keep_on_phone": ["type": "boolean"], "lock_screen_progress": ["type": "boolean"],
+                ])),
+            DeviceCapability(name: "dashcam_sync_clock", description: """
+                Set the dashcam's clock from the phone (a sync pass, which sets it first); needs the phone on \
+                the dashcam's Wi‑Fi.
+                """, inputSchema: Self.noArgs),
         ]
     }
 
@@ -264,9 +276,54 @@ final class DashcamDevice: WearableDevice {
             let matched = await sync.fetch(from: from, to: to)
             return ["ok": true, "matched": matched, "on_camera_wifi": wifi(),
                     "message": wifi() ? "Pulling now." : "Will pull next time the phone is on the dashcam's Wi‑Fi."]
+        case "dashcam_set_options":
+            return try await setOptions(args)
+        case "dashcam_sync_clock":
+            // Settings → "Sync the camera's clock now".
+            _ = try camera()
+            await sync.syncNow()
+            return ["ok": true, "message": "Clock set from the phone.", "phase": sync.phase.label]
         default:
             throw DeviceError.unknownCommand(name)
         }
+    }
+
+    /// Settings' switches: Auto sync, Lock Screen progress, Upload clips, Keep clips on the phone.
+    /// Upload and keep-on-phone are rules the server keeps, so they are loaded first; nothing
+    /// changes if an argument is wrong or the rules can't be read.
+    private func setOptions(_ args: [String: Any]) async throws -> [String: Any] {
+        var options: [String: Bool] = [:]
+        for key in ["auto_download", "upload", "keep_on_phone", "lock_screen_progress"] where args[key] != nil {
+            guard let on = args[key] as? Bool else { throw DeviceError.badArgument("\(key) must be true or false") }
+            options[key] = on
+        }
+        guard !options.isEmpty else {
+            throw DeviceError.badArgument("give auto_download, upload, keep_on_phone or lock_screen_progress")
+        }
+        let editsRules = options["upload"] != nil || options["keep_on_phone"] != nil
+        if (editsRules || options["auto_download"] == true), !sync.rulesLoaded { await sync.refreshRules() }
+        if editsRules, !sync.rulesLoaded { throw SkillError.failed("Couldn't read the dashcam rules from the Jarvis server; nothing changed") }
+
+        if let on = options["lock_screen_progress"] { DashcamSyncBeacon.enabled = on }
+        var rules = sync.rules
+        if let on = options["auto_download"] {
+            sync.autoSync = on
+            // "Download everything" needs normal footage switched on too.
+            if on, sync.rulesLoaded, rules.normal == .off { rules.normal = .all }
+        }
+        if let on = options["upload"] { rules.upload = on }
+        if let on = options["keep_on_phone"] { rules.keepOnPhone = on }
+        if rules != sync.rules {
+            sync.rules = rules
+            if let failure = await sync.saveRules() { throw SkillError.failed(failure) }
+            sync.kickUploads()
+        }
+        var out: [String: Any] = ["ok": true, "auto_download": sync.autoSync, "lock_screen_progress": DashcamSyncBeacon.enabled]
+        if sync.rulesLoaded {
+            out["upload"] = sync.rules.upload
+            out["keep_on_phone"] = sync.rules.keepOnPhone
+        }
+        return out
     }
 
     /// A value given as the code or the label (case-insensitive).

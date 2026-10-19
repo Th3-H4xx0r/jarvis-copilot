@@ -15,10 +15,15 @@ final class Esf551Scale: WearableDevice {
         DeviceCapability(name: "scale_get_reading", description: "Get the latest ESF551 weight and available body-composition estimates.", inputSchema: DeviceCapability.schema()),
         DeviceCapability(name: "scale_get_history", description: "Get recent locally stored ESF551 readings.", inputSchema: DeviceCapability.schema(["limit": ["type": "integer"]])),
     ] }
+    /// The live weighing; with the scale asleep or disconnected, the last saved reading too.
     func snapshot() -> [String: Any] {
         let reading = manager.latestObservation
-        return ["weight_kg": reading?.weightKg as Any, "impedance_ohms": reading?.impedanceOhms as Any,
-                "stable": reading?.isStable as Any, "connected": isConnected]
+        var out: [String: Any] = ["weight_kg": reading?.weightKg as Any, "impedance_ohms": reading?.impedanceOhms as Any,
+                                  "stable": reading?.isStable as Any, "connected": isConnected]
+        if reading == nil, let last = ScaleHistoryStore.shared.readings.max(by: { $0.date < $1.date }) {
+            out["last_saved"] = ["date": last.date.ISO8601Format(), "weight_kg": last.weightKg]
+        }
+        return out
     }
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {

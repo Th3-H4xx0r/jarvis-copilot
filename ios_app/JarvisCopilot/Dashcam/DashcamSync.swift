@@ -13,6 +13,7 @@ protocol DashcamSyncServer: Sendable {
     func setPhone(clipID: String, state: String, error: String?) async throws
     func state() async throws -> DashcamServerState
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?)
+    func updateRules(_ rules: DashcamRules) async throws
 }
 
 extension DashcamAPI: DashcamSyncServer {}
@@ -998,7 +999,7 @@ final class DashcamSync: ObservableObject {
     /// else the line to show.
     func saveRules() async -> String? {
         do {
-            try await DashcamAPI().updateRules(rules)
+            try await server.updateRules(rules)
             return nil
         } catch {
             return "Couldn't save the rules: \(error.localizedDescription)"

@@ -24,7 +24,8 @@ final class DashcamDeviceTests: XCTestCase {
         let names = Set(device.capabilities.map(\.name))
         XCTAssertEqual(names, ["dashcam_get_status", "dashcam_sync", "dashcam_lock_clip", "dashcam_snapshot",
                                "dashcam_set_recording", "dashcam_get_settings", "dashcam_set_setting", "dashcam_sd_info",
-                               "dashcam_format_sd", "dashcam_delete_file", "dashcam_set_wifi", "dashcam_fetch_range"])
+                               "dashcam_format_sd", "dashcam_delete_file", "dashcam_set_wifi", "dashcam_fetch_range",
+                               "dashcam_set_options", "dashcam_sync_clock"])
         XCTAssertEqual(device.deviceID, "dashcam-CAM")
     }
 

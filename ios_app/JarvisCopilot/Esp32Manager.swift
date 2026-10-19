@@ -326,7 +326,13 @@ final class Esp32Manager: NSObject, ObservableObject {
 
     // MARK: - Connecting
 
+    /// Someone wants the board held (the board page, the relay): a skill won't let it go.
     func connect(_ board: DiscoveredEsp32) {
+        onDemand = false
+        open(board)
+    }
+
+    private func open(_ board: DiscoveredEsp32) {
         sessionWanted = true
         reconnectTask?.cancel(); reconnectTask = nil
         teardownLinks()
@@ -380,18 +386,70 @@ final class Esp32Manager: NSObject, ObservableObject {
         connect(board)
     }
 
-    /// Explicit user disconnect. The only thing that ends a session.
+    /// Explicit user disconnect. The only thing that ends a session. The board stays with
+    /// Jarvis ("Share with Jarvis" decides that); its skills reconnect on demand.
     func disconnect() {
+        endSession()
+        startScan()
+    }
+
+    private func endSession() {
         sessionWanted = false
+        onDemand = false
         keysMissingSince = nil
         reconnectTask?.cancel(); reconnectTask = nil
         teardownLinks()
-        unpublish()
         connected = nil
         info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil
         activeLink = nil
         state = .idle
-        startScan()
+    }
+
+    // MARK: On demand (skills)
+
+    /// A session a skill opened because nobody held one; let go again afterwards.
+    private var onDemand = false
+    /// Skills between `ensureConnected` and `releaseIfIdle`: the last one out lets go.
+    private var skillsInFlight = 0
+
+    /// Brings the board up for a skill, like the bottle: a held session just waits for its link;
+    /// otherwise the remembered board is connected and let go again by `releaseIfIdle()`, which
+    /// every call is paired with.
+    func ensureConnected(timeout: TimeInterval = 12) async -> Bool {
+        skillsInFlight += 1
+        if state == .ready { return true }
+        if !sessionWanted {
+            guard let board = rememberedBoard() else { return false }
+            open(board)
+            onDemand = true
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while state != .ready, Date() < deadline {
+            if case .failed = state { break }   // it stopped trying (out of range, not this phone's)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return state == .ready
+    }
+
+    /// Ends a session a skill opened once no skill is using it (nothing else wanted it).
+    func releaseIfIdle() {
+        skillsInFlight = max(0, skillsInFlight - 1)
+        guard onDemand, skillsInFlight == 0 else { return }
+        endSession()
+    }
+
+    /// Keeps a session a skill opened (the notification relay needs its link held).
+    func holdOnDemandSession() { onDemand = false }
+
+    private func rememberedBoard() -> DiscoveredEsp32? {
+        if let connected { return connected }
+        let boards = Self.knownBoards
+        let id = exposedDevice?.deviceID ?? WearableIdentity.remembered(WearableKeepAlive.esp32)
+        guard let record = boards.first(where: { $0.deviceID == id }) ?? (boards.count == 1 ? boards.first : nil) else { return nil }
+        let peripheral = bluetoothReady
+            ? record.peripheralID.flatMap(UUID.init(uuidString:)).flatMap { central.retrievePeripherals(withIdentifiers: [$0]).first }
+            : nil
+        return DiscoveredEsp32(id: record.deviceID, name: record.name, rssi: 0, peripheral: peripheral, record: record)
     }
 
     /// The notification relay has to run without anyone opening the board page: on every
@@ -412,7 +470,7 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// while we were suspended, and a reconnect scheduled then never got to run.
     func resumeIfNeeded() {
         guard sessionWanted, let board = connected, state != .ready else { return }
-        if reconnectTask == nil && wifiAttempt == nil && peripheral == nil { connect(board) }
+        if reconnectTask == nil && wifiAttempt == nil && peripheral == nil { open(board) }
     }
 
     private func scheduleReconnect(_ message: String) {
@@ -426,7 +484,7 @@ final class Esp32Manager: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self, self.sessionWanted, let board = self.connected else { return }
             self.reconnectTask = nil
-            self.connect(board)
+            self.open(board)
         }
     }
 
@@ -600,7 +658,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         // The notification relay can't wait on a timer: a suspended app's timers don't run,
         // but a pending BLE connect does — iOS completes it and wakes the app to re-auth.
         if dropped == .bluetooth, let board = connected, Esp32NotificationRelay.isOn(for: board.id) {
-            connect(board)
+            open(board)
             lastError = message
             return
         }
@@ -1238,12 +1296,6 @@ final class Esp32Manager: NSObject, ObservableObject {
         refreshRegistryMembership()
     }
 
-    private func unpublish() {
-        guard let exposedDevice else { return }
-        DeviceRegistry.shared.remove(deviceID: exposedDevice.deviceID)
-        self.exposedDevice = nil
-        BridgeClient.shared.sendRegistration()
-    }
 }
 
 // MARK: - CoreBluetooth
@@ -1338,7 +1390,7 @@ extension Esp32Manager: CBCentralManagerDelegate {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled, let self, self.sessionWanted, let board = self.connected else { return }
             self.reconnectTask = nil
-            self.connect(board)
+            self.open(board)
         }
     }
 

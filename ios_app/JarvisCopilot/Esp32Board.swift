@@ -81,6 +81,9 @@ final class Esp32Board: WearableDevice {
                          inputSchema: DeviceCapability.schema([
                             "action": ["type": "string", "enum": ["start", "stop", "delete"]],
                          ], required: ["action"])),
+        DeviceCapability(name: "esp32_notification_relay",
+                         description: "Turn the iPhone → glasses notification relay on or off: the board reads this iPhone's notifications over Bluetooth and they show on the glasses (it restarts to switch).",
+                         inputSchema: DeviceCapability.schema(["on": ["type": "boolean"]], required: ["on"])),
     ] }
 
     func snapshot() -> [String: Any] {
@@ -127,7 +130,9 @@ final class Esp32Board: WearableDevice {
     }
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
-        guard isConnected else { throw DeviceError.notConnected }
+        // Reconnects on demand (after a Disconnect too) and lets go again, like the bottle.
+        defer { manager.releaseIfIdle() }
+        guard await manager.ensureConnected() else { throw DeviceError.notConnected }
         switch name {
         case "esp32_get_state":
             try await manager.refreshState()
@@ -196,6 +201,14 @@ final class Esp32Board: WearableDevice {
             default: throw DeviceError.badArgument("action")
             }
             return ["ok": true, "state": manager.script?.state.label.lowercased() ?? "unknown"]
+        case "esp32_notification_relay":
+            // The board page's "iPhone notifications → glasses" switch.
+            guard let on = args["on"] as? Bool else { throw DeviceError.badArgument("on") }
+            guard manager.relay != nil else { throw DeviceError.badArgument("this board's firmware has no notification relay; update it") }
+            try await manager.setRelay(on)
+            // The relay rides the Bluetooth link: a session opened for this stays held.
+            if on { manager.holdOnDemandSession() }
+            return ["on": manager.relay?.on ?? on, "note": "The board restarts to switch; it reconnects by itself."]
         default:
             throw DeviceError.unknownCommand(name)
         }

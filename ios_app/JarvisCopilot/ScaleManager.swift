@@ -85,9 +85,11 @@ final class ScaleManager: NSObject, ObservableObject {
         central.connect(scale.peripheral)
     }
 
+    /// Ends the link (Disconnect, or the scale going to sleep). The scale stays with Jarvis —
+    /// "Share with Jarvis" decides that — and its skills answer from the saved readings.
     func disconnect() {
         if let peripheral { central.cancelPeripheralConnection(peripheral) }
-        unpublish(); peripheral = nil; connected = nil; notifyCharacteristic = nil; writeCharacteristic = nil
+        peripheral = nil; connected = nil; notifyCharacteristic = nil; writeCharacteristic = nil
         latestObservation = nil; lastStable = nil
         frameAccumulator.reset(); state = .idle
     }
@@ -167,13 +169,6 @@ final class ScaleManager: NSObject, ObservableObject {
 
     /// Stable Jarvis identifier used by the scale Settings toggle.
     var exposedDeviceID: String? { exposedDevice?.deviceID }
-
-    private func unpublish() {
-        guard let exposedDevice else { return }
-        DeviceRegistry.shared.remove(deviceID: exposedDevice.deviceID)
-        self.exposedDevice = nil
-        BridgeClient.shared.sendRegistration()
-    }
 }
 
 extension ScaleManager: CBCentralManagerDelegate {
