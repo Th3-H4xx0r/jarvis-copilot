@@ -22,6 +22,13 @@ struct DeviceCapability {
     }
 }
 
+/// A command the action picker lists greyed out, with the reason it can't run yet
+/// ("Turn on Experimental Controls in Glasses"). Jarvis never sees these.
+struct UnavailableCapability {
+    let capability: DeviceCapability
+    let reason: String
+}
+
 /// A wearable that can display notification cards declares one of these so the
 /// Code Master settings page shows a per-event toggle for it automatically.
 struct NotificationChannelInfo: Equatable, Sendable {
@@ -67,6 +74,10 @@ protocol WearableDevice: AnyObject {
     var isConnected: Bool { get }
     /// Self-describing command catalogue. This is what the AI reads.
     var capabilities: [DeviceCapability] { get }
+    /// Commands the action picker shows greyed, with why. Picker-only: never sent to Jarvis.
+    /// A name here can also be in `capabilities` when only part of it works (the glasses list
+    /// settings but can't set one); the picker shows this entry in its place.
+    var unavailableCapabilities: [UnavailableCapability] { get }
     /// If this device can display notification cards, return its channel info.
     var notificationChannel: NotificationChannelInfo? { get }
     /// Forward a notification card to this device (title + body text).
@@ -83,6 +94,7 @@ protocol WearableDevice: AnyObject {
 }
 
 extension WearableDevice {
+    var unavailableCapabilities: [UnavailableCapability] { [] }
     var notificationChannel: NotificationChannelInfo? { nil }
     func forwardNotification(title: String, body: String) {}
     var carEnabled: Bool { false }

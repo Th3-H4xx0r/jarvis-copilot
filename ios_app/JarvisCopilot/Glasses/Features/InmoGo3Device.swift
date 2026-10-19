@@ -104,10 +104,19 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         list += [command("glasses_media_download", "Download a selected inventory item and return an app-local artifact.", ["id": ["type": "string"]], ["id"]), command("glasses_teleprompter_upload", "Upload original text with observed document checksum convention.", ["text": text, "title": ["type": "string"]], ["text"]), command("glasses_teleprompter_page", "Previous or next teleprompter page.", ["direction": ["type": "string", "enum": ["previous", "next"]]], ["direction"]), command("glasses_teleprompter_progress", "Synchronize independent line and percentage positions.", ["line": ["type": "integer", "minimum": 1], "percent": ["type": "number", "minimum": 0, "maximum": 100]], ["line"]), command("glasses_show_transcription", "Show partial or final Jarvis transcription.", ["text": text, "final": ["type": "boolean"]], ["text"]), command("glasses_show_answer", "Show Jarvis answer text and state.", ["text": text, "final": ["type": "boolean"]], ["text"])]
         list += [command("glasses_navigate", "Start walking or cycling turn-by-turn directions on the lens to a place found by name or address near the user; the place is also saved to the lens's Navigation list.", ["destination": ["type": "string"], "mode": ["type": "string", "enum": ["walk", "bike"]]], ["destination"]),
                  command("glasses_navigate_stop", "Stop turn-by-turn directions on the lens.")]
-        if experimentalEnabled { list.append(command("glasses_camera_action", "Experimental source-derived shutter/start/stop; device verification pending.", ["action": ["type": "string", "enum": ["shutter", "start_recording", "stop_recording"]]], ["action"])) }
+        if experimentalEnabled { list.append(Self.cameraAction) }
         list.append(command("glasses_resume_music", "Resume paused music on the INMO glasses from the phone: dismiss the open Jarvis chat and release its audio, double-press GO, then send the screen-off side tap. Use when asked to resume music after chatting on the glasses. Always sends the final side tap; use for paused music only and never retry the toggle blindly. Result sent is not playback confirmation."))
         if experimentalEnabled { list += InmoAdvancedControls.capabilities }
         return list
+    }
+    static let cameraAction = DeviceCapability(name: "glasses_camera_action", description: "Experimental source-derived shutter/start/stop; device verification pending.", inputSchema: DeviceCapability.schema(["action": ["type": "string", "enum": ["shutter", "start_recording", "stop_recording"]]], required: ["action"]))
+    static let experimentalReason = "Turn on Experimental Controls in Glasses"
+    /// While Experimental Controls is off: the hidden experimental tools, and `glasses_settings`,
+    /// which can only list settings until the switch is on.
+    var unavailableCapabilities: [UnavailableCapability] {
+        guard !experimentalEnabled else { return [] }
+        let settings = capabilities.filter { $0.name == "glasses_settings" }
+        return (settings + [Self.cameraAction] + InmoAdvancedControls.capabilities).map { .init(capability: $0, reason: Self.experimentalReason) }
     }
     static let settings: [String: Int] = ["automatic_illumination": 0, "wear_detection": 2, "system_sounds": 3, "voice_wake": 21, "indicator_light": 22, "ios_ancs": 24]
     func inventorySnapshot() -> [[String: Any]] {
