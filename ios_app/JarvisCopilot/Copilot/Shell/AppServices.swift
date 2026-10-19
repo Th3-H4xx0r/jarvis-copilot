@@ -415,6 +415,7 @@ final class AppServices {
                 await self.push.drainNow()
                 await self.runner.drainPending()
                 await ControlButtonStore.shared.runPending()
+                Task { await ControlPushTokenUploader.shared.uploadIfChanged() }   // tiles' refresh-push tokens → server
                 // A disarm or car command a background press couldn't Face ID: the tap brought us here.
                 await SecureActionPending.drain()
                 WidgetDataHub.shared.refreshSoon()

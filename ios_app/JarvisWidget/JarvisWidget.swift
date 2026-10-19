@@ -136,6 +136,8 @@ struct JarvisButtonControl: ControlWidget {
         .displayName("Jarvis button")
         .description("Runs one of the buttons set up in Jarvis settings.")
         .promptsForUserConfiguration()
+        // The server's refresh push: the tile re-reads its state while the app sleeps.
+        .pushHandler(JarvisControlPushHandler.self)
     }
 }
 
@@ -174,6 +176,7 @@ struct JarvisSwitchControl: ControlWidget {
         .displayName("Jarvis switch")
         .description("A Jarvis button that stays lit while it is on.")
         .promptsForUserConfiguration()
+        .pushHandler(JarvisControlPushHandler.self)
     }
 }
 
