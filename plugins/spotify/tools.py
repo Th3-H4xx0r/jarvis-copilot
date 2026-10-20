@@ -398,15 +398,30 @@ def _remote_play_on_phone(phone_id: str, uri: str, credentials: Dict[str, str], 
         wait(_REMOTE_PLAY_GAP_S)
         if cancelled is not None and cancelled.is_set():
             return False
-        result = _server_phone_skill(phone_id, "spotify_remote_play", {"uri": uri, **credentials}, timeout=15)
-        if isinstance(result, dict) and result.get("ok", True) and not result.get("error"):
-            # The phone says "played" (it was connected) or "woke" (it opened Spotify's wake link on the song).
-            said = ", ".join(result["result"]) if isinstance(result.get("result"), dict) else "taken"
-            logger.info("Spotify: the phone's Spotify app took %s (App Remote, try %d: %s)", uri, attempt, said)
+        if _ask_app_remote(phone_id, uri, credentials, f"try {attempt}"):
             return True
-        logger.info("Spotify: App Remote try %d didn't play it: %s", attempt,
-                    (result or {}).get("error") if isinstance(result, dict) else result)
     return False
+
+
+def _ask_app_remote(phone_id: str, uri: str, credentials: Dict[str, str], label: str) -> Optional[str]:
+    """One ask: what the phone did — "played" (Spotify was connected) or "woke" (it opened
+    Spotify's wake link on the song) — or None when it couldn't."""
+    result = _server_phone_skill(phone_id, "spotify_remote_play", {"uri": uri, **credentials}, timeout=15)
+    if isinstance(result, dict) and result.get("ok", True) and not result.get("error"):
+        said = ", ".join(result["result"]) if isinstance(result.get("result"), dict) else "taken"
+        logger.info("Spotify: the phone's Spotify app took %s (App Remote, %s: %s)", uri, label, said)
+        return said
+    logger.info("Spotify: App Remote %s didn't play it: %s", label,
+                (result or {}).get("error") if isinstance(result, dict) else result)
+    return None
+
+
+def _report_after_app_remote(client: Any, *, sleep: Optional[Callable[[float], Any]] = None,
+                             clock: Any = None) -> str:
+    """What Spotify reports a moment after the phone's Spotify app took a play (for the log only)."""
+    (sleep or time.sleep)(_REMOTE_CHECK_AFTER_S)
+    logger.info("Spotify reports after the phone's Spotify app took it: %s", _describe_state(_playback_state(client)))
+    return "reported"
 
 
 def _play_through_app_remote(pending: _PendingPlay, client: Any, phone_id: str, uri: str,
@@ -450,13 +465,23 @@ def _phone_playing_note(phone: Dict[str, Any], opening: Dict[str, Any]) -> str:
 def _open_on_phone(pending: _PendingPlay, client: Any, phone: Dict[str, Any], uri: str) -> Optional[str]:
     """Open the song's spotify: link on the turn's phone now (on CarPlay: on the car's screen)
     and make sure in the background that it plays — through the phone's Spotify app when the
-    sign-in has app-remote-control, else through the Web API. None: the phone couldn't open it."""
+    sign-in has app-remote-control, else through the Web API. None: the phone couldn't open it.
+
+    With app-remote-control the phone's Spotify app is asked first, while Jarvis still has the
+    car's screen: it plays the song if Spotify is playing already, else the phone opens Spotify's
+    wake link on it — which the car's screen refuses once the song link has put Spotify in front
+    (2026-10-20 23:53: "wake link didn't open", six times)."""
+    who = phone.get("name") or phone["device_id"]
+    credentials = _app_remote_credentials(client)
+    if credentials and _ask_app_remote(phone["device_id"], uri, credentials, "first ask"):
+        _drop_pending_play(pending)
+        car_app_followup.start_background(functools.partial(_report_after_app_remote, client),
+                                          "spotify-remote-check")
+        return tool_result({"success": True, "action": "play", "note": _phone_playing_note(phone, {})})
     opening = car_app_followup.request_open("spotify", phone["device_id"], url=uri, now=True)
     if not opening["opened"]:
         logger.info("Spotify play: the phone couldn't open %s (%s)", uri, opening["error"])
         return None
-    who = phone.get("name") or phone["device_id"]
-    credentials = _app_remote_credentials(client)
     if credentials:
         car_app_followup.start_background(
             functools.partial(_play_through_app_remote, pending, client, phone["device_id"], uri, credentials),
