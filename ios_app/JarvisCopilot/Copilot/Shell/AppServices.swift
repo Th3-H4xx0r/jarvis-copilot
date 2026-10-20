@@ -289,12 +289,12 @@ final class AppServices {
         EnergyLedger.shared.setTab(router.selectedTab.rawValue)
         metrics.register()
         // Smart keepalive: Wi‑Fi, the charger, the car and workouts decide when it's worth holding.
-        SmartKeepalive.shared.onChange = { BridgeClient.shared.smartKeepaliveChanged() }
+        SmartKeepalive.shared.onChange = { BridgeClient.shared.holdReasonsChanged() }
         SmartKeepalive.shared.start()
         // Low Power Mode lets the keepalive go (and an off brings it back) without waiting for a reconnect.
         powerWatch = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange,
                                                             object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { BridgeClient.shared.syncKeepalive() }
+            MainActor.assumeIsolated { BridgeClient.shared.holdReasonsChanged() }
         }
         QuickAction.install()
 

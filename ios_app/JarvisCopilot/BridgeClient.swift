@@ -87,13 +87,7 @@ final class BridgeClient: NSObject, ObservableObject {
     /// also calls this at launch, since the setters only sync on a change.
     func syncKeepalive() {
         let wasHolding = BackgroundKeepalive.shared.isRunning
-        BackgroundKeepalive.shared.sync(active: (enabled && backgroundKeepalive && isPaired && !isInSustainedOutage
-                                                 // Low Power Mode asks every app to stop background work, and the
-                                                 // silent audio plus a ping every 40 s is exactly that.
-                                                 && !ProcessInfo.processInfo.isLowPowerModeEnabled
-                                                 // In use or for 30 min after, on Wi‑Fi, charging, in the car or a
-                                                 // workout; out on cellular and idle, commands come by push.
-                                                 && SmartKeepalive.shared.wantsAwake)
+        BackgroundKeepalive.shared.sync(active: (holdWanted && !isInSustainedOutage)
                                         // Dashcam clips moving keep the app awake too: uploads and the sync Live
                                         // Activity otherwise freeze the moment the app goes to the background.
                                         || DashcamSync.shared.holdsKeepalive)
@@ -105,11 +99,24 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
-    /// Smart keepalive's answer may have changed. When it now holds in the background (home on
-    /// Wi‑Fi, on the charger, in the car) the socket was closed as it slept: open it again.
-    func smartKeepaliveChanged() {
+    /// Everything but an outage says the background is worth holding.
+    private var holdWanted: Bool {
+        enabled && backgroundKeepalive && isPaired
+            // Low Power Mode asks every app to stop background work, and the
+            // silent audio plus a ping every 40 s is exactly that.
+            && !ProcessInfo.processInfo.isLowPowerModeEnabled
+            // In use or for 30 min after, on Wi‑Fi, charging, in the car or a
+            // workout; out on cellular and idle, commands come by push.
+            && SmartKeepalive.shared.wantsAwake
+    }
+
+    /// A reason to hold the background came or went (Smart's answer, Low Power Mode). When it
+    /// now holds (home on Wi‑Fi, on the charger, in the car) the socket was closed as it slept:
+    /// open it again. An outage flag left from then must not keep it shut, since only the
+    /// server's hello clears that flag.
+    func holdReasonsChanged() {
         syncKeepalive()
-        if BackgroundKeepalive.shared.isRunning, socket == nil, enabled, isPaired { connect() }
+        if socket == nil, BackgroundKeepalive.shared.isRunning || holdWanted { connect() }
     }
 
     /// How long the socket may stay down before the keepalive is not worth its
@@ -386,8 +393,9 @@ final class BridgeClient: NSObject, ObservableObject {
         guard socket == nil else { return }
         // In the background without the keepalive (Smart let go, Low Power Mode) iOS suspends us
         // within seconds and the socket goes half-open: the server would route invokes into it
-        // instead of pushing. A reconnect timer from an earlier drop must not open one.
-        guard !Self.appInBackground || BackgroundKeepalive.shared.isRunning else { return }
+        // instead of pushing. A reconnect timer from an earlier drop must not open one. Down only
+        // for an outage, though, trying is the way back: the hello re-arms the keepalive.
+        guard !Self.appInBackground || BackgroundKeepalive.shared.isRunning || holdWanted else { return }
 
         var components = URLComponents(url: base.appendingPathComponent("api/devices/bridge/ws"),
                                        resolvingAgainstBaseURL: false)
@@ -424,9 +432,13 @@ final class BridgeClient: NSObject, ObservableObject {
     }
 
     private func receive() {
-        socket?.receive { [weak self] result in
+        guard let task = socket else { return }
+        task.receive { [weak self] result in
             Task { @MainActor in
-                guard let self else { return }
+                // A socket closed on purpose (the keepalive let go, a reconnect replaced it) fails its
+                // pending receive too. That is not a drop: counted as one it started an "outage" that
+                // later kept the keepalive from coming back, and scheduled a reconnect nobody wanted.
+                guard let self, self.socket === task else { return }
                 switch result {
                 case .failure(let error):
                     self.handleDrop(error.localizedDescription)
@@ -573,7 +585,10 @@ final class BridgeClient: NSObject, ObservableObject {
         EnergyLedger.shared.count("bridge.out_bytes", by: data.count)
         socket.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { @MainActor in self?.handleDrop(error.localizedDescription) }
+            Task { @MainActor in
+                guard let self, self.socket === socket else { return }   // already closed or dropped
+                self.handleDrop(error.localizedDescription)
+            }
         }
     }
 
