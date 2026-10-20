@@ -128,6 +128,19 @@ public final class JarvisVoicePanel: NSObject {
         MacPushToTalk.shared.ended()
     }
 
+    /// Start listening, as a tap on the stage's orb does: Jarvis.app calls it
+    /// once a click on the notch's orb has opened the voice stage. Nothing when
+    /// a conversation is already going (a tap would end it), or when the stage
+    /// shows Live (it has its own capture; this would talk unseen).
+    @objc(startListening)
+    @MainActor
+    public static func startListening() {
+        let store = VoiceStore.shared
+        let mode = MacPanelMode(rawValue: UserDefaults.standard.string(forKey: "jc.mac.panelMode") ?? "") ?? .voice
+        guard mode == .voice, !store.isActive else { return }
+        Task { @MainActor in await store.primaryAction() }
+    }
+
     /// Read a hand-off's answer out: the bigger model a push-to-talk turn handed
     /// to has finished, after that conversation ended (Jarvis.app gets it on the
     /// server's jobs feed). `heard` — what was asked — is the subtitle. Talking

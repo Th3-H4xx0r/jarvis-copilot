@@ -127,7 +127,7 @@ struct IslandRootView: View {
             .opacity(ui.hidesEar ? 0 : 1)
             .frame(width: IslandController.earWidth)
             .contentShape(Rectangle())
-            .onTapGesture { controller.openVoice() }     // the orb: talk to Jarvis
+            .onTapGesture { controller.openVoice(listen: true) }     // the orb: talk to Jarvis
             .help("Talk to Jarvis")
             Spacer().frame(width: ui.geometry.width)
             Group {
@@ -287,7 +287,7 @@ private struct ExpandedIsland: View {
                 }
                 .buttonStyle(.plain)
             }
-            Button { withAnimation(.easeOut(duration: 0.18)) { ui.tab = ui.tab == .voice ? .agents : .voice } } label: {
+            Button { controller.orbTapped() } label: {
                 OrbView(mood: ui.tab == .voice ? .listening : .idle, skin: OrbSkin.current, size: 18)
                     .orbHome(.row, ui: ui)
                     .padding(4)
@@ -391,8 +391,12 @@ private struct ExpandedIsland: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            OrbView(mood: model.mood, skin: OrbSkin.current, size: 22)
-                .orbHome(.agents, ui: ui)
+            Button { controller.orbTapped() } label: {
+                OrbView(mood: model.mood, skin: OrbSkin.current, size: 22)
+                    .orbHome(.agents, ui: ui)
+            }
+            .buttonStyle(.plain)
+            .help("Talk to Jarvis")
             VStack(alignment: .leading, spacing: 1) {
                 Text("Agents").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                 Text(summary).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))

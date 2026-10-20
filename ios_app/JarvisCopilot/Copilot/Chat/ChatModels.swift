@@ -229,13 +229,16 @@ struct ChatSendRequest: Equatable, Sendable {
         via = send.string("via") ?? ""
     }
 
-    /// As the voice card reads it — same person, line and buttons.
+    #if !JC_MAC_VOICE
+    /// As the voice card reads it — same person, line and buttons. (The Mac
+    /// voice dylib has no send cards: SendConfirmations is the phone's.)
     var card: SendConfirmations.Card {
         let item = SendConfirmations.Item(kind: SendConfirmations.Item.Kind(rawValue: kind) ?? .text, to: to,
                                           text: text, subject: subject, via: via)
         return SendConfirmations.Card(id: approvalID, items: [item], deadline: .distantFuture,
                                       name: name.isEmpty ? nil : name, photo: photo)
     }
+    #endif
 }
 
 // MARK: - Messages

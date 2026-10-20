@@ -16,8 +16,10 @@ final class IslandUI {
     /// the island stays open while it's set.
     var pinned = false
     /// The expanded island's tab (Agents, Chat, Music, Voice).
+    /// Leaving Voice also forgets push to talk's small island: Voice opened any
+    /// other way (the orbs) is the full stage.
     var tab: IslandTab = .agents {
-        didSet { if tab != .voice { lastTab = tab } }
+        didSet { if tab != .voice { lastTab = tab; voiceMini = false } }
     }
     /// The last tab that isn't Voice: what a click on the notch opens.
     private(set) var lastTab: IslandTab = .agents
@@ -201,6 +203,8 @@ final class IslandController {
     var onMenu: ((NSView, NSPoint) -> Void)?
     /// The open island folded (clicked away, closed, timed out).
     var onFolded: (() -> Void)?
+    /// Start listening, as a tap on the voice stage's orb does (the dylib).
+    var onListen: (() -> Void)?
     /// The screen the island is on.
     var currentScreen: NSScreen? { screen }
 
@@ -289,8 +293,10 @@ final class IslandController {
     /// Talk to Jarvis: the island opens on the voice panel, with the keyboard
     /// (it has a text field). `mini` (push to talk): the small voice island,
     /// and the app you're in keeps the keyboard — unless the full stage is
-    /// already open, which stays.
-    func openVoice(mini: Bool = false) {
+    /// already open, which stays. `listen` (a click on the notch's orb): Jarvis
+    /// listens once the stage is open — after the spring and the orb's flight,
+    /// which the mic starting (~1 s on the main thread) would stall.
+    func openVoice(mini: Bool = false, listen: Bool = false) {
         talkSerial += 1
         if mini {
             if !(isExpanded && ui.tab == .voice && !ui.voiceMini) { ui.voiceMini = true }
@@ -298,6 +304,22 @@ final class IslandController {
         } else {
             ui.voiceMini = false
             open(.voice, reason: .typing)
+        }
+        if listen { listenOnceOpen(serial: talkSerial) }
+    }
+
+    /// Polled: the open takes the build (≤ 0.3 s) and the flight (0.62 s).
+    private func listenOnceOpen(serial: Int) {
+        Task { @MainActor [weak self] in
+            for _ in 0..<60 {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let self, self.talkSerial == serial, self.isExpanded,
+                      self.ui.tab == .voice, !self.ui.voiceMini else { return }
+                if self.ui.state == .expanded && !self.ui.preparing && self.ui.orbFlight == nil {
+                    self.onListen?()
+                    return
+                }
+            }
         }
     }
 
@@ -348,6 +370,12 @@ final class IslandController {
 
     func toggleVoice() {
         if isExpanded && ui.tab == .voice { close() } else { openVoice() }
+    }
+
+    /// The open island's orbs (the tab row's, the Agents header's): the voice
+    /// stage, and from it back to Agents.
+    func orbTapped() {
+        withAnimation(.easeOut(duration: 0.18)) { ui.tab = ui.tab == .voice ? .agents : .voice }
     }
 
     var isExpanded: Bool { machine.state == .expanded }

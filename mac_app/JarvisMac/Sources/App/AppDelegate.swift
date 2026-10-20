@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         island.ui.setVoiceOrbHidden = { [weak menu] hidden in
             VoicePanelOrb.setHidden(hidden, on: menu?.voicePanelClass())
         }
+        island.onListen = { [weak menu] in VoicePanelTalk.listen(on: menu?.voicePanelClass()) }
         island.onMenu = { [weak menu] view, point in menu?.popUp(in: view, at: point) }
         Prefs.openAtLoginByDefault()
         desktopOrb = DesktopOrbController(model: model, island: island)

@@ -266,6 +266,11 @@ enum VoicePanelTalk {
     @MainActor
     static func ended(on cls: AnyClass?) { call("holdToTalkEnded", on: cls) }
 
+    /// Listen on the open voice stage, as a tap on its orb does (`startListening`).
+    /// An older dylib has none: the stage just opens.
+    @MainActor
+    static func listen(on cls: AnyClass?) { call("startListening", on: cls) }
+
     @MainActor
     private static func call(_ name: String, on cls: AnyClass?) {
         let sel = NSSelectorFromString(name)

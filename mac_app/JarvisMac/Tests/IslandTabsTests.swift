@@ -306,4 +306,50 @@ final class IslandTabsTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertFalse(IslandClicks.filePanelOpen())
     }
+
+    /// After push to talk (its small voice island), the open island's orbs
+    /// still open the full voice stage.
+    @MainActor
+    func testAfterPushToTalkTheOrbsOpenTheFullVoiceStage() {
+        let c = IslandController(model: AppModel())
+        c.openVoice(mini: true)
+        XCTAssertTrue(c.ui.voiceMini)
+        c.close()
+        c.toggle()   // a click on the notch: the last tab
+        XCTAssertEqual(c.ui.tab, .agents)
+        c.orbTapped()
+        XCTAssertEqual(c.ui.tab, .voice)
+        XCTAssertFalse(c.ui.voiceMini, "the full stage, not push to talk's small island")
+        c.orbTapped()
+        XCTAssertEqual(c.ui.tab, .agents, "and from Voice back to Agents")
+    }
+
+    /// A click on the notch's orb: Jarvis listens once the voice stage is open
+    /// (not while it opens: starting the mic would stall the spring).
+    @MainActor
+    func testTheNotchOrbListensOnceTheVoiceStageIsOpen() {
+        let c = IslandController(model: AppModel())
+        var listens = 0
+        c.onListen = { listens += 1 }
+        c.openVoice(listen: true)
+        XCTAssertEqual(listens, 0, "not while it opens")
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertTrue(c.isExpanded)
+        XCTAssertEqual(c.ui.tab, .voice)
+        XCTAssertEqual(listens, 1)
+    }
+
+    /// Folded before it opened, or Voice opened another way: no listening.
+    @MainActor
+    func testOnlyTheNotchOrbListens() {
+        let c = IslandController(model: AppModel())
+        var listens = 0
+        c.onListen = { listens += 1 }
+        c.openVoice(listen: true)
+        c.close()
+        c.openVoice()
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertTrue(c.isExpanded)
+        XCTAssertEqual(listens, 0)
+    }
 }
