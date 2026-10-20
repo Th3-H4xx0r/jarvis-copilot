@@ -426,11 +426,14 @@ def _playing(uri: str, *, device: str = "phone-1", context: str | None = None, i
 
 
 class _Phone:
-    """The turn's device: records skill calls, answers per skill."""
+    """The turn's device: records skill calls, answers per skill. A skill only the server may
+    run is refused, as the webui's HTTP route does (2026-10-20 22:44)."""
 
     def __init__(self):
         self.calls: list = []
-        self.replies = {"open_url": OPENED, "open_app": APP_OPENING}
+        self.replies = {"open_url": OPENED, "open_app": APP_OPENING,
+                        "spotify_remote_play": {"ok": False,
+                                                "error": "'spotify_remote_play' is only run by the server itself"}}
 
     def __call__(self, device_id, skill, args, timeout=None):
         self.calls.append((device_id, skill, dict(args)))
@@ -684,15 +687,52 @@ def test_a_web_turn_still_plays_on_the_listed_computer(monkeypatch, spawned, web
     assert phone.calls == [] and runs == []
 
 
-def test_a_web_turn_keeps_the_error_for_a_missing_explicit_device(monkeypatch, spawned, web_turn) -> None:
+def test_a_web_turn_whose_named_device_is_gone_plays_on_a_listed_one(monkeypatch, spawned, web_turn) -> None:
+    # The model reuses a device id from an earlier turn (2026-10-20 23:06: the car's iPhone id
+    # on a turn from the Mac): it 404s, and the song plays on a device Spotify lists.
     phone, runs = web_turn
     stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)], device_polls=[[MACBOOK]])
     _use(monkeypatch, stub)
 
     payload = _car_play(uris=[TRACK], device_id="72332cff")
 
-    assert "error" in payload
-    assert phone.calls == [] and runs == [] and len(stub.play_calls) == 1
+    assert "error" not in payload
+    assert stub.play_calls[-1]["device_id"] == "mac-1"
+    assert phone.calls == [] and runs == []
+
+
+def test_a_turn_from_nowhere_keeps_the_error_for_a_missing_named_device(monkeypatch, spawned) -> None:
+    stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)], device_polls=[[MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = json.loads(spotify_tool._handle_spotify_playback(
+        {"action": "play", "uris": [TRACK], "device_id": "72332cff"}, task_id="some-telegram-chat"))
+
+    assert "error" in payload and len(stub.play_calls) == 1
+
+
+@pytest.fixture
+def mac_turn(monkeypatch: pytest.MonkeyPatch):
+    from api import turn_origin
+
+    yield _turn(monkeypatch, kind="desktop", carplay=False)
+    turn_origin.note_turn("sess-car", None)
+
+
+def test_a_mac_turn_plays_on_the_mac_not_the_phone(monkeypatch, spawned, mac_turn) -> None:
+    # 2026-10-20 23:06: "Play Blinding Lights on Spotify" from the Mac, Spotify open there —
+    # the car's iPhone id 404'd and Jarvis gave up ("no device is active").
+    phone, runs = mac_turn
+    stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)],
+                       device_polls=[[PHONE, MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK], device_id="72332cff")
+
+    assert "error" not in payload
+    assert stub.play_calls[-1]["device_id"] == "mac-1"
+    assert "MacBook" in payload["note"]
+    assert phone.calls == [] and runs == []
 
 
 def test_a_turn_from_an_unknown_device_keeps_todays_note(monkeypatch, spawned, car_turn) -> None:
@@ -829,47 +869,132 @@ def test_a_play_that_never_reaches_the_phone_moves_playback_there_first(monkeypa
 
 
 REMOTE = {"token": "tok-123", "client_id": "cid-9"}
+REMOTE_PLAYED = {"ok": True, "result": {"played": TRACK}}
+SPOTIFY_NOT_UP = {"ok": False, "error": "couldn't reach the Spotify app: not running"}
 
 
-def test_a_phone_turn_also_tells_the_spotify_app_to_play_it(monkeypatch, spawned, car_turn) -> None:
-    # Plays sent through the Web API never start on his iPhone in the car (17:44: "nothing
-    # playing anywhere" after plays and transfers, all HTTP 204): once Spotify is up on the car,
-    # the phone tells the Spotify app itself (Spotify's iOS SDK, App Remote).
-    phone, runs = car_turn
-    phone.replies["spotify_remote_play"] = {"ok": True, "result": {"played": TRACK}}
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
+@pytest.fixture
+def bridge(monkeypatch: pytest.MonkeyPatch):
+    """The webui's own device bridge — the only way the server runs a skill only it may run.
+    ``answers[skill]`` is one reply, or a list answered in turn."""
+    from api import device_bridge
+
+    calls: list = []
+    answers: dict = {"spotify_remote_play": REMOTE_PLAYED}
+
+    def invoke(device_id, skill, args, timeout=None):
+        calls.append((device_id, skill, dict(args)))
+        answer = answers.get(skill, {"ok": False, "error": f"no {skill} skill"})
+        return answer.pop(0) if isinstance(answer, list) else answer
+
+    monkeypatch.setattr(device_bridge, "invoke_skill", invoke)
+    return calls, answers
+
+
+def _remote_plays(calls) -> list:
+    return [c for c in calls if c[1] == "spotify_remote_play"]
+
+
+def _app_remote_stub(**kw) -> _PlayerStub:
+    stub = _PlayerStub(**kw)
     stub.remote = dict(REMOTE)
+    return stub
+
+
+def test_a_phone_turn_has_the_spotify_app_play_it_never_the_web_api(monkeypatch, spawned, car_turn, bridge) -> None:
+    # 2026-10-20 22:45:51: Spotify listed his iPhone as active, the Web API took the play
+    # (HTTP 204) and nothing played — as every time on his iPhone. The phone's Spotify app
+    # plays it (Spotify's iOS SDK, App Remote), asked through the webui's own bridge.
+    phone, runs = car_turn
+    calls, _ = bridge
+    stub = _app_remote_stub(device_polls=[[MACBOOK, PHONE_ACTIVE]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["pending"] is True and "Playing it in Spotify on the car" in payload["note"]
+    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
+    assert len(runs) == 1
+    assert _run(runs) == "played"
+    assert _remote_plays(calls) == [("iphone-1", "spotify_remote_play", {"uri": TRACK, **REMOTE})]
+    assert stub.play_calls == [] and stub.transfer_calls == []
+    assert spotify_tool._current_pending_play() is None
+
+
+def test_the_spotify_app_is_asked_again_while_it_comes_up(monkeypatch, spawned, car_turn, bridge) -> None:
+    _, runs = car_turn
+    calls, answers = bridge
+    answers["spotify_remote_play"] = [SPOTIFY_NOT_UP, SPOTIFY_NOT_UP, REMOTE_PLAYED]
+    stub = _app_remote_stub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
     _use(monkeypatch, stub)
 
     _car_play(uris=[TRACK])
-    remote_runs = [r for r in runs if getattr(r, "func", None) is spotify_tool._remote_play_on_phone]
-    assert len(remote_runs) == 1
-    clock = _FakeClock()
-    assert remote_runs[0](sleep=clock.sleep) is True
-    assert ("iphone-1", "spotify_remote_play", {"uri": TRACK, **REMOTE}) in phone.calls
+
+    assert _run(runs) == "played"
+    assert len(_remote_plays(calls)) == 3
+    assert stub.play_calls == []
 
 
-def test_the_spotify_app_is_asked_again_while_it_comes_up(monkeypatch, spawned, car_turn) -> None:
-    phone, runs = car_turn
-    answers = iter([{"ok": False, "error": "couldn't reach the Spotify app: not running"},
-                    {"ok": True, "result": {"played": TRACK}}])
-    phone.replies["spotify_remote_play"] = None
-    monkeypatch.setattr(car_app_followup, "_invoke_device_skill",
-                        lambda device, skill, args, timeout=None: phone.calls.append((device, skill, dict(args)))
-                        or (next(answers) if skill == "spotify_remote_play" else phone.replies.get(skill)))
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
-    stub.remote = dict(REMOTE)
+def test_the_web_api_tries_only_once_the_spotify_app_never_answers(monkeypatch, spawned, car_turn, bridge) -> None:
+    # A Web API play sent while the song plays on his iPhone stops it (22:45:21: YOSEMITE
+    # at 3405 ms → "None at 0 ms"), so it never runs alongside the Spotify app's play.
+    _, runs = car_turn
+    calls, answers = bridge
+    answers["spotify_remote_play"] = SPOTIFY_NOT_UP
+    stub = _app_remote_stub(device_polls=[[PHONE_ACTIVE]],
+                            playback_states=[{"empty": True}, _playing(TRACK)])
     _use(monkeypatch, stub)
 
     _car_play(uris=[TRACK])
-    remote = next(r for r in runs if getattr(r, "func", None) is spotify_tool._remote_play_on_phone)
-    assert remote(sleep=_FakeClock().sleep) is True
-    assert [c[1] for c in phone.calls].count("spotify_remote_play") == 2
+
+    assert _run(runs) == "done"
+    assert len(_remote_plays(calls)) == spotify_tool._REMOTE_PLAY_TRIES
+    assert len(_phone_plays(stub)) == 1
 
 
-def test_without_the_permission_the_phone_is_not_asked(monkeypatch, spawned, car_turn) -> None:
+def test_a_newer_play_stops_the_spotify_app_tries_for_the_old_song(monkeypatch, spawned, car_turn, bridge) -> None:
+    _, runs = car_turn
+    calls, _ = bridge
+    _use(monkeypatch, _app_remote_stub(device_polls=[[]]))
+
+    _car_play(uris=[TRACK])
+    _car_play(uris=[OTHER_TRACK])
+
+    assert _run(runs, 0) == "cancelled"
+    assert _run(runs, 1) == "played"
+    assert [c[2]["uri"] for c in _remote_plays(calls)] == [OTHER_TRACK]
+
+
+def test_pause_stops_the_spotify_app_tries(monkeypatch, spawned, car_turn, bridge) -> None:
+    _, runs = car_turn
+    calls, _ = bridge
+    _use(monkeypatch, _app_remote_stub(device_polls=[[]]))
+
+    _car_play(uris=[TRACK])
+    spotify_tool._handle_spotify_playback({"action": "pause"}, task_id="sess-car")
+
+    assert _run(runs) == "cancelled"
+    assert _remote_plays(calls) == []
+
+
+def test_a_phone_turn_asking_for_the_macbook_plays_there(monkeypatch, spawned, car_turn, bridge) -> None:
     phone, runs = car_turn
+    calls, _ = bridge
+    stub = _app_remote_stub(device_polls=[[MACBOOK, PHONE]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK], device_id="mac-1")
+
+    assert payload["success"] is True
+    assert stub.play_calls[-1]["device_id"] == "mac-1"
+    assert phone.calls == [] and runs == [] and _remote_plays(calls) == []
+
+
+def test_without_the_permission_the_phone_is_not_asked(monkeypatch, spawned, car_turn, bridge) -> None:
+    phone, runs = car_turn
+    calls, _ = bridge
     _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]]))
     _car_play(uris=[TRACK])
-    assert not any(getattr(r, "func", None) is spotify_tool._remote_play_on_phone for r in runs)
-    assert all(c[1] != "spotify_remote_play" for c in phone.calls)
+    assert len(runs) == 1
+    _run(runs)
+    assert _remote_plays(calls) == [] and all(c[1] != "spotify_remote_play" for c in phone.calls)
