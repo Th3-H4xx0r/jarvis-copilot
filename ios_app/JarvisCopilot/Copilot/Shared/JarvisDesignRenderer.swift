@@ -14,10 +14,13 @@ final class JCDesignRenderer {
     let tint: Color
     /// The widget design being drawn; its buttons pass it with each press for its model override.
     let designID: String?
+    /// The moment drawn: a widget timeline entry's date, so a button's state at that time shows.
+    let now: Date
 
-    init(tint: Color, designID: String? = nil) {
+    init(tint: Color, designID: String? = nil, now: Date = Date()) {
         self.tint = tint
         self.designID = designID
+        self.now = now
     }
 
     func render(_ node: JCNode?, _ ctx: JCBindingContext, depth: Int = 0) -> AnyView {
@@ -554,7 +557,7 @@ final class JCDesignRenderer {
         // by Jarvis, and must not be able to dress a disarm up as something else.
         let own = info?.skipsFaceID == true
         // A button that follows live state shows what a press does now, whatever the design says.
-        let live = info?.timeline?.state(at: Date())
+        let live = info?.timeline?.state(at: now)
         let label = live?.title ?? (own ? nil : n.ref("label")?.string(ctx)) ?? info?.name ?? "Button"
         let symbol = live?.symbol ?? (own ? nil : n.string("symbol")) ?? info?.symbol ?? "bolt.fill"
         let color = live?.alert == true ? Color.red : (n.ref("color")?.color(ctx) ?? info?.tintColor ?? tint)

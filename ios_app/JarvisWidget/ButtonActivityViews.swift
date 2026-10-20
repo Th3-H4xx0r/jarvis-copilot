@@ -182,7 +182,8 @@ private struct ButtonActivityLook {
         stale = context.isStale
         if !finished, !stale, let ends = state.endsAt, ends > Date() {
             let start = min(state.startedAt ?? ends, ends)
-            countdown = start...ends
+            // The countdown runs from now: a card with no start time would otherwise read 0:00.
+            countdown = min(Date(), ends)...ends
             progress = start < ends ? start...ends : nil
         } else {
             countdown = nil

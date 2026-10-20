@@ -21,15 +21,20 @@ struct JarvisDesignProvider: AppIntentTimelineProvider {
     }
 
     /// The app reloads this when its data changes; the 15 minutes are a floor for a phone that
-    /// never opens it.
+    /// never opens it. A button whose state changes at a set time (the exit delay ending) gets an
+    /// entry then, so it shows Disarm without waiting for the app.
     func timeline(for configuration: ChooseWidgetDesignIntent, in context: Context) async -> Timeline<JarvisDesignEntry> {
-        Timeline(entries: [entry(configuration)], policy: .after(Date().addingTimeInterval(900)))
+        let now = Date()
+        let changes = ControlButtonShelf.infos().compactMap { $0.timeline?.nextChange(after: now) }
+            .filter { $0.timeIntervalSince(now) < 3600 }
+        let dates = [now] + Array(Set(changes)).sorted().prefix(4)
+        return Timeline(entries: dates.map { entry(configuration, at: $0) }, policy: .after(now.addingTimeInterval(900)))
     }
 
-    private func entry(_ configuration: ChooseWidgetDesignIntent) -> JarvisDesignEntry {
+    private func entry(_ configuration: ChooseWidgetDesignIntent, at date: Date = Date()) -> JarvisDesignEntry {
         // Before one is chosen, the first design there is — better than an empty square.
         let id = configuration.design?.id ?? WidgetDesignCache.infos().first?.id
-        return JarvisDesignEntry(date: Date(), design: id.flatMap { WidgetDesignCache.load($0) },
+        return JarvisDesignEntry(date: date, design: id.flatMap { WidgetDesignCache.load($0) },
                                  chosen: configuration.design != nil, data: WidgetDataFile.read())
     }
 }
@@ -48,7 +53,7 @@ struct JarvisDesignWidgetView: View {
     @ViewBuilder
     private var content: some View {
         if let design = entry.design, let node = design.node(for: size) {
-            JCDesignRenderer(tint: jcParseColor(design.tint) ?? JcAccent.color, designID: design.id)
+            JCDesignRenderer(tint: jcParseColor(design.tint) ?? JcAccent.color, designID: design.id, now: entry.date)
                 .render(node, JCBindingContext(data: entry.data))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let design = entry.design {

@@ -39,6 +39,7 @@ final class ControlButtonsTests: XCTestCase {
         // No live states here: a press runs the button's own action.
         s.resolvePress = { button, _ in .run(button.action) }
         s.didRun = { _, _, _ in }
+        s.restate = {}
         return s
     }
 

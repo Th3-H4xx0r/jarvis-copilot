@@ -37,6 +37,9 @@ struct JarvisControlPushHandler: ControlPushHandler {
     init() {}
 
     func pushTokensDidChange(controls: [ControlInfo]) {
-        ControlPushTokens.save(controls.compactMap { $0.pushInfo?.token })
+        // iOS may hand over one kind of control at a time: add to the filed set rather than replace
+        // it (the app replaces it with the full current set when it next uploads).
+        let new = controls.compactMap { $0.pushInfo?.token }.map(ControlPushTokens.hex)
+        ControlPushTokens.save(hex: ControlPushTokens.load() + new)
     }
 }

@@ -157,7 +157,9 @@ struct JarvisButtonLabel: View {
             Label {
                 Text(live.title)
                 if let ends = live.endsAt, ends > .now, info?.showsCountdown != false {
-                    Text(live.caption.map { "\($0) " } ?? "") + Text(timerInterval: Date.now...ends, countsDown: true)
+                    // min(): the end can pass between the check and here, and a reversed range traps.
+                    Text(live.caption.map { "\($0) " } ?? "") + Text(timerInterval: min(Date.now, ends)...ends,
+                                                                       countsDown: true)
                 } else if let caption = live.caption {
                     Text(caption)
                 }

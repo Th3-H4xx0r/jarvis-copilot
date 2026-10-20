@@ -22,7 +22,9 @@ final class LiveButtonsTests: XCTestCase {
         c.fetchCar = { nil }
         c.widgetData = { [:] }
         c.wearableOn = { _, _ in nil }
-        c.showCard = { [unowned self] source, _, _, _, state in shown.append((source, state.id)) }
+        c.showCard = { [unowned self] source, _, _, _, state in shown.append((source, state.id)); return true }
+        c.runningCards = { [:] }
+        c.notify = { _, _ in }
         c.finishCard = { [unowned self] source, result in finished.append((source, result)) }
         c.setDoorPushToStart = { [unowned self] in pushToStart.append($0) }
         c.reloadControls = {}
@@ -86,5 +88,41 @@ final class LiveButtonsTests: XCTestCase {
         door = DoorAlarmInfo(json: ["state": "armed_away"])
         await c.pressDoorCard(shownState: "door.arming")
         XCTAssertEqual(ran, [.door(.cancelArming)], "once armed, a stale Stop does nothing")
+    }
+
+    // MARK: review fixes
+
+    func testTheCardSaysArmedAwayWhenTheDelayRunsOutWithoutAFreshRead() async {
+        buttons = [ControlButton(id: "away", name: "Away", symbol: "a", action: .door(.armAway))]
+        let c = coordinator()
+        await c.doorChanged(arming(in: 45))
+        now = now.addingTimeInterval(50)
+        await c.recompute()
+        XCTAssertEqual(finished.map(\.result), ["Armed Away"], "not \"Disarmed\" from the old arming reading")
+    }
+
+    func testTheCardStaysUpWhileTheAlarmIsGoingOff() async {
+        buttons = [ControlButton(id: "d", name: "Disarm", symbol: "a", action: .door(.disarm))]
+        let c = coordinator()
+        await c.doorChanged(DoorAlarmInfo(json: ["state": "triggered", "siren_on": true]))
+        XCTAssertEqual(shown.map(\.state), ["door.siren"])
+        XCTAssertTrue(finished.isEmpty)
+    }
+
+    func testAFailedReadKeepsTheLastGoodTile() async {
+        buttons = [ControlButton(id: "away", name: "Away", symbol: "a", action: .door(.armAway))]
+        let c = coordinator()
+        await c.recompute()
+        XCTAssertNil(applied["away"] ?? nil, "never read: nothing written over the tile")
+        XCTAssertFalse(applied.keys.contains("away"))
+    }
+
+    func testAStaleDoorCardStopDoesNotDisarm() async {
+        var ran: [RingAction] = []
+        let c = coordinator()
+        c.runAction = { action, _ in ran.append(action); return "ok" }
+        door = DoorAlarmInfo(json: ["state": "entry"])
+        await c.pressDoorCard(shownState: "door.arming")
+        XCTAssertTrue(ran.isEmpty, "the card showed Stop arming; the entry delay's disarm is not what he pressed")
     }
 }

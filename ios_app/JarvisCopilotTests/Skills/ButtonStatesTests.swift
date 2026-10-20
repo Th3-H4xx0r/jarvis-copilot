@@ -160,4 +160,41 @@ final class ButtonStatesTests: XCTestCase {
         let info = try JSONDecoder().decode([ControlButtonInfo].self, from: JSONEncoder().encode([b])).first
         XCTAssertEqual(info?.timeline?.state(at: now)?.title, "T", "the widget extension reads the timeline")
     }
+
+    // MARK: review fixes
+
+    func testATileWithNoStateNeverRunsADifferentAction() {
+        let b = button(.door(.armAway, skipFaceID: true))
+        let armed = LiveValues(door: alarm("armed_away"))
+        guard case .changed = ButtonStateResolver.press(b, shownState: nil, live: armed, now: now) else {
+            return XCTFail("an Arm Away tile with no state must never disarm")
+        }
+        guard case .run(let action) = ButtonStateResolver.press(b, shownState: nil, live: LiveValues(door: alarm("disarmed")),
+                                                                 now: now) else { return XCTFail() }
+        XCTAssertEqual(action, .door(.armAway, skipFaceID: true))
+    }
+
+    func testArmNowFinishesArmingRatherThanCancellingIt() {
+        let s = states(button(.door(.armNow)), door: alarm("arming", mode: "away", deadline: now.addingTimeInterval(30)))
+        XCTAssertEqual(s?.first?.state.title, "Arm now")
+        XCTAssertEqual(s?.first?.action, .door(.armNow))
+    }
+
+    func testAGuessedWearableStateGoesBackToTheButtonWhenItExpires() throws {
+        let b = button(.wearable(deviceID: "bottle", skill: "bottle_sterilise", arguments: ["on": "true"]))
+        var live = LiveValues()
+        live.lastSet["b"] = (true, now.addingTimeInterval(-60))
+        let timeline = try XCTUnwrap(ButtonStateResolver.timeline(b, live: live, now: now))
+        XCTAssertEqual(timeline.state(at: now)?.title, "Stop sterilising")
+        XCTAssertEqual(timeline.state(at: now.addingTimeInterval(ButtonStateResolver.optimisticFor))?.id,
+                       ButtonStateResolver.ownStateID)
+    }
+
+    func testAPressOnAStateTheButtonNoLongerHasIsRefused() {
+        var b = button(.door(.armAway))
+        b.followsLive = false
+        guard case .changed = ButtonStateResolver.press(b, shownState: "door.arming", live: LiveValues(), now: now) else {
+            return XCTFail("the tile still showed a live state: don't guess")
+        }
+    }
 }

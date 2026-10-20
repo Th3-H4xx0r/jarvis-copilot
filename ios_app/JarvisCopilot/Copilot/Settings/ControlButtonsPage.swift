@@ -152,6 +152,8 @@ final class ControlButtonStore: ObservableObject {
     var didRun: (ControlButton, RingAction, String) async -> Void = { button, action, line in
         await LiveButtons.shared.didRun(button, action: action, line: line)
     }
+    /// The buttons changed (saved, deleted, a press refused): work every button's state out again.
+    var restate: () async -> Void = { await LiveButtons.shared.recompute() }
     private var keepAliveWatch: NSObjectProtocol?
 
     init(defaults: UserDefaults = ControlButtonShelf.defaults,
@@ -198,6 +200,8 @@ final class ControlButtonStore: ObservableObject {
     /// Adds a new button or replaces the one with the same id.
     func save(_ button: ControlButton) {
         var button = button
+        // The tile is drawn again from the saved settings, not the old ones.
+        button.timeline = nil
         if let device = button.keepAliveDevice, button.keepsState { button.isOn = keepAliveIsOn(device) }
         if let index = buttons.firstIndex(where: { $0.id == button.id }) {
             buttons[index] = button
@@ -205,11 +209,13 @@ final class ControlButtonStore: ObservableObject {
             buttons.append(button)
         }
         persist()
+        Task { await restate() }
     }
 
     func delete(_ id: String) {
         buttons.removeAll { $0.id == id }
         persist()
+        Task { await restate() }
     }
 
     /// One press from Control Center. A Jarvis prompt's reply comes back as a notification —
@@ -219,15 +225,18 @@ final class ControlButtonStore: ObservableObject {
         guard let button = button(id) else { return }
         if button.keepsState { return await set(id, !button.isOn, widget: widget, physical: physical) }
         // A button with live states runs what it shows NOW; a press that saw an older state does
-        // nothing but say what it shows now (never Stop arming → Disarm).
+        // nothing but say what it shows now (never Stop arming → Disarm). A Shortcut or Siri sees no
+        // tile: it runs the button's own action, as it always has.
         let action: RingAction
-        switch await resolvePress(button, shownState) {
+        let fromShortcut = !physical && widget == nil && shownState == nil
+        switch fromShortcut ? .run(button.action) : await resolvePress(button, shownState) {
         case .run(let current):
             action = current
         case .changed(let now):
             let line = "It's \((now.caption ?? now.title).lowercased()) now — press again to \(now.title.lowercased())"
             record(id, line)
             await notify(button.name, line)
+            await restate()
             return
         }
         let line = await runAction(action, context(button, widget: widget, physical: physical))
@@ -273,7 +282,10 @@ final class ControlButtonStore: ObservableObject {
             buttons[index].timeline = new
             changed = true
         }
-        if changed { persist() }
+        guard changed else { return }
+        persist()
+        // Widget buttons draw the same states; their widgets redraw only on a real change.
+        WidgetCenter.shared.reloadTimelines(ofKind: WidgetDataHub.widgetKind)
     }
 
     /// Presses that landed in the widget extension while the app wasn't there to run them.

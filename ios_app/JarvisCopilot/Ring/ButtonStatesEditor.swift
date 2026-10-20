@@ -5,14 +5,20 @@ import SwiftUI
 struct ButtonStatesEditor: View {
     let onSave: (ButtonStates?) -> Void
     @State private var follows: String
-    @State private var rules: [ButtonStates.Rule]
+    @State private var rules: [EditRule]
     @State private var countdownKey: String?
     @Environment(\.dismiss) private var dismiss
+
+    /// A rule with an id of its own while it's edited, so removing one never shifts another's fields.
+    private struct EditRule: Identifiable {
+        let id = UUID()
+        var rule: ButtonStates.Rule
+    }
 
     init(states: ButtonStates?, onSave: @escaping (ButtonStates?) -> Void) {
         self.onSave = onSave
         _follows = State(initialValue: states?.follows ?? "")
-        _rules = State(initialValue: states?.rules ?? [])
+        _rules = State(initialValue: (states?.rules ?? []).map { EditRule(rule: $0) })
         _countdownKey = State(initialValue: states?.countdownKey)
     }
 
@@ -23,14 +29,14 @@ struct ButtonStatesEditor: View {
                           + "wearable's status, your phone's battery…") {
                     valueRow(title: "Live value", key: follows.isEmpty ? nil : follows) { follows = $0 ?? "" }
                 }
-                ForEach(rules.indices, id: \.self) { index in
-                    ruleCard(index)
+                ForEach(Array(rules.enumerated()), id: \.element.id) { offset, item in
+                    ruleCard(item.id, number: offset + 1)
                 }
                 CardGroup {
                     Row {
                         Button {
-                            rules.append(.init(when: rules.isEmpty ? .on : .otherwise, title: "",
-                                               symbol: "bolt.fill", action: .none))
+                            rules.append(EditRule(rule: .init(when: rules.isEmpty ? .on : .otherwise, title: "",
+                                                              symbol: "bolt.fill", action: .none)))
                         } label: {
                             Label("Add a state", systemImage: "plus.circle.fill")
                         }
@@ -60,7 +66,8 @@ struct ButtonStatesEditor: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") {
-                    let kept = rules.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty && $0.action.isSet }
+                    let kept = rules.map(\.rule)
+                        .filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty && $0.action.isSet }
                     onSave(follows.isEmpty || kept.isEmpty
                            ? nil : ButtonStates(follows: follows, rules: kept, countdownKey: countdownKey))
                     dismiss()
@@ -69,33 +76,37 @@ struct ButtonStatesEditor: View {
         }
     }
 
-    private func ruleCard(_ index: Int) -> some View {
-        CardGroup("State \(index + 1)") {
+    private func ruleCard(_ id: UUID, number: Int) -> some View {
+        let rule = Binding<ButtonStates.Rule>(
+            get: { rules.first { $0.id == id }?.rule ?? .init(when: .otherwise, title: "", symbol: "bolt.fill", action: .none) },
+            set: { new in if let i = rules.firstIndex(where: { $0.id == id }) { rules[i].rule = new } })
+        let text: String = { if case .equals(let t) = rule.wrappedValue.when { return t } else { return "" } }()
+        return CardGroup("State \(number)") {
             Row {
-                Picker("When", selection: Binding(get: { MatchKind(rules[index].when) },
-                                                  set: { rules[index].when = $0.match(text: matchText(index)) })) {
+                Picker("When", selection: Binding(get: { MatchKind(rule.wrappedValue.when) },
+                                                  set: { rule.wrappedValue.when = $0.match(text: text) })) {
                     ForEach(MatchKind.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
             }
-            if case .equals = rules[index].when {
+            if case .equals = rule.wrappedValue.when {
                 RowDivider()
                 Row {
                     TextField("Value, e.g. Sterilising", text: Binding(
-                        get: { matchText(index) }, set: { rules[index].when = .equals($0) }))
+                        get: { text }, set: { rule.wrappedValue.when = .equals($0) }))
                         .autocorrectionDisabled()
                 }
             }
             RowDivider()
-            Row { TextField("Name it shows, e.g. Stop sterilising", text: $rules[index].title) }
+            Row { TextField("Name it shows, e.g. Stop sterilising", text: rule.title) }
             RowDivider()
             NavigationLink {
-                SymbolPicker(title: "Icon", selection: rules[index].symbol) { rules[index].symbol = $0 }
+                SymbolPicker(title: "Icon", selection: rule.wrappedValue.symbol) { rule.wrappedValue.symbol = $0 }
             } label: {
                 Row {
                     HStack {
                         Text("Icon")
                         Spacer()
-                        Image(systemName: rules[index].symbol).foregroundStyle(JcAccent.color)
+                        Image(systemName: rule.wrappedValue.symbol).foregroundStyle(JcAccent.color)
                         JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
@@ -104,13 +115,13 @@ struct ButtonStatesEditor: View {
             .buttonStyle(.plain)
             RowDivider()
             NavigationLink {
-                RingActionPicker(title: "Action", current: rules[index].action) { rules[index].action = $0 }
+                RingActionPicker(title: "Action", current: rule.wrappedValue.action) { rule.wrappedValue.action = $0 }
             } label: {
                 Row {
                     HStack {
                         Text("Does")
                         Spacer()
-                        Text(rules[index].action.isSet ? rules[index].action.summary : "Choose")
+                        Text(rule.wrappedValue.action.isSet ? rule.wrappedValue.action.summary : "Choose")
                             .foregroundStyle(.secondary).lineLimit(1)
                         JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
@@ -120,14 +131,9 @@ struct ButtonStatesEditor: View {
             .buttonStyle(.plain)
             RowDivider()
             Row {
-                Button("Remove this state", role: .destructive) { rules.remove(at: index) }
+                Button("Remove this state", role: .destructive) { rules.removeAll { $0.id == id } }
             }
         }
-    }
-
-    private func matchText(_ index: Int) -> String {
-        if case .equals(let text) = rules[index].when { return text }
-        return ""
     }
 
     private func valueRow(title: String, key: String?, set: @escaping (String?) -> Void) -> some View {

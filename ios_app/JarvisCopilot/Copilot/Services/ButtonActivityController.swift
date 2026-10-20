@@ -32,6 +32,8 @@ final class ButtonActivityController {
     private var sentTokens: [String: String] = [:]
     private var inFlight: Set<String> = []
     private var uploads: [Task<Void, Never>] = []
+    /// A source whose upload just failed waits a minute before the next try.
+    private var failedAt: [String: Date] = [:]
     private var startToken = ""
     private var doorStartEnabled = false
     private var observing = false
@@ -45,19 +47,22 @@ final class ButtonActivityController {
 
     /// Show `state` on `source`'s card: updates the one already up, else starts one (when Live
     /// Activities are on and you haven't swiped this state's card away).
-    func show(source: String, buttonID: String, name: String, symbol: String, state: ButtonLiveState) async {
+    /// True when a card is up showing it (so the caller knows to try again later if not).
+    @discardableResult
+    func show(source: String, buttonID: String, name: String, symbol: String, state: ButtonLiveState) async -> Bool {
         observe()
         let content = ButtonActivityAttributes.ContentState(state: state, finished: false, result: nil)
         let stale = Self.staleDate(for: state)
         if let current = bySource[source] {
             await serial { await current.update(content, staleDate: stale) }
-            return
+            return true
         }
-        guard system.enabled, dismissed[source] != Self.episode(state) else { return }
+        guard system.enabled, dismissed[source] != Self.episode(state) else { return false }
         dismissed[source] = nil
         let attributes = ButtonActivityAttributes(source: source, buttonID: buttonID, name: name, symbol: symbol)
-        guard let started = system.request(attributes, content, staleDate: stale) else { return }
+        guard let started = system.request(attributes, content, staleDate: stale) else { return false }
         adopt(started)
+        return true
     }
 
     /// Done: the card shows `result` with a checkmark for a few seconds, then goes.
@@ -161,6 +166,8 @@ final class ButtonActivityController {
         handle.watch(token: { [weak self] token in
             guard let self, self.bySource[source]?.id == id else { return }
             self.latestTokens[source] = token
+            // iOS handing a token over again is the moment to retry a failed upload.
+            self.failedAt[source] = nil
             self.flushTokens()
         }, gone: { [weak self] byYou in
             guard let self else { return }
@@ -175,19 +182,23 @@ final class ButtonActivityController {
         startToken = token
         guard doorStartEnabled else { return }
         latestTokens[Self.doorStartSource] = token
+        failedAt[Self.doorStartSource] = nil
         flushTokens()
     }
 
     /// POST every token the server hasn't taken yet, one at a time per source.
     private func flushTokens() {
         for (source, token) in latestTokens where sentTokens[source] != token && !inFlight.contains(source) {
+            if let failed = failedAt[source], Date().timeIntervalSince(failed) < 60 { continue }
             inFlight.insert(source)
             let upload = self.upload
+            if uploads.count > 8 { uploads.removeFirst(uploads.count - 8) }
             uploads.append(Task { [weak self] in
                 let ok = await upload(source, token)
                 guard let self else { return }
                 self.inFlight.remove(source)
-                guard ok else { return }
+                guard ok else { self.failedAt[source] = Date(); return }
+                self.failedAt[source] = nil
                 self.sentTokens[source] = token
                 // A newer token arrived while this one was on its way.
                 if self.latestTokens[source] != token { self.flushTokens() }

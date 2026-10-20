@@ -82,10 +82,27 @@ enum ButtonStateResolver {
     enum Press { case run(RingAction), changed(ButtonLiveState) }
 
     static func press(_ button: ControlButton, shownState: String?, live: LiveValues, now: Date) -> Press {
-        guard let states = resolve(button, live: live, now: now), !states.isEmpty else { return .run(button.action) }
+        guard let states = resolve(button, live: live, now: now), !states.isEmpty else {
+            // The tile showed a state the button no longer has (states turned off, a guess that
+            // expired): don't guess what he meant.
+            if let shownState, shownState != ownStateID { return .changed(own(button)) }
+            return .run(button.action)
+        }
         let current = states.last { ($0.from ?? .distantPast) <= now } ?? states[0]
-        if let shownState, shownState != current.state.id { return .changed(current.state) }
+        guard let shownState else {
+            // No state on the tile (a new button, one drawn before the app knew): only the button's
+            // own action may run — an "Arm Away" tile must never disarm.
+            return current.action == button.action ? .run(button.action) : .changed(current.state)
+        }
+        if shownState != current.state.id { return .changed(current.state) }
         return .run(current.action)
+    }
+
+    /// The state a button shows when it follows nothing right now: its own name and action.
+    static let ownStateID = "own"
+
+    static func own(_ button: ControlButton) -> ButtonLiveState {
+        ButtonLiveState(id: ownStateID, title: button.name.isEmpty ? "Jarvis button" : button.name, symbol: button.symbol)
     }
 
     // MARK: the door alarm
@@ -98,6 +115,17 @@ enum ButtonStateResolver {
                             caption: mode == "home" ? "Armed Home" : "Armed Away")
         }
         switch alarm.state {
+        case "arming" where command == .armNow:
+            // Arm now finishes the exit delay early; it's the one door button that doesn't stop it.
+            var now = ButtonLiveState(id: "door.arming", title: "Arm now", symbol: "bolt.shield.fill",
+                                      caption: alarm.mode == "home" ? "Home in" : "Away in")
+            now.startedAt = alarm.since
+            now.endsAt = alarm.deadline
+            var out = [ResolvedState(from: nil, state: now, action: .door(.armNow))]
+            if let deadline = alarm.deadline {
+                out.append(ResolvedState(from: deadline, state: armed(alarm.mode), action: disarm))
+            }
+            return out
         case "arming":
             var stop = ButtonLiveState(id: "door.arming", title: "Stop arming", symbol: "stop.circle.fill",
                                        caption: alarm.mode == "home" ? "Home in" : "Away in")
@@ -182,16 +210,22 @@ enum ButtonStateResolver {
                                  live: LiveValues, now: Date) -> [ResolvedState]? {
         guard let key = WearableQuickActions.switchKeys.first(where: { arguments[$0] != nil }) else { return nil }
         let known = live.wearableOn(deviceID, skill)
-        let optimistic = live.lastSet[button.id].flatMap { now.timeIntervalSince($0.at) < optimisticFor ? $0.on : nil }
-        guard let isOn = known ?? optimistic else { return nil }
+        let guess = live.lastSet[button.id].flatMap { now.timeIntervalSince($0.at) < optimisticFor ? $0 : nil }
+        guard let isOn = known ?? guess?.on else { return nil }
         let names = WearableQuickActions.names(for: skill)
         var turned = arguments
         turned[key] = isOn ? "false" : "true"
         if !isOn, arguments["confirm"] != nil { turned["confirm"] = "true" }
         let state = ButtonLiveState(id: "\(skill).\(isOn ? "on" : "off")", title: isOn ? names.off : names.on,
                                     symbol: isOn ? "stop.circle.fill" : button.symbol, caption: isOn ? "On" : "Off")
-        return [ResolvedState(from: nil, state: state,
-                              action: .wearable(deviceID: deviceID, skill: skill, arguments: turned))]
+        var out = [ResolvedState(from: nil, state: state,
+                                 action: .wearable(deviceID: deviceID, skill: skill, arguments: turned))]
+        // Only a guess (the device doesn't say): after a while the tile goes back to the button itself.
+        if known == nil, let guess {
+            out.append(ResolvedState(from: guess.at.addingTimeInterval(optimisticFor), state: own(button),
+                                     action: button.action))
+        }
+        return out
     }
 
     // MARK: his own states
@@ -200,7 +234,9 @@ enum ButtonStateResolver {
         let value = live.values[states.follows]
         guard let index = states.rules.firstIndex(where: { matches($0.when, value) }) else { return nil }
         let rule = states.rules[index]
-        var state = ButtonLiveState(id: "custom.\(index)", title: rule.title, symbol: rule.symbol,
+        // The rule's title is part of the id: reordering rules must not make an old tile's id match
+        // a different rule.
+        var state = ButtonLiveState(id: "custom.\(index).\(rule.title)", title: rule.title, symbol: rule.symbol,
                                     caption: value?.asString)
         if let key = states.countdownKey, let end = date(live.values[key]) { state.endsAt = end }
         return [ResolvedState(from: nil, state: state, action: rule.action)]
