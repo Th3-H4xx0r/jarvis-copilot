@@ -258,6 +258,14 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     connection only while it plays music; the SDK wakes it with authorizeAndPlayURI (a `spotify-action:` link
     that UIApplication can't open with the phone locked). 5a89b2f6ea (server deployed, phone installing): the
     phone takes that link back and opens it on the car's screen; `spotify-action` declared for canOpenURL.
+  - 23:34 Mac tries: no device named → the Web API played on the iPhone still active from the car (204) and Jarvis
+    said "playing"; then a computer-use detour opened Spotify's search and typed nothing. He: "use app intents".
+    f73f9ddf52 (server deployed, jc-client updated): jc_client `spotify_play` — the Mac's Spotify app plays the
+    URI over AppleScript (opens it if closed, confirms it's playing); a Mac turn uses it, else the Web API to
+    computers only. First use may ask him to allow Python → Spotify under Automation.
+  - 23:34 car try: the phone never answered App Remote within 15 s (twice), no phone-side trace. 1dd2c23cfb
+    (phone installing): every step logged as `[spotify] +Nms …` in voice.log; car-screen open capped at 3 s,
+    connect at 4 s.
   - [ ] He: "play Blinding Lights" in the car, and once on the Mac.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
