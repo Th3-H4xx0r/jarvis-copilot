@@ -65,19 +65,39 @@ final class SpotifyRemote {
     }
 
     /// Connects (if needed) and plays `uri` — or, when the Spotify app won't take a connection,
-    /// wakes it straight onto `uri`.
-    func play(uri: String, token: String, clientID: String, timeout: Duration = .seconds(8)) async throws -> Outcome {
+    /// wakes it straight onto `uri`. Every step goes in voice.log: 2026-10-20 23:34 the server
+    /// heard nothing back for 15 s, twice, and nothing said where it stopped.
+    func play(uri: String, token: String, clientID: String, timeout: Duration = .seconds(4)) async throws -> Outcome {
+        let started = Date()
+        func note(_ step: String) {
+            VoiceLogFile.shared.append("[spotify] +\(Int(Date().timeIntervalSince(started) * 1000))ms \(step)")
+        }
+        note("play \(uri)")
         let app = connection(clientID: clientID)
         if !app.isConnected {
             do {
                 try await app.connect(token: token, timeout: timeout)
+                note("connected")
             } catch {
-                guard let link = await app.wakeLink(playing: uri) else { throw error }
-                guard await openWakeLink(link) else { throw Failure.wake }
+                note("connect failed: \(error.localizedDescription)")
+                guard let link = await app.wakeLink(playing: uri) else {
+                    note("no wake link")
+                    throw error
+                }
+                note("wake link \(link.scheme ?? "?")://\(link.host ?? "?")")
+                let opened = await openWakeLink(link)
+                note(opened ? "wake link opened" : "wake link didn't open")
+                guard opened else { throw Failure.wake }
                 return .woke
             }
         }
-        try await app.play(uri)
+        do {
+            try await app.play(uri)
+        } catch {
+            note("play failed: \(error.localizedDescription)")
+            throw error
+        }
+        note("playing")
         return .played
     }
 
@@ -212,12 +232,35 @@ enum SpotifyWakeLink {
         return link
     }
 
-    /// On the car's screen when CarPlay is up, else as UIApplication opens it.
-    static func open(_ url: URL) async -> Bool {
+    /// On the car's screen when CarPlay is up, else as UIApplication opens it. The car's screen
+    /// may never call back, so its answer is awaited for `limit` at most (then: asked).
+    static func open(_ url: URL, within limit: Duration = .seconds(3)) async -> Bool {
         if CarScreen.isConnected {
-            return await withCheckedContinuation { done in CarScreen.open(url) { done.resume(returning: $0) } }
+            return await answer(within: limit) { done in CarScreen.open(url, done: done) } ?? true
         }
         return await UIApplication.shared.open(url)
+    }
+
+    /// `ask`'s answer, or nil when it hasn't answered within `limit`.
+    static func answer(within limit: Duration, _ ask: (@escaping (Bool) -> Void) -> Void) async -> Bool? {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool?, Never>) in
+            let once = OnceAnswer(done)
+            ask { ok in Task { @MainActor in once.finish(ok) } }
+            Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                once.finish(nil)
+            }
+        }
+    }
+
+    @MainActor
+    private final class OnceAnswer {
+        private var done: CheckedContinuation<Bool?, Never>?
+        init(_ done: CheckedContinuation<Bool?, Never>) { self.done = done }
+        func finish(_ ok: Bool?) {
+            done?.resume(returning: ok)
+            done = nil
+        }
     }
 
     private static func install() {

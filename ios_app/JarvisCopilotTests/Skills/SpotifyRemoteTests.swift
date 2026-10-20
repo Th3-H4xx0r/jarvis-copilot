@@ -107,6 +107,14 @@ final class SpotifyRemoteTests: XCTestCase {
         XCTAssertEqual(caught, link)
     }
 
+    func testACarScreenThatNeverAnswersDoesntHoldThePlayUp() async {
+        // 2026-10-20 23:34: the server heard nothing back for 15 s, twice.
+        let never = await SpotifyWakeLink.answer(within: .milliseconds(50)) { _ in }
+        XCTAssertNil(never)
+        let answered = await SpotifyWakeLink.answer(within: .seconds(5)) { done in done(true) }
+        XCTAssertEqual(answered, true)
+    }
+
     func testAnSDKThatOpensNothingGivesNoLink() async {
         let caught = await SpotifyWakeLink.capture { done in done(false) }
         XCTAssertNil(caught)
