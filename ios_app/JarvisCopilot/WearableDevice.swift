@@ -91,9 +91,30 @@ protocol WearableDevice: AnyObject {
     /// Current state as JSON-encodable values.
     func snapshot() -> [String: Any]
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any]
+    /// What one of its commands is doing now, as the device reports it — whether a switch is on,
+    /// a mode's current value, when what it's running ends. Nil when it can't tell. Live buttons
+    /// and widgets follow it.
+    func commandState(_ skill: String) -> CommandLiveState?
+}
+
+/// What one command of a device is doing now.
+struct CommandLiveState: Equatable, Sendable {
+    /// A switch's side (sterilising, recording, the LED).
+    var on: Bool?
+    /// A mode's current value ("music", "breathing").
+    var mode: String?
+    /// When what it is running ends (a sterilise cycle), for a countdown.
+    var endsAt: Date?
+
+    init(on: Bool? = nil, mode: String? = nil, endsAt: Date? = nil) {
+        self.on = on
+        self.mode = mode
+        self.endsAt = endsAt
+    }
 }
 
 extension WearableDevice {
+    func commandState(_ skill: String) -> CommandLiveState? { nil }
     var unavailableCapabilities: [UnavailableCapability] { [] }
     var notificationChannel: NotificationChannelInfo? { nil }
     func forwardNotification(title: String, body: String) {}
