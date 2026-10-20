@@ -507,6 +507,9 @@ struct ControlButtonEditor: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Icons picked for states this button can no longer show (its action changed) go.
+                    let ids = Set(ButtonStateResolver.possibleStates(draft).map(\.id))
+                    draft.stateSymbols = draft.stateSymbols.filter { ids.contains($0.key) }
                     store.save(draft)
                     dismiss()
                 }

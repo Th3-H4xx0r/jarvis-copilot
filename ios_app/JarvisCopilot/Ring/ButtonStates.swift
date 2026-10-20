@@ -71,7 +71,7 @@ enum ButtonStateResolver {
     /// Every state a button can show, for choosing their icons: the door's, the car's, a
     /// wearable's sides — worked out the same way the live ones are. Empty for his own states
     /// (each rule has its icon) and for buttons that follow nothing.
-    static func possibleStates(_ button: ControlButton) -> [ButtonLiveState] {
+    static func possibleStates(_ button: ControlButton, reported: CommandLiveState? = nil) -> [ButtonLiveState] {
         guard button.states == nil else { return [] }
         let at = Date()
         var scenarios: [LiveValues] = []
@@ -86,7 +86,16 @@ enum ButtonStateResolver {
             scenarios = [CarLive(locked: true), CarLive(locked: false), CarLive(running: true), CarLive(running: false)]
                 .map { LiveValues(car: $0) }
         case .wearable:
-            scenarios = [CommandLiveState(on: true), CommandLiveState(on: false), CommandLiveState(mode: "…")].map { state in
+            // What the device really reports decides the states: on/off, or a mode — not both.
+            let shapes: [CommandLiveState]
+            if let reported, reported.on != nil {
+                shapes = [CommandLiveState(on: true, mode: reported.mode), CommandLiveState(on: false)]
+            } else if reported?.mode != nil {
+                shapes = [CommandLiveState(mode: reported?.mode)]
+            } else {
+                shapes = [CommandLiveState(on: true), CommandLiveState(on: false), CommandLiveState(mode: "…")]
+            }
+            scenarios = shapes.map { state in
                 var live = LiveValues()
                 live.wearableState = { _, _, _ in state }
                 return live
@@ -130,6 +139,12 @@ enum ButtonStateResolver {
     enum Press { case run(RingAction), changed(ButtonLiveState) }
 
     static func press(_ button: ControlButton, shownState: String?, live: LiveValues, now: Date) -> Press {
+        // A wearable command that isn't an on/off switch only ever runs itself; its state is just
+        // what the tile says. Nothing to refuse.
+        if case .wearable(_, _, let arguments) = button.action,
+           !WearableQuickActions.switchKeys.contains(where: { arguments[$0] != nil }) {
+            return .run(button.action)
+        }
         guard let states = resolve(button, live: live, now: now), !states.isEmpty else {
             // The tile showed a state the button no longer has (states turned off, a guess that
             // expired): don't guess what he meant.
@@ -258,12 +273,22 @@ enum ButtonStateResolver {
                                  live: LiveValues, now: Date) -> [ResolvedState]? {
         let reported = live.wearableState(deviceID, skill, arguments)
         guard let key = WearableQuickActions.switchKeys.first(where: { arguments[$0] != nil }) else {
-            // A mode (ring gesture mode, a lights effect): the button runs its own action and its
-            // line says what the device is on now.
-            guard let mode = reported?.mode else { return nil }
-            var state = ButtonLiveState(id: "\(skill).mode", title: button.name.isEmpty ? "Jarvis button" : button.name,
-                                        symbol: button.symbol, caption: "Now: \(mode.replacingOccurrences(of: "_", with: " "))")
-            state.endsAt = reported?.endsAt
+            // Not a plain on/off switch (a mode, a pin, a workout, notes): the button runs its own
+            // action and its line says what the device is doing now.
+            let mode = reported?.mode.map { $0.replacingOccurrences(of: "_", with: " ") }
+            let on = reported?.on
+            let caption: String
+            if let mode, on != false, !["on", "off"].contains(mode) {
+                caption = "Now: \(mode)"
+            } else if let on {
+                caption = on ? "On" : "Off"
+            } else {
+                return nil
+            }
+            var state = ButtonLiveState(id: "\(skill).\(on == true ? "on" : on == false ? "off" : "mode")",
+                                        title: button.name.isEmpty ? "Jarvis button" : button.name,
+                                        symbol: button.symbol, caption: caption)
+            if on != false, let ends = reported?.endsAt, ends > now { state.endsAt = ends }
             return [ResolvedState(from: nil, state: state, action: button.action)]
         }
         let known = reported?.on

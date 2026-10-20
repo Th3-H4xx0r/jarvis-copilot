@@ -192,7 +192,8 @@ final class X5Ring: WearableDevice {
         guard let m, m.isActive else { return CommandLiveState(on: false) }
         let name = measurementNames.first { $0.value == m.type }?.key ?? m.type.name
         var state = ColmiR12.measuring(name, asked: asked)
-        if state.on == true, m.seconds > 0 { state.endsAt = m.startedAt.addingTimeInterval(TimeInterval(m.seconds)) }
+        // + 2 s: the ring starts counting after the start round-trip, so the reading ends a little later.
+        if state.on == true, m.seconds > 0 { state.endsAt = m.startedAt.addingTimeInterval(TimeInterval(m.seconds) + 2) }
         return state
     }
 

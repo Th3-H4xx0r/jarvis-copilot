@@ -153,10 +153,12 @@ final class VsitooS1Pro: WearableDevice {
     }
 
     /// Each switch and setting as the bottle's last status frame says (what its screen shows);
-    /// nil before one arrives — the status is dropped on disconnect. No cycle end: the bottle
-    /// reports only how far through it is, not how long a cycle runs.
+    /// nil before one arrives. The last frame outlives a dropped link, so whether it's sterilising
+    /// is only told while connected — a cycle ends without us, and a stuck "Stop sterilising" would
+    /// otherwise stay on the tile. No cycle end: the bottle reports only how far through it is.
     func commandState(_ skill: String) -> CommandLiveState? {
-        manager.status.flatMap { Self.commandState(skill, status: $0) }
+        if skill == "bottle_sterilise", manager.state != .ready { return nil }
+        return manager.status.flatMap { Self.commandState(skill, status: $0) }
     }
 
     static func commandState(_ skill: String, status s: BottleStatus) -> CommandLiveState? {

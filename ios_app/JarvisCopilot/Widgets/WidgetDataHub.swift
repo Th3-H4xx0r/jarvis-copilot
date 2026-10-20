@@ -377,7 +377,8 @@ struct WearablesWidgetData: WidgetDataProvider {
         for value in WidgetDataCatalog.commandValues {
             guard let state = devices[value.device]?.commandState(value.skill) else { continue }
             if value.onLabel != nil, let on = state.on { out[value.key] = .bool(on) }
-            if value.modeLabel != nil, let mode = state.mode { out[value.modeKey] = .string(mode) }
+            // A look the lights would show isn't what they show while they're off.
+            if value.modeLabel != nil, let mode = state.mode, state.on != false { out[value.modeKey] = .string(mode) }
             if value.endsLabel != nil, let ends = state.endsAt { out[value.endsKey] = .number(ends.timeIntervalSince1970) }
         }
         return out

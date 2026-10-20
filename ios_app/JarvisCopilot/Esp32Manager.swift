@@ -400,7 +400,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         reconnectTask?.cancel(); reconnectTask = nil
         teardownLinks()
         connected = nil
-        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil
+        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil; script = nil
         activeLink = nil
         state = .idle
     }

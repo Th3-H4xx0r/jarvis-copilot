@@ -100,7 +100,12 @@ final class CommandLiveStateTests: XCTestCase {
 
         XCTAssertNil(device.commandState("dashcam_set_recording"), "never heard from the camera")
         sync.noteRecording(true)
-        XCTAssertEqual(device.commandState("dashcam_set_recording"), CommandLiveState(on: true), "last known, as the page shows")
+        XCTAssertNil(device.commandState("dashcam_set_recording"),
+                     "off the camera's Wi-Fi the last answer may be stale: the tile mustn't offer Stop on it")
+        var onCamera = true
+        device.wifi = { onCamera }
+        XCTAssertEqual(device.commandState("dashcam_set_recording"), CommandLiveState(on: true))
+        onCamera = false
 
         XCTAssertNil(device.commandState("dashcam_set_options", arguments: ["upload": "true"]), "rules not loaded yet")
         await sync.refreshRules()
@@ -241,7 +246,8 @@ final class CommandLiveStateTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         let reading = X5Measurement(type: .heartRate, startedAt: start, seconds: 30, isActive: true)
         XCTAssertEqual(X5Ring.measureState(reading, asked: "heart_rate"),
-                       CommandLiveState(on: true, mode: "heart_rate", endsAt: start.addingTimeInterval(30)))
+                       CommandLiveState(on: true, mode: "heart_rate", endsAt: start.addingTimeInterval(32)),
+                       "the ring starts counting after the start round-trip: a couple of seconds' slack")
         XCTAssertEqual(X5Ring.measureState(reading, asked: "spo2"), CommandLiveState(on: false, mode: "heart_rate"))
         var done = reading
         done.isActive = false

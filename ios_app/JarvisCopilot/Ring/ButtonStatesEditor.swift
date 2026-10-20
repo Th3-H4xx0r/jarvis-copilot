@@ -241,7 +241,13 @@ struct StateIconsEditor: View {
     let button: ControlButton
     @Binding var symbols: [String: String]
 
-    private var states: [ButtonLiveState] { ButtonStateResolver.possibleStates(button) }
+    private var states: [ButtonLiveState] {
+        var reported: CommandLiveState?
+        if case .wearable(let deviceID, let skill, let arguments) = button.action {
+            reported = DeviceRegistry.shared.device(id: deviceID)?.commandState(skill, arguments: arguments)
+        }
+        return ButtonStateResolver.possibleStates(button, reported: reported)
+    }
 
     var body: some View {
         ScrollView {

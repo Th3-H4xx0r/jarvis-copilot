@@ -63,7 +63,8 @@ import MapKit
         }
         // Live buttons: directions are on from finding the route until arrival or Stop.
         device.featureStates["glasses_navigate"] = { [weak self] in
-            self.map { CommandLiveState(on: ![.idle, .arrived].contains($0.state)) }
+            self.map { CommandLiveState(on: $0.state == .guiding
+                                            || ([.planning, .choosing].contains($0.state) && $0.session.isReady)) }
         }
     }
 

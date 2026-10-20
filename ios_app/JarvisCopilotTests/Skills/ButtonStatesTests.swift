@@ -246,4 +246,18 @@ final class ButtonStatesTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(ControlButton.self, from: JSONEncoder().encode(b)).stateSymbols,
                        ["car.locked": "lock.shield"])
     }
+
+    func testACommandThatIsntAPlainSwitchStillShowsItsState() {
+        let b = button(.wearable(deviceID: "glasses", skill: "glasses_notes", arguments: ["action": "start"]))
+        var live = LiveValues()
+        live.wearableState = { _, _, _ in CommandLiveState(on: true) }
+        let s = ButtonStateResolver.resolve(b, live: live, now: now)?.first
+        XCTAssertEqual(s?.state.caption, "On")
+        XCTAssertEqual(s?.state.id, "glasses_notes.on")
+        XCTAssertEqual(s?.action, b.action, "it can't be flipped: the button still does what it was set to")
+        live.wearableState = { _, _, _ in CommandLiveState(on: true, mode: "heart_rate", endsAt: self.now.addingTimeInterval(30)) }
+        let measuring = ButtonStateResolver.resolve(b, live: live, now: now)?.first
+        XCTAssertEqual(measuring?.state.caption, "Now: heart rate")
+        XCTAssertEqual(measuring?.state.endsAt, now.addingTimeInterval(30))
+    }
 }

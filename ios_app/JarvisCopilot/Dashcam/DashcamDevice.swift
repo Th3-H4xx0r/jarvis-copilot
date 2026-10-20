@@ -154,7 +154,8 @@ final class DashcamDevice: WearableDevice {
         guard setup() != nil else { return nil }
         switch skill {
         case "dashcam_set_recording":
-            return sync.recording.map { CommandLiveState(on: $0) }
+            // Only while the phone is on the camera's Wi-Fi: the last answer outlives the trip.
+            return wifi() ? sync.recording.map { CommandLiveState(on: $0) } : nil
         case "dashcam_set_options":
             switch Self.options.first(where: { arguments[$0] != nil }) {
             case "auto_download": return CommandLiveState(on: sync.autoSync)
