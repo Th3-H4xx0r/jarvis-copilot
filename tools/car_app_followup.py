@@ -125,6 +125,24 @@ def _invoke_device_skill(device_id: str, skill: str, args: dict, timeout: float 
         return {"ok": False, "error": str(exc)}
 
 
+def _open_app_args(device_id: str, app: str) -> dict:
+    """``open_app``'s arguments as ``device_id`` declares them: the phone's takes ``app``,
+    the Mac's ``name`` (an app name like "Spotify") — sending the other one is refused
+    (2026-10-20 23:17: "unexpected args: ['app']", Spotify never opened on his Mac)."""
+    try:
+        from api import device_bridge
+
+        for s in device_bridge.skills_for_device(device_id):
+            if isinstance(s, dict) and s.get("name") == OPEN_SKILL:
+                props = ((s.get("input_schema") or {}).get("properties") or {})
+                if "app" not in props and "name" in props:
+                    return {"name": _app_title(app)}
+                break
+    except Exception:
+        pass
+    return {"app": app}
+
+
 def request_open(app: str, device_id: str, *, url: Optional[str] = None, now: bool = False,
                  invoke: Optional[Callable[..., dict]] = None, timeout_s: float = OPEN_TIMEOUT_S) -> dict:
     """Ask ``device_id`` to open ``app`` — or, with ``url``, to open that link (the
@@ -135,7 +153,7 @@ def request_open(app: str, device_id: str, *, url: Optional[str] = None, now: bo
     if url:
         skill, args = OPEN_URL_SKILL, {"url": url, **({"now": True} if now else {})}
     else:
-        skill, args = OPEN_SKILL, {"app": app}
+        skill, args = OPEN_SKILL, _open_app_args(device_id, app)
     try:
         reply = invoke(device_id, skill, args) if invoke else _invoke_device_skill(
             device_id, skill, args, timeout=timeout_s)

@@ -719,6 +719,26 @@ def mac_turn(monkeypatch: pytest.MonkeyPatch):
     turn_origin.note_turn("sess-car", None)
 
 
+def test_a_mac_turn_with_spotify_closed_opens_it_on_the_mac_and_plays_there(monkeypatch, spawned, mac_turn) -> None:
+    # 2026-10-20 23:17: Spotify closed on the Mac — the open was refused ("unexpected args:
+    # ['app']"), nothing opened, and the play gave up after 30 s.
+    from api import device_bridge
+
+    phone, runs = mac_turn
+    monkeypatch.setattr(device_bridge, "skills_for_device", lambda device_id: [{"name": "open_app", "input_schema": {
+        "type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}])
+    phone.replies["open_app"] = {"ok": True, "result": {"ok": True, "name": "Spotify"}}
+    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[], [PHONE, MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert phone.calls == [("iphone-1", "open_app", {"name": "Spotify"})]
+    assert "Opening Spotify" in payload["note"]
+    assert _run(runs) == "done"
+    assert stub.play_calls[-1]["device_id"] == "mac-1"
+
+
 def test_a_mac_turn_plays_on_the_mac_not_the_phone(monkeypatch, spawned, mac_turn) -> None:
     # 2026-10-20 23:06: "Play Blinding Lights on Spotify" from the Mac, Spotify open there —
     # the car's iPhone id 404'd and Jarvis gave up ("no device is active").

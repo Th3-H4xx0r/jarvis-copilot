@@ -109,9 +109,11 @@ def _describe_empty_playback(payload: Any, *, action: str) -> dict | None:
 class _PendingPlay:
     """One play request waiting for a Spotify Connect device to appear."""
 
-    def __init__(self, play_kwargs: Dict[str, Any], phones_only: bool = False) -> None:
+    def __init__(self, play_kwargs: Dict[str, Any], phones_only: bool = False,
+                 prefer_computer: bool = False) -> None:
         self.play_kwargs = play_kwargs
         self.phones_only = phones_only  # a phone turn: never the MacBook at home
+        self.prefer_computer = prefer_computer  # a turn from his Mac: the Mac, not his phone
         self.cancelled = threading.Event()
         self.sent = 0  # plays sent that Spotify took but the device hasn't started yet
         self.waited = 0  # checks since the last one, while it loads
@@ -154,13 +156,13 @@ def _begin_play_request() -> int:
 
 
 def _register_pending_play(ticket: int, play_kwargs: Dict[str, Any],
-                           phones_only: bool = False) -> Optional[_PendingPlay]:
+                           phones_only: bool = False, prefer_computer: bool = False) -> Optional[_PendingPlay]:
     """Make this the one pending play, unless a newer play request already started."""
     global _pending_play
     with _pending_lock:
         if ticket != _play_generation:
             return None
-        pending = _PendingPlay(play_kwargs, phones_only=phones_only)
+        pending = _PendingPlay(play_kwargs, phones_only=phones_only, prefer_computer=prefer_computer)
         _pending_play = pending
         return pending
 
@@ -315,7 +317,8 @@ def _pending_play_followup(pending: _PendingPlay, client: Any, *, timeout_s: Opt
     device (only a smartphone on a phone turn), then play there unless it already
     plays it. ``pending.cancelled`` drops it (newest play wins, pause cancels)."""
     return {
-        "ready": lambda: _pick_device(client.get_devices(), phones_only=pending.phones_only),
+        "ready": lambda: _pick_device(client.get_devices(), phones_only=pending.phones_only,
+                                      prefer_computer=pending.prefer_computer),
         "action": functools.partial(_start_pending_play, pending, client),
         "timeout_s": _PENDING_PLAY_WINDOW_S if timeout_s is None else timeout_s,
         "poll_s": _PENDING_PLAY_POLL_INTERVAL_S,
@@ -523,8 +526,9 @@ def _play_without_active_device(
     """
     origin = car_app_followup.turn_origin(turn_session)
     phone = car_app_followup.turn_phone(turn_session)
+    from_mac = bool(origin and origin.get("mac"))
     device = _pick_device(client.get_devices(), phones_only=bool(phone),
-                          prefer_computer=bool(origin and origin.get("mac")), exclude=failed_device)
+                          prefer_computer=from_mac, exclude=failed_device)
     if device is not None:
         label = _device_label(device)
         try:
@@ -541,7 +545,7 @@ def _play_without_active_device(
                 "note": f"No Spotify device was active, so this is playing on {label}.",
                 "result": result,
             })
-    pending = _register_pending_play(ticket, play_kwargs, phones_only=bool(phone))
+    pending = _register_pending_play(ticket, play_kwargs, phones_only=bool(phone), prefer_computer=from_mac)
     if pending is None:  # a newer play request took over meanwhile
         raise original
     uri = _play_uri(play_kwargs)

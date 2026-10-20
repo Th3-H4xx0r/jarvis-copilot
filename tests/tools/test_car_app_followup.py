@@ -280,6 +280,25 @@ def test_the_default_open_goes_through_the_device_bridge(monkeypatch):
     assert invoked[0][3] <= followup.OPEN_TIMEOUT_S
 
 
+def test_the_default_open_names_the_app_the_way_the_device_asks(monkeypatch):
+    # 2026-10-20 23:17: the Mac's open_app takes `name`, not the phone's `app` — "bad args:
+    # skill 'open_app' got unexpected args: ['app']", and Spotify never opened on his Mac.
+    from api import device_bridge
+
+    invoked = []
+    mac_open_app = {"name": "open_app", "input_schema": {
+        "type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "skills_for_device", lambda device_id: [mac_open_app])
+    monkeypatch.setattr(device_bridge, "invoke_skill",
+                        lambda device_id, skill, args, timeout=30.0: invoked.append((skill, args)) or {"ok": True})
+
+    out = followup.request_open("spotify", "mac-1")
+
+    assert out["opened"] is True
+    assert invoked == [("open_app", {"name": "Spotify"})]
+
+
 def test_turn_device_is_the_device_the_turn_came_from():
     from api import turn_origin
 
