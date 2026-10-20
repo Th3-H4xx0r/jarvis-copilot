@@ -555,6 +555,86 @@ def media_control(action: str) -> dict:
     return out
 
 
+# ── Spotify ──────────────────────────────────────────────────────────────────
+#
+# The Web API plays on whatever Spotify player is active — his iPhone after a drive —
+# and says "done" while nothing plays here (2026-10-20 23:34). The Mac's Spotify app
+# takes a song itself over AppleScript, and `tell application` opens it if it's closed.
+
+_SPOTIFY_URI = re.compile(r"spotify:(track|album|playlist|artist|episode|show):[A-Za-z0-9]{22}")
+_SPOTIFY_PLAY_SCRIPT = """on run argv
+    tell application "Spotify" to play track (item 1 of argv)
+end run
+"""
+_SPOTIFY_STATE_SCRIPT = """tell application "Spotify"
+    set out to (player state as text) & "|"
+    try
+        set out to out & (spotify url of current track) & "|" & (name of current track)
+    on error
+        set out to out & "|"
+    end try
+    return out
+end tell
+"""
+_SPOTIFY_POLL_S = 0.5
+_SPOTIFY_READY_POLLS = 30  # ~15 s for a closed Spotify to open and answer
+_SPOTIFY_START_POLLS = 8  # ~4 s for a play to start
+_SPOTIFY_PLAYS = 2  # a Spotify that has only just opened can drop the first one
+
+
+def _spotify_osa(script: str, *args: str) -> str:
+    try:
+        res = subprocess.run(["osascript", "-e", script, *args],
+                             capture_output=True, text=True, timeout=20, check=True)
+    except subprocess.CalledProcessError as exc:
+        why = (exc.stderr or "").strip() or f"osascript exited {exc.returncode}"
+        if "-1743" in why or "Not authorized" in why:
+            raise RuntimeError(
+                "macOS hasn't allowed Jarvis to control Spotify: on the Mac, System Settings → "
+                "Privacy & Security → Automation → turn on Spotify for Python") from exc
+        raise
+    return (res.stdout or "").strip()
+
+
+def _spotify_state() -> tuple[str, str, str] | None:
+    """(player state, current track's spotify url, its name), or None while Spotify can't answer."""
+    try:
+        state, url, name = (_spotify_osa(_SPOTIFY_STATE_SCRIPT).split("|", 2) + ["", ""])[:3]
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    return state, url, name
+
+
+@skill(
+    "spotify_play",
+    "Play a Spotify track, album, playlist, artist or podcast in this Mac's Spotify app "
+    "by its spotify: URI, opening Spotify if it's closed. Says whether it's playing.",
+    {
+        "type": "object",
+        "properties": {"uri": {"type": "string", "description": "e.g. spotify:track:0VjIjW4GlUZAMYd2vXMi3b"}},
+        "required": ["uri"],
+    },
+)
+def spotify_play(uri: str) -> dict:
+    uri = (uri or "").strip()
+    if not _SPOTIFY_URI.fullmatch(uri):
+        raise ValueError("uri must be a spotify: URI, e.g. spotify:track:<id>")
+    for _ in range(_SPOTIFY_READY_POLLS):
+        if _spotify_state() is not None:
+            break
+        time.sleep(_SPOTIFY_POLL_S)
+    state = None
+    for _ in range(_SPOTIFY_PLAYS):
+        _spotify_osa(_SPOTIFY_PLAY_SCRIPT, uri)
+        for _ in range(_SPOTIFY_START_POLLS):
+            state = _spotify_state()
+            if state and state[0] == "playing":
+                return {"ok": True, "playing": True, "uri": uri, "track": state[2]}
+            time.sleep(_SPOTIFY_POLL_S)
+    return {"ok": True, "playing": False, "uri": uri,
+            "note": f"Spotify took it but isn't playing ({state[0] if state else 'no answer'})"}
+
+
 # ── Local ack TTS (plan 4.4-mac) ────────────────────────────────────────────
 #
 # So the server can trigger an instant local "On it" / "Done" ack on the Mac

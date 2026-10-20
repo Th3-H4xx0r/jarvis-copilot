@@ -110,10 +110,10 @@ class _PendingPlay:
     """One play request waiting for a Spotify Connect device to appear."""
 
     def __init__(self, play_kwargs: Dict[str, Any], phones_only: bool = False,
-                 prefer_computer: bool = False) -> None:
+                 computers_only: bool = False) -> None:
         self.play_kwargs = play_kwargs
         self.phones_only = phones_only  # a phone turn: never the MacBook at home
-        self.prefer_computer = prefer_computer  # a turn from his Mac: the Mac, not his phone
+        self.computers_only = computers_only  # a turn from his Mac: the Mac, never his phone
         self.cancelled = threading.Event()
         self.sent = 0  # plays sent that Spotify took but the device hasn't started yet
         self.waited = 0  # checks since the last one, while it loads
@@ -156,13 +156,13 @@ def _begin_play_request() -> int:
 
 
 def _register_pending_play(ticket: int, play_kwargs: Dict[str, Any],
-                           phones_only: bool = False, prefer_computer: bool = False) -> Optional[_PendingPlay]:
+                           phones_only: bool = False, computers_only: bool = False) -> Optional[_PendingPlay]:
     """Make this the one pending play, unless a newer play request already started."""
     global _pending_play
     with _pending_lock:
         if ticket != _play_generation:
             return None
-        pending = _PendingPlay(play_kwargs, phones_only=phones_only, prefer_computer=prefer_computer)
+        pending = _PendingPlay(play_kwargs, phones_only=phones_only, computers_only=computers_only)
         _pending_play = pending
         return pending
 
@@ -175,22 +175,23 @@ def _is_computer(device: Dict[str, Any]) -> bool:
     return str(device.get("type") or "").lower() == "computer"
 
 
-def _pick_device(devices_payload: Any, *, phones_only: bool = False, prefer_computer: bool = False,
+def _pick_device(devices_payload: Any, *, phones_only: bool = False, computers_only: bool = False,
                  exclude: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Best device to play on: unrestricted first, then smartphones (computers on a
-    turn from his Mac), then the active one. ``phones_only`` (a turn from his phone):
-    only an unrestricted smartphone — never the MacBook at home. ``exclude``: a device
-    that just failed."""
+    """Best device to play on: unrestricted first, then smartphones, then the
+    active one. ``phones_only`` (a turn from his phone): only an unrestricted
+    smartphone — never the MacBook at home. ``computers_only`` (a turn from his
+    Mac): only a computer — never his phone. ``exclude``: a device that just failed."""
     devices = devices_payload.get("devices") if isinstance(devices_payload, dict) else None
     candidates = [d for d in devices or [] if isinstance(d, dict) and d.get("id") and d.get("id") != exclude]
     if phones_only:
         candidates = [d for d in candidates if _is_smartphone(d) and not d.get("is_restricted")]
+    if computers_only:
+        candidates = [d for d in candidates if _is_computer(d)]
     if not candidates:
         return None
-    preferred = _is_computer if prefer_computer else _is_smartphone
     return min(
         candidates,
-        key=lambda d: (bool(d.get("is_restricted")), not preferred(d), not d.get("is_active")),
+        key=lambda d: (bool(d.get("is_restricted")), not _is_smartphone(d), not d.get("is_active")),
     )
 
 
@@ -318,7 +319,7 @@ def _pending_play_followup(pending: _PendingPlay, client: Any, *, timeout_s: Opt
     plays it. ``pending.cancelled`` drops it (newest play wins, pause cancels)."""
     return {
         "ready": lambda: _pick_device(client.get_devices(), phones_only=pending.phones_only,
-                                      prefer_computer=pending.prefer_computer),
+                                      computers_only=pending.computers_only),
         "action": functools.partial(_start_pending_play, pending, client),
         "timeout_s": _PENDING_PLAY_WINDOW_S if timeout_s is None else timeout_s,
         "poll_s": _PENDING_PLAY_POLL_INTERVAL_S,
@@ -486,6 +487,65 @@ def _names_another_device(client: Any, device_id: str) -> bool:
     return any(isinstance(d, dict) and d.get("id") == device_id and not _is_smartphone(d) for d in devices)
 
 
+_MAC_PLAY_SKILL = "spotify_play"
+
+
+def _device_offers(device_id: str, skill: str) -> bool:
+    try:
+        from api import device_bridge
+
+        return any(isinstance(s, dict) and s.get("name") == skill for s in device_bridge.skills_for_device(device_id))
+    except Exception:
+        return False
+
+
+def _play_on_turn_mac(client: Any, ticket: int, play_kwargs: Dict[str, Any],
+                      turn_session: Optional[str], device_id: Optional[str]) -> Optional[str]:
+    """A turn from his Mac plays in the Mac's Spotify app. With no device named the Web API
+    sends a play to whatever player is active — his iPhone after a drive — and says done while
+    nothing plays (2026-10-20 23:34). The Mac's Spotify app takes the song itself (the Mac
+    client's `spotify_play`, AppleScript), opening if it's closed; an older Mac client goes
+    through the Web API, to the Mac only. None: not a Mac turn, or a device he named that
+    Spotify lists."""
+    origin = car_app_followup.turn_origin(turn_session)
+    if not (origin and origin.get("mac")):
+        return None
+    devices = client.get_devices()
+    listed = (devices or {}).get("devices") or [] if isinstance(devices, dict) else []
+    if device_id and any(isinstance(d, dict) and d.get("id") == device_id for d in listed):
+        return None
+    uri = _play_uri(play_kwargs)
+    mac_id = origin["device_id"]
+    if uri and _device_offers(mac_id, _MAC_PLAY_SKILL):
+        _begin_play_request()  # a pending play elsewhere must not land after this
+        reply = car_app_followup._invoke_device_skill(mac_id, _MAC_PLAY_SKILL, {"uri": uri}, timeout=40)
+        inner = reply.get("result") if isinstance(reply, dict) and reply.get("ok") else None
+        logger.info("Spotify play on the Mac (%s): %s", uri, inner if isinstance(inner, dict) else reply)
+        if not isinstance(inner, dict):
+            error = (reply or {}).get("error") if isinstance(reply, dict) else None
+            return tool_error(f"The Mac's Spotify app couldn't play it: {error or 'no answer'}")
+        if inner.get("playing"):
+            return tool_result({"success": True, "action": "play", "device": "his Mac",
+                                "note": f"Playing {inner.get('track') or 'it'} in Spotify on the Mac."})
+        return tool_result({"success": False, "action": "play",
+                            "note": str(inner.get("note") or "Spotify on the Mac took it but isn't playing.")})
+    mac = _pick_device(devices, computers_only=True)
+    if mac is None:
+        return _play_without_active_device(
+            client, ticket, play_kwargs, SpotifyAPIError("Spotify isn't open on the Mac", status_code=404),
+            turn_session=turn_session)
+    try:
+        result = client.start_playback(device_id=mac["id"], **play_kwargs)
+    except SpotifyAPIError as exc:
+        if exc.status_code != 404:
+            raise
+        return _play_without_active_device(client, ticket, play_kwargs, exc, turn_session=turn_session,
+                                           failed_device=mac["id"])
+    return tool_result({"success": True, "action": "play",
+                        "device": {"id": mac["id"], "name": _device_label(mac), "type": mac.get("type")},
+                        "result": result})
+
+
 def _play_on_turn_phone(client: Any, ticket: int, play_kwargs: Dict[str, Any],
                         turn_session: Optional[str], device_id: Optional[str]) -> Optional[str]:
     """A phone turn's song goes to the phone's Spotify app (App Remote), not first through the
@@ -530,7 +590,7 @@ def _play_without_active_device(
     phone = car_app_followup.turn_phone(turn_session)
     from_mac = bool(origin and origin.get("mac"))
     device = _pick_device(client.get_devices(), phones_only=bool(phone),
-                          prefer_computer=from_mac, exclude=failed_device)
+                          computers_only=from_mac, exclude=failed_device)
     if device is not None:
         label = _device_label(device)
         try:
@@ -547,7 +607,7 @@ def _play_without_active_device(
                 "note": f"No Spotify device was active, so this is playing on {label}.",
                 "result": result,
             })
-    pending = _register_pending_play(ticket, play_kwargs, phones_only=bool(phone), prefer_computer=from_mac)
+    pending = _register_pending_play(ticket, play_kwargs, phones_only=bool(phone), computers_only=from_mac)
     if pending is None:  # a newer play request took over meanwhile
         raise original
     uri = _play_uri(play_kwargs)
@@ -626,6 +686,9 @@ def _handle_spotify_playback(args: dict, **kw) -> str:
             on_phone = _play_on_turn_phone(client, ticket, play_kwargs, turn, args.get("device_id"))
             if on_phone is not None:
                 return on_phone
+            on_mac = _play_on_turn_mac(client, ticket, play_kwargs, turn, args.get("device_id"))
+            if on_mac is not None:
+                return on_mac
             try:
                 result = client.start_playback(device_id=args.get("device_id"), **play_kwargs)
             except SpotifyAPIError as exc:

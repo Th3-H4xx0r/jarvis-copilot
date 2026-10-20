@@ -728,7 +728,7 @@ def test_a_mac_turn_with_spotify_closed_opens_it_on_the_mac_and_plays_there(monk
     monkeypatch.setattr(device_bridge, "skills_for_device", lambda device_id: [{"name": "open_app", "input_schema": {
         "type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}])
     phone.replies["open_app"] = {"ok": True, "result": {"ok": True, "name": "Spotify"}}
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[], [PHONE, MACBOOK]])
+    stub = _PlayerStub(device_polls=[[], [], [PHONE, MACBOOK]])
     _use(monkeypatch, stub)
 
     payload = _car_play(uris=[TRACK])
@@ -739,19 +739,110 @@ def test_a_mac_turn_with_spotify_closed_opens_it_on_the_mac_and_plays_there(monk
     assert stub.play_calls[-1]["device_id"] == "mac-1"
 
 
+def test_a_mac_turn_naming_no_device_plays_on_the_mac_not_the_active_phone(monkeypatch, spawned, mac_turn) -> None:
+    # 2026-10-20 23:34: "play Blinding Lights on Spotify" from the Mac, no device named —
+    # Spotify sent it to the iPhone still active from the car (HTTP 204), nothing played.
+    phone, runs = mac_turn
+    stub = _PlayerStub(device_polls=[[PHONE_ACTIVE, MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["success"] is True
+    assert [c.get("device_id") for c in stub.play_calls] == ["mac-1"]
+    assert phone.calls == [] and runs == []
+
+
+def test_a_mac_turn_with_spotify_closed_there_opens_it_even_with_the_phone_active(monkeypatch, spawned, mac_turn) -> None:
+    from api import device_bridge
+
+    phone, runs = mac_turn
+    monkeypatch.setattr(device_bridge, "skills_for_device", lambda device_id: [{"name": "open_app", "input_schema": {
+        "type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}])
+    phone.replies["open_app"] = {"ok": True, "result": {"ok": True, "name": "Spotify"}}
+    stub = _PlayerStub(device_polls=[[PHONE_ACTIVE], [PHONE_ACTIVE], [PHONE_ACTIVE, MACBOOK]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["pending"] is True
+    assert stub.play_calls == []  # never sent to the phone
+    assert phone.calls == [("iphone-1", "open_app", {"name": "Spotify"})]
+    assert _run(runs) == "done"
+    assert [c.get("device_id") for c in stub.play_calls] == ["mac-1"]
+
+
+MAC_PLAYED = {"ok": True, "result": {"ok": True, "playing": True, "uri": TRACK, "track": "Blinding Lights"}}
+
+
+@pytest.fixture
+def mac_spotify_app(monkeypatch: pytest.MonkeyPatch):
+    """The Mac client offers spotify_play (its Spotify app, over AppleScript)."""
+    from api import device_bridge
+
+    monkeypatch.setattr(device_bridge, "skills_for_device",
+                        lambda device_id: [{"name": "spotify_play"}, {"name": "open_app"}])
+
+
+def test_a_mac_turn_has_the_mac_spotify_app_play_it(monkeypatch, spawned, mac_turn, mac_spotify_app) -> None:
+    # 23:34 and 23:37: the Web API sent it to the iPhone; the computer-use fallback opened
+    # Spotify's search and typed nothing — and Jarvis said it was playing.
+    phone, runs = mac_turn
+    phone.replies["spotify_play"] = MAC_PLAYED
+    stub = _PlayerStub(device_polls=[[PHONE_ACTIVE]])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK], device_id="72332cff")
+
+    assert payload["success"] is True and "Blinding Lights" in payload["note"]
+    assert phone.calls == [("iphone-1", "spotify_play", {"uri": TRACK})]
+    assert stub.play_calls == [] and runs == []
+
+
+def test_a_mac_spotify_that_took_it_but_isnt_playing_is_not_reported_playing(monkeypatch, spawned, mac_turn,
+                                                                              mac_spotify_app) -> None:
+    phone, _ = mac_turn
+    phone.replies["spotify_play"] = {"ok": True, "result": {"ok": True, "playing": False, "uri": TRACK,
+                                                           "note": "Spotify took it but isn't playing (paused)"}}
+    _use(monkeypatch, _PlayerStub(device_polls=[[]]))
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["success"] is False and "isn't playing" in payload["note"]
+
+
+def test_a_mac_spotify_app_that_refuses_says_why(monkeypatch, spawned, mac_turn, mac_spotify_app) -> None:
+    phone, _ = mac_turn
+    phone.replies["spotify_play"] = {"ok": False, "error": "macOS hasn't allowed Jarvis to control Spotify: …"}
+    _use(monkeypatch, _PlayerStub(device_polls=[[]]))
+
+    payload = _car_play(uris=[TRACK])
+
+    assert "control Spotify" in payload["error"]
+
+
+def test_a_mac_turn_asking_for_a_listed_device_plays_there(monkeypatch, spawned, mac_turn) -> None:
+    _, runs = mac_turn
+    stub = _PlayerStub(device_polls=[[TV, MACBOOK]])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK], device_id="tv-1")
+
+    assert [c.get("device_id") for c in stub.play_calls] == ["tv-1"]
+
+
 def test_a_mac_turn_plays_on_the_mac_not_the_phone(monkeypatch, spawned, mac_turn) -> None:
     # 2026-10-20 23:06: "Play Blinding Lights on Spotify" from the Mac, Spotify open there —
     # the car's iPhone id 404'd and Jarvis gave up ("no device is active").
     phone, runs = mac_turn
-    stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)],
-                       device_polls=[[PHONE, MACBOOK]])
+    stub = _PlayerStub(device_polls=[[PHONE, MACBOOK]])
     _use(monkeypatch, stub)
 
     payload = _car_play(uris=[TRACK], device_id="72332cff")
 
     assert "error" not in payload
-    assert stub.play_calls[-1]["device_id"] == "mac-1"
-    assert "MacBook" in payload["note"]
+    assert [c.get("device_id") for c in stub.play_calls] == ["mac-1"]  # the stale id is never tried
+    assert "MacBook" in payload["device"]["name"]
     assert phone.calls == [] and runs == []
 
 
