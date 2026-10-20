@@ -314,7 +314,11 @@ def handle_live_request(method, path, body, host_signed=False, caller=None, devi
     if caller == "board":
         return 403, {"ok": False, "error": "Devices can't register live-button tokens.", "code": "forbidden"}
     tokens = tokens or store()
-    device = str(device_id or "").strip()[:128] or "unknown"
+    device = str(device_id or "").strip()[:128]
+    if not device:
+        # Sessions with no paired device would all share one token list and overwrite each other.
+        return 403, {"ok": False, "error": "Only a paired phone registers its live-button tokens.",
+                     "code": "forbidden"}
     try:
         if p == "/control-tokens":
             raw = body.get("tokens")

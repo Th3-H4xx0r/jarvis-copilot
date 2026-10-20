@@ -737,22 +737,40 @@ class DoorService:
             return None
 
     def _live_devices(self) -> list[str]:
-        """The phones that run the hidden live_state skill (every one that offers it)."""
+        """The phones that run the hidden live_state skill — phones only: any other paired device
+        that happened to advertise it would get every alarm change."""
         try:
             find = getattr(self.bridge, "offering_all", None)
             if find is not None:
-                return [d for d in find("live_state") if d]
-            device = self.bridge.offering("live_state")
-            return [device] if device else []
+                found = [d for d in find("live_state") if d]
+            else:
+                device = self.bridge.offering("live_state")
+                found = [device] if device else []
         except Exception:
             log.info("door alarm: couldn't list the phones for live_state", exc_info=True)
             return []
+        return [d for d in found if self._is_phone(d)]
+
+    @staticmethod
+    def _is_phone(device_id: str) -> bool:
+        """False for a paired device known not to be a phone; unknown ids (no pairing record) pass."""
+        try:
+            from api.pairing import list_devices
+            kinds = {d.get("id"): str(d.get("kind") or "") for d in list_devices()}
+        except Exception:
+            return True
+        kind = kinds.get(device_id)
+        return kind is None or kind.startswith("mobile")
 
     def _live_fan_out(self, key: tuple, before: str, last: dict, alarm: dict, shown: dict, now: float) -> None:
         """Card, phone, tiles — in that order, each best effort. The card goes first (it needs nothing
         from the app); live_state before the tile refresh, so a woken app has re-drawn its timelines
         by the time the tiles re-read them."""
         lb, src, state = live_buttons, live_buttons.SOURCE, alarm["state"]
+        if key != self._live_key and not (before in lb.ACTIVE and state not in lb.ACTIVE):
+            # A newer change is already queued (the hub flapped, APNs was slow): only a card's end is
+            # still worth sending from here.
+            return
         episode = before not in lb.ACTIVE and state in lb.ACTIVE
         stale = lb.stale_after(alarm, now)
         if episode:
