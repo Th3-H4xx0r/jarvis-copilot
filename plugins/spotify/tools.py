@@ -399,7 +399,9 @@ def _remote_play_on_phone(phone_id: str, uri: str, credentials: Dict[str, str], 
             return False
         result = _server_phone_skill(phone_id, "spotify_remote_play", {"uri": uri, **credentials}, timeout=15)
         if isinstance(result, dict) and result.get("ok", True) and not result.get("error"):
-            logger.info("Spotify: the phone's Spotify app took %s (App Remote, try %d)", uri, attempt)
+            # The phone says "played" (it was connected) or "woke" (it opened Spotify's wake link on the song).
+            said = ", ".join(result["result"]) if isinstance(result.get("result"), dict) else "taken"
+            logger.info("Spotify: the phone's Spotify app took %s (App Remote, try %d: %s)", uri, attempt, said)
             return True
         logger.info("Spotify: App Remote try %d didn't play it: %s", attempt,
                     (result or {}).get("error") if isinstance(result, dict) else result)
