@@ -21,7 +21,7 @@ final class LiveButtonsTests: XCTestCase {
         c.fetchDoor = { [unowned self] in door }
         c.fetchCar = { nil }
         c.widgetData = { [:] }
-        c.wearableOn = { _, _ in nil }
+        c.wearableState = { _, _, _ in nil }
         c.showCard = { [unowned self] source, _, _, _, state in shown.append((source, state.id)); return true }
         c.runningCards = { [:] }
         c.notify = { _, _ in }

@@ -28,7 +28,9 @@ final class LiveButtons {
         return CarReading(locked: car.doors?.locked, running: car.running)
     }
     var widgetData: () -> [String: JCJSON] = { WidgetDataFile.read() }
-    var wearableOn: (String, String) -> Bool? = { LiveButtons.reportedOn(deviceID: $0, skill: $1) }
+    var wearableState: (String, String, [String: String]) -> CommandLiveState? = { deviceID, skill, arguments in
+        DeviceRegistry.shared.device(id: deviceID)?.commandState(skill, arguments: arguments)
+    }
     var showCard: (String, String, String, String, ButtonLiveState) async -> Bool = {
         await ButtonActivityController.shared.show(source: $0, buttonID: $1, name: $2, symbol: $3, state: $4)
     }
@@ -80,7 +82,7 @@ final class LiveButtons {
         default: break
         }
         live.values = values()
-        live.wearableOn = wearableOn
+        live.wearableState = wearableState
         return ButtonStateResolver.press(button, shownState: shownState, live: live, now: now())
     }
 
@@ -155,7 +157,7 @@ final class LiveButtons {
     private func recomputeOnce() async {
         let at = now()
         live.values = values()
-        live.wearableOn = wearableOn
+        live.wearableState = wearableState
         let all = buttons()
         var timelines: [String: ButtonTimeline?] = [:]
         for button in all where !button.keepsState {
@@ -286,19 +288,6 @@ final class LiveButtons {
     static func succeeded(_ line: String) -> Bool {
         !(line.contains(" failed") || line.contains("unavailable") || line.hasPrefix("Not approved")
           || line.hasPrefix("Tap the notification") || line.contains("needs Face ID") || line.hasPrefix("unknown"))
-    }
-
-    /// A wearable switch's state as the device reports it, for the devices that do.
-    static func reportedOn(deviceID: String, skill: String) -> Bool? {
-        guard let device = DeviceRegistry.shared.device(id: deviceID) else { return nil }
-        let snapshot = device.snapshot()
-        switch skill {
-        case "bottle_sterilise": return snapshot["sterilising"] as? Bool
-        case "dashcam_set_recording": return snapshot["recording"] as? Bool
-        case "esp32_set_led": return snapshot["led_on"] as? Bool
-        case "lights_set": return (snapshot["controllers"] as? [[String: Any]])?.first?["on"] as? Bool
-        default: return nil
-        }
     }
 
     /// The widgets' live values for the door and the car.

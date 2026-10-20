@@ -36,8 +36,10 @@ struct LiveValues {
     var car: CarLive?
     /// The widget data hub's values (`door.state`, `bottle.status`, …) for his own states.
     var values: [String: JCJSON] = [:]
-    /// Whether a wearable's switch is on, from what the device reports; nil when it doesn't say.
-    var wearableOn: (_ deviceID: String, _ skill: String) -> Bool? = { _, _ in nil }
+    /// What a wearable's command is doing now, as the device reports it; nil when it can't tell.
+    var wearableState: (_ deviceID: String, _ skill: String, _ arguments: [String: String]) -> CommandLiveState? = {
+        _, _, _ in nil
+    }
     /// What each button last switched a wearable to, for devices that don't report it.
     var lastSet: [String: (on: Bool, at: Date)] = [:]
 }
@@ -57,8 +59,54 @@ enum ButtonStateResolver {
     /// How long a wearable switch a button set is trusted when the device doesn't report it.
     static let optimisticFor: TimeInterval = 6 * 60 * 60
 
-    /// The button's states over time, or nil for a button without states.
+    /// The button's states over time, or nil for a button without states — with his own icons.
     static func resolve(_ button: ControlButton, live: LiveValues, now: Date) -> [ResolvedState]? {
+        guard var states = automatic(button, live: live, now: now) else { return nil }
+        for index in states.indices {
+            if let symbol = button.stateSymbols[states[index].state.id] { states[index].state.symbol = symbol }
+        }
+        return states
+    }
+
+    /// Every state a button can show, for choosing their icons: the door's, the car's, a
+    /// wearable's sides — worked out the same way the live ones are. Empty for his own states
+    /// (each rule has its icon) and for buttons that follow nothing.
+    static func possibleStates(_ button: ControlButton) -> [ButtonLiveState] {
+        guard button.states == nil else { return [] }
+        let at = Date()
+        var scenarios: [LiveValues] = []
+        switch button.action {
+        case .door:
+            scenarios = [["state": "disarmed"], ["state": "arming", "mode": "away", "deadline": at.timeIntervalSince1970 + 60],
+                         ["state": "armed_away"], ["state": "armed_home"],
+                         ["state": "entry", "deadline": at.timeIntervalSince1970 + 30],
+                         ["state": "triggered", "siren_on": true], ["state": "triggered", "siren_on": false]]
+                .map { LiveValues(door: DoorAlarmInfo(json: $0)) }
+        case .car:
+            scenarios = [CarLive(locked: true), CarLive(locked: false), CarLive(running: true), CarLive(running: false)]
+                .map { LiveValues(car: $0) }
+        case .wearable:
+            scenarios = [CommandLiveState(on: true), CommandLiveState(on: false), CommandLiveState(mode: "…")].map { state in
+                var live = LiveValues()
+                live.wearableState = { _, _, _ in state }
+                return live
+            }
+        default:
+            return []
+        }
+        var seen: Set<String> = []
+        var out: [ButtonLiveState] = []
+        var plain = button
+        plain.stateSymbols = [:]
+        for live in scenarios {
+            for resolved in automatic(plain, live: live, now: at) ?? [] where seen.insert(resolved.state.id).inserted {
+                out.append(resolved.state)
+            }
+        }
+        return out
+    }
+
+    private static func automatic(_ button: ControlButton, live: LiveValues, now: Date) -> [ResolvedState]? {
         if let states = button.states { return custom(states, button: button, live: live) }
         guard button.followsLive, !button.keepsState else { return nil }
         switch button.action {
@@ -208,16 +256,27 @@ enum ButtonStateResolver {
 
     private static func wearable(deviceID: String, skill: String, arguments: [String: String], button: ControlButton,
                                  live: LiveValues, now: Date) -> [ResolvedState]? {
-        guard let key = WearableQuickActions.switchKeys.first(where: { arguments[$0] != nil }) else { return nil }
-        let known = live.wearableOn(deviceID, skill)
+        let reported = live.wearableState(deviceID, skill, arguments)
+        guard let key = WearableQuickActions.switchKeys.first(where: { arguments[$0] != nil }) else {
+            // A mode (ring gesture mode, a lights effect): the button runs its own action and its
+            // line says what the device is on now.
+            guard let mode = reported?.mode else { return nil }
+            var state = ButtonLiveState(id: "\(skill).mode", title: button.name.isEmpty ? "Jarvis button" : button.name,
+                                        symbol: button.symbol, caption: "Now: \(mode.replacingOccurrences(of: "_", with: " "))")
+            state.endsAt = reported?.endsAt
+            return [ResolvedState(from: nil, state: state, action: button.action)]
+        }
+        let known = reported?.on
         let guess = live.lastSet[button.id].flatMap { now.timeIntervalSince($0.at) < optimisticFor ? $0 : nil }
         guard let isOn = known ?? guess?.on else { return nil }
         let names = WearableQuickActions.names(for: skill)
         var turned = arguments
         turned[key] = isOn ? "false" : "true"
         if !isOn, arguments["confirm"] != nil { turned["confirm"] = "true" }
-        let state = ButtonLiveState(id: "\(skill).\(isOn ? "on" : "off")", title: isOn ? names.off : names.on,
+        var state = ButtonLiveState(id: "\(skill).\(isOn ? "on" : "off")", title: isOn ? names.off : names.on,
                                     symbol: isOn ? "stop.circle.fill" : button.symbol, caption: isOn ? "On" : "Off")
+        // Something with a known end (a sterilise cycle) counts down while it's on.
+        if isOn, let ends = reported?.endsAt, ends > now { state.endsAt = ends }
         var out = [ResolvedState(from: nil, state: state,
                                  action: .wearable(deviceID: deviceID, skill: skill, arguments: turned))]
         // Only a guess (the device doesn't say): after a while the tile goes back to the button itself.

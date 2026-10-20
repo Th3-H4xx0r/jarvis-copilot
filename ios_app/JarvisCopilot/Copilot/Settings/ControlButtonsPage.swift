@@ -29,6 +29,8 @@ struct ControlButton: Codable, Identifiable, Equatable {
     var showsLiveActivity = true
     /// Worked out by `LiveButtons` and written for the widget extension to draw.
     var timeline: ButtonTimeline?
+    /// His own icon for a state, by state id ("door.arming" → "figure.walk.departure").
+    var stateSymbols: [String: String] = [:]
 
     /// The line under a switch's name.
     enum Caption: String, Codable, CaseIterable {
@@ -80,7 +82,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
     // written but never read back.
     private enum CodingKeys: String, CodingKey {
         case id, name, symbol, action, offAction, keepsState, isOn, offSymbol, tint, captionKind, captionText, lastResult
-        case followsLive, states, showsCountdown, showsLiveActivity, timeline
+        case followsLive, states, showsCountdown, showsLiveActivity, timeline, stateSymbols
         case caption, skipsFaceID
     }
 
@@ -103,6 +105,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
         showsCountdown = try c.decodeIfPresent(Bool.self, forKey: .showsCountdown) ?? true
         showsLiveActivity = try c.decodeIfPresent(Bool.self, forKey: .showsLiveActivity) ?? true
         timeline = try? c.decodeIfPresent(ButtonTimeline.self, forKey: .timeline)
+        stateSymbols = (try? c.decodeIfPresent([String: String].self, forKey: .stateSymbols)) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -127,6 +130,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
         try c.encodeIfPresent(showsCountdown ? nil : false, forKey: .showsCountdown)
         try c.encodeIfPresent(showsLiveActivity ? nil : false, forKey: .showsLiveActivity)
         try c.encodeIfPresent(timeline, forKey: .timeline)
+        if !stateSymbols.isEmpty { try c.encode(stateSymbols, forKey: .stateSymbols) }
     }
 }
 
@@ -547,6 +551,24 @@ struct ControlButtonEditor: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if automatic && draft.followsLive && draft.states == nil {
+                RowDivider()
+                NavigationLink {
+                    StateIconsEditor(button: draft, symbols: $draft.stateSymbols)
+                } label: {
+                    Row {
+                        HStack {
+                            Text("State icons")
+                            Spacer()
+                            Text(draft.stateSymbols.isEmpty ? "Standard" : "\(draft.stateSymbols.count) changed")
+                                .foregroundStyle(.secondary)
+                            JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             if (automatic && draft.followsLive) || draft.states != nil {
                 RowDivider()
                 Row { Toggle("Countdown on the tile", isOn: $draft.showsCountdown) }

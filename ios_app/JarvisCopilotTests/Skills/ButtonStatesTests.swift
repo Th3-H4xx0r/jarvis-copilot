@@ -119,12 +119,12 @@ final class ButtonStatesTests: XCTestCase {
     func testAWearableSwitchFollowsTheDeviceOrWhatTheButtonLastSet() {
         let b = button(.wearable(deviceID: "bottle", skill: "bottle_sterilise", arguments: ["on": "true", "confirm": "true"]))
         var live = LiveValues()
-        live.wearableOn = { _, _ in true }
+        live.wearableState = { _, _, _ in CommandLiveState(on: true) }
         let on = ButtonStateResolver.resolve(b, live: live, now: now)?.first
         XCTAssertEqual(on?.state.title, "Stop sterilising")
         XCTAssertEqual(on?.action, .wearable(deviceID: "bottle", skill: "bottle_sterilise",
                                              arguments: ["on": "false", "confirm": "true"]))
-        live.wearableOn = { _, _ in nil }
+        live.wearableState = { _, _, _ in nil }
         live.lastSet["b"] = (false, now.addingTimeInterval(-60))
         XCTAssertEqual(ButtonStateResolver.resolve(b, live: live, now: now)?.first?.state.title, "Sterilise now")
         live.lastSet["b"] = (true, now.addingTimeInterval(-7 * 3600))
@@ -196,5 +196,54 @@ final class ButtonStatesTests: XCTestCase {
         guard case .changed = ButtonStateResolver.press(b, shownState: "door.arming", live: LiveValues(), now: now) else {
             return XCTFail("the tile still showed a live state: don't guess")
         }
+    }
+
+    // MARK: his icons, every wearable state
+
+    func testHisIconReplacesAStatesIconEverywhereItShows() throws {
+        var b = button(.door(.armAway))
+        b.stateSymbols = ["door.arming": "figure.walk.departure", "door.armed_away": "house.lodge"]
+        let deadline = now.addingTimeInterval(45)
+        let timeline = try XCTUnwrap(ButtonStateResolver.timeline(b, live: LiveValues(door: alarm("arming", mode: "away",
+                                                                                                   deadline: deadline)), now: now))
+        XCTAssertEqual(timeline.state(at: now)?.symbol, "figure.walk.departure")
+        XCTAssertEqual(timeline.state(at: deadline)?.symbol, "house.lodge")
+        XCTAssertEqual(states(b, door: alarm("triggered", siren: true))?.first?.state.symbol, "speaker.slash.fill",
+                       "a state he didn't change keeps the standard icon")
+    }
+
+    func testEveryStateAButtonCanShowIsListedForItsIcon() {
+        let door = ButtonStateResolver.possibleStates(button(.door(.armAway))).map(\.id)
+        XCTAssertEqual(Set(door), ["door.disarmed", "door.arming", "door.armed_away", "door.armed_home", "door.entry",
+                                   "door.siren", "door.triggered"])
+        XCTAssertEqual(Set(ButtonStateResolver.possibleStates(button(.car(command: "lock"))).map(\.id)),
+                       ["car.locked", "car.unlocked"])
+        let sterilise = button(.wearable(deviceID: "b", skill: "bottle_sterilise", arguments: ["on": "true"]))
+        XCTAssertEqual(Set(ButtonStateResolver.possibleStates(sterilise).map(\.id)),
+                       ["bottle_sterilise.on", "bottle_sterilise.off"])
+        XCTAssertTrue(ButtonStateResolver.possibleStates(button(.prompt("x"))).isEmpty)
+    }
+
+    func testAModeShowsWhatTheDeviceIsOnNow() {
+        let b = button(.wearable(deviceID: "ring", skill: "ring_set_input_mode", arguments: ["mode": "music"]))
+        var live = LiveValues()
+        live.wearableState = { _, _, _ in CommandLiveState(mode: "jarvis") }
+        let s = ButtonStateResolver.resolve(b, live: live, now: now)?.first
+        XCTAssertEqual(s?.state.caption, "Now: jarvis")
+        XCTAssertEqual(s?.action, b.action)
+    }
+
+    func testARunningWearableCountsDownToItsEnd() {
+        let b = button(.wearable(deviceID: "bottle", skill: "bottle_sterilise", arguments: ["on": "true"]))
+        var live = LiveValues()
+        live.wearableState = { _, _, _ in CommandLiveState(on: true, endsAt: self.now.addingTimeInterval(120)) }
+        XCTAssertEqual(ButtonStateResolver.resolve(b, live: live, now: now)?.first?.state.endsAt, now.addingTimeInterval(120))
+    }
+
+    func testHisIconsSurviveARoundTrip() throws {
+        var b = button(.car(command: "lock"))
+        b.stateSymbols = ["car.locked": "lock.shield"]
+        XCTAssertEqual(try JSONDecoder().decode(ControlButton.self, from: JSONEncoder().encode(b)).stateSymbols,
+                       ["car.locked": "lock.shield"])
     }
 }

@@ -234,3 +234,62 @@ struct LiveValuePicker: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
+
+/// His own icon for each state a button can show — Arm Away, Stop arming, Disarm, Silence; Lock and
+/// Unlock; a wearable's on and off — used on the tile, widget buttons and the Lock Screen card.
+struct StateIconsEditor: View {
+    let button: ControlButton
+    @Binding var symbols: [String: String]
+
+    private var states: [ButtonLiveState] { ButtonStateResolver.possibleStates(button) }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                CardGroup(footer: "Tap a state to choose its icon. States you leave keep the standard one.") {
+                    ForEach(Array(states.enumerated()), id: \.element.id) { index, state in
+                        if index > 0 { RowDivider() }
+                        NavigationLink {
+                            SymbolPicker(title: state.title, selection: symbols[state.id] ?? state.symbol) {
+                                symbols[state.id] = $0 == state.symbol ? nil : $0
+                            }
+                        } label: {
+                            Row {
+                                HStack(spacing: 12) {
+                                    Image(systemName: symbols[state.id] ?? state.symbol)
+                                        .font(.system(size: 18))
+                                        .foregroundStyle(state.alert ? JcTheme.danger : JcAccent.color)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(state.title).foregroundStyle(JcTheme.text)
+                                        if let caption = state.caption {
+                                            Text(caption).font(.caption).foregroundStyle(JcTheme.muted)
+                                        }
+                                    }
+                                    Spacer()
+                                    if symbols[state.id] != nil {
+                                        Text("Changed").font(.caption).foregroundStyle(JcTheme.muted)
+                                    }
+                                    JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                if !symbols.isEmpty {
+                    CardGroup {
+                        Row {
+                            Button("Use the standard icons", role: .destructive) { symbols = [:] }
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 16)
+            .padding(.bottom, 30)
+        }
+        .navigationTitle("State icons")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
