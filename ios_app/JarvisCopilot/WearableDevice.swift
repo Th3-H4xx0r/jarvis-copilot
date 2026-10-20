@@ -95,6 +95,9 @@ protocol WearableDevice: AnyObject {
     /// a mode's current value, when what it's running ends. Nil when it can't tell. Live buttons
     /// and widgets follow it.
     func commandState(_ skill: String) -> CommandLiveState?
+    /// The same, for a command whose state depends on what it was given (which wearable's Keep
+    /// Alive, which measurement). Defaults to `commandState(_:)`.
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState?
 }
 
 /// What one command of a device is doing now.
@@ -115,6 +118,7 @@ struct CommandLiveState: Equatable, Sendable {
 
 extension WearableDevice {
     func commandState(_ skill: String) -> CommandLiveState? { nil }
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? { commandState(skill) }
     var unavailableCapabilities: [UnavailableCapability] { [] }
     var notificationChannel: NotificationChannelInfo? { nil }
     func forwardNotification(title: String, body: String) {}
