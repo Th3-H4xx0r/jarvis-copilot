@@ -171,6 +171,35 @@ final class X5Ring: WearableDevice {
         return out
     }
 
+    // MARK: Live state
+
+    /// What the X5's screens show: the gesture mode picked for it, a workout under way, a spot
+    /// reading (with when it ends — the ring runs it for a set time), and a monitoring switch as
+    /// the ring reported it (`metric` names which).
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        switch skill {
+        case "x5_set_gesture_mode": return backend.inputs.map { CommandLiveState(mode: $0.wantedMode.rawValue) }
+        case "x5_workout": return backend.workouts.map { CommandLiveState(on: $0.holdsLink(for: WearableKeepAlive.x5ring)) }
+        case "x5_measure": return Self.measureState(session.measurement, asked: arguments["type"])
+        case "x5_set_monitoring": return Self.monitoringState(session.monitoring, metric: arguments["metric"])
+        default: return nil
+        }
+    }
+
+    static func measureState(_ m: X5Measurement?, asked: String?) -> CommandLiveState {
+        guard let m, m.isActive else { return CommandLiveState(on: false) }
+        let name = measurementNames.first { $0.value == m.type }?.key ?? m.type.name
+        var state = ColmiR12.measuring(name, asked: asked)
+        if state.on == true, m.seconds > 0 { state.endsAt = m.startedAt.addingTimeInterval(TimeInterval(m.seconds)) }
+        return state
+    }
+
+    static func monitoringState(_ monitoring: [X5MonitorType: X5Monitoring], metric: String?) -> CommandLiveState? {
+        metric.flatMap { monitorNames[$0] }.flatMap { monitoring[$0] }.map { CommandLiveState(on: $0.on) }
+    }
+
     // MARK: Invoke
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {

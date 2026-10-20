@@ -19,6 +19,8 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
     private var cameraMode: Int?
     /// Feature owners attach handlers here; unsupported features never claim success.
     var featureHandlers: [String: ([String: Any]) async throws -> [String: Any]] = [:]
+    /// And what their command is doing now, for live buttons (navigation guiding).
+    var featureStates: [String: @MainActor () -> CommandLiveState?] = [:]
     /// What the AI Notes, Translate, Live captions and Talk screens call; tests swap it.
     lazy var screenControls: GlassesScreenControls = LiveGlassesScreenControls()
 
@@ -143,6 +145,39 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         let route = GlassesAudioLink.shared.state
         return ["device_id": deviceID, "model": state.model as Any? ?? Self.model, "name": InmoGo3.name, "connected": isConnected, "control_state": String(describing: session.state), "audio_connected": route.connected, "audio_output_glasses": route.speakers, "audio_input_glasses": route.microphone, "battery": state.battery as Any? ?? NSNull(), "brightness": state.brightness as Any? ?? NSNull(), "volume": state.volume as Any? ?? NSNull(), "dnd": state.dnd as Any? ?? NSNull(), "firmware": state.firmware as Any? ?? NSNull(), "module": state.module as Any? ?? NSNull(), "screen_timeout_seconds": state.screenTimeoutSelector.flatMap { [0: 15, 1: 30][$0] } as Any? ?? NSNull(), "rssi": session.rssi as Any? ?? NSNull(), "protocol_counters": ["valid_frames": session.counters.validFrames, "invalid_frames": session.counters.invalidFrames, "expired_assemblies": session.counters.expiredAssemblies], "observed_at": state.lastReceived.map { ISO8601DateFormatter().string(from: $0) } as Any? ?? NSNull(), "stale": !isConnected || state.lastReceived.map { Date().timeIntervalSince($0) > 300 } ?? true, "missing_value_reason": "Not reported by a validated device response", "battery_history": history.snapshot(), "capabilities": inventorySnapshot(), "media": InmoMediaTransfer.shared.snapshot(), "last_error": session.lastError as Any? ?? NSNull(), "recent_command_result": recentResult as Any? ?? NSNull()]
     }
+    static let modules = ["teleprompter": 2, "ai": 4, "camera": 11]
+
+    /// The screen features as their screens show them, a feature owner's own (navigation), and the
+    /// settings the glasses last reported (kept while they're away, as their page shows them). The
+    /// open module only while connected; `module` asks about one.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        if Self.screenSkills.contains(skill) { return screenControls.state(skill) }
+        if let state = featureStates[skill] { return state() }
+        return Self.commandState(skill, arguments: arguments, status: session.status, connected: isConnected)
+    }
+
+    static func commandState(_ skill: String, arguments: [String: String], status: InmoDeviceStatus,
+                             connected: Bool) -> CommandLiveState? {
+        switch skill {
+        case "glasses_set_dnd": return status.dnd.map { CommandLiveState(on: $0) }
+        case "glasses_set_brightness": return status.brightness.map { CommandLiveState(mode: String($0)) }
+        case "glasses_set_volume": return status.volume.map { CommandLiveState(mode: String($0)) }
+        case "glasses_set_screen_timeout":
+            return status.screenTimeoutSelector.flatMap { [0: 15, 1: 30][$0] }.map { CommandLiveState(mode: String($0)) }
+        case "glasses_open_module", "glasses_close_module":
+            guard connected, let module = status.module else { return nil }
+            let open = modules.first { $0.value == module }?.key
+            if let asked = arguments["module"] {
+                return modules[asked].map { CommandLiveState(on: $0 == module, mode: open) }
+            }
+            return open.map { CommandLiveState(mode: $0) }
+        default:
+            return nil
+        }
+    }
+
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         if name == "glasses_status" { return snapshot() }
         if name == "glasses_capabilities" { return ["inventory": inventorySnapshot(), "experimental_enabled": experimentalEnabled] }
@@ -190,7 +225,7 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
             guard let setting = args["setting"] as? String, let type = Self.settings[setting] else { throw DeviceError.badArgument("Unsupported setting") }
             bytes = InmoCommand.settings(type: type, field: 2, value: try boolean(args, "enabled") ? 1 : 0)
         case "glasses_open_module", "glasses_close_module":
-            guard let module = args["module"] as? String, let code = ["teleprompter": 2, "ai": 4, "camera": 11][module] else { throw DeviceError.badArgument("Unsupported module; phone-side services must be available") }
+            guard let module = args["module"] as? String, let code = Self.modules[module] else { throw DeviceError.badArgument("Unsupported module; phone-side services must be available") }
             bytes = name == "glasses_open_module" ? InmoCommand.openModule(code) : InmoCommand.closeModule(code)
         case "glasses_camera_open": cameraMode = 0; bytes = InmoCommand.envelope(type: 14, field: 17, payload: Data([0x10, 0x00]))
         case "glasses_video_open": cameraMode = 1; bytes = InmoCommand.envelope(type: 14, field: 17, payload: Data([0x10, 0x01]))

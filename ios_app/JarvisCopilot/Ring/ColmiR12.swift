@@ -253,6 +253,54 @@ final class ColmiR12: WearableDevice {
         return out
     }
 
+    // MARK: Live state
+
+    /// What the ring's screens show: the gesture mode picked for it, a workout or reading under way,
+    /// and its monitoring, touch and unit settings as it last reported them (kept while it's away).
+    /// The settings name theirs by argument: `metric`, `control`, `temperature_unit`.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        switch skill {
+        case "ring_set_input_mode": return backend.inputs.map { CommandLiveState(mode: $0.wantedMode.rawValue) }
+        case "ring_workout": return backend.workouts.map { CommandLiveState(on: $0.holdsLink(for: WearableKeepAlive.ring)) }
+        case "ring_measure":
+            let running = session.measurement.flatMap { $0.phase == .measuring ? $0.type.name : nil }
+            return Self.measuring(running, asked: arguments["metric"])
+        default: return Self.commandState(skill, arguments: arguments, settings: session.settings)
+        }
+    }
+
+    static func commandState(_ skill: String, arguments: [String: String], settings: RingSettings) -> CommandLiveState? {
+        switch skill {
+        case "ring_set_monitoring":
+            let on: Bool?
+            switch arguments["metric"] {
+            case "heart_rate": on = settings.heartRate?.enabled
+            case "spo2": on = settings.spo2?.enabled
+            case "hrv": on = settings.hrv?.enabled
+            case "stress": on = settings.stress?.enabled
+            case "temperature": on = settings.temperature?.enabled
+            default: on = nil
+            }
+            return on.map { CommandLiveState(on: $0) }
+        case "ring_set_touch_mode":
+            let control = arguments["control"] == "touch" ? settings.touch : arguments["control"] == "gesture" ? settings.gesture : nil
+            return control?.touchMode.map { CommandLiveState(mode: $0.name) }
+        case "ring_set_preferences":
+            guard arguments["temperature_unit"] != nil, let unit = settings.temperatureUnit else { return nil }
+            return CommandLiveState(mode: unit.celsius ? "celsius" : "fahrenheit")
+        default:
+            return nil
+        }
+    }
+
+    /// A spot reading under way (`running`, its metric name), for a measure command: on while one
+    /// runs — the one `asked`, when the button names one — and which.
+    static func measuring(_ running: String?, asked: String?) -> CommandLiveState {
+        CommandLiveState(on: running != nil && (asked == nil || asked == running), mode: running)
+    }
+
     // MARK: Invoke
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {

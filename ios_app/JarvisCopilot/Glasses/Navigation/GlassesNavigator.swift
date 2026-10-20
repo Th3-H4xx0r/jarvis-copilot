@@ -61,6 +61,10 @@ import MapKit
             self?.stop(fromLens: false)
             return ["state": "stopped"]
         }
+        // Live buttons: directions are on from finding the route until arrival or Stop.
+        device.featureStates["glasses_navigate"] = { [weak self] in
+            self.map { CommandLiveState(on: ![.idle, .arrived].contains($0.state)) }
+        }
     }
 
     // MARK: Glasses events

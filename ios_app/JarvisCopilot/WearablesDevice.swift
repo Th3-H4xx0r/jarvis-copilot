@@ -71,6 +71,20 @@ final class WearablesDevice: WearableDevice {
         ]
     }
 
+    /// A wearable's Keep Alive switch, the one its `wearable` argument names, as its settings
+    /// screen shows it; on/off is also the `state` the command takes.
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        guard skill == "wearables_keep_alive" else { return nil }
+        return Self.keepAliveState(arguments)
+    }
+
+    static func keepAliveState(_ arguments: [String: String], defaults: UserDefaults = .standard) -> CommandLiveState? {
+        guard let key = arguments["wearable"]?.lowercased(),
+              WearableKeepAlive.switchable.contains(where: { $0.key == key }) else { return nil }
+        let on = WearableKeepAlive.isOn(key, defaults: defaults)
+        return CommandLiveState(on: on, mode: on ? "on" : "off")
+    }
+
     func snapshot() -> [String: Any] {
         ["model": Self.model,
          "bluetooth_ready": hub.bottle.bluetoothReady,

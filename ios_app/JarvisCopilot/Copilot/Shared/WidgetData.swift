@@ -72,6 +72,66 @@ enum WidgetDataCatalog {
         ("scale", "Scale"), ("esp32", "ESP32 board"),
     ]
 
+    /// A wearable command that reports what it's doing (`WearableDevice.commandState`), as live
+    /// values: `<device>.<command without its prefix>` — a switch's side (bool), a mode's value
+    /// (text; `…_mode` beside a switch) and, when the device knows, when it ends (`…_ends`).
+    struct CommandValue {
+        let device: String
+        let skill: String
+        let onLabel: String?
+        let modeLabel: String?
+        let endsLabel: String?
+
+        init(_ device: String, _ skill: String, on: String? = nil, mode: String? = nil, ends: String? = nil) {
+            self.device = device
+            self.skill = skill
+            onLabel = on
+            modeLabel = mode
+            endsLabel = ends
+        }
+
+        var key: String { "\(device).\(skill.split(separator: "_", maxSplits: 1).last ?? "")" }
+        var modeKey: String { onLabel == nil ? key : key + "_mode" }
+        var endsKey: String { key + "_ends" }
+    }
+
+    static let commandValues: [CommandValue] = [
+        CommandValue("bottle", "bottle_sterilise", on: "Bottle sterilising"),
+        CommandValue("bottle", "bottle_set_uv_intensity", mode: "Bottle UV intensity"),
+        CommandValue("bottle", "bottle_auto_clean", on: "Bottle auto-clean"),
+        CommandValue("bottle", "bottle_touch_lock", on: "Bottle touch lock"),
+        CommandValue("bottle", "bottle_reminders", on: "Bottle drink reminders"),
+        CommandValue("bottle", "bottle_daily_reset", on: "Bottle daily reset"),
+        CommandValue("bottle", "bottle_set_screen_seconds", mode: "Bottle screen timeout (s)"),
+        CommandValue("esp32", "esp32_set_led", on: "ESP32 board LED on"),
+        CommandValue("esp32", "esp32_notification_relay", on: "ESP32 notification relay"),
+        CommandValue("esp32", "esp32_script_control", on: "ESP32 script running"),
+        CommandValue("ring", "ring_set_input_mode", mode: "R12 ring gesture mode"),
+        CommandValue("ring", "ring_workout", on: "R12 ring workout running"),
+        CommandValue("ring", "ring_measure", on: "R12 ring measuring", mode: "R12 ring measuring what"),
+        CommandValue("x5ring", "x5_set_gesture_mode", mode: "X5 ring gesture mode"),
+        CommandValue("x5ring", "x5_workout", on: "X5 ring workout running"),
+        CommandValue("x5ring", "x5_measure", on: "X5 ring measuring", mode: "X5 ring measuring what",
+                     ends: "X5 ring reading ends"),
+        CommandValue("band", "band_workout", on: "Smart band workout running"),
+        CommandValue("band", "band_night_tracking", on: "Smart band night tracking"),
+        CommandValue("band", "band_set_measurement_plan", mode: "Smart band measuring managed by"),
+        CommandValue("band", "band_measure", on: "Smart band measuring", mode: "Smart band measuring what"),
+        CommandValue("band", "band_find", on: "Smart band buzzing to be found"),
+        CommandValue("glasses", "glasses_set_dnd", on: "Glasses Do Not Disturb"),
+        CommandValue("glasses", "glasses_set_brightness", mode: "Glasses brightness"),
+        CommandValue("glasses", "glasses_set_volume", mode: "Glasses volume"),
+        CommandValue("glasses", "glasses_set_screen_timeout", mode: "Glasses screen timeout (s)"),
+        CommandValue("glasses", "glasses_open_module", mode: "Glasses open module"),
+        CommandValue("glasses", "glasses_notes", on: "Glasses note recording"),
+        CommandValue("glasses", "glasses_translate", on: "Glasses translating"),
+        CommandValue("glasses", "glasses_captions", on: "Glasses showing captions"),
+        CommandValue("glasses", "glasses_jarvis_ai", on: "Jarvis for Glasses AI"),
+        CommandValue("glasses", "glasses_navigate", on: "Glasses navigating"),
+        CommandValue("dashcam", "dashcam_set_recording", on: "Dashcam recording"),
+        CommandValue("lights", "lights_set", on: "Car lights on", mode: "Car lights showing"),
+    ]
+
     static let entries: [Entry] = {
         var all: [Entry] = [
             Entry(key: "health.score", label: "Body battery", area: "health", kind: .number),
@@ -132,6 +192,11 @@ enum WidgetDataCatalog {
                 Entry(key: "\(device.key).battery", label: "\(device.name) battery", area: "wearables", kind: .number, unit: "%"),
                 Entry(key: "\(device.key).keep_alive", label: "\(device.name) keep-alive", area: "wearables", kind: .bool),
             ]
+        }
+        for value in commandValues {
+            if let label = value.onLabel { all.append(Entry(key: value.key, label: label, area: "wearables", kind: .bool)) }
+            if let label = value.modeLabel { all.append(Entry(key: value.modeKey, label: label, area: "wearables", kind: .text)) }
+            if let label = value.endsLabel { all.append(Entry(key: value.endsKey, label: label, area: "wearables", kind: .number)) }
         }
         return all
     }()

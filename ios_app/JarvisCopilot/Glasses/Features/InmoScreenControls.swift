@@ -11,6 +11,13 @@ protocol GlassesScreenControls: AnyObject {
     func captions(on: Bool) -> [String: Any]
     func talk() async throws -> [String: Any]
     func jarvisAI(on: Bool) async -> [String: Any]
+    /// What one of these is doing now, as its screen shows it (a note recording, translation
+    /// running, captions or Glasses AI on); nil mid-change or for anything else.
+    func state(_ skill: String) -> CommandLiveState?
+}
+
+extension GlassesScreenControls {
+    func state(_ skill: String) -> CommandLiveState? { nil }
 }
 
 /// The real screens' stores.
@@ -106,5 +113,25 @@ final class LiveGlassesScreenControls: GlassesScreenControls {
         let channel = ai()
         await channel.setEnabled(on)
         return ["on": channel.enabled, "status": channel.status]
+    }
+
+    func state(_ skill: String) -> CommandLiveState? {
+        switch skill {
+        case "glasses_notes":
+            switch recorder().phase {
+            case .recording: return CommandLiveState(on: true)
+            case .idle: return CommandLiveState(on: false)
+            case .starting, .saving: return nil
+            }
+        case "glasses_translate":
+            switch translator().phase {
+            case .running: return CommandLiveState(on: true)
+            case .idle: return CommandLiveState(on: false)
+            case .starting, .stopping: return nil
+            }
+        case "glasses_captions": return CommandLiveState(on: captionsBridge().enabled)
+        case "glasses_jarvis_ai": return CommandLiveState(on: ai().enabled)
+        default: return nil
+        }
     }
 }

@@ -119,6 +119,60 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
         }
     }
 
+    // MARK: Live state
+
+    /// What the lights were last set to — they never report back, so this is what every screen
+    /// shows; nil for a controller nothing was set on yet. `target` picks a controller (the first
+    /// by default). `lights_set` gives its power and what it shows, or the value a button sets
+    /// (music, brightness, speed); `lights_timer` the `timer` it names.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        let id: String?
+        do { id = try targets(arguments["target"])?.first ?? manager.controllers.first?.id } catch { return nil }
+        guard let id, let state = manager.states[id] else { return nil }
+        return Self.commandState(skill, arguments: arguments, state: state)
+    }
+
+    static func commandState(_ skill: String, arguments: [String: String], state s: CarLightsState) -> CommandLiveState? {
+        switch skill {
+        case "lights_set":
+            if arguments["music"] != nil {
+                return CommandLiveState(on: s.on, mode: s.mode == .deviceMic ? "lights_mic" : s.mode == .phoneMusic ? "phone_mic" : "off")
+            }
+            if arguments["brightness"] != nil { return CommandLiveState(on: s.on, mode: String(s.shownBrightness)) }
+            if arguments["speed"] != nil { return CommandLiveState(on: s.on, mode: String(s.speed)) }
+            return CommandLiveState(on: s.on, mode: look(s))
+        case "lights_timer":
+            let slot: MelkTimer.Slot
+            switch arguments["timer"] {
+            case "on": slot = .on
+            case "off": slot = .off
+            default: return nil
+            }
+            return s.timers.first { $0.slot == slot }.map { CommandLiveState(on: $0.enabled) }
+        case "lights_setup":
+            if arguments["pin_order"] != nil { return CommandLiveState(mode: s.pinOrder.rawValue) }
+            if arguments["led_count"] != nil { return s.pixelCount.map { CommandLiveState(mode: String($0)) } }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    /// What the lights show, as `lights_set` names it: a colour (preset name or #RRGGBB), an
+    /// effect or scene by name, or the music source; nil for white and colour temperature.
+    static func look(_ s: CarLightsState) -> String? {
+        switch s.mode {
+        case .color: return MelkColor.presets.first { $0.color == s.color }?.name.lowercased() ?? s.color.hex
+        case .effect: return MelkCatalog.effect(id: s.effect)?.name ?? String(s.effect)
+        case .scene: return MelkCatalog.scenes.first { $0.id == s.scene }?.name ?? String(s.scene)
+        case .deviceMic: return "lights_mic"
+        case .phoneMusic: return "phone_mic"
+        case .white, .temperature: return nil
+        }
+    }
+
     // MARK: Skills
 
     var capabilities: [DeviceCapability] {

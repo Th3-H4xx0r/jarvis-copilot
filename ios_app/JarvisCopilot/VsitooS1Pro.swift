@@ -152,6 +152,26 @@ final class VsitooS1Pro: WearableDevice {
         return out
     }
 
+    /// Each switch and setting as the bottle's last status frame says (what its screen shows);
+    /// nil before one arrives — the status is dropped on disconnect. No cycle end: the bottle
+    /// reports only how far through it is, not how long a cycle runs.
+    func commandState(_ skill: String) -> CommandLiveState? {
+        manager.status.flatMap { Self.commandState(skill, status: $0) }
+    }
+
+    static func commandState(_ skill: String, status s: BottleStatus) -> CommandLiveState? {
+        switch skill {
+        case "bottle_sterilise": return CommandLiveState(on: s.isSterilising)
+        case "bottle_set_uv_intensity": return CommandLiveState(mode: s.uvIntensity == .strong ? "strong" : "normal")
+        case "bottle_auto_clean": return CommandLiveState(on: s.autoSteriliseEnabled)
+        case "bottle_touch_lock": return CommandLiveState(on: s.touchLocked)
+        case "bottle_reminders": return CommandLiveState(on: s.reminderEnabled)
+        case "bottle_daily_reset": return CommandLiveState(on: s.dailyAutoReset)
+        case "bottle_set_screen_seconds": return CommandLiveState(mode: String(s.screenSeconds))
+        default: return nil
+        }
+    }
+
     // MARK: Commands
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {

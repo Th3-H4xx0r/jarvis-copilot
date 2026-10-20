@@ -222,6 +222,78 @@ final class BandDevice: WearableDevice {
         return out
     }
 
+    // MARK: Live state
+
+    /// What the band last reported, for `commandState` (tests build one).
+    struct Reported {
+        var settings: BandSettings?
+        var alerts: BandAlertSwitches?
+        var sedentary: BandSedentary?
+        var heartRateAlarm: BandHeartRateAlarm?
+        var raiseToWake: BandRaiseToWake?
+        var oxygen: BandOxygenSchedule?
+        var measuring: BandMeasure?
+        var finding = false
+    }
+
+    /// What the band's screens show: its switches as it last reported them, a reading or workout
+    /// under way, the phone's measurement plan (night tracking, who manages measuring) and the
+    /// units. Commands that set one of several name it by argument: `metric`, `type`, a unit, a
+    /// plan field, `calls` / `messages`.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        switch skill {
+        case "band_workout": return backend.workouts.map { CommandLiveState(on: $0.holdsLink(for: WearableKeepAlive.band)) }
+        case "band_night_tracking": return backend.scheduler.map { CommandLiveState(on: $0.plan.nightTracking) }
+        case "band_set_measurement_plan": return backend.scheduler.flatMap { Self.planState($0.plan, arguments: arguments) }
+        case "band_set_units": return Self.unitState(arguments)
+        default:
+            let reported = Reported(settings: session.settings, alerts: session.alerts, sedentary: session.sedentary,
+                                    heartRateAlarm: session.heartRateAlarm, raiseToWake: session.raiseToWake,
+                                    oxygen: session.oxygenSchedule, measuring: session.measuring, finding: session.finding)
+            return Self.commandState(skill, arguments: arguments, reported: reported)
+        }
+    }
+
+    static func commandState(_ skill: String, arguments: [String: String], reported r: Reported) -> CommandLiveState? {
+        switch skill {
+        case "band_measure": return ColmiR12.measuring(r.measuring?.name, asked: arguments["type"])
+        case "band_find": return CommandLiveState(on: r.finding)
+        case "band_set_sedentary": return r.sedentary.map { CommandLiveState(on: $0.enabled) }
+        case "band_set_heart_rate_alarm": return r.heartRateAlarm.map { CommandLiveState(on: $0.enabled) }
+        case "band_set_raise_to_wake": return r.raiseToWake.map { CommandLiveState(on: $0.enabled) }
+        case "band_set_monitoring":
+            guard let metric = arguments["metric"] else { return nil }
+            if metric == "spo2" { return r.oxygen.map { CommandLiveState(on: $0.enabled) } }
+            return monitorSwitches[metric].flatMap { r.settings?.isOn($0) }.map { CommandLiveState(on: $0) }
+        case "band_set_alerts":
+            let app = arguments["calls"] != nil ? "calls" : arguments["messages"] != nil ? "sms" : nil
+            return app.flatMap { r.alerts?.isOn($0) }.map { CommandLiveState(on: $0) }
+        default:
+            return nil
+        }
+    }
+
+    /// Monitoring → Measurements: the field a button sets (managed_by, a type's minutes, the night
+    /// window), or who manages measuring.
+    static func planState(_ plan: BandMeasurePlan, arguments: [String: String]) -> CommandLiveState? {
+        func hhmm(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
+        if arguments["night_start"] != nil { return CommandLiveState(mode: hhmm(plan.nightStart)) }
+        if arguments["night_end"] != nil { return CommandLiveState(mode: hhmm(plan.nightEnd)) }
+        if let type = planTypes.first(where: { arguments[$0] != nil }) { return CommandLiveState(mode: String(plan.interval(type))) }
+        return CommandLiveState(mode: plan.control.rawValue)
+    }
+
+    /// The unit a `band_set_units` button sets, as the app shows it.
+    static func unitState(_ arguments: [String: String]) -> CommandLiveState? {
+        if arguments["temperature"] != nil { return CommandLiveState(mode: TemperatureUnit.current.rawValue) }
+        if arguments["glucose"] != nil { return CommandLiveState(mode: GlucoseUnit.current.rawValue) }
+        if arguments["blood_fat"] != nil { return CommandLiveState(mode: BloodFatUnit.current.rawValue) }
+        if arguments["uric_acid"] != nil { return CommandLiveState(mode: UricAcidUnit.current.rawValue) }
+        return nil
+    }
+
     // MARK: Invoke
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {

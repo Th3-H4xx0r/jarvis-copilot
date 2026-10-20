@@ -333,13 +333,14 @@ final class HealthWidgetData: WidgetDataProvider {
     }
 }
 
-/// Every paired wearable: name, link, battery and keep-alive.
+/// Every paired wearable: name, link, battery, keep-alive, and what its commands are doing.
 @MainActor
 struct WearablesWidgetData: WidgetDataProvider {
     func values() async -> [String: JCJSON] {
         let hub = WearablesHub.shared
-        var out: [String: JCJSON] = [:]
-        for entry in hub.roster() {
+        let roster = hub.roster()
+        var out = Self.commandValues(Self.devices(hub, paired: Set(roster.map(\.kind))))
+        for entry in roster {
             let key = entry.kind
             out["\(key).name"] = .string(entry.name)
             out["\(key).connected"] = .bool(entry.connected)
@@ -349,6 +350,36 @@ struct WearablesWidgetData: WidgetDataProvider {
         if let b = hub.ring.session.battery { out["ring.battery"] = .number(Double(b.percent)) }
         if let b = hub.x5.session.battery { out["x5ring.battery"] = .number(Double(b.percent)) }
         if let b = hub.bottle.status?.batteryPercent { out["bottle.battery"] = .number(Double(b)) }
+        return out
+    }
+
+    /// The wearables whose commands report a state, by widget key: the paired ones, plus the
+    /// dashcam and car lights (they say nothing until set up).
+    static func devices(_ hub: WearablesHub, paired: Set<String>) -> [String: any WearableDevice] {
+        var out: [String: any WearableDevice] = [DashcamDevice.identityKey: DashcamDevice.shared,
+                                                 CarLightsDevice.kind: CarLightsDevice.shared]
+        // Each wraps its manager, as the registered one does.
+        let wearables: [(String, any WearableDevice)] = [
+            (WearableKeepAlive.bottle, VsitooS1Pro(manager: hub.bottle)),
+            (WearableKeepAlive.esp32, Esp32Board(manager: hub.esp32)),
+            (WearableKeepAlive.ring, ColmiR12(manager: hub.ring)),
+            (WearableKeepAlive.x5ring, X5Ring(backend: hub.x5)),
+            (WearableKeepAlive.band, BandDevice(backend: hub.band)),
+            (WearableKeepAlive.glasses, hub.glasses),
+        ]
+        for (key, device) in wearables where paired.contains(key) { out[key] = device }
+        return out
+    }
+
+    /// `WidgetDataCatalog.commandValues` from each device's `commandState`.
+    static func commandValues(_ devices: [String: any WearableDevice]) -> [String: JCJSON] {
+        var out: [String: JCJSON] = [:]
+        for value in WidgetDataCatalog.commandValues {
+            guard let state = devices[value.device]?.commandState(value.skill) else { continue }
+            if value.onLabel != nil, let on = state.on { out[value.key] = .bool(on) }
+            if value.modeLabel != nil, let mode = state.mode { out[value.modeKey] = .string(mode) }
+            if value.endsLabel != nil, let ends = state.endsAt { out[value.endsKey] = .number(ends.timeIntervalSince1970) }
+        }
         return out
     }
 }

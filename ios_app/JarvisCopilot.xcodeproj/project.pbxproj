@@ -87,6 +87,7 @@
 		13682FFE53560B9D0C42D8A5 /* VoiceTurnMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F729A9BCD2E7FE28C7F1435 /* VoiceTurnMachine.swift */; };
 		1368531EF9614400A1844944 /* DashcamSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB3B3E4392D6A8B40329E4E /* DashcamSetup.swift */; };
 		1386B02CBF6D56B167A9DD3D /* DashcamLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF235F5545898FE39755885 /* DashcamLibraryView.swift */; };
+		140B6F7C90D75E351A6F9999 /* CommandLiveStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F56FECC4F87B729F2317485 /* CommandLiveStateTests.swift */; };
 		1454EBFB55EEF5AD45272E6C /* HarnessTurnFieldsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */; };
 		14850FF8C4B791E67CE3CA91 /* ChatStoreBoundaries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76EFFE82FA39C698D2D1520E /* ChatStoreBoundaries.swift */; };
 		14D5CE2A7E7FF2BB4D18027F /* AmbientOpusEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */; };
@@ -1874,6 +1875,7 @@
 		9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModelPillTests.swift; sourceTree = "<group>"; };
 		9F449B9A02840155A5FAD6C5 /* VoiceStoreTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceStoreTransportTests.swift; sourceTree = "<group>"; };
 		9F4C9C5AB789FDD5A49DB3FD /* AudioPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		9F56FECC4F87B729F2317485 /* CommandLiveStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CommandLiveStateTests.swift; sourceTree = "<group>"; };
 		9FA0FAF907B689578B9C42E6 /* StrengthExerciseCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthExerciseCard.swift; sourceTree = "<group>"; };
 		9FA5AC544486624CE6A85698 /* RingTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingTransportTests.swift; sourceTree = "<group>"; };
 		9FB3B3E4392D6A8B40329E4E /* DashcamSetup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSetup.swift; sourceTree = "<group>"; };
@@ -4170,6 +4172,7 @@
 				321A6A70A622CE33358F4901 /* GlassesNewSkillsTests.swift */,
 				39B90E3148926A3EF84DA78D /* RingBandNewSkillsTests.swift */,
 				CEEB4B66C6F2B120AB1EE622 /* DashcamEsp32NewSkillsTests.swift */,
+				9F56FECC4F87B729F2317485 /* CommandLiveStateTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -4996,6 +4999,7 @@
 				565C26A0207BB84A67BD5B8C /* ButtonStatesTests.swift in Sources */,
 				0CFA9BA82173D4CE263AA6EF /* ControlPushTokensTests.swift in Sources */,
 				E7A9D107FCC21503D0462360 /* LiveButtonsTests.swift in Sources */,
+				140B6F7C90D75E351A6F9999 /* CommandLiveStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

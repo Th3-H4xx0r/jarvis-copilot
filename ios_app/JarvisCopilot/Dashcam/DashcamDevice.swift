@@ -145,6 +145,32 @@ final class DashcamDevice: WearableDevice {
         return out
     }
 
+    /// Recording as the camera last said (the page's Record/Stop), and the switch a
+    /// `dashcam_set_options` button sets, as Settings shows it. Upload and keep-on-phone are the
+    /// server's rules: unknown until they're loaded.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        guard setup() != nil else { return nil }
+        switch skill {
+        case "dashcam_set_recording":
+            return sync.recording.map { CommandLiveState(on: $0) }
+        case "dashcam_set_options":
+            switch Self.options.first(where: { arguments[$0] != nil }) {
+            case "auto_download": return CommandLiveState(on: sync.autoSync)
+            case "lock_screen_progress": return CommandLiveState(on: DashcamSyncBeacon.enabled)
+            case "upload": return sync.rulesLoaded ? CommandLiveState(on: sync.rules.upload) : nil
+            case "keep_on_phone": return sync.rulesLoaded ? CommandLiveState(on: sync.rules.keepOnPhone) : nil
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    /// `dashcam_set_options`' switches.
+    static let options = ["auto_download", "upload", "keep_on_phone", "lock_screen_progress"]
+
     private func camera() throws -> DashcamCamera {
         guard let setup = setup() else { throw DashcamError.unsupported("No dashcam is set up yet — add it in Devices.") }
         guard wifi() else { throw DashcamError.notConnected }
@@ -293,7 +319,7 @@ final class DashcamDevice: WearableDevice {
     /// changes if an argument is wrong or the rules can't be read.
     private func setOptions(_ args: [String: Any]) async throws -> [String: Any] {
         var options: [String: Bool] = [:]
-        for key in ["auto_download", "upload", "keep_on_phone", "lock_screen_progress"] where args[key] != nil {
+        for key in Self.options where args[key] != nil {
             guard let on = args[key] as? Bool else { throw DeviceError.badArgument("\(key) must be true or false") }
             options[key] = on
         }

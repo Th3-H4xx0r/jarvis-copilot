@@ -124,6 +124,23 @@ final class CarDevice: WearableDevice, WearableHost {
         return out
     }
 
+    /// A `car_set_control` button follows the control its `control` argument names, at the value
+    /// the car's page shows: a toggle's side (on/off is also its `value`), a level, a choice.
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        guard skill == "car_set_control", let id = arguments["control"],
+              let control = controls.first(where: { $0.id == id }) else { return nil }
+        return Self.state(of: control)
+    }
+
+    static func state(of control: WearableControl) -> CommandLiveState? {
+        switch control.kind {
+        case .toggle(let isOn): return CommandLiveState(on: isOn, mode: isOn ? "on" : "off")
+        case .level(let value, _, _, _): return CommandLiveState(mode: WearableControl.format(value))
+        case .choice(let selected, _): return selected.isEmpty ? nil : CommandLiveState(mode: selected)
+        case .button: return nil
+        }
+    }
+
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
         case "car_show_approvals":

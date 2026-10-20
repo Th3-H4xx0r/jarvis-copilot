@@ -129,6 +129,41 @@ final class Esp32Board: WearableDevice {
         return out
     }
 
+    /// The LED, pins, relay and script as the board last reported them — the board page's values;
+    /// nil until it has (they are cleared when the session ends). A pin's command names its `gpio`.
+    func commandState(_ skill: String) -> CommandLiveState? { commandState(skill, arguments: [:]) }
+
+    func commandState(_ skill: String, arguments: [String: String]) -> CommandLiveState? {
+        Self.commandState(skill, arguments: arguments, ledGPIO: manager.ledGPIO, pins: manager.pinStates,
+                          relay: manager.relay, script: manager.script)
+    }
+
+    static func commandState(_ skill: String, arguments: [String: String], ledGPIO: UInt8?,
+                             pins: [UInt8: Esp32Protocol.PinState], relay: Esp32Protocol.RelayStatus?,
+                             script: Esp32Protocol.ScriptStatus?) -> CommandLiveState? {
+        let pin = arguments["gpio"].flatMap { UInt8($0) }.flatMap { pins[$0] }
+        switch skill {
+        case "esp32_set_led":
+            return ledGPIO.flatMap { pins[$0] }.map { CommandLiveState(on: $0.value != 0) }
+        case "esp32_write_pin":
+            guard let pin, pin.mode == .output else { return nil }
+            return CommandLiveState(on: pin.value != 0)
+        case "esp32_set_pin_mode":
+            guard let pin, pin.mode != .unset else { return nil }
+            return CommandLiveState(mode: pin.mode.wireName)
+        case "esp32_set_pwm":
+            guard let pin, pin.mode == .pwm else { return nil }
+            return CommandLiveState(mode: String(pin.value))
+        case "esp32_notification_relay":
+            return relay.map { CommandLiveState(on: $0.on) }
+        case "esp32_script_control":
+            guard let script, script.state != .none else { return nil }
+            return CommandLiveState(on: script.state == .running)
+        default:
+            return nil
+        }
+    }
+
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         // Reconnects on demand (after a Disconnect too) and lets go again, like the bottle.
         defer { manager.releaseIfIdle() }
