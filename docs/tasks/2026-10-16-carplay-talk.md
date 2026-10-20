@@ -240,8 +240,18 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     Spotify's iPhone kit. Built 78d9383aa8: SpotifyiOS 5.0.1 (exact) in the app, `spotify_remote_play` (server-only)
     — after opening Spotify on the car the server hands the phone the song + its token and the app plays it via App
     Remote (4 tries, 2 s apart). Sign-ins always ask for app-remote-control.
-  - [ ] He: developer.spotify.com app (client id 4e2794…) → add redirect `jarviscopilot://spotify-callback`, tick iOS,
+  - [x] He: developer.spotify.com app (client id 4e2794…) → add redirect `jarviscopilot://spotify-callback`, tick iOS,
     bundle `com.jarviscopilot.jarviscopilotMobileAndIOS`; then sign in again over `ssh -L 43827:127.0.0.1:43827`.
+    Done 2026-10-18 18:32 UTC (app-remote-control granted).
+  - 2026-10-20 22:44 try, "didn't work at all, it just opens Spotify": every App Remote try was refused by the
+    server itself ("'spotify_remote_play' is only run by the server itself" — the follow-up went through the HTTP
+    route, which refuses server-only skills); the Web API plays were taken and never played, and one sent while a
+    song played (YOSEMITE, 3405 ms) stopped it. Same evening on the Mac: "no device is active" — the model reused
+    the car's iPhone id, it 404'd, and only phone turns handled that.
+  - Fixed 4f98fdd875 (server deployed 23:15:39 UTC): App Remote through the webui's own bridge; a phone turn with
+    app-remote-control goes straight to the phone's Spotify app (6 tries, 2 s apart), Web API only if it never
+    answers; a Mac/web turn whose named device 404s plays on a listed device, a computer first on the Mac.
+  - [ ] He: "play Blinding Lights" in the car, and once on the Mac.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
   message, Send/Call + ✕; Jarvis says it and the mic stays open for yes / no / a correction.
