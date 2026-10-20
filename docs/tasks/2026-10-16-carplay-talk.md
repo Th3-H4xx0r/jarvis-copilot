@@ -251,6 +251,13 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Fixed 4f98fdd875 (server deployed 23:15:39 UTC): App Remote through the webui's own bridge; a phone turn with
     app-remote-control goes straight to the phone's Spotify app (6 tries, 2 s apart), Web API only if it never
     answers; a Mac/web turn whose named device 404s plays on a listed device, a computer first on the Mac.
+  - 23:17 Mac try, "not even opening Spotify on my MacBook": the server's open_app sent the phone's `app`; the Mac's
+    takes `name` ("unexpected args: ['app']"). Fixed c961f7c65f (deployed): open_app's argument as the device
+    declares it; a play waiting on a Mac turn starts on the Mac, not the phone.
+  - 23:18 car try: App Remote now reached the phone — six "Connection attempt failed": the Spotify app takes a
+    connection only while it plays music; the SDK wakes it with authorizeAndPlayURI (a `spotify-action:` link
+    that UIApplication can't open with the phone locked). 5a89b2f6ea (server deployed, phone installing): the
+    phone takes that link back and opens it on the car's screen; `spotify-action` declared for canOpenURL.
   - [ ] He: "play Blinding Lights" in the car, and once on the Mac.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
