@@ -414,6 +414,7 @@
 		565C26A0207BB84A67BD5B8C /* ButtonStatesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE0B32C4D56BB4B2FAE4D98 /* ButtonStatesTests.swift */; };
 		56B477AD25938FBA7F802254 /* SkillsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 716EAE0CECB2FF74A6B24092 /* SkillsPage.swift */; };
 		571230674B0918C43A7C7241 /* DashcamSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FDE6F832C56A99B29B9776A /* DashcamSetupView.swift */; };
+		5727E49AA5B8F77024D66561 /* IMessageFactCardRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31CAD7EF9E5947CE7346F991 /* IMessageFactCardRenderTests.swift */; };
 		575642518E14FC695BCC88D2 /* WatchTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EF84A4A4C7F0D75EC24E6D8 /* WatchTheme.swift */; };
 		5781A62A8C3EA65CF635D673 /* HarnessAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E725F35A376638C38E264E /* HarnessAPI.swift */; };
 		581537C070C63F2F4AE19A89 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */; };
@@ -1436,6 +1437,7 @@
 		306F61093C44241FD6D56AA7 /* WidgetSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetSkills.swift; sourceTree = "<group>"; };
 		3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduling.swift; sourceTree = "<group>"; };
 		312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatModelsLoadTests.swift; sourceTree = "<group>"; };
+		31CAD7EF9E5947CE7346F991 /* IMessageFactCardRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactCardRenderTests.swift; sourceTree = "<group>"; };
 		31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToyotaTests.swift; sourceTree = "<group>"; };
 		31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmTests.swift; sourceTree = "<group>"; };
 		31E90B4027E586F5C69B6348 /* HarnessJobTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessJobTests.swift; sourceTree = "<group>"; };
@@ -3604,6 +3606,7 @@
 				77A8B0E1D2D4A7058CDD8DA1 /* IMessageMemoryModelsTests.swift */,
 				8D20EAE8C93C3B7F5152D7B2 /* IMessageFactsTests.swift */,
 				C0EECB93A6F1DFCCC36BE946 /* IMessageChatMemoriesTests.swift */,
+				31CAD7EF9E5947CE7346F991 /* IMessageFactCardRenderTests.swift */,
 			);
 			name = Integrations;
 			path = Integrations;
@@ -5077,6 +5080,7 @@
 				B387BACB4AF6FF702D34021D /* IMessageChatMemoriesTests.swift in Sources */,
 				038069EF52B3458FEBCFCA18 /* DashcamExportTests.swift in Sources */,
 				B824037A86A3E016B210D41D /* BridgeReconnectTests.swift in Sources */,
+				5727E49AA5B8F77024D66561 /* IMessageFactCardRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
