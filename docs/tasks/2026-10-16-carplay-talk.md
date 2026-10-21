@@ -266,6 +266,12 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - 23:34 car try: the phone never answered App Remote within 15 s (twice), no phone-side trace. 1dd2c23cfb
     (phone installing): every step logged as `[spotify] +Nms …` in voice.log; car-screen open capped at 3 s,
     connect at 4 s.
+  - ROOT CAUSE (live test 2026-10-21 00:10-00:14, Spotify up in CarPlay, he heard each): a Web API play
+    naming a song → 204 and the iPhone's player drops to "None at 0 ms" (Jarvis's own play stopped what its
+    link had started); resume with no body → plays; a spotify: link opened while Spotify is idle → plays.
+    4cc3af0afb (server deployed 00:15:43 UTC): phone turns open the link, then resume / App Remote switch /
+    pause + reopen — never a play naming the song. Also 6c6695550e: a car turn never inherits the Mac's
+    "on my Mac" window (voice chat shared), and Spotify music is never done by driving the Mac's screen.
   - [ ] He: "play Blinding Lights" in the car, and once on the Mac.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
