@@ -43,12 +43,14 @@ final class IMessageFactsStore {
     /// Store or skip one card. It leaves at once; a failure puts it back and says why.
     func decide(_ fact: IMessageFact, store: Bool) async {
         guard let index = facts.firstIndex(where: { $0.id == fact.id }) else { return }
+        // Kept after success too: a load that began before this tap may still
+        // answer with the card, and must not bring it back.
         deciding.insert(fact.id)
         facts.remove(at: index)
-        defer { deciding.remove(fact.id) }
         do {
             try await api.decide(ids: [fact.id], store: store)
         } catch {
+            deciding.remove(fact.id)
             if !facts.contains(where: { $0.id == fact.id }) {
                 facts.insert(fact, at: min(index, facts.count))
             }

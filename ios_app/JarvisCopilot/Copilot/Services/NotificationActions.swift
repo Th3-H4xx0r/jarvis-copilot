@@ -197,7 +197,9 @@ final class NotificationActionHandler {
             }
         case .storeFacts, .skipFacts:
             let store = action.verdict == .storeFacts
-            if !(await IMessageFactsPush.decideInBackground(burst: action.burst, store: store, api: facts)) {
+            // The banner posts inside the background task, so iOS can't suspend
+            // the app between the failure and telling him about it.
+            _ = await IMessageFactsPush.decideInBackground(burst: action.burst, store: store, api: facts) {
                 await postFailure(title: store ? "Couldn't save the facts" : "Couldn't skip the facts",
                                   body: "Open JARVIS to answer them on the Chat screen.")
             }

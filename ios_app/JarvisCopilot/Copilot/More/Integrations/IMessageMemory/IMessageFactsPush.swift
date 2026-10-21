@@ -64,16 +64,35 @@ enum IMessageFactsPush {
         }
     }
 
+    /// Longest a lock-screen answer may take. iOS gives a background action
+    /// about 30 s, and the shared session would otherwise wait for a network
+    /// for up to an hour — the app would be suspended mid-request, no failure
+    /// banner would show, and the cards would auto-store a day later.
+    static let backgroundLimit: Duration = .seconds(20)
+
     /// The same, holding a background task so iOS doesn't suspend the app halfway
-    /// (the action doesn't bring it to the foreground). Tells the Chat home to
-    /// re-read its cards when it went through.
+    /// (the action doesn't bring it to the foreground), giving up after
+    /// `backgroundLimit`, and running `onFailure` (the "couldn't" banner) while
+    /// the task is still held. Tells the Chat home to re-read its cards when it
+    /// went through.
     @MainActor
     static func decideInBackground(burst: String, store: Bool,
-                                   api: IMessageMemoryAPI = IMessageMemoryAPI()) async -> Bool {
+                                   api: IMessageMemoryAPI = IMessageMemoryAPI(),
+                                   onFailure: @MainActor () async -> Void = {}) async -> Bool {
         let task = BackgroundTask.begin("imessage.facts.decide")
         defer { task.end() }
-        let ok = await decide(burst: burst, store: store, api: api)
-        if ok { NotificationCenter.default.post(name: changed, object: nil) }
+        let attempt = Task { await decide(burst: burst, store: store, api: api) }
+        let limit = Task {
+            try? await Task.sleep(for: backgroundLimit)
+            attempt.cancel()
+        }
+        let ok = await attempt.value
+        limit.cancel()
+        if ok {
+            NotificationCenter.default.post(name: changed, object: nil)
+        } else {
+            await onFailure()
+        }
         return ok
     }
 }

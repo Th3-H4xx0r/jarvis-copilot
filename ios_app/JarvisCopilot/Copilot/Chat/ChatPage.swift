@@ -98,8 +98,10 @@ struct ChatPage: View {
                 Task { await dashboard.refresh() }
             }
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { facts.load() }
+        .onChange(of: scenePhase) { old, phase in
+            // Back from the background only — not every Control Center pull or
+            // Face ID prompt (inactive → active), which would cost a request each.
+            if phase == .active && old == .background { facts.load() }
             let visible = phase == .active && router.selectedTab == .chat
             store.setListShown(showSessions && visible)
             store.setMirroring(visible)
