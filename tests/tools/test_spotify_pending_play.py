@@ -58,6 +58,7 @@ class _PlayerStub:
         self.device_calls = 0
         self.pause_calls = 0
         self.transfer_calls: list[dict] = []
+        self.resume_calls: list[dict] = []
         self.started: dict | None = None  # what a taken play left playing, like Spotify
 
     def start_playback(self, **kw):
@@ -91,6 +92,10 @@ class _PlayerStub:
 
     def app_remote_credentials(self):
         return self.remote
+
+    def resume_playback(self, **kw):
+        self.resume_calls.append(kw)
+        return {"success": True, "status_code": 204, "empty": True}
 
     def transfer_playback(self, **kw):
         self.transfer_calls.append(kw)
@@ -419,7 +424,7 @@ APP_OPENING = {"ok": True, "result": {"launched": True, "note": "It opens on the
 def _playing(uri: str, *, device: str = "phone-1", context: str | None = None, is_playing: bool = True) -> dict:
     return {
         "is_playing": is_playing,
-        "device": {"id": device},
+        "device": {"id": device, "type": "Smartphone" if device.startswith("phone") else "Computer"},
         "item": {"uri": uri},
         "context": {"uri": context} if context else None,
     }
@@ -478,20 +483,6 @@ def _run(runs, i=0) -> str:
     return runs[i](sleep=clock.sleep, clock=clock)
 
 
-def test_a_phone_turn_opens_the_song_on_the_phone_now_and_returns_at_once(monkeypatch, spawned, car_turn) -> None:
-    phone, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
-    _use(monkeypatch, stub)
-
-    payload = _car_play(uris=[TRACK])
-
-    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
-    assert payload["success"] is True and payload["pending"] is True
-    assert "Playing it in Spotify on the car" in payload["note"]
-    assert len(stub.play_calls) == 1  # only the failed attempt: not on the MacBook
-    assert len(runs) == 1 and spawned == []
-
-
 def test_a_phone_turn_opens_a_playlist_by_its_context_uri(monkeypatch, spawned, car_turn) -> None:
     phone, _ = car_turn
     _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]]))
@@ -514,44 +505,6 @@ def test_a_phone_turn_never_plays_on_a_computer(monkeypatch, spawned, car_turn) 
     assert spotify_tool._current_pending_play() is None
 
 
-def test_the_phone_is_started_on_the_song_when_it_shows_up_on_another_track(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[_playing(OTHER_TRACK), _playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK], position_ms=1000)
-
-    assert _run(runs) == "done"
-    assert stub.play_calls[-1] == {"device_id": "phone-1", "context_uri": None, "uris": [TRACK],
-                                   "offset": None, "position_ms": 1000}
-    assert spotify_tool._current_pending_play() is None
-
-
-def test_nothing_is_restarted_when_the_phone_already_plays_the_song(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-                       playback_states=[_playing(TRACK)])
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    assert len(stub.play_calls) == 1  # just the original failed attempt
-
-
-def test_nothing_is_restarted_when_the_phone_already_plays_the_playlist(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[], [PHONE_ACTIVE]],
-                       playback_states=[_playing(TRACK, context=PLAYLIST)])
-    _use(monkeypatch, stub)
-    _car_play(context_uri=PLAYLIST)
-
-    assert _run(runs) == "done"
-    assert len(stub.play_calls) == 1
-
-
 def test_a_404_on_an_explicit_device_takes_the_same_path(monkeypatch, spawned, car_turn) -> None:
     phone, runs = car_turn
     stub = _PlayerStub(play_errors=[_api_error(404, DEVICE_NOT_FOUND_BODY)], device_polls=[[MACBOOK]])
@@ -562,58 +515,6 @@ def test_a_404_on_an_explicit_device_takes_the_same_path(monkeypatch, spawned, c
     assert "error" not in payload
     assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
     assert len(runs) == 1
-
-
-def test_a_listed_phone_is_played_on_directly(monkeypatch, spawned, car_turn) -> None:
-    phone, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK, PHONE]])
-    _use(monkeypatch, stub)
-
-    payload = _car_play(uris=[TRACK])
-
-    assert stub.play_calls[-1]["device_id"] == "phone-1"
-    assert "Pranav's iPhone" in payload["note"]
-    assert phone.calls == [] and runs == []
-
-
-def test_a_listed_phone_that_404s_is_opened_instead(monkeypatch, spawned, car_turn) -> None:
-    phone, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device(), _api_error(404, DEVICE_NOT_FOUND_BODY)],
-                       device_polls=[[PHONE]])
-    _use(monkeypatch, stub)
-
-    payload = _car_play(uris=[TRACK])
-
-    assert payload["pending"] is True
-    assert phone.calls == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
-    assert len(runs) == 1
-
-
-def test_newest_play_wins_while_the_phone_opens_the_song(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device(), _no_active_device()], device_polls=[[]])
-    _use(monkeypatch, stub)
-
-    _car_play(uris=[TRACK])
-    _car_play(uris=[OTHER_TRACK])
-    stub.device_polls = [[PHONE_ACTIVE]]
-
-    assert _run(runs, 0) == "cancelled"
-    assert _run(runs, 1) == "done"
-    assert [c["uris"] for c in stub.play_calls if c.get("device_id")] == [[OTHER_TRACK]]
-
-
-def test_pause_cancels_the_song_the_phone_is_opening(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[]])
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    spotify_tool._handle_spotify_playback({"action": "pause"}, task_id="sess-car")
-    stub.device_polls = [[PHONE_ACTIVE]]
-
-    assert _run(runs) == "cancelled"
-    assert len(stub.play_calls) == 1
 
 
 def test_a_phone_turn_out_of_the_car_says_the_phone(monkeypatch, spawned) -> None:
@@ -630,25 +531,6 @@ def test_a_phone_turn_out_of_the_car_says_the_phone(monkeypatch, spawned) -> Non
 
 
 # ── a phone without open_url: open the app, then the pending play ──────────
-
-
-def test_a_phone_without_open_url_opens_spotify_and_waits_for_the_phone(monkeypatch, spawned, car_turn) -> None:
-    phone, runs = car_turn
-    phone.replies["open_url"] = NO_OPEN_URL
-    stub = _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK], [MACBOOK, PHONE]])
-    _use(monkeypatch, stub)
-
-    payload = _car_play(uris=[TRACK])
-
-    assert [c[1] for c in phone.calls] == ["open_url", "open_app"]
-    assert "Opening Spotify" in payload["note"]
-    assert "opens on the car's screen" in payload["note"]
-    assert "open_app spotify" not in payload["note"]
-    assert spawned == [] and len(runs) == 1
-
-    assert _run(runs) == "done"
-    assert stub.play_calls[-1]["device_id"] == "phone-1"
-    assert all(c.get("device_id") != "mac-1" for c in stub.play_calls)
 
 
 def test_a_phone_that_cannot_open_spotify_at_all_falls_back_to_asking_the_model(monkeypatch, spawned, car_turn) -> None:
@@ -859,91 +741,6 @@ def test_a_turn_from_an_unknown_device_keeps_todays_note(monkeypatch, spawned, c
     assert len(spawned) == 1 and runs == []
 
 
-def test_a_play_the_phone_took_but_did_not_start_is_sent_again(monkeypatch, spawned, car_turn) -> None:
-    # 2026-10-18 06:49: the phone's Spotify came up and took the play 2 s after the
-    # song opened on CarPlay — "started", said the log — and nothing played.
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}] * 5 + [_playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    phone_plays = [c for c in stub.play_calls if c.get("device_id") == "phone-1"]
-    assert len(phone_plays) == 2, "sent again until Spotify says it's playing"
-
-
-def _phone_plays(stub) -> list[dict]:
-    return [c for c in stub.play_calls if c.get("device_id") == "phone-1"]
-
-
-def test_a_taken_play_is_not_restarted_while_it_loads(monkeypatch, spawned, car_turn) -> None:
-    # 2026-10-18 16:02: the play went to the phone again every check (15 in 30 s) —
-    # each one restarts the song, so one that needs a few seconds to load never does.
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}, {"empty": True}, {"empty": True}, _playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    assert len(_phone_plays(stub)) == 1
-
-
-def test_a_song_the_phone_holds_paused_is_resumed_not_restarted(monkeypatch, spawned, car_turn) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}, _playing(TRACK, is_playing=False), _playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    first, resume = _phone_plays(stub)
-    assert first.get("uris") == [TRACK]
-    assert resume == {"device_id": "phone-1"}, "a resume, not the song from the top"
-
-
-def test_a_relinked_song_counts_as_playing(monkeypatch, spawned, car_turn) -> None:
-    # Spotify may play its own copy of a track for his country: the item is another
-    # uri, and `linked_from` is the one asked for.
-    _, runs = car_turn
-    relinked = _playing("spotify:track:0000000000000000000000")
-    relinked["item"]["linked_from"] = {"uri": TRACK}
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}, relinked],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    assert len(_phone_plays(stub)) == 1
-
-
-def test_each_check_logs_what_spotify_reports(monkeypatch, spawned, car_turn, caplog) -> None:
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[_playing(TRACK, device="mac-1", is_playing=False), _playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    with caplog.at_level(logging.INFO, logger=spotify_tool.logger.name):
-        assert _run(runs) == "done"
-    checks = [r.getMessage() for r in caplog.records if "Spotify reports" in r.getMessage()]
-    assert checks and "mac-1" in checks[0] and "paused" in checks[0] and TRACK in checks[0]
 
 
 def test_a_song_that_never_starts_is_reported_not_done(monkeypatch, spawned, car_turn, caplog) -> None:
@@ -960,28 +757,8 @@ def test_a_song_that_never_starts_is_reported_not_done(monkeypatch, spawned, car
     assert spotify_tool._current_pending_play() is None
 
 
-def test_a_play_that_never_reaches_the_phone_moves_playback_there_first(monkeypatch, spawned, car_turn) -> None:
-    # 2026-10-18 16:56 and 17:03: the phone took three plays and Spotify said "nothing
-    # playing anywhere" every check — the play never reached its player. The resend
-    # transfers playback to the phone (which wakes its player) before playing again.
-    _, runs = car_turn
-    stub = _PlayerStub(
-        play_errors=[_no_active_device()],
-        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[{"empty": True}] * 5 + [_playing(TRACK)],
-    )
-    _use(monkeypatch, stub)
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    assert stub.transfer_calls == [{"device_id": "phone-1", "play": True}]
-    assert len(_phone_plays(stub)) == 2
-
-
-
 REMOTE = {"token": "tok-123", "client_id": "cid-9"}
 REMOTE_PLAYED = {"ok": True, "result": {"played": TRACK}}
-SPOTIFY_NOT_UP = {"ok": False, "error": "couldn't reach the Spotify app: not running"}
 
 
 @pytest.fixture
@@ -1014,100 +791,6 @@ def _app_remote_stub(**kw) -> _PlayerStub:
     return stub
 
 
-def test_a_phone_turn_has_the_spotify_app_play_it_never_the_web_api(monkeypatch, spawned, car_turn, bridge) -> None:
-    # 2026-10-20 22:45:51: Spotify listed his iPhone as active, the Web API took the play
-    # (HTTP 204) and nothing played — as every time on his iPhone. The phone's Spotify app
-    # plays it (Spotify's iOS SDK, App Remote), asked through the webui's own bridge.
-    phone, runs = car_turn
-    calls, _ = bridge
-    stub = _app_remote_stub(device_polls=[[MACBOOK, PHONE_ACTIVE]])
-    _use(monkeypatch, stub)
-
-    payload = _car_play(uris=[TRACK])
-
-    assert payload["success"] is True and "Playing it in Spotify on the car" in payload["note"]
-    assert _remote_plays(calls) == [("iphone-1", "spotify_remote_play", {"uri": TRACK, **REMOTE})]
-    assert phone.calls == []  # nothing opened over Jarvis on the car's screen
-    assert stub.play_calls == [] and stub.transfer_calls == []
-    assert spotify_tool._current_pending_play() is None
-
-
-def test_the_spotify_app_is_asked_while_jarvis_still_has_the_car_screen(monkeypatch, spawned, car_turn,
-                                                                         bridge) -> None:
-    # 2026-10-20 23:53: once the song link had put Spotify on the car's screen, the phone's
-    # wake link opened from behind it — and the car's screen refused it, six times. Asked
-    # first, the phone opens the wake link while Jarvis is still in front.
-    phone, runs = car_turn
-    calls, answers = bridge
-    answers["spotify_remote_play"] = {"ok": True, "result": {"woke": TRACK}}
-    _use(monkeypatch, _app_remote_stub(device_polls=[[]]))
-
-    payload = _car_play(uris=[TRACK])
-
-    assert payload["success"] is True
-    assert len(_remote_plays(calls)) == 1
-    assert phone.calls == []  # the wake link opened Spotify itself
-
-
-def test_the_spotify_app_is_asked_again_while_it_comes_up(monkeypatch, spawned, car_turn, bridge) -> None:
-    _, runs = car_turn
-    calls, answers = bridge
-    answers["spotify_remote_play"] = [SPOTIFY_NOT_UP, SPOTIFY_NOT_UP, SPOTIFY_NOT_UP, REMOTE_PLAYED]
-    stub = _app_remote_stub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]])
-    _use(monkeypatch, stub)
-
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "played"
-    assert len(_remote_plays(calls)) == 4  # the first ask, then three tries
-    assert stub.play_calls == []
-
-
-def test_the_web_api_tries_only_once_the_spotify_app_never_answers(monkeypatch, spawned, car_turn, bridge) -> None:
-    # A Web API play sent while the song plays on his iPhone stops it (22:45:21: YOSEMITE
-    # at 3405 ms → "None at 0 ms"), so it never runs alongside the Spotify app's play.
-    _, runs = car_turn
-    calls, answers = bridge
-    answers["spotify_remote_play"] = SPOTIFY_NOT_UP
-    stub = _app_remote_stub(device_polls=[[PHONE_ACTIVE]],
-                            playback_states=[{"empty": True}, _playing(TRACK)])
-    _use(monkeypatch, stub)
-
-    _car_play(uris=[TRACK])
-
-    assert _run(runs) == "done"
-    assert len(_remote_plays(calls)) == 1 + spotify_tool._REMOTE_PLAY_TRIES  # first ask, then the tries
-    assert len(_phone_plays(stub)) == 1
-
-
-def test_a_newer_play_stops_the_spotify_app_tries_for_the_old_song(monkeypatch, spawned, car_turn, bridge) -> None:
-    _, runs = car_turn
-    calls, answers = bridge
-    answers["spotify_remote_play"] = [SPOTIFY_NOT_UP, SPOTIFY_NOT_UP, REMOTE_PLAYED]
-    _use(monkeypatch, _app_remote_stub(device_polls=[[]]))
-
-    _car_play(uris=[TRACK])
-    _car_play(uris=[OTHER_TRACK])
-
-    assert _run(runs, 0) == "cancelled"
-    assert _run(runs, 1) == "played"
-    asked = [c[2]["uri"] for c in _remote_plays(calls)]
-    assert asked[:2] == [TRACK, OTHER_TRACK] and asked[2:] == [OTHER_TRACK]
-
-
-def test_pause_stops_the_spotify_app_tries(monkeypatch, spawned, car_turn, bridge) -> None:
-    _, runs = car_turn
-    calls, answers = bridge
-    answers["spotify_remote_play"] = [SPOTIFY_NOT_UP, REMOTE_PLAYED]
-    _use(monkeypatch, _app_remote_stub(device_polls=[[]]))
-
-    _car_play(uris=[TRACK])
-    spotify_tool._handle_spotify_playback({"action": "pause"}, task_id="sess-car")
-
-    assert _run(runs) == "cancelled"
-    assert len(_remote_plays(calls)) == 1  # only the first ask
-
-
 def test_a_phone_turn_asking_for_the_macbook_plays_there(monkeypatch, spawned, car_turn, bridge) -> None:
     phone, runs = car_turn
     calls, _ = bridge
@@ -1129,3 +812,199 @@ def test_without_the_permission_the_phone_is_not_asked(monkeypatch, spawned, car
     assert len(runs) == 1
     _run(runs)
     assert _remote_plays(calls) == [] and all(c[1] != "spotify_remote_play" for c in phone.calls)
+
+
+# ── a phone turn: the song's link opens on the phone; never a Web API play naming it ──
+# Tested live 2026-10-21 00:10-00:14, Spotify up in CarPlay: a link Spotify is opened on
+# plays; a play with no body (resume) starts what it holds; a Web API play naming a song
+# answers 204 and drops the player to "None at 0 ms" — Jarvis's own play stopped the songs.
+
+
+def _opens(phone) -> list:
+    return [c for c in phone.calls if c[1] == "open_url"]
+
+
+def test_a_phone_turn_opens_the_song_and_never_names_it_in_a_web_api_play(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(device_polls=[[PHONE]], playback_states=[{"empty": True}, {"empty": True}, _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["pending"] is True and "Playing it in Spotify on the car" in payload["note"]
+    assert _opens(phone) == [("iphone-1", "open_url", {"url": TRACK, "now": True})]
+    assert len(runs) == 1 and spawned == []
+    assert _run(runs) == "played"
+    assert stub.play_calls == [] and stub.transfer_calls == []
+    assert spotify_tool._current_pending_play() is None
+
+
+def test_a_listed_phone_is_never_sent_a_web_api_play(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(device_polls=[[MACBOOK, PHONE_ACTIVE]], playback_states=[{"empty": True}, _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert stub.play_calls == [] and len(_opens(phone)) == 1
+
+
+def test_a_song_the_phone_holds_paused_is_resumed_with_no_song_named(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(playback_states=[{"empty": True}, _playing(TRACK, is_playing=False), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert stub.resume_calls == [{"device_id": "phone-1"}]
+    assert stub.play_calls == []
+
+
+def test_a_phone_that_holds_nothing_gets_the_link_again(monkeypatch, spawned, car_turn) -> None:
+    # 00:12: Spotify up on the car, the link opened again — and it played.
+    phone, runs = car_turn
+    stub = _PlayerStub(playback_states=[{"empty": True}] * 5 + [_playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert len(_opens(phone)) >= 2
+    assert stub.play_calls == []
+
+
+def test_a_song_the_phone_already_plays_is_left_alone(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(playback_states=[_playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["success"] is True
+    assert phone.calls == [] and runs == [] and stub.play_calls == []
+
+
+def test_a_playlist_the_phone_already_plays_is_left_alone(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    _use(monkeypatch, _PlayerStub(playback_states=[_playing(TRACK, context=PLAYLIST)]))
+
+    _car_play(context_uri=PLAYLIST)
+
+    assert phone.calls == [] and runs == []
+
+
+def test_a_relinked_song_counts_as_playing(monkeypatch, spawned, car_turn) -> None:
+    # Spotify may play its own copy of a track for his country: `linked_from` is the asked one.
+    phone, runs = car_turn
+    relinked = _playing("spotify:track:0000000000000000000000")
+    relinked["item"]["linked_from"] = {"uri": TRACK}
+    _use(monkeypatch, _PlayerStub(playback_states=[{"empty": True}, relinked]))
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert len(_opens(phone)) == 1
+
+
+def test_another_song_playing_is_switched_by_the_phones_spotify_app(monkeypatch, spawned, car_turn, bridge) -> None:
+    # App Remote takes a connection while Spotify plays; a link opened then only shows the song.
+    phone, runs = car_turn
+    calls, _ = bridge
+    stub = _app_remote_stub(playback_states=[_playing(OTHER_TRACK), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    payload = _car_play(uris=[TRACK])
+
+    assert payload["success"] is True
+    assert _remote_plays(calls) == [("iphone-1", "spotify_remote_play", {"uri": TRACK, **REMOTE})]
+    assert phone.calls == []
+    assert _run(runs) == "played"
+    assert stub.play_calls == []
+
+
+def test_without_the_spotify_app_a_playing_song_is_paused_then_the_link_opened(monkeypatch, spawned,
+                                                                              car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(playback_states=[_playing(OTHER_TRACK), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert stub.pause_calls == 1
+    assert len(_opens(phone)) == 1
+    assert _run(runs) == "played"
+    assert stub.play_calls == []
+
+
+def test_a_spotify_app_that_only_woke_doesnt_count_as_switched(monkeypatch, spawned, car_turn, bridge) -> None:
+    phone, runs = car_turn
+    _, answers = bridge
+    answers["spotify_remote_play"] = {"ok": True, "result": {"woke": TRACK}}
+    stub = _app_remote_stub(playback_states=[_playing(OTHER_TRACK), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert stub.pause_calls == 1 and len(_opens(phone)) == 1
+
+
+def test_each_check_logs_what_spotify_reports(monkeypatch, spawned, car_turn, caplog) -> None:
+    _, runs = car_turn
+    _use(monkeypatch, _PlayerStub(playback_states=[{"empty": True}, _playing(TRACK, device="mac-1", is_playing=False),
+                                                   _playing(TRACK)]))
+    _car_play(uris=[TRACK])
+
+    with caplog.at_level(logging.INFO, logger=spotify_tool.logger.name):
+        assert _run(runs) == "played"
+    checks = [r.getMessage() for r in caplog.records if "Spotify reports for the play on the phone" in r.getMessage()]
+    assert checks and "mac-1" in checks[0] and "paused" in checks[0] and TRACK in checks[0]
+
+
+def test_a_song_that_never_plays_on_the_phone_gives_up(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(playback_states=[{"empty": True}])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "timeout"
+    assert spotify_tool._current_pending_play() is None
+    assert stub.play_calls == []
+
+
+def test_the_newest_play_wins_on_the_phone(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    _use(monkeypatch, _PlayerStub(playback_states=[{"empty": True}, {"empty": True}, _playing(OTHER_TRACK)]))
+
+    _car_play(uris=[TRACK])
+    _car_play(uris=[OTHER_TRACK])
+
+    assert _run(runs, 0) == "cancelled"
+    assert _run(runs, 1) == "played"
+    assert [c[2]["url"] for c in _opens(phone)] == [TRACK, OTHER_TRACK]
+
+
+def test_pause_cancels_the_song_the_phone_is_opening(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(playback_states=[{"empty": True}, _playing(TRACK, is_playing=False)])
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    spotify_tool._handle_spotify_playback({"action": "pause"}, task_id="sess-car")
+
+    assert _run(runs) == "cancelled"
+    assert stub.resume_calls == [] and stub.play_calls == []
+
+
+def test_a_phone_without_open_url_opens_spotify_and_waits(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    phone.replies["open_url"] = NO_OPEN_URL
+    _use(monkeypatch, _PlayerStub(play_errors=[_no_active_device()], device_polls=[[MACBOOK]]))
+
+    payload = _car_play(uris=[TRACK])
+
+    assert [c[1] for c in phone.calls][-1] == "open_app"
+    assert "Opening Spotify" in payload["note"]
+    assert len(runs) == 1

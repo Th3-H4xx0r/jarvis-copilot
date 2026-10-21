@@ -28,10 +28,6 @@ logger = logging.getLogger(__name__)
 # a few seconds after Jarvis finishes speaking.
 _PENDING_PLAY_WINDOW_S = 30.0
 _PENDING_PLAY_POLL_INTERVAL_S = 1.5
-# A phone turn opens the song's own spotify: link on the phone instead (iPhone
-# Spotify opened on CarPlay and idle never shows up as a Connect device, so
-# waiting for one can't work); this long to see the phone play it.
-_OPENED_PLAY_WINDOW_S = 30.0
 
 
 def _check_spotify_available() -> bool:
@@ -369,11 +365,11 @@ def _opening_note(device_note: str, window: int) -> str:
     )
 
 
-# Tries, a few seconds apart, while Spotify comes up on the car's screen.
-_REMOTE_PLAY_TRIES = 6
-_REMOTE_PLAY_GAP_S = 2.0
-# After the Spotify app took a play: when to read what Spotify reports (for the log only).
-_REMOTE_CHECK_AFTER_S = 3.0
+# After the song's link opened on his phone: how often to look, for how long, and how
+# soon to open the link again while nothing plays.
+_PHONE_CHECK_S = 2.0
+_PHONE_SETTLE_S = 30.0
+_PHONE_REOPEN_S = 4.0
 
 
 def _server_phone_skill(device_id: str, skill: str, args: Dict[str, Any], timeout: float) -> Any:
@@ -388,24 +384,9 @@ def _server_phone_skill(device_id: str, skill: str, args: Dict[str, Any], timeou
         return {"ok": False, "error": str(exc)}
 
 
-def _remote_play_on_phone(phone_id: str, uri: str, credentials: Dict[str, str], *,
-                          sleep: Optional[Callable[[float], Any]] = None,
-                          cancelled: Optional[threading.Event] = None) -> bool:
-    """Tell the Spotify app on his phone to play ``uri`` itself (Spotify's iOS SDK, App Remote,
-    in the Jarvis app). Stops trying once ``cancelled`` is set. The token never goes in a log."""
-    wait = sleep or time.sleep
-    for attempt in range(1, _REMOTE_PLAY_TRIES + 1):
-        wait(_REMOTE_PLAY_GAP_S)
-        if cancelled is not None and cancelled.is_set():
-            return False
-        if _ask_app_remote(phone_id, uri, credentials, f"try {attempt}"):
-            return True
-    return False
-
-
 def _ask_app_remote(phone_id: str, uri: str, credentials: Dict[str, str], label: str) -> Optional[str]:
-    """One ask: what the phone did — "played" (Spotify was connected) or "woke" (it opened
-    Spotify's wake link on the song) — or None when it couldn't."""
+    """One ask: what the phone did — "played" (its Spotify app was connected and took it) or
+    "woke" (it opened Spotify's wake link) — or None when it couldn't. The token never goes in a log."""
     result = _server_phone_skill(phone_id, "spotify_remote_play", {"uri": uri, **credentials}, timeout=15)
     if isinstance(result, dict) and result.get("ok", True) and not result.get("error"):
         said = ", ".join(result["result"]) if isinstance(result.get("result"), dict) else "taken"
@@ -414,38 +395,6 @@ def _ask_app_remote(phone_id: str, uri: str, credentials: Dict[str, str], label:
     logger.info("Spotify: App Remote %s didn't play it: %s", label,
                 (result or {}).get("error") if isinstance(result, dict) else result)
     return None
-
-
-def _report_after_app_remote(client: Any, *, sleep: Optional[Callable[[float], Any]] = None,
-                             clock: Any = None) -> str:
-    """What Spotify reports a moment after the phone's Spotify app took a play (for the log only)."""
-    (sleep or time.sleep)(_REMOTE_CHECK_AFTER_S)
-    logger.info("Spotify reports after the phone's Spotify app took it: %s", _describe_state(_playback_state(client)))
-    return "reported"
-
-
-def _play_through_app_remote(pending: _PendingPlay, client: Any, phone_id: str, uri: str,
-                             credentials: Dict[str, str], *, sleep: Optional[Callable[[float], Any]] = None,
-                             clock: Callable[[], float] = time.monotonic) -> str:
-    """A phone turn's song, played by the phone's Spotify app (App Remote); the Web API only
-    once the app never answers. Its plays are taken and never start on his iPhone (2026-10-18
-    17:44, 2026-10-20 22:45:51: HTTP 204, nothing played), and one sent while a song plays
-    there stops it (2026-10-20 22:45:21: at 3405 ms → "None at 0 ms") — so never both.
-    Returns ``"played"``, ``"cancelled"`` (a newer play or a pause) or the Web API's outcome."""
-    wait = sleep or time.sleep
-    if _remote_play_on_phone(phone_id, uri, credentials, sleep=wait, cancelled=pending.cancelled):
-        _drop_pending_play(pending)
-        wait(_REMOTE_CHECK_AFTER_S)
-        logger.info("Spotify reports after the phone's Spotify app took it: %s",
-                    _describe_state(_playback_state(client)))
-        return "played"
-    if pending.cancelled.is_set():
-        return "cancelled"
-    logger.info("Spotify: the phone's Spotify app never took %s; trying the Web API", uri)
-    return car_app_followup.run_followup(
-        **_pending_play_followup(pending, client, timeout_s=_OPENED_PLAY_WINDOW_S,
-                                 label="Spotify play opened on the phone"),
-        sleep=sleep, clock=clock)
 
 
 def _app_remote_credentials(client: Any) -> Optional[Dict[str, str]]:
@@ -462,46 +411,100 @@ def _phone_playing_note(phone: Dict[str, Any], opening: Dict[str, Any]) -> str:
     return "Playing it in Spotify on his phone" + (f" ({said})." if said else ".")
 
 
-def _open_on_phone(pending: _PendingPlay, client: Any, phone: Dict[str, Any], uri: str) -> Optional[str]:
-    """Open the song's spotify: link on the turn's phone now (on CarPlay: on the car's screen)
-    and make sure in the background that it plays — through the phone's Spotify app when the
-    sign-in has app-remote-control, else through the Web API. None: the phone couldn't open it.
+def _switch_on_phone(client: Any, phone_id: str, uri: str, credentials: Optional[Dict[str, str]],
+                     device: Dict[str, Any]) -> bool:
+    """Another song plays on his phone: its Spotify app switches it (App Remote takes a
+    connection while Spotify plays). Else pause it, so the link opened next plays (a link
+    opened while a song plays only shows the song — live 2026-10-21 00:12). True: switched."""
+    if credentials and _ask_app_remote(phone_id, uri, credentials, "switch") == "played":
+        return True
+    try:
+        logger.info("Spotify: paused the phone to open the song (%s)",
+                    _status(client.pause_playback(device_id=device.get("id"))))
+    except SpotifyAPIError as exc:
+        logger.info("Spotify: the phone didn't pause (%s)", exc)
+    return False
 
-    With app-remote-control the phone's Spotify app is asked first, while Jarvis still has the
-    car's screen: it plays the song if Spotify is playing already, else the phone opens Spotify's
-    wake link on it — which the car's screen refuses once the song link has put Spotify in front
-    (2026-10-20 23:53: "wake link didn't open", six times)."""
+
+def _settle_on_phone(pending: _PendingPlay, client: Any, phone_id: str, uri: str,
+                     credentials: Optional[Dict[str, str]], *, sleep: Optional[Callable[[float], Any]] = None,
+                     clock: Callable[[], float] = time.monotonic) -> str:
+    """Make sure the song plays on his phone, the ways his iPhone's Spotify takes (tested live
+    2026-10-21 00:10-00:14, Spotify up in CarPlay):
+
+    * a link Spotify is opened on plays when Spotify isn't playing — a phone that holds
+      nothing gets the link again (Spotify is in front by then);
+    * a play with no body (resume) starts the song it holds paused;
+    * a song already playing is switched by its Spotify app, or paused and the link opened;
+    * never a Web API play naming the song: Spotify answers 204 and drops to an empty player
+      ("None at 0 ms") — Jarvis's own play stopped the songs its links had started.
+
+    Returns "played", "cancelled" (a newer play or a pause) or "timeout"."""
+    wait = sleep or time.sleep
+    started = opened_at = clock()
+    while clock() - started < _PHONE_SETTLE_S:
+        wait(_PHONE_CHECK_S)
+        if pending.cancelled.is_set():
+            return "cancelled"
+        state = _playback_state(client)
+        logger.info("Spotify reports for the play on the phone: %s", _describe_state(state))
+        device = state.get("device") or {}
+        on_phone = _is_smartphone(device)
+        holds = on_phone and _holds(state, device, pending.play_kwargs)
+        if holds and state.get("is_playing"):
+            _drop_pending_play(pending)
+            logger.info("Spotify: %s plays on the phone", uri)
+            return "played"
+        if holds:
+            try:
+                logger.info("Spotify: resumed the phone on it (%s)",
+                            _status(client.resume_playback(device_id=device.get("id"))))
+            except SpotifyAPIError as exc:
+                logger.info("Spotify: the phone didn't resume (%s)", exc)
+            continue
+        if on_phone and state.get("is_playing"):
+            if _switch_on_phone(client, phone_id, uri, credentials, device):
+                continue
+            opened_at = -1e9  # paused: open the song right away
+        if clock() - opened_at >= _PHONE_REOPEN_S:
+            opened_at = clock()
+            again = car_app_followup.request_open("spotify", phone_id, url=uri, now=True)
+            logger.info("Spotify: opened %s on the phone again (%s)", uri,
+                        "opened" if again["opened"] else again["error"])
+    _drop_pending_play(pending)
+    logger.warning("Spotify play on the phone gave up after %d s: %s never played there", int(_PHONE_SETTLE_S), uri)
+    return "timeout"
+
+
+def _open_on_phone(pending: _PendingPlay, client: Any, phone: Dict[str, Any], uri: str) -> Optional[str]:
+    """Play the song on the turn's phone: switched by its Spotify app when another song plays
+    there, else opened on it now (on CarPlay: on the car's screen; Spotify plays what it's
+    opened on), then made sure of in the background (``_settle_on_phone``). None: the phone
+    couldn't open it."""
     who = phone.get("name") or phone["device_id"]
     credentials = _app_remote_credentials(client)
-    if credentials and _ask_app_remote(phone["device_id"], uri, credentials, "first ask"):
+    state = _playback_state(client)
+    device = state.get("device") or {}
+    settle = functools.partial(_settle_on_phone, pending, client, phone["device_id"], uri, credentials)
+    if _is_smartphone(device) and state.get("is_playing") and _holds(state, device, pending.play_kwargs):
         _drop_pending_play(pending)
-        car_app_followup.start_background(functools.partial(_report_after_app_remote, client),
-                                          "spotify-remote-check")
-        return tool_result({"success": True, "action": "play", "note": _phone_playing_note(phone, {})})
+        return tool_result({"success": True, "action": "play", "note": "It's already playing."})
+    if _is_smartphone(device) and state.get("is_playing"):
+        if _switch_on_phone(client, phone["device_id"], uri, credentials, device):
+            car_app_followup.start_background(settle, "spotify-phone-play")
+            return tool_result({"success": True, "action": "play", "note": _phone_playing_note(phone, {})})
     opening = car_app_followup.request_open("spotify", phone["device_id"], url=uri, now=True)
     if not opening["opened"]:
         logger.info("Spotify play: the phone couldn't open %s (%s)", uri, opening["error"])
         return None
-    if credentials:
-        car_app_followup.start_background(
-            functools.partial(_play_through_app_remote, pending, client, phone["device_id"], uri, credentials),
-            "spotify-remote-play")
-        logger.info("Spotify play: asked %s to open %s; its Spotify app plays it (App Remote)", who, uri)
-    else:
-        car_app_followup.follow_up(
-            **_pending_play_followup(pending, client, timeout_s=_OPENED_PLAY_WINDOW_S,
-                                     label="Spotify play opened on the phone"),
-            name="spotify-open-play",
-        )
-        logger.info("Spotify play: asked %s to open %s; checking it plays there within %d s "
-                    "(no app-remote-control on this sign-in)", who, uri, int(_OPENED_PLAY_WINDOW_S))
+    car_app_followup.start_background(settle, "spotify-phone-play")
+    logger.info("Spotify play: asked %s to open %s; making sure it plays there", who, uri)
     return tool_result({
         "success": True,
         "action": "play",
         "pending": True,
         "note": _phone_playing_note(phone, opening),
     })
-
 
 def _names_another_device(client: Any, device_id: str) -> bool:
     """Whether ``device_id`` is a listed device that isn't a phone (he asked for his MacBook)."""
@@ -573,13 +576,13 @@ def _play_on_turn_mac(client: Any, ticket: int, play_kwargs: Dict[str, Any],
 
 def _play_on_turn_phone(client: Any, ticket: int, play_kwargs: Dict[str, Any],
                         turn_session: Optional[str], device_id: Optional[str]) -> Optional[str]:
-    """A phone turn's song goes to the phone's Spotify app (App Remote), not first through the
-    Web API, whose plays never start on his iPhone. None leaves it to the Web API: not a phone
-    turn, nothing to open (a resume), no app-remote-control on the sign-in, a play aimed at
-    another device (his MacBook), or a phone that can't open the song."""
+    """A phone turn's song is opened on the phone and made sure of there (``_open_on_phone``),
+    never sent as a Web API play naming it — his iPhone's Spotify takes that (HTTP 204) and
+    drops to an empty player. None leaves it to the Web API: not a phone turn, nothing to open
+    (a resume), a play aimed at another device (his MacBook), or a phone that can't open it."""
     phone = car_app_followup.turn_phone(turn_session)
     uri = _play_uri(play_kwargs)
-    if not (phone and uri) or not _app_remote_credentials(client):
+    if not (phone and uri):
         return None
     if device_id and _names_another_device(client, device_id):
         return None

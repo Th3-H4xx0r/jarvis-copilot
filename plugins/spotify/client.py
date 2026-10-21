@@ -201,6 +201,11 @@ class SpotifyClient:
             },
         )
 
+    def resume_playback(self, *, device_id: Optional[str] = None) -> Any:
+        """Play what the device holds — no body. His iPhone's Spotify starts it, where a play
+        naming a song drops it to an empty player (tested live 2026-10-21)."""
+        return self.request("PUT", "/me/player/play", params={"device_id": device_id})
+
     def pause_playback(self, *, device_id: Optional[str] = None) -> Any:
         return self.request("PUT", "/me/player/pause", params={"device_id": device_id})
 
