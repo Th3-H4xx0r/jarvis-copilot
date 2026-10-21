@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 EXTRACT_SLICE_CHARS = 12000
 MAX_FACTS = 8
 BURSTS_PER_TICK = 64
-PARALLEL_CHATS = 8  # chats read at once — a 3-month backfill is thousands of model calls
+PARALLEL_CHATS = 16  # chats read at once (network-bound) — a backfill is thousands of calls
 TICK_SECONDS = 60
 
 _PROMPT = """You are filing one of Pranav's iMessage conversations into his long-term memory.
@@ -197,10 +197,24 @@ def resolve_extraction_model(agent) -> Tuple[str, str]:
 
 
 def _one_shot(model_ref: str, prompt: str) -> str:
-    # Its own platform, so the Agents tab files these runs under the
-    # integration (collapsed) instead of a session each among his chats.
+    """One extraction call. Straight to the provider (``call_llm``): building
+    a whole agent per conversation was CPU-bound and serialised the parallel
+    workers (~0.4 conversations/s). Only a provider that is an agent CLI
+    (Claude Code) goes through the agent path, under its own platform so the
+    Agents tab files those runs under the integration, collapsed."""
+    import api.config as cfg
+    model, provider, base_url = cfg.route_anthropic_via_claude_code(*cfg.resolve_model_provider(model_ref))
+    if provider and provider not in _AGENT_ONLY_PROVIDERS:
+        from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+        response = call_llm(provider=provider, model=model, base_url=base_url or None,
+                            messages=[{"role": "user", "content": prompt}], max_tokens=1200, timeout=120)
+        return str(extract_content_or_reasoning(response) or "")
     from api.harness_llm import one_shot_completion
     return one_shot_completion(model_ref, prompt, max_tokens=1200, platform="imessage_memory")
+
+
+# Providers that are agent CLIs, not chat APIs: call_llm can't drive them.
+_AGENT_ONLY_PROVIDERS = {"claude-code", "codex", "codex-cli"}
 
 
 def extract(transcript: str, model_ref: str,
