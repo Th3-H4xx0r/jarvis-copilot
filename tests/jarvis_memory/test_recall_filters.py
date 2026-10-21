@@ -123,3 +123,17 @@ def test_filtered_query_reaches_old_memories_past_500(tmp_path):
     hits = _recall(p, query="Sam address Oak", source="imessage", limit=3)
     assert any("12 Oak St" in h["body"] for h in hits)
     p.shutdown()
+
+
+def test_external_memories_and_scoped_delete(tmp_path, monkeypatch):
+    from plugins.memory.jarvis_memory import external
+    monkeypatch.setattr(external, "_handles", {})
+    p = _provider(tmp_path)
+    _seed(p)
+    p.shutdown()
+    rows = external.memories("imessage:chat1:", hermes_home=str(tmp_path))
+    assert [r["source"] for r in rows] == ["imessage:chat1:13-14", "imessage:chat1:10-12"]
+    live = external.memories("live:", hermes_home=str(tmp_path))[0]["id"]
+    assert external.delete(live, source_prefix="imessage:", hermes_home=str(tmp_path)) is False
+    assert external.delete(rows[0]["id"], source_prefix="imessage:", hermes_home=str(tmp_path)) is True
+    assert len(external.memories("imessage:chat1:", hermes_home=str(tmp_path))) == 1

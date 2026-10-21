@@ -4889,6 +4889,16 @@ html.mini-voice main.main::before{
 .imm-bubble-who{font-size:10.5px;color:var(--muted);margin-bottom:2px;}
 .imm-bubble-text{white-space:pre-wrap;word-break:break-word;}
 .imm-bubble-time{font-size:10px;color:var(--muted);margin-top:3px;text-align:right;}
+.imm-tabs{display:flex;gap:4px;margin-bottom:10px;padding:3px;border:1px solid var(--border);border-radius:10px;}
+.imm-tab{flex:1;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted);
+  font-size:12.5px;cursor:pointer;}
+.imm-tab--on{background:var(--accent-bg-strong);color:var(--accent-text);}
+.imm-preview[hidden]{display:none;}
+.imm-mem-text{font-size:12.5px;color:var(--text);white-space:normal;line-height:1.4;}
+.imm-convo .intg-row-main{cursor:pointer;}
+.imm-mem-convo{margin:4px 0 0;font-family:inherit;font-size:11.5px;line-height:1.45;color:var(--muted);white-space:pre-wrap;
+  max-height:4.4em;overflow:hidden;}
+.imm-convo--open .imm-mem-convo{max-height:none;}
 .imm-choose{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:9px;padding:4px;margin-bottom:8px;}
 
 .intg-section{margin-bottom:22px;}

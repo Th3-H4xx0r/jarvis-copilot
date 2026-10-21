@@ -369,11 +369,27 @@ async function _immPreview(guid) {
   const time = ts => new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const choice = await _intgModal({
     title: chat.name || 'Chat',
-    bodyHtml: `<div class="imm-preview"><div class="intg-note">Asking your Mac…</div></div>`,
+    bodyHtml: `<div class="imm-tabs" role="tablist">
+        <button class="imm-tab imm-tab--on" role="tab" data-imm-tab="messages">Messages</button>
+        <button class="imm-tab" role="tab" data-imm-tab="memories">Memories</button>
+      </div>
+      <div class="imm-preview" data-imm-pane="messages"><div class="intg-note">Asking your Mac…</div></div>
+      <div class="imm-preview" data-imm-pane="memories" hidden></div>`,
     buttons: [{ label: chat.effective ? 'Stop remembering' : 'Remember this chat', value: !chat.effective }],
     wire: overlay => {
-      const box = overlay.querySelector('.imm-preview');
+      const box = overlay.querySelector('[data-imm-pane="messages"]');
+      const memBox = overlay.querySelector('[data-imm-pane="memories"]');
       overlay.querySelector('.intg-modal').classList.add('imm-preview-modal');
+      let memLoaded = false;
+      overlay.querySelectorAll('[data-imm-tab]').forEach(tab => {
+        tab.onclick = () => {
+          const which = tab.dataset.immTab;
+          overlay.querySelectorAll('[data-imm-tab]').forEach(t => t.classList.toggle('imm-tab--on', t === tab));
+          box.hidden = which !== 'messages';
+          memBox.hidden = which !== 'memories';
+          if (which === 'memories' && !memLoaded) { memLoaded = true; _immLoadMemories(memBox, guid); }
+        };
+      });
       api('/api/imessage-memory/preview?guid=' + encodeURIComponent(guid)).then(res => {
         const msgs = res.messages || [];
         box.innerHTML = msgs.length ? msgs.map(m => `
@@ -390,6 +406,58 @@ async function _immPreview(guid) {
     },
   });
   if (choice === true || choice === false) await _immUpdate('/chat', { guid, pick: choice });
+}
+
+// What Jarvis holds from one chat: saved facts, facts waiting for Store/Skip,
+// and saved conversations — each saved one deletable on its own.
+async function _immLoadMemories(box, guid) {
+  const when = ts => new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  box.innerHTML = '<div class="intg-note">Loading…</div>';
+  let data;
+  try {
+    data = await api('/api/imessage-memory/memories?guid=' + encodeURIComponent(guid));
+  } catch (e) {
+    box.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message || 'Couldn’t load memories.')}</div>`;
+    return;
+  }
+  const facts = data.facts || [], waiting = data.waiting || [], convos = data.conversations || [];
+  if (!facts.length && !waiting.length && !convos.length) {
+    box.innerHTML = '<div class="intg-note">Nothing remembered from this chat yet.</div>';
+    return;
+  }
+  const del = id => `<button class="intg-row-del" title="Delete this memory" data-imm-del="${esc(id)}" aria-label="Delete this memory">×</button>`;
+  box.innerHTML = `
+    ${facts.length ? `<h4 class="intg-section-title">Facts <span class="intg-count">${facts.length}</span></h4>
+      ${facts.map(f => `<div class="intg-row"><div class="intg-row-main"><span class="imm-mem-text">${esc(f.text)}</span>
+        <span class="intg-row-sub">${esc(when(f.at))}</span></div>${del(f.id)}</div>`).join('')}` : ''}
+    ${waiting.length ? `<h4 class="intg-section-title">Waiting for you <span class="intg-count">${waiting.length}</span></h4>
+      ${waiting.map(f => `<div class="intg-row"><div class="intg-row-main"><span class="imm-mem-text">${esc(f.fact)}</span>
+        <span class="intg-row-sub">Saves itself ${esc(when(f.expires_at))}</span></div>
+        <button class="intg-btn" data-imm-decide="${esc(f.id)}" data-store="1">Store</button>
+        <button class="intg-btn" data-imm-decide="${esc(f.id)}" data-store="0">Skip</button></div>`).join('')}` : ''}
+    ${convos.length ? `<h4 class="intg-section-title">Conversations <span class="intg-count">${convos.length}</span></h4>
+      ${convos.map(c => `<div class="intg-row imm-convo"><div class="intg-row-main">
+        <span class="intg-row-name">${esc((c.text.split('\n')[0] || '').slice(0, 140))}</span>
+        <pre class="imm-mem-convo">${esc(c.text.split('\n').slice(1).join('\n'))}</pre></div>${del(c.id)}</div>`).join('')}` : ''}`;
+  box.querySelectorAll('[data-imm-del]').forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      const res = await _immPost('/memories/delete', { id: btn.dataset.immDel });
+      if (res && res.deleted) btn.closest('.intg-row').remove();
+      else btn.disabled = false;
+    };
+  });
+  box.querySelectorAll('[data-imm-decide]').forEach(btn => {
+    btn.onclick = async () => {
+      btn.closest('.intg-row').querySelectorAll('button').forEach(b => { b.disabled = true; });
+      const res = await _immPost('/facts/decide', { ids: [btn.dataset.immDecide], store: btn.dataset.store === '1' });
+      if (res && res.ok) _immLoadMemories(box, guid);
+      else btn.closest('.intg-row').querySelectorAll('button').forEach(b => { b.disabled = false; });
+    };
+  });
+  box.querySelectorAll('.imm-convo .intg-row-main').forEach(el => {
+    el.onclick = () => el.classList.toggle('imm-convo--open');
+  });
 }
 
 async function _immForget(guid, name) {

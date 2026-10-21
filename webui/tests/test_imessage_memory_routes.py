@@ -225,3 +225,36 @@ def test_preview_times_out(st, sent, monkeypatch):
     monkeypatch.setattr(routes, "_send_to_mac", lambda store, frame: False)
     routes.handle_get(None, urlparse("/api/imessage-memory/preview?guid=one"))
     assert sent["status"] == 504 and "isn't connected" in sent["body"]["error"]
+
+
+class _ChatMemory:
+    def __init__(self):
+        self.deleted = []
+
+    def memories(self, prefix, limit=200):
+        assert prefix == "imessage:one:"
+        return [{"id": "f1", "body": "Sam's address is 12 Oak St (from an iMessage chat with Sam Lee on Tue 19 Oct 2026 18:02 PDT)",
+                 "source": "imessage:one:fact:1-2:f", "created_at": 200.0},
+                {"id": "c1", "body": "iMessage with Sam Lee — Tue\nParticipants: Me, Sam Lee\n[18:02] Sam Lee: hi",
+                 "source": "imessage:one:1-2:p1", "created_at": 100.0}]
+
+    def delete(self, chunk_id, source_prefix):
+        self.deleted.append((chunk_id, source_prefix))
+        return True
+
+
+def test_chat_memories_split_facts_conversations_waiting(st, sent, monkeypatch):
+    mem = _ChatMemory()
+    monkeypatch.setattr(writer, "memory_writer", lambda: mem)
+    routes.handle_get(None, urlparse("/api/imessage-memory/memories?guid=one"))
+    body = sent["body"]
+    assert body["facts"] == [{"id": "f1", "text": "Sam's address is 12 Oak St", "at": 200.0}]
+    assert [c["id"] for c in body["conversations"]] == ["c1"] and body["waiting"] == []
+
+
+def test_memory_delete_is_limited_to_imessage(st, sent, monkeypatch):
+    mem = _ChatMemory()
+    monkeypatch.setattr(writer, "memory_writer", lambda: mem)
+    _post("/api/imessage-memory/memories/delete", {"id": "f1"})
+    assert sent["body"] == {"ok": True, "deleted": True}
+    assert mem.deleted == [("f1", "imessage:")]

@@ -98,6 +98,40 @@ def remember(body: str, *, source: str, tags: str = "", created_at: Optional[flo
         return None
 
 
+def memories(source_prefix: str, *, limit: int = 200,
+             hermes_home: Optional[str] = None) -> list:
+    """The memories whose source starts with ``source_prefix``, newest first,
+    as ``{id, body, source, created_at}`` — what a screen shows of one source
+    (an iMessage chat). [] when unavailable."""
+    if not source_prefix:
+        return []
+    try:
+        store, _embedder, namespace, _threshold = _open(hermes_home)
+        ids = store.filtered_ids(namespace, source_prefix=source_prefix, limit=limit)
+        chunks = store.get_chunks(list(reversed(ids)))
+        return [{"id": c.id, "body": c.body, "source": c.source, "created_at": c.created_at}
+                for c in chunks]
+    except Exception:
+        logger.warning("jarvis_memory: could not list %s", source_prefix, exc_info=True)
+        return []
+
+
+def delete(chunk_id: str, *, source_prefix: str, hermes_home: Optional[str] = None) -> bool:
+    """Delete one memory, only if its source starts with ``source_prefix`` —
+    a screen for one source can't reach anything else by id."""
+    if not chunk_id or not source_prefix:
+        return False
+    try:
+        store, _embedder, _namespace, _threshold = _open(hermes_home)
+        chunk = next(iter(store.get_chunks([chunk_id])), None)
+        if chunk is None or not (chunk.source or "").startswith(source_prefix):
+            return False
+        return bool(store.delete_chunk(chunk_id))
+    except Exception:
+        logger.warning("jarvis_memory: could not delete %s", chunk_id, exc_info=True)
+        return False
+
+
 def forget(*, source_prefix: str = "", tag: str = "",
            hermes_home: Optional[str] = None) -> int:
     """Delete every memory whose source starts with ``source_prefix`` or whose

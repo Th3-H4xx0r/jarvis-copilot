@@ -9,6 +9,7 @@ only tells it to fetch its config again.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 import uuid
@@ -178,6 +179,12 @@ def handle_get(handler, parsed) -> bool:
         return _j(handler, mac_config(st))
     if parsed.path == PREFIX + "/facts":
         return _j(handler, {"facts": store().pending_facts()})
+    if parsed.path == PREFIX + "/memories":
+        from urllib.parse import parse_qs
+        guid = (parse_qs(parsed.query).get("guid") or [""])[0].strip()
+        if not guid:
+            return _bad(handler, "guid is required")
+        return _j(handler, chat_memories(store(), guid))
     if parsed.path == PREFIX + "/preview":
         from urllib.parse import parse_qs
         guid = (parse_qs(parsed.query).get("guid") or [""])[0].strip()
@@ -188,6 +195,26 @@ def handle_get(handler, parsed) -> bool:
             return _bad(handler, result["error"], 504)
         return _j(handler, result)
     return False
+
+
+# ── one chat's memories ───────────────────────────────────────────────────
+_STAMP = re.compile(r"\s*\(from an iMessage chat with .*\)\s*$")
+
+
+def chat_memories(st: IMStore, guid: str) -> dict:
+    """What Jarvis holds from one chat, newest first: its saved facts (shown
+    without the who/when stamp, which ``at`` carries), its conversation
+    transcripts, and facts still waiting for his Store/Skip."""
+    memory = _writer().memory_writer()
+    rows = memory.memories(f"imessage:{guid}:", limit=500) if memory is not None else []
+    facts, conversations = [], []
+    for row in rows:
+        if f"imessage:{guid}:fact:" in (row.get("source") or ""):
+            facts.append({"id": row["id"], "text": _STAMP.sub("", row["body"]), "at": row["created_at"]})
+        else:
+            conversations.append({"id": row["id"], "text": row["body"], "at": row["created_at"]})
+    waiting = [c for c in st.pending_facts(limit=200) if c["guid"] == guid]
+    return {"facts": facts, "conversations": conversations, "waiting": waiting}
 
 
 # ── previews: asked of the Mac live, never stored ────────────────────────
@@ -308,6 +335,16 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
             st.update_job(job["id"], status="stopped")
             push_refresh(st)
         return _j(handler, {"ok": True})
+
+    if tail == "/memories/delete":
+        chunk_id = str(body.get("id") or "").strip()
+        if not chunk_id:
+            return _bad(handler, "id is required")
+        memory = _writer().memory_writer()
+        if memory is None:
+            return _bad(handler, "long-term memory isn't active", 409)
+        # Only iMessage memories can be deleted from here.
+        return _j(handler, {"ok": True, "deleted": memory.delete(chunk_id, source_prefix="imessage:")})
 
     if tail == "/facts/decide":
         ids = body.get("ids")
