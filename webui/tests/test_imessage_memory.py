@@ -122,3 +122,38 @@ def test_forget_chat_clears_bursts_so_backfill_can_redo(st):
     st.mark_burst(burst, "stored")
     st.forget_chat("one")
     assert st.ingest([_msg("one", 1, T0)])["accepted"] == 1
+
+
+def test_dedupe_needs_the_time_to_match_too(st):
+    """A stored burst with ROWIDs 100 and 900 doesn't swallow ROWID 500 from another day."""
+    st.ingest([_msg("one", 100, T0), _msg("one", 900, T0 + 60)])
+    (burst,) = st.open_bursts(T0 + 60 + GAP_SECONDS)
+    st.mark_burst(burst, "stored")
+    assert st.ingest([_msg("one", 500, T0 + 5 * 86400)])["accepted"] == 1
+
+
+def test_mark_burst_refuses_a_forgotten_burst(st):
+    st.ingest([_msg("one", 1, T0)])
+    (burst,) = st.open_bursts(T0 + GAP_SECONDS)
+    st.forget_chat("one")
+    assert st.mark_burst(burst, "stored") is False
+    assert st.totals() == {"bursts": 0, "pending": 0} and st.chat("one")["remembered"] == 0
+
+
+def test_stale_jobs_expire_so_they_cant_block(st):
+    job = st.create_job(T0 - 3600, T0)
+    st.ingest([_msg("one", 1, T0 - 600)], job_id=job["id"])          # running
+    assert st.open_bursts(T0 + 10) == []
+    st.expire_jobs(__import__("time").time() + 3 * 3600)
+    assert st.job(job["id"])["status"] == "error"
+    assert len(st.open_bursts(T0 + 10)) == 1
+    st.create_job(T0 - 10, T0)                                          # no longer busy
+
+
+def test_switching_on_stamps_enabled_at(st, tmp_path):
+    fresh = IMStore(tmp_path / "fresh.db")
+    assert fresh.settings()["enabled_at"] is None
+    fresh.update_settings(enabled=True)
+    first = fresh.settings()["enabled_at"]
+    fresh.update_settings(enabled=True)                                 # already on: unchanged
+    assert first and fresh.settings()["enabled_at"] == first

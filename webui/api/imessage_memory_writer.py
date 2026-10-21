@@ -246,10 +246,31 @@ def memory_writer():
     return external if external.is_active() else None
 
 
+def _prefixes(guid: str, first_rowid: int, last_rowid: int) -> Tuple[str, str]:
+    """(transcript prefix, facts prefix) of a burst. Each ends in ':' and every
+    source adds a suffix after it (``p1``, ``f``), so forgetting one burst by
+    prefix can't reach another whose span merely starts the same (10-12 vs 10-120)."""
+    span = f"{first_rowid}-{last_rowid}"
+    return f"imessage:{guid}:{span}:", f"imessage:{guid}:fact:{span}:"
+
+
+def _sources(burst: Burst) -> Tuple[str, str]:
+    return _prefixes(burst.guid, burst.first_rowid, burst.last_rowid)
+
+
+def _take_back(memory, burst: Burst) -> None:
+    for prefix in _sources(burst):
+        memory.forget(source_prefix=prefix)
+
+
 def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) -> str:
-    """Remember one burst. Returns ``stored``, ``stored_no_facts`` or
-    ``discarded`` (its chat is no longer allowed)."""
+    """Remember one burst. Returns ``stored``, ``stored_no_facts``,
+    ``discarded`` (its chat is no longer allowed, or he pressed Forget while
+    it was being written) or ``failed`` (memory refused the write; the rows
+    stay buffered and the next tick tries again)."""
     settings = st.settings()
+    if not st.still_pending(burst):
+        return "discarded"  # forgotten since the tick listed it
     if not st.chat_allowed(burst.guid, settings):
         st.drop_burst(burst)
         return "discarded"
@@ -265,19 +286,31 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
         logger.warning("imessage memory: no summary/facts for %s (%s); keeping the transcript",
                        burst.guid, exc)
         status = "stored_no_facts"
-    base = f"imessage:{burst.guid}:{burst.first_rowid}-{burst.last_rowid}"
+    # Forgotten, unticked or skip-listed during the model call: nothing is written.
+    if not st.still_pending(burst):
+        return "discarded"
+    if not st.chat_allowed(burst.guid):
+        st.drop_burst(burst)
+        return "discarded"
+    base, fact_source = _sources(burst)
+    st.begin_burst(burst)
     for n, (body, when) in enumerate(transcript_memories(burst, chat, zone, summary), start=1):
-        memory.remember(body, source=base + (f":p{n}" if n > 1 else ""),
-                        tags="imessage,conversation", created_at=when, dedup=False)
+        if not memory.remember(body, source=f"{base}p{n}",
+                               tags="imessage,conversation", created_at=when, dedup=False):
+            _take_back(memory, burst)
+            st.drop_burst_record(burst.guid, burst.first_rowid)
+            logger.warning("imessage memory: memory refused %s; will retry", base)
+            return "failed"
     if facts:
         begin = datetime.fromtimestamp(burst.start, zone)
         stamp = (f"(from an iMessage chat with {_with_whom(burst, chat)} on {begin:%a} {begin.day} "
                  f"{begin:%b %Y} {begin:%H:%M} {begin:%Z})")
         for fact in facts:
-            memory.remember(f"{fact} {stamp}",
-                            source=f"imessage:{burst.guid}:fact:{burst.first_rowid}-{burst.last_rowid}",
+            memory.remember(f"{fact} {stamp}", source=f"{fact_source}f",
                             tags="imessage,fact", created_at=burst.start)
-    st.mark_burst(burst, status)
+    if not st.mark_burst(burst, status):
+        _take_back(memory, burst)  # Forget landed while this was written
+        return "discarded"
     return status
 
 
@@ -289,15 +322,34 @@ def close_once(st: Optional[IMStore] = None, now: Optional[float] = None, *, mem
     memory = memory if memory is not None else memory_writer()
     if memory is None:
         return 0
+    now = now if now is not None else time.time()
+    st.expire_jobs(now)
     handled = 0
-    for burst in st.open_bursts(now if now is not None else time.time())[:BURSTS_PER_TICK]:
+    for burst in st.open_bursts(now)[:BURSTS_PER_TICK]:
         try:
-            store_burst(st, burst, memory=memory, complete=complete)
+            if store_burst(st, burst, memory=memory, complete=complete) == "failed":
+                break  # memory is refusing writes: stop until the next tick
         except Exception:
             logger.exception("imessage memory: burst %s:%s failed", burst.guid, burst.first_rowid)
             continue
         handled += 1
     return handled
+
+
+def recover(st: Optional[IMStore] = None, memory=None) -> int:
+    """Undo bursts a restart cut off mid-write: take back whatever memories
+    they got and drop the record; their rows are still buffered, so the next
+    tick writes them whole."""
+    st = st or default_store()
+    memory = memory if memory is not None else memory_writer()
+    if memory is None:
+        return 0
+    rows = st.storing_bursts()
+    for row in rows:
+        for prefix in _prefixes(row["guid"], row["first_rowid"], row["last_rowid"]):
+            memory.forget(source_prefix=prefix)
+        st.drop_burst_record(row["guid"], row["first_rowid"])
+    return len(rows)
 
 
 def forget_chat_memories(guid: str, st: Optional[IMStore] = None, memory=None) -> int:
@@ -321,6 +373,10 @@ def start_closer() -> None:
         _closer_started = True
 
     def _loop():
+        try:
+            recover()
+        except Exception:
+            logger.exception("imessage memory: recovery failed")
         while True:
             try:
                 while close_once() >= BURSTS_PER_TICK:

@@ -74,8 +74,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 """
 
-_DEFAULT_SETTINGS = {"enabled": False, "agent": None, "skip": [],
+_DEFAULT_SETTINGS = {"enabled": False, "enabled_at": None, "agent": None, "skip": [],
                      "mac_device_id": "", "mac_seen_at": None}
+# A backfill the Mac stopped answering: running but silent this long, or never
+# started this long after he asked, fails so it can't block the next one.
+STALE_RUNNING_SECONDS = 1800
+STALE_PENDING_SECONDS = 86400
 
 
 def normalize_handle(handle) -> str:
@@ -152,6 +156,10 @@ class IMStore:
         return out
 
     def update_settings(self, **fields) -> dict:
+        if fields.get("enabled") and not self.settings().get("enabled"):
+            # When he switched it on: the Mac sends nothing older (an iCloud
+            # history download arrives with new ROWIDs but old dates).
+            fields.setdefault("enabled_at", time.time())
         with self._db() as db:
             for key, value in fields.items():
                 if key in _DEFAULT_SETTINGS:
@@ -247,8 +255,8 @@ class IMStore:
                 if not text or not allowed[guid] or normalize_handle(m.get("handle")) in skip:
                     counts["rejected"] += 1
                     continue
-                if db.execute("SELECT 1 FROM bursts WHERE guid=? AND ? BETWEEN first_rowid AND last_rowid",
-                              (guid, rowid)).fetchone():
+                if db.execute("SELECT 1 FROM bursts WHERE guid=? AND ? BETWEEN first_rowid AND last_rowid "
+                              "AND ? BETWEEN start AND end", (guid, rowid, ts)).fetchone():
                     counts["duplicate"] += 1
                     continue
                 cur = db.execute(
@@ -293,18 +301,51 @@ class IMStore:
                     out.append(burst)
         return out
 
-    def mark_burst(self, burst: Burst, status: str) -> None:
-        """Record a remembered burst (the dedupe record), drop its buffered rows."""
+    def still_pending(self, burst: Burst) -> bool:
+        """Whether every row of the burst is still buffered (Forget clears them)."""
         with self._db() as db:
+            n = db.execute(f"SELECT COUNT(*) FROM pending WHERE guid=? AND rowid IN "
+                           f"({','.join('?' * len(burst.rows))})",
+                           (burst.guid, *[r["rowid"] for r in burst.rows])).fetchone()[0]
+        return n == len(burst.rows)
+
+    def begin_burst(self, burst: Burst) -> None:
+        """Note a burst whose memories are being written, so a crash midway is
+        undone and redone at the next start (``storing_bursts``)."""
+        with self._db() as db:
+            db.execute("INSERT OR REPLACE INTO bursts(guid, first_rowid, last_rowid, start, end, count, "
+                       "status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'storing', ?)",
+                       (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
+                        len(burst.rows), time.time()))
+
+    def storing_bursts(self) -> list:
+        with self._db() as db:
+            return [dict(r) for r in db.execute("SELECT * FROM bursts WHERE status='storing'")]
+
+    def drop_burst_record(self, guid: str, first_rowid: int) -> None:
+        with self._db() as db:
+            db.execute("DELETE FROM bursts WHERE guid=? AND first_rowid=?", (guid, first_rowid))
+
+    def mark_burst(self, burst: Burst, status: str) -> bool:
+        """Record a remembered burst (the dedupe record), drop its buffered rows.
+        False, recording nothing, when its rows are gone — he pressed Forget
+        while it was being written, and the caller must take its memories back."""
+        with self._db() as db:
+            gone = db.executemany("DELETE FROM pending WHERE guid=? AND rowid=?",
+                                  [(burst.guid, r["rowid"]) for r in burst.rows]).rowcount
+            if gone <= 0:
+                db.execute("DELETE FROM bursts WHERE guid=? AND first_rowid=?",
+                           (burst.guid, burst.first_rowid))
+                return False
             db.execute("INSERT OR REPLACE INTO bursts(guid, first_rowid, last_rowid, start, end, count, "
                        "status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
                         len(burst.rows), status, time.time()))
-            self._delete_rows(db, burst)
             db.execute("UPDATE chats SET remembered=remembered+1 WHERE guid=?", (burst.guid,))
             for job_id in burst.job_ids:
                 db.execute("UPDATE jobs SET stored=stored+1, updated_at=? WHERE id=?",
                            (time.time(), job_id))
+        return True
 
     def drop_burst(self, burst: Burst) -> None:
         """Throw a burst away unremembered (its chat was unticked meanwhile)."""
@@ -356,6 +397,21 @@ class IMStore:
             row = db.execute(f"SELECT * FROM jobs WHERE status IN {ACTIVE_JOB_STATES} "
                              "ORDER BY created_at DESC LIMIT 1").fetchone()
         return _job_dict(row) if row else None
+
+    def expire_jobs(self, now: float) -> int:
+        """Fail a backfill the Mac stopped answering (see STALE_*), so its rows
+        close and the next backfill isn't refused."""
+        with self._db() as db:
+            return db.execute(
+                "UPDATE jobs SET status='error', error=?, updated_at=? WHERE "
+                "(status='running' AND updated_at < ?) OR (status='pending' AND updated_at < ?)",
+                ("Your Mac stopped responding", now, now - STALE_RUNNING_SECONDS,
+                 now - STALE_PENDING_SECONDS)).rowcount
+
+    def stop_active_jobs(self) -> None:
+        with self._db() as db:
+            db.execute(f"UPDATE jobs SET status='stopped', updated_at=? WHERE status IN {ACTIVE_JOB_STATES}",
+                       (time.time(),))
 
     def update_job(self, job_id: str, **fields) -> Optional[dict]:
         allowed = {k: v for k, v in fields.items() if k in ("status", "error")}

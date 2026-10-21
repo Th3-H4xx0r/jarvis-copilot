@@ -20,6 +20,7 @@ import re
 import sqlite3
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -38,7 +39,14 @@ WAKE_SECONDS = 15.0
 _CODE_WORDS = re.compile(
     r"\b(code|codes|otp|passcode|pass code|verification|verify|2fa|two[- ]factor|one[- ]time|"
     r"security code|log ?in|sign ?in|authenticat\w*)\b", re.I)
-_CODE_NUMBER = re.compile(r"(?<![\w$#.,:/])(?:G-)?(?:\d{3}[- ]\d{3}|\d{4,8})(?![\w.,:/%])")
+# A code: 4–8 digits (or 123-456 / G-123456) standing alone. Punctuation may
+# follow ("is 123456.") but not continue it into another number (a phone
+# number, a date, a price with cents).
+_CODE_NUMBER = re.compile(
+    r"(?<![\w$#])(?<!\d[-.,:/])(?:G-)?(?:\d{3}[- ]\d{3}|\d{4,8})(?![\w%]|[-.,:/]\d)")
+# "zip code 94110" and friends name a number that is not a secret.
+_NOT_CODE = re.compile(r"\b(zip|postal|area|post|country|dress|promo|discount|coupon)\s+codes?\b", re.I)
+_CODE_NEAR = 40  # code wording this close to the number, either side
 
 
 def apple_ts(value) -> float:
@@ -55,10 +63,18 @@ def _apple_ns(unix: float) -> int:
 
 
 def is_code_message(text: str) -> bool:
-    """A one-time code / login text: code wording next to a 4–8 digit code.
-    Numbers on their own (addresses, prices, times) don't count."""
-    t = text or ""
-    return bool(_CODE_WORDS.search(t) and _CODE_NUMBER.search(t))
+    """A one-time code / login text: code wording within a few words of a 4–8
+    digit code. Numbers on their own (addresses, prices, times), years, and
+    "zip code"-style numbers don't count."""
+    t = _NOT_CODE.sub(" ", text or "")
+    for m in _CODE_NUMBER.finditer(t):
+        digits = m.group(0)
+        if len(digits) == 4 and digits.isdigit() and 1900 <= int(digits) <= 2099:
+            continue  # a year (or a street number that looks like one)
+        window = t[max(0, m.start() - _CODE_NEAR):m.end() + _CODE_NEAR]
+        if _CODE_WORDS.search(window):
+            return True
+    return False
 
 
 def normalize_handle(handle) -> str:
@@ -121,11 +137,21 @@ def _chat_name(display_name, participants: list, identifier: str) -> str:
     return ", ".join(labels) or contact_name(identifier or "") or identifier or "Unknown"
 
 
-def read_messages(db, *, after_rowid=None, start=None, end=None, guids=None, limit=500) -> list:
-    """Messages (both directions) in ROWID order as upload dicts, each carrying
-    its chat's details: guid, rowid, ts, sender, handle, is_from_me, text,
-    chat_name, is_group, participants. Reactions and system rows are skipped;
-    attachments become ``[photo]``-style text."""
+def read_messages(db, **kwargs) -> list:
+    """The messages of ``read_batch`` (tests and one-off reads)."""
+    return read_batch(db, **kwargs)[0]
+
+
+def read_batch(db, *, after_rowid=None, start=None, end=None, guids=None, limit=500):
+    """``(messages, last_rowid)``: messages (both directions) in ROWID order as
+    upload dicts, each carrying its chat's details — guid, rowid, ts, sender,
+    handle, is_from_me, text, chat_name, is_group, participants — and the
+    highest ROWID this batch covered (None when nothing was left). Reactions
+    and system rows are skipped; attachments become ``[photo]``-style text.
+
+    A cursor must move to ``last_rowid``, not to the last message returned:
+    rows with no text (an unsent message) are dropped, and a batch of nothing
+    but those would otherwise be read again forever."""
     db.row_factory = sqlite3.Row
     where, args = ["1=1"], []
     if after_rowid is not None:
@@ -141,6 +167,14 @@ def read_messages(db, *, after_rowid=None, start=None, end=None, guids=None, lim
         where.append(f"c.guid IN ({','.join('?' * len(guids))})")
         args += list(guids)
     rows = db.execute(_MESSAGE_SQL.format(where=" AND ".join(where)), (*args, int(limit))).fetchall()
+    if not rows:
+        return [], None
+    if len(rows) >= limit and rows[0]["rowid"] != rows[-1]["rowid"]:
+        # A message in two chats is two rows; LIMIT may have cut between them.
+        # Leave that message whole for the next batch.
+        cut = rows[-1]["rowid"]
+        rows = [r for r in rows if r["rowid"] != cut]
+    last_rowid = rows[-1]["rowid"]
     chats: dict = {}
     out = []
     for r in rows:
@@ -163,7 +197,7 @@ def read_messages(db, *, after_rowid=None, start=None, end=None, guids=None, lim
                     "sender": "Me" if r["is_from_me"] else (contact_name(handle) or handle or "Unknown"),
                     "handle": handle, "is_from_me": bool(r["is_from_me"]), "text": text[:4000],
                     **chats[r["chat_rowid"]]})
-    return out
+    return out, last_rowid
 
 
 def list_chats(db, since_ts: float) -> list:
@@ -213,7 +247,7 @@ class IMessageMemory:
             state_path = state_dir() / "imessage_memory.json"
         self._state_path = Path(state_path)
         self._db_path = Path(db_path or relay.DB_PATH)
-        self._config: dict = {"enabled": False}
+        self._config: dict | None = None     # None until the server has answered once
         self._config_at = 0.0
         self._chats_at = 0.0
         self._known_guids: set = set()
@@ -241,27 +275,34 @@ class IMessageMemory:
         now = time.time() if now is None else now
         if self._refresh.is_set() or now - self._config_at >= CONFIG_EVERY:
             self._refresh.clear()
-            config = self._get("/api/imessage-memory/config")
+            config = self._get("/api/imessage-memory/config?device_id="
+                              + urllib.parse.quote(self._device_id() or ""))
             if isinstance(config, dict):
                 self._config, self._config_at = config, now
                 self._known_guids = set(config.get("chats") or {})
+        if self._config is None:
+            return  # offline since start: don't mistake "no answer" for "switched off"
         state = self._load_state()
-        if not self._config.get("enabled"):
-            if state.get("cursor") is not None:
-                state["cursor"] = None  # re-enabling starts from "now", not from here
-                self._save_state(state)
-            return
         db = self._open()
         if db is None:
             return
         try:
+            # The chat list goes up even while it's off, so he can pick chats
+            # before switching it on. Names and numbers only — no messages.
+            if now - self._chats_at >= CHATS_EVERY:
+                self._upload_chats(db, now)
+            if not self._config.get("enabled"):
+                if state.get("cursor") is not None:
+                    state["cursor"] = None  # re-enabling starts from "now", not from here
+                    self._save_state(state)
+                return
             if state.get("cursor") is None:
                 state["cursor"] = db.execute("SELECT IFNULL(MAX(ROWID), 0) FROM message").fetchone()[0]
                 self._save_state(state)
                 log.info("iMessage memory on: remembering messages after %s", state["cursor"])
             self._upload_new(db, state)
             if now - self._chats_at >= CHATS_EVERY:
-                self._upload_chats(db, now)
+                self._upload_chats(db, now)  # a chat it hadn't seen showed up
             job = self._config.get("backfill")
             if isinstance(job, dict) and job.get("id") not in state.get("finished_jobs", []):
                 self._run_backfill(db, state, job)
@@ -269,20 +310,22 @@ class IMessageMemory:
             db.close()
 
     def _upload_new(self, db, state: dict) -> None:
+        # Older than when he switched it on (an hour's slack for clock skew):
+        # history Messages in iCloud downloads later gets new ROWIDs but keeps
+        # its old dates, and only a backfill may send that.
+        floor = float(self._config.get("enabled_at") or 0) - 3600
         while True:
-            rows = read_messages(db, after_rowid=state["cursor"], limit=BATCH)
-            if not rows:
+            rows, last = read_batch(db, after_rowid=state["cursor"], limit=BATCH)
+            if last is None:
                 return
             if {m["guid"] for m in rows} - self._known_guids:
                 self._chats_at = 0.0  # a chat the server hasn't seen: send the list next
                 self._known_guids |= {m["guid"] for m in rows}
-            send = [m for m in rows if allowed(m, self._config)]
+            send = [m for m in rows if m["ts"] >= floor and allowed(m, self._config)]
             if send and self._post("/api/imessage-memory/messages", {"messages": send}) is None:
                 return  # server unreachable: keep the cursor, retry next wake
-            state["cursor"] = rows[-1]["rowid"]
+            state["cursor"] = last
             self._save_state(state)
-            if len(rows) < BATCH:
-                return
 
     def _upload_chats(self, db, now: float) -> None:
         chats = list_chats(db, now - CHAT_LIST_DAYS * 86400)
@@ -297,9 +340,9 @@ class IMessageMemory:
         after = state.setdefault("backfill_after", {}).get(job_id, 0)
         log.info("iMessage memory: backfill %s from message %s", job_id, after)
         while True:
-            rows = read_messages(db, after_rowid=after, start=job.get("start"), end=job.get("end"),
-                                 guids=job.get("chats") or None, limit=BATCH)
-            if not rows:
+            rows, last = read_batch(db, after_rowid=after, start=job.get("start"), end=job.get("end"),
+                                    guids=job.get("chats") or None, limit=BATCH)
+            if last is None:
                 break
             send = [m for m in rows if allowed(m, self._config)]
             if send:
@@ -309,7 +352,7 @@ class IMessageMemory:
                 if resp.get("stopped"):
                     self._finish(state, job_id)
                     return
-            after = rows[-1]["rowid"]
+            after = last
             state["backfill_after"][job_id] = after
             self._save_state(state)
             if self._refresh.is_set():

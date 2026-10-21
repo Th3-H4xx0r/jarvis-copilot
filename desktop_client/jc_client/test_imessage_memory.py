@@ -102,6 +102,11 @@ def test_date_range_and_guid_filter(chatdb):
     "G-482913 is your Google verification code.",
     "Use 8812 to sign in to Uber",
     "Your one-time passcode: 77 41 is invalid, use 774190",
+    "Your verification code is 123456.",
+    "Your Uber code is 1234. Never share this code.",
+    "Your code: 482913. Do not share it.",
+    "Your login code is 554433, valid for 10 min",
+    "Your Apple ID Code is: 123456. Do not share it with anyone.",
 ])
 def test_is_code_message_catches_otps(text):
     assert im.is_code_message(text)
@@ -113,6 +118,10 @@ def test_is_code_message_catches_otps(text):
     "Dinner at 7:30? Table for 4",
     "Call me at 510-555-0000",
     "can you send me the code for the project when you can",
+    "My address is 1234 Main St, zip code 94110",
+    "the code review is due Oct 20, 2026",
+    "let me log in tonight, meet at 1900 Broadway",
+    "Sign up for the 5k, it's 12/14 at 8:30",
 ])
 def test_is_code_message_keeps_addresses_and_prices(text):
     assert not im.is_code_message(text)
@@ -234,3 +243,73 @@ def test_request_adds_device_id(tmp_path, monkeypatch):
     m = im.IMessageMemory(lambda: "http://x", device_id=lambda: "mac-1", state_path=tmp_path / "s.json")
     assert m._post("/api/imessage-memory/chats", {"chats": []}) == {"ok": True}
     assert b'"device_id": "mac-1"' in sent["body"] and sent["url"] == "http://x/api/imessage-memory/chats"
+
+
+def test_offline_start_keeps_the_cursor(tmp_path, chatdb):
+    """No answer from the server is not "switched off": the cursor survives."""
+    path, db = chatdb
+    server = FakeServer({"enabled": True, "chats": {}, "skip": [], "backfill": None}, fail=True)
+    m = _memory(tmp_path, path, server)
+    m._save_state({"cursor": 7, "finished_jobs": [], "backfill_after": {}})
+    m.tick(now=T0)
+    assert m._load_state()["cursor"] == 7
+
+
+def test_empty_rows_dont_stall_the_cursor(tmp_path, chatdb, monkeypatch):
+    path, db = chatdb
+    monkeypatch.setattr(im, "BATCH", 3)
+    server = FakeServer({"enabled": True, "chats": {}, "skip": [], "backfill": None})
+    m = _memory(tmp_path, path, server)
+    m.tick(now=T0)
+    for rowid in (1, 2, 3):
+        _add(db, rowid, 1, "")          # unsent / undecodable: no text
+    _add(db, 4, 1, "real one")
+    m.tick(now=T0 + 1)
+    sent = [x["text"] for p in server.posts if p[0].endswith("/messages") for x in p[1]["messages"]]
+    assert sent == ["real one"] and m._load_state()["cursor"] == 4
+
+
+def test_backfill_runs_past_empty_batches(tmp_path, chatdb, monkeypatch):
+    path, db = chatdb
+    monkeypatch.setattr(im, "BATCH", 3)
+    for rowid in (1, 2, 3):
+        _add(db, rowid, 1, "", ts=T0 - 100)
+    _add(db, 4, 1, "after the gap", ts=T0 - 100)
+    job = {"id": "j", "start": T0 - 1000, "end": T0, "chats": None}
+    server = FakeServer({"enabled": True, "chats": {}, "skip": [], "backfill": job})
+    _memory(tmp_path, path, server).tick(now=T0)
+    sent = [x["text"] for p in server.posts if p[0].endswith("/messages") for x in p[1]["messages"]]
+    assert sent == ["after the gap"]
+
+
+def test_message_in_two_chats_not_split_at_batch_edge(chatdb):
+    path, db = chatdb
+    _add(db, 1, 1, "first")
+    _add(db, 2, 1, "in both chats")
+    db.execute("INSERT INTO chat_message_join VALUES (2, 2)")
+    db.commit()
+    rows, last = im.read_batch(sqlite3.connect(path), after_rowid=0, limit=2)
+    assert [r["rowid"] for r in rows] == [1] and last == 1
+    rows, last = im.read_batch(sqlite3.connect(path), after_rowid=1, limit=2)
+    assert sorted(r["guid"] for r in rows) == ["iMessage;+;chat99", "iMessage;-;+15105550000"]
+
+
+def test_history_older_than_switch_on_is_not_sent_live(tmp_path, chatdb):
+    path, db = chatdb
+    server = FakeServer({"enabled": True, "enabled_at": T0, "chats": {}, "skip": [], "backfill": None})
+    m = _memory(tmp_path, path, server)
+    m.tick(now=T0)
+    _add(db, 1, 1, "synced from iCloud, a year old", ts=T0 - 365 * 86400)
+    _add(db, 2, 1, "new", ts=T0 + 5)
+    m.tick(now=T0 + 10)
+    sent = [x["text"] for p in server.posts if p[0].endswith("/messages") for x in p[1]["messages"]]
+    assert sent == ["new"]
+
+
+def test_chat_list_goes_up_while_off(tmp_path, chatdb):
+    path, db = chatdb
+    _add(db, 1, 1, "hi", ts=T0)
+    server = FakeServer({"enabled": False})
+    _memory(tmp_path, path, server).tick(now=T0 + 10)
+    assert [p for p in server.posts if p[0].endswith("/chats")]
+    assert not [p for p in server.posts if p[0].endswith("/messages")]

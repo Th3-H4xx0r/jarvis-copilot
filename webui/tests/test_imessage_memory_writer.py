@@ -97,11 +97,11 @@ def test_facts_stamped_with_person_and_date(st):
     assert w.close_once(st, T0 + 60 + GAP_SECONDS, memory=mem, complete=_reply()) == 1
     convo = [m for m in mem.saved if m["tags"] == "imessage,conversation"]
     facts = [m for m in mem.saved if m["tags"] == "imessage,fact"]
-    assert convo[0]["source"] == "imessage:one:1-2" and convo[0]["dedup"] is False
+    assert convo[0]["source"] == "imessage:one:1-2:p1" and convo[0]["dedup"] is False
     assert "Summary: Sam shared his address." in convo[0]["body"]
     assert facts[0]["body"] == ("Sam Lee's address is 12 Oak St, Oakland (from an iMessage chat with "
                                 "Sam Lee on Sun 19 Oct 2025 17:02 PDT)")
-    assert facts[0]["source"] == "imessage:one:fact:1-2"
+    assert facts[0]["source"] == "imessage:one:fact:1-2:f"
     assert st.totals() == {"bursts": 1, "pending": 0}
 
 
@@ -168,3 +168,63 @@ def test_forget_chat_memories(st):
     mem = FakeMemory()
     assert w.forget_chat_memories("one", st=st, memory=mem) == 3
     assert mem.forgot == [{"source_prefix": "imessage:one:"}]
+
+
+def test_forget_during_extraction_takes_the_memories_back(st):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    mem = FakeMemory()
+
+    def complete(ref, prompt):
+        st.forget_chat("one")                     # he presses Forget mid-call
+        return _reply()(ref, prompt)
+
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=complete)
+    # Nothing was left buffered, so nothing was written at all.
+    assert mem.saved == [] and st.totals() == {"bursts": 0, "pending": 0}
+
+
+def test_forget_after_write_before_mark_is_undone(st, monkeypatch):
+    _ingest(st, (0, False, "hello there friend"))
+    mem = FakeMemory()
+    real_mark = st.mark_burst
+
+    def mark(burst, status):
+        st.forget_chat("one")
+        return real_mark(burst, status)
+
+    monkeypatch.setattr(st, "mark_burst", mark)
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert {"source_prefix": "imessage:one:1-1:"} in mem.forgot
+    assert st.totals() == {"bursts": 0, "pending": 0}
+
+
+def test_refused_write_keeps_rows_for_retry(st):
+    _ingest(st, (0, False, "hello there friend"))
+
+    class Refusing(FakeMemory):
+        def remember(self, body, **kw):
+            return None
+
+    mem = Refusing()
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert st.totals() == {"bursts": 0, "pending": 1}
+    assert {"source_prefix": "imessage:one:1-1:"} in mem.forgot
+
+
+def test_recover_undoes_a_burst_cut_off_mid_write(st):
+    _ingest(st, (0, False, "hello there friend"))
+    (burst,) = st.open_bursts(T0 + GAP_SECONDS)
+    st.begin_burst(burst)                         # then the server restarted
+    mem = FakeMemory()
+    assert w.recover(st, memory=mem) == 1
+    assert {"source_prefix": "imessage:one:1-1:"} in mem.forgot
+    assert st.totals() == {"bursts": 0, "pending": 1}
+    assert w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply()) == 1
+
+
+def test_sources_dont_collide_by_prefix():
+    a = Burst("g", _rows((0, False, "x")))
+    a.rows[0]["rowid"] = 10
+    pre_a, _ = w._sources(a)
+    assert not f"{pre_a}".startswith("imessage:g:10-1:") and pre_a == "imessage:g:10-10:"
+    assert not "imessage:g:10-100:p1".startswith(pre_a)

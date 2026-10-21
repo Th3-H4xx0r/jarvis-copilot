@@ -260,7 +260,8 @@ async function _immReload() {
   try {
     const card = await api('/api/imessage-memory');
     _immCard = card;
-    if (_intgView === _IMM_VIEW) _immRender();
+    const body = $('taskDetailBody');
+    if (_intgView === _IMM_VIEW && body && body.querySelector('.imm')) _immRender();
   } catch (e) {}
 }
 
@@ -357,11 +358,13 @@ function _immSchedulePoll() {
   clearTimeout(_immPoll);
   if (!_immCard || !_immCard.active_job) return;
   _immPoll = setTimeout(async () => {
-    if (_intgView !== _IMM_VIEW) return;
-    if (document.hidden) return _immSchedulePoll();
     const body = $('taskDetailBody');
-    const typing = document.activeElement && body && body.contains(document.activeElement)
-      && /INPUT|SELECT/.test(document.activeElement.tagName);
+    // Gone the moment another screen (a schedule, a form) takes the pane:
+    // those don't all reset _intgView, so the pane itself is the check.
+    if (_intgView !== _IMM_VIEW || !body || !body.querySelector('.imm')) return;
+    if (document.hidden) return _immSchedulePoll();
+    const typing = document.activeElement && body.contains(document.activeElement)
+      && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing) await _immReload(); else _immSchedulePoll();
   }, 5000);
 }

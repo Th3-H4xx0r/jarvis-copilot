@@ -76,6 +76,7 @@ def mac_config(st: IMStore) -> dict:
     skip = st.skip_keys(settings)
     chats = st.chats()
     return {"enabled": bool(settings.get("enabled")),
+            "enabled_at": settings.get("enabled_at"),
             "chats": {c["guid"]: st.effective_pick(c, skip) for c in chats},
             "skip": sorted(skip),
             "backfill": st.active_job()}
@@ -135,7 +136,10 @@ def handle_get(handler, parsed) -> bool:
         return _j(handler, card(store()))
     if parsed.path == PREFIX + "/config":
         st = store()
-        _seen(st, {})
+        # The Mac names itself here too, so a refresh can reach it before it
+        # has ever uploaded anything (e.g. the moment he first switches it on).
+        from urllib.parse import parse_qs
+        _seen(st, {"device_id": (parse_qs(parsed.query).get("device_id") or [""])[0]})
         return _j(handler, mac_config(st))
     return False
 
@@ -168,6 +172,8 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
                 return _bad(handler, "skip must be a list of {handle, label}")
             fields["skip"] = skip
         st.update_settings(**fields)
+        if fields.get("enabled") is False:
+            st.stop_active_jobs()  # the Mac stops reading, so it would never finish
         push_refresh(st)
         return _j(handler, card(st))
 
@@ -191,6 +197,8 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
             start, end = float(body.get("from")), float(body.get("to"))
         except (TypeError, ValueError):
             return _bad(handler, "from and to (epoch seconds) are required")
+        if not st.settings().get("enabled"):
+            return _bad(handler, "turn iMessage memory on first")
         end = min(end, time.time())
         if start >= end:
             return _bad(handler, "from must be before to (and before now)")

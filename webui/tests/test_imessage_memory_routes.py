@@ -77,6 +77,7 @@ def test_config_reflects_picks_and_skip(st, sent):
     _post("/api/imessage-memory/chat", {"guid": "one", "pick": False})
     _get("/api/imessage-memory/config")
     cfg = sent["body"]
+    assert cfg.pop("enabled_at") > 0
     assert cfg == {"enabled": True, "chats": {"one": False, "grp": False},
                    "skip": ["mom@example.com"], "backfill": None}
 
@@ -94,6 +95,7 @@ def test_messages_post_records_device_and_ingests(st, sent):
 
 
 def test_backfill_validation_and_conflict(st, sent):
+    st.update_settings(enabled=True)
     _post("/api/imessage-memory/backfill", {"from": 200, "to": 100})
     assert sent["status"] == 400
     _post("/api/imessage-memory/backfill", {"from": 100, "to": 200, "chats": ["one"]})
@@ -109,6 +111,7 @@ def test_backfill_validation_and_conflict(st, sent):
 
 
 def test_backfill_progress_done(st, sent):
+    st.update_settings(enabled=True)
     _post("/api/imessage-memory/backfill", {"from": 100, "to": 200})
     job_id = sent["body"]["job"]["id"]
     _post("/api/imessage-memory/backfill/progress", {"id": job_id, "done": True})
@@ -141,3 +144,20 @@ def test_settings_change_pushes_frame_and_validates_agent(st, sent):
 def test_unknown_paths_fall_through(st, sent):
     assert _get("/api/imessage-memory/nope") is False
     assert _post("/api/imessage-memory/nope", {}) is False
+
+
+def test_config_get_records_device_id(st, sent):
+    routes.handle_get(None, urlparse("/api/imessage-memory/config?device_id=mac-7"))
+    assert st.settings()["mac_device_id"] == "mac-7"
+    assert "enabled_at" in sent["body"]
+
+
+def test_backfill_needs_it_on_and_switching_off_stops_it(st, sent):
+    _post("/api/imessage-memory/settings", {"enabled": False})
+    _post("/api/imessage-memory/backfill", {"from": 100, "to": 200})
+    assert sent["status"] == 400
+    _post("/api/imessage-memory/settings", {"enabled": True})
+    _post("/api/imessage-memory/backfill", {"from": 100, "to": 200})
+    job_id = sent["body"]["job"]["id"]
+    _post("/api/imessage-memory/settings", {"enabled": False})
+    assert st.job(job_id)["status"] == "stopped"

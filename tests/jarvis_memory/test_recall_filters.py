@@ -109,3 +109,17 @@ def test_plain_query_still_works(tmp_path):
     _seed(p)
     assert _recall(p, query="tacos", limit=10)
     p.shutdown()
+
+
+def test_filtered_query_reaches_old_memories_past_500(tmp_path):
+    """source='imessage' must still find an old fact behind hundreds of newer memories."""
+    p = _provider(tmp_path)
+    s, ns = p._store, p._namespace
+    s.add_chunk(ns, "Sam Lee's address is 12 Oak St, Oakland", "imessage:c:fact:1-1:f",
+                _ts(2026, 1, 1, 9), 1.0, "imessage,fact")
+    for i in range(520):
+        s.add_chunk(ns, f"iMessage chatter number {i} about lunch", f"imessage:c:{i}-{i}:p1",
+                    _ts(2026, 6, 1, 9) + i, 1.0, "imessage,conversation")
+    hits = _recall(p, query="Sam address Oak", source="imessage", limit=3)
+    assert any("12 Oak St" in h["body"] for h in hits)
+    p.shutdown()

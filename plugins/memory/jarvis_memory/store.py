@@ -245,7 +245,7 @@ class MemoryStore:
         ``person`` matches when each of its words appears (any order, any case)
         in the first two lines of the memory — where an iMessage or Live memory
         names who was in it. Bodies are scanned newest first and the scan stops
-        at ``limit`` matches, so a person lookup stays cheap on a big store.
+        at ``limit`` matches (None: all), so a person lookup stays cheap on a big store.
         """
         where, args = ["namespace=?"], [namespace or GLOBAL_NS]
         if source_prefix:
@@ -259,7 +259,8 @@ class MemoryStore:
             where.append("created_at <= ?")
             args.append(float(until))
         tokens = [t for t in re.findall(r"\w+", (person or "").lower(), flags=re.UNICODE) if t]
-        sql = f"SELECT id, body FROM chunks WHERE {' AND '.join(where)} ORDER BY created_at DESC"
+        cols = "id, body" if tokens else "id"
+        sql = f"SELECT {cols} FROM chunks WHERE {' AND '.join(where)} ORDER BY created_at DESC"
         out: List[str] = []
         with self._lock:
             for row in self._conn.execute(sql, args):
@@ -268,7 +269,7 @@ class MemoryStore:
                     if not all(t in head for t in tokens):
                         continue
                 out.append(row["id"])
-                if len(out) >= limit:
+                if limit is not None and len(out) >= limit:
                     break
         out.reverse()
         return out

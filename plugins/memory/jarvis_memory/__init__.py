@@ -535,9 +535,12 @@ class JarvisMemoryProvider(MemoryProvider):
         until = parse_when(args.get("until"), end_of_day=True, zone=zone)
         filtered = bool(source or person or since is not None or until is not None)
         if filtered:
+            # Ranking a query needs every match (an old fact must still be
+            # findable); a time-ordered listing only needs the newest few.
             ids = self._store.filtered_ids(
                 self._namespace, source_prefix=f"{source}:" if source else "",
-                since=since, until=until, person=person, limit=500)
+                since=since, until=until, person=person,
+                limit=None if query.strip() else max(limit, 50))
             if query.strip():
                 hits = hybrid_recall(self._store, self._embedder, query, self._namespace,
                                      limit=limit, candidate_ids=set(ids))
