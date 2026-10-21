@@ -256,7 +256,10 @@ struct DashcamLibraryView: View {
                 // His tags: one at a time, like the filters before them.
                 Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 22)
                 ForEach(tagStore.tags) { t in
-                    Button("#" + t.name) { model.tag = model.tag == t.id ? nil : t.id }
+                    Button("#" + t.name) {
+                        // A tag shows every clip with it: the filters before it go back to All.
+                        if model.tag == t.id { model.tag = nil } else { model.filter = .all; model.tag = t.id }
+                    }
                         .buttonStyle(.jcGlass(tint: model.tag == t.id ? JcTheme.accent : JcTheme.muted, compact: true))
                         .accessibilityLabel("Tagged \(t.name)")
                         .id("tag-" + t.id)

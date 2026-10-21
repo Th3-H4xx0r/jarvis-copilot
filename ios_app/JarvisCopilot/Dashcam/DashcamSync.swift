@@ -580,6 +580,10 @@ final class DashcamSync: ObservableObject {
         // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
         // The cap also covers the MP4 copies made for Drive and the player: they once took 130 GB on their own.
         var normalOnPhone = storage.normalBytes(camera: cameraID) + cacheBytes()
+        // A clip he tagged comes off the camera whatever the rules (the camera records over old footage) — but
+        // not one he deleted from the phone on purpose. Read once a pass, not once a listed clip.
+        let tagged = DashcamTagged.ids(defaults: defaults)
+        func isTagged(_ f: DashcamFile) -> Bool { !tagged.isEmpty && tagged.contains(clipID(f)) }
         func wanted(_ f: DashcamFile) -> Bool {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
             // Deleted on this phone (even everywhere, and the card lists it again): only a pull by hand brings it back.
@@ -587,7 +591,7 @@ final class DashcamSync: ObservableObject {
             // Deleted from the phone on purpose: stays deleted until "Download again".
             if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
-            return isForced(f) || rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone)
+            return isForced(f) || isTagged(f) || rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone)
         }
 
         // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else —
@@ -670,7 +674,7 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { break }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            if !isForced(f), !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
+            if !isForced(f), !isTagged(f), !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
             if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size }
             if !onCameraProvider() { break }
@@ -923,7 +927,7 @@ final class DashcamSync: ObservableObject {
         let cameraID = info?.id ?? setup.cameraID
         guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return relaying }
         await uploader.confirm(Set(page.clips.map(\.id)))
-        DashcamTagged.update(page.clips, defaults: defaults)
+        DashcamTagged.learn(page.clips, defaults: defaults)
         let deleted = DashcamTombstones.ids(defaults: defaults)
         var requeued = false
         var count = 0
@@ -933,7 +937,8 @@ final class DashcamSync: ObservableObject {
             let url = storage.localURL(camera: clip.cameraID.isEmpty ? cameraID : clip.cameraID, file: f)
             let local = FileManager.default.fileExists(atPath: url.path)
             if clip.uploaded {
-                guard !rules.keepOnPhone, clip.tags.isEmpty else { continue }     // a clip he tagged stays
+                // A clip he tagged stays — asked again now: he may have tagged it since this page was read.
+                guard !rules.keepOnPhone, clip.tags.isEmpty, !DashcamTagged.contains(clip.id, defaults: defaults) else { continue }
                 if local { try? FileManager.default.removeItem(at: url) }
                 try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
             } else if clip.uploadState == "staged" || clip.uploading {

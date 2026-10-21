@@ -52,7 +52,31 @@ enum DashcamTagged {
         lock.withLock { (defaults.stringArray(forKey: key) ?? []).contains(id) }
     }
 
-    /// These clips as the server has them now: tagged ones in, untagged ones out.
+    static func ids(defaults: UserDefaults = .standard) -> Set<String> {
+        lock.withLock { Set(defaults.stringArray(forKey: key) ?? []) }
+    }
+
+    /// Tagged on this phone: kept from the tap on, before the server has answered.
+    static func mark(_ id: String, defaults: UserDefaults = .standard) {
+        lock.withLock {
+            var ids = Set(defaults.stringArray(forKey: key) ?? [])
+            ids.insert(id)
+            defaults.set(Array(ids).sorted(), forKey: key)
+        }
+    }
+
+    /// Tagged clips from a listing. Only ever adds: a listing may be older than a tap that untagged or
+    /// tagged a clip since, and only a tag change's reply (`update`) takes a clip out.
+    static func learn(_ clips: [DashcamServerClip], defaults: UserDefaults = .standard) {
+        let tagged = clips.filter { !$0.tags.isEmpty }.map(\.id)
+        guard !tagged.isEmpty else { return }
+        lock.withLock {
+            let ids = Set(defaults.stringArray(forKey: key) ?? []).union(tagged)
+            defaults.set(Array(ids).sorted(), forKey: key)
+        }
+    }
+
+    /// These clips as a tag change left them on the server: tagged ones in, untagged ones out.
     static func update(_ clips: [DashcamServerClip], defaults: UserDefaults = .standard) {
         lock.withLock {
             var ids = Set(defaults.stringArray(forKey: key) ?? [])
@@ -93,16 +117,16 @@ final class DashcamTagStore: ObservableObject {
         tags.first { $0.id == id }?.name ?? id.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
-    /// Sets the clip's tags — the server sets the other lens's clip of that moment too — and returns both
-    /// as they are now. A clip just tagged while it's still only on the camera is pulled at the next chance:
-    /// the camera records over old footage.
-    func set(_ ids: [String], on clip: DashcamServerClip) async throws -> [DashcamServerClip] {
+    /// Puts tags on the clip and takes others off; the server makes the same change on the other lenses'
+    /// clips of that moment, and all come back as they are now. A clip being tagged is kept on the phone
+    /// from the tap on, and one still only on the camera is pulled at the next chance — the camera records
+    /// over old footage (the sync also pulls every tagged clip, after a relaunch too).
+    func change(_ clip: DashcamServerClip, add: [String] = [], remove: [String] = []) async throws -> [DashcamServerClip] {
         let sync = DashcamSync.shared
-        let clips = try await api.setTags(clipID: clip.id, ids)
+        if !add.isEmpty { DashcamTagged.mark(clip.id, defaults: sync.defaults) }
+        let clips = try await api.changeTags(clipID: clip.id, add: add, remove: remove)
         DashcamTagged.update(clips, defaults: sync.defaults)
-        if !ids.isEmpty {
-            for c in clips where c.onCamera && c.phoneState != "local" && !c.uploaded { sync.pull(c.path) }
-        }
+        for c in clips where !c.tags.isEmpty && c.onCamera && c.phoneState != "local" && !c.uploaded { sync.pull(c.path) }
         return clips
     }
 }

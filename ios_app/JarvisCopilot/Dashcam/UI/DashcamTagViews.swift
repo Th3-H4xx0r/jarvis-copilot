@@ -55,6 +55,8 @@ struct DashcamTagsCard: View {
     @State private var newName = ""
     @State private var deleting: DashcamTag?
     @State private var problem: String?
+    /// Tag changes sent and not yet answered.
+    @State private var inFlight = 0
 
     var body: some View {
         CardGroup("Tags") {
@@ -102,27 +104,37 @@ struct DashcamTagsCard: View {
         }
     }
 
-    /// Shown at once; put back if the server says no.
+    /// Shown at once; the server gets the change (not the whole list, so quick taps can't undo each other).
+    /// Once nothing is in flight, the page takes what the server has — which also undoes a change that failed.
     private func toggle(_ id: String) {
-        let before = model.clip.tags
-        apply(DashcamTagging.toggled(before, id), before: before)
+        apply(id, add: !model.clip.tags.contains(id), to: model.clip)
     }
 
-    private func apply(_ wanted: [String], before: [String]) {
-        let clip = model.clip
-        model.clip.tags = wanted
+    private func apply(_ id: String, add: Bool, to clip: DashcamServerClip) {
+        if model.clip.id == clip.id, model.clip.tags.contains(id) != add {
+            model.clip.tags = DashcamTagging.toggled(model.clip.tags, id)
+        }
         problem = nil
+        inFlight += 1
         Task {
             do {
-                let clips = try await store.set(wanted, on: clip)
-                for c in clips {
-                    if c.id == model.clip.id { model.clip.tags = c.tags }
-                    if let partner, c.id == partner.clip.id { partner.clip.tags = c.tags }
-                }
+                let clips = try await store.change(clip, add: add ? [id] : [], remove: add ? [] : [id])
                 DashcamLibraryModel.shared.adopt(clips)
             } catch {
-                if model.clip.id == clip.id { model.clip.tags = before }
                 problem = "Couldn't save the tag: \(error.localizedDescription)"
+            }
+            inFlight -= 1
+            if inFlight == 0 { await settle() }
+        }
+    }
+
+    /// What the server has now, for this page's clip and the other lens's in Both.
+    private func settle() async {
+        for page in [model, partner].compactMap({ $0 }) {
+            let id = page.clip.id
+            if let fresh = try? await page.api.clip(id).clip, page.clip.id == id, inFlight == 0 {
+                page.clip.tags = fresh.tags
+                DashcamTagged.update([fresh], defaults: DashcamSync.shared.defaults)
             }
         }
     }
@@ -130,11 +142,11 @@ struct DashcamTagsCard: View {
     private func addAndApply(_ name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        let clip = model.clip                       // the clip he named it on, even if he moves on meanwhile
         Task {
             do {
                 let tag = try await store.add(name)
-                let before = model.clip.tags
-                if !before.contains(tag.id) { apply(before + [tag.id], before: before) }
+                apply(tag.id, add: true, to: clip)
             } catch {
                 problem = "Couldn't add the tag: \(error.localizedDescription)"
             }
@@ -147,8 +159,8 @@ struct DashcamTagsCard: View {
                 try await store.delete(tag.id)
                 model.clip.tags.removeAll { $0 == tag.id }
                 partner?.clip.tags.removeAll { $0 == tag.id }
+                DashcamLibraryModel.shared.dropTag(tag.id)
                 if DashcamLibraryModel.shared.tag == tag.id { DashcamLibraryModel.shared.tag = nil }
-                await DashcamLibraryModel.shared.refresh()
             } catch {
                 problem = "Couldn't delete the tag: \(error.localizedDescription)"
             }

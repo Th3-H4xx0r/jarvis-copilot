@@ -306,6 +306,18 @@ final class DashcamSyncTests: XCTestCase {
         XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"))
     }
 
+    /// A clip he tagged while it was only on the camera comes off it whatever the rules say — after a
+    /// relaunch too (the camera records over old footage).
+    func testATaggedClipOnTheCameraIsPulledWhateverTheRules() async {
+        var rules = DashcamRules(); rules.normal = .front
+        server.rules = rules
+        let rear = cam.files.first { $0.lens == .rear && $0.start.timeIntervalSince1970 == 1_790_000_000 }!
+        DashcamTagged.mark(DashcamIDs.clipID(cameraID: "CAM", path: rear.path), defaults: sync.defaults)
+        _ = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"))
+        XCTAssertFalse(fetcher.fetched.map(\.lastPathComponent).contains("rear_60.mp4"), "untagged rear: the rules")
+    }
+
     func testAPlaybackOnlyCameraWaitsForParkAndNeverStopsRecordingWhileDriving() async {
         cam.refuseOutsidePlayback = true
         parked = false

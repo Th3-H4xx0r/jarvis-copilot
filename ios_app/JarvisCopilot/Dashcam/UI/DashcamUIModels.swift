@@ -264,27 +264,40 @@ final class DashcamLibraryModel: ObservableObject {
         if let i = clips.firstIndex(where: { $0.id == clip.id }) { clips[i] = clip }
     }
 
-    /// Clips whose tags just changed, as the server has them now. Showing one tag, a clip that lost it leaves.
-    func adopt(_ changed: [DashcamServerClip]) {
+    /// Clips whose tags just changed, as the server has them now. `drop`: showing one tag, a clip that lost it
+    /// leaves the list (the selection bar's Tag) — not from a clip's own page, which is built from this list.
+    func adopt(_ changed: [DashcamServerClip], drop: Bool = false) {
         for clip in changed { replace(clip) }
-        if let tag {
+        if drop, let tag {
             let gone = Set(changed.filter { !$0.tags.contains(tag) }.map(\.id))
             if !gone.isEmpty { clips.removeAll { gone.contains($0.id) } }
         }
     }
 
+    /// A tag he deleted comes off every loaded row (the server took it off every clip).
+    func dropTag(_ id: String) {
+        guard clips.contains(where: { $0.tags.contains(id) }) else { return }
+        clips = clips.map { var c = $0; c.tags.removeAll { $0 == id }; return c }
+    }
+
     /// The selection bar's Tag: the tag on every selected clip — or off them all when each has it already
-    /// (`DashcamTagging.bulk`). Selecting ends. Nil when all went, else what to say.
+    /// (`DashcamTagging.bulk`). Stops at the first failure (the server down would otherwise cost a timeout a
+    /// clip). Selecting ends. Nil when all went, else what to say.
     func tagSelected(_ tag: String) async -> String? {
         let chosen = clips.filter { selected.contains($0.id) }
         let plan = DashcamTagging.bulk(tag, on: chosen)
         var failed = 0
-        for change in plan.changes {
-            // Setting one clip sets its other lens's too: a selected partner may be done already.
+        for (i, change) in plan.changes.enumerated() {
+            // Setting one clip sets its other lenses' too: a selected partner may be done already.
             let clip = clips.first { $0.id == change.clipID } ?? chosen.first { $0.id == change.clipID }
             guard let clip, clip.tags.contains(tag) != plan.add else { continue }
-            do { adopt(try await DashcamTagStore.shared.set(DashcamTagging.toggled(clip.tags, tag), on: clip)) }
-            catch { failed += 1 }
+            do {
+                adopt(try await DashcamTagStore.shared.change(clip, add: plan.add ? [tag] : [], remove: plan.add ? [] : [tag]),
+                      drop: true)
+            } catch {
+                failed = plan.changes.count - i
+                break
+            }
         }
         selecting = false
         selected = []

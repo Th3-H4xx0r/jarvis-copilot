@@ -326,9 +326,11 @@ struct DashcamAPI: Sendable {
 
     func deleteTag(_ id: String) async throws { _ = try await api.post(Self.prefix + "/tags/\(id)/delete") }
 
-    /// Sets the clip's tags; the server sets the same on the other lens's clip of that moment. Both come back.
-    func setTags(clipID: String, _ tags: [String]) async throws -> [DashcamServerClip] {
-        let o = try await api.post(Self.prefix + "/clips/\(clipID)/tags", json: ["tags": tags]).object()
+    /// Puts tags on the clip and takes others off — a change, not the whole list, so two quick taps (or a
+    /// page holding an old copy of the clip) can't undo each other. The server makes the same change on the
+    /// other lenses' clips of that moment; all come back, this one first.
+    func changeTags(clipID: String, add: [String] = [], remove: [String] = []) async throws -> [DashcamServerClip] {
+        let o = try await api.post(Self.prefix + "/clips/\(clipID)/tags", json: ["add": add, "remove": remove]).object()
         return (o["clips"] as? [[String: Any]] ?? []).compactMap(DashcamServerClip.init(json:))
     }
 

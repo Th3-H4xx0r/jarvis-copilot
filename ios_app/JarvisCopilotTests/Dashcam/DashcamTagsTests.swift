@@ -39,16 +39,19 @@ final class DashcamTagsTests: XCTestCase {
         XCTAssertTrue(transport.requests.last?.url?.query?.contains("tag=near_miss") == true)
     }
 
-    func testSettingTagsPostsThemAndReadsBothClips() async throws {
+    /// A tap sends the change, not the whole list: two quick taps can't undo each other.
+    func testAChangePostsWhatToAddAndRemoveAndReadsBothClips() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true, "clips": [["id": "f", "path": "/sd/f.ts", "tags": ["accident"]],
                                                        ["id": "r", "path": "/sd/r.ts", "tags": ["accident"]]]])
-        let clips = try await DashcamAPI(api: api).setTags(clipID: "f", ["accident"])
+        let clips = try await DashcamAPI(api: api).changeTags(clipID: "f", add: ["accident"], remove: ["scenic"])
         XCTAssertEqual(clips.map(\.id), ["f", "r"])
         let request = try XCTUnwrap(transport.requests.last)
         XCTAssertEqual(request.url?.path, "/api/dashcam/clips/f/tags")
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
-        XCTAssertEqual(body["tags"] as? [String], ["accident"])
+        XCTAssertEqual(body["add"] as? [String], ["accident"])
+        XCTAssertEqual(body["remove"] as? [String], ["scenic"])
+        XCTAssertNil(body["tags"])
     }
 
     func testTheTagCatalogAndNewTags() async throws {
@@ -63,12 +66,38 @@ final class DashcamTagsTests: XCTestCase {
     }
 
     /// Clips he tagged stay on the phone after their upload: the phone remembers which clips carry tags.
-    func testTheTaggedListFollowsWhatTheServerSays() throws {
+    /// A tag change is the truth for its clips; a listing only ever adds (it may be older than a tap).
+    func testTheTaggedListFollowsChangesAndListingsOnlyAdd() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "DashcamTagsTests-\(UUID().uuidString)"))
         DashcamTagged.update([clip("a", tags: ["accident"]), clip("b")], defaults: defaults)
         XCTAssertTrue(DashcamTagged.contains("a", defaults: defaults))
         XCTAssertFalse(DashcamTagged.contains("b", defaults: defaults))
+        DashcamTagged.mark("b", defaults: defaults)                 // tapped: kept even before the server answers
+        DashcamTagged.learn([clip("b"), clip("c", tags: ["scenic"])], defaults: defaults)
+        XCTAssertTrue(DashcamTagged.contains("b", defaults: defaults), "an older listing doesn't untag it")
+        XCTAssertTrue(DashcamTagged.contains("c", defaults: defaults))
         DashcamTagged.update([clip("a")], defaults: defaults)
         XCTAssertFalse(DashcamTagged.contains("a", defaults: defaults), "untagged again")
+    }
+
+    /// Tag on several selected clips with the server down: it stops at the first failure, not one
+    /// timeout per clip.
+    @MainActor
+    func testBulkTaggingStopsAtTheFirstFailure() async {
+        let (api, transport) = JarvisAPI.mocked()
+        let store = DashcamTagStore.shared
+        let saved = store.api
+        defer { store.api = saved }
+        store.api = DashcamAPI(api: api)
+        let model = DashcamLibraryModel()
+        model.api = DashcamAPI(api: api)
+        transport.enqueue(json: ["clips": (0..<5).map { ["id": "c\($0)", "path": "/sd/c\($0).ts", "start": "2026-10-21T21:1\($0):00Z"] },
+                                 "next": NSNull()])
+        await model.reload()
+        model.selected = Set(model.clips.map(\.id))
+        transport.enqueue(MockTransport.Reply(status: 502, body: Data("down".utf8)))
+        let note = await model.tagSelected("accident")
+        XCTAssertEqual(transport.requests.count, 2, "the page, then one try")
+        XCTAssertEqual(note, "5 clips couldn't be tagged. Try again.")
     }
 }
