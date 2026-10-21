@@ -116,7 +116,11 @@ def test_backfill_progress_done(st, sent):
     _post("/api/imessage-memory/backfill", {"from": 100, "to": 200})
     job_id = sent["body"]["job"]["id"]
     _post("/api/imessage-memory/backfill/progress", {"id": job_id, "done": True})
-    assert st.job(job_id)["status"] == "done"
+    # Uploaded is not done: Jarvis still reads it, and the card says so.
+    assert st.job(job_id)["status"] == "analyzing"
+    assert st.active_job()["id"] == job_id
+    st.finish_analyzed_jobs()                      # nothing waiting → done
+    assert st.job(job_id)["status"] == "done" and st.active_job() is None
 
 
 def test_forget_calls_memory_forget_prefix(st, sent, monkeypatch):

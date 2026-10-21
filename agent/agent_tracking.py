@@ -319,6 +319,7 @@ class AgentTracker:
         return {
             "key": s["key"], "host": s["host"], "agent": s["agent"],
             "session_id": s["session_id"], "cwd": s["cwd"], "project": s["project"],
+            "integration": s.get("integration"),
             "state": s["state"], "step": s["step"], "steps": s["steps"][-6:],
             "subagents": s["subagents"], "compactions": s["compactions"], "model": s["model"],
             "terminal": s["terminal"], "started_at": s["started_at"],

@@ -210,9 +210,13 @@ function _immRender() {
           <div class="intg-row">
             <div class="intg-row-main">
               <span class="intg-row-name">${esc(job.status === 'pending'
-                ? (c.mac_connected === false ? 'Waiting for your Mac (offline)…' : 'Waiting for your Mac…') : 'Backfilling')} ·
+                ? (c.mac_connected === false ? 'Waiting for your Mac (offline)…' : 'Waiting for your Mac…')
+                : job.status === 'analyzing'
+                  ? `Analysing conversations — ${Number(job.analyzed || 0).toLocaleString()} of ${Number(job.received || 0).toLocaleString()} messages`
+                  : 'Uploading from your Mac…')} ·
                 ${esc(_immWhen(job.start))} → ${esc(_immWhen(job.end))}</span>
-              <span class="intg-row-sub">${job.received} messages received · ${job.stored} conversations saved · ${job.skipped} already remembered</span>
+              <progress class="imm-progress" max="1" value="${job.received ? Math.min(1, (job.analyzed || 0) / job.received) : 0}"></progress>
+              <span class="intg-row-sub">${job.stored} conversations saved · ${job.skipped} already remembered</span>
             </div>
             <button class="intg-btn" data-imm="stop">Stop</button>
           </div>` : `

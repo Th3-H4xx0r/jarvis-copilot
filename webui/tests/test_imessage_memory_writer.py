@@ -389,3 +389,20 @@ def test_restart_releases_stuck_cards_and_no_duplicate_cards(st, pushes):
     assert st.pending_count() == 1                # back to waiting...
     w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
     assert [c["fact"] for c in st.pending_facts()] == ["Sam Lee's address is 12 Oak St, Oakland"]
+
+
+
+def test_chats_are_read_in_parallel(st, monkeypatch):
+    """Two chats' conversations are analysed at the same time, not one after another."""
+    import threading as _t
+    st.upsert_chats([{"guid": "two", "name": "Priya", "is_group": False,
+                      "participants": [{"handle": "+14155550000", "label": "Priya"}]}])
+    st.ingest([{"guid": "one", **r} for r in _rows((0, False, "my address is 12 Oak St, Oakland"))])
+    st.ingest([{"guid": "two", **r} for r in _rows((0, False, "dinner friday at the new place?"))])
+    both_inside = _t.Barrier(2, timeout=5)
+
+    def complete(ref, prompt):
+        both_inside.wait()          # deadlocks (BrokenBarrierError) if calls run one at a time
+        return _reply()(ref, prompt)
+
+    assert w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=complete) == 2

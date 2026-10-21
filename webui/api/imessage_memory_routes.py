@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from api.imessage_memory import IMStore, normalize_handle, store
+from api.imessage_memory import ACTIVE_JOB_STATES, LIVE_JOB_STATES, IMStore, normalize_handle, store
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,8 @@ def mac_config(st: IMStore) -> dict:
             "enabled_at": settings.get("enabled_at"),
             "chats": {c["guid"]: st.effective_pick(c, skip) for c in chats},
             "skip": sorted(skip),
-            "backfill": st.active_job()}
+            # Only a backfill the Mac still has to upload; once it's analysing, the Mac is done.
+            "backfill": st.active_job(states=ACTIVE_JOB_STATES)}
 
 
 def _mac_connected(st: IMStore) -> bool:
@@ -331,8 +332,8 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         job = st.job(str(body.get("id") or ""))
         if not job:
             return _bad(handler, "no such backfill", 404)
-        if job["status"] in ("pending", "running"):
-            st.update_job(job["id"], status="stopped")
+        if job["status"] in LIVE_JOB_STATES:
+            st.stop_job(job["id"])
             push_refresh(st)
         return _j(handler, {"ok": True})
 
@@ -398,7 +399,8 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
             if body.get("error"):
                 st.update_job(job["id"], status="error", error=str(body["error"])[:300])
             elif body.get("done"):
-                st.update_job(job["id"], status="done")
+                # Uploaded; Jarvis now reads it. The closer marks it done when nothing waits.
+                st.update_job(job["id"], status="analyzing")
         return _j(handler, {"ok": True})
 
     return False

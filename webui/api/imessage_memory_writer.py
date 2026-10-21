@@ -14,6 +14,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple
 
@@ -23,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 EXTRACT_SLICE_CHARS = 12000
 MAX_FACTS = 8
-BURSTS_PER_TICK = 20
+BURSTS_PER_TICK = 64
+PARALLEL_CHATS = 8  # chats read at once — a 3-month backfill is thousands of model calls
 TICK_SECONDS = 60
 
 _PROMPT = """You are filing one of Pranav's iMessage conversations into his long-term memory.
@@ -195,8 +197,10 @@ def resolve_extraction_model(agent) -> Tuple[str, str]:
 
 
 def _one_shot(model_ref: str, prompt: str) -> str:
+    # Its own platform, so the Agents tab files these runs under the
+    # integration (collapsed) instead of a session each among his chats.
     from api.harness_llm import one_shot_completion
-    return one_shot_completion(model_ref, prompt, max_tokens=1200)
+    return one_shot_completion(model_ref, prompt, max_tokens=1200, platform="imessage_memory")
 
 
 def extract(transcript: str, model_ref: str,
@@ -429,15 +433,34 @@ def close_once(st: Optional[IMStore] = None, now: Optional[float] = None, *, mem
         auto_store(st, now, memory)
     except Exception:
         logger.exception("imessage memory: auto-storing fact cards failed")
-    handled = 0
+    # Different chats are read in parallel (one model call each at a time);
+    # one chat's conversations stay in order.
+    by_chat: dict = {}
     for burst in st.open_bursts(now)[:BURSTS_PER_TICK]:
-        try:
-            if store_burst(st, burst, memory=memory, complete=complete) == "failed":
-                break  # memory is refusing writes: stop until the next tick
-        except Exception:
-            logger.exception("imessage memory: burst %s:%s failed", burst.guid, burst.first_rowid)
-            continue
-        handled += 1
+        by_chat.setdefault(burst.guid, []).append(burst)
+    refusing = threading.Event()
+
+    def _chat(bursts: list) -> int:
+        done = 0
+        for burst in bursts:
+            if refusing.is_set():
+                break
+            try:
+                if store_burst(st, burst, memory=memory, complete=complete) == "failed":
+                    refusing.set()  # memory is refusing writes: stop until the next tick
+                    break
+            except Exception:
+                logger.exception("imessage memory: burst %s:%s failed", burst.guid, burst.first_rowid)
+                continue
+            done += 1
+        return done
+
+    handled = 0
+    if by_chat:
+        workers = max(1, min(PARALLEL_CHATS, len(by_chat)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="imessage-memory") as pool:
+            handled = sum(pool.map(_chat, by_chat.values()))
+    st.finish_analyzed_jobs()
     return handled
 
 

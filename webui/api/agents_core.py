@@ -167,6 +167,10 @@ class AgentsCore:
                 title = short_title(payload.get("prompt"))
                 if title:
                     fields["title"] = title
+            if session.get("integration"):
+                # A background run for an integration (jarvis-island tags it):
+                # listed under that integration, not among his chats.
+                fields["integration"] = session["integration"]
             new_project = not (row or {}).get("project_id") and cwd
             if new_project:
                 fields["project_id"] = self._project_for(cwd, device_id)
@@ -401,10 +405,17 @@ class AgentsCore:
         for c in convs:
             if c in needs:
                 continue
-            pid = c.get("project_id") or ("cwd:" + (c.get("cwd") or ""))
-            g = groups.setdefault(pid, {"id": c.get("project_id"), "name": c.get("project") or "",
-                                        "sync_enabled": self._project_synced(c), "sessions": [],
-                                        "last": 0.0})
+            integration = c.get("integration")
+            if integration:
+                # One group per integration (clients show these collapsed).
+                pid = "integration:" + integration
+                g = groups.setdefault(pid, {"id": None, "name": integration, "integration": integration,
+                                            "sync_enabled": False, "sessions": [], "last": 0.0})
+            else:
+                pid = c.get("project_id") or ("cwd:" + (c.get("cwd") or ""))
+                g = groups.setdefault(pid, {"id": c.get("project_id"), "name": c.get("project") or "",
+                                            "sync_enabled": self._project_synced(c), "sessions": [],
+                                            "last": 0.0})
             g["sessions"].append(c)
             g["last"] = max(g["last"], c.get("last_event_at") or 0)
         projects = sorted(groups.values(), key=lambda g: -g["last"])
@@ -625,6 +636,7 @@ class AgentsCore:
             "session_id": row.get("session_id"),
             "title": self._title(row) or project or os.path.basename(row.get("cwd") or ""),
             "project_id": row.get("project_id"), "project": project, "cwd": row.get("cwd") or "",
+            "integration": row.get("integration") or ts.get("integration") or None,
             "owner": owner, "owner_name": "Server" if owner == "server" else self._name(owner),
             "status": status, "state": state, "step": ts.get("step"), "pending": pending,
             "turn_summary": ts.get("turn_summary"), "model": ts.get("model"),

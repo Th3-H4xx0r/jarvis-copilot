@@ -344,6 +344,8 @@ class Engine:
             s["project"] = os.path.basename(s["cwd"].rstrip("/")) or "session"
         if isinstance(p.get("jc_project"), str) and p["jc_project"].strip():
             s["project"] = p["jc_project"].strip()[:60]
+        if isinstance(p.get("jc_integration"), str) and p["jc_integration"].strip():
+            s["integration"] = p["jc_integration"].strip()[:60]
 
     def _effect(self, kind, s, **extra):
         out = {"kind": kind, "key": s["key"] if s else None,

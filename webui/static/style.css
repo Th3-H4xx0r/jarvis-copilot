@@ -4899,6 +4899,7 @@ html.mini-voice main.main::before{
 .imm-mem-convo{margin:4px 0 0;font-family:inherit;font-size:11.5px;line-height:1.45;color:var(--muted);white-space:pre-wrap;
   max-height:4.4em;overflow:hidden;}
 .imm-convo--open .imm-mem-convo{max-height:none;}
+.imm-progress{width:100%;height:6px;margin:6px 0 2px;accent-color:var(--accent);}
 .imm-choose{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:9px;padding:4px;margin-bottom:8px;}
 
 .intg-section{margin-bottom:22px;}

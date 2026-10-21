@@ -23,7 +23,11 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 GAP_SECONDS = 1800  # a burst ends after 30 min of quiet
-ACTIVE_JOB_STATES = ("pending", "running")
+ACTIVE_JOB_STATES = ("pending", "running")            # the Mac is (or will be) uploading
+LIVE_JOB_STATES = ("pending", "running", "analyzing")  # ...or Jarvis is still reading it
+# A job's rows: received minus those still waiting is how far the analysis got.
+_JOB_SELECT = ("SELECT j.*, (SELECT COUNT(*) FROM pending p WHERE p.job_id = j.id) AS waiting "
+               "FROM jobs j")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT);
@@ -74,6 +78,7 @@ CREATE TABLE IF NOT EXISTS fact_cards (
     decided_at  REAL
 );
 CREATE INDEX IF NOT EXISTS ix_fact_cards_status ON fact_cards(status, created_at);
+CREATE INDEX IF NOT EXISTS ix_pending_job ON pending(job_id);
 CREATE TABLE IF NOT EXISTS jobs (
     id         TEXT PRIMARY KEY,
     start      REAL NOT NULL,
@@ -493,19 +498,35 @@ class IMStore:
 
     def job(self, job_id: str) -> Optional[dict]:
         with self._db() as db:
-            row = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            row = db.execute(f"{_JOB_SELECT} WHERE j.id=?", (job_id,)).fetchone()
         return _job_dict(row) if row else None
 
     def jobs(self, limit: int = 10) -> list:
         with self._db() as db:
-            rows = db.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            rows = db.execute(f"{_JOB_SELECT} ORDER BY j.created_at DESC LIMIT ?", (limit,)).fetchall()
         return [_job_dict(r) for r in rows]
 
-    def active_job(self) -> Optional[dict]:
+    def active_job(self, states=LIVE_JOB_STATES) -> Optional[dict]:
+        """The backfill still in progress — uploading or being analysed."""
+        states = tuple(states)
         with self._db() as db:
-            row = db.execute(f"SELECT * FROM jobs WHERE status IN {ACTIVE_JOB_STATES} "
-                             "ORDER BY created_at DESC LIMIT 1").fetchone()
+            row = db.execute(f"{_JOB_SELECT} WHERE j.status IN ({','.join('?' * len(states))}) "
+                             "ORDER BY j.created_at DESC LIMIT 1", states).fetchone()
         return _job_dict(row) if row else None
+
+    def finish_analyzed_jobs(self) -> int:
+        """An analysing backfill with nothing left waiting is done."""
+        with self._db() as db:
+            return db.execute("UPDATE jobs SET status='done', updated_at=? WHERE status='analyzing' AND "
+                              "NOT EXISTS (SELECT 1 FROM pending p WHERE p.job_id = jobs.id)",
+                              (time.time(),)).rowcount
+
+    def stop_job(self, job_id: str) -> None:
+        """Stop a backfill wherever it is; what it uploaded but wasn't read yet is dropped."""
+        with self._db() as db:
+            db.execute(f"UPDATE jobs SET status='stopped', updated_at=? WHERE id=? AND status IN {LIVE_JOB_STATES}",
+                       (time.time(), job_id))
+            db.execute("DELETE FROM pending WHERE job_id=?", (job_id,))
 
     def expire_jobs(self, now: float) -> int:
         """Fail a backfill the Mac stopped answering (see STALE_*), so its rows
@@ -518,9 +539,11 @@ class IMStore:
                  now - STALE_PENDING_SECONDS)).rowcount
 
     def stop_active_jobs(self) -> None:
-        with self._db() as db:
-            db.execute(f"UPDATE jobs SET status='stopped', updated_at=? WHERE status IN {ACTIVE_JOB_STATES}",
-                       (time.time(),))
+        for state in LIVE_JOB_STATES:
+            job = self.active_job(states=(state,))
+            while job:
+                self.stop_job(job["id"])
+                job = self.active_job(states=(state,))
 
     def update_job(self, job_id: str, **fields) -> Optional[dict]:
         allowed = {k: v for k, v in fields.items() if k in ("status", "error")}
@@ -572,6 +595,8 @@ def _card_out(row) -> dict:
 
 def _job_dict(row) -> dict:
     d = dict(row)
+    waiting = int(d.pop("waiting", 0) or 0)
+    d["analyzed"] = max(0, int(d.get("received") or 0) - waiting)
     try:
         d["chats"] = json.loads(d["chats"]) if d.get("chats") else None
     except ValueError:

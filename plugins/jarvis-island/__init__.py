@@ -19,6 +19,8 @@ import socket
 import threading
 
 _SKIP_PLATFORMS = {"cron"}
+# Platforms an integration's background runs use -> the name its group shows.
+_INTEGRATIONS = {"imessage_memory": "iMessage memory"}
 _TIMEOUT = 0.3
 _local = threading.local()
 _platforms: dict = {}  # session_id -> platform, so tool events know whether to skip
@@ -109,6 +111,13 @@ def _pre_llm_call(session_id: str = "", user_message="", platform: str = "", **_
         if _skipped(session_id, platform):
             return
         prompt = user_message if isinstance(user_message, str) else ""
+        integration = _INTEGRATIONS.get(platform or "")
+        if integration:
+            # A background run for an integration: grouped (collapsed) under it
+            # in the Agents tab, not one session each among his chats.
+            _fire("UserPromptSubmit", session_id, prompt=prompt[:500],
+                  jc_project=integration, jc_integration=integration)
+            return
         _fire("UserPromptSubmit", session_id, prompt=prompt[:500],
               jc_project=f"Jarvis · {platform or 'chat'}")
     except Exception:  # noqa: BLE001

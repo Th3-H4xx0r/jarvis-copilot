@@ -210,3 +210,27 @@ def test_released_cards_return_to_pending(st):
     ids = [c["id"] for c in st.take_cards(burst="one|1")]
     st.release_cards(ids)
     assert st.pending_count() == 2
+
+
+
+def test_job_progress_and_analyzing_lifecycle(st):
+    job = st.create_job(T0 - 3600, T0)
+    st.ingest([_msg("one", 1, T0 - 600), _msg("one", 2, T0 - 590)], job_id=job["id"])
+    st.update_job(job["id"], status="analyzing")
+    j = st.job(job["id"])
+    assert j["received"] == 2 and j["analyzed"] == 0
+    assert st.active_job()["id"] == job["id"]              # still in progress
+    with pytest.raises(ValueError):
+        st.create_job(T0 - 10, T0)                         # one at a time
+    (burst,) = st.open_bursts(T0 + 10)                     # analyzing rows can close
+    st.mark_burst(burst, "stored")
+    assert st.job(job["id"])["analyzed"] == 2
+    assert st.finish_analyzed_jobs() == 1 and st.job(job["id"])["status"] == "done"
+
+
+def test_stop_while_analyzing_drops_unread_rows(st):
+    job = st.create_job(T0 - 3600, T0)
+    st.ingest([_msg("one", 1, T0 - 600)], job_id=job["id"])
+    st.update_job(job["id"], status="analyzing")
+    st.stop_job(job["id"])
+    assert st.job(job["id"])["status"] == "stopped" and st.totals()["pending"] == 0

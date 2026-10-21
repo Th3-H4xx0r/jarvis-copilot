@@ -24,6 +24,8 @@
   const PAGE = 40;
   const FLASH_MS = 7000;
   const COLLAPSE_KEY = 'jc.agents.collapsedProjects';
+  // Integration groups (an integration's background runs) start collapsed; these are the ones opened.
+  const OPEN_INTEGRATIONS_KEY = 'jc.agents.openIntegrations';
   const TERM_H_KEY = 'jc.agents.termHeight';
   const TERM_H_DEFAULT = 300;
   const SETTLED_MS = 15000;   // a decided card stays hidden this long while the hooks catch up
@@ -72,6 +74,7 @@
     devices: null,
     deepCkey: null,
     collapsed: _loadCollapsed(),
+    openIntegrations: _loadSet(OPEN_INTEGRATIONS_KEY),
     seq: 0,
   };
 
@@ -86,6 +89,9 @@
   function storeSet(key, val) { try { window.localStorage.setItem(key, val); } catch (_) { /* private mode */ } }
   function _loadCollapsed() {
     try { return new Set(JSON.parse(storeGet(COLLAPSE_KEY) || '[]')); } catch (_) { return new Set(); }
+  }
+  function _loadSet(key) {
+    try { return new Set(JSON.parse(storeGet(key) || '[]')); } catch (_) { return new Set(); }
   }
   function firstLine(text, limit) {
     const max = limit || 140;
@@ -458,10 +464,16 @@
         needs.map((c) => rowHtml(c, { showsProject: true, decision: true })).join('') +
         orph.map(orphanHtml).join('') + '</div>');
     }
-    const groups = (l.projects || []).filter((g) => (g.sessions || []).length);
+    const all = (l.projects || []).filter((g) => (g.sessions || []).length);
+    const groups = all.filter((g) => !g.integration);
+    const integrations = all.filter((g) => g.integration);
     if (groups.length) {
       parts.push('<div class="agents-sec">Projects</div>');
       parts.push(groups.map((g) => groupHtml(g, needs)).join(''));
+    }
+    if (integrations.length) {
+      parts.push('<div class="agents-sec">Integrations</div>');
+      parts.push(integrations.map((g) => groupHtml(g, needs)).join(''));
     }
     if (!card && !needs.length && !orph.length && !groups.length) {
       parts.push('<div class="agents-empty"><div class="agents-empty-title">No sessions right now</div>' +
@@ -598,7 +610,10 @@
       decisionHtml(null, r, true) + '</div>';
   }
 
-  function groupId(g) { return g.id != null && g.id !== '' ? String(g.id) : 'name:' + (g.name || ''); }
+  function groupId(g) {
+    if (g.integration) return 'integration:' + g.integration;
+    return g.id != null && g.id !== '' ? String(g.id) : 'name:' + (g.name || '');
+  }
   function groupWaiting(g, needs) {
     const own = (g.sessions || []).filter(waitsOnYou).length;
     const inNeeds = needs.filter((c) => (g.id != null && g.id !== '')
@@ -609,7 +624,7 @@
   function groupHtml(g, needs) {
     const gid = groupId(g);
     const waiting = groupWaiting(g, needs);
-    const open = waiting > 0 || !st.collapsed.has(gid);
+    const open = waiting > 0 || (g.integration ? st.openIntegrations.has(gid) : !st.collapsed.has(gid));
     const name = g.name || ((g.sessions || [])[0] || {}).project || 'Other';
     return '<div class="agents-group' + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="agents-group-head" data-act="toggle-group" data-gid="' + esc(gid) + '" ' +
@@ -1712,8 +1727,14 @@
       case 'launch-cancel': goBack(); break;
       case 'toggle-group': {
         const gid = t.dataset.gid;
-        if (t.getAttribute('aria-expanded') === 'true') st.collapsed.add(gid); else st.collapsed.delete(gid);
-        storeSet(COLLAPSE_KEY, JSON.stringify(Array.from(st.collapsed)));
+        const opening = t.getAttribute('aria-expanded') !== 'true';
+        if (gid.startsWith('integration:')) {
+          if (opening) st.openIntegrations.add(gid); else st.openIntegrations.delete(gid);
+          storeSet(OPEN_INTEGRATIONS_KEY, JSON.stringify(Array.from(st.openIntegrations)));
+        } else {
+          if (opening) st.collapsed.delete(gid); else st.collapsed.add(gid);
+          storeSet(COLLAPSE_KEY, JSON.stringify(Array.from(st.collapsed)));
+        }
         renderAll();
         break;
       }
