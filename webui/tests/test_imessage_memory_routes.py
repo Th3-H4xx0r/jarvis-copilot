@@ -161,3 +161,19 @@ def test_backfill_needs_it_on_and_switching_off_stops_it(st, sent):
     job_id = sent["body"]["job"]["id"]
     _post("/api/imessage-memory/settings", {"enabled": False})
     assert st.job(job_id)["status"] == "stopped"
+
+
+def test_push_refresh_falls_back_to_the_connected_mac(tmp_path, monkeypatch):
+    """The Mac's own id (2ded…) isn't its bridge id (e9c0…): the nudge must still arrive."""
+    import api.device_bridge as bridge
+    s = im.IMStore(tmp_path / "im.db")
+    s.update_settings(mac_device_id="creds-id")
+    sent_to = []
+    monkeypatch.setattr(bridge, "send_frame", lambda d, f: sent_to.append(d) or d == "bridge-id")
+    monkeypatch.setattr(routes, "_connected_macs", lambda: ["bridge-id"])
+    assert routes.push_refresh(s) is True
+    assert sent_to == ["creds-id", "bridge-id"]
+    assert s.settings()["mac_device_id"] == "bridge-id"
+    # The Mac's own id no longer overwrites a reachable one.
+    routes._seen(s, {"device_id": "creds-id"})
+    assert s.settings()["mac_device_id"] == "bridge-id"

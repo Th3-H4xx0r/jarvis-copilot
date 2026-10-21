@@ -64,6 +64,7 @@ def card(st: IMStore) -> dict:
             "memory_active": writer.memory_writer() is not None,
             "agent": settings.get("agent"), "runs_on": runs_on,
             "mac_seen_at": settings.get("mac_seen_at"),
+            "mac_connected": bool(_connected_macs()),
             "chats": chats, "skip": settings.get("skip") or [],
             "jobs": st.jobs(10), "active_job": st.active_job(),
             "totals": {"memories": _memory_count(), **st.totals()}}
@@ -82,25 +83,47 @@ def mac_config(st: IMStore) -> dict:
             "backfill": st.active_job()}
 
 
+def _connected_macs() -> list:
+    """Device ids of the connected desktop clients (their bridge ids)."""
+    try:
+        from api.coding_desktop import _connected_sync_capable
+        return list(_connected_sync_capable())
+    except Exception:
+        logger.debug("imessage memory: no desktop list", exc_info=True)
+        return []
+
+
 def push_refresh(st: IMStore) -> bool:
-    """Tell the Mac to fetch its config now. False when it isn't connected —
-    it fetches on its own within 10 minutes."""
-    device_id = st.settings().get("mac_device_id")
-    if not device_id:
-        return False
+    """Tell the Mac to fetch its config now. False when no Mac is connected —
+    it fetches on its own every couple of minutes.
+
+    The id the Mac reports about itself (its credentials) is not always the id
+    its bridge connection is registered under, so when that one isn't
+    connected the nudge goes to the connected desktop, whose id is remembered."""
     try:
         from api.device_bridge import send_frame
-        return bool(send_frame(device_id, {"type": "imessage_memory"}))
     except Exception:
-        logger.debug("imessage memory: refresh push failed", exc_info=True)
         return False
+    frame = {"type": "imessage_memory"}
+    known = st.settings().get("mac_device_id") or ""
+    if known and send_frame(known, frame):
+        return True
+    for device_id in _connected_macs():
+        if send_frame(device_id, frame):
+            st.update_settings(mac_device_id=device_id)
+            return True
+    return False
 
 
 def _seen(st: IMStore, body: dict) -> None:
     fields = {"mac_seen_at": time.time()}
     device_id = str((body or {}).get("device_id") or "").strip()
-    if device_id:
-        fields["mac_device_id"] = device_id
+    # Only adopt the Mac's own id when nothing reachable is known yet: the id
+    # push_refresh found connected is the one a nudge actually arrives at.
+    if device_id and device_id != st.settings().get("mac_device_id"):
+        known = st.settings().get("mac_device_id")
+        if not known or known not in _connected_macs():
+            fields["mac_device_id"] = device_id
     st.update_settings(**fields)
 
 
