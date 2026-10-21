@@ -167,6 +167,12 @@ def _is_smartphone(device: Dict[str, Any]) -> bool:
     return str(device.get("type") or "").lower() == "smartphone"
 
 
+def _is_his_iphone(device: Dict[str, Any]) -> bool:
+    """His iPhone's Spotify — not another phone Spotify lists on his Wi-Fi (2026-10-21:
+    "Nandhini's Z Flip7"). iOS gives apps the name "iPhone"."""
+    return _is_smartphone(device) and "iphone" in str(device.get("name") or "").lower()
+
+
 def _is_computer(device: Dict[str, Any]) -> bool:
     return str(device.get("type") or "").lower() == "computer"
 
@@ -178,9 +184,11 @@ def _pick_device(devices_payload: Any, *, phones_only: bool = False, computers_o
     smartphone — never the MacBook at home. ``computers_only`` (a turn from his
     Mac): only a computer — never his phone. ``exclude``: a device that just failed."""
     devices = devices_payload.get("devices") if isinstance(devices_payload, dict) else None
-    candidates = [d for d in devices or [] if isinstance(d, dict) and d.get("id") and d.get("id") != exclude]
+    candidates = [d for d in devices or [] if isinstance(d, dict) and d.get("id") and d.get("id") != exclude
+                  and (_is_his_iphone(d) or not _is_smartphone(d))]  # never a guest's phone on his Wi-Fi
     if phones_only:
-        candidates = [d for d in candidates if _is_smartphone(d) and not d.get("is_restricted")]
+        # His iPhone, never another phone Spotify lists on his Wi-Fi ("Nandhini's Z Flip7", 2026-10-21).
+        candidates = [d for d in candidates if _is_his_iphone(d) and not d.get("is_restricted")]
     if computers_only:
         candidates = [d for d in candidates if _is_computer(d)]
     if not candidates:
@@ -450,7 +458,7 @@ def _settle_on_phone(pending: _PendingPlay, client: Any, phone_id: str, uri: str
         state = _playback_state(client)
         logger.info("Spotify reports for the play on the phone: %s", _describe_state(state))
         device = state.get("device") or {}
-        on_phone = _is_smartphone(device)
+        on_phone = _is_his_iphone(device)
         holds = on_phone and _holds(state, device, pending.play_kwargs)
         if holds and state.get("is_playing"):
             _drop_pending_play(pending)
@@ -501,10 +509,10 @@ def _open_on_phone(pending: _PendingPlay, client: Any, phone: Dict[str, Any], ur
     state = _playback_state(client)
     device = state.get("device") or {}
     settle = functools.partial(_settle_on_phone, pending, client, phone["device_id"], uri, credentials)
-    if _is_smartphone(device) and state.get("is_playing") and _holds(state, device, pending.play_kwargs):
+    if _is_his_iphone(device) and state.get("is_playing") and _holds(state, device, pending.play_kwargs):
         _drop_pending_play(pending)
         return tool_result({"success": True, "action": "play", "note": "It's already playing."})
-    if _is_smartphone(device) and state.get("is_playing"):
+    if _is_his_iphone(device) and state.get("is_playing"):
         if _switch_on_phone(client, phone["device_id"], uri, credentials, device):
             car_app_followup.start_background(settle, "spotify-phone-play")
             return tool_result({"success": True, "action": "play", "note": _phone_playing_note(phone, {})})

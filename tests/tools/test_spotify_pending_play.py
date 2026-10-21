@@ -424,7 +424,8 @@ APP_OPENING = {"ok": True, "result": {"launched": True, "note": "It opens on the
 def _playing(uri: str, *, device: str = "phone-1", context: str | None = None, is_playing: bool = True) -> dict:
     return {
         "is_playing": is_playing,
-        "device": {"id": device, "type": "Smartphone" if device.startswith("phone") else "Computer"},
+        "device": {"id": device, "name": "iPhone" if device.startswith("phone") else "MacBook Pro",
+                   "type": "Smartphone" if device.startswith("phone") else "Computer"},
         "item": {"uri": uri},
         "context": {"uri": context} if context else None,
     }
@@ -1050,3 +1051,32 @@ def test_a_phone_paused_on_another_song_gets_the_link_not_a_resume(monkeypatch, 
 
     assert _run(runs) == "played"
     assert stub.resume_calls == [] and len(_opens(phone)) == 2
+
+
+GUEST_PHONE = {"id": "guest-1", "name": "Nandhini's Z Flip7", "type": "Smartphone", "is_restricted": False,
+               "is_active": False}
+SPOTIFY_IPHONE = {"id": "phone-1", "name": "iPhone", "type": "Smartphone", "is_restricted": False, "is_active": False}
+
+
+def test_a_phone_turn_never_picks_someone_elses_phone():
+    # 2026-10-21 00:22: Spotify listed "Nandhini's Z Flip7" (a phone on his Wi-Fi) before his iPhone.
+    picked = spotify_tool._pick_device({"devices": [GUEST_PHONE, SPOTIFY_IPHONE]}, phones_only=True)
+    assert picked["id"] == "phone-1"
+    assert spotify_tool._pick_device({"devices": [GUEST_PHONE]}, phones_only=True) is None
+
+
+def test_the_phone_player_wake_never_resumes_someone_elses_phone(monkeypatch, spawned, car_turn) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(device_polls=[[GUEST_PHONE]], playback_states=[{"empty": True}])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+    _run(runs)
+
+    assert stub.resume_calls == []
+
+
+def test_no_turn_picks_someone_elses_phone():
+    tv = {"id": "tv-1", "name": "Living Room TV", "type": "TV", "is_restricted": False, "is_active": False}
+    assert spotify_tool._pick_device({"devices": [GUEST_PHONE, tv]})["id"] == "tv-1"
+    assert spotify_tool._pick_device({"devices": [GUEST_PHONE]}) is None
