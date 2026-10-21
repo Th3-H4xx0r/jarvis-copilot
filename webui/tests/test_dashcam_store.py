@@ -1131,3 +1131,18 @@ def test_a_broken_tag_list_in_settings_is_ignored(store):
     _write(store.base / "settings.json", {"tags": 5})
     assert [t["id"] for t in store.tags()][0] == "accident"
     assert store.add_tag("Pothole")[0]["id"] == "pothole"
+
+
+def test_a_change_adds_and_removes_without_the_whole_list(store):
+    """Two quick taps, or a page holding an old copy of the clip, can't undo each other's tags."""
+    front, rear = _pair(store)
+    store.set_clip_tags(front, add=["accident"])
+    store.set_clip_tags(front, add=["scenic"])          # sent knowing nothing of the first
+    assert store.get_clip(front)["tags"] == ["accident", "scenic"]
+    assert store.get_clip(rear)["tags"] == ["accident", "scenic"]
+    store.set_clip_tags(rear, remove=["accident"])
+    assert store.get_clip(front)["tags"] == ["scenic"]
+    assert store.set_clip_tags(front, add=["nope"])[1] == "unknown tag nope"
+    assert store.set_clip_tags(front, remove=["gone_long_ago"])[1] is None, "taking off what isn't there is fine"
+    assert store.set_clip_tags(front)[1] == "tags must be a list of tag ids"
+    assert store.set_clip_tags(front, add="accident")[1] == "tags must be a list of tag ids"

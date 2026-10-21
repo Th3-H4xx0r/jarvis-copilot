@@ -26,8 +26,9 @@ Endpoints (GET/POST/DELETE only)::
     GET    /tags                        -> {tags:[{id, name, preset}]}   presets first, then his own
     POST   /tags {name}                 -> {ok, tag}   (a name he has already, any case, is that tag)
     POST   /tags/<id>/delete            -> {ok}   | 400 preset | 404; strips it from every clip
-    POST   /clips/<id>/tags {tags:[ids]} -> {ok, clips:[clip, partner?]}   also sets the other lens's
-                                           clip of the same moment
+    POST   /clips/<id>/tags {tags:[ids]} | {add?:[ids], remove?:[ids]}
+                                        -> {ok, clips:[clip, partners…]}   the same change goes on the
+                                           other lenses' clips of the moment
     GET    /clips/<id>                  -> {ok, clip, fixes, destinations:[{id, name, type, state, error, attempts, remote_path, next_at, updated_at}]}
     GET    /clips/<id>/thumb            -> image/jpeg
     GET    /clips/<id>/stream           -> clip bytes (Range/206): staging file first, else the first
@@ -390,7 +391,10 @@ def _list_clips(store, q):
 
 
 def _set_tags(store, cid, body):
-    clips, err = store.set_clip_tags(cid, body.get("tags"))
+    if "tags" in body:
+        clips, err = store.set_clip_tags(cid, body.get("tags"))
+    else:
+        clips, err = store.set_clip_tags(cid, add=body.get("add"), remove=body.get("remove"))
     if clips is None:
         return _err(404 if err == "clip not found" else 400, err)
     dests = store.destinations_by_id()

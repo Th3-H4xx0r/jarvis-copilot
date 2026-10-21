@@ -419,12 +419,15 @@ class DashcamStore:
                 out.append(other)
         return out
 
-    def set_clip_tags(self, clip_id: str, tag_ids) -> tuple[list[dict] | None, str | None]:
-        """Sets the clip's tags, and makes the same change on the other cameras' clips of that moment, so
-        every view of an accident carries it — what was added goes on, what was taken off comes off, and a
-        tag only another clip has stays. Tags keep the list's order, once each. A tag deleted while it sat on
-        this clip is dropped quietly. Returns the clips set, this one first."""
-        if not isinstance(tag_ids, list) or not all(isinstance(t, str) for t in tag_ids):
+    def set_clip_tags(self, clip_id: str, tag_ids=None, *, add=None, remove=None) -> tuple[list[dict] | None, str | None]:
+        """Sets the clip's tags — ``tag_ids`` the whole set, or ``add``/``remove`` a change to it (what the
+        phone sends: two quick taps, or a page holding an old copy of the clip, can't undo each other) — and
+        makes the same change on the other cameras' clips of that moment, so every view of an accident
+        carries it: what was added goes on, what was taken off comes off, a tag only another clip has stays.
+        Tags keep the list's order, once each. A tag deleted while it sat on this clip is dropped quietly.
+        Returns the clips set, this one first."""
+        given = [x for x in (tag_ids, add, remove) if x is not None]
+        if not given or not all(isinstance(x, list) and all(isinstance(t, str) for t in x) for x in given):
             return None, "tags must be a list of tag ids"
         clip = self.get_clip(clip_id)
         if clip is None:
@@ -437,10 +440,14 @@ class DashcamStore:
             if clip is None:
                 return None, "clip not found"
             had = set(clip.get("tags") or [])
-            unknown = [t for t in tag_ids if t not in order and t not in had]
+            if tag_ids is not None:
+                unknown = [t for t in tag_ids if t not in order and t not in had]
+                wanted = {t for t in tag_ids if t in order}
+            else:
+                unknown = [t for t in add or [] if t not in order]
+                wanted = ((had | set(add or [])) - set(remove or [])) & set(order)
             if unknown:
                 return None, f"unknown tag {unknown[0]}"
-            wanted = {t for t in tag_ids if t in order}
             had &= set(order)
             added, removed = wanted - had, had - wanted
             clip["tags"] = [t for t in order if t in wanted]

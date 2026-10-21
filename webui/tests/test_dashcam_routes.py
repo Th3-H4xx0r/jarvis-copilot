@@ -777,3 +777,10 @@ def test_tags_end_to_end(H, store):
     assert H("POST", "/tags/pothole/delete", {}) == (200, {"ok": True})
     assert H("GET", "/clips", query={"tag": ["pothole"]})[1]["clips"] == []
     assert H("GET", f"/clips/{front}")[1]["clip"]["tags"] == ["accident"]
+
+
+def test_a_tag_change_by_add_and_remove(H, store):
+    (cid,) = inventory(H, "solo.MP4")
+    assert H("POST", f"/clips/{cid}/tags", {"add": ["accident", "scenic"]})[1]["clips"][0]["tags"] == ["accident", "scenic"]
+    assert H("POST", f"/clips/{cid}/tags", {"remove": ["accident"]})[1]["clips"][0]["tags"] == ["scenic"]
+    assert H("POST", f"/clips/{cid}/tags", {})[0] == 400
