@@ -7,6 +7,9 @@ import SwiftUI
 struct DashcamFullscreenMedia: View {
     let player: AVPlayer?
     let photo: UIImage?
+    /// Save to Photos / Share… for the clip shown, as on the clip's page.
+    var sharing: DashcamShareFlow? = nil
+    var shared: [DashcamPlayerModel] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -23,6 +26,15 @@ struct DashcamFullscreenMedia: View {
             .buttonStyle(.jcGlass(compact: true))
             .padding(.leading, 16).padding(.top, 8)
             .accessibilityLabel("Close full screen")
+        }
+        .overlay(alignment: .topTrailing) {
+            if let sharing, !shared.isEmpty {
+                DashcamShareButton(flow: sharing, models: shared, overVideo: true)
+                    .padding(.trailing, 16).padding(.top, 8)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let sharing { DashcamShareNote(flow: sharing).padding(.top, 60) }
         }
         .statusBarHidden()
     }

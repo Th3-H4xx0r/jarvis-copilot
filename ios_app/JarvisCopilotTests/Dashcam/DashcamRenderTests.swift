@@ -83,4 +83,18 @@ final class DashcamRenderTests: XCTestCase {
         .padding(16)
         try RenderHarness.write(view, size: CGSize(width: 393, height: 380), name: "dashcam_drive_map", settle: 5)
     }
+
+    /// A clip's page with its share button (top right), and the full-screen view's.
+    func testRenderShareButton() throws {
+        let c = clip("s", kind: "normal", lens: "rear", minutesAgo: 30, extra: [:])
+        try RenderHarness.write(NavigationStack { DashcamPlayerView(clip: c) }, size: CGSize(width: 393, height: 520),
+                                name: "dashcam_share_page")
+        // A clip that's nowhere to be had: the flow says so, in the pill under the buttons.
+        let model = DashcamPlayerModel(clip: clip("n", kind: "normal", minutesAgo: 30, extra: ["on_camera": false]))
+        let flow = DashcamShareFlow()
+        flow.run(.share, [model])
+        try RenderHarness.write(DashcamFullscreenMedia(player: nil, photo: nil, sharing: flow, shared: [model]),
+                                size: CGSize(width: 393, height: 200), name: "dashcam_share_fullscreen")
+        XCTAssertEqual(flow.note, "This clip isn't on the phone or uploaded anywhere.")
+    }
 }

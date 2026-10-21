@@ -179,6 +179,48 @@ final class DashcamPlayerModel: ObservableObject {
         Task { await load(seekTo: at) }
     }
 
+    /// This clip as a file to save or share (`DashcamExport`): the phone's copy when it has one, else
+    /// downloaded from where the player would stream it — from Drive in full quality, not the light copy.
+    func exportFile(progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
+        let sync = DashcamSync.shared
+        let setup = DashcamSetupStore.load()
+        let cameraID = sync.info?.id ?? setup?.cameraID ?? clip.cameraID
+        let local = sync.storage.localURL(camera: cameraID, file: file)
+        // Straight from the camera only for a file it hands over as it is (a .ts is pulled to the phone).
+        let camera = DashcamWiFi.shared.onCamera && !DashcamPlayable.needsRemux(local)
+            ? setup.flatMap(sync.cameraFactory)?.fileURL(file) : nil
+        let downloads = DashcamExport.directory.appendingPathComponent(".download-\(clip.id)", isDirectory: true)
+        let fromServer = { [api, clip] in try api.api.request("GET", DashcamAPI.prefix + "/clips/\(clip.id)/stream") }
+        var source: URL
+        switch DashcamExport.origin(of: clip, local: FileManager.default.fileExists(atPath: local.path) ? local : nil, camera: camera) {
+        case .phone(let url):
+            source = url
+        case .camera(let url):
+            source = try await DashcamExport.download(URLRequest(url: url), into: downloads, progress: progress)
+        case .drive(let destination, let fileID):
+            if let key = await Self.driveKey(preferring: destination),
+               let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileID)?alt=media&supportsAllDrives=true") {
+                var request = URLRequest(url: url)
+                request.setValue("Bearer \(key.token)", forHTTPHeaderField: "Authorization")
+                if let file = try? await DashcamExport.download(request, into: downloads, progress: progress) {
+                    source = file
+                    break
+                }
+            }
+            try Task.checkCancellation()
+            // Google refused or stalled, as the player falls back: the server's copy.
+            source = try await DashcamExport.download(try fromServer(), into: downloads, progress: progress)
+        case .server:
+            source = try await DashcamExport.download(try fromServer(), into: downloads, progress: progress)
+        case .nowhere:
+            throw DashcamExport.Failure.unreachable(clip.onCamera
+                ? "This clip is only on the camera. Join its Wi‑Fi and open the clip to pull it, then share it."
+                : "This clip isn't on the phone or uploaded anywhere.")
+        }
+        if DashcamPlayable.needsRemux(source) { source = try await DashcamPlayable.prepare(source).url }
+        return try DashcamExport.stage(source, as: DashcamExport.fileName(for: clip, ext: source.pathExtension.lowercased()))
+    }
+
     /// A Drive key for streaming: the clip's own destination's, or — when that destination was removed and
     /// added again (same Google account, same files) — any current Drive destination's.
     static func driveKey(preferring id: String) async -> DashcamDriveAccess? {
@@ -208,6 +250,10 @@ struct DashcamPlayerView: View {
     /// The other lens's clip in "Both"; loaded only then.
     @StateObject private var second: DashcamPlayerModel
     @State private var mode: LensMode
+    @StateObject private var sharing = DashcamShareFlow()
+
+    /// What Save to Photos and Share… take: the clip on screen, or both lenses in Both.
+    private var shared: [DashcamPlayerModel] { mode == .both && second.player != nil ? [model, second] : [model] }
 
     enum LensMode: String, CaseIterable, Identifiable {
         case front = "Front", rear = "Rear", both = "Both"
@@ -278,7 +324,12 @@ struct DashcamPlayerView: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05))
                         .aspectRatio(16 / 9, contentMode: .fit).overlay { ProgressView() }.padding(.horizontal, 16)
                 }
-                if !model.source.isEmpty {
+                if let p = sharing.progress {
+                    Text("Getting the clip ready… \(Int(p * 100))%").font(.caption).foregroundStyle(.secondary)
+                } else if let note = sharing.note {
+                    Text(note).font(.caption.weight(.semibold)).foregroundStyle(JcTheme.accent)
+                        .multilineTextAlignment(.center).padding(.horizontal, 20)
+                } else if !model.source.isEmpty {
                     Text(model.source).font(.caption).foregroundStyle(.secondary)
                 }
                 if let error = model.error {
@@ -293,9 +344,14 @@ struct DashcamPlayerView: View {
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle(model.clip.start.formatted(date: .abbreviated, time: .shortened))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { DashcamShareButton(flow: sharing, models: shared) }
+        }
         .task { await model.load(seekTo: startOffset) }
-        .onDisappear { if !fullscreen { model.stop(); second.stop() } }
-        .fullScreenCover(isPresented: $fullscreen) { DashcamFullscreenMedia(player: model.player, photo: model.photo) }
+        .onDisappear { if !fullscreen { model.stop(); second.stop(); sharing.cancel() } }
+        .fullScreenCover(isPresented: $fullscreen) {
+            DashcamFullscreenMedia(player: model.player, photo: model.photo, sharing: sharing, shared: [model])
+        }
     }
 
     @ViewBuilder private var media: some View {
