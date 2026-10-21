@@ -21,6 +21,14 @@ struct IMessageMemoryCard: Decodable, Equatable {
     var jobs: [IMessageBackfillJob]
     var activeJob: IMessageBackfillJob?
     var totals: Totals
+    /// Facts from new conversations wait as Store / Skip cards (off = saved straight away).
+    var askFacts: Bool
+    /// One lock-screen push per conversation with new facts (only while `askFacts`).
+    var pushFacts: Bool
+    /// Fact cards waiting for an answer.
+    var pendingFacts: Int
+    /// Whether the Mac is connected right now — backfills and previews need it.
+    var macConnected: Bool
 
     struct Totals: Decodable, Equatable {
         var memories: Int
@@ -49,6 +57,10 @@ struct IMessageMemoryCard: Decodable, Equatable {
         case runsOn = "runs_on"
         case macSeenAt = "mac_seen_at"
         case activeJob = "active_job"
+        case askFacts = "ask_facts"
+        case pushFacts = "push_facts"
+        case pendingFacts = "pending_facts"
+        case macConnected = "mac_connected"
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +75,12 @@ struct IMessageMemoryCard: Decodable, Equatable {
         jobs = try c.value(.jobs, [])
         activeJob = try c.decodeIfPresent(IMessageBackfillJob.self, forKey: .activeJob)
         totals = try c.value(.totals, Totals())
+        // An older server sends none of these: asking + pushing on (the defaults),
+        // nothing waiting, and the Mac treated as not connected.
+        askFacts = try c.value(.askFacts, true)
+        pushFacts = try c.value(.pushFacts, true)
+        pendingFacts = try c.value(.pendingFacts, 0)
+        macConnected = try c.value(.macConnected, false)
     }
 
     static func decode(_ data: Data) throws -> IMessageMemoryCard {
@@ -89,7 +107,16 @@ struct IMessageMemoryCard: Decodable, Equatable {
     var warning: String? {
         if !memoryActive { return "Jarvis memory isn't the active memory provider, so nothing is stored." }
         if macSeenAt == nil { return "Your Mac hasn't reported yet. Open Jarvis on the Mac and give it Full Disk Access." }
+        if !macConnected { return Self.macOffline }
         return nil
+    }
+
+    static let macOffline = "Your Mac is offline — backfills and previews wait until it's back."
+
+    /// "3 facts waiting", or nil when none are.
+    var pendingFactsLine: String? {
+        guard pendingFacts > 0 else { return nil }
+        return pendingFacts == 1 ? "1 fact waiting" : "\(pendingFacts) facts waiting"
     }
 
     /// Everyone in an uploaded chat who isn't already skipped, once each, by name.
@@ -313,6 +340,131 @@ enum IMessageBackfillPreset: String, CaseIterable, Identifiable {
         case .threeMonths: from = calendar.date(byAdding: .month, value: -3, to: now)
         }
         return (from ?? now, now)
+    }
+}
+
+/// One fact Jarvis wants to save from a new conversation, waiting for Store / Skip
+/// (`GET /api/imessage-memory/facts`). Unanswered ones are stored after 24 h.
+struct IMessageFact: Decodable, Equatable, Identifiable, Hashable {
+    var id: String
+    var guid: String
+    var chatName: String
+    var fact: String
+    /// When the conversation happened (epoch seconds).
+    var at: Double
+    /// When it is stored without an answer (epoch seconds); 0 = unknown.
+    var expiresAt: Double
+
+    var date: Date { Date(timeIntervalSince1970: at) }
+
+    /// "from Sam Lee · 5 minutes ago".
+    func source(now: Date = Date()) -> String {
+        let who = chatName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let when = IMessageFact.relative(date, now: now)
+        return who.isEmpty ? when : "from \(who) · \(when)"
+    }
+
+    static func relative(_ date: Date, now: Date = Date()) -> String {
+        if now.timeIntervalSince(date) < 60 { return "just now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    init(id: String, guid: String = "", chatName: String = "", fact: String, at: Double = 0, expiresAt: Double = 0) {
+        self.id = id
+        self.guid = guid
+        self.chatName = chatName
+        self.fact = fact
+        self.at = at
+        self.expiresAt = expiresAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        guid = try c.value(.guid, "")
+        chatName = try c.value(.chatName, "")
+        fact = try c.value(.fact, "")
+        at = try c.value(.at, 0)
+        expiresAt = try c.value(.expiresAt, 0)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, guid, fact, at
+        case chatName = "chat_name"
+        case expiresAt = "expires_at"
+    }
+
+    /// `{"facts": [...]}` → the cards, in the server's order (newest first).
+    static func decodeList(_ data: Data) throws -> [IMessageFact] {
+        try JSONDecoder().decode(List.self, from: data).facts
+    }
+
+    private struct List: Decodable {
+        var facts: [IMessageFact]
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            facts = try c.value(.facts, [])
+        }
+
+        private enum CodingKeys: String, CodingKey { case facts }
+    }
+}
+
+/// One message in a chat preview (`GET /api/imessage-memory/preview`), read live
+/// from the Mac — nothing is kept on the server.
+struct IMessagePreviewMessage: Decodable, Equatable, Hashable {
+    var ts: Double
+    var sender: String
+    var isFromMe: Bool
+    var text: String
+
+    var date: Date { Date(timeIntervalSince1970: ts) }
+
+    init(ts: Double, sender: String = "", isFromMe: Bool = false, text: String) {
+        self.ts = ts
+        self.sender = sender
+        self.isFromMe = isFromMe
+        self.text = text
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = try c.value(.ts, 0)
+        sender = try c.value(.sender, "")
+        isFromMe = try c.value(.isFromMe, false)
+        text = try c.value(.text, "")
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ts, sender, text
+        case isFromMe = "is_from_me"
+    }
+
+    /// "14:05" today, "3 Oct, 14:05" otherwise.
+    func timeLabel(now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return date.formatted(.dateTime.hour().minute())
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+    }
+
+    /// `{"messages": [...]}` → oldest first, as the server sends them.
+    static func decodeList(_ data: Data) throws -> [IMessagePreviewMessage] {
+        try JSONDecoder().decode(List.self, from: data).messages
+    }
+
+    private struct List: Decodable {
+        var messages: [IMessagePreviewMessage]
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            messages = try c.value(.messages, [])
+        }
+
+        private enum CodingKeys: String, CodingKey { case messages }
     }
 }
 

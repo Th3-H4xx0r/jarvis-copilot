@@ -46,6 +46,52 @@ struct IMessageMemoryAPI {
         _ = try await api.post("/api/imessage-memory/backfill/stop", json: ["id": jobID])
     }
 
+    func setAskFacts(_ on: Bool) async throws -> IMessageMemoryCard {
+        try await settings(["ask_facts": on])
+    }
+
+    func setPushFacts(_ on: Bool) async throws -> IMessageMemoryCard {
+        try await settings(["push_facts": on])
+    }
+
+    // MARK: Fact cards
+
+    /// The facts waiting for Store / Skip, newest first.
+    func facts() async throws -> [IMessageFact] {
+        try IMessageFact.decodeList(try await api.get("/api/imessage-memory/facts").data)
+    }
+
+    /// Store (or skip) these cards. Returns how many the server decided — an
+    /// already-answered card counts as nothing, not as an error.
+    @discardableResult
+    func decide(ids: [String], store: Bool) async throws -> Int {
+        try await decide(["ids": ids, "store": store])
+    }
+
+    /// Store (or skip) every card of one conversation — the push's "Store all" /
+    /// "Skip all". `burst` is `"<guid>|<first_rowid>"`, as the push carries it.
+    @discardableResult
+    func decide(burst: String, store: Bool) async throws -> Int {
+        try await decide(["burst": burst, "store": store])
+    }
+
+    private func decide(_ body: [String: Any]) async throws -> Int {
+        let reply = try await api.post("/api/imessage-memory/facts/decide", json: body).object()
+        return (reply["decided"] as? NSNumber)?.intValue ?? 0
+    }
+
+    // MARK: Preview
+
+    /// The chat's last messages, read live from the Mac (oldest first). The server
+    /// waits up to ~8 s for the Mac, then answers 504 with its own words.
+    func preview(_ guid: String) async throws -> [IMessagePreviewMessage] {
+        try IMessagePreviewMessage.decodeList(
+            try await api.get("/api/imessage-memory/preview", query: ["guid": guid], timeout: Self.previewTimeout).data)
+    }
+
+    /// Longer than the server's own 8 s wait, so its answer (not ours) is what shows.
+    static let previewTimeout: TimeInterval = 20
+
     private func settings(_ body: [String: Any]) async throws -> IMessageMemoryCard {
         try IMessageMemoryCard.decode(try await api.post("/api/imessage-memory/settings", json: body).data)
     }

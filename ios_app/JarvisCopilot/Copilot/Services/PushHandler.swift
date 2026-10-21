@@ -236,6 +236,11 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
         let content = notification.request.content
+        // New iMessage facts while the app is open: the Chat home re-reads its
+        // cards now (it never polls). The banner still shows, as for any push.
+        if IMessageFactsPush.isFactsPush(content.userInfo) {
+            await MainActor.run { NotificationCenter.default.post(name: IMessageFactsPush.changed, object: nil) }
+        }
         // Foreground delivery must route too: the background callback is not
         // guaranteed. Both paths decode the same card, so lens dedupe handles overlap.
         if let card = WearableNotification.decode(content.userInfo) {

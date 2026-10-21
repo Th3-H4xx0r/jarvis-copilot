@@ -51,9 +51,10 @@ enum AgentsPushActions {
     }
 }
 
-/// One `UIApplication` background task, ended exactly once.
+/// One `UIApplication` background task, ended exactly once. Shared with
+/// `IMessageFactsPush` (Store all / Skip all on the lock screen).
 @MainActor
-private final class BackgroundTask {
+final class BackgroundTask {
     private var id: UIBackgroundTaskIdentifier = .invalid
 
     static func begin(_ name: String) -> BackgroundTask {

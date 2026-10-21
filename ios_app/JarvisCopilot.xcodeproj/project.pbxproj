@@ -230,6 +230,7 @@
 		31F2D7B687F3F702F03A3C0A /* BridgeTopicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B145F905C6C1F52C25BF7D0 /* BridgeTopicsTests.swift */; };
 		323B9D8FE08F13D78CDE3CC6 /* DashcamGPS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB594669E0A8622E0201908 /* DashcamGPS.swift */; };
 		32628C66310E7ED3B48D02FB /* ToyotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */; };
+		326A31E1C3A9E2ED9CBA88EF /* IMessagePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34499A004EE9B4F3F1B64168 /* IMessagePreviewSheet.swift */; };
 		32799A707359913FB5986CC5 /* StrengthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */; };
 		32AA30F46877652C37ABC4D0 /* StrengthWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C79C79DEEE34968F8E62367 /* StrengthWorkoutTests.swift */; };
 		32ADDA216B46841F29926194 /* IntegrationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC88EBA9BCFBCBCA019DE32 /* IntegrationsStore.swift */; };
@@ -509,6 +510,7 @@
 		6CAF692A41B15468C7CCFA04 /* WearableControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4BFDAE02FF39DDFA6D3307 /* WearableControls.swift */; };
 		6CB995282E8453B31B97ABAF /* DashcamDriveDirect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5711CDFFB2EC2E128477173B /* DashcamDriveDirect.swift */; };
 		6CD456F77F1703F1ED233E0D /* DashcamFullscreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9CC8B708217A4A53D93AD3 /* DashcamFullscreen.swift */; };
+		6D131CCE9A8A70DD6FA9AFAA /* IMessageFactsPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2553B5A7E02A96DDD88715C /* IMessageFactsPush.swift */; };
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
 		6E594F5F037AE6ACFC5C1B1F /* DashcamStillDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5A623E78E847229D46F71A /* DashcamStillDecoderTests.swift */; };
@@ -577,6 +579,7 @@
 		7C8ED76D028F8B5042F4F3B7 /* AgentConversationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 568F90D9DF20DE063E8FA09A /* AgentConversationViews.swift */; };
 		7C94349B07301695FFCA19AB /* VoiceEnginePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F40E6FA16F0520E66BF37D4 /* VoiceEnginePicker.swift */; };
 		7C9D68CE31808F5EF35B6209 /* HarnessSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C956FABE32435FAA03316F30 /* HarnessSmokeTests.swift */; };
+		7CE1A37C9EFB12E1D07136B9 /* IMessageFactsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9508EF0BDFF0FB925516DA4 /* IMessageFactsStore.swift */; };
 		7D1BF00C7BA8D8E776776187 /* ToyotaAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE115316886AC6610E0DBFF /* ToyotaAPI.swift */; };
 		7D5BB169873430E1A1023ED4 /* WearableNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CBBCE783C47C420886D98C /* WearableNotification.swift */; };
 		7D842EB1E7152B93F568E50C /* DashcamPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C4B44F2A3D79015BE47204D /* DashcamPage.swift */; };
@@ -628,6 +631,7 @@
 		893CCE570E4D0A17C414627F /* NotesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E2B50C7BDAB19EBC8A962E /* NotesModels.swift */; };
 		8955CEE8412946C04ACA270F /* SkillsPageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10AB262C0BC02FC5A3E2B77F /* SkillsPageModel.swift */; };
 		8973AE681997EF38228E08A4 /* RouteThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D01C409D24FB62BBB311997 /* RouteThumbnail.swift */; };
+		897FB56E56CE18930B88B5BD /* IMessageFactCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07D8B4E44FF21777B44EB3F7 /* IMessageFactCards.swift */; };
 		89EE3942F29C930F7FE5F9B6 /* JarvisDesignRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 467C4CA86BD7FC595DAB93F1 /* JarvisDesignRenderer.swift */; };
 		8A087BA0D72437BCC9EE3423 /* AppleFoundationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C126520B40896C15CF540F /* AppleFoundationModelTests.swift */; };
 		8A12120E7EE316B66BD78063 /* IntegrationDataViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A22A70581DCA427A6D14AB /* IntegrationDataViews.swift */; };
@@ -770,6 +774,7 @@
 		AAEE7D4588345241B7B2F492 /* JarvisCopilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB26F406B74736CE3749527 /* JarvisCopilotApp.swift */; };
 		AB249271111D76134B9DD2B6 /* X5Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5FEFDBE3ED50E017F63336 /* X5Session.swift */; };
 		AB5EB5047AE70CA4A896E42A /* SkillsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2B17CF791F5B815FD41CA3 /* SkillsUITests.swift */; };
+		ABA90AD3735565212DAE0D08 /* IMessageFactsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D20EAE8C93C3B7F5152D7B2 /* IMessageFactsTests.swift */; };
 		ABCC761098A143292F5BDE98 /* AudioOutputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43F3AA0AC3B28393D27CB98 /* AudioOutputEngine.swift */; };
 		ABD3DF32AFA46F7B7A26F6B6 /* OnDeviceChatBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */; };
 		AC1C44052C38DEF2846BC18B /* LocalExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F3CB09A458987759A7E8A9 /* LocalExecutor.swift */; };
@@ -1251,6 +1256,7 @@
 		0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthSessionTests.swift; sourceTree = "<group>"; };
 		07894ECE04B91692C8C31BCC /* VoiceSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSettingsTests.swift; sourceTree = "<group>"; };
 		07BA14ED0625D8F5D0AC60AD /* MoreToast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreToast.swift; sourceTree = "<group>"; };
+		07D8B4E44FF21777B44EB3F7 /* IMessageFactCards.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactCards.swift; sourceTree = "<group>"; };
 		0925E6941A22BD0711B0680B /* InmoMediaWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoMediaWire.swift; sourceTree = "<group>"; };
 		0985B21DFAA429C2AC487C63 /* CodeMemoryStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMemoryStore.swift; sourceTree = "<group>"; };
 		09A6D4A89AFA43BB8B0A8975 /* JarvisWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWidget.swift; path = JarvisWidget/JarvisWidget.swift; sourceTree = "<group>"; };
@@ -1433,6 +1439,7 @@
 		33B976A13B047F8380A8012B /* ClockSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkillsTests.swift; sourceTree = "<group>"; };
 		33DA01C3C578C7F23B053FD5 /* DashcamRules.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRules.swift; sourceTree = "<group>"; };
 		3407A5F0EB0CA8D696A19F28 /* CarPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPage.swift; sourceTree = "<group>"; };
+		34499A004EE9B4F3F1B64168 /* IMessagePreviewSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessagePreviewSheet.swift; sourceTree = "<group>"; };
 		34B173230D130E81EEAEB060 /* MemoryAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryAPI.swift; sourceTree = "<group>"; };
 		34BAEE8B44D419A668FB7194 /* DeviceIconTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceIconTests.swift; sourceTree = "<group>"; };
 		34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlass.swift; sourceTree = "<group>"; };
@@ -1787,6 +1794,7 @@
 		8BE84A80E4A907C6B81146B4 /* DevicesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesTests.swift; sourceTree = "<group>"; };
 		8CD4D0532593F173D92CF5C6 /* UIComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIComponents.swift; sourceTree = "<group>"; };
 		8CEB16CF033FDA0F91DCEE16 /* RingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSync.swift; sourceTree = "<group>"; };
+		8D20EAE8C93C3B7F5152D7B2 /* IMessageFactsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactsTests.swift; sourceTree = "<group>"; };
 		8D393D8AEBF63040E8423BFA /* CodeMemoryModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMemoryModels.swift; sourceTree = "<group>"; };
 		8D6AE9D63E51A059BA7BC836 /* CarLightsCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsCard.swift; sourceTree = "<group>"; };
 		8D91A09459A1EF560956AB28 /* CenteredMessage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CenteredMessage.swift; sourceTree = "<group>"; };
@@ -2051,6 +2059,7 @@
 		C0D57976E70D77D0DA8B31D6 /* AppLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLifecycle.swift; sourceTree = "<group>"; };
 		C0FF13324EF0D56A9B56834F /* PushService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushService.swift; sourceTree = "<group>"; };
 		C108BDF93416CAEC97CCEB60 /* SessionsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionsAPI.swift; sourceTree = "<group>"; };
+		C2553B5A7E02A96DDD88715C /* IMessageFactsPush.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactsPush.swift; sourceTree = "<group>"; };
 		C268B9654A2CEFBCEAEF945B /* WidgetCreatorPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetCreatorPage.swift; sourceTree = "<group>"; };
 		C2A0E5B833A8F0D10B524890 /* ExerciseImages.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseImages.swift; sourceTree = "<group>"; };
 		C2C3A4C75CBE91EABCDC5AC2 /* CodingSessionsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionsAPI.swift; sourceTree = "<group>"; };
@@ -2225,6 +2234,7 @@
 		E83314966A024DAD58D98459 /* AppIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppIntents.swift; sourceTree = "<group>"; };
 		E847495AB59BCFEAF2D85F05 /* DashcamSyncBeacon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSyncBeacon.swift; sourceTree = "<group>"; };
 		E91A0B07C81339B4AF3CD7C0 /* LiveCaptureBeacon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureBeacon.swift; sourceTree = "<group>"; };
+		E9508EF0BDFF0FB925516DA4 /* IMessageFactsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactsStore.swift; sourceTree = "<group>"; };
 		E96A33C9D808787F7E83495B /* RouteMap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteMap.swift; sourceTree = "<group>"; };
 		E9C33AC4137EA0D360D1D971 /* IslandPlanNotifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandPlanNotifier.swift; sourceTree = "<group>"; };
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
@@ -3575,6 +3585,7 @@
 			isa = PBXGroup;
 			children = (
 				77A8B0E1D2D4A7058CDD8DA1 /* IMessageMemoryModelsTests.swift */,
+				8D20EAE8C93C3B7F5152D7B2 /* IMessageFactsTests.swift */,
 			);
 			name = Integrations;
 			path = Integrations;
@@ -3610,6 +3621,10 @@
 				CCF3D951174A431CC34A9AA6 /* IMessageMemoryModels.swift */,
 				1D96D5FDC45CD1120F385AA4 /* IMessageMemoryStore.swift */,
 				1F9EB39C0379457386D51B00 /* IMessageMemoryView.swift */,
+				07D8B4E44FF21777B44EB3F7 /* IMessageFactCards.swift */,
+				C2553B5A7E02A96DDD88715C /* IMessageFactsPush.swift */,
+				E9508EF0BDFF0FB925516DA4 /* IMessageFactsStore.swift */,
+				34499A004EE9B4F3F1B64168 /* IMessagePreviewSheet.swift */,
 			);
 			name = IMessageMemory;
 			path = IMessageMemory;
@@ -5034,6 +5049,7 @@
 				E7A9D107FCC21503D0462360 /* LiveButtonsTests.swift in Sources */,
 				140B6F7C90D75E351A6F9999 /* CommandLiveStateTests.swift in Sources */,
 				B42BEF4ECBACCD6F36EFFEBB /* IMessageMemoryModelsTests.swift in Sources */,
+				ABA90AD3735565212DAE0D08 /* IMessageFactsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5802,6 +5818,10 @@
 				E8EB0093DEF39EF3954C1D1D /* IMessageMemoryModels.swift in Sources */,
 				6B42B1CCDC3A34523EDF9C82 /* IMessageMemoryStore.swift in Sources */,
 				DC4E926A4F836A26BFA1AB1C /* IMessageMemoryView.swift in Sources */,
+				897FB56E56CE18930B88B5BD /* IMessageFactCards.swift in Sources */,
+				6D131CCE9A8A70DD6FA9AFAA /* IMessageFactsPush.swift in Sources */,
+				7CE1A37C9EFB12E1D07136B9 /* IMessageFactsStore.swift in Sources */,
+				326A31E1C3A9E2ED9CBA88EF /* IMessagePreviewSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

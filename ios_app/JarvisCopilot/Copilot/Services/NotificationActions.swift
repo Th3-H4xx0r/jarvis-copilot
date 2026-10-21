@@ -18,6 +18,9 @@ enum NotificationVerdict: String, Equatable, Sendable {
     case open
     /// "Continue all on server" on the Mac-asleep push (`AgentsPushActions`).
     case continueAll
+    /// "Store all" / "Skip all" on an iMessage facts push (`IMessageFactsPush`).
+    case storeFacts
+    case skipFacts
 }
 
 /// One decoded notification tap.
@@ -36,6 +39,8 @@ struct NotificationAction: Equatable, Sendable {
     var deferredPayload: String? = nil
     /// The Mac a "went to sleep" push is about (`mac_paused`'s `device_id`).
     var deviceID: String = ""
+    /// The conversation an iMessage facts push is about (`"<guid>|<first_rowid>"`).
+    var burst: String = ""
 
     /// Action identifiers, matching what the server sets on its APNs payload and
     /// what `NotificationCategories` registers.
@@ -46,6 +51,8 @@ struct NotificationAction: Equatable, Sendable {
         static let deny = "DENY_PERMISSION"
         static let reply = "REPLY_PERMISSION"
         static let continueAll = AgentsPushActions.continueAll
+        static let storeFacts = IMessageFactsPush.storeAll
+        static let skipFacts = IMessageFactsPush.skipAll
     }
 
     /// The envelope the server nests its fields under.
@@ -68,6 +75,8 @@ struct NotificationAction: Equatable, Sendable {
         case Identifier.deny:    verdict = .deny
         case Identifier.reply:   verdict = .reply
         case Identifier.continueAll: verdict = .continueAll
+        case Identifier.storeFacts: verdict = .storeFacts
+        case Identifier.skipFacts: verdict = .skipFacts
         default:                 verdict = .open
         }
         return NotificationAction(
@@ -78,7 +87,8 @@ struct NotificationAction: Equatable, Sendable {
             kind: (envelope["type"] as? String) ?? (envelope["kind"] as? String) ?? "",
             text: verdict == .reply ? userText : "",
             deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String,
-            deviceID: (envelope["device_id"] as? String) ?? "")
+            deviceID: (envelope["device_id"] as? String) ?? "",
+            burst: IMessageFactsPush.burst(from: userInfo) ?? "")
     }
 }
 
@@ -116,8 +126,8 @@ enum NotificationCategories {
             UNNotificationCategory(
                 identifier: agentQuestion, actions: [answer],
                 intentIdentifiers: [], options: [])]
-        // "MacBook went to sleep" — Continue all on server.
-        return base.union(AgentsPushActions.categories())
+        // "MacBook went to sleep" — Continue all on server; iMessage facts — Store / Skip all.
+        return base.union(AgentsPushActions.categories()).union(IMessageFactsPush.categories())
     }
 }
 
@@ -133,6 +143,7 @@ final class NotificationActionHandler {
     static let verdictFailureIdentifier = "jc.permission.undelivered"
 
     private let coding: CodingSessionsAPI
+    private let facts: IMessageMemoryAPI
     private let router: AppDeepLinkRouter
     private let pending: PendingActions
     private let notifier: any Notifying
@@ -144,8 +155,10 @@ final class NotificationActionHandler {
     init(coding: CodingSessionsAPI = CodingSessionsAPI(),
          router: AppDeepLinkRouter? = nil,
          pending: PendingActions = .shared,
-         notifier: (any Notifying)? = nil) {
+         notifier: (any Notifying)? = nil,
+         facts: IMessageMemoryAPI = IMessageMemoryAPI()) {
         self.coding = coding
+        self.facts = facts
         self.router = router ?? AppDeepLinkRouter()
         self.pending = pending
         self.notifier = notifier ?? DefaultNotifier()
@@ -166,6 +179,9 @@ final class NotificationActionHandler {
             // session that asked. The in-app card takes it from there.
             if action.kind == "agents_recap" {
                 router.open(.agentsRecap)
+            } else if action.kind == IMessageFactsPush.pushKind {
+                // "3 new facts from Sam Lee": the Chat home, where the cards wait.
+                router.open(.chat(session: nil))
             } else if action.kind == AgentsPushActions.pushKind {
                 // "MacBook went to sleep": the Agents tab, where the card waits.
                 router.open(.agents(key: nil))
@@ -178,6 +194,12 @@ final class NotificationActionHandler {
             if !(await AgentsPushActions.continueAllInBackground(deviceId: action.deviceID)) {
                 await postFailure(title: "Couldn't continue on the server",
                                   body: "Open JARVIS to continue your Mac's sessions from the Agents tab.")
+            }
+        case .storeFacts, .skipFacts:
+            let store = action.verdict == .storeFacts
+            if !(await IMessageFactsPush.decideInBackground(burst: action.burst, store: store, api: facts)) {
+                await postFailure(title: store ? "Couldn't save the facts" : "Couldn't skip the facts",
+                                  body: "Open JARVIS to answer them on the Chat screen.")
             }
         case .allow, .always, .deny, .reply:
             guard !action.requestID.isEmpty else { break }

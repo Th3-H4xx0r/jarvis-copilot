@@ -90,6 +90,16 @@ final class IMessageMemoryStore {
         await change { try await self.api.setAgent(choice) }
     }
 
+    func setAskFacts(_ on: Bool) async {
+        card?.askFacts = on
+        await change { try await self.api.setAskFacts(on) }
+    }
+
+    func setPushFacts(_ on: Bool) async {
+        card?.pushFacts = on
+        await change { try await self.api.setPushFacts(on) }
+    }
+
     func addSkip(_ person: IMessagePerson) async {
         guard let card, !card.skip.contains(where: { $0.handle == person.handle }) else { return }
         let next = card.skip + [person]
@@ -122,6 +132,11 @@ final class IMessageMemoryStore {
             toast = apiErrorMessage(error)
         }
         await refresh()
+    }
+
+    /// The chat's last messages, live from the Mac, for the preview sheet.
+    func preview(_ chat: IMessageChat) async throws -> [IMessagePreviewMessage] {
+        try await api.preview(chat.guid)
     }
 
     // MARK: Backfill

@@ -415,6 +415,10 @@ final class JarvisAPI: @unchecked Sendable {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/" + trimmed
         if !query.isEmpty {
             comps.queryItems = query.keys.sorted().map { URLQueryItem(name: $0, value: query[$0]) }
+            // `URLQueryItem` leaves a literal "+" alone, and the server's
+            // `parse_qs` reads it as a space — an iMessage guid like
+            // "iMessage;-;+15550001" would arrive mangled. Encode it.
+            comps.percentEncodedQuery = comps.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         guard let url = comps.url else { throw APIError.badResponse("bad URL") }
         var req = URLRequest(url: url, timeoutInterval: timeout)

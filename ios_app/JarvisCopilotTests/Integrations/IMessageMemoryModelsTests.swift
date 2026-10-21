@@ -35,7 +35,8 @@ final class IMessageMemoryModelsTests: XCTestCase {
      "active_job": {"id": "j2", "start": 1760000000, "end": 1760500000, "chats": ["chat123"],
         "status": "running", "received": 40, "stored": 1, "skipped": 0, "created_at": 1760700000,
         "updated_at": 1760700100, "error": null},
-     "totals": {"memories": 120, "bursts": 30, "pending": 2}}
+     "totals": {"memories": 120, "bursts": 30, "pending": 2},
+     "ask_facts": false, "push_facts": false, "pending_facts": 3, "mac_connected": true}
     """
 
     // MARK: Decoding
@@ -130,6 +131,32 @@ final class IMessageMemoryModelsTests: XCTestCase {
         XCTAssertEqual(card.subtitle, "Off")
         card.macSeenAt = nil
         XCTAssertEqual(card.subtitle, "Mac not seen yet")
+    }
+
+    func testTheFactCardFieldsDecode() throws {
+        let card = try decode(fullCard)
+        XCTAssertFalse(card.askFacts)
+        XCTAssertFalse(card.pushFacts)
+        XCTAssertEqual(card.pendingFacts, 3)
+        XCTAssertTrue(card.macConnected)
+        XCTAssertEqual(card.pendingFactsLine, "3 facts waiting")
+    }
+
+    func testAnOlderServerWithoutFactFieldsGetsTheDefaults() throws {
+        let card = try decode(#"{"enabled": true, "mac_seen_at": 1760900000}"#)
+        XCTAssertTrue(card.askFacts)
+        XCTAssertTrue(card.pushFacts)
+        XCTAssertEqual(card.pendingFacts, 0)
+        XCTAssertFalse(card.macConnected)
+        XCTAssertNil(card.pendingFactsLine)
+    }
+
+    func testAnOfflineMacIsTheWarning() throws {
+        var card = try decode(fullCard)
+        card.macConnected = false
+        XCTAssertEqual(card.warning, IMessageMemoryCard.macOffline)
+        card.macSeenAt = nil
+        XCTAssertTrue(card.warning?.contains("hasn't reported") == true, "never seen says what to do instead")
     }
 
     func testTheWarningNamesWhatIsWrong() throws {

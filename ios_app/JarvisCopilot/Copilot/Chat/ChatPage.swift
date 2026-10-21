@@ -15,6 +15,8 @@ struct ChatPage: View {
 
     @State private var store: ChatStore
     @State private var dashboard: ChatDashboardStore
+    /// iMessage facts waiting for Store / Skip, shown above the conversation.
+    @State private var facts: IMessageFactsStore
     @State private var showSessions = false
 
     /// `store` is injected by tests; the app takes the default. Built here rather
@@ -28,13 +30,15 @@ struct ChatPage: View {
     init(store: ChatStore? = nil,
          dashboard: ChatDashboardStore? = nil,
          launch: ChatLaunchBus? = nil,
-         targets: DeepLinkTargets? = nil) {
+         targets: DeepLinkTargets? = nil,
+         facts: IMessageFactsStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated {
             ChatStore.production()
         })
         _dashboard = State(initialValue: dashboard ?? MainActor.assumeIsolated {
             ChatDashboardStore.production()
         })
+        _facts = State(initialValue: facts ?? MainActor.assumeIsolated { IMessageFactsStore() })
         self.launch = launch ?? MainActor.assumeIsolated { ChatLaunchBus.shared }
         self.targets = targets ?? MainActor.assumeIsolated { DeepLinkTargets.shared }
     }
@@ -51,6 +55,8 @@ struct ChatPage: View {
                                visible: router.selectedTab == .chat && scenePhase == .active,
                                onOpen: open)
             }
+            // The home's fact cards sit above the conversation, only while some wait.
+            .safeAreaInset(edge: .top, spacing: 0) { IMessageFactCards(store: facts) }
             .jcScreen()
             .navigationBarTitleDisplayMode(.inline)
             // Transparent chrome so the aurora runs behind the bar, as the
@@ -66,6 +72,13 @@ struct ChatPage: View {
             await store.adoptChatLaunch(launch)
             await store.loadModels()
         }
+        // Fact cards: on appear, back to the foreground, and when a facts push
+        // lands or is answered from the lock screen. Never on a timer.
+        .onAppear { facts.load() }
+        .onReceive(NotificationCenter.default.publisher(for: IMessageFactsPush.changed)) { _ in
+            facts.load()
+        }
+        .moreToast($facts.toast)
         // A `jarviscopilot://chat?session=<id>` link, latched until this page
         // exists to consume it (on a cold launch the URL beats the shell).
         .onChange(of: targets.generation, initial: true) { _, _ in
@@ -86,6 +99,7 @@ struct ChatPage: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .active { facts.load() }
             let visible = phase == .active && router.selectedTab == .chat
             store.setListShown(showSessions && visible)
             store.setMirroring(visible)

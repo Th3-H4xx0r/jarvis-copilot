@@ -31,6 +31,7 @@ struct IMessageMemoryView: View {
 
     @State private var query = ""
     @State private var forgetting: IMessageChat?
+    @State private var previewing: IMessageChat?
     @State private var addingSkip = false
     @State private var choosingChats = false
     @State private var from = IMessageBackfillPreset.week.range(endingAt: Date()).from
@@ -44,6 +45,7 @@ struct IMessageMemoryView: View {
                 if let card = store.card {
                     statusSection(card)
                     agentSection(card)
+                    factCardsSection(card)
                     chatsSection(card)
                     skipSection(card)
                     backfillSection(card)
@@ -81,6 +83,9 @@ struct IMessageMemoryView: View {
             IMessageSkipPicker(people: store.card?.skippablePeople ?? []) { person in
                 Task { await store.addSkip(person) }
             }
+        }
+        .sheet(item: $previewing) { chat in
+            IMessagePreviewSheet(chat: chat, store: store)
         }
         .sheet(isPresented: $choosingChats) {
             IMessageChatChooser(chats: store.card?.chats ?? [], chosen: $chosen)
@@ -169,6 +174,47 @@ struct IMessageMemoryView: View {
         }
     }
 
+    // MARK: Fact cards
+
+    private func factCardsSection(_ card: IMessageMemoryCard) -> some View {
+        CardGroup("Fact cards", footer: card.askFacts
+                  ? "Each fact from a new conversation waits for Store or Skip on the Chat screen. "
+                    + "Unanswered ones are saved after a day. Backfills never ask."
+                  : "Off: facts are saved automatically.") {
+            Row {
+                Toggle(isOn: Binding(get: { card.askFacts },
+                                     set: { on in Task { await store.setAskFacts(on) } })) {
+                    Text("Ask before saving facts")
+                        .font(.system(size: 15))
+                        .foregroundStyle(JcTheme.text)
+                }
+                .tint(JcTheme.accent)
+            }
+            RowDivider()
+            Row {
+                Toggle(isOn: Binding(get: { card.pushFacts },
+                                     set: { on in Task { await store.setPushFacts(on) } })) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Lock-screen notifications")
+                            .font(.system(size: 15))
+                            .foregroundStyle(JcTheme.text)
+                        Text("One per conversation, with Store all and Skip all.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(JcTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .tint(JcTheme.accent)
+                .disabled(!card.askFacts)
+                .opacity(card.askFacts ? 1 : 0.5)
+            }
+            if let waiting = card.pendingFactsLine {
+                RowDivider()
+                statusLine("Waiting", waiting)
+            }
+        }
+    }
+
     // MARK: 3. Chats
 
     private func chatsSection(_ card: IMessageMemoryCard) -> some View {
@@ -198,7 +244,7 @@ struct IMessageMemoryView: View {
                 }
             }
             Text("New chats with one person are on; group chats are off until you tick them. "
-                 + "Press and hold a chat to forget what Jarvis remembered from it.")
+                 + "Tap a chat to see its latest messages; press and hold to forget what Jarvis remembered from it.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(JcTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -211,20 +257,25 @@ struct IMessageMemoryView: View {
     private func chatRow(_ chat: IMessageChat) -> some View {
         Row(minHeight: 56) {
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text(chat.displayName)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(JcTheme.text)
+                Button { previewing = chat } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            Text(chat.displayName)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(JcTheme.text)
+                                .lineLimit(1)
+                            if chat.isGroup { StatusPill("Group", color: JcTheme.accent, dense: true) }
+                        }
+                        Text(Self.chatNote(chat))
+                            .font(.system(size: 12))
+                            .foregroundStyle(JcTheme.muted)
                             .lineLimit(1)
-                        if chat.isGroup { StatusPill("Group", color: JcTheme.accent, dense: true) }
                     }
-                    Text(Self.chatNote(chat))
-                        .font(.system(size: 12))
-                        .foregroundStyle(JcTheme.muted)
-                        .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: integrationTapTarget, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 8)
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows the chat's latest messages")
                 Toggle("", isOn: Binding(get: { chat.effective },
                                          set: { on in Task { await store.setTicked(chat, on) } }))
                     .labelsHidden()
@@ -405,6 +456,12 @@ struct IMessageMemoryView: View {
                         Text(Self.counts(job))
                             .font(.system(size: 12).monospacedDigit())
                             .foregroundStyle(JcTheme.muted)
+                        if job.status == .pending && !card.macConnected {
+                            Text(IMessageMemoryCard.macOffline)
+                                .font(.system(size: 12))
+                                .foregroundStyle(JcTheme.amber)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
