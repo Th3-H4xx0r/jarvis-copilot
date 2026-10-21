@@ -735,6 +735,16 @@ class Service:
             except Exception as exc:  # noqa: BLE001
                 log.warning("iMessage relay unavailable: %s", exc)
 
+        # iMessages → long-term memory: the chats he lets Jarvis remember, filtered
+        # here and uploaded; idle until he switches it on (Integrations page).
+        if sys.platform == "darwin" and not getattr(self, "_imessage_memory", None):
+            try:
+                from jc_client.imessage_memory import IMessageMemory
+                self._imessage_memory = IMessageMemory(_imessage_api_origin)
+                self._imessage_memory.start()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("iMessage memory unavailable: %s", exc)
+
         # Warm up the browser MCP (chrome_* skills) so the first browser action
         # isn't a cold `npx @playwright/mcp` start + extension attach. Best-effort,
         # off the connect path.
@@ -854,6 +864,13 @@ class Service:
 
         if msg_type == "agent_config":
             self._set_agent_config(frame)
+            return
+
+        if msg_type == "imessage_memory":
+            # He changed a setting or started a backfill: fetch the config now.
+            memory = getattr(self, "_imessage_memory", None)
+            if memory is not None:
+                memory.refresh()
             return
 
         if msg_type == "topic":

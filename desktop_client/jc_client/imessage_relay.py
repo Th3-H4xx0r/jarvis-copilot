@@ -114,6 +114,51 @@ def _sender_label(handle: str) -> str:
     return f"{name} ({handle})" if name else handle
 
 
+def wait_for_write(timeout: float, stop: threading.Event | None = None) -> None:
+    """Block until Messages writes chat.db (or its WAL), ``timeout`` passes, or
+    ``stop`` is set (checked every second, so another thread can wake it)."""
+    def _sleep() -> None:
+        if stop is not None:
+            stop.wait(timeout)
+        else:
+            time.sleep(timeout)
+
+    fds = []
+    try:
+        kq = select.kqueue()
+    except (AttributeError, OSError):
+        _sleep()
+        return
+    try:
+        events = []
+        for path in (DB_PATH, DB_PATH.with_name("chat.db-wal")):
+            try:
+                fd = os.open(path, os.O_EVTONLY if hasattr(os, "O_EVTONLY") else os.O_RDONLY)
+            except OSError:
+                continue
+            fds.append(fd)
+            events.append(select.kevent(fd, filter=select.KQ_FILTER_VNODE,
+                                        flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                        fflags=select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND
+                                        | select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME))
+        if not events:
+            _sleep()
+            return
+        deadline = time.monotonic() + timeout
+        kq.control(events, 0, 0)  # register
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0 or (stop is not None and stop.is_set()):
+                return
+            if kq.control(None, 1, min(left, 1.0 if stop is not None else left)):
+                break
+        time.sleep(0.3)  # let Messages finish the transaction before reading
+    finally:
+        for fd in fds:
+            os.close(fd)
+        kq.close()
+
+
 class IMessageRelay:
     def __init__(self, api_origin) -> None:
         # Called lazily: the loopback proxy may not be up yet when the relay starts.
@@ -153,37 +198,7 @@ class IMessageRelay:
                         self._warned = True
                 finally:
                     db.close()
-            self._wait_for_write()
-
-    def _wait_for_write(self) -> None:
-        """Block until Messages writes chat.db (or its WAL), or the safety timeout."""
-        fds = []
-        try:
-            kq = select.kqueue()
-        except (AttributeError, OSError):
-            time.sleep(SAFETY_WAKE_SECONDS)
-            return
-        try:
-            events = []
-            for path in (DB_PATH, DB_PATH.with_name("chat.db-wal")):
-                try:
-                    fd = os.open(path, os.O_EVTONLY if hasattr(os, "O_EVTONLY") else os.O_RDONLY)
-                except OSError:
-                    continue
-                fds.append(fd)
-                events.append(select.kevent(fd, filter=select.KQ_FILTER_VNODE,
-                                            flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
-                                            fflags=select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND
-                                            | select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME))
-            if not events:
-                time.sleep(SAFETY_WAKE_SECONDS)
-                return
-            kq.control(events, 1, SAFETY_WAKE_SECONDS)
-            time.sleep(0.3)  # let Messages finish the transaction before reading
-        finally:
-            for fd in fds:
-                os.close(fd)
-            kq.close()
+            wait_for_write(SAFETY_WAKE_SECONDS)
 
     def _send(self, sender: str, message: str) -> None:
         origin = self._api_origin()
