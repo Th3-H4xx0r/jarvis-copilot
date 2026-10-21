@@ -69,7 +69,7 @@ final class IMessageMemoryStore {
     }
 
     private func syncPolling() {
-        guard visible, card?.activeJob != nil else {
+        guard visible, card?.liveJob != nil else {
             pollTask.cancel()
             return
         }

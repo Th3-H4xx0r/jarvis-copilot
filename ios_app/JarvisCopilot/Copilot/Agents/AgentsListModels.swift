@@ -79,6 +79,9 @@ struct AgentConv: Identifiable, Equatable {
     /// The last few messages sent to it (past hour) and what became of each —
     /// how a "Sent" bubble learns it was typed, queued, delivered or refused.
     let deliveries: [AgentDelivery]
+    /// A background run Jarvis does for an integration ("iMessage memory"), or
+    /// nil for an ordinary coding session. These live in their own section.
+    let integration: String?
 
     var id: String { ckey }
     var agentName: String { AgentNames.display(agent) }
@@ -116,6 +119,8 @@ struct AgentConv: Identifiable, Equatable {
         movedFrom = CodingJSON.str(json["moved_from"])
         movedFromName = CodingJSON.text(json["moved_from_name"])
         deliveries = CodingJSON.maps(json["deliveries"]).map(AgentDelivery.init(json:)).filter { !$0.id.isEmpty }
+        let integration = CodingJSON.text(json["integration"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        self.integration = integration.isEmpty ? nil : integration
     }
 }
 
@@ -187,20 +192,46 @@ struct AgentProjectGroup: Identifiable, Equatable {
     }
 }
 
+/// One integration's background runs ("iMessage memory"): kept out of the
+/// project groups, in their own section at the bottom, collapsed until opened.
+struct AgentIntegrationGroup: Identifiable, Equatable {
+    let name: String
+    /// Newest first.
+    let sessions: [AgentConv]
+
+    /// What its open state is kept under — never a project id.
+    var id: String { "integration:\(name)" }
+
+    /// When the newest of its runs last did something.
+    var latestActivity: Date { sessions.map(\.lastEventAt).max() ?? Date(timeIntervalSince1970: 0) }
+
+    init(name: String, sessions: [AgentConv]) {
+        self.name = name
+        self.sessions = sessions.sorted { $0.lastEventAt > $1.lastEventAt }
+    }
+}
+
 /// The whole list, as one fetch or one push.
 struct AgentsList: Equatable {
     var card: AgentSleepCard?
     var needsYou: [AgentConv]
+    /// Ordinary coding sessions, by project — integration runs taken out.
     var projects: [AgentProjectGroup]
+    /// Integration runs, one group per integration, by name.
+    var integrations: [AgentIntegrationGroup]
     var usage: AgentPlanUsage?
     var codexUsage: AgentPlanUsage?
     var ts: Double
 
+    /// Integration runs found in `projects` move to `integrations`; a project
+    /// left with nothing is dropped.
     init(card: AgentSleepCard? = nil, needsYou: [AgentConv] = [], projects: [AgentProjectGroup] = [],
          usage: AgentPlanUsage? = nil, codexUsage: AgentPlanUsage? = nil, ts: Double = 0) {
         self.card = card
         self.needsYou = needsYou
-        self.projects = projects
+        let split = Self.splitIntegrations(projects)
+        self.projects = split.projects
+        self.integrations = split.integrations
         self.usage = usage
         self.codexUsage = codexUsage
         self.ts = ts
@@ -217,12 +248,39 @@ struct AgentsList: Equatable {
                   ts: CodingJSON.double(json["ts"]) ?? 0)
     }
 
-    /// Every conversation once: what needs you, then each project's.
-    var all: [AgentConv] { needsYou + projects.flatMap(\.sessions) }
+    /// Every conversation once: what needs you, each project's, then each integration's.
+    var all: [AgentConv] { needsYou + projects.flatMap(\.sessions) + integrations.flatMap(\.sessions) }
 
     func conv(_ ckey: String) -> AgentConv? { all.first { $0.ckey == ckey } }
 
-    var isEmpty: Bool { card == nil && needsYou.isEmpty && projects.isEmpty }
+    var isEmpty: Bool { card == nil && needsYou.isEmpty && projects.isEmpty && integrations.isEmpty }
+
+    /// Pulls the integration runs out of the project groups and groups them by
+    /// integration name (A–Z, so the section doesn't reshuffle on every push).
+    static func splitIntegrations(_ groups: [AgentProjectGroup])
+        -> (projects: [AgentProjectGroup], integrations: [AgentIntegrationGroup]) {
+        var projects: [AgentProjectGroup] = []
+        var byName: [String: [AgentConv]] = [:]
+        for group in groups {
+            var kept: [AgentConv] = []
+            for session in group.sessions {
+                if let name = session.integration {
+                    byName[name, default: []].append(session)
+                } else {
+                    kept.append(session)
+                }
+            }
+            if kept.count == group.sessions.count {
+                projects.append(group)
+            } else if !kept.isEmpty {
+                projects.append(AgentProjectGroup(projectId: group.projectId, name: group.name, sessions: kept))
+            }
+        }
+        let integrations = byName
+            .map { AgentIntegrationGroup(name: $0.key, sessions: $0.value) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return (projects, integrations)
+    }
 }
 
 /// What became of a message sent from the phone (`POST /agents/send`).

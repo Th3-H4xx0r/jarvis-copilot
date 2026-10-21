@@ -12,8 +12,9 @@ enum AgentsRoute: Hashable {
 /// one record each, live from their hooks. Top to bottom: the plan usage, the
 /// Mac-asleep card when a Mac left sessions behind, what needs you (a flat
 /// list across projects and machines), then every other session in
-/// collapsible project groups. Approvals and questions are answered inside
-/// each session; "+" starts a new one.
+/// collapsible project groups, and last the runs Jarvis does in the background
+/// for an integration (collapsed until opened). Approvals and questions are
+/// answered inside each session; "+" starts a new one.
 struct AgentsPage: View {
     var store: AgentsStore = .shared
     @Environment(AppRouter.self) private var router
@@ -21,6 +22,7 @@ struct AgentsPage: View {
     @State private var showRecap = false
     @State private var showLaunch = false
     @AppStorage(AgentsListPrefs.collapsedKey) private var collapsedRaw = ""
+    @AppStorage(AgentsListPrefs.expandedIntegrationsKey) private var expandedIntegrationsRaw = ""
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -92,9 +94,10 @@ struct AgentsPage: View {
         let needs = store.needsYou
         let orphans = store.orphanRequests
         let projects = store.projects
+        let integrations = store.integrations
         if !store.loaded {
             AgentsSkeletonList()
-        } else if needs.isEmpty && orphans.isEmpty && projects.isEmpty {
+        } else if needs.isEmpty && orphans.isEmpty && projects.isEmpty && integrations.isEmpty {
             if let error = store.loadError {
                 AgentsErrorState(message: error) { Task { await store.refresh() } }
             } else if store.card == nil {
@@ -117,6 +120,18 @@ struct AgentsPage: View {
                     AgentsProjectHeader(group: group, open: open,
                                         waiting: AgentsListLayout.hasWaiting(group, needsYou: needs)) {
                         toggle(group, collapsed: collapsed)
+                    }
+                    if open { rows(group.sessions, showsProject: false) }
+                }
+            }
+            if !integrations.isEmpty {
+                AgentSectionHeader(title: "Integrations")
+                let expanded = AgentsListLayout.collapsed(from: expandedIntegrationsRaw)
+                ForEach(integrations) { group in
+                    let open = AgentsListLayout.isExpanded(group, expanded: expanded)
+                    AgentsIntegrationHeader(group: group, open: open,
+                                            waiting: AgentsListLayout.hasWaiting(group)) {
+                        toggle(group, expanded: expanded)
                     }
                     if open { rows(group.sessions, showsProject: false) }
                 }
@@ -144,6 +159,13 @@ struct AgentsPage: View {
         var next = collapsed
         if next.contains(group.id) { next.remove(group.id) } else { next.insert(group.id) }
         withAnimation(.snappy(duration: 0.25)) { collapsedRaw = AgentsListLayout.encode(next) }
+    }
+
+    /// An integration group starts shut; this remembers the ones he opened.
+    private func toggle(_ group: AgentIntegrationGroup, expanded: Set<String>) {
+        var next = expanded
+        if next.contains(group.id) { next.remove(group.id) } else { next.insert(group.id) }
+        withAnimation(.snappy(duration: 0.25)) { expandedIntegrationsRaw = AgentsListLayout.encode(next) }
     }
 
     private var menu: some View {

@@ -24,7 +24,11 @@ enum AgentsListLayout {
     /// Server" under Needs you, where the project isn't the heading.
     static func subtitle(_ c: AgentConv, showsProject: Bool) -> String {
         var parts: [String] = []
-        if showsProject && !c.project.isEmpty && c.project != c.title { parts.append(c.project) }
+        if showsProject, let integration = c.integration {
+            parts.append(integration)
+        } else if showsProject && !c.project.isEmpty && c.project != c.title {
+            parts.append(c.project)
+        }
         parts.append(c.agentName)
         parts.append(whereLabel(c))
         return parts.joined(separator: " · ")
@@ -146,6 +150,8 @@ enum AgentsListLayout {
     static func hasWaiting(_ group: AgentProjectGroup, needsYou: [AgentConv]) -> Bool {
         if group.sessions.contains(where: \.waitsOnYou) { return true }
         return needsYou.contains { c in
+            // An integration run waiting on you isn't one of the project's sessions.
+            guard c.integration == nil else { return false }
             if let pid = group.projectId { return c.projectId == pid }
             return c.projectId == nil && c.project == group.name
         }
@@ -164,6 +170,19 @@ enum AgentsListLayout {
 
     static func encode(_ collapsed: Set<String>) -> String {
         collapsed.sorted().joined(separator: "\n")
+    }
+
+    // MARK: integrations
+
+    /// An integration's group stays shut until he opens it — the opposite of a
+    /// project. `expanded` is the set he opened (same string codec as above).
+    static func isExpanded(_ group: AgentIntegrationGroup, expanded: Set<String>) -> Bool {
+        expanded.contains(group.id)
+    }
+
+    /// One of its runs waits on you (it also shows under Needs you).
+    static func hasWaiting(_ group: AgentIntegrationGroup) -> Bool {
+        group.sessions.contains(where: \.waitsOnYou)
     }
 
     // MARK: approval cards
@@ -246,7 +265,9 @@ enum AgentsListLayout {
     }
 }
 
-/// The phone's copy of the collapsed project groups.
+/// The phone's copy of the collapsed project groups, and of the integration
+/// groups he opened (those start collapsed).
 enum AgentsListPrefs {
     static let collapsedKey = "jc.agents.collapsedProjects"
+    static let expandedIntegrationsKey = "jc.agents.expandedIntegrations"
 }

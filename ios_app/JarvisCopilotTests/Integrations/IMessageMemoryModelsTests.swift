@@ -175,6 +175,91 @@ final class IMessageMemoryModelsTests: XCTestCase {
         XCTAssertEqual(card.skippablePeople.map(\.handle), ["a@b.com"])
     }
 
+    // MARK: Backfill progress
+
+    private func job(_ fields: String) throws -> IMessageBackfillJob? {
+        try decode(#"{"active_job": {"id": "a1", "created_at": 5, "#.appending(fields).appending("}}"))
+            .activeJob
+    }
+
+    func testAnalyzingDecodesWithItsCount() throws {
+        let job = try XCTUnwrap(try job(#""status": "analyzing", "received": 200, "analyzed": 50, "stored": 4, "skipped": 1"#))
+        XCTAssertEqual(job.status, .analyzing)
+        XCTAssertEqual(job.analyzed, 50)
+        XCTAssertEqual(job.progress, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(job.progressLine, "Analysing conversations — 50 of 200 messages")
+        XCTAssertEqual(job.savedLine, "4 saved · 1 skipped")
+        XCTAssertTrue(job.status.isLive)
+        XCTAssertNotEqual(job.status.title, "Done")
+    }
+
+    func testAMissingAnalyzedCountReadsAsZero() throws {
+        let job = try XCTUnwrap(try job(#""status": "running", "received": 40"#))
+        XCTAssertEqual(job.analyzed, 0)
+        XCTAssertEqual(job.progress, 0)
+        XCTAssertEqual(job.progressLine, "Uploading from your Mac…")
+    }
+
+    func testProgressStaysInsideTheBar() throws {
+        let over = try XCTUnwrap(try job(#""status": "analyzing", "received": 10, "analyzed": 15"#))
+        XCTAssertEqual(over.progress, 1)
+        XCTAssertEqual(over.progressLine, "Analysing conversations — 10 of 10 messages")
+        let empty = try XCTUnwrap(try job(#""status": "analyzing", "received": 0, "analyzed": 0"#))
+        XCTAssertEqual(empty.progress, 0, "nothing received yet is an empty bar, not a NaN")
+    }
+
+    func testAPendingJobWaitsForTheMac() throws {
+        let job = try XCTUnwrap(try job(#""status": "pending""#))
+        XCTAssertEqual(job.progressLine, "Waiting for your Mac…")
+        XCTAssertTrue(job.status.isLive)
+    }
+
+    func testEveryActiveStateIsTheRunningCard() throws {
+        for status in ["pending", "running", "analyzing"] {
+            let card = try decode(#"{"jobs": [{"id": "a1", "status": "\#(status)"}], "#
+                                  + #""active_job": {"id": "a1", "status": "\#(status)"}}"#)
+            XCTAssertEqual(card.liveJob?.id, "a1", status)
+            XCTAssertTrue(card.recentJobs.isEmpty, "\(status) is running, not finished")
+        }
+    }
+
+    func testAnActiveJobInAnUnknownStateReadsAsFinished() throws {
+        let card = try decode(#"{"jobs": [], "active_job": {"id": "a1", "status": "exploded", "created_at": 9}}"#)
+        XCTAssertNil(card.liveJob, "no stuck running card")
+        XCTAssertEqual(card.recentJobs.map(\.id), ["a1"])
+        XCTAssertEqual(card.recentJobs.first?.status, .error)
+    }
+
+    @MainActor
+    func testTheScreenKeepsPollingWhileJarvisIsStillReading() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/imessage-memory", json: ["active_job": [
+            "id": "a1", "status": "analyzing", "received": 10, "analyzed": 3,
+        ]])
+        let store = IMessageMemoryStore(api: IMessageMemoryAPI(api: client), sleeper: { _ in
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+        })
+        store.appeared()
+        await store.refresh()
+        XCTAssertEqual(store.card?.liveJob?.status, .analyzing)
+        XCTAssertTrue(store.isPolling)
+        store.disappeared()
+        XCTAssertFalse(store.isPolling)
+    }
+
+    @MainActor
+    func testAFinishedJobStopsThePoll() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/imessage-memory", json: ["active_job": ["id": "a1", "status": "done"]])
+        let store = IMessageMemoryStore(api: IMessageMemoryAPI(api: client), sleeper: { _ in
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+        })
+        store.appeared()
+        await store.refresh()
+        XCTAssertNil(store.card?.liveJob)
+        XCTAssertFalse(store.isPolling)
+    }
+
     func testRecentJobsLeaveOutTheActiveOne() throws {
         let card = try decode(fullCard)
         XCTAssertEqual(card.recentJobs.map(\.id), ["j1"])

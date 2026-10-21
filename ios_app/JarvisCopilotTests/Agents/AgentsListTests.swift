@@ -125,6 +125,106 @@ final class AgentsListTests: XCTestCase {
         XCTAssertTrue(AgentsListLayout.collapsed(from: "").isEmpty)
     }
 
+    // MARK: integrations
+
+    private static func integrationRun(_ sid: String, _ integration: String, at: Double,
+                                       project: (id: String, name: String) = ("p-jc", "jarvis-copilot"),
+                                       state: String = "finished", pending: [String: Any]? = nil) -> [String: Any] {
+        var run: [String: Any] = [
+            "ckey": "claude|\(sid)", "key": "server|claude|\(sid)", "agent": "claude", "session_id": sid,
+            "title": "Backfill \(sid)", "project_id": project.id, "project": project.name, "cwd": "/srv/jc",
+            "owner": "server", "owner_name": "Server", "status": "live", "state": state,
+            "last_event_at": at, "integration": integration,
+        ]
+        if let pending { run["pending"] = pending }
+        return run
+    }
+
+    /// The fixture plus integration runs: two mixed into jarvis-copilot, a project
+    /// made only of runs, and a waiting run under Needs you.
+    private static var integrationList: AgentsList {
+        AgentsList(json: fixture { json in
+            var projects = json["projects"] as? [[String: Any]] ?? []
+            var jc = projects[0]
+            var sessions = jc["sessions"] as? [[String: Any]] ?? []
+            sessions.append(integrationRun("im-1", "iMessage memory", at: 1781000200))
+            sessions.append(integrationRun("im-2", "iMessage memory", at: 1781000400))
+            jc["sessions"] = sessions
+            projects[0] = jc
+            projects.append(["id": "p-mail", "name": "mail", "sessions": [
+                integrationRun("mail-1", "Email triage", at: 1781000300, project: ("p-mail", "mail")),
+            ]])
+            json["projects"] = projects
+            var needs = json["needs_you"] as? [[String: Any]] ?? []
+            needs.append(integrationRun("im-ask", "iMessage memory", at: 1781000650, state: "approval",
+                                        pending: ["kind": "approval", "tool": "Bash", "summary": "Bash: ls",
+                                                  "fingerprint": "fp-im"]))
+            json["needs_you"] = needs
+        })
+    }
+
+    func testIntegrationRunsLeaveTheProjects() {
+        let list = Self.integrationList
+        XCTAssertEqual(list.projects.map(\.id), ["p-jc", "p-is"], "a project made only of runs is gone")
+        XCTAssertEqual(list.projects[0].sessions.map(\.ckey), ["claude|s-spec", "claude|s-car"])
+        XCTAssertTrue(list.projects.flatMap(\.sessions).allSatisfy { $0.integration == nil })
+        XCTAssertEqual(list.conv("claude|im-1")?.integration, "iMessage memory", "still reachable by key")
+        XCTAssertNil(list.conv("claude|s-spec")?.integration)
+    }
+
+    func testIntegrationRunsAreGroupedByName() {
+        let groups = Self.integrationList.integrations
+        XCTAssertEqual(groups.map(\.name), ["Email triage", "iMessage memory"])
+        XCTAssertEqual(groups.map(\.id), ["integration:Email triage", "integration:iMessage memory"])
+        let im = groups[1]
+        XCTAssertEqual(im.sessions.map(\.ckey), ["claude|im-2", "claude|im-1"], "newest first")
+        XCTAssertEqual(im.latestActivity, Date(timeIntervalSince1970: 1781000400))
+    }
+
+    func testAWaitingIntegrationRunStaysUnderNeedsYou() {
+        let list = Self.integrationList
+        let needs = AgentsListLayout.needsYou(list)
+        XCTAssertEqual(needs.first?.ckey, "claude|im-ask")
+        XCTAssertEqual(AgentsListLayout.subtitle(needs[0], showsProject: true), "iMessage memory · Claude Code · Server")
+        XCTAssertFalse(list.integrations.flatMap(\.sessions).contains { $0.ckey == "claude|im-ask" })
+        // It doesn't count as a jarvis-copilot session waiting on you.
+        let other = AgentsList(json: Self.fixture { json in
+            json["needs_you"] = [Self.integrationRun("im-ask", "iMessage memory", at: 1781000650, state: "approval",
+                                                     pending: ["kind": "approval", "fingerprint": "fp-im"])]
+        })
+        XCTAssertFalse(AgentsListLayout.hasWaiting(other.projects[0], needsYou: AgentsListLayout.needsYou(other)))
+    }
+
+    func testIntegrationGroupsStartCollapsedAndRememberBeingOpened() {
+        let groups = Self.integrationList.integrations
+        XCTAssertTrue(groups.allSatisfy { !AgentsListLayout.isExpanded($0, expanded: []) }, "collapsed by default")
+        let raw = AgentsListLayout.encode([groups[1].id])
+        let expanded = AgentsListLayout.collapsed(from: raw)
+        XCTAssertTrue(AgentsListLayout.isExpanded(groups[1], expanded: expanded))
+        XCTAssertFalse(AgentsListLayout.isExpanded(groups[0], expanded: expanded))
+        XCTAssertNotEqual(AgentsListPrefs.expandedIntegrationsKey, AgentsListPrefs.collapsedKey)
+    }
+
+    func testTheStoreKeepsIntegrationRunsOutOfTheCounts() {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/permission/pending", json: ["pending": [] as [Any]])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        store.show(Self.integrationList)
+        XCTAssertEqual(store.waitingCount, 3, "only what waits on you — the waiting run included")
+        XCTAssertEqual(store.projects.flatMap(\.sessions).count, 4)
+        XCTAssertEqual(store.integrations.flatMap(\.sessions).count, 3)
+        XCTAssertFalse(store.isEmpty)
+    }
+
+    func testAListOfOnlyIntegrationRunsIsNotEmpty() {
+        let list = AgentsList(json: ["projects": [["id": "p-mail", "name": "mail", "sessions": [
+            Self.integrationRun("mail-1", "Email triage", at: 1781000300, project: ("p-mail", "mail")),
+        ]]]])
+        XCTAssertTrue(list.projects.isEmpty)
+        XCTAssertEqual(list.integrations.count, 1)
+        XCTAssertFalse(list.isEmpty)
+    }
+
     // MARK: rows
 
     func testRowsSayWhereTheyRun() throws {

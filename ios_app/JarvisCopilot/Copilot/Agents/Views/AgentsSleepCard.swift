@@ -185,3 +185,57 @@ struct AgentsProjectHeader: View {
         .accessibilityAddTraits(.isHeader)
     }
 }
+
+/// An integration's group header: the chevron, the integration's name, how
+/// many runs it holds and when the newest last did something.
+struct AgentsIntegrationHeader: View {
+    let group: AgentIntegrationGroup
+    let open: Bool
+    var waiting = false
+    let toggle: () -> Void
+
+    private var countLabel: String {
+        "\(group.sessions.count) run\(group.sessions.count == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 8) {
+                JcIcon("chevron.right", size: 10, weight: .semibold)
+                    .foregroundStyle(JcTheme.muted)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .frame(width: 12)
+                Text(group.name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(open ? JcTheme.text : JcTheme.text.opacity(0.8))
+                    .lineLimit(1)
+                Text("\(group.sessions.count)")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(JcTheme.muted)
+                Spacer(minLength: 0)
+                if waiting {
+                    HStack(spacing: 5) {
+                        Circle().fill(JcTheme.amber).frame(width: 6, height: 6)
+                        Text("Needs you")
+                    }
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(JcTheme.amber)
+                } else {
+                    Text(AgentsPresentation.time(group.latestActivity))
+                        .font(.system(size: 12.5))
+                        .monospacedDigit()
+                        .foregroundStyle(JcTheme.muted)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(group.name), \(countLabel), last active \(AgentsPresentation.time(group.latestActivity))")
+        .accessibilityValue(open ? "Expanded" : "Collapsed")
+        .accessibilityAddTraits(.isHeader)
+    }
+}

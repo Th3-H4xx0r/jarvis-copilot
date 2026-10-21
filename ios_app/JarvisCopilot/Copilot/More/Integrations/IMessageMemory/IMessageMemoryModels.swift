@@ -132,9 +132,22 @@ struct IMessageMemoryCard: Decodable, Equatable {
         return people.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    /// Finished jobs, newest first — the active one has its own card.
+    /// The backfill still in flight — waiting for the Mac, uploading, or being read.
+    /// An `active_job` in any other state (a status word this app doesn't know)
+    /// reads as finished, so it lands in the recent list instead of a stuck card.
+    var liveJob: IMessageBackfillJob? {
+        guard let activeJob, activeJob.status.isLive else { return nil }
+        return activeJob
+    }
+
+    /// Finished jobs, newest first — the live one has its own card.
     var recentJobs: [IMessageBackfillJob] {
-        jobs.filter { $0.id != activeJob?.id }.sorted { $0.createdAt > $1.createdAt }
+        var finished = jobs
+        if let activeJob, !activeJob.status.isLive, !finished.contains(where: { $0.id == activeJob.id }) {
+            finished.append(activeJob)
+        }
+        let live = liveJob?.id
+        return finished.filter { $0.id != live }.sorted { $0.createdAt > $1.createdAt }
     }
 }
 
@@ -233,19 +246,27 @@ struct IMessagePerson: Codable, Equatable, Identifiable, Hashable {
 /// One backfill run over a date range.
 struct IMessageBackfillJob: Decodable, Equatable, Identifiable, Hashable {
     enum Status: String, Decodable, Equatable, Hashable {
-        case pending, running, done, stopped, error
+        /// Waiting for the Mac to pick it up.
+        case pending
+        /// The Mac is uploading the messages.
+        case running
+        /// The upload is done; Jarvis is still reading the conversations.
+        case analyzing
+        case done, stopped, error
 
         var title: String {
             switch self {
             case .pending: return "Waiting for the Mac"
-            case .running: return "Running"
+            case .running: return "Uploading"
+            case .analyzing: return "Analysing"
             case .done: return "Done"
             case .stopped: return "Stopped"
             case .error: return "Failed"
             }
         }
 
-        var isLive: Bool { self == .pending || self == .running }
+        /// Still in flight: it has the running card, the Stop button and the poll.
+        var isLive: Bool { self == .pending || self == .running || self == .analyzing }
     }
 
     var id: String
@@ -255,6 +276,8 @@ struct IMessageBackfillJob: Decodable, Equatable, Identifiable, Hashable {
     var chats: [String]?
     var status: Status
     var received: Int
+    /// Messages Jarvis has read so far — progress is `analyzed / received`.
+    var analyzed: Int
     var stored: Int
     var skipped: Int
     var createdAt: Double
@@ -264,8 +287,29 @@ struct IMessageBackfillJob: Decodable, Equatable, Identifiable, Hashable {
     var startDate: Date { Date(timeIntervalSince1970: start) }
     var endDate: Date { Date(timeIntervalSince1970: end) }
 
+    /// How far through it is, 0…1: messages read out of messages received.
+    var progress: Double {
+        guard received > 0 else { return 0 }
+        return min(1, max(0, Double(analyzed) / Double(received)))
+    }
+
+    /// The running card's headline for where it is.
+    var progressLine: String {
+        switch status {
+        case .pending: return "Waiting for your Mac…"
+        case .running: return "Uploading from your Mac…"
+        case .analyzing:
+            let word = received == 1 ? "message" : "messages"
+            return "Analysing conversations — \(min(analyzed, received).formatted()) of \(received.formatted()) \(word)"
+        case .done, .stopped, .error: return status.title
+        }
+    }
+
+    /// "4 saved · 1 skipped".
+    var savedLine: String { "\(stored.formatted()) saved · \(skipped.formatted()) skipped" }
+
     private enum CodingKeys: String, CodingKey {
-        case id, start, end, chats, status, received, stored, skipped, error
+        case id, start, end, chats, status, received, analyzed, stored, skipped, error
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -280,6 +324,8 @@ struct IMessageBackfillJob: Decodable, Equatable, Identifiable, Hashable {
         let raw = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
         status = Status(rawValue: raw) ?? .error
         received = try c.value(.received, 0)
+        // An older server doesn't count what it has read yet.
+        analyzed = try c.value(.analyzed, 0)
         stored = try c.value(.stored, 0)
         skipped = try c.value(.skipped, 0)
         createdAt = try c.value(.createdAt, 0)

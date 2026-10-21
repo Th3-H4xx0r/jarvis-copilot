@@ -21,7 +21,7 @@ struct IMessageMemoryCardRow: View {
                               name: "iMessage memory",
                               subtitle: subtitle,
                               dimmed: !on,
-                              pill: card?.activeJob != nil ? "BACKFILLING" : nil)
+                              pill: card?.liveJob != nil ? "BACKFILLING" : nil)
     }
 }
 
@@ -427,7 +427,7 @@ struct IMessageMemoryView: View {
     }
 
     private func canRun(_ card: IMessageMemoryCard) -> Bool {
-        to > from && card.activeJob == nil && !store.startingBackfill && (allTicked || !chosen.isEmpty)
+        to > from && card.liveJob == nil && !store.startingBackfill && (allTicked || !chosen.isEmpty)
     }
 
     private func run() {
@@ -439,7 +439,7 @@ struct IMessageMemoryView: View {
 
     @ViewBuilder
     private func jobsSection(_ card: IMessageMemoryCard) -> some View {
-        if let job = card.activeJob {
+        if let job = card.liveJob {
             CardGroup("Running now") {
                 Row {
                     VStack(alignment: .leading, spacing: 10) {
@@ -453,7 +453,17 @@ struct IMessageMemoryView: View {
                                 .frame(minHeight: integrationTapTarget)
                         }
                         Text(Self.range(job)).font(.system(size: 13)).foregroundStyle(JcTheme.text)
-                        Text(Self.counts(job))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(job.progressLine)
+                                .font(.system(size: 13, weight: .medium).monospacedDigit())
+                                .foregroundStyle(JcTheme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                            ProgressView(value: job.progress)
+                                .tint(JcTheme.accent)
+                                .animation(.easeOut(duration: 0.4), value: job.progress)
+                        }
+                        .accessibilityElement(children: .combine)
+                        Text(job.savedLine)
                             .font(.system(size: 12).monospacedDigit())
                             .foregroundStyle(JcTheme.muted)
                         if job.status == .pending && !card.macConnected {
@@ -512,7 +522,7 @@ struct IMessageMemoryView: View {
         case .done: return JcTheme.success
         case .error: return JcTheme.danger
         case .stopped: return JcTheme.muted
-        case .pending, .running: return JcTheme.accent
+        case .pending, .running, .analyzing: return JcTheme.accent
         }
     }
 

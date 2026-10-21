@@ -49,6 +49,8 @@ final class AgentsStore {
     var card: AgentSleepCard? { list?.card }
     var needsYou: [AgentConv] { list.map(AgentsListLayout.needsYou) ?? [] }
     var projects: [AgentProjectGroup] { list?.projects ?? [] }
+    /// Integration runs, by integration — their own section, collapsed by default.
+    var integrations: [AgentIntegrationGroup] { list?.integrations ?? [] }
     var orphanRequests: [AgentRequest] { list.map { AgentsListLayout.orphans(requests, list: $0) } ?? requests }
     /// The number beside "Needs you" — never a different count from the rows.
     var waitingCount: Int { needsYou.count + orphanRequests.count }
@@ -132,7 +134,9 @@ final class AgentsStore {
             return
         }
         list = next
-        AgentsSpotlight.index(next.all)
+        // Integration runs are Jarvis's own background work: hundreds of them
+        // would bury his coding turns in Spotlight.
+        AgentsSpotlight.index(next.all.filter { $0.integration == nil })
         usage = next.usage ?? usage
         codexUsage = next.codexUsage ?? codexUsage
         loadError = nil
