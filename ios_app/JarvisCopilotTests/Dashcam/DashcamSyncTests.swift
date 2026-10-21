@@ -92,8 +92,10 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
         DashcamServerState(rules: rules, destinations: [], counts: [:], stagingBytes: 0, stagingCap: 0)
     }
     func updateRules(_ rules: DashcamRules) async throws { self.rules = rules }
+    /// What the clip listing answers (the clean-up's "on the phone" page).
+    var listed: [DashcamServerClip] = []
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?) {
-        ([], nil)
+        (listed, nil)
     }
 }
 
@@ -486,6 +488,31 @@ final class DashcamSyncTests: XCTestCase {
         _ = await sync.syncPass()
         XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == self.eventClip.name })
         XCTAssertFalse(DashcamTombstones.contains(eventID, defaults: sync.defaults))
+    }
+
+    /// A clip he tagged stays on the phone once it's uploaded everywhere; an untagged one goes, as before.
+    func testATaggedClipStaysOnThePhoneAfterUpload() async throws {
+        func local(_ t: TimeInterval) throws -> (URL, DashcamServerClip, Bool) {
+            let f = file(.normal, .front, at: t)
+            let same = DashcamFile(path: f.path, kind: .normal, lens: .front, start: f.start, durationS: 60, size: 10)
+            let url = sync.storage.localURL(camera: "CAM", file: same)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(count: 10).write(to: url)
+            let tagged = t == 0
+            let clip = DashcamServerClip(json: ["id": DashcamIDs.clipID(cameraID: "CAM", path: f.path), "camera_id": "CAM",
+                                                "path": f.path, "kind": "normal", "lens": "front", "start": f.start.dashcamISO,
+                                                "duration_s": 60, "size": 10, "phone": ["state": "local"],
+                                                "upload": ["state": "done"], "uploaded": true,
+                                                "tags": tagged ? ["accident"] : []])!
+            return (url, clip, tagged)
+        }
+        let rows = [try local(0), try local(60)]
+        server.listed = rows.map(\.1)
+        await sync.cleanUpUploaded()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rows[0].0.path), "tagged: kept on the phone")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rows[1].0.path), "untagged: gone once uploaded")
+        XCTAssertTrue(DashcamTagged.contains(rows[0].1.id, defaults: sync.defaults))
+        XCTAssertFalse(DashcamTagged.contains(rows[1].1.id, defaults: sync.defaults))
     }
 
     func testClipIDMatchesTheServerFormula() {

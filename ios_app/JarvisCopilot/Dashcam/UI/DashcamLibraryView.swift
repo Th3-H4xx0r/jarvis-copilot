@@ -92,6 +92,7 @@ struct DashcamClipRow: View {
                     }
                 }
                 DashcamClipTransferLine(clip: clip)
+                DashcamClipTags(tags: clip.tags)
             }
             Spacer(minLength: 0)
             JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted)
@@ -122,6 +123,7 @@ struct DashcamLibraryView: View {
     @ObservedObject private var model = DashcamLibraryModel.shared
     @ObservedObject private var sync: DashcamSync = .shared
     @ObservedObject private var wifi: DashcamWiFi = .shared
+    @ObservedObject private var tagStore = DashcamTagStore.shared
     @State private var confirmDelete: DashcamServerClip?
     @State private var note: String?
     private var selecting: Bool { get { model.selecting } nonmutating set { model.selecting = newValue } }
@@ -141,6 +143,11 @@ struct DashcamLibraryView: View {
             }
             if let error = model.error, model.clips.isEmpty {
                 CardGroup { CardEmptyBlock("Couldn't load the library: \(error)", symbol: "exclamationmark.icloud") }
+            } else if model.clips.isEmpty && !model.loading, let tag = model.tag {
+                CardGroup {
+                    CardEmptyBlock("No clips tagged \(tagStore.name(tag)) yet. Tag a clip on its page, or hold clips to select them and tap Tag.",
+                                   symbol: "tag")
+                }
             } else if model.clips.isEmpty && !model.loading {
                 CardGroup { CardEmptyBlock("No clips yet. They appear after the first sync with the camera.", symbol: "film.stack") }
             }
@@ -205,6 +212,7 @@ struct DashcamLibraryView: View {
                 .presentationBackground(.black.opacity(0.45))
         }
         .task { await model.reload() }
+        .task { await tagStore.load() }
         .task {
             // States move on their own (uploads, the relay to the cloud): keep the first page current.
             while !Task.isCancelled {
@@ -230,11 +238,12 @@ struct DashcamLibraryView: View {
     }
 
     private var filters: some View {
+        ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(DashcamLibraryModel.Filter.allCases) { f in
-                    Button(f.label) { model.filter = f }
-                        .buttonStyle(.jcGlass(tint: model.filter == f ? JcTheme.accent : JcTheme.muted, compact: true))
+                    Button(f.label) { model.filter = f; model.tag = nil }
+                        .buttonStyle(.jcGlass(tint: model.tag == nil && model.filter == f ? JcTheme.accent : JcTheme.muted, compact: true))
                 }
                 Menu {
                     Button("Both cameras") { model.lens = nil }
@@ -244,10 +253,22 @@ struct DashcamLibraryView: View {
                     Label(model.lens?.rawValue.capitalized ?? "Both", systemImage: "camera.rotate")
                 }
                 .buttonStyle(.jcGlass(tint: model.lens == nil ? JcTheme.muted : JcTheme.accent, compact: true))
+                // His tags: one at a time, like the filters before them.
+                Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 22)
+                ForEach(tagStore.tags) { t in
+                    Button("#" + t.name) { model.tag = model.tag == t.id ? nil : t.id }
+                        .buttonStyle(.jcGlass(tint: model.tag == t.id ? JcTheme.accent : JcTheme.muted, compact: true))
+                        .accessibilityLabel("Tagged \(t.name)")
+                        .id("tag-" + t.id)
+                }
             }
             .padding(.horizontal, 20)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)   // sideways only
+        // The tags sit past the filters: the one showing stays in view.
+        .onAppear { if let tag = model.tag { proxy.scrollTo("tag-" + tag, anchor: .center) } }
+        .onChange(of: tagStore.tags) { _, _ in if let tag = model.tag { proxy.scrollTo("tag-" + tag, anchor: .center) } }
+        }
     }
 
     @ViewBuilder private func actions(for clip: DashcamServerClip) -> some View {
@@ -329,6 +350,11 @@ struct DashcamLibraryView: View {
 /// Select / Delete / Cancel, floating at the bottom right of the dashcam page over the library.
 struct DashcamSelectionBar: View {
     @ObservedObject private var model = DashcamLibraryModel.shared
+    @ObservedObject private var tagStore = DashcamTagStore.shared
+    @State private var naming = false
+    @State private var newName = ""
+    @State private var tagging = false
+    @State private var problem: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -343,6 +369,25 @@ struct DashcamSelectionBar: View {
                 } label: { Label("Delete", systemImage: "trash") }
                 .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                 .disabled(model.selected.isEmpty)
+                Menu {
+                    let chosen = model.clips.filter { model.selected.contains($0.id) }
+                    ForEach(tagStore.tags) { t in
+                        // Checked when every selected clip has it: picking it then takes it off them all.
+                        Button { tag(t.id) } label: {
+                            if !chosen.isEmpty && chosen.allSatisfy({ $0.tags.contains(t.id) }) {
+                                Label(t.name, systemImage: "checkmark")
+                            } else {
+                                Text(t.name)
+                            }
+                        }
+                    }
+                    Divider()
+                    Button { newName = ""; naming = true } label: { Label("New tag…", systemImage: "plus") }
+                } label: {
+                    if tagging { ProgressView().controlSize(.small) } else { Label("Tag", systemImage: "tag") }
+                }
+                .buttonStyle(.jcGlass(compact: true))
+                .disabled(model.selected.isEmpty || tagging)
                 Button {
                     // Download again: pulled even when deleted from the phone before.
                     for clip in model.clips where model.selected.contains(clip.id) && clip.onCamera { DashcamSync.shared.pull(clip.path) }
@@ -360,6 +405,37 @@ struct DashcamSelectionBar: View {
         }
         .padding(6)
         .background(.ultraThinMaterial, in: Capsule())
+        .overlay(alignment: .top) {
+            if let problem {
+                Text(problem).font(.caption).foregroundStyle(JcTheme.danger)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .offset(y: -34)
+            }
+        }
+        .task { await tagStore.load() }
+        .alert("New tag", isPresented: $naming) {
+            TextField("Name", text: $newName)
+            Button("Add") {
+                let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                Task {
+                    do { tag(try await tagStore.add(name).id) } catch { problem = "Couldn't add the tag: \(error.localizedDescription)" }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It goes on the selected clips, and is there to pick from now on.")
+        }
+    }
+
+    private func tag(_ id: String) {
+        tagging = true
+        problem = nil
+        Task {
+            problem = await model.tagSelected(id)
+            tagging = false
+        }
     }
 }
 

@@ -175,6 +175,8 @@ final class DashcamLibraryModel: ObservableObject {
 
     @Published var filter: Filter = .all { didSet { if filter != oldValue { Task { await reload() } } } }
     @Published var lens: DashcamLens? = nil { didSet { if lens != oldValue { Task { await reload() } } } }
+    /// One of his tags: only clips carrying it (instead of a filter above).
+    @Published var tag: String? = nil { didSet { if tag != oldValue { Task { await reload() } } } }
     @Published private(set) var clips: [DashcamServerClip] = [] {
         didSet { sections = Self.sections(clips, calendar: .current, now: Date()) }
     }
@@ -226,6 +228,7 @@ final class DashcamLibraryModel: ObservableObject {
         defer { loading = false }
         var f = filter.apiFilter
         f.lens = lens
+        f.tag = tag
         guard let page = try? await api.clips(f, cursor: nil, limit: Self.pageSize), gen == generation else { return }
         let fresh = Dictionary(page.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let known = Set(clips.map(\.id))
@@ -238,6 +241,7 @@ final class DashcamLibraryModel: ObservableObject {
         defer { loading = false }
         var f = filter.apiFilter
         f.lens = lens
+        f.tag = tag
         do {
             let page = try await api.clips(f, cursor: reset ? nil : next, limit: Self.pageSize)
             guard gen == generation else { return }        // a reload started meanwhile: this page is stale
@@ -258,6 +262,33 @@ final class DashcamLibraryModel: ObservableObject {
 
     func replace(_ clip: DashcamServerClip) {
         if let i = clips.firstIndex(where: { $0.id == clip.id }) { clips[i] = clip }
+    }
+
+    /// Clips whose tags just changed, as the server has them now. Showing one tag, a clip that lost it leaves.
+    func adopt(_ changed: [DashcamServerClip]) {
+        for clip in changed { replace(clip) }
+        if let tag {
+            let gone = Set(changed.filter { !$0.tags.contains(tag) }.map(\.id))
+            if !gone.isEmpty { clips.removeAll { gone.contains($0.id) } }
+        }
+    }
+
+    /// The selection bar's Tag: the tag on every selected clip — or off them all when each has it already
+    /// (`DashcamTagging.bulk`). Selecting ends. Nil when all went, else what to say.
+    func tagSelected(_ tag: String) async -> String? {
+        let chosen = clips.filter { selected.contains($0.id) }
+        let plan = DashcamTagging.bulk(tag, on: chosen)
+        var failed = 0
+        for change in plan.changes {
+            // Setting one clip sets its other lens's too: a selected partner may be done already.
+            let clip = clips.first { $0.id == change.clipID } ?? chosen.first { $0.id == change.clipID }
+            guard let clip, clip.tags.contains(tag) != plan.add else { continue }
+            do { adopt(try await DashcamTagStore.shared.set(DashcamTagging.toggled(clip.tags, tag), on: clip)) }
+            catch { failed += 1 }
+        }
+        selecting = false
+        selected = []
+        return failed == 0 ? nil : "\(failed) clip\(failed == 1 ? "" : "s") couldn't be tagged. Try again."
     }
 
     /// Clips grouped by local day, newest first: "Today", "Yesterday", then the date.

@@ -396,8 +396,9 @@ class DashcamStore:
         return best[1] if best else None
 
     def set_clip_tags(self, clip_id: str, tag_ids) -> tuple[list[dict] | None, str | None]:
-        """Sets the clip's tags, and the same on the other camera's clip of that moment, so both views of
-        an accident carry it. Tags keep the list's order, once each. Returns the clips set, this one first."""
+        """Sets the clip's tags, and makes the same change on the other camera's clip of that moment, so both
+        views of an accident carry it — what was added goes on, what was taken off comes off, and a tag only
+        the other clip has stays. Tags keep the list's order, once each. Returns both clips, this one first."""
         if not isinstance(tag_ids, list) or not all(isinstance(t, str) for t in tag_ids):
             return None, "tags must be a list of tag ids"
         with _LOCK:
@@ -408,12 +409,18 @@ class DashcamStore:
             clip = self.get_clip(clip_id)
             if clip is None:
                 return None, "clip not found"
-            wanted = [t for t in order if t in set(tag_ids)]
+            wanted = set(tag_ids)
+            had = set(clip.get("tags") or [])
+            added, removed = wanted - had, had - wanted
+            clip["tags"] = [t for t in order if t in wanted]
+            self._save_clip(clip)
+            changed = [clip]
             partner = self.partner_of(clip)
-            changed = [clip] + ([partner] if partner else [])
-            for c in changed:
-                c["tags"] = list(wanted)
-                self._save_clip(c)
+            if partner is not None:
+                theirs = (set(partner.get("tags") or []) | added) - removed
+                partner["tags"] = [t for t in order if t in theirs]
+                self._save_clip(partner)
+                changed.append(partner)
         return changed, None
 
     # ── clips ────────────────────────────────────────────────────────────────

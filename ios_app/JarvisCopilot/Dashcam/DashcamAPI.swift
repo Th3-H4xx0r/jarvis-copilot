@@ -59,6 +59,8 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var driveID: String?
     /// The server's own verdict (every enabled destination has it); preferred over recomputing.
     var serverUploaded: Bool?
+    /// Tags he put on it (ids, in the tag list's order).
+    var tags: [String] = []
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
@@ -88,6 +90,7 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
         destinations = dests
         driveID = str(json["drive_id"])
         serverUploaded = json["uploaded"].map(bool)
+        tags = (json["tags"] as? [Any] ?? []).compactMap { $0 as? String }
     }
 
     var end: Date { start.addingTimeInterval(durationS) }
@@ -270,6 +273,7 @@ struct DashcamAPI: Sendable {
         var drive: String?
         var from: Date?
         var to: Date?
+        var tag: String?
     }
 
     func clips(_ filter: ClipFilter = ClipFilter(), cursor: String? = nil, limit: Int = 100) async throws -> (clips: [DashcamServerClip], next: String?) {
@@ -280,6 +284,7 @@ struct DashcamAPI: Sendable {
         if let d = filter.drive { q["drive"] = d }
         if let f = filter.from { q["from"] = f.dashcamISO }
         if let t = filter.to { q["to"] = t.dashcamISO }
+        if let tag = filter.tag { q["tag"] = tag }
         if let cursor { q["cursor"] = cursor }
         let o = try await api.get(Self.prefix + "/clips", query: q).object()
         return ((o["clips"] as? [[String: Any]] ?? []).compactMap(DashcamServerClip.init(json:)), str(o["next"]))
@@ -303,6 +308,29 @@ struct DashcamAPI: Sendable {
     }
 
     func retry(clipID: String) async throws { _ = try await api.post(Self.prefix + "/clips/\(clipID)/retry") }
+
+    // MARK: tags
+
+    /// The presets, then his own.
+    func tags() async throws -> [DashcamTag] {
+        try await api.get(Self.prefix + "/tags").object()["tags"].flatMap { $0 as? [[String: Any]] }?
+            .compactMap(DashcamTag.init(json:)) ?? []
+    }
+
+    /// A tag of his own; a name he already has comes back as that tag.
+    func addTag(_ name: String) async throws -> DashcamTag {
+        let o = try await api.post(Self.prefix + "/tags", json: ["name": name]).object()
+        guard let tag = (o["tag"] as? [String: Any]).flatMap(DashcamTag.init(json:)) else { throw APIError.badResponse("no tag") }
+        return tag
+    }
+
+    func deleteTag(_ id: String) async throws { _ = try await api.post(Self.prefix + "/tags/\(id)/delete") }
+
+    /// Sets the clip's tags; the server sets the same on the other lens's clip of that moment. Both come back.
+    func setTags(clipID: String, _ tags: [String]) async throws -> [DashcamServerClip] {
+        let o = try await api.post(Self.prefix + "/clips/\(clipID)/tags", json: ["tags": tags]).object()
+        return (o["clips"] as? [[String: Any]] ?? []).compactMap(DashcamServerClip.init(json:))
+    }
 
     func drives(from: Date? = nil, to: Date? = nil) async throws -> [DashcamDrive] {
         var q: [String: String] = [:]

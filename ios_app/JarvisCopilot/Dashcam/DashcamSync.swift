@@ -857,13 +857,15 @@ final class DashcamSync: ObservableObject {
         let throttle = DashcamThrottle()
         let keep = rules.keepOnPhone
         let server = self.server
+        let defaults = self.defaults
         uploadRunning = true
         let done = await uploader.run(server: uploadServer, cellular: cellular,
                                       allow: { rules.mayUpload($0, metered: cellular, parked: isParked, charging: onPower) },
                                       previews: onPower,
                                       finished: { id, path in
             // In the cloud: the phone's copy goes at once, not at the next clean-up (which a long run never reached).
-            guard !keep else { return }
+            // A clip he tagged keeps its copy.
+            guard !keep, !DashcamTagged.contains(id, defaults: defaults) else { return }
             try? FileManager.default.removeItem(atPath: path)
             Task { try? await server.setPhone(clipID: id, state: "deleted", error: nil) }
         }) { id, sent, total in
@@ -912,7 +914,7 @@ final class DashcamSync: ObservableObject {
     }
 
     /// Reconciles the phone's copies with the server: deletes those every destination already has
-    /// (unless "keep on phone"), and queues again any the server no longer holds or never got
+    /// (unless "keep on phone", or he tagged the clip), and queues again any the server no longer holds or never got
     /// (its staging was dropped, e.g. the only destination was removed). Never a clip deleted here.
     /// Returns how many clips are on the server but not yet at every destination (worth checking again).
     @discardableResult
@@ -921,6 +923,7 @@ final class DashcamSync: ObservableObject {
         let cameraID = info?.id ?? setup.cameraID
         guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return relaying }
         await uploader.confirm(Set(page.clips.map(\.id)))
+        DashcamTagged.update(page.clips, defaults: defaults)
         let deleted = DashcamTombstones.ids(defaults: defaults)
         var requeued = false
         var count = 0
@@ -930,7 +933,7 @@ final class DashcamSync: ObservableObject {
             let url = storage.localURL(camera: clip.cameraID.isEmpty ? cameraID : clip.cameraID, file: f)
             let local = FileManager.default.fileExists(atPath: url.path)
             if clip.uploaded {
-                guard !rules.keepOnPhone else { continue }
+                guard !rules.keepOnPhone, clip.tags.isEmpty else { continue }     // a clip he tagged stays
                 if local { try? FileManager.default.removeItem(at: url) }
                 try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
             } else if clip.uploadState == "staged" || clip.uploading {

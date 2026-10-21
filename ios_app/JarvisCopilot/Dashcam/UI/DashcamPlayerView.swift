@@ -335,6 +335,7 @@ struct DashcamPlayerView: View {
                 if let error = model.error {
                     CardGroup { CardEmptyBlock(error, symbol: "film") }
                 }
+                DashcamTagsCard(model: model, partner: mode == .both ? second : nil)
                 if model.fixes.count >= 2 { map }
                 details
                 navigation

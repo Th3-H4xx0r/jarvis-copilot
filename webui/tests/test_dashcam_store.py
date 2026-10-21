@@ -1066,3 +1066,24 @@ def test_settings_updates_keep_custom_tags(store):
     store.update_settings({"rules": {"keep_on_phone": True}})
     assert tag in store.tags()
     assert "tags" not in store.get_settings()
+
+
+def test_the_other_lens_gets_the_change_not_a_copy(store):
+    """The rear clip's own tags stay: tagging the front clip adds (or takes off) only what changed."""
+    front, rear = _pair(store)
+    store.set_clip_tags(rear, ["scenic"])
+    store.set_clip_tags(front, ["accident"])            # front had scenic too (from the rear): now only accident
+    assert store.get_clip(front)["tags"] == ["accident"]
+    assert store.get_clip(rear)["tags"] == ["accident"]   # scenic came off with the change, accident went on
+    store.set_clip_tags(rear, ["accident", "bad_driver"])
+    store.set_clip_tags(front, ["accident", "near_miss", "bad_driver"])
+    assert store.get_clip(rear)["tags"] == ["accident", "near_miss", "bad_driver"]
+    # Partner-only tag survives a change on the other side.
+    clips = store.apply_inventory(CAM, [item("f2.MP4", start="2026-10-02T10:00:00Z"),
+                                        item("r2.MP4", lens="rear", start="2026-10-02T10:00:01Z")])
+    f2, r2 = clips[0]["id"], clips[1]["id"]
+    store.get_clip(r2)
+    doc = store.get_clip(r2); doc["tags"] = ["scenic"]; store._save_clip(doc)   # only the rear has it
+    store.set_clip_tags(f2, ["accident"])
+    assert store.get_clip(f2)["tags"] == ["accident"]
+    assert store.get_clip(r2)["tags"] == ["accident", "scenic"]

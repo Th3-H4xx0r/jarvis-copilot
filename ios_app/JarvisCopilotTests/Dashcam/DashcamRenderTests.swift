@@ -97,4 +97,27 @@ final class DashcamRenderTests: XCTestCase {
                                 size: CGSize(width: 393, height: 200), name: "dashcam_share_fullscreen")
         XCTAssertEqual(flow.note, "This clip isn't on the phone or uploaded anywhere.")
     }
+
+    /// Tags: chips on clip rows, the clip page's Tags card (two on), and the filter row with #tags.
+    func testRenderTags() throws {
+        let tagged = clip("t", kind: "event", lens: "rear", minutesAgo: 20,
+                          extra: ["tags": ["accident", "bad_driver", "scenic", "near_miss"], "phone": ["state": "local"]])
+        let one = clip("o", kind: "normal", minutesAgo: 35, extra: ["tags": ["scenic"]])
+        let model = DashcamPlayerModel(clip: clip("p", kind: "normal", minutesAgo: 10, extra: ["tags": ["accident", "near_miss"]]))
+        let view = ScrollView {
+            VStack(spacing: 14) {
+                CardGroup("Today") {
+                    Row(minHeight: 64) { DashcamClipRow(clip: tagged, uploadingID: nil) }
+                    RowDivider()
+                    Row(minHeight: 64) { DashcamClipRow(clip: one, uploadingID: nil) }
+                }
+                DashcamTagsCard(model: model)
+            }
+            .padding(.vertical, 12)
+        }
+        try RenderHarness.write(view, size: CGSize(width: 393, height: 520), name: "dashcam_tags")
+        DashcamLibraryModel.shared.tag = "accident"
+        try RenderHarness.write(ScrollView { DashcamLibraryView() }, size: CGSize(width: 393, height: 260), name: "dashcam_tag_filter")
+        DashcamLibraryModel.shared.tag = nil
+    }
 }
