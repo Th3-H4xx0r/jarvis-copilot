@@ -532,6 +532,13 @@ def main() -> None:
     except Exception as exc:
         print(f"[live] orphan audio sweep could not start: {exc}", flush=True)
 
+    # ── iMessage memory: quiet conversation bursts → long-term memory ────
+    try:
+        from api.imessage_memory_writer import start_closer as _start_imessage_closer
+        _start_imessage_closer()
+    except Exception as exc:
+        print(f"[imessage-memory] closer could not start: {exc}", flush=True)
+
     # Fold any per-wearable health space into the shared Jarvis Health one.
     # Idempotent and best-effort: the runner retries on its next tick.
     try:

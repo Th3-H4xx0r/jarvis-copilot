@@ -3738,6 +3738,13 @@ def handle_get(handler, parsed) -> bool:
         if _health_get(handler, parsed):
             return True
 
+    if parsed.path.startswith("/api/imessage-memory"):
+        # iMessage memory: his card on the Integrations page, and the Mac's config.
+        from api.imessage_memory_routes import handle_get as _imessage_memory_get
+
+        if _imessage_memory_get(handler, parsed):
+            return True
+
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         # The Integrations page (web + phone): what exists, what it holds, what it runs.
         from api.integrations_routes import handle_get as _integrations_get
@@ -6613,6 +6620,12 @@ def handle_post(handler, parsed) -> bool:
         from api.health_routes import handle_post as _health_post
 
         if _health_post(handler, parsed, body):
+            return True
+
+    if parsed.path.startswith("/api/imessage-memory"):
+        from api.imessage_memory_routes import handle_post as _imessage_memory_post
+
+        if _imessage_memory_post(handler, parsed, body):
             return True
 
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
