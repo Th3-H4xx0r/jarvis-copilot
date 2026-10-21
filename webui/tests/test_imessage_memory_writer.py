@@ -1,0 +1,170 @@
+"""iMessage bursts → transcript + fact memories."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import api.imessage_memory_writer as w  # noqa: E402
+from api.imessage_memory import GAP_SECONDS, Burst, IMStore  # noqa: E402
+
+LA = ZoneInfo("America/Los_Angeles")
+T0 = 1_760_918_520.0  # Sun 19 Oct 2025 17:02 PDT
+SAM = {"handle": "+15105550000", "label": "Sam Lee"}
+
+
+class FakeMemory:
+    def __init__(self):
+        self.saved = []
+        self.forgot = []
+
+    def remember(self, body, **kw):
+        self.saved.append({"body": body, **kw})
+        return "id"
+
+    def forget(self, **kw):
+        self.forgot.append(kw)
+        return 3
+
+
+@pytest.fixture()
+def st(tmp_path, monkeypatch):
+    s = IMStore(tmp_path / "im.db")
+    s.update_settings(enabled=True, agent={"model": "claude-haiku-5-5", "provider": "anthropic"})
+    s.upsert_chats([{"guid": "one", "name": "Sam Lee", "is_group": False, "participants": [SAM]}])
+    monkeypatch.setattr(w, "_zone", lambda: LA)
+    return s
+
+
+def _rows(*items):
+    return [{"rowid": i, "ts": T0 + off, "sender": "Me" if me else "Sam Lee", "handle": "",
+             "is_from_me": me, "text": text, "job_id": None}
+            for i, (off, me, text) in enumerate(items, start=1)]
+
+
+def _ingest(st, *items):
+    st.ingest([{"guid": "one", **r} for r in _rows(*items)])
+
+
+def _reply(summary="Sam shared his address.", facts=("Sam Lee's address is 12 Oak St, Oakland",)):
+    return lambda ref, prompt: "Sure:\n```json\n" + json.dumps({"summary": summary, "facts": list(facts)}) + "\n```"
+
+
+def test_transcript_header_and_lines_in_local_zone():
+    burst = Burst("one", _rows((0, False, "my address is 12 Oak St"), (60, True, "thanks!")))
+    (body, when), = w.transcript_memories(burst, {"participants": [SAM]}, LA, "Sam shared his address.")
+    lines = body.split("\n")
+    assert lines[0].startswith("iMessage with Sam Lee (+15105550000) — Sun 19 Oct 2025, 17:02–17:03 P")
+    assert lines[1] == "Participants: Me, Sam Lee"
+    assert lines[2] == "Summary: Sam shared his address."
+    assert lines[3:] == ["[17:02] Sam Lee: my address is 12 Oak St", "[17:03] Me: thanks!"]
+    assert when == T0
+
+
+def test_transcript_splits_at_1500_repeating_header():
+    burst = Burst("one", _rows(*[(i * 10, i % 2 == 0, "x" * 200) for i in range(20)]))
+    parts = w.transcript_memories(burst, {"participants": [SAM]}, LA)
+    assert len(parts) > 1
+    assert all(len(body) <= w.MEMORY_CHUNK_CHARS for body, _ in parts)
+    assert all(body.startswith("iMessage with Sam Lee") for body, _ in parts)
+    assert sum(body.count("x" * 200) for body, _ in parts) == 20
+
+
+def test_group_header_names_the_group():
+    burst = Burst("grp", _rows((0, False, "hi all")))
+    (body, _), = w.transcript_memories(burst, {"name": "Family", "is_group": True,
+                                               "participants": [SAM]}, LA)
+    assert body.startswith("iMessage with the group “Family” —")
+
+
+def test_parse_extraction_tolerates_prose_and_caps_8():
+    facts = [f"Fact number {i} is worth keeping" for i in range(12)] + ["too short", "Your verification code is 1234"]
+    summary, got = w.parse_extraction("Here you go: " + json.dumps({"summary": "S", "facts": facts}) + " done")
+    assert summary == "S" and len(got) == 8 and all("code" not in f for f in got)
+    with pytest.raises(ValueError):
+        w.parse_extraction("no json here")
+
+
+def test_facts_stamped_with_person_and_date(st):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"), (60, True, "got it"))
+    mem = FakeMemory()
+    assert w.close_once(st, T0 + 60 + GAP_SECONDS, memory=mem, complete=_reply()) == 1
+    convo = [m for m in mem.saved if m["tags"] == "imessage,conversation"]
+    facts = [m for m in mem.saved if m["tags"] == "imessage,fact"]
+    assert convo[0]["source"] == "imessage:one:1-2" and convo[0]["dedup"] is False
+    assert "Summary: Sam shared his address." in convo[0]["body"]
+    assert facts[0]["body"] == ("Sam Lee's address is 12 Oak St, Oakland (from an iMessage chat with "
+                                "Sam Lee on Sun 19 Oct 2025 17:02 PDT)")
+    assert facts[0]["source"] == "imessage:one:fact:1-2"
+    assert st.totals() == {"bursts": 1, "pending": 0}
+
+
+def test_burst_stored_without_facts_when_extraction_fails(st):
+    _ingest(st, (0, False, "hello"))
+
+    def boom(ref, prompt):
+        raise RuntimeError("provider down")
+
+    mem = FakeMemory()
+    assert w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=boom) == 1
+    assert [m["tags"] for m in mem.saved] == ["imessage,conversation"]
+    assert "Summary:" not in mem.saved[0]["body"]
+
+
+def test_closer_discards_bursts_for_unticked_chat(st):
+    _ingest(st, (0, False, "hello"))
+    st.set_pick("one", False)
+    mem = FakeMemory()
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert mem.saved == [] and st.totals() == {"bursts": 0, "pending": 0}
+
+
+def test_closer_waits_when_memory_inactive(st, monkeypatch):
+    _ingest(st, (0, False, "hello"))
+    monkeypatch.setattr(w, "memory_writer", lambda: None)
+    assert w.close_once(st, T0 + GAP_SECONDS) == 0
+    assert st.totals()["pending"] == 1
+
+
+def test_resolve_model_choice_model_harness_default(monkeypatch):
+    monkeypatch.setattr(w, "_default_model", lambda: "@ollama-cloud:gpt-oss")
+    assert w.resolve_extraction_model({"model": "claude-haiku-5-5", "provider": "anthropic"}) == \
+        ("@anthropic:claude-haiku-5-5", "model @anthropic:claude-haiku-5-5")
+    monkeypatch.setattr(w, "_harness_model",
+                        lambda hid: ("@anthropic:claude-sonnet-5-5", "harness Main → x") if hid == "main" else None)
+    assert w.resolve_extraction_model({"harness_id": "main"})[0] == "@anthropic:claude-sonnet-5-5"
+    # A missing harness falls back to the default model.
+    assert w.resolve_extraction_model({"harness_id": "gone"})[0] == "@ollama-cloud:gpt-oss"
+
+    class FakeStore:
+        def effective(self, surface):
+            return "main"
+
+    import api.harness_store as hs
+    monkeypatch.setattr(hs, "store_for_request", lambda: FakeStore())
+    ref, label = w.resolve_extraction_model(None)
+    assert ref == "@anthropic:claude-sonnet-5-5" and label.startswith("Default → harness")
+
+
+def test_extract_slices_long_transcripts():
+    calls = []
+
+    def complete(ref, prompt):
+        calls.append(prompt)
+        return json.dumps({"summary": f"part {len(calls)}", "facts": [f"Fact {len(calls)} is a real fact"]})
+
+    transcript = "\n".join("y" * 1000 for _ in range(30))
+    summary, facts = w.extract(transcript, "@x:y", complete)
+    assert len(calls) == 3 and summary == "part 1 part 2 part 3" and len(facts) == 3
+
+
+def test_forget_chat_memories(st):
+    mem = FakeMemory()
+    assert w.forget_chat_memories("one", st=st, memory=mem) == 3
+    assert mem.forgot == [{"source_prefix": "imessage:one:"}]
