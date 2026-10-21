@@ -177,3 +177,49 @@ def test_push_refresh_falls_back_to_the_connected_mac(tmp_path, monkeypatch):
     # The Mac's own id no longer overwrites a reachable one.
     routes._seen(s, {"device_id": "creds-id"})
     assert s.settings()["mac_device_id"] == "bridge-id"
+
+
+def test_settings_toggles_and_card_fields(st, sent):
+    _post("/api/imessage-memory/settings", {"ask_facts": False, "push_facts": False})
+    card = sent["body"]
+    assert card["ask_facts"] is False and card["push_facts"] is False
+    assert card["pending_facts"] == 0 and "mac_connected" in card
+
+
+def test_facts_list_and_decide(st, sent, monkeypatch):
+    st.update_settings(enabled=True)
+    _upload_chats(st)
+    st.ingest([{"guid": "one", "rowid": 1, "ts": 100.0, "sender": "Sam Lee", "handle": "+15105550000",
+                "is_from_me": False, "text": "hi"}])
+    (burst,) = st.open_bursts(100.0 + 1800)
+    st.add_fact_cards(burst, "Sam Lee", [("Fact one is here", "Fact one is here (s)")], "imessage:one:fact:1-1:f")
+    routes.handle_get(None, urlparse("/api/imessage-memory/facts"))
+    (card,) = sent["body"]["facts"]
+    _post("/api/imessage-memory/facts/decide", {"ids": [card["id"]]})
+    assert sent["status"] == 400                                  # store missing
+    _post("/api/imessage-memory/facts/decide", {"burst": "one|1", "store": False})
+    assert sent["body"] == {"ok": True, "decided": 1}
+
+
+def test_preview_roundtrip(st, sent, monkeypatch):
+    import threading as _t
+
+    def fake_send(store, frame):
+        assert frame["op"] == "preview" and frame["guid"] == "one"
+        _t.Timer(0.05, lambda: routes.deliver_preview(frame["request_id"], {
+            "messages": [{"ts": 1.0, "sender": "Sam Lee", "is_from_me": False, "text": "hi"}]})).start()
+        return True
+
+    monkeypatch.setattr(routes, "_send_to_mac", fake_send)
+    routes.handle_get(None, urlparse("/api/imessage-memory/preview?guid=one"))
+    assert sent["body"]["messages"][0]["text"] == "hi"
+
+
+def test_preview_times_out(st, sent, monkeypatch):
+    monkeypatch.setattr(routes, "_send_to_mac", lambda store, frame: True)
+    monkeypatch.setattr(routes, "PREVIEW_TIMEOUT", 0.1)
+    routes.handle_get(None, urlparse("/api/imessage-memory/preview?guid=one"))
+    assert sent["status"] == 504 and "awake" in sent["body"]["error"]
+    monkeypatch.setattr(routes, "_send_to_mac", lambda store, frame: False)
+    routes.handle_get(None, urlparse("/api/imessage-memory/preview?guid=one"))
+    assert sent["status"] == 504 and "isn't connected" in sent["body"]["error"]

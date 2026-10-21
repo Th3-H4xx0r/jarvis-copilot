@@ -59,6 +59,21 @@ CREATE TABLE IF NOT EXISTS bursts (
     created_at  REAL NOT NULL,
     PRIMARY KEY (guid, first_rowid)
 );
+CREATE TABLE IF NOT EXISTS fact_cards (
+    id          TEXT PRIMARY KEY,
+    guid        TEXT NOT NULL,
+    first_rowid INTEGER NOT NULL,
+    last_rowid  INTEGER NOT NULL,
+    chat_name   TEXT NOT NULL DEFAULT '',
+    fact        TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    at          REAL NOT NULL,
+    created_at  REAL NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    decided_at  REAL
+);
+CREATE INDEX IF NOT EXISTS ix_fact_cards_status ON fact_cards(status, created_at);
 CREATE TABLE IF NOT EXISTS jobs (
     id         TEXT PRIMARY KEY,
     start      REAL NOT NULL,
@@ -75,7 +90,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 """
 
 _DEFAULT_SETTINGS = {"enabled": False, "enabled_at": None, "agent": None, "skip": [],
-                     "mac_device_id": "", "mac_seen_at": None}
+                     "mac_device_id": "", "mac_seen_at": None,
+                     # Facts from new conversations wait as Store/Skip cards; pushes
+                     # announce them on the lock screen. Both his switches.
+                     "ask_facts": True, "push_facts": True}
+FACT_CARD_TTL = 86400  # an unanswered card is stored after a day
 # A backfill the Mac stopped answering: running but silent this long, or never
 # started this long after he asked, fails so it can't block the next one.
 STALE_RUNNING_SECONDS = 1800
@@ -359,9 +378,84 @@ class IMStore:
 
     def forget_chat(self, guid: str) -> None:
         with self._db() as db:
+            db.execute("DELETE FROM fact_cards WHERE guid=?", (guid,))
             db.execute("DELETE FROM bursts WHERE guid=?", (guid,))
             db.execute("DELETE FROM pending WHERE guid=?", (guid,))
             db.execute("UPDATE chats SET remembered=0 WHERE guid=?", (guid,))
+
+    # ── fact cards ───────────────────────────────────────────────────────
+    def add_fact_cards(self, burst: Burst, chat_name: str, facts: list, source: str) -> list:
+        """One pending Store/Skip card per ``(fact, body)``; ``body`` is what
+        gets remembered (the fact with its who/when stamp)."""
+        now = time.time()
+        rows = [(uuid.uuid4().hex[:16], burst.guid, burst.first_rowid, burst.last_rowid,
+                 chat_name[:120], fact, body, source, burst.start, now) for fact, body in facts]
+        with self._db() as db:
+            db.executemany("INSERT INTO fact_cards(id, guid, first_rowid, last_rowid, chat_name, fact, body, "
+                           "source, at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        return [_card_dict(r) for r in rows]
+
+    def pending_facts(self, limit: int = 50) -> list:
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM fact_cards WHERE status='pending' "
+                              "ORDER BY created_at DESC, rowid LIMIT ?", (limit,)).fetchall()
+        return [_card_out(r) for r in rows]
+
+    def pending_count(self) -> int:
+        with self._db() as db:
+            return db.execute("SELECT COUNT(*) FROM fact_cards WHERE status='pending'").fetchone()[0]
+
+    def take_cards(self, ids=None, burst: Optional[str] = None) -> list:
+        """Claim pending cards for a decision: flips them to ``deciding`` in one
+        transaction, so the app and a lock-screen action pressed together can't
+        both store the same fact. ``burst`` is ``"<guid>|<first_rowid>"``."""
+        where, args = [], []
+        if ids:
+            where.append(f"id IN ({','.join('?' * len(ids))})")
+            args += list(ids)
+        if burst:
+            guid, _, first = str(burst).rpartition("|")
+            try:
+                args += [guid, int(first)]
+            except ValueError:
+                return []
+            where.append("(guid=? AND first_rowid=?)")
+        if not where:
+            return []
+        cond = " OR ".join(where)
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(f"SELECT * FROM fact_cards WHERE status='pending' AND ({cond})", args).fetchall()
+            db.executemany("UPDATE fact_cards SET status='deciding' WHERE id=? AND status='pending'",
+                           [(r["id"],) for r in rows])
+        return [dict(r) for r in rows]
+
+    def expired_cards(self, now: float) -> list:
+        """Pending cards past FACT_CARD_TTL, claimed (``deciding``) for auto-store."""
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute("SELECT * FROM fact_cards WHERE status='pending' AND created_at < ?",
+                              (now - FACT_CARD_TTL,)).fetchall()
+            db.executemany("UPDATE fact_cards SET status='deciding' WHERE id=?", [(r["id"],) for r in rows])
+        return [dict(r) for r in rows]
+
+    def finish_cards(self, ids: list, status: str) -> None:
+        with self._db() as db:
+            db.executemany("UPDATE fact_cards SET status=?, decided_at=? WHERE id=? AND status='deciding'",
+                           [(status, time.time(), i) for i in ids])
+
+    def release_cards(self, ids: list) -> None:
+        """Put claimed cards back (a memory write failed)."""
+        with self._db() as db:
+            db.executemany("UPDATE fact_cards SET status='pending' WHERE id=? AND status='deciding'",
+                           [(i,) for i in ids])
+
+    def delete_cards(self, guid: str, first_rowid: Optional[int] = None) -> None:
+        with self._db() as db:
+            if first_rowid is None:
+                db.execute("DELETE FROM fact_cards WHERE guid=?", (guid,))
+            else:
+                db.execute("DELETE FROM fact_cards WHERE guid=? AND first_rowid=?", (guid, first_rowid))
 
     def totals(self) -> dict:
         with self._db() as db:
@@ -447,6 +541,18 @@ def _chat_dict(row) -> dict:
     d["is_group"] = bool(d.get("is_group"))
     d["pick"] = None if d.get("pick") is None else bool(d["pick"])
     return d
+
+
+def _card_dict(row: tuple) -> dict:
+    keys = ("id", "guid", "first_rowid", "last_rowid", "chat_name", "fact", "body", "source", "at", "created_at")
+    return dict(zip(keys, row))
+
+
+def _card_out(row) -> dict:
+    """What the phone shows: no stamped body, plus when it auto-stores."""
+    return {"id": row["id"], "guid": row["guid"], "chat_name": row["chat_name"], "fact": row["fact"],
+            "at": row["at"], "expires_at": row["created_at"] + FACT_CARD_TTL,
+            "burst": f"{row['guid']}|{row['first_rowid']}"}
 
 
 def _job_dict(row) -> dict:

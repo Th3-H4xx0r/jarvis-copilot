@@ -157,3 +157,56 @@ def test_switching_on_stamps_enabled_at(st, tmp_path):
     first = fresh.settings()["enabled_at"]
     fresh.update_settings(enabled=True)                                 # already on: unchanged
     assert first and fresh.settings()["enabled_at"] == first
+
+
+# ── fact cards ───────────────────────────────────────────────────────────
+def _carded(st):
+    st.ingest([_msg("one", 1, T0)])
+    (burst,) = st.open_bursts(T0 + GAP_SECONDS)
+    st.add_fact_cards(burst, "Sam Lee", [("Sam's address is 12 Oak St", "Sam's address is 12 Oak St (stamp)"),
+                                          ("Sam likes tacos al pastor", "Sam likes tacos al pastor (stamp)")],
+                      "imessage:one:fact:1-1:f")
+    return burst
+
+
+def test_settings_defaults_ask_and_push_on(st):
+    assert st.settings()["ask_facts"] is True and st.settings()["push_facts"] is True
+
+
+def test_cards_roundtrip(st):
+    _carded(st)
+    cards = st.pending_facts()
+    assert [c["fact"] for c in cards] == ["Sam's address is 12 Oak St", "Sam likes tacos al pastor"]
+    assert cards[0]["chat_name"] == "Sam Lee" and cards[0]["burst"] == "one|1"
+    assert cards[0]["expires_at"] - cards[0]["at"] > 0 and "body" not in cards[0]
+    assert st.pending_count() == 2
+
+
+def test_decide_is_idempotent(st):
+    _carded(st)
+    first = st.take_cards(burst="one|1")
+    assert len(first) == 2 and first[0]["body"].endswith("(stamp)")
+    assert st.take_cards(burst="one|1") == []            # the other tap gets nothing
+    st.finish_cards([c["id"] for c in first], "stored")
+    assert st.pending_count() == 0
+
+
+def test_forget_deletes_cards(st):
+    _carded(st)
+    st.forget_chat("one")
+    assert st.pending_facts() == [] and st.take_cards(burst="one|1") == []
+
+
+def test_expired_cards(st):
+    _carded(st)
+    import time as _time
+    assert st.expired_cards(_time.time()) == []
+    assert len(st.expired_cards(_time.time() + 86400 + 5)) == 2
+    assert st.pending_count() == 0                       # claimed for auto-store
+
+
+def test_released_cards_return_to_pending(st):
+    _carded(st)
+    ids = [c["id"] for c in st.take_cards(burst="one|1")]
+    st.release_cards(ids)
+    assert st.pending_count() == 2

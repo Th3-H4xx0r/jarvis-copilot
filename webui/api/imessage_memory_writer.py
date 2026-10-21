@@ -301,17 +301,100 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
             st.drop_burst_record(burst.guid, burst.first_rowid)
             logger.warning("imessage memory: memory refused %s; will retry", base)
             return "failed"
+    carded = []
     if facts:
         begin = datetime.fromtimestamp(burst.start, zone)
         stamp = (f"(from an iMessage chat with {_with_whom(burst, chat)} on {begin:%a} {begin.day} "
                  f"{begin:%b %Y} {begin:%H:%M} {begin:%Z})")
-        for fact in facts:
-            memory.remember(f"{fact} {stamp}", source=f"{fact_source}f",
-                            tags="imessage,fact", created_at=burst.start)
+        # A new conversation's facts wait for his Store/Skip (cards on the phone);
+        # a backfill's are saved directly — hundreds of cards would bury him.
+        if settings.get("ask_facts", True) and not burst.job_ids:
+            carded = st.add_fact_cards(burst, _with_whom(burst, chat),
+                                       [(fact, f"{fact} {stamp}") for fact in facts], f"{fact_source}f")
+        else:
+            for fact in facts:
+                memory.remember(f"{fact} {stamp}", source=f"{fact_source}f",
+                                tags="imessage,fact", created_at=burst.start)
     if not st.mark_burst(burst, status):
         _take_back(memory, burst)  # Forget landed while this was written
+        st.delete_cards(burst.guid, burst.first_rowid)
         return "discarded"
+    if carded and settings.get("push_facts", True):
+        push_facts(burst, chat, [c["fact"] for c in carded])
     return status
+
+
+# ── fact cards ───────────────────────────────────────────────────────────
+FACTS_CATEGORY = "IMESSAGE_FACTS"
+
+
+def push_facts(burst: Burst, chat: dict, facts: List[str]) -> int:
+    """One lock-screen push per conversation — "3 new facts from Sam Lee" —
+    with Store all / Skip all (category IMESSAGE_FACTS) to every paired phone.
+    Returns how many phones it reached; never raises."""
+    if not facts:
+        return 0
+    try:
+        from api import push as push_mod
+        from api.pairing import list_devices
+        devices = list_devices()
+    except Exception:
+        logger.debug("imessage memory: push unavailable", exc_info=True)
+        return 0
+    who = _with_whom(burst, chat)
+    n = len(facts)
+    title = f"{n} new fact{'s' if n != 1 else ''} from {who}"
+    body = facts[0] if n == 1 else f"{facts[0]} — and {n - 1} more"
+    data = {"type": "imessage_facts", "burst": f"{burst.guid}|{burst.first_rowid}"}
+    sent = 0
+    for d in devices:
+        try:
+            token = (d.get("push_token") or "").strip()
+            if not token or (d.get("push_kind") or "").strip().lower() != "apns":
+                continue
+            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
+                continue
+            res = push_mod.send("apns", token, data,
+                                alert={"title": title[:120], "body": body[:240], "category": FACTS_CATEGORY})
+            if res.get("ok"):
+                sent += 1
+        except Exception:
+            logger.debug("imessage memory: fact push failed", exc_info=True)
+    return sent
+
+
+def _store_cards(st: IMStore, cards: list, memory, status: str) -> int:
+    """Remember claimed cards. remember() returning None means a near-duplicate
+    is already held (its own failures are logged there), so every card counts."""
+    for card in cards:
+        memory.remember(card["body"], source=card["source"], tags="imessage,fact", created_at=card["at"])
+    st.finish_cards([c["id"] for c in cards], status)
+    return len(cards)
+
+
+def decide_facts(st: Optional[IMStore] = None, *, ids=None, burst: Optional[str] = None,
+                 store: bool, memory=None) -> int:
+    """His Store / Skip on cards (by id, or every card of one conversation —
+    the push's Store all). Each card is decided once even if the app and the
+    lock screen answer together. Returns how many were decided."""
+    st = st or default_store()
+    if store:
+        memory = memory if memory is not None else memory_writer()
+        if memory is None:
+            raise RuntimeError("long-term memory isn't active")
+    cards = st.take_cards(ids=ids, burst=burst)
+    if not cards:
+        return 0
+    if not store:
+        st.finish_cards([c["id"] for c in cards], "skipped")
+        return len(cards)
+    return _store_cards(st, cards, memory, "stored")
+
+
+def auto_store(st: IMStore, now: float, memory) -> int:
+    """Cards nobody answered in a day are stored, as he chose."""
+    cards = st.expired_cards(now)
+    return _store_cards(st, cards, memory, "auto") if cards else 0
 
 
 def close_once(st: Optional[IMStore] = None, now: Optional[float] = None, *, memory=None,
@@ -324,6 +407,10 @@ def close_once(st: Optional[IMStore] = None, now: Optional[float] = None, *, mem
         return 0
     now = now if now is not None else time.time()
     st.expire_jobs(now)
+    try:
+        auto_store(st, now, memory)
+    except Exception:
+        logger.exception("imessage memory: auto-storing fact cards failed")
     handled = 0
     for burst in st.open_bursts(now)[:BURSTS_PER_TICK]:
         try:

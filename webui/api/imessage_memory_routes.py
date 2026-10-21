@@ -9,7 +9,9 @@ only tells it to fetch its config again.
 from __future__ import annotations
 
 import logging
+import threading
 import time
+import uuid
 
 from api.imessage_memory import IMStore, normalize_handle, store
 
@@ -65,6 +67,9 @@ def card(st: IMStore) -> dict:
             "agent": settings.get("agent"), "runs_on": runs_on,
             "mac_seen_at": settings.get("mac_seen_at"),
             "mac_connected": bool(_connected_macs()),
+            "ask_facts": bool(settings.get("ask_facts", True)),
+            "push_facts": bool(settings.get("push_facts", True)),
+            "pending_facts": st.pending_count(),
             "chats": chats, "skip": settings.get("skip") or [],
             "jobs": st.jobs(10), "active_job": st.active_job(),
             "totals": {"memories": _memory_count(), **st.totals()}}
@@ -100,11 +105,16 @@ def push_refresh(st: IMStore) -> bool:
     The id the Mac reports about itself (its credentials) is not always the id
     its bridge connection is registered under, so when that one isn't
     connected the nudge goes to the connected desktop, whose id is remembered."""
+    return _send_to_mac(st, {"type": "imessage_memory"})
+
+
+def _send_to_mac(st: IMStore, frame: dict) -> bool:
+    """Send a frame to the Mac: the id last known to reach it, else whichever
+    desktop is connected (remembered). False when no Mac is connected."""
     try:
         from api.device_bridge import send_frame
     except Exception:
         return False
-    frame = {"type": "imessage_memory"}
     known = st.settings().get("mac_device_id") or ""
     if known and send_frame(known, frame):
         return True
@@ -164,7 +174,57 @@ def handle_get(handler, parsed) -> bool:
         from urllib.parse import parse_qs
         _seen(st, {"device_id": (parse_qs(parsed.query).get("device_id") or [""])[0]})
         return _j(handler, mac_config(st))
+    if parsed.path == PREFIX + "/facts":
+        return _j(handler, {"facts": store().pending_facts()})
+    if parsed.path == PREFIX + "/preview":
+        from urllib.parse import parse_qs
+        guid = (parse_qs(parsed.query).get("guid") or [""])[0].strip()
+        if not guid:
+            return _bad(handler, "guid is required")
+        result = request_preview(store(), guid)
+        if "error" in result:
+            return _bad(handler, result["error"], 504)
+        return _j(handler, result)
     return False
+
+
+# ── previews: asked of the Mac live, never stored ────────────────────────
+PREVIEW_TIMEOUT = 8.0
+_previews: dict = {}
+_previews_lock = threading.Lock()
+
+
+def request_preview(st: IMStore, guid: str, timeout: float = None) -> dict:
+    """The chat's last messages, straight from the Mac: ``{"messages": [...]}``
+    or ``{"error": "..."}``. The request waits here (the webui is thread-per-
+    request) until the Mac posts the answer or the timeout passes."""
+    request_id = uuid.uuid4().hex
+    waiter = {"event": threading.Event(), "result": None}
+    with _previews_lock:
+        _previews[request_id] = waiter
+    try:
+        if not _send_to_mac(st, {"type": "imessage_memory", "op": "preview",
+                                 "request_id": request_id, "guid": guid}):
+            return {"error": "Your Mac isn't connected — open it to see previews."}
+        if not waiter["event"].wait(PREVIEW_TIMEOUT if timeout is None else timeout):
+            return {"error": "Your Mac didn't answer — is it awake?"}
+        result = waiter["result"] or {}
+        if result.get("error"):
+            return {"error": str(result["error"])[:200]}
+        return {"messages": [m for m in result.get("messages") or [] if isinstance(m, dict)][:50]}
+    finally:
+        with _previews_lock:
+            _previews.pop(request_id, None)
+
+
+def deliver_preview(request_id: str, result: dict) -> bool:
+    with _previews_lock:
+        waiter = _previews.get(request_id)
+    if waiter is None:
+        return False  # timed out already
+    waiter["result"] = result
+    waiter["event"].set()
+    return True
 
 
 def handle_post(handler, parsed, body) -> bool:
@@ -184,6 +244,9 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         fields = {}
         if "enabled" in body:
             fields["enabled"] = bool(body["enabled"])
+        for toggle in ("ask_facts", "push_facts"):
+            if toggle in body:
+                fields[toggle] = bool(body[toggle])
         if "agent" in body:
             ok, agent = _valid_agent(body["agent"])
             if not ok:
@@ -244,7 +307,27 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
             push_refresh(st)
         return _j(handler, {"ok": True})
 
+    if tail == "/facts/decide":
+        ids = body.get("ids")
+        burst = str(body.get("burst") or "").strip() or None
+        if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, str) for i in ids)):
+            return _bad(handler, "ids must be a list of card ids")
+        if not ids and not burst:
+            return _bad(handler, "ids or burst is required")
+        if not isinstance(body.get("store"), bool):
+            return _bad(handler, "store (true or false) is required")
+        try:
+            n = _writer().decide_facts(st, ids=ids or None, burst=burst, store=body["store"])
+        except RuntimeError as exc:
+            return _bad(handler, str(exc), 409)
+        return _j(handler, {"ok": True, "decided": n})
+
     # ── the Mac ──────────────────────────────────────────────────────────
+    if tail == "/preview":
+        deliver_preview(str(body.get("request_id") or ""),
+                        {"messages": body.get("messages"), "error": body.get("error")})
+        return _j(handler, {"ok": True})
+
     if tail == "/chats":
         _seen(st, body)
         chats = body.get("chats")

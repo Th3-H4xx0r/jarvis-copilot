@@ -92,6 +92,7 @@ def test_parse_extraction_tolerates_prose_and_caps_8():
 
 
 def test_facts_stamped_with_person_and_date(st):
+    st.update_settings(ask_facts=False)   # saved directly, no Store/Skip card
     _ingest(st, (0, False, "my address is 12 Oak St, Oakland"), (60, True, "got it"))
     mem = FakeMemory()
     assert w.close_once(st, T0 + 60 + GAP_SECONDS, memory=mem, complete=_reply()) == 1
@@ -228,3 +229,107 @@ def test_sources_dont_collide_by_prefix():
     pre_a, _ = w._sources(a)
     assert not f"{pre_a}".startswith("imessage:g:10-1:") and pre_a == "imessage:g:10-10:"
     assert not "imessage:g:10-100:p1".startswith(pre_a)
+
+
+# ── fact cards ───────────────────────────────────────────────────────────
+@pytest.fixture()
+def pushes(monkeypatch):
+    sent = []
+    monkeypatch.setattr(w, "push_facts", lambda burst, chat, facts: sent.append(list(facts)) or 1)
+    return sent
+
+
+def test_live_burst_facts_become_cards(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    mem = FakeMemory()
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert [m["tags"] for m in mem.saved] == ["imessage,conversation"]   # transcript only
+    (card,) = st.pending_facts()
+    assert card["fact"] == "Sam Lee's address is 12 Oak St, Oakland" and card["chat_name"] == "Sam Lee"
+    assert pushes == [["Sam Lee's address is 12 Oak St, Oakland"]]
+
+
+def test_push_off_keeps_cards_without_push(st, pushes):
+    st.update_settings(push_facts=False)
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
+    assert st.pending_count() == 1 and pushes == []
+
+
+def test_ask_off_saves_facts_directly(st, pushes):
+    st.update_settings(ask_facts=False)
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    mem = FakeMemory()
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert "imessage,fact" in [m["tags"] for m in mem.saved]
+    assert st.pending_count() == 0 and pushes == []
+
+
+def test_backfill_facts_skip_cards(st, pushes):
+    job = st.create_job(T0 - 10, T0 + 10)
+    st.ingest([{"guid": "one", **r} for r in _rows((0, False, "my address is 12 Oak St"))], job_id=job["id"])
+    st.update_job(job["id"], status="done")
+    mem = FakeMemory()
+    w.close_once(st, T0 + 20, memory=mem, complete=_reply())
+    assert "imessage,fact" in [m["tags"] for m in mem.saved]
+    assert st.pending_count() == 0 and pushes == []
+
+
+def test_decide_store_and_skip(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply(
+        facts=("Sam Lee's address is 12 Oak St, Oakland", "Sam Lee is moving in March")))
+    a, b = st.pending_facts()
+    mem = FakeMemory()
+    assert w.decide_facts(st, ids=[a["id"]], store=True, memory=mem) == 1
+    assert mem.saved[0]["source"] == "imessage:one:fact:1-1:f"
+    assert mem.saved[0]["body"].startswith(a["fact"] + " (from an iMessage chat with Sam Lee")
+    assert w.decide_facts(st, ids=[b["id"]], store=False, memory=mem) == 1
+    assert len(mem.saved) == 1 and st.pending_count() == 0
+    assert w.decide_facts(st, ids=[a["id"]], store=True, memory=mem) == 0   # already decided
+
+
+def test_store_all_by_burst(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply(
+        facts=("Sam Lee's address is 12 Oak St, Oakland", "Sam Lee is moving in March")))
+    mem = FakeMemory()
+    assert w.decide_facts(st, burst="one|1", store=True, memory=mem) == 2
+
+
+def test_auto_store_after_24h(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
+    mem = FakeMemory()
+    import time as _time
+    w.close_once(st, _time.time() + 86400 + 60, memory=mem)
+    assert [m["tags"] for m in mem.saved] == ["imessage,fact"] and st.pending_count() == 0
+
+
+def test_forget_race_deletes_cards(st, pushes, monkeypatch):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    real_mark = st.mark_burst
+
+    def mark(burst, status):
+        st.forget_chat("one")
+        return real_mark(burst, status)
+
+    monkeypatch.setattr(st, "mark_burst", mark)
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
+    assert st.pending_count() == 0 and pushes == []
+
+
+def test_push_facts_sends_one_alert_to_phones(monkeypatch):
+    import api.pairing as pairing
+    import api.push as push_mod
+    calls = []
+    monkeypatch.setattr(pairing, "list_devices", lambda: [
+        {"push_token": "t1", "push_kind": "apns", "kind": "mobile-ios"},
+        {"push_token": "t2", "push_kind": "apns", "kind": "desktop"}])
+    monkeypatch.setattr(push_mod, "send", lambda kind, token, data, alert=None: calls.append((token, data, alert)) or {"ok": True})
+    burst = Burst("one", _rows((0, False, "x")))
+    assert w.push_facts(burst, {"participants": [SAM]}, ["Fact A is here", "Fact B is here"]) == 1
+    token, data, alert = calls[0]
+    assert token == "t1" and data == {"type": "imessage_facts", "burst": "one|1"}
+    assert alert["title"] == "2 new facts from Sam Lee" and alert["category"] == "IMESSAGE_FACTS"
+    assert alert["body"] == "Fact A is here — and 1 more"
