@@ -32,9 +32,13 @@ struct IntegrationsPage: View {
 struct IntegrationsList: View {
     @State private var store: IntegrationsStore
     @State private var settingUp = false
+    /// The built-in iMessage memory card pinned above the registry integrations; its
+    /// screen shares this store so the card's line is current on the way back.
+    @State private var iMessage: IMessageMemoryStore
 
-    init(store: IntegrationsStore? = nil) {
+    init(store: IntegrationsStore? = nil, iMessage: IMessageMemoryStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { IntegrationsStore() })
+        _iMessage = State(initialValue: iMessage ?? MainActor.assumeIsolated { IMessageMemoryStore() })
     }
 
     var body: some View {
@@ -46,7 +50,11 @@ struct IntegrationsList: View {
             .padding(.top, 8)
             .padding(.bottom, 24)
         }
-        .refreshable { await store.refresh() }
+        .refreshable {
+            async let list: Void = store.refresh()
+            async let pinned: Void = iMessage.refresh()
+            _ = await (list, pinned)
+        }
         .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
         .jcScreen("Integrations")
         .toolbar {
@@ -56,6 +64,9 @@ struct IntegrationsList: View {
         }
         .navigationDestination(for: Integration.self) { integration in
             IntegrationDetailView(integration: integration, store: store)
+        }
+        .navigationDestination(for: IMessageMemoryRoute.self) { _ in
+            IMessageMemoryView(store: iMessage)
         }
         .navigationDestination(for: IntegrationDataRoute.self) { route in
             switch route {
@@ -68,6 +79,7 @@ struct IntegrationsList: View {
             }
         }
         .task { if !store.hasLoaded { store.load() } else { await store.refresh() } }
+        .task { await iMessage.refresh() }
         // Pushed from More now, not a tab: it pauses when it leaves the screen.
         .onDisappear { store.onDisappear() }
         .moreToast($store.toast)
@@ -78,6 +90,12 @@ struct IntegrationsList: View {
 
     @ViewBuilder
     private var content: some View {
+        // Pinned first and shown whatever state the list is in: it isn't a registry
+        // integration, so an empty or failed list says nothing about it.
+        NavigationLink(value: IMessageMemoryRoute()) {
+            IMessageMemoryCardRow(card: iMessage.card, failed: iMessage.errorMessage != nil)
+        }
+        .buttonStyle(.plain)
         if let message = store.errorMessage, store.integrations.isEmpty {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
@@ -103,13 +121,38 @@ struct IntegrationsList: View {
 struct IntegrationCard: View {
     let integration: Integration
 
-    private var accent: Color { integration.isPaused ? JcTheme.muted : JcTheme.accent }
+    private var pill: String? {
+        if integration.isPaused { return "PAUSED" }
+        if integration.scheduleCount > 0, integration.enabledScheduleCount == 0 { return "ALL OFF" }
+        return nil
+    }
+
+    var body: some View {
+        IntegrationCardLayout(symbol: IntegrationIcon.symbol(for: integration.icon),
+                              name: integration.name,
+                              subtitle: integration.subtitle,
+                              dimmed: integration.isPaused,
+                              pill: pill)
+    }
+}
+
+/// The card itself, for any row on the Integrations list — a registry integration or
+/// a built-in one pinned above them (iMessage memory).
+struct IntegrationCardLayout: View {
+    let symbol: String
+    let name: String
+    let subtitle: String
+    /// Off / paused: the icon goes grey and the border quiet.
+    var dimmed: Bool = false
+    var pill: String? = nil
+
+    private var accent: Color { dimmed ? JcTheme.muted : JcTheme.accent }
 
     var body: some View {
         GlassCard(padding: 12,
-                  borderColor: integration.isPaused ? JcTheme.muted.opacity(0.28) : JcTheme.glassBorder) {
+                  borderColor: dimmed ? JcTheme.muted.opacity(0.28) : JcTheme.glassBorder) {
             HStack(spacing: 12) {
-                JcIcon(IntegrationIcon.symbol(for: integration.icon))
+                JcIcon(symbol)
                     .font(.system(size: 19))
                     .foregroundStyle(accent)
                     .frame(width: 38, height: 38)
@@ -117,20 +160,18 @@ struct IntegrationCard: View {
                     .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text(integration.name)
+                        Text(name)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
-                        if integration.isPaused {
-                            StatusPill("PAUSED", color: JcTheme.muted, dense: true)
-                        } else if integration.scheduleCount > 0, integration.enabledScheduleCount == 0 {
-                            StatusPill("ALL OFF", color: JcTheme.muted, dense: true)
+                        if let pill {
+                            StatusPill(pill, color: JcTheme.muted, dense: true)
                         }
                         Spacer(minLength: 0)
                     }
                     // One line for every row, always the same line — the prose
                     // description lives on the detail screen, where it has room.
-                    Text(integration.subtitle)
+                    Text(subtitle)
                         .font(.system(size: 12.5))
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
