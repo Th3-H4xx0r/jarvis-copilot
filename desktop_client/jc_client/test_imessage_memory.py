@@ -313,3 +313,33 @@ def test_chat_list_goes_up_while_off(tmp_path, chatdb):
     _memory(tmp_path, path, server).tick(now=T0 + 10)
     assert [p for p in server.posts if p[0].endswith("/chats")]
     assert not [p for p in server.posts if p[0].endswith("/messages")]
+
+
+def test_read_recent_last_n_oldest_first(chatdb):
+    path, db = chatdb
+    for i in range(1, 26):
+        _add(db, i, 1, f"message {i}", me=i % 2, ts=T0 + i)
+    rows = im.read_recent(sqlite3.connect(path), "iMessage;-;+15105550000", limit=20)
+    assert [r["text"] for r in rows] == [f"message {i}" for i in range(6, 26)]
+    assert rows[-1]["sender"] == "Me" and rows[-2]["sender"] == "Sam Lee"
+    assert set(rows[0]) == {"ts", "sender", "is_from_me", "text"}
+
+
+def test_preview_masks_codes(chatdb):
+    path, db = chatdb
+    _add(db, 1, 1, "Your verification code is 123456.")
+    _add(db, 2, 1, "My address is 4521 Oak St")
+    rows = im.read_recent(sqlite3.connect(path), "iMessage;-;+15105550000")
+    assert [r["text"] for r in rows] == ["[code hidden]", "My address is 4521 Oak St"]
+
+
+def test_handle_frame_preview_posts_result(tmp_path, chatdb):
+    path, db = chatdb
+    _add(db, 1, 1, "hello there")
+    server = FakeServer({"enabled": False})
+    m = _memory(tmp_path, path, server)
+    m.answer_preview({"op": "preview", "request_id": "r1", "guid": "iMessage;-;+15105550000"})
+    (path_, body), = [p for p in server.posts if p[0].endswith("/preview")]
+    assert body["request_id"] == "r1" and body["messages"][0]["text"] == "hello there"
+    m.handle_frame({"type": "imessage_memory"})            # no op: just a refresh
+    assert m._refresh.is_set()

@@ -867,10 +867,10 @@ class Service:
             return
 
         if msg_type == "imessage_memory":
-            # He changed a setting or started a backfill: fetch the config now.
+            # He changed a setting, started a backfill, or opened a chat preview.
             memory = getattr(self, "_imessage_memory", None)
             if memory is not None:
-                memory.refresh()
+                memory.handle_frame(frame)
             return
 
         if msg_type == "topic":

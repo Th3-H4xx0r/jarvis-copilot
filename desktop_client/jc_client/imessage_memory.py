@@ -30,7 +30,8 @@ log = logging.getLogger("jc_client.imessage_memory")
 
 APPLE_EPOCH = 978307200  # 2001-01-01 in unix seconds
 BATCH = 200
-CONFIG_EVERY = 600.0
+CONFIG_EVERY = 120.0  # safety net; a change he makes is pushed at once
+PREVIEW_MESSAGES = 20
 CHATS_EVERY = 3600.0
 CHAT_LIST_DAYS = 365
 CHAT_LIST_MAX = 500
@@ -200,6 +201,38 @@ def read_batch(db, *, after_rowid=None, start=None, end=None, guids=None, limit=
     return out, last_rowid
 
 
+def read_recent(db, guid: str, limit: int = PREVIEW_MESSAGES) -> list:
+    """A chat's last ``limit`` messages, oldest first, for his preview:
+    ``{ts, sender, is_from_me, text}`` with one-time codes hidden. Any chat —
+    a preview is how he decides whether to tick it."""
+    db.row_factory = sqlite3.Row
+    rows = db.execute(_MESSAGE_SQL.format(where="c.guid = ?").replace("ORDER BY m.ROWID", "ORDER BY m.ROWID DESC"),
+                      (guid, int(limit) * 2)).fetchall()
+    out, seen = [], set()
+    for r in rows:
+        if r["rowid"] in seen:
+            continue
+        seen.add(r["rowid"])
+        text = (r["text"] or relay.decode_attributed_body(r["body"]) or "").replace("￼", "").strip()
+        if r["has_att"]:
+            for mime, name in db.execute(
+                    "SELECT a.mime_type, a.transfer_name FROM message_attachment_join maj "
+                    "JOIN attachment a ON a.ROWID = maj.attachment_id WHERE maj.message_id = ?",
+                    (r["rowid"],)).fetchall():
+                text = (text + " " + _attachment_text(mime, name)).strip()
+        if not text:
+            continue
+        if is_code_message(text):
+            text = "[code hidden]"
+        handle = "" if r["is_from_me"] else (r["handle"] or "")
+        out.append({"ts": apple_ts(r["date"]), "is_from_me": bool(r["is_from_me"]), "text": text[:2000],
+                    "sender": "Me" if r["is_from_me"] else (contact_name(handle) or handle or "Unknown")})
+        if len(out) >= limit:
+            break
+    out.reverse()
+    return out
+
+
 def list_chats(db, since_ts: float) -> list:
     """Chats with a message since ``since_ts``, newest first (at most 500)."""
     db.row_factory = sqlite3.Row
@@ -257,6 +290,34 @@ class IMessageMemory:
     # ── lifecycle ────────────────────────────────────────────────────────
     def start(self) -> None:
         threading.Thread(target=self._run, daemon=True, name="imessage-memory").start()
+
+    def handle_frame(self, frame: dict) -> None:
+        """A server frame: ``op: preview`` answers a chat preview (off the
+        receive loop); anything else means "fetch the config now"."""
+        if frame.get("op") == "preview":
+            threading.Thread(target=self.answer_preview, args=(frame,), daemon=True,
+                             name="imessage-preview").start()
+        else:
+            self.refresh()
+
+    def answer_preview(self, frame: dict) -> None:
+        request_id = str(frame.get("request_id") or "")
+        guid = str(frame.get("guid") or "")
+        if not request_id or not guid:
+            return
+        db = self._open()
+        if db is None:
+            self._post("/api/imessage-memory/preview",
+                       {"request_id": request_id, "error": "Jarvis can't read Messages on your Mac "
+                                                           "(Full Disk Access)."})
+            return
+        try:
+            result = {"request_id": request_id, "messages": read_recent(db, guid)}
+        except sqlite3.Error as exc:
+            result = {"request_id": request_id, "error": f"Couldn't read that chat: {exc}"}
+        finally:
+            db.close()
+        self._post("/api/imessage-memory/preview", result)
 
     def refresh(self) -> None:
         """The server changed something: fetch the config on the next wake."""
