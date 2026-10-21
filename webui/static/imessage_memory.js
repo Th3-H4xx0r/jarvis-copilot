@@ -121,7 +121,8 @@ function _immRender() {
     : `<option value="${esc(_immAgentValue(c.agent))}">${esc(c.runs_on || 'Default')}</option>`;
   const warn = !c.memory_active
     ? 'Long-term memory (jarvis_memory) isn’t the active memory, so nothing is saved until it is.'
-    : (!c.mac_seen_at ? 'Your Mac hasn’t checked in yet. Make sure the Jarvis Mac app is running and has Full Disk Access.' : '');
+    : (!c.mac_seen_at ? 'Your Mac hasn’t checked in yet. Make sure the Jarvis Mac app is running and has Full Disk Access.'
+      : (c.mac_connected === false ? 'Your Mac is offline — backfills and previews wait until it’s back.' : ''));
   const q = _immSearch.trim().toLowerCase();
   const chats = (c.chats || []).filter(ch => !q || (ch.name || '').toLowerCase().includes(q)
     || (ch.participants || []).some(p => `${p.label} ${p.handle}`.toLowerCase().includes(q)));
@@ -157,6 +158,16 @@ function _immRender() {
       </section>
 
       <section class="intg-section">
+        <h4 class="intg-section-title">Fact cards${c.pending_facts ? ` <span class="intg-count">${c.pending_facts} waiting</span>` : ''}</h4>
+        <label class="imm-switch"><input type="checkbox" data-imm="ask_facts" ${c.ask_facts !== false ? 'checked' : ''}>
+          <span>Ask before saving facts</span></label>
+        <div class="imm-hint">New conversations’ facts wait as Store / Skip cards on your iPhone’s home screen and
+          save themselves after a day. Off: facts are saved straight away.</div>
+        <label class="imm-switch"><input type="checkbox" data-imm="push_facts" ${c.push_facts !== false ? 'checked' : ''}
+          ${c.ask_facts === false ? 'disabled' : ''}><span>Lock-screen notifications</span></label>
+      </section>
+
+      <section class="intg-section">
         <h4 class="intg-section-title">Model or harness</h4>
         <select class="imm-input" data-imm="agent">${runsOn}</select>
       </section>
@@ -169,7 +180,7 @@ function _immRender() {
           <div class="intg-row">
             <input type="checkbox" data-imm-pick="${esc(ch.guid)}" ${ch.effective ? 'checked' : ''}
               aria-label="Remember ${esc(ch.name)}">
-            <div class="intg-row-main">
+            <div class="intg-row-main imm-open" data-imm-open="${esc(ch.guid)}" title="Preview messages">
               <span class="intg-row-name">${esc(ch.name || ch.guid)}${ch.is_group ? ' <span class="imm-pill">Group</span>' : ''}</span>
               <span class="intg-row-sub">${esc(_immWhen(ch.last_message_at))}${ch.remembered ? ` · ${ch.remembered} remembered` : ''}</span>
             </div>
@@ -198,7 +209,8 @@ function _immRender() {
         ${job ? `
           <div class="intg-row">
             <div class="intg-row-main">
-              <span class="intg-row-name">${esc(job.status === 'pending' ? 'Waiting for your Mac…' : 'Backfilling')} ·
+              <span class="intg-row-name">${esc(job.status === 'pending'
+                ? (c.mac_connected === false ? 'Waiting for your Mac (offline)…' : 'Waiting for your Mac…') : 'Backfilling')} ·
                 ${esc(_immWhen(job.start))} → ${esc(_immWhen(job.end))}</span>
               <span class="intg-row-sub">${job.received} messages received · ${job.stored} conversations saved · ${job.skipped} already remembered</span>
             </div>
@@ -319,6 +331,13 @@ function _immBind(body) {
       else _immChooseChats.delete(box.dataset.immChoose);
     };
   });
+  for (const key of ['ask_facts', 'push_facts']) {
+    const box = q(key);
+    if (box) box.onchange = () => _immUpdate('/settings', { [key]: box.checked });
+  }
+  body.querySelectorAll('[data-imm-open]').forEach(el => {
+    el.onclick = () => _immPreview(el.dataset.immOpen);
+  });
   const run = q('run');
   if (run) run.onclick = async () => {
     const from = new Date(q('from').value).getTime() / 1000;
@@ -340,6 +359,37 @@ function _immBind(body) {
     await _immPost('/backfill/stop', { id: _immCard.active_job.id });
     await _immReload();
   };
+}
+
+// A chat's last messages, asked of the Mac live (nothing is kept on the server),
+// with the chat's tick as the dialog's action.
+async function _immPreview(guid) {
+  const chat = ((_immCard && _immCard.chats) || []).find(ch => ch.guid === guid);
+  if (!chat) return;
+  const time = ts => new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const choice = await _intgModal({
+    title: chat.name || 'Chat',
+    bodyHtml: `<div class="imm-preview"><div class="intg-note">Asking your Mac…</div></div>`,
+    buttons: [{ label: chat.effective ? 'Stop remembering' : 'Remember this chat', value: !chat.effective }],
+    wire: overlay => {
+      const box = overlay.querySelector('.imm-preview');
+      overlay.querySelector('.intg-modal').classList.add('imm-preview-modal');
+      api('/api/imessage-memory/preview?guid=' + encodeURIComponent(guid)).then(res => {
+        const msgs = res.messages || [];
+        box.innerHTML = msgs.length ? msgs.map(m => `
+          <div class="imm-bubble${m.is_from_me ? ' imm-bubble--me' : ''}">
+            ${!m.is_from_me && chat.is_group ? `<div class="imm-bubble-who">${esc(m.sender)}</div>` : ''}
+            <div class="imm-bubble-text">${esc(m.text)}</div>
+            <div class="imm-bubble-time">${esc(time(m.ts))}</div>
+          </div>`).join('') : '<div class="intg-note">No messages in this chat.</div>';
+        box.scrollTop = box.scrollHeight;
+      }).catch(e => {
+        box.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message || 'Couldn’t load the chat.')}</div>`;
+      });
+      return () => true;
+    },
+  });
+  if (choice === true || choice === false) await _immUpdate('/chat', { guid, pick: choice });
 }
 
 async function _immForget(guid, name) {
