@@ -47,6 +47,7 @@ import secrets
 import shutil
 import threading
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,6 +74,7 @@ PRESET_TAGS = (
     {"id": "scenic", "name": "Scenic", "preset": True},
 )
 TAG_NAME_MAX = 32
+TAG_ID_BASE_MAX = 48                   # before a _2 suffix: the routes take ids up to 64
 PARTNER_WINDOW_S = 10                  # front and rear clips of one moment start this close together
 
 CHUNK_SIZE = 16 * 1024 * 1024          # under the edge nginx's 64 MiB body cap
@@ -330,8 +332,9 @@ class DashcamStore:
 
     # ── tags ─────────────────────────────────────────────────────────────────
     def _custom_tags(self) -> list[dict]:
+        raw = self._settings_doc().get("tags")
         return [{"id": t["id"], "name": t["name"], "preset": False}
-                for t in self._settings_doc().get("tags") or []
+                for t in (raw if isinstance(raw, list) else [])
                 if isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("name"), str)]
 
     def _save_custom_tags(self, custom: list[dict]) -> None:
@@ -344,8 +347,12 @@ class DashcamStore:
         return [dict(t) for t in PRESET_TAGS] + self._custom_tags()
 
     def add_tag(self, name) -> tuple[dict | None, str | None]:
-        """A tag of his own. A name he already has (any case, any spacing) is that tag, not a second one."""
-        name = " ".join(str(name or "").split())
+        """A tag of his own. A name he already has (any case, any spacing, invisible characters aside) is
+        that tag, not a second one."""
+        if not isinstance(name, str):
+            return None, f"a tag name is 1 to {TAG_NAME_MAX} characters"
+        name = "".join(ch for ch in name if unicodedata.category(ch) != "Cf")
+        name = " ".join(name.split())
         if not name or len(name) > TAG_NAME_MAX:
             return None, f"a tag name is 1 to {TAG_NAME_MAX} characters"
         with _LOCK:
@@ -353,7 +360,8 @@ class DashcamStore:
             for t in tags:
                 if t["name"].casefold() == name.casefold():
                     return t, None
-            base = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_") or "tag"
+            # casefold can lengthen a name (ß → ss): the id stays short enough for the routes.
+            base = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")[:TAG_ID_BASE_MAX].strip("_") or "tag"
             ids = {t["id"] for t in tags}
             tag_id, n = base, 2
             while tag_id in ids:
@@ -363,61 +371,86 @@ class DashcamStore:
         return tag, None
 
     def delete_tag(self, tag_id: str) -> tuple[bool, str | None]:
-        """One of his own tags goes, from the list and from every clip. The presets stay."""
+        """One of his own tags goes, from every clip and then from the list. The presets stay."""
         if any(t["id"] == tag_id for t in PRESET_TAGS):
             return False, "preset"
+        if not any(t["id"] == tag_id for t in self._custom_tags()):
+            return False, "not_found"
+        # Found without the lock (every clip file is read), then each re-read and saved under it.
+        carrying = [c["id"] for c in self.all_clips() if tag_id in (c.get("tags") or [])]
         with _LOCK:
-            custom = self._custom_tags()
-            if not any(t["id"] == tag_id for t in custom):
-                return False, "not_found"
-            self._save_custom_tags([t for t in custom if t["id"] != tag_id])
-            for clip in self.all_clips():
-                if tag_id in (clip.get("tags") or []):
+            for cid in carrying:
+                clip = self.get_clip(cid)
+                if clip is not None and tag_id in (clip.get("tags") or []):
                     clip["tags"] = [t for t in clip["tags"] if t != tag_id]
                     self._save_clip(clip)
+            self._save_custom_tags([t for t in self._custom_tags() if t["id"] != tag_id])
         return True, None
 
-    def partner_of(self, clip: dict) -> dict | None:
-        """The other camera's clip of the same moment: same camera and kind, another lens, starting within
-        PARTNER_WINDOW_S — the nearest when there are several."""
-        start = parse_iso(clip.get("start"))
-        if start is None:
-            return None
-        best = None
-        for other in self.all_clips():
-            if (other["id"] == clip["id"] or other.get("camera_id") != clip.get("camera_id")
-                    or other.get("kind") != clip.get("kind") or other.get("lens") == clip.get("lens")):
+    def partners_of(self, clip: dict, clips: list[dict] | None = None) -> list[dict]:
+        """The other cameras' clips of the same moment: same camera and kind, one per other lens, starting
+        within PARTNER_WINDOW_S — and only a clip whose own nearest on this clip's lens is this clip (a front
+        photo taken alone doesn't take another photo's rear shot)."""
+        clips = self.all_clips() if clips is None else clips
+
+        def nearest(of: dict, lens: str) -> dict | None:
+            start = parse_iso(of.get("start"))
+            if start is None:
+                return None
+            best = None
+            for other in clips:
+                if (other["id"] == of["id"] or other.get("lens") != lens or other.get("camera_id") != of.get("camera_id")
+                        or other.get("kind") != of.get("kind")):
+                    continue
+                t = parse_iso(other.get("start"))
+                if t is None or abs(t - start) >= PARTNER_WINDOW_S:
+                    continue
+                if best is None or abs(t - start) < best[0]:
+                    best = (abs(t - start), other)
+            return best[1] if best else None
+
+        out = []
+        for lens in LENSES:
+            if lens == clip.get("lens"):
                 continue
-            t = parse_iso(other.get("start"))
-            if t is None or abs(t - start) >= PARTNER_WINDOW_S:
-                continue
-            if best is None or abs(t - start) < best[0]:
-                best = (abs(t - start), other)
-        return best[1] if best else None
+            other = nearest(clip, lens)
+            back = nearest(other, clip.get("lens")) if other else None
+            if other is not None and back is not None and back["id"] == clip["id"]:
+                out.append(other)
+        return out
 
     def set_clip_tags(self, clip_id: str, tag_ids) -> tuple[list[dict] | None, str | None]:
-        """Sets the clip's tags, and makes the same change on the other camera's clip of that moment, so both
-        views of an accident carry it — what was added goes on, what was taken off comes off, and a tag only
-        the other clip has stays. Tags keep the list's order, once each. Returns both clips, this one first."""
+        """Sets the clip's tags, and makes the same change on the other cameras' clips of that moment, so
+        every view of an accident carries it — what was added goes on, what was taken off comes off, and a
+        tag only another clip has stays. Tags keep the list's order, once each. A tag deleted while it sat on
+        this clip is dropped quietly. Returns the clips set, this one first."""
         if not isinstance(tag_ids, list) or not all(isinstance(t, str) for t in tag_ids):
             return None, "tags must be a list of tag ids"
+        clip = self.get_clip(clip_id)
+        if clip is None:
+            return None, "clip not found"
+        # Partners found without the lock (every clip file is read); start, lens and kind never change.
+        partner_ids = [p["id"] for p in self.partners_of(clip)]
         with _LOCK:
             order = [t["id"] for t in self.tags()]
-            unknown = [t for t in tag_ids if t not in order]
-            if unknown:
-                return None, f"unknown tag {unknown[0]}"
             clip = self.get_clip(clip_id)
             if clip is None:
                 return None, "clip not found"
-            wanted = set(tag_ids)
             had = set(clip.get("tags") or [])
+            unknown = [t for t in tag_ids if t not in order and t not in had]
+            if unknown:
+                return None, f"unknown tag {unknown[0]}"
+            wanted = {t for t in tag_ids if t in order}
+            had &= set(order)
             added, removed = wanted - had, had - wanted
             clip["tags"] = [t for t in order if t in wanted]
             self._save_clip(clip)
             changed = [clip]
-            partner = self.partner_of(clip)
-            if partner is not None:
-                theirs = (set(partner.get("tags") or []) | added) - removed
+            for pid in partner_ids:
+                partner = self.get_clip(pid)
+                if partner is None:
+                    continue
+                theirs = (set(partner.get("tags") or []) & set(order) | added) - removed
                 partner["tags"] = [t for t in order if t in theirs]
                 self._save_clip(partner)
                 changed.append(partner)

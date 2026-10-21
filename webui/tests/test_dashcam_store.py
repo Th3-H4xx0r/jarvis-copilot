@@ -1087,3 +1087,47 @@ def test_the_other_lens_gets_the_change_not_a_copy(store):
     store.set_clip_tags(f2, ["accident"])
     assert store.get_clip(f2)["tags"] == ["accident"]
     assert store.get_clip(r2)["tags"] == ["accident", "scenic"]
+
+
+def test_a_three_lens_moment_tags_every_lens(store):
+    rows = store.apply_inventory(CAM, [item("f.MP4", start="2026-10-03T12:00:00Z"),
+                                       item("r.MP4", lens="rear", start="2026-10-03T12:00:00Z"),
+                                       item("i.MP4", lens="inside", start="2026-10-03T12:00:01Z")])
+    front, rear, inside = (r["id"] for r in rows)
+    clips, _ = store.set_clip_tags(front, ["accident"])
+    assert {c["id"] for c in clips} == {front, rear, inside}
+    assert store.get_clip(rear)["tags"] == ["accident"] and store.get_clip(inside)["tags"] == ["accident"]
+
+
+def test_a_partner_is_only_ones_whose_nearest_this_clip_is(store):
+    rows = store.apply_inventory(CAM, [item("p1.JPG", kind="photo", start="2026-10-03T13:00:00Z"),
+                                       item("r1.JPG", kind="photo", lens="rear", start="2026-10-03T13:00:00Z"),
+                                       item("p2.JPG", kind="photo", start="2026-10-03T13:00:04Z")])
+    p1, r1, p2 = (r["id"] for r in rows)
+    clips, _ = store.set_clip_tags(p2, ["scenic"])
+    assert [c["id"] for c in clips] == [p2], "r1 is p1's rear shot, not p2's"
+    assert store.get_clip(r1).get("tags", []) == []
+
+
+def test_tag_names_must_be_text_and_visible(store):
+    assert store.add_tag({"a": 1}) == (None, "a tag name is 1 to 32 characters")
+    assert store.add_tag(7)[0] is None
+    assert store.add_tag("Accident​")[0]["id"] == "accident", "an invisible character isn't a new tag"
+    tag, _ = store.add_tag("ﬃ" * 22)                 # ligatures that fold longer
+    assert tag and len(tag["id"]) <= 52
+    assert store.delete_tag(tag["id"]) == (True, None)
+
+
+def test_a_tag_left_on_a_clip_after_its_delete_does_not_lock_the_clip(store):
+    front, _ = _pair(store)
+    doc = store.get_clip(front); doc["tags"] = ["gone"]; store._save_clip(doc)
+    clips, err = store.set_clip_tags(front, ["gone", "accident"])
+    assert err is None and store.get_clip(front)["tags"] == ["accident"]
+    assert store.set_clip_tags(front, ["never_was"])[1] == "unknown tag never_was"
+
+
+def test_a_broken_tag_list_in_settings_is_ignored(store):
+    _write = __import__("api.island_store", fromlist=["_write_json"])._write_json
+    _write(store.base / "settings.json", {"tags": 5})
+    assert [t["id"] for t in store.tags()][0] == "accident"
+    assert store.add_tag("Pothole")[0]["id"] == "pothole"
