@@ -233,6 +233,53 @@ def test_follow_ups_in_the_same_chat_keep_his_mac_ask_for_ten_minutes(monkeypatc
     assert not gate.allowed("other-chat")
 
 
+@pytest.fixture
+def devices(monkeypatch):
+    """Which device each chat's current turn came from (api.turn_origin)."""
+    now = {}
+    monkeypatch.setattr(gate, "_turn_device", lambda task_id: now.get(task_id))
+    return now
+
+
+def test_a_car_turn_never_inherits_the_macs_ask(monkeypatch, devices):
+    """Live (2026-10-21 00:01): his voice chat is the same on the Mac and in the car — a
+    Mac turn's "play …" unlocked the Mac, and the next car turns drove the Mac's screen."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+    devices["voice"] = "mac-1"
+    gate.note_turn("voice", "Can you do this on my Mac")
+    assert gate.allowed("voice")
+    clock["t"] += 60
+    devices["voice"] = "iphone-1"
+    gate.note_turn("voice", "Play Blinding Lights on Spotify")
+    assert not gate.allowed("voice")
+    assert gate.block_message("computer_do", "voice") is not None
+
+
+def test_the_same_device_keeps_its_ask_for_ten_minutes(monkeypatch, devices):
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+    devices["voice"] = "mac-1"
+    gate.note_turn("voice", "Can you do this on my Mac")
+    clock["t"] += 60
+    gate.note_turn("voice", "Continue.")
+    assert gate.allowed("voice")
+
+
+def test_playing_music_in_spotify_is_never_done_by_driving_the_screen(devices):
+    """Live (2026-10-21 00:01): "play Blinding Lights on Spotify" from the Mac clicked into
+    Spotify's search box and typed nothing. Spotify's own tool plays it in the Mac's app."""
+    devices["voice"] = "mac-1"
+    gate.note_turn("voice", "open Spotify on my Mac and play Blinding Lights")
+    for args in ({"goal": "Play Blinding Lights by The Weeknd on Spotify"},
+                 {"goal": "search for the song and start it", "app": "Spotify"},
+                 {"goal": "put on my playlist 201", "steps": [{"do": "open Spotify", "app": "Spotify"}]}):
+        blocked = gate.block_message("computer_do", "voice", args)
+        assert blocked and "spotify_playback" in blocked
+    assert gate.block_message("computer_do", "voice", {"goal": "turn on Spotify's crossfade", "app": "Spotify"}) is None
+    assert gate.block_message("computer_do", "voice", {"goal": "open Notes"}) is None
+
+
 @pytest.mark.parametrize("text", [
     "look at my screen",
     "Can you look at my screen?",

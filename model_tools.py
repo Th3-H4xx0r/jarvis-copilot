@@ -844,7 +844,7 @@ def eager_dispatch(
     # browser without an explicit ask) — the normal path blocks it with a reason.
     try:
         from agent.mac_browser_gate import block_message as _mac_browser_block
-        if _mac_browser_block(function_name, task_id):
+        if _mac_browser_block(function_name, task_id, function_args):
             return False
     except Exception:
         return False

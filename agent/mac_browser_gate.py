@@ -65,6 +65,9 @@ _allowed: "OrderedDict[str, bool]" = OrderedDict()
 # When his last explicit ask in a chat was: follow-ups ("Continue.", "now open the
 # second one") in the same chat keep it for STICKY_S. Only an explicit ask renews it.
 _asked_at: "OrderedDict[str, float]" = OrderedDict()
+# The device that ask came from: his voice chat is the same on the Mac and in the car,
+# and a car turn must not drive the Mac on a Mac turn's say-so (2026-10-21 00:01).
+_asked_from: "OrderedDict[str, Optional[str]]" = OrderedDict()
 STICKY_S = 600.0
 _pinned: set = set()
 
@@ -141,6 +144,7 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
         allowed = explicit_mac_request(text, from_mac=_from_mac(task_id), prev_assistant=prev_assistant)
     except Exception:
         allowed = False
+    device = _turn_device(task_id)
     now = time.monotonic()
     with _lock:
         if task_id in _pinned:
@@ -148,11 +152,23 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
         if allowed:
             _asked_at[task_id] = now
             _asked_at.move_to_end(task_id)
+            _asked_from[task_id] = device
+            _asked_from.move_to_end(task_id)
             while len(_asked_at) > _MAX_TURNS:
-                _asked_at.popitem(last=False)
-        elif now - _asked_at.get(task_id, -1e9) < STICKY_S:
+                old, _ = _asked_at.popitem(last=False)
+                _asked_from.pop(old, None)
+        elif now - _asked_at.get(task_id, -1e9) < STICKY_S and _asked_from.get(task_id) == device:
             allowed = True
         _remember(task_id, allowed)
+
+
+def _turn_device(task_id) -> Optional[str]:
+    """The paired device this chat's current turn came from (None when unknown)."""
+    try:
+        from api import turn_origin
+        return turn_origin.device_for_session(task_id)
+    except Exception:
+        return None
 
 
 def pin(task_id: Optional[str], allowed: bool) -> None:
@@ -184,10 +200,33 @@ def _remember(task_id: str, value: bool) -> None:
 _LOOK_TOOLS = frozenset({"device_ui_look"})
 
 
-def block_message(tool_name: str, task_id: Optional[str]) -> Optional[str]:
+SPOTIFY_BLOCK_MESSAGE = (
+    "Blocked: music in Spotify is never played by driving the Mac's screen. Use spotify_playback "
+    "(search for it, then play): on a turn from the Mac it plays in the Mac's Spotify app itself, "
+    "opening Spotify if it's closed."
+)
+_PLAY_WORDS = re.compile(r"\b(?:play(?:ing)?|put\s+on|start|queue|listen)\b", re.I)
+
+
+def _plays_spotify(args) -> bool:
+    """Whether a computer_do call is about playing something in Spotify."""
+    if not isinstance(args, dict):
+        return False
+    parts = [args.get("goal"), args.get("app")]
+    for step in args.get("steps") or []:
+        if isinstance(step, dict):
+            parts += [step.get("do"), step.get("app"), step.get("text")]
+    text = " ".join(str(p) for p in parts if p)
+    return "spotify" in text.lower() and bool(_PLAY_WORDS.search(text))
+
+
+def block_message(tool_name: str, task_id: Optional[str], args=None) -> Optional[str]:
     """The reason to refuse ``tool_name`` this turn, or None to let it run."""
     if is_mac_browser_tool(tool_name):
         return None if allowed(task_id) else BLOCK_MESSAGE
+    if tool_name == "computer_do" and _plays_spotify(args):
+        # Live 2026-10-21 00:01: it clicked into Spotify's search box and typed nothing.
+        return SPOTIFY_BLOCK_MESSAGE
     if is_mac_control_tool(tool_name):
         if allowed(task_id) or (tool_name in _LOOK_TOOLS and _from_mac(task_id)):
             return None
@@ -200,3 +239,4 @@ def reset_for_tests() -> None:
         _allowed.clear()
         _pinned.clear()
         _asked_at.clear()
+        _asked_from.clear()

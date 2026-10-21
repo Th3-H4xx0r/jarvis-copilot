@@ -1568,7 +1568,7 @@ def get_pre_tool_call_block_message(
     # The user's own Mac browser only when this turn asked for it.
     try:
         from agent.mac_browser_gate import block_message as _mac_browser_block
-        blocked = _mac_browser_block(tool_name, task_id)
+        blocked = _mac_browser_block(tool_name, task_id, args)
         if blocked:
             return blocked
     except Exception:
