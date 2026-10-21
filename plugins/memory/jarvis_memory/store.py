@@ -155,12 +155,15 @@ class MemoryStore:
             )
             self._conn.commit()
 
-    def vector_search(self, namespace, query_vec, signature, limit=20) -> List[Tuple[str, float]]:
+    def vector_search(self, namespace, query_vec, signature, limit=20,
+                      only_ids=None) -> List[Tuple[str, float]]:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT chunk_id, embedding FROM vectors WHERE namespace=? AND model_signature=?",
                 (namespace or GLOBAL_NS, signature),
             ).fetchall()
+        if only_ids is not None:
+            rows = [r for r in rows if r["chunk_id"] in only_ids]
         if not rows:
             return []
         q = np.asarray(query_vec, dtype=np.float32)
@@ -175,9 +178,13 @@ class MemoryStore:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
 
-    def keyword_search(self, namespace, query, limit=20) -> List[Tuple[str, float]]:
+    def keyword_search(self, namespace, query, limit=20, only_ids=None) -> List[Tuple[str, float]]:
         ns = namespace or GLOBAL_NS
         ids: List[str] = []
+        # Restricted to a candidate set, the search must not stop at the global
+        # top `limit` — the candidates may all rank below it — so it reads every
+        # match and filters before cutting.
+        sql_limit = -1 if only_ids is not None else limit
         with self._lock:
             if self._has_fts:
                 q = _fts_or_query(query)
@@ -188,22 +195,27 @@ class MemoryStore:
                             "JOIN chunks c ON c.id=f.chunk_id "
                             "WHERE c.namespace=? AND f.body MATCH ? "
                             "ORDER BY bm25(chunks_fts) LIMIT ?",
-                            (ns, q, limit),
+                            (ns, q, sql_limit),
                         ).fetchall()
                         ids = [r["cid"] for r in rows]
                     except sqlite3.OperationalError:
                         ids = []
+            if only_ids is not None:
+                ids = [cid for cid in ids if cid in only_ids]
             if not ids:
                 toks = re.findall(r"\w+", query or "", flags=re.UNICODE)
                 if toks:
                     like = " OR ".join(["body LIKE ?"] * len(toks))
-                    args = [ns] + [f"%{t}%" for t in toks] + [limit]
+                    args = [ns] + [f"%{t}%" for t in toks] + [sql_limit]
                     rows = self._conn.execute(
                         f"SELECT id FROM chunks WHERE namespace=? AND ({like}) "
                         f"ORDER BY created_at DESC LIMIT ?",
                         args,
                     ).fetchall()
                     ids = [r["id"] for r in rows]
+                    if only_ids is not None:
+                        ids = [cid for cid in ids if cid in only_ids]
+        ids = ids[:limit]
         n = len(ids)
         return [(cid, (n - i) / n) for i, cid in enumerate(ids)] if n else []
 
@@ -225,6 +237,41 @@ class MemoryStore:
             for r in rows
         }
         return [by_id[i] for i in ids if i in by_id]
+
+    def filtered_ids(self, namespace, *, source_prefix="", since=None, until=None,
+                     person="", limit=200) -> List[str]:
+        """Ids of memories matching every given filter, oldest first.
+
+        ``person`` matches when each of its words appears (any order, any case)
+        in the first two lines of the memory — where an iMessage or Live memory
+        names who was in it. Bodies are scanned newest first and the scan stops
+        at ``limit`` matches, so a person lookup stays cheap on a big store.
+        """
+        where, args = ["namespace=?"], [namespace or GLOBAL_NS]
+        if source_prefix:
+            escaped = source_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("source LIKE ? ESCAPE '\\'")
+            args.append(escaped + "%")
+        if since is not None:
+            where.append("created_at >= ?")
+            args.append(float(since))
+        if until is not None:
+            where.append("created_at <= ?")
+            args.append(float(until))
+        tokens = [t for t in re.findall(r"\w+", (person or "").lower(), flags=re.UNICODE) if t]
+        sql = f"SELECT id, body FROM chunks WHERE {' AND '.join(where)} ORDER BY created_at DESC"
+        out: List[str] = []
+        with self._lock:
+            for row in self._conn.execute(sql, args):
+                if tokens:
+                    head = "\n".join((row["body"] or "").split("\n", 2)[:2]).lower()
+                    if not all(t in head for t in tokens):
+                        continue
+                out.append(row["id"])
+                if len(out) >= limit:
+                    break
+        out.reverse()
+        return out
 
     def recent_chunks(self, namespace, limit=20) -> List[Chunk]:
         with self._lock:

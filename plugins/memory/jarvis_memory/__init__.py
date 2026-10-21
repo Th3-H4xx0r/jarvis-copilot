@@ -19,7 +19,7 @@ from .config import load_config
 from .embed import make_embedder
 from .ingest import ingest_turn
 from .mem_log import install_handler, log_event
-from .recall import format_recall_block, hybrid_recall
+from .recall import format_recall_block, hybrid_recall, parse_when
 from .store import GLOBAL_NS, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,20 @@ _RECALL_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "What to recall."},
+            "query": {"type": "string", "description": (
+                "What to recall. May be empty when filtering: you then get the "
+                "matching memories in time order.")},
             "limit": {"type": "integer", "description": "Max results (default 5)."},
+            "source": {"type": "string", "description": (
+                "Only memories from 'imessage' (his text chats) or 'live' "
+                "(overheard conversations).")},
+            "person": {"type": "string", "description": (
+                "Only conversations with this person (name or number) — use with "
+                "since/until to look up what was said with someone on a day.")},
+            "since": {"type": "string", "description": "ISO date or datetime, his local time."},
+            "until": {"type": "string", "description": (
+                "ISO date or datetime, his local time; a bare date includes that whole day.")},
         },
-        "required": ["query"],
     },
 }
 _STORE_SCHEMA = {
@@ -479,13 +489,7 @@ class JarvisMemoryProvider(MemoryProvider):
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         try:
             if tool_name == "memory_recall":
-                hits = hybrid_recall(self._store, self._embedder, args.get("query", ""),
-                                     self._namespace, limit=int(args.get("limit", 5)),
-                                     min_relevance=float(self._cfg.get("min_relevance", 0.0)))
-                return json.dumps({"ok": True, "results": [
-                    {"id": h.chunk.id, "body": h.chunk.body, "score": round(h.score, 4)}
-                    for h in hits
-                ]})
+                return json.dumps({"ok": True, "results": self._recall_tool(args)})
             if tool_name == "memory_store":
                 content = (args.get("content") or "").strip()
                 if not content:
@@ -508,6 +512,46 @@ class JarvisMemoryProvider(MemoryProvider):
         except Exception as e:
             return json.dumps({"ok": False, "error": str(e)})
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
+
+    def _recall_tool(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """memory_recall: hybrid search, optionally inside a source / person /
+        date window. Filters with no query list the window in time order — the
+        "what did Sam and I talk about yesterday" path, which ranking by
+        similarity to an empty query could not answer."""
+        from datetime import datetime, timezone
+
+        query = str(args.get("query") or "")
+        limit = max(1, int(args.get("limit") or 5))
+        source = str(args.get("source") or "").strip().lower()
+        person = str(args.get("person") or "").strip()
+        zone = None
+        try:
+            from jarviscopilot_time import get_timezone
+            zone = get_timezone()
+        except Exception:
+            pass
+        zone = zone or timezone.utc
+        since = parse_when(args.get("since"), end_of_day=False, zone=zone)
+        until = parse_when(args.get("until"), end_of_day=True, zone=zone)
+        filtered = bool(source or person or since is not None or until is not None)
+        if filtered:
+            ids = self._store.filtered_ids(
+                self._namespace, source_prefix=f"{source}:" if source else "",
+                since=since, until=until, person=person, limit=500)
+            if query.strip():
+                hits = hybrid_recall(self._store, self._embedder, query, self._namespace,
+                                     limit=limit, candidate_ids=set(ids))
+                chunks = [(h.chunk, h.score) for h in hits]
+            else:
+                chunks = [(c, 1.0) for c in self._store.get_chunks(ids[-limit:])]
+        else:
+            hits = hybrid_recall(self._store, self._embedder, query, self._namespace,
+                                 limit=limit,
+                                 min_relevance=float(self._cfg.get("min_relevance", 0.0)))
+            chunks = [(h.chunk, h.score) for h in hits]
+        return [{"id": c.id, "body": c.body, "score": round(s, 4), "source": c.source,
+                 "created_at": datetime.fromtimestamp(c.created_at, zone).isoformat(timespec="minutes")}
+                for c, s in chunks]
 
     def shutdown(self) -> None:
         try:

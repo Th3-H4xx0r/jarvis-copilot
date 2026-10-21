@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 from .embed import Embedder
 from .store import Chunk, GLOBAL_NS, MemoryStore
@@ -29,19 +30,42 @@ class Hit:
     score: float
 
 
+def parse_when(value, *, end_of_day: bool, zone) -> Optional[float]:
+    """Epoch seconds for an ISO date or datetime ('2026-10-19', '2026-10-19T18:00',
+    with or without an offset). A bare date is the start of that day in ``zone``,
+    or its last instant when ``end_of_day`` — so until='2026-10-19' covers the
+    whole of the 19th where he lives. None when empty or unreadable."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        if len(text) == 10:
+            day = datetime.fromisoformat(text).replace(tzinfo=zone)
+            return (day + timedelta(days=1)).timestamp() - 0.001 if end_of_day else day.timestamp()
+        when = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=zone)
+        return when.timestamp()
+    except ValueError:
+        return None
+
+
 def hybrid_recall(store: MemoryStore, embedder: Embedder, query: str,
                   namespace: str = GLOBAL_NS, limit: int = 5,
-                  min_relevance: float = 0.0) -> List[Hit]:
+                  min_relevance: float = 0.0, candidate_ids=None) -> List[Hit]:
+    """``candidate_ids`` (a set) limits the ranking to those memories — the
+    filtered lookup's way of searching inside one person's chats or one day."""
     if not query or not query.strip():
         return []
     vec_hits = {}
     try:
         qv = embedder.embed_one(query)
-        for cid, cos in store.vector_search(namespace, qv, embedder.signature, limit * 4):
+        for cid, cos in store.vector_search(namespace, qv, embedder.signature, limit * 4,
+                                            only_ids=candidate_ids):
             vec_hits[cid] = max(cos, 0.0)  # no signal -> 0, not 0.5
     except Exception as e:
         logger.warning("jarvis_memory vector arm failed: %s", e)
-    kw_hits = dict(store.keyword_search(namespace, query, limit * 4))
+    kw_hits = dict(store.keyword_search(namespace, query, limit * 4, only_ids=candidate_ids))
     have_vec = bool(vec_hits)
     scored = []
     for cid in set(vec_hits) | set(kw_hits):
