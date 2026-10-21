@@ -66,7 +66,7 @@ def card(st: IMStore) -> dict:
             "memory_active": writer.memory_writer() is not None,
             "agent": settings.get("agent"), "runs_on": runs_on,
             "mac_seen_at": settings.get("mac_seen_at"),
-            "mac_connected": bool(_connected_macs()),
+            "mac_connected": _mac_connected(st),
             "ask_facts": bool(settings.get("ask_facts", True)),
             "push_facts": bool(settings.get("push_facts", True)),
             "pending_facts": st.pending_count(),
@@ -88,52 +88,55 @@ def mac_config(st: IMStore) -> dict:
             "backfill": st.active_job()}
 
 
-def _connected_macs() -> list:
-    """Device ids of the connected desktop clients (their bridge ids)."""
+def _mac_connected(st: IMStore) -> bool:
+    """Whether the Mac that uploads iMessages holds a live bridge right now."""
+    known = st.settings().get("mac_device_id") or ""
     try:
-        from api.coding_desktop import _connected_sync_capable
-        return list(_connected_sync_capable())
+        from api.device_bridge import connected_device_ids
+        return bool(known) and known in connected_device_ids()
     except Exception:
-        logger.debug("imessage memory: no desktop list", exc_info=True)
-        return []
+        return False
 
 
 def push_refresh(st: IMStore) -> bool:
-    """Tell the Mac to fetch its config now. False when no Mac is connected —
-    it fetches on its own every couple of minutes.
-
-    The id the Mac reports about itself (its credentials) is not always the id
-    its bridge connection is registered under, so when that one isn't
-    connected the nudge goes to the connected desktop, whose id is remembered."""
+    """Tell the Mac to fetch its config now. False when it isn't connected —
+    it fetches on its own every couple of minutes."""
     return _send_to_mac(st, {"type": "imessage_memory"})
 
 
 def _send_to_mac(st: IMStore, frame: dict) -> bool:
-    """Send a frame to the Mac: the id last known to reach it, else whichever
-    desktop is connected (remembered). False when no Mac is connected."""
+    """Send a frame to the Mac's bridge (the id ``_seen`` recorded from its own
+    requests). False when it isn't connected. Never guesses another device:
+    the Pod and ESP32 boards hold bridges too."""
+    known = st.settings().get("mac_device_id") or ""
+    if not known:
+        return False
     try:
         from api.device_bridge import send_frame
+        return bool(send_frame(known, frame))
     except Exception:
         return False
-    known = st.settings().get("mac_device_id") or ""
-    if known and send_frame(known, frame):
-        return True
-    for device_id in _connected_macs():
-        if send_frame(device_id, frame):
-            st.update_settings(mac_device_id=device_id)
-            return True
-    return False
 
 
-def _seen(st: IMStore, body: dict) -> None:
+def _request_device_id(handler) -> str:
+    """The paired device behind a request's session — for the Mac's calls,
+    the same id its bridge connection is registered under (both use the one
+    session). Its credentials' own ``device_id`` is a different id."""
+    try:
+        from api.device_bridge import _resolve_device_for_handler
+        device = _resolve_device_for_handler(handler) if handler is not None else None
+        return str((device or {}).get("id") or "")
+    except Exception:
+        logger.debug("imessage memory: no device for request", exc_info=True)
+        return ""
+
+
+def _seen(st: IMStore, handler) -> None:
+    """The Mac called: note when, and which bridge reaches it."""
     fields = {"mac_seen_at": time.time()}
-    device_id = str((body or {}).get("device_id") or "").strip()
-    # Only adopt the Mac's own id when nothing reachable is known yet: the id
-    # push_refresh found connected is the one a nudge actually arrives at.
-    if device_id and device_id != st.settings().get("mac_device_id"):
-        known = st.settings().get("mac_device_id")
-        if not known or known not in _connected_macs():
-            fields["mac_device_id"] = device_id
+    device_id = _request_device_id(handler)
+    if device_id:
+        fields["mac_device_id"] = device_id
     st.update_settings(**fields)
 
 
@@ -171,8 +174,7 @@ def handle_get(handler, parsed) -> bool:
         st = store()
         # The Mac names itself here too, so a refresh can reach it before it
         # has ever uploaded anything (e.g. the moment he first switches it on).
-        from urllib.parse import parse_qs
-        _seen(st, {"device_id": (parse_qs(parsed.query).get("device_id") or [""])[0]})
+        _seen(st, handler)
         return _j(handler, mac_config(st))
     if parsed.path == PREFIX + "/facts":
         return _j(handler, {"facts": store().pending_facts()})
@@ -329,7 +331,7 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         return _j(handler, {"ok": True})
 
     if tail == "/chats":
-        _seen(st, body)
+        _seen(st, handler)
         chats = body.get("chats")
         if not isinstance(chats, list):
             return _bad(handler, "chats must be a list")
@@ -337,7 +339,7 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         return _j(handler, {"ok": True})
 
     if tail == "/messages":
-        _seen(st, body)
+        _seen(st, handler)
         messages = body.get("messages")
         if not isinstance(messages, list) or len(messages) > _MAX_MESSAGES_PER_POST:
             return _bad(handler, f"messages must be a list of at most {_MAX_MESSAGES_PER_POST}")
@@ -351,7 +353,7 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         return _j(handler, {"ok": True, **counts})
 
     if tail == "/backfill/progress":
-        _seen(st, body)
+        _seen(st, handler)
         job = st.job(str(body.get("id") or ""))
         if not job:
             return _bad(handler, "no such backfill", 404)

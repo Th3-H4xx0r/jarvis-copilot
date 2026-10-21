@@ -332,6 +332,9 @@ class IMStore:
         """Note a burst whose memories are being written, so a crash midway is
         undone and redone at the next start (``storing_bursts``)."""
         with self._db() as db:
+            # Cards an earlier, cut-off attempt at this burst left behind.
+            db.execute("DELETE FROM fact_cards WHERE guid=? AND first_rowid=? AND status='pending'",
+                       (burst.guid, burst.first_rowid))
             db.execute("INSERT OR REPLACE INTO bursts(guid, first_rowid, last_rowid, start, end, count, "
                        "status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'storing', ?)",
                        (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
@@ -439,10 +442,21 @@ class IMStore:
             db.executemany("UPDATE fact_cards SET status='deciding' WHERE id=?", [(r["id"],) for r in rows])
         return [dict(r) for r in rows]
 
-    def finish_cards(self, ids: list, status: str) -> None:
+    def finish_cards(self, ids: list, status: str) -> set:
+        """Close claimed cards; returns the ids actually closed. A missing one
+        was deleted meanwhile (Forget), and its memory must be taken back."""
+        done = set()
         with self._db() as db:
-            db.executemany("UPDATE fact_cards SET status=?, decided_at=? WHERE id=? AND status='deciding'",
-                           [(status, time.time(), i) for i in ids])
+            for i in ids:
+                if db.execute("UPDATE fact_cards SET status=?, decided_at=? WHERE id=? AND status='deciding'",
+                              (status, time.time(), i)).rowcount:
+                    done.add(i)
+        return done
+
+    def release_stuck_cards(self) -> int:
+        """Cards a restart left mid-decision go back to waiting."""
+        with self._db() as db:
+            return db.execute("UPDATE fact_cards SET status='pending' WHERE status='deciding'").rowcount
 
     def release_cards(self, ids: list) -> None:
         """Put claimed cards back (a memory write failed)."""

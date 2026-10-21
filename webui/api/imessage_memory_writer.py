@@ -364,12 +364,23 @@ def push_facts(burst: Burst, chat: dict, facts: List[str]) -> int:
 
 
 def _store_cards(st: IMStore, cards: list, memory, status: str) -> int:
-    """Remember claimed cards. remember() returning None means a near-duplicate
-    is already held (its own failures are logged there), so every card counts."""
-    for card in cards:
-        memory.remember(card["body"], source=card["source"], tags="imessage,fact", created_at=card["at"])
-    st.finish_cards([c["id"] for c in cards], status)
-    return len(cards)
+    """Remember claimed cards. Written without dedup so ``None`` only ever
+    means the write failed — those go back to waiting. A card deleted while
+    this ran (he pressed Forget) has its memory taken back."""
+    written, failed = [], []
+    try:
+        for card in cards:
+            ok = memory.remember(card["body"], source=card["source"], tags="imessage,fact",
+                                 created_at=card["at"], dedup=False)
+            (written if ok else failed).append(card)
+    finally:
+        untouched = [c["id"] for c in cards if c not in written and c not in failed]
+        st.release_cards([c["id"] for c in failed] + untouched)
+    done = st.finish_cards([c["id"] for c in written], status)
+    for card in written:
+        if card["id"] not in done:
+            memory.forget(source_prefix=card["source"])
+    return len(done)
 
 
 def decide_facts(st: Optional[IMStore] = None, *, ids=None, burst: Optional[str] = None,
@@ -431,6 +442,7 @@ def recover(st: Optional[IMStore] = None, memory=None) -> int:
     memory = memory if memory is not None else memory_writer()
     if memory is None:
         return 0
+    st.release_stuck_cards()
     rows = st.storing_bursts()
     for row in rows:
         for prefix in _prefixes(row["guid"], row["first_rowid"], row["last_rowid"]):

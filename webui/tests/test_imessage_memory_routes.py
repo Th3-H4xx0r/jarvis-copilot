@@ -82,7 +82,8 @@ def test_config_reflects_picks_and_skip(st, sent):
                    "skip": ["mom@example.com"], "backfill": None}
 
 
-def test_messages_post_records_device_and_ingests(st, sent):
+def test_messages_post_records_device_and_ingests(st, sent, monkeypatch):
+    monkeypatch.setattr(routes, "_request_device_id", lambda handler: "mac-9")
     _upload_chats(st)
     _post("/api/imessage-memory/settings", {"enabled": True})
     _post("/api/imessage-memory/messages", {"device_id": "mac-9", "messages": [
@@ -146,8 +147,9 @@ def test_unknown_paths_fall_through(st, sent):
     assert _post("/api/imessage-memory/nope", {}) is False
 
 
-def test_config_get_records_device_id(st, sent):
-    routes.handle_get(None, urlparse("/api/imessage-memory/config?device_id=mac-7"))
+def test_config_get_records_device_id(st, sent, monkeypatch):
+    monkeypatch.setattr(routes, "_request_device_id", lambda handler: "mac-7")
+    routes.handle_get(None, urlparse("/api/imessage-memory/config"))
     assert st.settings()["mac_device_id"] == "mac-7"
     assert "enabled_at" in sent["body"]
 
@@ -163,20 +165,20 @@ def test_backfill_needs_it_on_and_switching_off_stops_it(st, sent):
     assert st.job(job_id)["status"] == "stopped"
 
 
-def test_push_refresh_falls_back_to_the_connected_mac(tmp_path, monkeypatch):
-    """The Mac's own id (2ded…) isn't its bridge id (e9c0…): the nudge must still arrive."""
+def test_mac_id_comes_from_its_session_and_nudges_never_guess(tmp_path, monkeypatch):
+    """The bridge id is the paired device behind the Mac's session — never
+    another connected device (the Pod and ESP32 boards hold bridges too)."""
     import api.device_bridge as bridge
     s = im.IMStore(tmp_path / "im.db")
-    s.update_settings(mac_device_id="creds-id")
     sent_to = []
-    monkeypatch.setattr(bridge, "send_frame", lambda d, f: sent_to.append(d) or d == "bridge-id")
-    monkeypatch.setattr(routes, "_connected_macs", lambda: ["bridge-id"])
-    assert routes.push_refresh(s) is True
-    assert sent_to == ["creds-id", "bridge-id"]
-    assert s.settings()["mac_device_id"] == "bridge-id"
-    # The Mac's own id no longer overwrites a reachable one.
-    routes._seen(s, {"device_id": "creds-id"})
-    assert s.settings()["mac_device_id"] == "bridge-id"
+    monkeypatch.setattr(bridge, "send_frame", lambda d, f: sent_to.append(d) or True)
+    monkeypatch.setattr(bridge, "connected_device_ids", lambda: ["pod-id", "mac-bridge-id"])
+    assert routes.push_refresh(s) is False and sent_to == []          # nothing known: no guess
+    monkeypatch.setattr(routes, "_request_device_id", lambda handler: "mac-bridge-id")
+    routes._seen(s, object())
+    assert s.settings()["mac_device_id"] == "mac-bridge-id"
+    assert routes.push_refresh(s) is True and sent_to == ["mac-bridge-id"]
+    assert routes._mac_connected(s) is True
 
 
 def test_settings_toggles_and_card_fields(st, sent):

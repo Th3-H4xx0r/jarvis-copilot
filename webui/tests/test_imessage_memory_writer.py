@@ -333,3 +333,43 @@ def test_push_facts_sends_one_alert_to_phones(monkeypatch):
     assert token == "t1" and data == {"type": "imessage_facts", "burst": "one|1"}
     assert alert["title"] == "2 new facts from Sam Lee" and alert["category"] == "IMESSAGE_FACTS"
     assert alert["body"] == "Fact A is here — and 1 more"
+
+
+
+def test_failed_card_write_goes_back_to_waiting(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
+
+    class Refusing(FakeMemory):
+        def remember(self, body, **kw):
+            return None
+
+    assert w.decide_facts(st, burst="one|1", store=True, memory=Refusing()) == 0
+    assert st.pending_count() == 1
+
+
+def test_forget_during_store_takes_the_fact_back(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
+
+    class ForgetsMidway(FakeMemory):
+        def remember(self, body, **kw):
+            st.forget_chat("one")                 # he presses Forget while it stores
+            return super().remember(body, **kw)
+
+    mem = ForgetsMidway()
+    assert w.decide_facts(st, burst="one|1", store=True, memory=mem) == 0
+    assert {"source_prefix": "imessage:one:fact:1-1:f"} in mem.forgot
+
+
+def test_restart_releases_stuck_cards_and_no_duplicate_cards(st, pushes):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
+    (burst,) = st.open_bursts(T0 + GAP_SECONDS)
+    st.begin_burst(burst)
+    st.add_fact_cards(burst, "Sam Lee", [("Fact from a cut-off try", "b")], "imessage:one:fact:1-1:f")
+    st.take_cards(burst="one|1")                  # claimed, then the server died
+    mem = FakeMemory()
+    w.recover(st, memory=mem)
+    assert st.pending_count() == 1                # back to waiting...
+    w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
+    assert [c["fact"] for c in st.pending_facts()] == ["Sam Lee's address is 12 Oak St, Oakland"]

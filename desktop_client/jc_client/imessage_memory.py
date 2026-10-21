@@ -206,7 +206,7 @@ def read_recent(db, guid: str, limit: int = PREVIEW_MESSAGES) -> list:
     ``{ts, sender, is_from_me, text}`` with one-time codes hidden. Any chat —
     a preview is how he decides whether to tick it."""
     db.row_factory = sqlite3.Row
-    rows = db.execute(_MESSAGE_SQL.format(where="c.guid = ?").replace("ORDER BY m.ROWID", "ORDER BY m.ROWID DESC"),
+    rows = db.execute(_MESSAGE_SQL.format(where="c.guid = ?").replace("ORDER BY m.ROWID", "ORDER BY m.date DESC, m.ROWID DESC"),
                       (guid, int(limit) * 2)).fetchall()
     out, seen = [], set()
     for r in rows:
