@@ -1,40 +1,69 @@
 import SwiftUI
 
 /// A chat's latest messages, asked of the Mac live (nothing is kept on the
-/// server), so he can see what a chat is before ticking it. The tick is here too.
+/// server), so he can see what a chat is before ticking it. The tick is here too,
+/// and a Memories tab with what Jarvis already remembers from it.
 struct IMessagePreviewSheet: View {
     let chat: IMessageChat
     let store: IMessageMemoryStore
 
+    enum Tab: String, CaseIterable, Identifiable {
+        case messages = "Messages"
+        case memories = "Memories"
+
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @State private var tab: Tab = .messages
     @State private var messages: [IMessagePreviewMessage]?
     @State private var error: String?
     /// Bumped by Retry, which re-runs the load task.
     @State private var attempt = 0
+    @State private var memories: IMessageChatMemoriesStore
+
+    init(chat: IMessageChat, store: IMessageMemoryStore) {
+        self.chat = chat
+        self.store = store
+        _memories = State(initialValue: IMessageChatMemoriesStore(guid: chat.guid))
+    }
 
     /// The chat as the store has it now, so the tick follows the server's answer.
     private var live: IMessageChat { store.card?.chats.first { $0.guid == chat.guid } ?? chat }
 
     var body: some View {
         NavigationStack {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaInset(edge: .top, spacing: 0) { tickHeader }
-                .jcScreen()
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        HStack(spacing: 8) {
-                            Text(live.displayName)
-                                .font(.headline)
-                                .foregroundStyle(JcTheme.text)
-                                .lineLimit(1)
-                            if live.isGroup { StatusPill("Group", color: JcTheme.accent, dense: true) }
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            Group {
+                switch tab {
+                case .messages: content
+                case .memories: IMessageChatMemoriesView(store: memories)
                 }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 8) {
+                    tickHeader
+                    tabPicker
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            }
+            .jcScreen()
+            .moreToast($memories.toast)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Text(live.displayName)
+                            .font(.headline)
+                            .foregroundStyle(JcTheme.text)
+                            .lineLimit(1)
+                        if live.isGroup { StatusPill("Group", color: JcTheme.accent, dense: true) }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
         .task(id: attempt) { await load() }
     }
@@ -57,8 +86,14 @@ struct IMessagePreviewSheet: View {
         .padding(.vertical, 10)
         .background(JcTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+    }
+
+    private var tabPicker: some View {
+        Picker("Show", selection: $tab) {
+            ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
     }
 
     @ViewBuilder private var content: some View {

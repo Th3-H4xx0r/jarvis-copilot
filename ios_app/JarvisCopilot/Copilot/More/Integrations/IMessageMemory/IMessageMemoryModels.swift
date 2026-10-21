@@ -468,6 +468,77 @@ struct IMessagePreviewMessage: Decodable, Equatable, Hashable {
     }
 }
 
+/// Everything Jarvis remembers from one chat (`GET /api/imessage-memory/memories`):
+/// saved facts, whole remembered conversations, and the fact cards still waiting
+/// for Store / Skip. Each list newest first; a missing list reads as empty.
+struct IMessageChatMemories: Decodable, Equatable {
+    var facts: [IMessageMemoryEntry]
+    var conversations: [IMessageMemoryEntry]
+    var waiting: [IMessageFact]
+
+    var isEmpty: Bool { facts.isEmpty && conversations.isEmpty && waiting.isEmpty }
+
+    init(facts: [IMessageMemoryEntry] = [], conversations: [IMessageMemoryEntry] = [],
+         waiting: [IMessageFact] = []) {
+        self.facts = facts
+        self.conversations = conversations
+        self.waiting = waiting
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        facts = try c.value(.facts, [])
+        conversations = try c.value(.conversations, [])
+        waiting = try c.value(.waiting, [])
+    }
+
+    private enum CodingKeys: String, CodingKey { case facts, conversations, waiting }
+
+    static func decode(_ data: Data) throws -> IMessageChatMemories {
+        try JSONDecoder().decode(IMessageChatMemories.self, from: data)
+    }
+}
+
+/// One stored memory: a fact, or a conversation's transcript.
+struct IMessageMemoryEntry: Decodable, Equatable, Identifiable, Hashable {
+    var id: String
+    var text: String
+    /// When it was remembered (epoch seconds).
+    var at: Double
+
+    var date: Date { Date(timeIntervalSince1970: at) }
+
+    /// The first non-blank line — a conversation row's title.
+    var title: String {
+        lines.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+    }
+
+    /// Everything after the title line — the preview, and the full transcript expanded.
+    var body: String {
+        lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var lines: [Substring] {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+    }
+
+    init(id: String, text: String, at: Double = 0) {
+        self.id = id
+        self.text = text
+        self.at = at
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        text = try c.value(.text, "")
+        at = try c.value(.at, 0)
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, text, at }
+}
+
 extension KeyedDecodingContainer {
     /// The value under `key`, or `fallback` when it is missing or null.
     fileprivate func value<T: Decodable>(_ key: Key, _ fallback: T) throws -> T {

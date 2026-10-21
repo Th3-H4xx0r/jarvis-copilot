@@ -80,6 +80,20 @@ struct IMessageMemoryAPI {
         return (reply["decided"] as? NSNumber)?.intValue ?? 0
     }
 
+    // MARK: One chat's memories
+
+    /// What Jarvis remembers from one chat: facts, conversations, cards waiting.
+    func memories(_ guid: String) async throws -> IMessageChatMemories {
+        try IMessageChatMemories.decode(try await api.get("/api/imessage-memory/memories", query: ["guid": guid]).data)
+    }
+
+    /// Deletes one memory. Returns whether the server had it (false = already gone).
+    @discardableResult
+    func deleteMemory(_ id: String) async throws -> Bool {
+        let reply = try await api.post("/api/imessage-memory/memories/delete", json: ["id": id]).object()
+        return (reply["deleted"] as? Bool) ?? false
+    }
+
     // MARK: Preview
 
     /// The chat's last messages, read live from the Mac (oldest first). The server
