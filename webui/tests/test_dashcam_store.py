@@ -986,3 +986,83 @@ def test_staging_for_other_destinations_keeps_a_direct_drive_copy(store):
     assert clip["destinations"][nas["id"]]["state"] == "pending"
     _, err = store.record_direct(cid, nas["id"], "x", None, 1)
     assert err == "not_direct"
+
+
+# ── tags ─────────────────────────────────────────────────────────────────────
+
+def _pair(store, start="2026-10-01T20:40:12Z", kind="normal"):
+    """A front clip and the rear clip of the same moment (2 s apart), as the camera records them."""
+    rows = store.apply_inventory(CAM, [item("f.MP4", kind=kind, start=start),
+                                       item("r.MP4", kind=kind, lens="rear", start="2026-10-01T20:40:14Z")])
+    return rows[0]["id"], rows[1]["id"]
+
+
+def test_presets_come_first_and_custom_tags_follow(store):
+    assert [t["id"] for t in store.tags()] == ["accident", "near_miss", "bad_driver", "scenic"]
+    assert all(t["preset"] for t in store.tags())
+    tag, err = store.add_tag("  Pothole  ")
+    assert err is None and tag == {"id": "pothole", "name": "Pothole", "preset": False}
+    assert [t["name"] for t in store.tags()][-1] == "Pothole"
+
+
+def test_a_tag_name_is_not_added_twice(store):
+    assert store.add_tag("accident")[0]["id"] == "accident"
+    first, _ = store.add_tag("Road trip")
+    again, _ = store.add_tag(" ROAD TRIP ")
+    assert again == first and len(store.tags()) == 5
+    assert store.add_tag("   ")[1] and store.add_tag("x" * 33)[1]
+    # Another name that slugs the same gets its own id.
+    assert store.add_tag("Road-trip")[0]["id"] == "road_trip_2"
+
+
+def test_tags_are_set_on_the_clip_and_its_other_lens(store):
+    front, rear = _pair(store)
+    clips, err = store.set_clip_tags(front, ["scenic", "accident", "accident"])
+    assert err is None and [c["id"] for c in clips] == [front, rear]
+    assert store.get_clip(front)["tags"] == ["accident", "scenic"]        # catalog order, once each
+    assert store.get_clip(rear)["tags"] == ["accident", "scenic"]
+    store.set_clip_tags(rear, [])
+    assert store.get_clip(front)["tags"] == [] and store.get_clip(rear)["tags"] == []
+
+
+def test_a_clip_without_a_partner_changes_alone(store):
+    (photo,) = [r["id"] for r in store.apply_inventory(CAM, [item("p.JPG", kind="photo")])]
+    other = store.apply_inventory(CAM, [item("far.MP4", lens="rear", start="2026-10-01T21:00:00Z")])[0]["id"]
+    clips, _ = store.set_clip_tags(photo, ["scenic"])
+    assert [c["id"] for c in clips] == [photo]
+    assert "tags" not in store.get_clip(other) or store.get_clip(other)["tags"] == []
+
+
+def test_an_unknown_tag_writes_nothing(store):
+    front, _ = _pair(store)
+    clips, err = store.set_clip_tags(front, ["accident", "nope"])
+    assert clips is None and "nope" in err
+    assert store.get_clip(front).get("tags", []) == []
+    assert store.set_clip_tags("c_00000000000000000000", ["accident"]) == (None, "clip not found")
+
+
+def test_deleting_a_custom_tag_strips_it_from_clips_and_presets_stay(store):
+    front, rear = _pair(store)
+    tag, _ = store.add_tag("Pothole")
+    store.set_clip_tags(front, ["accident", tag["id"]])
+    assert store.delete_tag(tag["id"]) == (True, None)
+    assert store.get_clip(front)["tags"] == ["accident"] and store.get_clip(rear)["tags"] == ["accident"]
+    assert tag["id"] not in [t["id"] for t in store.tags()]
+    assert store.delete_tag("accident") == (False, "preset")
+    assert store.delete_tag("nope") == (False, "not_found")
+
+
+def test_clips_filter_by_tag(store):
+    front, rear = _pair(store)
+    store.apply_inventory(CAM, [item("other.MP4", start="2026-10-01T22:00:00Z")])
+    store.set_clip_tags(front, ["near_miss"])
+    page, _ = store.list_clips(tag="near_miss")
+    assert {c["id"] for c in page} == {front, rear}
+    assert store.list_clips(tag="scenic")[0] == []
+
+
+def test_settings_updates_keep_custom_tags(store):
+    tag, _ = store.add_tag("Pothole")
+    store.update_settings({"rules": {"keep_on_phone": True}})
+    assert tag in store.tags()
+    assert "tags" not in store.get_settings()

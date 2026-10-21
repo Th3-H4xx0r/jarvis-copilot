@@ -749,3 +749,31 @@ def test_reconnect_with_a_pasted_token_and_its_errors(H, store, relay, monkeypat
     sftp = add_dest(H)
     assert H("POST", f"/destinations/{sftp['id']}/reconnect", {"token": "{}"})[0] == 400
     assert H("POST", "/destinations/d_00000000/reconnect", {"token": "{}"})[0] == 404
+
+
+def test_tags_end_to_end(H, store):
+    clips = [{"path": "/sd/Normal/F/f.MP4", "kind": "normal", "lens": "front", "start": "2026-10-01T20:40:12Z",
+              "duration": 60, "size": 20},
+             {"path": "/sd/Normal/R/r.MP4", "kind": "normal", "lens": "rear", "start": "2026-10-01T20:40:13Z",
+              "duration": 60, "size": 20}]
+    status, payload = H("POST", "/inventory", {"camera_id": CAM, "clips": clips})
+    front, rear = [row["id"] for row in payload["clips"]]
+    status, payload = H("GET", "/tags")
+    assert status == 200 and [t["id"] for t in payload["tags"]] == ["accident", "near_miss", "bad_driver", "scenic"]
+    status, payload = H("POST", "/tags", {"name": "Pothole"})
+    assert status == 200 and payload["tag"]["id"] == "pothole"
+    assert H("POST", "/tags", {"name": ""})[0] == 400
+    status, payload = H("POST", f"/clips/{front}/tags", {"tags": ["pothole", "accident"]})
+    assert status == 200 and [c["id"] for c in payload["clips"]] == [front, rear]
+    assert payload["clips"][1]["tags"] == ["accident", "pothole"]
+    assert H("POST", f"/clips/{front}/tags", {"tags": ["nope"]})[0] == 400
+    assert H("POST", f"/clips/{front}/tags", {"tags": "accident"})[0] == 400
+    assert H("POST", "/clips/c_00000000000000000000/tags", {"tags": []})[0] == 404
+    status, payload = H("GET", "/clips", query={"tag": ["pothole"]})
+    assert status == 200 and {c["id"] for c in payload["clips"]} == {front, rear}
+    assert H("GET", f"/clips/{rear}")[1]["clip"]["tags"] == ["accident", "pothole"]
+    assert H("POST", "/tags/accident/delete", {})[0] == 400
+    assert H("POST", "/tags/nope/delete", {})[0] == 404
+    assert H("POST", "/tags/pothole/delete", {}) == (200, {"ok": True})
+    assert H("GET", "/clips", query={"tag": ["pothole"]})[1]["clips"] == []
+    assert H("GET", f"/clips/{front}")[1]["clip"]["tags"] == ["accident"]

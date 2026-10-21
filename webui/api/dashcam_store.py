@@ -65,6 +65,15 @@ DEST_STATES = ("pending", "uploading", "done", "failed")
 DEST_TYPES = ("drive", "sftp", "ftp", "smb")
 DIRECT_TYPES = ("drive",)              # the phone uploads to these itself; the server only records it
 STATE_FILTERS = ("on_camera_only", "on_phone", "uploading", "uploaded", "failed", "pending_upload")
+# Tags he puts on clips by hand. These four exist from the start and can't be deleted; his own follow.
+PRESET_TAGS = (
+    {"id": "accident", "name": "Accident", "preset": True},
+    {"id": "near_miss", "name": "Near miss", "preset": True},
+    {"id": "bad_driver", "name": "Bad driver", "preset": True},
+    {"id": "scenic", "name": "Scenic", "preset": True},
+)
+TAG_NAME_MAX = 32
+PARTNER_WINDOW_S = 10                  # front and rear clips of one moment start this close together
 
 CHUNK_SIZE = 16 * 1024 * 1024          # under the edge nginx's 64 MiB body cap
 MIN_CHUNK_SIZE = 256 * 1024            # smallest chunk a phone may ask for
@@ -310,8 +319,102 @@ class DashcamStore:
             current["rules"].update(rules)
             if "staging_cap_bytes" in patch:
                 current["staging_cap_bytes"] = patch["staging_cap_bytes"]
-            _write_json(self.base / "settings.json", current)
+            doc = self._settings_doc()          # keeps what else lives there (his tags)
+            doc.update(current)
+            _write_json(self.base / "settings.json", doc)
         return current, []
+
+    def _settings_doc(self) -> dict:
+        doc = _read_json(self.base / "settings.json", None)
+        return doc if isinstance(doc, dict) else {}
+
+    # ── tags ─────────────────────────────────────────────────────────────────
+    def _custom_tags(self) -> list[dict]:
+        return [{"id": t["id"], "name": t["name"], "preset": False}
+                for t in self._settings_doc().get("tags") or []
+                if isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("name"), str)]
+
+    def _save_custom_tags(self, custom: list[dict]) -> None:
+        doc = self._settings_doc()
+        doc["tags"] = [{"id": t["id"], "name": t["name"]} for t in custom]
+        _write_json(self.base / "settings.json", doc)
+
+    def tags(self) -> list[dict]:
+        """The presets, then his own tags in the order he made them."""
+        return [dict(t) for t in PRESET_TAGS] + self._custom_tags()
+
+    def add_tag(self, name) -> tuple[dict | None, str | None]:
+        """A tag of his own. A name he already has (any case, any spacing) is that tag, not a second one."""
+        name = " ".join(str(name or "").split())
+        if not name or len(name) > TAG_NAME_MAX:
+            return None, f"a tag name is 1 to {TAG_NAME_MAX} characters"
+        with _LOCK:
+            tags = self.tags()
+            for t in tags:
+                if t["name"].casefold() == name.casefold():
+                    return t, None
+            base = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_") or "tag"
+            ids = {t["id"] for t in tags}
+            tag_id, n = base, 2
+            while tag_id in ids:
+                tag_id, n = f"{base}_{n}", n + 1
+            tag = {"id": tag_id, "name": name, "preset": False}
+            self._save_custom_tags(self._custom_tags() + [tag])
+        return tag, None
+
+    def delete_tag(self, tag_id: str) -> tuple[bool, str | None]:
+        """One of his own tags goes, from the list and from every clip. The presets stay."""
+        if any(t["id"] == tag_id for t in PRESET_TAGS):
+            return False, "preset"
+        with _LOCK:
+            custom = self._custom_tags()
+            if not any(t["id"] == tag_id for t in custom):
+                return False, "not_found"
+            self._save_custom_tags([t for t in custom if t["id"] != tag_id])
+            for clip in self.all_clips():
+                if tag_id in (clip.get("tags") or []):
+                    clip["tags"] = [t for t in clip["tags"] if t != tag_id]
+                    self._save_clip(clip)
+        return True, None
+
+    def partner_of(self, clip: dict) -> dict | None:
+        """The other camera's clip of the same moment: same camera and kind, another lens, starting within
+        PARTNER_WINDOW_S — the nearest when there are several."""
+        start = parse_iso(clip.get("start"))
+        if start is None:
+            return None
+        best = None
+        for other in self.all_clips():
+            if (other["id"] == clip["id"] or other.get("camera_id") != clip.get("camera_id")
+                    or other.get("kind") != clip.get("kind") or other.get("lens") == clip.get("lens")):
+                continue
+            t = parse_iso(other.get("start"))
+            if t is None or abs(t - start) >= PARTNER_WINDOW_S:
+                continue
+            if best is None or abs(t - start) < best[0]:
+                best = (abs(t - start), other)
+        return best[1] if best else None
+
+    def set_clip_tags(self, clip_id: str, tag_ids) -> tuple[list[dict] | None, str | None]:
+        """Sets the clip's tags, and the same on the other camera's clip of that moment, so both views of
+        an accident carry it. Tags keep the list's order, once each. Returns the clips set, this one first."""
+        if not isinstance(tag_ids, list) or not all(isinstance(t, str) for t in tag_ids):
+            return None, "tags must be a list of tag ids"
+        with _LOCK:
+            order = [t["id"] for t in self.tags()]
+            unknown = [t for t in tag_ids if t not in order]
+            if unknown:
+                return None, f"unknown tag {unknown[0]}"
+            clip = self.get_clip(clip_id)
+            if clip is None:
+                return None, "clip not found"
+            wanted = [t for t in order if t in set(tag_ids)]
+            partner = self.partner_of(clip)
+            changed = [clip] + ([partner] if partner else [])
+            for c in changed:
+                c["tags"] = list(wanted)
+                self._save_clip(c)
+        return changed, None
 
     # ── clips ────────────────────────────────────────────────────────────────
     @staticmethod
@@ -438,7 +541,7 @@ class DashcamStore:
                 "phone_state": (clip.get("phone") or {}).get("state")}
 
     def list_clips(self, *, kind=None, lens=None, state=None, drive=None, start_from=None, start_to=None,
-                   cursor=None, limit=100) -> tuple[list[dict], str | None]:
+                   cursor=None, limit=100, tag=None) -> tuple[list[dict], str | None]:
         """Newest first. ``cursor`` is the last id of the previous page; the next cursor is None at the end."""
         dests = self._dest_doc()
         lo = parse_iso(start_from) if start_from else None
@@ -450,6 +553,8 @@ class DashcamStore:
             if lens and clip.get("lens") != lens:
                 continue
             if drive and clip.get("drive_id") != drive:
+                continue
+            if tag and tag not in (clip.get("tags") or []):
                 continue
             if state and not _matches_state(clip, state, dests):
                 continue

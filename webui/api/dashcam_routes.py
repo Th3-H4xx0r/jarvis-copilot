@@ -22,7 +22,12 @@ Endpoints (GET/POST/DELETE only)::
     POST   /clips/<id>/thumb            raw JPEG (<= 512 KiB) -> {ok}
     POST   /clips/<id>/phone {state, error?} -> {ok, phone}
     POST   /clips/<id>/retry            -> {ok, requeued}
-    GET    /clips?kind&lens&state&drive&from&to&cursor&limit -> {clips, next}
+    GET    /clips?kind&lens&state&drive&tag&from&to&cursor&limit -> {clips, next}
+    GET    /tags                        -> {tags:[{id, name, preset}]}   presets first, then his own
+    POST   /tags {name}                 -> {ok, tag}   (a name he has already, any case, is that tag)
+    POST   /tags/<id>/delete            -> {ok}   | 400 preset | 404; strips it from every clip
+    POST   /clips/<id>/tags {tags:[ids]} -> {ok, clips:[clip, partner?]}   also sets the other lens's
+                                           clip of the same moment
     GET    /clips/<id>                  -> {ok, clip, fixes, destinations:[{id, name, type, state, error, attempts, remote_path, next_at, updated_at}]}
     GET    /clips/<id>/thumb            -> image/jpeg
     GET    /clips/<id>/stream           -> clip bytes (Range/206): staging file first, else the first
@@ -98,6 +103,8 @@ _RE_DEST = re.compile(rf"^/destinations/{_DEST}$")
 _RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete|token|reconnect)$")
 _RE_DEST_OAUTH = re.compile(rf"^/destinations/{_DEST}/oauth$")
 _RE_CLIP_DIRECT = re.compile(rf"^/clips/{_CLIP}/direct$")
+_RE_CLIP_TAGS = re.compile(rf"^/clips/{_CLIP}/tags$")
+_RE_TAG_DELETE = re.compile(r"^/tags/([a-z0-9_]{1,64})/delete$")
 
 _UNKNOWN = (404, {"ok": False, "error": "unknown dashcam endpoint"})
 
@@ -217,6 +224,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
             return 200, snap
         if p == "/clips":
             return _list_clips(store, q)
+        if p == "/tags":
+            return 200, {"tags": store.tags()}
         if p == "/drives":
             return _list_drives(store, q)
         if p == "/destinations":
@@ -279,6 +288,16 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
         m = _RE_CLIP_DIRECT.match(p)
         if m:
             return _record_direct(store, m.group(1), body)
+        if p == "/tags":
+            tag, err = store.add_tag(body.get("name"))
+            return (200, {"ok": True, "tag": tag}) if tag else _err(400, err)
+        m = _RE_TAG_DELETE.match(p)
+        if m:
+            ok, err = store.delete_tag(m.group(1))
+            return (200, {"ok": True}) if ok else _err(404 if err == "not_found" else 400, err)
+        m = _RE_CLIP_TAGS.match(p)
+        if m:
+            return _set_tags(store, m.group(1), body)
         return _UNKNOWN
 
     if method == "DELETE":
@@ -363,11 +382,21 @@ def _list_clips(store, q):
     clips, nxt = store.list_clips(kind=q.get("kind") or None, lens=q.get("lens") or None,
                                   state=q.get("state") or None, drive=q.get("drive") or None,
                                   start_from=q.get("from") or None, start_to=q.get("to") or None,
-                                  cursor=q.get("cursor") or None, limit=limit)
+                                  cursor=q.get("cursor") or None, limit=limit, tag=q.get("tag") or None)
     dests = store.destinations_by_id()
     for clip in clips:
         clip["uploaded"] = store.is_uploaded(clip, dests)
     return 200, {"clips": clips, "next": nxt}
+
+
+def _set_tags(store, cid, body):
+    clips, err = store.set_clip_tags(cid, body.get("tags"))
+    if clips is None:
+        return _err(404 if err == "clip not found" else 400, err)
+    dests = store.destinations_by_id()
+    for clip in clips:
+        clip["uploaded"] = store.is_uploaded(clip, dests)
+    return 200, {"ok": True, "clips": clips}
 
 
 def _dest_rows(store, clip: dict) -> list[dict]:
