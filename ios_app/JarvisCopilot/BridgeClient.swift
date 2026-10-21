@@ -126,8 +126,7 @@ final class BridgeClient: NSObject, ObservableObject {
     /// The socket has been down long enough that holding the background allowance
     /// is pure cost. `connect()` clears it the moment the server says hello.
     private var isInSustainedOutage: Bool {
-        guard let outageStartedAt else { return false }
-        return Date().timeIntervalSince(outageStartedAt) >= Self.outageGraceSeconds
+        reconnect.inOutage(at: Date(), grace: Self.outageGraceSeconds)
     }
 
     // MARK: Per-device exposure
@@ -189,11 +188,10 @@ final class BridgeClient: NSObject, ObservableObject {
         return URLSession(configuration: config)
     }()
     private var pingTask: Task<Void, Never>?
-    private var reconnectAttempt = 0
+    /// Backoff and the outage clock; a hello only counts once the socket stays up.
+    private var reconnect = BridgeReconnect()
     /// When the socket last carried anything inbound. See `startPings()`.
     private var lastInboundAt = Date()
-    /// When the current run of failed connections began, or nil while connected.
-    private var outageStartedAt: Date?
 
     private override init() { super.init() }
 
@@ -441,7 +439,8 @@ final class BridgeClient: NSObject, ObservableObject {
                 guard let self, self.socket === task else { return }
                 switch result {
                 case .failure(let error):
-                    self.handleDrop(error.localizedDescription)
+                    self.handleDrop(error.localizedDescription,
+                                    cause: BridgeReconnect.cause(of: error, closeCode: task.closeCode.rawValue))
                 case .success(let message):
                     EnergyLedger.shared.count("bridge.in")
                     self.lastActivity = Date()
@@ -457,8 +456,9 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
-    private func handleDrop(_ reason: String) {
+    private func handleDrop(_ reason: String, cause: String) {
         EnergyLedger.shared.count("bridge.drop")
+        EnergyLedger.shared.count("bridge.drop.\(cause)")
         socket = nil
         BridgeTopics.shared.forget()
         pingTask?.cancel(); pingTask = nil
@@ -467,8 +467,7 @@ final class BridgeClient: NSObject, ObservableObject {
         session = nil
         guard enabled, isPaired else { status = .off; return }
         status = .failed(reason)
-        reconnectAttempt = min(reconnectAttempt + 1, 6)
-        if outageStartedAt == nil { outageStartedAt = Date() }
+        let wait = reconnect.drop(at: Date())
         // A keepalive exists to keep a LIVE socket alive. Once the socket has
         // been gone for minutes — aeroplane mode, no signal, server down — the
         // silent audio is buying nothing and still costing a full day of battery,
@@ -476,9 +475,8 @@ final class BridgeClient: NSObject, ObservableObject {
         // which is the fallback this whole path already has. Re-armed by the next
         // successful connect, or by the next foregrounding.
         syncKeepalive()
-        let delay = UInt64(pow(2.0, Double(reconnectAttempt))) * 1_000_000_000
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: delay)
+            try? await Task.sleep(for: .seconds(wait))
             self?.connect()
         }
     }
@@ -492,8 +490,7 @@ final class BridgeClient: NSObject, ObservableObject {
 
         switch type {
         case "hello":
-            reconnectAttempt = 0
-            outageStartedAt = nil
+            reconnect.hello(at: Date())
             syncKeepalive()      // back online: the allowance is worth holding again
             status = .online
             sentCatalogue = nil  // the server knows nothing of us yet
@@ -587,7 +584,8 @@ final class BridgeClient: NSObject, ObservableObject {
             guard let error else { return }
             Task { @MainActor in
                 guard let self, self.socket === socket else { return }   // already closed or dropped
-                self.handleDrop(error.localizedDescription)
+                self.handleDrop(error.localizedDescription,
+                                cause: BridgeReconnect.cause(of: error, closeCode: socket.closeCode.rawValue))
             }
         }
     }

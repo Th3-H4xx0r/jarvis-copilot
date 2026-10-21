@@ -216,6 +216,7 @@
 		2DDFC7BC8830C7D03EAD898E /* DashcamLinkable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90A532F9507E8828DF76ECA /* DashcamLinkable.swift */; };
 		2E12423F0B8580476368531D /* LiveActivityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B3E4ABF4C21C088EC1CCAD /* LiveActivityModels.swift */; };
 		2E7E24501CF070BD04CF5A14 /* SkillRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4C39883A267185DB68992 /* SkillRegistry.swift */; };
+		2E9532D76494BC45E2E7E66B /* BridgeReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */; };
 		2EA9F9CDA0F76FB0442D74F0 /* CarLightsMusic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68528C62EDA28F7D67F6281E /* CarLightsMusic.swift */; };
 		2EB5AA667B4024DE7FD78172 /* CarLightsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296993EE95A7073BE01AFB11 /* CarLightsPage.swift */; };
 		2EFF3A3A037E2F499D9F6213 /* SceneStillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702664CBDC480A1A4457919D /* SceneStillTests.swift */; };
@@ -839,6 +840,7 @@
 		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
 		B7855CFF3F28D8DE39AEDFB2 /* CarCardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132AAD600C97329A4954EDA6 /* CarCardText.swift */; };
 		B7FE2B1590C9CEB980287CC2 /* BandMeasureSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */; };
+		B824037A86A3E016B210D41D /* BridgeReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */; };
 		B8772BBE4770F5AF25A3C1DB /* SpeechServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F3BF326978B8240E913298 /* SpeechServices.swift */; };
 		B8AEAF21BE8844C5268A67FF /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255E22F98CF91A5B288D04E /* VoiceSession.swift */; };
 		B946EE6519E9E3E9CE523832 /* WidgetBlockInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0858B1378CF509408FC17B /* WidgetBlockInspector.swift */; };
@@ -1425,6 +1427,7 @@
 		2E7F6CFA348BC6D331132861 /* HealthWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthWireTests.swift; sourceTree = "<group>"; };
 		2EAF49343F83819ADBB1C63C /* ChatStreamReducerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducerTests.swift; sourceTree = "<group>"; };
 		2EDDD964DC3E96BEC2E2D53B /* JarvisMemoryAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisMemoryAPI.swift; sourceTree = "<group>"; };
+		2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeReconnectTests.swift; sourceTree = "<group>"; };
 		2F014A87B5A8D7B79F633133 /* RingProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProtocol.swift; sourceTree = "<group>"; };
 		2F6F58D2A73AD00B96144243 /* BandSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandSync.swift; sourceTree = "<group>"; };
 		2F9FB138211890FCE7A9DF4E /* KanbanAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanAPI.swift; sourceTree = "<group>"; };
@@ -2284,6 +2287,7 @@
 		F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LensCaptionSurface.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		F417A42373CEB73AA107565D /* ButtonKey.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonKey.swift; sourceTree = "<group>"; };
+		F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeReconnect.swift; sourceTree = "<group>"; };
 		F457BDB67BB9C8C7C9B457A9 /* CarLightsManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsManager.swift; sourceTree = "<group>"; };
 		F472BD206B2180B7F507D7EC /* KanbanForms.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanForms.swift; sourceTree = "<group>"; };
 		F49019093D36B19BD88958D4 /* TrainingModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingModels.swift; sourceTree = "<group>"; };
@@ -2872,6 +2876,7 @@
 				975E31E42A842EE614B01831 /* AgentActivityRenderTests.swift */,
 				41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */,
 				76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */,
+				2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4169,6 +4174,7 @@
 				DEF634F684255E22206A46C5 /* WearableControlsSection.swift */,
 				F2AB49951D6DCEFDA46066AF /* WearableLinks.swift */,
 				851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */,
+				F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */,
 			);
 			name = .;
 			path = .;
@@ -5070,6 +5076,7 @@
 				ABA90AD3735565212DAE0D08 /* IMessageFactsTests.swift in Sources */,
 				B387BACB4AF6FF702D34021D /* IMessageChatMemoriesTests.swift in Sources */,
 				038069EF52B3458FEBCFCA18 /* DashcamExportTests.swift in Sources */,
+				B824037A86A3E016B210D41D /* BridgeReconnectTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5846,6 +5853,7 @@
 				843BAAE70DB8B2224C48ACC6 /* IMessageChatMemoriesView.swift in Sources */,
 				908904349B366F2BDD697624 /* DashcamExport.swift in Sources */,
 				C0344ED609AF77AD645073C9 /* DashcamShare.swift in Sources */,
+				2E9532D76494BC45E2E7E66B /* BridgeReconnect.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
