@@ -203,7 +203,7 @@ def resolve_extraction_model(agent) -> Tuple[str, str]:
         if found:
             return found[0], prefix + found[1]
     ref = _default_model()
-    return ref, f"Default → model {ref}"
+    return ref, f"Default → model {ref}" if ref else "Default → no model set"
 
 
 def _one_shot(model_ref: str, prompt: str) -> str:

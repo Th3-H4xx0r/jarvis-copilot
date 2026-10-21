@@ -32,11 +32,13 @@ async function renderIntegrationsSidebar(box) {
     return;
   }
   _intgList = data.integrations || [];
+  box.innerHTML = '';
+  // Built in, so it leads the list whether or not anything else exists yet.
+  if (typeof immSidebarCard === 'function') box.appendChild(immSidebarCard());
   if (!_intgList.length) {
-    box.innerHTML = `<div class="intg-note">${esc(t('intg_none'))}</div>`;
+    box.insertAdjacentHTML('beforeend', `<div class="intg-note">${esc(t('intg_none'))}</div>`);
     return;
   }
-  box.innerHTML = '';
   for (const item of _intgList) box.appendChild(_intgCard(item));
 }
 
