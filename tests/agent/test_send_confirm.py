@@ -420,3 +420,10 @@ def test_the_dispatcher_waits_for_send_on_a_typed_turn(chat, monkeypatch):
     chat["answers"].append("once")
     model_tools.handle_function_call("device_make_call", {"number": "2096277732"}, task_id=TYPED, session_id=TYPED)
     assert sent == ["device_make_call"]
+
+
+def test_group_send_is_confirmed_naming_the_group():
+    from agent import send_confirm as sc
+    item = sc.classify("device_messages_send", {"group": "F1", "text": "hello"})
+    assert item is not None and item.kind == "text" and item.to == "group “F1”"
+    assert sc._contact(item.to) == {}            # no person card lookup for a group

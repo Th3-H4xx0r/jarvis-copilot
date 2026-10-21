@@ -163,7 +163,8 @@ def classify(tool: str, args: Any) -> Optional[Item]:
     if tool == "device_make_call":
         return Item("call", tool, s("number", "to"), via=_VIA[tool])
     if tool in ("device_send_sms", "device_messages_send"):
-        return Item("text", tool, s("number", "to"), text=s("message", "text", "body"), via=_VIA[tool])
+        to = s("number", "to") or (f"group “{s('group')}”" if s("group") else "")
+        return Item("text", tool, to, text=s("message", "text", "body"), via=_VIA[tool])
     if tool == "device_open_url":
         return _from_url(s("url"))
     if tool == "device_phone_control":
@@ -313,6 +314,8 @@ def _contact(to: str) -> dict:
     """The person's full name and photo from his iPhone's contacts, as the voice card shows them
     ({} when it doesn't know them, isn't reachable, or takes too long)."""
     if not to or ":" in to:          # a channel target (telegram:…), not a person in his contacts
+        return {}
+    if to.startswith("group “"):   # an iMessage group chat: no one person's card to show
         return {}
     now = _clock()
     with _lock:

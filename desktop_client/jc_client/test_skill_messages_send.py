@@ -31,7 +31,7 @@ def osa(monkeypatch):
 
 def test_registered_for_the_server():
     entry = _REGISTRY["messages_send"]
-    assert set(entry["input_schema"]["required"]) == {"to", "text"}
+    assert set(entry["input_schema"]["required"]) == {"text"}   # `to` or `group`
 
 
 def test_the_text_is_an_argument_never_part_of_the_script(osa):
@@ -92,3 +92,42 @@ def test_no_variable_is_named_like_a_messages_term():
 
     names = set(re.findall(r"\bset (\w+) to\b", mac._SEND_MESSAGE_SCRIPT))
     assert not names & {"handle", "body", "text", "name", "id", "service", "account", "chat", "sms"}, names
+
+
+# ── group chats ──────────────────────────────────────────────────────────
+GROUPS = [
+    {"guid": "iMessage;+;chat111", "name": "F1", "is_group": True,
+     "participants": [{"handle": "+15550001", "label": "Alan Johnson"}, {"handle": "+15550002", "label": "Omar Cano"}]},
+    {"guid": "iMessage;+;chat222", "name": "Dad, Mom", "is_group": True,
+     "participants": [{"handle": "+15550003", "label": "Dad"}, {"handle": "+15550004", "label": "Mom"}]},
+    {"guid": "iMessage;+;chat333", "name": "F1 Fantasy League", "is_group": True, "participants": []},
+    {"guid": "iMessage;-;+15550001", "name": "Alan Johnson", "is_group": False, "participants": []},
+]
+
+
+def test_find_group_by_name_members_and_id():
+    assert mac._find_group("my f1 gc", GROUPS)["guid"] == "iMessage;+;chat111"     # exact name wins
+    assert mac._find_group("mom and dad", GROUPS)["guid"] == "iMessage;+;chat222"  # by the people in it
+    assert mac._find_group("omar", GROUPS)["guid"] == "iMessage;+;chat111"
+    assert mac._find_group("iMessage;+;chat333", GROUPS)["name"] == "F1 Fantasy League"
+
+
+def test_find_group_ambiguous_or_missing_names_the_choices():
+    with pytest.raises(ValueError, match="several group chats .*F1 Fantasy League"):
+        mac._find_group("fantasy f1 league", GROUPS + [dict(GROUPS[2], guid="x", name="F1 Fantasy League 2025")])
+    with pytest.raises(ValueError, match="no iMessage group chat matches 'chess club'.*Dad, Mom"):
+        mac._find_group("chess club", GROUPS)
+
+
+def test_messages_send_to_a_group_uses_its_chat_id(osa, monkeypatch):
+    monkeypatch.setattr(mac, "_group_chats", lambda: GROUPS)
+    out = mac.messages_send(text="hello", group="F1 gc")
+    assert out["to"] == "F1"
+    script, chat_id, text = osa[0][2], osa[0][3], osa[0][4]
+    assert "send msg to chat id chatId" in script
+    assert chat_id == "iMessage;+;chat111" and text == "hello"
+
+
+def test_schema_offers_group():
+    schema = _REGISTRY["messages_send"]["input_schema"]
+    assert "group" in schema["properties"] and schema["required"] == ["text"]

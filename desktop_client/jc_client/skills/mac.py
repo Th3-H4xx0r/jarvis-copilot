@@ -139,28 +139,93 @@ def _message_handle(to: str) -> str:
     return "+1" + digits if len(digits) == 10 else "+" + digits
 
 
+_SEND_TO_CHAT_SCRIPT = """
+on run {chatId, msg}
+    tell application "Messages"
+        send msg to chat id chatId
+    end tell
+end run
+"""
+
+_GROUP_FILLER = re.compile(r"\b(the|my|group|groupchat|gc|chat|imessage)\b", re.I)
+
+
+def _find_group(query: str, chats: list) -> dict:
+    """The one group chat ``query`` names — by its name ("F1"), or by the
+    people in it ("Mom and Dad"). Raises ValueError naming the candidates when
+    it's ambiguous or nothing matches, so the agent can ask which."""
+    groups = [c for c in chats if c.get("is_group")]
+    exact_id = [c for c in groups if c.get("guid") == (query or "").strip()]
+    if exact_id:                       # he (or a lookup) gave the chat id itself
+        return exact_id[0]
+    q = " ".join(_GROUP_FILLER.sub(" ", (query or "").lower()).replace("&", " ").split())
+    if not q:
+        raise ValueError("group name required")
+    tokens = [t for t in re.split(r"[\s,]+", q) if t and t != "and"]
+
+    def people(c):
+        return " ".join(str(p.get("label") or p.get("handle") or "") for p in c.get("participants") or []).lower()
+
+    tiers = (
+        [c for c in groups if (c.get("name") or "").lower().strip() == q],
+        [c for c in groups if q in (c.get("name") or "").lower()],
+        [c for c in groups if tokens and all(t in (c.get("name") or "").lower() + " " + people(c)
+                                              for t in tokens)],
+    )
+    for found in tiers:
+        if len(found) == 1:
+            return found[0]
+        if len(found) > 1:
+            names = "; ".join(c.get("name") or "?" for c in found[:6])
+            raise ValueError(f"several group chats match {query!r}: {names} — ask him which one")
+    recent = "; ".join(c.get("name") or "?" for c in groups[:8])
+    raise ValueError(f"no iMessage group chat matches {query!r}. His recent group chats: {recent} "
+                     f"— ask him which one he means")
+
+
+def _group_chats() -> list:
+    """His group chats from the Messages database (needs Full Disk Access, as
+    the iMessage relay does), most recent first."""
+    import sqlite3
+
+    from jc_client import imessage_memory, imessage_relay
+    db = sqlite3.connect(f"file:{imessage_relay.DB_PATH}?mode=ro", uri=True, timeout=2)
+    try:
+        return imessage_memory.list_chats(db, 0)
+    finally:
+        db.close()
+
+
 @skill(
     "messages_send",
     "Send a text message as the user through this Mac's Messages app (iMessage, "
     "or SMS via his iPhone's text forwarding). `to` is a phone number or email — "
-    "look a contact's number up first. Use it to text someone while he is driving.",
+    "look a contact's number up first. For an iMessage GROUP chat pass `group` "
+    "(its name, or the people in it) instead of `to`. Use it to text someone while he is driving.",
     {
         "type": "object",
         "properties": {
             "to": {"type": "string", "description": "Phone number or email."},
+            "group": {"type": "string", "description": (
+                "An iMessage group chat: its name (\"F1\") or the people in it (\"Mom and Dad\").")},
             "text": {"type": "string"},
         },
-        "required": ["to", "text"],
+        "required": ["text"],
     },
     destructive=True,
 )
-def messages_send(to: str, text: str) -> dict:
-    handle = _message_handle(to)
+def messages_send(to: str = "", text: str = "", group: str = "") -> dict:
     if not (text or "").strip():
         raise ValueError("text required")
+    if group and not to:
+        chat = _find_group(group, _group_chats())
+        script, target, shown = _SEND_TO_CHAT_SCRIPT, chat["guid"], chat.get("name") or group
+    else:
+        handle = _message_handle(to)
+        script, target, shown = _SEND_MESSAGE_SCRIPT, handle, handle
     try:
         res = subprocess.run(
-            ["osascript", "-e", _SEND_MESSAGE_SCRIPT, handle, text],
+            ["osascript", "-e", script, target, text],
             capture_output=True, text=True, timeout=20, check=True,
         )
     except subprocess.CalledProcessError as exc:
@@ -170,7 +235,7 @@ def messages_send(to: str, text: str) -> dict:
                 "macOS hasn't allowed Jarvis to control Messages: on the Mac, System Settings → "
                 "Privacy & Security → Automation → turn on Messages for Python") from exc
         raise RuntimeError(f"Messages couldn't send it: {why}") from exc
-    return {"ok": True, "to": handle, "via": (res.stdout or "").strip() or "iMessage"}
+    return {"ok": True, "to": shown, "via": (res.stdout or "").strip() or "iMessage"}
 
 
 # ── Window management ─────────────────────────────────────────────────────
