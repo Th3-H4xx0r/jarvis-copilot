@@ -1008,3 +1008,45 @@ def test_a_phone_without_open_url_opens_spotify_and_waits(monkeypatch, spawned, 
     assert [c[1] for c in phone.calls][-1] == "open_app"
     assert "Opening Spotify" in payload["note"]
     assert len(runs) == 1
+
+
+def test_a_listed_phone_that_isnt_playing_anything_is_woken_with_a_resume(monkeypatch, spawned, car_turn) -> None:
+    # 00:18: "nothing playing anywhere" for 30 s while the link opened seven times. Live at
+    # 00:10 a resume aimed at the listed iPhone is what made it play from cold.
+    phone, runs = car_turn
+    stub = _PlayerStub(device_polls=[[PHONE]],
+                       playback_states=[{"empty": True}, {"empty": True}, _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert stub.resume_calls == [{"device_id": "phone-1"}]
+    assert stub.play_calls == []
+
+
+def test_a_woken_phone_on_another_song_is_switched_to_the_asked_one(monkeypatch, spawned, car_turn) -> None:
+    phone, runs = car_turn
+    stub = _PlayerStub(device_polls=[[PHONE]],
+                       playback_states=[{"empty": True}, {"empty": True}, _playing(OTHER_TRACK), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert stub.resume_calls == [{"device_id": "phone-1"}]
+    assert stub.pause_calls == 1 and len(_opens(phone)) == 2  # the first open, then after the pause
+    assert stub.play_calls == []
+
+
+def test_a_phone_paused_on_another_song_gets_the_link_not_a_resume(monkeypatch, spawned, car_turn) -> None:
+    # 00:12: active, paused, holding nothing useful — the link opened then plays.
+    phone, runs = car_turn
+    stub = _PlayerStub(device_polls=[[PHONE_ACTIVE]],
+                       playback_states=[{"empty": True}, _playing(OTHER_TRACK, is_playing=False), _playing(TRACK)])
+    _use(monkeypatch, stub)
+
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "played"
+    assert stub.resume_calls == [] and len(_opens(phone)) == 2

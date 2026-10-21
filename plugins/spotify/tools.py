@@ -442,6 +442,7 @@ def _settle_on_phone(pending: _PendingPlay, client: Any, phone_id: str, uri: str
     Returns "played", "cancelled" (a newer play or a pause) or "timeout"."""
     wait = sleep or time.sleep
     started = opened_at = clock()
+    woken = False
     while clock() - started < _PHONE_SETTLE_S:
         wait(_PHONE_CHECK_S)
         if pending.cancelled.is_set():
@@ -466,6 +467,20 @@ def _settle_on_phone(pending: _PendingPlay, client: Any, phone_id: str, uri: str
             if _switch_on_phone(client, phone_id, uri, credentials, device):
                 continue
             opened_at = -1e9  # paused: open the song right away
+        elif on_phone:
+            opened_at = -1e9  # active, paused on another song: the link opened now plays (live 00:12)
+        elif not woken:
+            # Not Spotify's active player ("nothing playing anywhere" for 30 s, 00:18): a resume
+            # aimed at the listed iPhone is what made it play from cold (live 00:10).
+            listed = _pick_device(client.get_devices(), phones_only=True)
+            if listed is not None:
+                woken = True
+                try:
+                    logger.info("Spotify: woke the phone's player with a resume (%s)",
+                                _status(client.resume_playback(device_id=listed["id"])))
+                except SpotifyAPIError as exc:
+                    logger.info("Spotify: the phone's player didn't wake (%s)", exc)
+                continue
         if clock() - opened_at >= _PHONE_REOPEN_S:
             opened_at = clock()
             again = car_app_followup.request_open("spotify", phone_id, url=uri, now=True)
