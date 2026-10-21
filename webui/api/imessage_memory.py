@@ -348,7 +348,7 @@ class IMStore:
         with self._db() as db:
             db.execute("DELETE FROM bursts WHERE guid=? AND first_rowid=?", (guid, first_rowid))
 
-    def mark_burst(self, burst: Burst, status: str) -> bool:
+    def mark_burst(self, burst: Burst, status: str, remembered: bool = True) -> bool:
         """Record a remembered burst (the dedupe record), drop its buffered rows.
         False, recording nothing, when its rows are gone — he pressed Forget
         while it was being written, and the caller must take its memories back."""
@@ -363,7 +363,8 @@ class IMStore:
                        "status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
                         len(burst.rows), status, time.time()))
-            db.execute("UPDATE chats SET remembered=remembered+1 WHERE guid=?", (burst.guid,))
+            if remembered:
+                db.execute("UPDATE chats SET remembered=remembered+1 WHERE guid=?", (burst.guid,))
             for job_id in burst.job_ids:
                 db.execute("UPDATE jobs SET stored=stored+1, updated_at=? WHERE id=?",
                            (time.time(), job_id))

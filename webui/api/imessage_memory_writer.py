@@ -21,7 +21,6 @@ from api.imessage_memory import Burst, IMStore, store as default_store
 
 logger = logging.getLogger(__name__)
 
-MEMORY_CHUNK_CHARS = 1500
 EXTRACT_SLICE_CHARS = 12000
 MAX_FACTS = 8
 BURSTS_PER_TICK = 20
@@ -29,8 +28,13 @@ TICK_SECONDS = 60
 
 _PROMPT = """You are filing one of Pranav's iMessage conversations into his long-term memory.
 "Me" is Pranav. Reply with ONLY a JSON object, no prose:
-{{"summary": "<one or two sentences: who talked about what, any plan or outcome>",
+{{"keep": true or false,
+  "summary": "<one to three sentences: who talked about what, any plan, decision or outcome>",
   "facts": ["<standalone durable fact>", ...]}}
+"keep": true ONLY if this conversation is worth remembering weeks from now — plans, decisions,
+news about someone's life, information someone shared, anything he may ask about later.
+false for greetings, good mornings/nights, affection, reactions, small talk, photos or links
+with no context, and automated or bot messages (including ones from "Jarvis"). When in doubt, false.
 Facts: at most {max_facts}. Each must stand alone weeks from now, name people in full
 ("Sam Lee's address is 12 Oak St, Oakland"), and be worth remembering: addresses, phone
 numbers or emails someone shared, birthdays, dates and plans, preferences, relationships,
@@ -100,33 +104,15 @@ def _lines(burst: Burst, zone) -> List[str]:
     return out
 
 
-def transcript_memories(burst: Burst, chat: dict, zone, summary: str = "") -> List[Tuple[str, float]]:
-    """``(body, created_at)`` per memory: the header (who, when, summary)
-    repeated on each part, lines packed so no part passes MEMORY_CHUNK_CHARS.
-    A single line longer than a part is cut rather than dropped."""
-    head = _header(burst, chat, zone, summary)
-    room = max(200, MEMORY_CHUNK_CHARS - len(head) - 1)
-    parts, current, size = [], [], 0
-    for line in _lines(burst, zone):
-        line = line[:room]
-        if current and size + len(line) + 1 > room:
-            parts.append(current)
-            current, size = [], 0
-        current.append(line)
-        size += len(line) + 1
-    if current:
-        parts.append(current)
-    return [(head + "\n" + "\n".join(p), burst.start) for p in parts]
-
-
 # ── extraction ───────────────────────────────────────────────────────────
 _CODEISH = re.compile(r"\b(code|otp|passcode|password|verification)\b", re.I)
 
 
-def parse_extraction(text: str) -> Tuple[str, List[str]]:
-    """(summary, facts) from a model reply that should be one JSON object but
-    may carry prose or a code fence around it. Raises ValueError when there is
-    no object."""
+def parse_extraction(text: str) -> Tuple[str, List[str], bool]:
+    """(summary, facts, keep) from a model reply that should be one JSON object
+    but may carry prose or a code fence around it. ``keep`` — whether the
+    conversation itself is worth a memory — defaults to "it had facts" when
+    the model left it out. Raises ValueError when there is no object."""
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
         raise ValueError("no JSON object in the reply")
@@ -137,7 +123,9 @@ def parse_extraction(text: str) -> Tuple[str, List[str]]:
         fact = " ".join(str(fact or "").split())
         if len(fact.split()) >= 4 and not _CODEISH.search(fact) and fact not in facts:
             facts.append(fact[:300])
-    return summary, facts[:MAX_FACTS]
+    keep = data.get("keep")
+    keep = bool(facts) if not isinstance(keep, bool) else keep
+    return summary, facts[:MAX_FACTS], keep
 
 
 def _model_ref(model: str, provider: Optional[str]) -> str:
@@ -211,10 +199,11 @@ def _one_shot(model_ref: str, prompt: str) -> str:
     return one_shot_completion(model_ref, prompt, max_tokens=1200)
 
 
-def extract(transcript: str, model_ref: str, complete: Callable[[str, str], str]) -> Tuple[str, List[str]]:
-    """Summary + facts for a transcript, in slices of EXTRACT_SLICE_CHARS
-    (summaries joined, facts merged and capped). Raises when the model gives
-    nothing usable."""
+def extract(transcript: str, model_ref: str,
+            complete: Callable[[str, str], str]) -> Tuple[str, List[str], bool]:
+    """Summary, facts and keep for a transcript, in slices of EXTRACT_SLICE_CHARS
+    (summaries joined, facts merged and capped, kept if any slice is worth it).
+    Raises when the model gives nothing usable."""
     if not model_ref:
         raise RuntimeError("no model to extract with")
     slices, current = [], ""
@@ -225,14 +214,26 @@ def extract(transcript: str, model_ref: str, complete: Callable[[str, str], str]
         current += line[:EXTRACT_SLICE_CHARS] + "\n"
     if current.strip():
         slices.append(current)
-    summaries, facts = [], []
+    summaries, facts, keep = [], [], False
     for part in slices:
-        summary, found = parse_extraction(complete(model_ref, _PROMPT.format(
+        summary, found, worth = parse_extraction(complete(model_ref, _PROMPT.format(
             max_facts=MAX_FACTS, transcript=part)))
         if summary:
             summaries.append(summary)
         facts += [f for f in found if f not in facts]
-    return " ".join(summaries)[:600], facts[:MAX_FACTS]
+        keep = keep or worth
+    return " ".join(summaries)[:600], facts[:MAX_FACTS], keep
+
+
+# Under this many letters/digits of real text (tapbacks, emoji, a lone photo),
+# a burst isn't worth a model call at all.
+TRIVIAL_CHARS = 10
+_ATTACHMENT = re.compile(r"\[(?:photo|video|voice memo|file[^\]]*)\]")
+
+
+def is_trivial(burst: Burst) -> bool:
+    text = " ".join(_ATTACHMENT.sub(" ", str(r.get("text") or "")) for r in burst.rows)
+    return sum(ch.isalnum() for ch in text) < TRIVIAL_CHARS
 
 
 # ── storing ──────────────────────────────────────────────────────────────
@@ -277,15 +278,21 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
     chat = st.chat(burst.guid) or {}
     zone = zone or _zone()
     complete = complete or _one_shot
-    summary, facts, status = "", [], "stored"
+    # Nothing is stored unless the model judges it worth remembering: a short
+    # summary for a conversation that matters, facts on their own. Small talk,
+    # goodnights and bot notices leave no memory at all.
+    if is_trivial(burst):
+        st.mark_burst(burst, "skipped", remembered=False)
+        return "skipped"
     try:
         model_ref, _label = resolve_extraction_model(settings.get("agent"))
         transcript = _header(burst, chat, zone, "") + "\n" + "\n".join(_lines(burst, zone))
-        summary, facts = extract(transcript, model_ref, complete)
+        summary, facts, keep = extract(transcript, model_ref, complete)
     except Exception as exc:
-        logger.warning("imessage memory: no summary/facts for %s (%s); keeping the transcript",
-                       burst.guid, exc)
-        status = "stored_no_facts"
+        logger.warning("imessage memory: couldn't judge %s (%s); nothing stored", burst.guid, exc)
+        st.mark_burst(burst, "no_extract", remembered=False)
+        return "no_extract"
+    status = "stored" if keep or facts else "skipped"
     # Forgotten, unticked or skip-listed during the model call: nothing is written.
     if not st.still_pending(burst):
         return "discarded"
@@ -294,9 +301,9 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
         return "discarded"
     base, fact_source = _sources(burst)
     st.begin_burst(burst)
-    for n, (body, when) in enumerate(transcript_memories(burst, chat, zone, summary), start=1):
-        if not memory.remember(body, source=f"{base}p{n}",
-                               tags="imessage,conversation", created_at=when, dedup=False):
+    if keep and summary:
+        if not memory.remember(_header(burst, chat, zone, summary), source=f"{base}p1",
+                               tags="imessage,conversation", created_at=burst.start, dedup=False):
             _take_back(memory, burst)
             st.drop_burst_record(burst.guid, burst.first_rowid)
             logger.warning("imessage memory: memory refused %s; will retry", base)
@@ -315,7 +322,7 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
             for fact in facts:
                 memory.remember(f"{fact} {stamp}", source=f"{fact_source}f",
                                 tags="imessage,fact", created_at=burst.start)
-    if not st.mark_burst(burst, status):
+    if not st.mark_burst(burst, status, remembered=status == "stored"):
         _take_back(memory, burst)  # Forget landed while this was written
         st.delete_cards(burst.guid, burst.first_rowid)
         return "discarded"

@@ -52,41 +52,58 @@ def _ingest(st, *items):
     st.ingest([{"guid": "one", **r} for r in _rows(*items)])
 
 
-def _reply(summary="Sam shared his address.", facts=("Sam Lee's address is 12 Oak St, Oakland",)):
-    return lambda ref, prompt: "Sure:\n```json\n" + json.dumps({"summary": summary, "facts": list(facts)}) + "\n```"
+def _reply(summary="Sam shared his address.", facts=("Sam Lee's address is 12 Oak St, Oakland",), keep=None):
+    payload = {"summary": summary, "facts": list(facts)}
+    if keep is not None:
+        payload["keep"] = keep
+    return lambda ref, prompt: "Sure:\n```json\n" + json.dumps(payload) + "\n```"
 
 
-def test_transcript_header_and_lines_in_local_zone():
+def test_summary_memory_header_in_local_zone():
     burst = Burst("one", _rows((0, False, "my address is 12 Oak St"), (60, True, "thanks!")))
-    (body, when), = w.transcript_memories(burst, {"participants": [SAM]}, LA, "Sam shared his address.")
-    lines = body.split("\n")
-    assert lines[0].startswith("iMessage with Sam Lee (+15105550000) — Sun 19 Oct 2025, 17:02–17:03 P")
-    assert lines[1] == "Participants: Me, Sam Lee"
-    assert lines[2] == "Summary: Sam shared his address."
-    assert lines[3:] == ["[17:02] Sam Lee: my address is 12 Oak St", "[17:03] Me: thanks!"]
-    assert when == T0
-
-
-def test_transcript_splits_at_1500_repeating_header():
-    burst = Burst("one", _rows(*[(i * 10, i % 2 == 0, "x" * 200) for i in range(20)]))
-    parts = w.transcript_memories(burst, {"participants": [SAM]}, LA)
-    assert len(parts) > 1
-    assert all(len(body) <= w.MEMORY_CHUNK_CHARS for body, _ in parts)
-    assert all(body.startswith("iMessage with Sam Lee") for body, _ in parts)
-    assert sum(body.count("x" * 200) for body, _ in parts) == 20
+    lines = w._header(burst, {"participants": [SAM]}, LA, "Sam shared his address.").split("\n")
+    assert lines[0].startswith("iMessage with Sam Lee (+15105550000) \u2014 Sun 19 Oct 2025, 17:02\u201317:03 P")
+    assert lines[1:] == ["Participants: Me, Sam Lee", "Summary: Sam shared his address."]
 
 
 def test_group_header_names_the_group():
     burst = Burst("grp", _rows((0, False, "hi all")))
-    (body, _), = w.transcript_memories(burst, {"name": "Family", "is_group": True,
-                                               "participants": [SAM]}, LA)
-    assert body.startswith("iMessage with the group “Family” —")
+    head = w._header(burst, {"name": "Family", "is_group": True, "participants": [SAM]}, LA, "")
+    assert head.startswith("iMessage with the group \u201cFamily\u201d \u2014")
+
+
+def test_kept_conversation_is_a_summary_not_a_transcript(st):
+    _ingest(st, (0, False, "my address is 12 Oak St, Oakland"), (60, True, "got it"))
+    mem = FakeMemory()
+    w.close_once(st, T0 + 60 + GAP_SECONDS, memory=mem, complete=_reply(keep=True))
+    (convo,) = [m for m in mem.saved if m["tags"] == "imessage,conversation"]
+    assert convo["body"].endswith("Summary: Sam shared his address.")
+    assert "[17:02]" not in convo["body"] and "got it" not in convo["body"]
+
+
+def test_small_talk_stores_nothing(st):
+    _ingest(st, (0, False, "gn mama i love you so much"), (30, True, "love you too, gn"))
+    mem = FakeMemory()
+    w.close_once(st, T0 + 30 + GAP_SECONDS, memory=mem,
+                 complete=_reply(summary="They said goodnight.", facts=(), keep=False))
+    assert mem.saved == [] and st.totals() == {"bursts": 1, "pending": 0}
+    assert st.chat("one")["remembered"] == 0
+
+
+def test_trivial_burst_skips_the_model(st):
+    _ingest(st, (0, False, "\U0001F618"), (5, True, "gn"), (9, False, "[photo]"))
+    calls = []
+    w.close_once(st, T0 + 9 + GAP_SECONDS, memory=FakeMemory(),
+                 complete=lambda ref, p: calls.append(p) or _reply()(ref, p))
+    assert calls == [] and st.totals()["pending"] == 0
 
 
 def test_parse_extraction_tolerates_prose_and_caps_8():
     facts = [f"Fact number {i} is worth keeping" for i in range(12)] + ["too short", "Your verification code is 1234"]
-    summary, got = w.parse_extraction("Here you go: " + json.dumps({"summary": "S", "facts": facts}) + " done")
+    summary, got, keep = w.parse_extraction("Here you go: " + json.dumps({"summary": "S", "facts": facts}) + " done")
     assert summary == "S" and len(got) == 8 and all("code" not in f for f in got)
+    assert keep is True                                  # no "keep": having facts decides
+    assert w.parse_extraction(json.dumps({"keep": False, "summary": "x", "facts": []}))[2] is False
     with pytest.raises(ValueError):
         w.parse_extraction("no json here")
 
@@ -106,20 +123,19 @@ def test_facts_stamped_with_person_and_date(st):
     assert st.totals() == {"bursts": 1, "pending": 0}
 
 
-def test_burst_stored_without_facts_when_extraction_fails(st):
-    _ingest(st, (0, False, "hello"))
+def test_nothing_stored_when_extraction_fails(st):
+    _ingest(st, (0, False, "hello there, how was the trip"))
 
     def boom(ref, prompt):
         raise RuntimeError("provider down")
 
     mem = FakeMemory()
     assert w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=boom) == 1
-    assert [m["tags"] for m in mem.saved] == ["imessage,conversation"]
-    assert "Summary:" not in mem.saved[0]["body"]
+    assert mem.saved == [] and st.totals() == {"bursts": 1, "pending": 0}
 
 
 def test_closer_discards_bursts_for_unticked_chat(st):
-    _ingest(st, (0, False, "hello"))
+    _ingest(st, (0, False, "hello there, how was the trip"))
     st.set_pick("one", False)
     mem = FakeMemory()
     w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
@@ -127,7 +143,7 @@ def test_closer_discards_bursts_for_unticked_chat(st):
 
 
 def test_closer_waits_when_memory_inactive(st, monkeypatch):
-    _ingest(st, (0, False, "hello"))
+    _ingest(st, (0, False, "hello there, how was the trip"))
     monkeypatch.setattr(w, "memory_writer", lambda: None)
     assert w.close_once(st, T0 + GAP_SECONDS) == 0
     assert st.totals()["pending"] == 1
@@ -161,8 +177,8 @@ def test_extract_slices_long_transcripts():
         return json.dumps({"summary": f"part {len(calls)}", "facts": [f"Fact {len(calls)} is a real fact"]})
 
     transcript = "\n".join("y" * 1000 for _ in range(30))
-    summary, facts = w.extract(transcript, "@x:y", complete)
-    assert len(calls) == 3 and summary == "part 1 part 2 part 3" and len(facts) == 3
+    summary, facts, keep = w.extract(transcript, "@x:y", complete)
+    assert len(calls) == 3 and summary == "part 1 part 2 part 3" and len(facts) == 3 and keep
 
 
 def test_forget_chat_memories(st):
@@ -185,13 +201,13 @@ def test_forget_during_extraction_takes_the_memories_back(st):
 
 
 def test_forget_after_write_before_mark_is_undone(st, monkeypatch):
-    _ingest(st, (0, False, "hello there friend"))
+    _ingest(st, (0, False, "hello there, how was the trip"))
     mem = FakeMemory()
     real_mark = st.mark_burst
 
-    def mark(burst, status):
+    def mark(burst, status, **kw):
         st.forget_chat("one")
-        return real_mark(burst, status)
+        return real_mark(burst, status, **kw)
 
     monkeypatch.setattr(st, "mark_burst", mark)
     w.close_once(st, T0 + GAP_SECONDS, memory=mem, complete=_reply())
@@ -200,7 +216,7 @@ def test_forget_after_write_before_mark_is_undone(st, monkeypatch):
 
 
 def test_refused_write_keeps_rows_for_retry(st):
-    _ingest(st, (0, False, "hello there friend"))
+    _ingest(st, (0, False, "hello there, how was the trip"))
 
     class Refusing(FakeMemory):
         def remember(self, body, **kw):
@@ -213,7 +229,7 @@ def test_refused_write_keeps_rows_for_retry(st):
 
 
 def test_recover_undoes_a_burst_cut_off_mid_write(st):
-    _ingest(st, (0, False, "hello there friend"))
+    _ingest(st, (0, False, "hello there, how was the trip"))
     (burst,) = st.open_bursts(T0 + GAP_SECONDS)
     st.begin_burst(burst)                         # then the server restarted
     mem = FakeMemory()
@@ -310,9 +326,9 @@ def test_forget_race_deletes_cards(st, pushes, monkeypatch):
     _ingest(st, (0, False, "my address is 12 Oak St, Oakland"))
     real_mark = st.mark_burst
 
-    def mark(burst, status):
+    def mark(burst, status, **kw):
         st.forget_chat("one")
-        return real_mark(burst, status)
+        return real_mark(burst, status, **kw)
 
     monkeypatch.setattr(st, "mark_burst", mark)
     w.close_once(st, T0 + GAP_SECONDS, memory=FakeMemory(), complete=_reply())
