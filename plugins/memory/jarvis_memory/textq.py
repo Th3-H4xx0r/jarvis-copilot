@@ -55,7 +55,8 @@ def same_specifics(a: str, b: str) -> bool:
     return specifics(a) == specifics(b)
 
 
-_INJECTED = re.compile(r"\A\s*\[[^\]]{40,}\]\s*\n\s*\n", re.DOTALL)
+# A bracketed block of 40+ chars ending "]" + blank line; it may hold its own [brackets].
+_INJECTED = re.compile(r"\A\s*\[.{40,}?\]\s*\n\s*\n", re.DOTALL)
 _STAMP = re.compile(r"\s*\((?:from an iMessage chat|overheard in a Live conversation)[^)]*\)")
 
 

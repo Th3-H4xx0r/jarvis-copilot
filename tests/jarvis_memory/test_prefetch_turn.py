@@ -93,3 +93,10 @@ def test_injected_rules_block_is_not_part_of_the_query(tmp_path):
     [trace] = p._store.recent_traces(1)
     assert trace["query"] == "where is the race"
     p.shutdown()
+
+
+def test_rules_block_with_inner_brackets_is_stripped():
+    from plugins.memory.jarvis_memory.textq import strip_injected
+    board = ('[JarvisWearables board programming. Board: "Jarvis-ESP32-33DA". Current script: - [no script]. '
+             'Keep replies short.]\n\nflash pin 4 every second')
+    assert strip_injected(board) == "flash pin 4 every second"
