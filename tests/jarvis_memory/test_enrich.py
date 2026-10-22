@@ -145,3 +145,16 @@ def test_reembeds_with_slots(env):
     want = np.asarray(e.embed_one("Pranav is going to the race venue: Circuit of the Americas"))
     got = s.vector_search(GLOBAL_NS, want.tolist(), e.signature, 1)
     assert got[0][0] == cid and got[0][1] > 0.999
+
+
+def test_a_cut_off_reply_keeps_its_complete_items(env):
+    s, e, add = env
+    a = add("Sid is driving to Austin", _ts(2026, 10, 20, 12, 0))
+    b = add("Parking is $50 a day", _ts(2026, 10, 20, 12, 1))
+    item = {"id": a, "kind": "plan", "importance": 6, "trivial": False, "event_start": None,
+            "event_end": None, "entities": [], "slots": "with: Sid", "supersedes": []}
+    cut = "```json\n[\n  " + json.dumps(item, indent=2) + ',\n  {\n    "id": "' + b + '",\n    "kind": "fa'
+    counts = enrich_batch(s, e, [a, b], zone=CT, complete=Model(cut))
+    assert counts["enriched"] == 1 and counts["failed"] == 1
+    assert s.get_chunks([a])[0].slots == "with: Sid"
+    assert s.queue_ids(10) == [b]

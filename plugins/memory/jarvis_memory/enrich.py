@@ -32,7 +32,8 @@ ENTITY_TYPES = {"person", "place", "org", "event", "topic"}
 PROMPT = """You maintain the memory map of a personal assistant for one person (Pranav).
 For each memory below, say what it is about so it can be found later by time, person, place or role.
 
-Return ONLY a JSON array, one object per memory, each with:
+Return ONLY a compact JSON array — one object per memory, each object on ONE line, no code fences,
+no indentation — each with:
 - "id": the memory id exactly as given
 - "kind": one of event, plan, fact, preference, relationship, summary
 - "importance": 1-10 (1 = trivia, 5 = useful, 9-10 = major life thing)
@@ -58,14 +59,26 @@ Memories:
 
 
 def _parse(text: str) -> List[dict]:
-    m = re.search(r"\[.*\]", text or "", re.DOTALL)
-    if not m:
+    """The objects of the reply's JSON array — every complete one, even when
+    the reply was cut off mid-array (those memories just stay queued)."""
+    text = text or ""
+    start = text.find("[")
+    if start < 0:
         return []
-    try:
-        data = json.loads(m.group(0))
-    except ValueError:
-        return []
-    return [d for d in data if isinstance(d, dict) and d.get("id")] if isinstance(data, list) else []
+    decoder = json.JSONDecoder()
+    out, i = [], start + 1
+    while True:
+        while i < len(text) and text[i] in " \t\r\n,":
+            i += 1
+        if i >= len(text) or text[i] != "{":
+            break
+        try:
+            obj, i = decoder.raw_decode(text, i)
+        except ValueError:
+            break
+        if isinstance(obj, dict) and obj.get("id"):
+            out.append(obj)
+    return out
 
 
 def _when(value, zone) -> Optional[float]:
@@ -135,7 +148,7 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
                         for e in known_rows.values()) or "- (none yet)",
         memories="\n".join(lines))
     try:
-        reply = complete(prompt, 4000)
+        reply = complete(prompt, 8000)
     except Exception as exc:  # the model being unreachable must not burn retries
         logger.warning("jarvis_memory map: model call failed (%s); will retry", exc)
         store.release([c.id for c in chunks])
