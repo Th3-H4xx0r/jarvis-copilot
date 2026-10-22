@@ -14,6 +14,8 @@ struct LongTermMemoryPage: View {
     /// Re-read on every appear: Settings can change it while the page is away.
     @State private var remindersUnasked = false
     @State private var expanded: Set<String> = []
+    @State private var confirmingCleanup = false
+    @Environment(\.scenePhase) private var scenePhase
     /// The text field's own state: `store.query` is updated through
     /// `queryChanged`, which also drives the debounce, so binding straight to it
     /// would set it twice per keystroke.
@@ -55,6 +57,15 @@ struct LongTermMemoryPage: View {
             remindersUnasked = RemindersAccess.notDetermined
         }
         .onDisappear { map.disappeared() }
+        // Locked or in the background: no 3 s cleanup poll.
+        .onChange(of: scenePhase) { _, phase in map.setActive(phase == .active) }
+        .confirmationDialog("Run cleanup?", isPresented: $confirmingCleanup, titleVisibility: .visible) {
+            Button("Run cleanup") { Task { await map.runCleanup() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It backs up your memory, then reads every memory once with your memory model "
+                 + "— a one-time cost on your API key.")
+        }
         .moreToast($store.toast)
         .moreToast($map.toast)
         .alert("Forget this memory?",
@@ -245,9 +256,9 @@ struct LongTermMemoryPage: View {
             if remindersUnasked {
                 GlassButton(title: "Let Jarvis see Reminders", symbol: "checklist", ghost: true, full: true) {
                     Task {
-                        _ = await RemindersAccess.request()
+                        // Asked on the snapshot's own store, which then sends them.
+                        _ = await ContextSnapshot.shared.requestRemindersAccess()
                         remindersUnasked = RemindersAccess.notDetermined
-                        await ContextSnapshot.shared.pushIfDue(force: true)
                     }
                 }
                 .padding(.top, 12)
@@ -284,7 +295,7 @@ struct LongTermMemoryPage: View {
                         }
                         GradientButton("Run cleanup", symbol: "wand.and.stars", busy: map.startingCleanup,
                                        full: true) {
-                            Task { await map.runCleanup() }
+                            confirmingCleanup = true
                         }
                     }
                 }

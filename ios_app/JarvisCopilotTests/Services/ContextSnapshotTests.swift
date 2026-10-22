@@ -93,8 +93,9 @@ final class ContextSnapshotTests: XCTestCase {
     }
 
     /// A failed POST is logged, never thrown — and it still counts as a try, so a
-    /// server that is down isn't hit on every trigger.
-    func testAFailedPushIsSilent() async {
+    /// server that is down isn't hit on every trigger. It backs off for two
+    /// minutes, not the full fifteen.
+    func testAFailedPushIsSilentAndRetriesAfterTwoMinutes() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/devices/mobile/context", json: ["error": "down"], status: 500)
         let clock = SnapshotClock(base)
@@ -104,6 +105,94 @@ final class ContextSnapshotTests: XCTestCase {
         await snapshot.pushIfDue()
         await snapshot.pushIfDue()
         XCTAssertEqual(transport.requests.count, 1)
+
+        clock.now = base.addingTimeInterval(60)
+        await snapshot.pushIfDue()
+        XCTAssertEqual(transport.requests.count, 1)
+
+        clock.now = base.addingTimeInterval(2 * 60 + 1)
+        await snapshot.pushIfDue()
+        XCTAssertEqual(transport.requests.count, 2)
+    }
+
+    /// A read that FAILED is not "no events": sending it would wipe the server's
+    /// snapshot. Nothing goes, and nothing is stamped, so the next trigger tries.
+    func testAFailedReadSendsNothing() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/devices/mobile/context", json: ["ok": true])
+        let clock = SnapshotClock(base)
+        let sources = FakeContextSources()
+        sources.failEvents = true
+        let snapshot = ContextSnapshot(api: api, sources: sources, now: { clock.now }, timeZone: .gmt)
+
+        await snapshot.pushIfDue()
+        XCTAssertTrue(transport.requests.isEmpty)
+        XCTAssertNil(snapshot.lastPushAt)
+
+        sources.failEvents = false
+        sources.failReminders = true
+        await snapshot.pushIfDue(force: true)
+        XCTAssertTrue(transport.requests.isEmpty)
+
+        sources.failReminders = false
+        await snapshot.pushIfDue()
+        XCTAssertEqual(transport.requests.count, 1)
+    }
+
+    /// Even a forced push keeps a minute after the last one.
+    func testForcedPushesKeepAMinuteApart() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/devices/mobile/context", json: ["ok": true])
+        let clock = SnapshotClock(base)
+        let snapshot = ContextSnapshot(api: api, sources: FakeContextSources(), now: { clock.now },
+                                       timeZone: .gmt)
+
+        await snapshot.pushIfDue()
+        clock.now = base.addingTimeInterval(30)
+        await snapshot.pushIfDue(force: true)
+        XCTAssertEqual(transport.requests.count, 1)
+        clock.now = base.addingTimeInterval(61)
+        await snapshot.pushIfDue(force: true)
+        XCTAssertEqual(transport.requests.count, 2)
+    }
+
+    /// iCloud / Exchange syncs post EKEventStoreChanged in storms, from every
+    /// store in the process. Only our own store counts, a burst is one push, and
+    /// the next burst waits out the minute.
+    func testCalendarChangeStormsCoalesce() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/devices/mobile/context", json: ["ok": true])
+        let clock = SnapshotClock(base)
+        let sources = FakeContextSources()
+        // Simulated time: every sleep moves the clock, then yields for real.
+        let snapshot = ContextSnapshot(api: api, sources: sources, now: { clock.now }, timeZone: .gmt,
+                                       sleeper: { seconds in
+                                           await MainActor.run { clock.now = clock.now.addingTimeInterval(seconds) }
+                                           try await Task.sleep(nanoseconds: 2_000_000)
+                                       })
+        snapshot.start()
+        defer { snapshot.stop() }
+
+        let center = NotificationCenter.default
+        for _ in 0..<3 { center.post(name: .EKEventStoreChanged, object: sources.changeObject) }
+        center.post(name: .EKEventStoreChanged, object: NSObject())   // someone else's store
+        await servicesWaitUntil { transport.requests.count >= 1 }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(transport.requests.count, 1, "a burst is one push")
+
+        for _ in 0..<5 {
+            center.post(name: .EKEventStoreChanged, object: sources.changeObject)
+            await Task.yield()
+        }
+        await servicesWaitUntil { transport.requests.count >= 2 }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue((1...2).contains(transport.requests.count), "\(transport.requests.count) pushes")
+
+        // Someone else's store alone never pushes.
+        let settled = transport.requests.count
+        for _ in 0..<5 { center.post(name: .EKEventStoreChanged, object: NSObject()) }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(transport.requests.count, settled)
     }
 }
 
@@ -117,6 +206,9 @@ private final class SnapshotClock {
 private final class FakeContextSources: ContextSources {
     let eventList: [CalendarEventRecord]
     let reminderList: [ReminderRecord]
+    var failEvents = false
+    var failReminders = false
+    let changeObject: AnyObject? = NSObject()
     private(set) var windows: [(from: Date, to: Date)] = []
 
     init(events: [CalendarEventRecord] = [], reminders: [ReminderRecord] = []) {
@@ -124,10 +216,12 @@ private final class FakeContextSources: ContextSources {
         reminderList = reminders
     }
 
-    func events(from: Date, to: Date) async -> [CalendarEventRecord] {
+    func events(from: Date, to: Date) async -> [CalendarEventRecord]? {
         windows.append((from, to))
-        return eventList
+        return failEvents ? nil : eventList
     }
 
-    func openReminders() async -> [ReminderRecord] { reminderList }
+    func openReminders() async -> [ReminderRecord]? { failReminders ? nil : reminderList }
+
+    func requestRemindersAccess() async -> Bool { true }
 }

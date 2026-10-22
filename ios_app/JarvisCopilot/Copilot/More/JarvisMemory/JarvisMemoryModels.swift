@@ -146,9 +146,16 @@ struct MemoryCleanupProgress: Equatable {
     var done: Int
     var total: Int
 
-    /// "Merging · 3/10", or just the step before it knows the total.
+    /// The server's step keys, in plain English.
+    static let stepNames = [
+        "starting": "Starting", "backup": "Backing up", "live": "Rewriting Live",
+        "stamps": "Fixing times", "duplicates": "Merging duplicates", "map": "Mapping memories",
+    ]
+
+    /// "Merging duplicates · 3/10", or just the step before it knows the total.
+    /// A step the app doesn't know yet shows as the server named it.
     var line: String {
-        let name = step.isEmpty ? "Working" : step
+        let name = step.isEmpty ? "Working" : (Self.stepNames[step] ?? step)
         return total > 0 ? "\(name) · \(done)/\(total)" : name
     }
 

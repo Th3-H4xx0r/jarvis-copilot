@@ -144,7 +144,12 @@ final class DefaultContactsStore: ContactsStore {
 // MARK: - Calendars
 
 final class DefaultCalendarAccess: CalendarAccessing {
-    private let store = EKEventStore()
+    private let store: EKEventStore
+
+    /// The context snapshot passes its own store, so one store is watched and reset.
+    init(store: EKEventStore = EKEventStore()) {
+        self.store = store
+    }
 
     func requestAccess() async throws -> Bool {
         // iOS 17 split read-only from write access; `add` needs write, so we ask

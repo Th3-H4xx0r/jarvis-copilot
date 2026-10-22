@@ -172,8 +172,8 @@ final class JarvisMemoryStore {
 /// memories, and the Cleanup card.
 ///
 /// Its own lifecycle, apart from the header and search: the cleanup status is
-/// polled every 3 s while a run is going and the page is on screen, and a server
-/// without these endpoints just leaves both sections hidden.
+/// polled every 3 s while a run is going, the page is on screen AND the app is
+/// in front, and a server without these endpoints just leaves both sections hidden.
 @Observable
 @MainActor
 final class MemoryMapStore {
@@ -183,6 +183,10 @@ final class MemoryMapStore {
     private let sleeper: Sleeper
     private let pollTask = TaskHandle()
     private var visible = false
+    /// The app is in front (scene phase). Locked or backgrounded = no polling.
+    private var active = true
+    /// A model save is on the wire: a reload must not put the old one back.
+    private var savingAgent = false
 
     /// nil until loaded (or when the server doesn't have the setting).
     private(set) var settings: MemoryMapSettings?
@@ -209,19 +213,36 @@ final class MemoryMapStore {
         pollTask.cancel()
     }
 
+    /// The scene phase: back in front picks a running cleanup up again.
+    func setActive(_ isActive: Bool) {
+        guard isActive != active else { return }
+        active = isActive
+        if !isActive {
+            pollTask.cancel()
+        } else if visible {
+            Task { await refreshCleanup() }
+        }
+    }
+
     func load() async {
-        do {
-            settings = try await api.mapSettings()
-        } catch {
-            JcLog.dropped(JcLog.more, "memory map settings", error)
+        if !savingAgent {
+            do {
+                let loaded = try await api.mapSettings()
+                if !savingAgent { settings = loaded }
+            } catch {
+                JcLog.dropped(JcLog.more, "memory map settings", error)
+            }
         }
         await refreshCleanup()
     }
 
-    /// nil = Same as Default.
+    /// nil = Same as Default. The label is cleared until the server names the
+    /// new pick, so the row never shows the old model next to it.
     func setAgent(_ choice: AgentChoice?) async {
         let previous = settings
-        settings = MemoryMapSettings(agent: choice, label: settings?.label ?? "")
+        settings = MemoryMapSettings(agent: choice, label: "")
+        savingAgent = true
+        defer { savingAgent = false }
         do {
             settings = try await api.setMapAgent(choice)
         } catch {
@@ -250,7 +271,9 @@ final class MemoryMapStore {
             restored.insert(id)
         } catch {
             toast = apiErrorMessage(error)
+            return
         }
+        await refreshCleanup()
     }
 
     private func refreshCleanup() async {
@@ -263,7 +286,7 @@ final class MemoryMapStore {
     }
 
     private func startPolling() {
-        guard visible else { return }
+        guard visible, active else { return }
         pollTask.poll(self, every: Self.pollInterval, sleeper: sleeper) { store in
             await store.refreshCleanup()
         }
