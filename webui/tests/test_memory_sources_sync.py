@@ -156,3 +156,39 @@ def test_sync_does_nothing_when_another_memory_is_active(home, monkeypatch):
     monkeypatch.setattr(external, "is_active", lambda: False)
     bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T14:00:00Z")]})
     assert sync.sync_once(now=NOW) == {}
+
+
+def _run_file(home, job, name, text):
+    folder = home / "cron" / "output" / job
+    folder.mkdir(parents=True, exist_ok=True)
+    f = folder / f"{name}.md"
+    f.write_text("# Cron Job: x\n\n## Response\n\n" + text + "\n")
+    os.utime(f, (NOW.timestamp(), NOW.timestamp()))
+
+
+def test_status_only_and_failed_runs_are_not_memories(home, monkeypatch):
+    monkeypatch.setattr(sync, "_email_jobs", lambda: [{"id": "job1", "name": "email monitor"}])
+    _run_file(home, "job1", "a", "Email intelligence run complete.")
+    _run_file(home, "job1", "b", "Email intelligence run failed: I could not start it. The tools are missing.")
+    _run_file(home, "job1", "c", "Run complete. AmEx statement of $412 is due Oct 28; UPS delivers the monitor today.")
+    sync.sync_once(now=NOW)
+    assert [m["body"] for m in _memories("email:")] == [
+        "email monitor, Wed 21 Oct: Run complete. AmEx statement of $412 is due Oct 28; UPS delivers the monitor today."]
+
+
+def test_the_same_report_twice_is_one_memory(home, monkeypatch):
+    monkeypatch.setattr(sync, "_email_jobs", lambda: [{"id": "job1", "name": "email monitor"}])
+    _run_file(home, "job1", "a", "AmEx statement of $412 is due Oct 28.")
+    _run_file(home, "job1", "b", "AmEx statement of $412 is due Oct 28.")
+    sync.sync_once(now=NOW)
+    from plugins.memory.jarvis_memory import external
+    store = external._open()[0]
+    assert len(store.active_ids(source_prefix="email:")) == 1
+
+
+def test_noise_written_before_is_cleared(home, monkeypatch):
+    from plugins.memory.jarvis_memory import external
+    external.upsert("email monitor, Wed 21 Oct: Email intelligence run complete.", source="email:job1:old")
+    monkeypatch.setattr(sync, "_email_jobs", lambda: [])
+    sync.sync_once(now=NOW)
+    assert _memories("email:") == []

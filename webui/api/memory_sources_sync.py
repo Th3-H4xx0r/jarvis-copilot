@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import logging
 import threading
 import time
@@ -143,6 +144,35 @@ def _other_jobs() -> list:
         return []
 
 
+_STATUS = re.compile(
+    r"\b(run (?:is )?(?:complete|completed|done|finished|failed|skipped)|could ?n[o']t (?:start|run)|"
+    r"nothing (?:new|to report)|no (?:new|changes|updates|activity|messages|emails?)|"
+    r"all (?:clear|caught up)|error)\b", re.IGNORECASE)
+
+
+def _report_text(lines: List[str]) -> str:
+    """What a run actually reported — its status words removed. "" when the
+    run only said it ran (or failed): that's not something to remember."""
+    text = " ".join(lines)
+    if re.search(r"\b(failed|could ?n[o']t (?:start|run))\b", text[:200], re.IGNORECASE):
+        return ""
+    rest = _STATUS.sub(" ", text)
+    words = re.findall(r"[A-Za-z0-9$%]+", rest)
+    return text if len(words) >= 4 else ""
+
+
+def _purge_status_noise(mem) -> int:
+    """Remove run memories that only said the run happened (written before
+    this filter existed)."""
+    gone = 0
+    for prefix in ("email:", "cron:"):
+        for m in mem.memories(prefix, limit=2000):
+            body = m["body"].split(": ", 1)[-1]
+            if not _report_text([body]):
+                gone += mem.forget(source_prefix=m["source"])
+    return gone
+
+
 def _sync_runs(prefix: str, jobs: list, now: float, zone) -> int:
     from api.brief_sources import _home, _response_lines
     mem = _memory()
@@ -162,11 +192,15 @@ def _sync_runs(prefix: str, jobs: list, now: float, zone) -> int:
             lines = _response_lines(path.read_text(encoding="utf-8", errors="ignore"))
             if not lines or any(q in lines[0].lower() for q in quiet):
                 continue
+            report = _report_text(lines)
+            if not report:
+                continue  # it only said it ran (or failed)
             at = path.stat().st_mtime
-            body = f"{job.get('name') or prefix}, {_day(at, zone)}: " + " ".join(lines)
+            body = f"{job.get('name') or prefix}, {_day(at, zone)}: " + report
             if len(body) > CUT:
                 body = body[:CUT].rsplit(" ", 1)[0] + " …"
-            if mem.upsert(body, source=source, tags=prefix, created_at=at):
+            # The same report on several runs merges into one memory.
+            if mem.remember(body, source=source, tags=prefix, created_at=at, source_ref=source):
                 added += 1
     return added
 
@@ -298,6 +332,10 @@ def sync_once(now: Optional[datetime] = None) -> dict:
     now = now or datetime.now(zone)
     ts = now.timestamp()
     counts = {}
+    try:
+        _purge_status_noise(_memory())
+    except Exception:
+        logger.debug("memory sources: noise purge failed", exc_info=True)
     for name, fn in (("calendar", lambda: _sync_calendar(ts, zone)),
                      ("reminders", lambda: _sync_reminders(zone)),
                      ("email", lambda: _sync_runs("email", _email_jobs(), ts, zone) + _sync_fresh_inbox(ts, zone)),
