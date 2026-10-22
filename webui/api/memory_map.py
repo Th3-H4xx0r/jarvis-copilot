@@ -55,6 +55,11 @@ def install() -> None:
     from plugins.memory.jarvis_memory import llm
     llm.set_completer(complete)
     _register_brief_sources()
+    try:
+        from api import memory_sources_sync
+        memory_sources_sync.start()  # every source into the map, every 30 min
+    except Exception:
+        logger.warning("memory map: source sync not started", exc_info=True)
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────

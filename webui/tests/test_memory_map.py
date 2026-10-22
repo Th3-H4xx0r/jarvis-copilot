@@ -50,6 +50,8 @@ def test_install_registers_completer(monkeypatch):
     import api.imessage_memory_writer as w
     monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200, thinking=True: "done")
     monkeypatch.setattr(mm, "_register_brief_sources", lambda: None)
+    import api.memory_sources_sync as sync
+    monkeypatch.setattr(sync, "start", lambda: None)
     mm.install()
     try:
         assert llm.complete("x") == "done"

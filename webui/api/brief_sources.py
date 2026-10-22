@@ -89,6 +89,11 @@ def save_snapshot(body: dict) -> dict:
     os.replace(tmp, path)
     tz.reset_cache()
     brief.mark_dirty()
+    try:
+        from api import memory_sources_sync
+        memory_sources_sync.kick()  # the new calendar/reminders into the map now
+    except Exception:
+        pass
     return {"calendar": len(snap["calendar"]), "reminders": len(snap["reminders"]), "tz": zone_name}
 
 

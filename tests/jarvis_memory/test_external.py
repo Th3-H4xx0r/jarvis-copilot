@@ -105,3 +105,18 @@ def test_a_merged_fact_is_listed_under_every_chat_backing_it(home):
         rows = external.memories(f"imessage:{chat}:", hermes_home=home)
         assert [r["id"] for r in rows] == [cid]
         assert rows[0]["source"].startswith(f"imessage:{chat}:fact:")
+
+
+def test_upsert_keeps_one_memory_per_source_key(home):
+    cid = external.upsert("Calendar: Dentist, Thu 22 Oct 9:00 AM", source="calendar:k1",
+                          event_start=100.0, event_end=200.0, kind="event", hermes_home=home)
+    assert external.upsert("Calendar: Dentist, Thu 22 Oct 9:00 AM", source="calendar:k1",
+                           event_start=100.0, event_end=200.0, kind="event", hermes_home=home) == cid
+    again = external.upsert("Calendar: Dentist, Thu 22 Oct 9:30 AM", source="calendar:k1",
+                            event_start=130.0, hermes_home=home)
+    assert again == cid
+    store = external._open(home)[0]
+    [c] = store.get_chunks([cid])
+    assert c.body.endswith("9:30 AM") and c.event_start == 130.0 and c.kind == "event"
+    assert len(_rows(home)) == 1
+    assert cid in store.queue_ids(10)  # changed text gets mapped again

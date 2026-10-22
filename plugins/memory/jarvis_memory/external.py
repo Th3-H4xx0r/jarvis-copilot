@@ -154,3 +154,45 @@ def forget(*, source_prefix: str = "", tag: str = "",
     except Exception:
         logger.warning("jarvis_memory: could not forget %s%s", source_prefix, tag, exc_info=True)
         return 0
+
+
+def upsert(body: str, *, source: str, tags: str = "", created_at: Optional[float] = None,
+           event_start: Optional[float] = None, event_end: Optional[float] = None, kind: str = "",
+           hermes_home: Optional[str] = None) -> Optional[str]:
+    """One memory per ``source`` key (a calendar event, a day's health): the
+    same text is a no-op, new text replaces the old in place (and is mapped
+    again). Returns its id, or None when it failed."""
+    body = (body or "").strip()
+    if not body or not source:
+        return None
+    try:
+        store, embedder, namespace, _threshold = _open(hermes_home)
+        found = [cid for cid in store.filtered_ids(namespace, source_prefix=source, limit=None)
+                 if store.matching_source(cid, source) == source]
+        fields = {k: v for k, v in (("event_start", event_start), ("event_end", event_end),
+                                    ("kind", kind)) if v}
+        if found:
+            cid = found[-1]
+            chunk = next(iter(store.get_chunks([cid])), None)
+            if chunk is not None and chunk.body != body:
+                vec = None
+                try:
+                    vec = embedder.embed_one(body)
+                except Exception:
+                    logger.debug("jarvis_memory: no embedding for %s", source, exc_info=True)
+                store.update_body(cid, body, embedding=vec or None,
+                                  signature=embedder.signature if vec else None,
+                                  dim=embedder.dim if vec else None)
+                store.set_map_fields(cid, enriched_at=None)
+                store.enqueue([cid])
+            if fields:
+                store.set_map_fields(cid, **fields)
+            return cid
+        cid = remember(body, source=source, tags=tags, created_at=created_at, dedup=False,
+                       source_ref=source, hermes_home=hermes_home)
+        if cid and fields:
+            store.set_map_fields(cid, **fields)
+        return cid
+    except Exception:
+        logger.warning("jarvis_memory: could not upsert %s", source, exc_info=True)
+        return None
