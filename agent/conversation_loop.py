@@ -291,6 +291,24 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
             )
 
 
+def _recent_messages_for_memory(messages, limit: int = 6, max_chars: int = 2000):
+    """The last few user/assistant messages BEFORE the current one, as plain
+    text — what a memory provider needs to make sense of a short follow-up
+    ("parking there?"). Tool and system messages are left out."""
+    out = []
+    for msg in (messages or [])[:-1]:
+        role = msg.get("role") if isinstance(msg, dict) else None
+        if role not in ("user", "assistant"):
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(p.get("text") or "") for p in content
+                               if isinstance(p, dict) and p.get("type") == "text")
+        if isinstance(content, str) and content.strip():
+            out.append({"role": role, "content": content.strip()[:max_chars]})
+    return out[-limit:]
+
+
 def run_conversation(
     agent,
     user_message: str,
@@ -732,7 +750,9 @@ def run_conversation(
     if agent._memory_manager:
         try:
             _turn_msg = original_user_message if isinstance(original_user_message, str) else ""
-            agent._memory_manager.on_turn_start(agent._user_turn_count, _turn_msg)
+            agent._memory_manager.on_turn_start(
+                agent._user_turn_count, _turn_msg,
+                recent_messages=_recent_messages_for_memory(messages))
         except Exception:
             pass
 

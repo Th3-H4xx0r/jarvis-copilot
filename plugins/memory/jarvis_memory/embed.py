@@ -95,7 +95,9 @@ class OllamaEmbedder(Embedder):
         for t in texts:
             req = urllib.request.Request(
                 f"{self._url}/api/embeddings",
-                data=_json.dumps({"model": self._model, "prompt": t or ""}).encode("utf-8"),
+                # keep_alive: an unloaded model costs ~3 s on the next turn.
+                data=_json.dumps({"model": self._model, "prompt": t or "",
+                                  "keep_alive": "24h"}).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:

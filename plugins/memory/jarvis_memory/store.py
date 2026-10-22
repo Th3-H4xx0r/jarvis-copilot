@@ -382,6 +382,18 @@ class MemoryStore:
         }
         return [by_id[i] for i in ids if i in by_id]
 
+    def ids_with_slot_roles(self, namespace, roles, limit=60) -> List[str]:
+        """Memories whose map slots fill any of ``roles`` ("venue: …"), newest first."""
+        roles = [r for r in roles if re.fullmatch(r"[a-z_]+", r or "")]
+        if not roles:
+            return []
+        like = " OR ".join(["(' · ' || slots) LIKE ?"] * len(roles))
+        with self._lock:
+            return [r["id"] for r in self._conn.execute(
+                f"SELECT id FROM chunks WHERE namespace=? AND {_ACTIVE} AND slots != '' "
+                f"AND ({like}) ORDER BY created_at DESC LIMIT ?",
+                [namespace or GLOBAL_NS] + [f"% · {r}:%" for r in roles] + [limit])]
+
     def ids_in_window(self, namespace, start, end, limit=50) -> List[str]:
         """Memories about something happening in [start, end] (event time), or
         — for timeless ones — said in it, soonest first."""

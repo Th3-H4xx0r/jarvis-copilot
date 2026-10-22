@@ -19,7 +19,7 @@ from .config import load_config
 from .embed import make_embedder
 from .ingest import ingest_turn
 from .mem_log import install_handler, log_event
-from .recall import format_recall_block, hybrid_recall, parse_when
+from .recall import parse_when
 from .store import GLOBAL_NS, MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -220,8 +220,7 @@ class JarvisMemoryProvider(MemoryProvider):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem")
         self._pending: list = []
         self._lock = threading.Lock()
-        self._prefetch_lock = threading.Lock()
-        self._prefetch_cache = ""
+        self._recent: list = []
         self._now = time.time
         self._entity_index = None
         # Auto-start a local Ollama server (background, best-effort) so the
@@ -229,6 +228,7 @@ class JarvisMemoryProvider(MemoryProvider):
         # runtime — that happens once in post_setup.
         if (cfg.get("embedder") or "ollama").lower() == "ollama" and cfg.get("ollama_autostart", True):
             self._pool.submit(self._ensure_ollama)
+        self._pool.submit(self._warm)
         # One-time migration of the builtin MEMORY.md/USER.md into this store
         # (queued after ensure_ollama so embeddings are available).
         if self._migrate_builtin:
@@ -441,38 +441,81 @@ class JarvisMemoryProvider(MemoryProvider):
                 pass
 
     # -- recall ---------------------------------------------------------------
+    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+        recent = kwargs.get("recent_messages")
+        if isinstance(recent, list):
+            self._recent = [m for m in recent if isinstance(m, dict)]
+
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Warm recall in the background after a turn so prefetch() stays off the
-        turn-start hot path (the embed is a network call — see bug-sweep M1)."""
-        if not query or not query.strip():
-            return
-        fut = self._pool.submit(self._warm_prefetch, query)
+        """Keep the next turn's recall fast: the embedder loaded and the
+        entity index current. The recall itself runs on the turn's own words."""
+        fut = self._pool.submit(self._warm)
         with self._lock:
             self._pending = [f for f in self._pending if not f.done()]
             self._pending.append(fut)
 
-    def _warm_prefetch(self, query: str):
+    def _warm(self):
         try:
-            hits = hybrid_recall(
-                self._store, self._embedder, query, self._namespace,
-                limit=int(self._cfg.get("recall_limit", 5)),
-                min_relevance=float(self._cfg.get("min_relevance", 0.0)),
-            )
-            block = format_recall_block(hits, int(self._cfg.get("max_context_chars", 2000)))
+            self._embedder.embed_one("warm")
+            self._entities().refresh()
         except Exception as e:
-            logger.warning("jarvis_memory prefetch warm failed: %s", e)
-            block = ""
-        with self._prefetch_lock:
-            self._prefetch_cache = block
+            logger.debug("jarvis_memory warm-up failed: %s", e)
+
+    def _recall_context(self) -> str:
+        """What the recent turns add to a short follow-up ("parking there?"):
+        the previous user message and the names in Jarvis's last reply."""
+        recent = getattr(self, "_recent", None) or []
+        last_user = next((m.get("content") for m in reversed(recent)
+                          if m.get("role") == "user" and m.get("content")), "")
+        last_reply = next((m.get("content") for m in reversed(recent)
+                           if m.get("role") == "assistant" and m.get("content")), "")
+        names = []
+        if last_reply:
+            try:
+                names = [m[1] for m in self._entities().match(str(last_reply))]
+            except Exception:
+                names = []
+        return " ".join([str(last_user)[:600]] + names).strip()
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        # Return the block warmed by the previous turn's queue_prefetch — never a
-        # synchronous network embed on the hot path. (The model can still call
-        # the memory_recall tool for an explicit current-query lookup.)
-        with self._prefetch_lock:
-            block = self._prefetch_cache
-            self._prefetch_cache = ""
-        return block
+        """The brief of what's going on now + memories for THIS message.
+
+        Computed on the turn's own words every time (it used to return a block
+        warmed on the previous message, so a first turn got nothing)."""
+        from . import tz
+        from .recall import RecallQuery, recall
+
+        t0 = time.perf_counter()
+        brief_text = ""
+        try:
+            from . import brief as _brief
+            brief_text = _brief.current_text()
+        except Exception:
+            brief_text = ""
+        block = ""
+        trace = {}
+        if (query or "").strip():
+            try:
+                res = recall(
+                    self._store, self._embedder,
+                    RecallQuery(text=query, context=self._recall_context(), now=self._now(),
+                                zone=tz.user_zone(),
+                                limit=int(self._cfg.get("recall_limit", 6)),
+                                budget_chars=int(self._cfg.get("max_context_chars", 2400)),
+                                embed_timeout=1.5),
+                    entity_index=self._entities(), namespace=self._namespace)
+                block, trace = res.block, res.trace
+            except Exception as e:
+                logger.warning("jarvis_memory prefetch recall failed: %s", e)
+        out = (brief_text + "\n\n" if brief_text else "") + block
+        ms = round((time.perf_counter() - t0) * 1000, 1)
+        trace["total_ms"] = ms
+        logger.info("jarvis_memory prefetch %.0f ms, %d hits", ms, len(trace.get("hits", [])))
+        try:
+            self._store.add_trace(session_id or getattr(self, "_session_id", ""), query, out, trace)
+        except Exception as e:
+            logger.debug("jarvis_memory trace write failed: %s", e)
+        return out
 
     def system_prompt_block(self) -> str:
         try:

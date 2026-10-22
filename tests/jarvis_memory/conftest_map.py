@@ -4,9 +4,17 @@ from zoneinfo import ZoneInfo
 
 from plugins.memory.jarvis_memory.embed import FakeEmbedder
 from plugins.memory.jarvis_memory.store import GLOBAL_NS, MemoryStore
+from plugins.memory.jarvis_memory.textq import content_tokens
 
 CT = ZoneInfo("America/Chicago")
 NOW = datetime(2026, 10, 21, 20, 56, tzinfo=CT)
+
+
+class ContentEmbedder(FakeEmbedder):
+    """Bag of content words: closer to real embeddings than counting "the"."""
+
+    def embed(self, texts):
+        return super().embed([" ".join(content_tokens(t)) for t in texts])
 
 
 def ts(*args):
@@ -15,12 +23,14 @@ def ts(*args):
 
 def build_venue_store(tmp_path):
     s = MemoryStore(tmp_path / "memory.db", tmp_path / "vault")
-    e = FakeEmbedder(dim=128)
+    e = ContentEmbedder(dim=128)
     ids = {}
 
     def add(key, body, created, **fields):
+        # Enriched memories are embedded with their slots (fact-augmented key).
+        key_text = body + (" " + fields["slots"] if fields.get("slots") else "")
         ids[key] = s.add_chunk(GLOBAL_NS, body, f"test:{key}", created, 1.0, "fact",
-                               embedding=e.embed_one(body), signature=e.signature, dim=e.dim)
+                               embedding=e.embed_one(key_text), signature=e.signature, dim=e.dim)
         if fields:
             s.set_map_fields(ids[key], **fields)
 

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from .embed import Embedder
 from .store import Chunk, GLOBAL_NS, MemoryStore
+from .textq import content_tokens
 from .timeparse import TimeWindow, window as time_window
 
 logger = logging.getLogger(__name__)
@@ -130,10 +131,24 @@ REL_FLOOR = 0.35          # drop hits under this share of the best score
 WEAK_KEYWORD = 0.3        # a keyword-only hit under this share of the best one is noise
 HOP_PARENTS = 3
 HOP_MAX = 4
+VECTOR_BAND = 0.12        # vector hits must be within this cosine of the best one
 HUB_DEGREE = 60           # an entity linked to more memories than this isn't followed
 _embed_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-mem-embed")
 
 recall_legacy = hybrid_recall
+
+# Question words → the slot roles the map writes ("venue: Circuit of the
+# Americas · when: Sat 24 Oct · with: Sid"). "the venue" then finds whatever
+# fills the venue role — upcoming things first — even with no other overlap.
+ROLE_WORDS = {
+    "venue": ("venue", "place"), "place": ("place", "venue"), "location": ("place", "venue", "address"),
+    "address": ("address", "place"), "where": ("venue", "place", "address"),
+    "directions": ("venue", "place", "address"), "navigation": ("venue", "place", "address"),
+    "navigate": ("venue", "place", "address"), "who": ("with",), "whom": ("with",),
+    "when": ("when",), "time": ("when",), "date": ("when",), "event": ("event",),
+    "price": ("price",), "cost": ("price",), "booking": ("booking",), "ticket": ("booking", "event"),
+    "tickets": ("booking", "event"),
+}
 
 
 @dataclass
@@ -144,6 +159,7 @@ class RecallQuery:
     context: str = ""
     limit: int = 6
     budget_chars: int = 2400
+    embed_timeout: float = 5.0
 
 
 @dataclass
@@ -196,6 +212,14 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
                 if only is None or c in only]
     channels["entity"] = ent_hits
 
+    roles = sorted({r for t in content_tokens(text) for r in ROLE_WORDS.get(t, ())})
+    if roles:
+        role_ids = store.ids_with_slot_roles(namespace, roles, CHANNEL_DEPTH * 2)
+        role_ids = [c for c in role_ids if only is None or c in only]
+        role_chunks = {c.id: c for c in store.get_chunks(role_ids)}
+        role_ids.sort(key=lambda c: -_salience(role_chunks[c], q.now) if c in role_chunks else 0)
+        channels["role"] = role_ids[:CHANNEL_DEPTH]
+
     win = None
     if text:
         try:
@@ -211,9 +235,12 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
         channels["time"] = [c for c in timed if only is None or c in only]
 
     try:
-        vec = fut.result(timeout=5)
-        channels["vector"] = [c for c, _ in store.vector_search(
-            namespace, vec, embedder.signature, CHANNEL_DEPTH, only_ids=only)]
+        vec = fut.result(timeout=q.embed_timeout)
+        found = store.vector_search(namespace, vec, embedder.signature, CHANNEL_DEPTH, only_ids=only)
+        top_cos = found[0][1] if found else 0.0
+        # Vector search ranks everything, related or not; keep only hits near
+        # the best match so "nothing like it" never earns a rank.
+        channels["vector"] = [c for c, cos in found if cos > 0 and cos >= top_cos - VECTOR_BAND]
     except Exception as e:
         logger.warning("jarvis_memory vector arm failed: %s", e)
         channels["vector"] = []

@@ -9,9 +9,9 @@ DEFAULTS = {
     "ollama_url": "http://localhost:11434",
     "ollama_model": "bge-m3",
     "embed_dim": 1024,
-    "recall_limit": 5,             # openhuman default
+    "recall_limit": 6,             # memories per turn (plus one-hop links)
     "min_relevance": 0.0,          # Phase-1 fusion uses raw fused score; keep permissive
-    "max_context_chars": 2000,     # openhuman default
+    "max_context_chars": 2400,     # recall block budget (the brief is separate)
     "namespace": "global",
     # Which roles to capture. Default user-only: the user supplies the durable
     # facts; assistant turns are mostly echoes/derivable and add noise. Set to
