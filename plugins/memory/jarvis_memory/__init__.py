@@ -523,6 +523,7 @@ class JarvisMemoryProvider(MemoryProvider):
                                 embed_timeout=1.5),
                     entity_index=self._entities(), namespace=self._namespace)
                 block, trace = res.block, res.trace
+                block += self._resolve_vague(query, brief_text, res.hits, trace)
             except Exception as e:
                 logger.warning("jarvis_memory prefetch recall failed: %s", e)
         out = (brief_text + "\n\n" if brief_text else "") + block
@@ -534,6 +535,25 @@ class JarvisMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.debug("jarvis_memory trace write failed: %s", e)
         return out
+
+    def _resolve_vague(self, query: str, brief_text: str, hits, trace: dict) -> str:
+        """Only when nothing named what "the venue" / "him" means: one quick
+        memory-model call (≤ ~1 s) — act if it's clear, ask if not."""
+        from . import vague
+        context = self._recall_context()
+        phrase = vague.needs_resolution(query, brief_text, context, hits)
+        if not phrase:
+            return ""
+        res = vague.resolve(phrase, query, brief_text, context, hits,
+                            timeout_s=float(self._cfg.get("vague_timeout_sec", 1.2)))
+        trace["vague"] = {"phrase": phrase, "resolved": bool(res)}
+        if res is None:
+            return ""
+        lines = [vague.note(phrase, res)]
+        shown = {h.chunk.id for h in hits}
+        for c in self._store.get_chunks([i for i in res.memory_ids if i not in shown]):
+            lines.append(f"- {' '.join(c.body.split())}")
+        return "\n".join(lines) + "\n\n"
 
     def system_prompt_block(self) -> str:
         try:
