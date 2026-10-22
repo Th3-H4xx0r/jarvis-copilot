@@ -539,6 +539,13 @@ def main() -> None:
     except Exception as exc:
         print(f"[imessage-memory] closer could not start: {exc}", flush=True)
 
+    # ── Memory map: the memory model + the "now" brief's live sources ────
+    try:
+        from api.memory_map import install as _install_memory_map
+        _install_memory_map()
+    except Exception as exc:
+        print(f"[memory-map] could not start: {exc}", flush=True)
+
     # Fold any per-wearable health space into the shared Jarvis Health one.
     # Idempotent and best-effort: the runner retries on its next tick.
     try:

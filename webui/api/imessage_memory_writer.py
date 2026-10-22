@@ -196,6 +196,12 @@ def resolve_extraction_model(agent) -> Tuple[str, str]:
     return ref, f"Default → model {ref}" if ref else "Default → no model set"
 
 
+def _memory_model() -> Tuple[str, str]:
+    """(model_ref, label) of the one memory model (Long-term Memory settings)."""
+    from api.memory_map import get_agent
+    return resolve_extraction_model(get_agent())
+
+
 def _one_shot(model_ref: str, prompt: str) -> str:
     """One extraction call. Straight to the provider (``call_llm``): building
     a whole agent per conversation was CPU-bound and serialised the parallel
@@ -303,7 +309,7 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
         st.mark_burst(burst, "skipped", remembered=False)
         return "skipped"
     try:
-        model_ref, _label = resolve_extraction_model(settings.get("agent"))
+        model_ref, _label = _memory_model()
         transcript = _header(burst, chat, zone, "") + "\n" + "\n".join(_lines(burst, zone))
         summary, facts, keep = extract(transcript, model_ref, complete)
     except Exception as exc:

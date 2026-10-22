@@ -212,3 +212,22 @@ def test_extraction_dedup_skips_near_duplicate(tmp_path):
     p._flush()
     assert p._store.count_chunks(p._namespace) == 1   # second fact deduped
     p.shutdown()
+
+
+def test_chat_extractor_uses_registered_memory_model():
+    from plugins.memory.jarvis_memory import llm
+    from plugins.memory.jarvis_memory.extract import AuxiliaryExtractor
+
+    seen = []
+
+    def fake(prompt, max_tokens):
+        seen.append(prompt)
+        return '["Pranav loves omakase sushi on Fridays"]'
+
+    llm.set_completer(fake)
+    try:
+        facts = AuxiliaryExtractor().extract("I love omakase sushi on Fridays", "")
+    finally:
+        llm.set_completer(None)
+    assert facts == ["Pranav loves omakase sushi on Fridays"]
+    assert seen and "omakase" in seen[0] and "JSON array" in seen[0]

@@ -63,8 +63,7 @@ async function openIMessageMemory() {
   if (title) title.textContent = '💬  iMessage memory';
   if (body) { body.style.display = ''; body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`; }
   try {
-    const [state] = await Promise.all([api('/api/imessage-memory'),
-      typeof loadCronRunsOnChoices === 'function' ? loadCronRunsOnChoices() : null]);
+    const state = await api('/api/imessage-memory');
     if (_intgView !== _IMM_VIEW) return;
     _immCard = state;
     _immRender();
@@ -72,23 +71,6 @@ async function openIMessageMemory() {
     if (_intgView !== _IMM_VIEW) return;
     if (body) body.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message)}</div>`;
   }
-}
-
-function _immAgentValue(agent) {
-  if (!agent) return 'default';
-  if (agent.harness_id) return `harness:${agent.harness_id}`;
-  if (agent.model) {
-    const m = String(agent.model);
-    return `model:${m.startsWith('@') || !agent.provider ? m : `@${agent.provider}:${m}`}`;
-  }
-  return 'default';
-}
-
-function _immAgentFrom(value) {
-  const v = String(value || 'default');
-  if (v.startsWith('harness:')) return { harness_id: v.slice(8) };
-  if (v.startsWith('model:')) return { model: v.slice(6), provider: null };
-  return null;
 }
 
 function _immWhen(ts) {
@@ -115,10 +97,6 @@ function _immRender() {
   const body = $('taskDetailBody');
   if (!body || !_immCard) return;
   const c = _immCard;
-  const ctx = typeof _cronRunsOnCtx === 'function' ? _cronRunsOnCtx(null) : null;
-  const runsOn = window.CronRunsOn && ctx
-    ? CronRunsOn.optionsHtml(_immAgentValue(c.agent), ctx)
-    : `<option value="${esc(_immAgentValue(c.agent))}">${esc(c.runs_on || 'Default')}</option>`;
   const warn = !c.memory_active
     ? 'Long-term memory (jarvis_memory) isn’t the active memory, so nothing is saved until it is.'
     : (!c.mac_seen_at ? 'Your Mac hasn’t checked in yet. Make sure the Jarvis Mac app is running and has Full Disk Access.'
@@ -169,7 +147,7 @@ function _immRender() {
 
       <section class="intg-section">
         <h4 class="intg-section-title">Model or harness</h4>
-        <select class="imm-input" data-imm="agent">${runsOn}</select>
+        <div class="imm-hint">Uses the memory model — change it in Long-term Memory.</div>
       </section>
 
       <section class="intg-section">
@@ -285,8 +263,6 @@ function _immBind(body) {
   const q = sel => body.querySelector(`[data-imm="${sel}"]`);
   const enabled = q('enabled');
   if (enabled) enabled.onchange = () => _immUpdate('/settings', { enabled: enabled.checked });
-  const agent = q('agent');
-  if (agent) agent.onchange = () => _immUpdate('/settings', { agent: _immAgentFrom(agent.value) });
   const search = q('search');
   if (search) search.oninput = () => {
     _immSearch = search.value;

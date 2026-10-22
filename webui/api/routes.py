@@ -4819,6 +4819,9 @@ def handle_get(handler, parsed) -> bool:
         return _handle_jarvis_memory_search(handler, parsed)
     if parsed.path == "/api/jarvis-memory/reflections":
         return _handle_jarvis_memory_reflections(handler)
+    if parsed.path == "/api/jarvis-memory/map-settings":
+        from api.memory_map import handle_settings_get
+        return handle_settings_get(handler)
     if parsed.path == "/api/notify/targets":
         return _handle_notify_list(handler)
 
@@ -5983,6 +5986,9 @@ def handle_post(handler, parsed) -> bool:
         return _handle_jarvis_memory_reflection_dismiss(handler, body)
     if parsed.path == "/api/jarvis-memory/reflections/run":
         return _handle_jarvis_memory_reflection_run(handler)
+    if parsed.path == "/api/jarvis-memory/map-settings":
+        from api.memory_map import handle_settings_post
+        return handle_settings_post(handler, body)
     if parsed.path == "/api/notify":
         return _handle_notify(handler, body)
 

@@ -99,6 +99,8 @@
       body.dataset.built = "1";
       body.innerHTML =
         '<div id="jmemStatus" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>' +
+        '<div id="jmemModel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>' +
+        '<div id="jmemCleanup" style="margin-bottom:14px"></div>' +
         '<div id="jmemReflect" style="margin-bottom:14px"></div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">' +
         '<input id="jmemQ" type="text" placeholder="Search your long-term memory…" ' +
@@ -288,9 +290,58 @@
     }, 3000);
   }
 
+  // ── Memory model: the one model (or harness) every memory call uses ──
+  function agentValue(agent) {
+    if (!agent) return "default";
+    if (agent.harness_id) return "harness:" + agent.harness_id;
+    if (agent.model) {
+      var m = String(agent.model);
+      return "model:" + (m.charAt(0) === "@" || !agent.provider ? m : "@" + agent.provider + ":" + m);
+    }
+    return "default";
+  }
+
+  function agentFrom(value) {
+    var v = String(value || "default");
+    if (v.indexOf("harness:") === 0) return { harness_id: v.slice(8) };
+    if (v.indexOf("model:") === 0) return { model: v.slice(6), provider: null };
+    return null;
+  }
+
+  async function loadModel() {
+    var el = document.getElementById("jmemModel");
+    if (!el) return;
+    var d;
+    try {
+      if (typeof loadCronRunsOnChoices === "function") await loadCronRunsOnChoices();
+      d = await fetch("api/jarvis-memory/map-settings").then(function (r) { return r.json(); });
+    } catch (e) { return; }
+    var value = agentValue(d.agent);
+    var ctx = typeof _cronRunsOnCtx === "function" ? _cronRunsOnCtx(null) : null;
+    var options = window.CronRunsOn && ctx
+      ? CronRunsOn.optionsHtml(value, ctx)
+      : '<option value="' + esc(value) + '">' + esc(d.label || "Default") + "</option>";
+    el.innerHTML =
+      '<span style="font-size:12px;color:var(--muted)">Memory model</span>' +
+      '<select id="jmemModelSel" style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">' +
+      options + "</select>" +
+      '<span style="font-size:11px;color:var(--muted)">Reads chats, iMessage and Live to pull out dates, people and places' +
+      (d.label ? " · " + esc(d.label) : "") + "</span>";
+    document.getElementById("jmemModelSel").addEventListener("change", async function (ev) {
+      try {
+        await fetch("api/jarvis-memory/map-settings", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent: agentFrom(ev.target.value) }),
+        });
+      } catch (e) { /* the next load shows what stuck */ }
+      loadModel();
+    });
+  }
+
   window.loadJarvisMemory = async function () {
     renderShell();
     await loadStatus();
+    await loadModel();
     await loadStats();
     await loadReflections();
     await runSearch();

@@ -154,6 +154,11 @@ class AuxiliaryExtractor(FactExtractor):
             user_block += f"\nAssistant said: {assistant_text}"
         user_block += "\n\nJSON array of durable facts:"
 
+        from . import llm
+        if llm.has_completer():
+            # The web server's memory model (his one setting) does every memory call.
+            return _parse_facts(llm.complete(SYSTEM_PROMPT + "\n\n" + user_block, 512))
+
         def ask(model):
             return call_llm(
                 task="memory_extraction",      # reads auxiliary.memory_extraction.* if configured
