@@ -15,10 +15,6 @@ struct IMessageMemoryAPI {
         try await settings(["enabled": enabled])
     }
 
-    func setAgent(_ choice: AgentChoice?) async throws -> IMessageMemoryCard {
-        try await settings(["agent": IMessageMemoryAgent(choice).json])
-    }
-
     func setSkip(_ people: [IMessagePerson]) async throws -> IMessageMemoryCard {
         try await settings(["skip": people.map(\.json)])
     }

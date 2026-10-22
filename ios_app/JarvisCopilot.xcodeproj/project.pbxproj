@@ -661,6 +661,7 @@
 		8E0134296AB486D2509BD5DB /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
 		8E715E102800DD8E8442DB94 /* WidgetBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B2C7DC3F836C87A3282A071 /* WidgetBuilderTests.swift */; };
 		8E79F34BCD016F92ADD3DE65 /* IslandBindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEF0DF60FC079D24550920C /* IslandBindings.swift */; };
+		8EB82779980E8CA52082A11B /* ContextSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3615258119AB33C6105C323F /* ContextSnapshotTests.swift */; };
 		8F1A0C33563FABB065D744A0 /* JcState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2E52F8017B52D5B1B85AD6 /* JcState.swift */; };
 		8F32DFBCDEA06CA2926DAFB5 /* InsightsChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A57264177A1165B099054ED /* InsightsChartData.swift */; };
 		8F7445E34962E7F9D8CCF85A /* HabitModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA7C591AB5E60A1C3A85B0 /* HabitModels.swift */; };
@@ -880,6 +881,7 @@
 		BE3884672AD66504E52E4EDD /* DashcamRemux.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0AC099F6C80E176473558B6 /* DashcamRemux.swift */; };
 		BE6FDB0ABB7CA323632F1D39 /* JarvisAlarmActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */; };
 		BEA4B729A18BDE7679650B5A /* VoiceModelFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C16F21F5307DC5E447CED41 /* VoiceModelFields.swift */; };
+		BEAC6713C81D8B729AE38248 /* MemoryMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601E66227B2398E61BFC1D9E /* MemoryMapTests.swift */; };
 		BEF0404F0984E6D47DE96269 /* WeightCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F26EE8116FF48964B72C773 /* WeightCard.swift */; };
 		BFC01AD7AEC5B46C0970497A /* AgentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E94AF81F5DEB75E35905E3 /* AgentsTests.swift */; };
 		BFDEFFA9BB2421D02F11257F /* ControlButtonsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E029E18AA14374F1AA0599 /* ControlButtonsTests.swift */; };
@@ -1022,6 +1024,7 @@
 		DD63E14CDF272F8ACD2A0765 /* SleepDebtCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */; };
 		DDCD38808F836FE6342970CB /* CronRunsOnPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02F199A541ECA2B88E11287 /* CronRunsOnPicker.swift */; };
 		DE0BCCACE8E1E4D2FFC9965F /* ActionAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A033203704890E4ACBA40D3 /* ActionAgentTests.swift */; };
+		DE813369FE6F1D4ABEA3A8F1 /* ContextSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */; };
 		DE8EE766A101DDB164E2D4BB /* HealthWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */; };
 		DEC2FDC52FB7B31E11FEC74F /* BandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95871CA93FF456CB5A4E83 /* BandTransport.swift */; };
 		DECAFCAF16F1680FAA0F3E32 /* ImageViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70499B1F9F6547FD70A78EFD /* ImageViewer.swift */; };
@@ -1462,6 +1465,7 @@
 		3584FB51E25BF86374E4A4A0 /* ConnectionMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectionMonitorTests.swift; sourceTree = "<group>"; };
 		359198248831E3FD1BE83D5B /* NotesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotesAPI.swift; sourceTree = "<group>"; };
 		35FB23B2C0FCE8661BB5C251 /* HealthClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthClient.swift; sourceTree = "<group>"; };
+		3615258119AB33C6105C323F /* ContextSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextSnapshotTests.swift; sourceTree = "<group>"; };
 		36299D2CA83B8F9B8E9D033D /* ChatStreamReducer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducer.swift; sourceTree = "<group>"; };
 		365B06F937E30A136D3FDF5B /* DashcamModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamModel.swift; sourceTree = "<group>"; };
 		36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModels.swift; sourceTree = "<group>"; };
@@ -1629,6 +1633,7 @@
 		5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableModelView.swift; sourceTree = "<group>"; };
 		5F2BC53A61A961382338C723 /* LiveSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSettingsTests.swift; sourceTree = "<group>"; };
 		5FB0830BA8D815CFBCB0D081 /* CarStatusScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarStatusScreen.swift; sourceTree = "<group>"; };
+		601E66227B2398E61BFC1D9E /* MemoryMapTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryMapTests.swift; sourceTree = "<group>"; };
 		60594EB775ACD4F916214574 /* MoreUIBSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIBSupport.swift; sourceTree = "<group>"; };
 		6091B3B7E6EF5A99F9D16BF3 /* HarnessesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessesPage.swift; sourceTree = "<group>"; };
 		60AE7B30050678209FB5F068 /* ModelsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelsAPI.swift; sourceTree = "<group>"; };
@@ -2294,6 +2299,7 @@
 		F3026BB83885951948EAF3FA /* GlassesAudioLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesAudioLinkTests.swift; sourceTree = "<group>"; };
 		F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LensCaptionSurface.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextSnapshot.swift; sourceTree = "<group>"; };
 		F417A42373CEB73AA107565D /* ButtonKey.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonKey.swift; sourceTree = "<group>"; };
 		F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeReconnect.swift; sourceTree = "<group>"; };
 		F457BDB67BB9C8C7C9B457A9 /* CarLightsManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsManager.swift; sourceTree = "<group>"; };
@@ -2885,6 +2891,7 @@
 				41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */,
 				76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */,
 				2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */,
+				3615258119AB33C6105C323F /* ContextSnapshotTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -3035,6 +3042,7 @@
 				3F2CF4FE41A833E8A2F5AA3F /* HarnessGraphTests.swift */,
 				1B9965207EBAD25BFADF07D9 /* HarnessRenderTests.swift */,
 				6C5395B8C568D8507C6702CE /* HarnessDefaultTests.swift */,
+				601E66227B2398E61BFC1D9E /* MemoryMapTests.swift */,
 			);
 			path = More;
 			sourceTree = "<group>";
@@ -4340,6 +4348,7 @@
 				EDD9197DD940F955EE173280 /* EnergyLedger.swift */,
 				3FF95237B907D876EF1A5A5B /* ButtonActivityController.swift */,
 				759B24B05CBEB87E6E16FFCA /* ControlPushTokenUploader.swift */,
+				F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -5091,6 +5100,8 @@
 				B824037A86A3E016B210D41D /* BridgeReconnectTests.swift in Sources */,
 				5727E49AA5B8F77024D66561 /* IMessageFactCardRenderTests.swift in Sources */,
 				34A6AB140D29D3E8D4425691 /* DashcamTagsTests.swift in Sources */,
+				8EB82779980E8CA52082A11B /* ContextSnapshotTests.swift in Sources */,
+				BEAC6713C81D8B729AE38248 /* MemoryMapTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5870,6 +5881,7 @@
 				2E9532D76494BC45E2E7E66B /* BridgeReconnect.swift in Sources */,
 				891DC72BA565A2843A04FF47 /* DashcamTags.swift in Sources */,
 				439C762EC683FC9A4E47F540 /* DashcamTagViews.swift in Sources */,
+				DE813369FE6F1D4ABEA3A8F1 /* ContextSnapshot.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6138,6 +6150,7 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence, and checks whether you are driving before the dashcam is paused to copy footage.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "JarvisCopilot saves dashcam clips to Photos when you choose Save to Photos.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Jarvis reads your open reminders so it knows what's on your plate.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
@@ -6249,6 +6262,7 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence, and checks whether you are driving before the dashcam is paused to copy footage.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "JarvisCopilot saves dashcam clips to Photos when you choose Save to Photos.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "Jarvis reads your open reminders so it knows what's on your plate.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;

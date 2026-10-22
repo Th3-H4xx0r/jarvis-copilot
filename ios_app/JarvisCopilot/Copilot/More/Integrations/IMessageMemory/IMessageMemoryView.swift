@@ -44,7 +44,7 @@ struct IMessageMemoryView: View {
             VStack(spacing: 24) {
                 if let card = store.card {
                     statusSection(card)
-                    agentSection(card)
+                    modelNote
                     factCardsSection(card)
                     chatsSection(card)
                     skipSection(card)
@@ -151,26 +151,18 @@ struct IMessageMemoryView: View {
         }
     }
 
-    // MARK: 2. Model or harness
+    // MARK: 2. Model
 
-    private func agentSection(_ card: IMessageMemoryCard) -> some View {
-        CardGroup("Model or harness", footer: "What reads your messages and decides what to remember.") {
-            NavigationLink {
-                AgentChoicePage(title: "Model or harness", pick: AgentPick(card.agent)) { pick in
-                    Task { await store.setAgent(pick.choice) }
-                }
-            } label: {
-                Row {
-                    HStack {
-                        Text("Runs on").foregroundStyle(JcTheme.text)
-                        Spacer()
-                        Text(AgentPick(card.agent).label).foregroundStyle(JcTheme.muted).lineLimit(1)
-                        JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
-                    }
-                }
-                .contentShape(Rectangle())
+    /// The memory model reads iMessage too; it is set in one place.
+    private var modelNote: some View {
+        CardGroup("Model") {
+            Row {
+                Text("Uses the memory model — change it in Long-term Memory.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
         }
     }
 

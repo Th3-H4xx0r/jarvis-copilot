@@ -3,20 +3,26 @@ import SwiftUI
 /// The `jarvis_memory` semantic store — the same data the webui "Long-term
 /// memory" panel renders. Ported from `long_term_memory_page.dart`.
 ///
-/// Stats header + namespace chips, a debounced semantic search box over a
-/// deletable results list, and the Reflections section (run / dismiss). When the
+/// Stats header + namespace chips, the memory model and the Cleanup card, a
+/// debounced semantic search box over a deletable results list, and the
+/// Reflections section (run / dismiss). When the
 /// store isn't initialised the server fail-softs to `{available:false, error:…}`
 /// and we render the unavailable card instead of an empty screen.
 struct LongTermMemoryPage: View {
     @State private var store: JarvisMemoryStore
+    @State private var map: MemoryMapStore
+    /// Re-read on every appear: Settings can change it while the page is away.
+    @State private var remindersUnasked = false
+    @State private var expanded: Set<String> = []
     /// The text field's own state: `store.query` is updated through
     /// `queryChanged`, which also drives the debounce, so binding straight to it
     /// would set it twice per keystroke.
     @State private var query = ""
     @State private var pendingDelete: MemoryEntry?
 
-    init(store: JarvisMemoryStore? = nil) {
+    init(store: JarvisMemoryStore? = nil, map: MemoryMapStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { JarvisMemoryStore() })
+        _map = State(initialValue: map ?? MainActor.assumeIsolated { MemoryMapStore() })
     }
 
     var body: some View {
@@ -44,7 +50,13 @@ struct LongTermMemoryPage: View {
             }
         }
         .task { if !store.hasLoaded { store.onAppear() } }
+        .onAppear {
+            map.appeared()
+            remindersUnasked = RemindersAccess.notDetermined
+        }
+        .onDisappear { map.disappeared() }
         .moreToast($store.toast)
+        .moreToast($map.toast)
         .alert("Forget this memory?",
                isPresented: Binding(get: { pendingDelete != nil },
                                     set: { if !$0 { pendingDelete = nil } }),
@@ -64,6 +76,12 @@ struct LongTermMemoryPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 statsHeader.padding(.bottom, 16)
+                if let settings = map.settings {
+                    memoryModel(settings).padding(.bottom, 20)
+                }
+                if let cleanup = map.cleanup {
+                    cleanupSection(cleanup).padding(.bottom, 20)
+                }
                 searchBox.padding(.bottom, 12)
                 results
                 reflections.padding(.top, 24)
@@ -189,6 +207,160 @@ struct LongTermMemoryPage: View {
                 }
             }
         }
+    }
+
+    // MARK: Memory model
+
+    private func memoryModel(_ settings: MemoryMapSettings) -> some View {
+        let pick = AgentPick(settings.agent)
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("Memory model")
+            NavigationLink {
+                AgentChoicePage(title: "Memory model", pick: pick) { pick in
+                    Task { await map.setAgent(pick.choice) }
+                }
+            } label: {
+                GlassCard(padding: 0, fill: JcTheme.surface) {
+                    HStack(spacing: 10) {
+                        Text("Runs on").font(.system(size: 15)).foregroundStyle(JcTheme.text)
+                        Spacer(minLength: 8)
+                        Text(settings.label.isEmpty ? pick.label : settings.label)
+                            .font(.system(size: 14))
+                            .foregroundStyle(JcTheme.muted)
+                            .lineLimit(1)
+                        JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+            Text("Reads chats, iMessage and Live to pull out dates, people and places.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
+            if remindersUnasked {
+                GlassButton(title: "Let Jarvis see Reminders", symbol: "checklist", ghost: true, full: true) {
+                    Task {
+                        _ = await RemindersAccess.request()
+                        remindersUnasked = RemindersAccess.notDetermined
+                        await ContextSnapshot.shared.pushIfDue(force: true)
+                    }
+                }
+                .padding(.top, 12)
+            }
+        }
+    }
+
+    // MARK: Cleanup
+
+    private func cleanupSection(_ cleanup: MemoryCleanupStatus) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("Cleanup") {
+                if cleanup.running { StatusPill("Running", color: JcTheme.accent, live: true, dense: true) }
+            }
+            GlassCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    if cleanup.running {
+                        cleanupProgress(cleanup.progress)
+                    } else {
+                        if let error = cleanup.error {
+                            Text(error)
+                                .font(.system(size: 13))
+                                .foregroundStyle(JcTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let report = cleanup.report {
+                            cleanupReport(report)
+                        } else {
+                            Text("Backs up your memory, merges duplicates, fixes times, hides trivia and maps "
+                                 + "every memory to dates, people and places. Nothing is deleted.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(JcTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        GradientButton("Run cleanup", symbol: "wand.and.stars", busy: map.startingCleanup,
+                                       full: true) {
+                            Task { await map.runCleanup() }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func cleanupProgress(_ progress: MemoryCleanupProgress?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(progress?.line ?? "Starting…")
+                .font(.system(size: 13.5, weight: .medium).monospacedDigit())
+                .foregroundStyle(JcTheme.text)
+            if let fraction = progress?.fraction {
+                ProgressView(value: fraction)
+                    .tint(JcTheme.accent)
+                    .animation(.easeOut(duration: 0.4), value: fraction)
+            } else {
+                ProgressView().tint(JcTheme.accent)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func cleanupReport(_ report: MemoryCleanupReport) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let finished = report.finishedAt {
+                Text("Last run \(RelativeTime.format(finished))")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            JcWrap(spacing: 8, runSpacing: 8) {
+                ForEach(report.counts) { count in
+                    MemoryNamespaceChip(name: count.label, count: count.value)
+                }
+            }
+            ForEach(report.examples) { group in
+                cleanupExamples(group)
+            }
+        }
+    }
+
+    private func cleanupExamples(_ group: MemoryCleanupExamples) -> some View {
+        DisclosureGroup(isExpanded: Binding(get: { expanded.contains(group.id) },
+                                            set: { open in
+                                                if open { expanded.insert(group.id) } else { expanded.remove(group.id) }
+                                            })) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(group.items) { item in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(item.body)
+                            .font(.system(size: 13))
+                            .foregroundStyle(JcTheme.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if group.kind.restorable {
+                            let done = map.restored.contains(item.id)
+                            Button(done ? "Restored" : "Restore") {
+                                Task { await map.restore(item.id) }
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(done ? JcTheme.muted : JcTheme.accent)
+                            .buttonStyle(.plain)
+                            .disabled(done)
+                            .frame(minHeight: 32)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            Text("\(group.kind.label) · \(group.items.count)")
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundStyle(JcTheme.text)
+        }
+        .tint(JcTheme.muted)
     }
 
     // MARK: Unavailable

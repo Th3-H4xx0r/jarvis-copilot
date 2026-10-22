@@ -282,6 +282,8 @@ final class AppServices {
 
         // 7. Background location, if the user left it on.
         location.startIfEnabled()
+        // 7b. Calendar / reminders / time zone for the server's now brief: re-sent on every edit.
+        ContextSnapshot.shared.start()
 
         // 8. Field metrics + the home-screen quick actions. The battery ledger first, so the probe
         //    it closes every hour has the network, charger and Low Power Mode from the start.
@@ -410,6 +412,7 @@ final class AppServices {
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
             WearablesHub.shared.appDidBecomeActive()
             Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.foregrounded() }
+            Task { await ContextSnapshot.shared.appForegrounded() }
             WatchBridge.shared.pushLoginState()
             liveActivity.onResume()
             Task { [weak self] in

@@ -167,3 +167,105 @@ final class JarvisMemoryStore {
         }
     }
 }
+
+/// The memory map half of the Long-term memory screen: which model maps
+/// memories, and the Cleanup card.
+///
+/// Its own lifecycle, apart from the header and search: the cleanup status is
+/// polled every 3 s while a run is going and the page is on screen, and a server
+/// without these endpoints just leaves both sections hidden.
+@Observable
+@MainActor
+final class MemoryMapStore {
+    static let pollInterval: TimeInterval = 3
+
+    private let api: JarvisMemoryAPI
+    private let sleeper: Sleeper
+    private let pollTask = TaskHandle()
+    private var visible = false
+
+    /// nil until loaded (or when the server doesn't have the setting).
+    private(set) var settings: MemoryMapSettings?
+    private(set) var cleanup: MemoryCleanupStatus?
+    private(set) var startingCleanup = false
+    /// Rows restored this visit, so their button reads "Restored".
+    private(set) var restored: Set<String> = []
+    var toast: String?
+
+    init(api: JarvisMemoryAPI = JarvisMemoryAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
+        self.api = api
+        self.sleeper = sleeper
+    }
+
+    deinit { pollTask.cancel() }
+
+    func appeared() {
+        visible = true
+        Task { await load() }
+    }
+
+    func disappeared() {
+        visible = false
+        pollTask.cancel()
+    }
+
+    func load() async {
+        do {
+            settings = try await api.mapSettings()
+        } catch {
+            JcLog.dropped(JcLog.more, "memory map settings", error)
+        }
+        await refreshCleanup()
+    }
+
+    /// nil = Same as Default.
+    func setAgent(_ choice: AgentChoice?) async {
+        let previous = settings
+        settings = MemoryMapSettings(agent: choice, label: settings?.label ?? "")
+        do {
+            settings = try await api.setMapAgent(choice)
+        } catch {
+            settings = previous
+            toast = apiErrorMessage(error)
+        }
+    }
+
+    func runCleanup() async {
+        guard !startingCleanup else { return }
+        startingCleanup = true
+        defer { startingCleanup = false }
+        do {
+            try await api.startCleanup()
+        } catch {
+            toast = apiErrorMessage(error)
+            return
+        }
+        await refreshCleanup()
+    }
+
+    func restore(_ id: String) async {
+        guard !id.isEmpty, !restored.contains(id) else { return }
+        do {
+            try await api.restore([id])
+            restored.insert(id)
+        } catch {
+            toast = apiErrorMessage(error)
+        }
+    }
+
+    private func refreshCleanup() async {
+        do {
+            cleanup = try await api.cleanupStatus()
+        } catch {
+            JcLog.dropped(JcLog.more, "memory cleanup status", error)
+        }
+        if cleanup?.running == true { startPolling() } else { pollTask.cancel() }
+    }
+
+    private func startPolling() {
+        guard visible else { return }
+        pollTask.poll(self, every: Self.pollInterval, sleeper: sleeper) { store in
+            await store.refreshCleanup()
+        }
+    }
+}

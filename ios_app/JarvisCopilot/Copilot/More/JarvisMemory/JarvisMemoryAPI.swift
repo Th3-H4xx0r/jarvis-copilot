@@ -54,4 +54,32 @@ struct JarvisMemoryAPI {
     func runReflections() async throws {
         _ = try await api.post("/api/jarvis-memory/reflections/run", json: JSONObject())
     }
+
+    // MARK: Memory map
+
+    func mapSettings() async throws -> MemoryMapSettings {
+        try JSONDecoder().decode(MemoryMapSettings.self,
+                                 from: try await api.get("/api/jarvis-memory/map-settings").data)
+    }
+
+    /// nil = Same as Default. Answers with the saved settings.
+    func setMapAgent(_ choice: AgentChoice?) async throws -> MemoryMapSettings {
+        let response = try await api.post("/api/jarvis-memory/map-settings",
+                                          json: ["agent": IMessageMemoryAgent(choice).json])
+        return try JSONDecoder().decode(MemoryMapSettings.self, from: response.data)
+    }
+
+    func cleanupStatus() async throws -> MemoryCleanupStatus {
+        MemoryCleanupStatus(json: try await api.get("/api/jarvis-memory/cleanup/status").object())
+    }
+
+    /// One run at a time: `started` is false when one is already going.
+    func startCleanup() async throws {
+        _ = try await api.post("/api/jarvis-memory/cleanup/start", json: JSONObject())
+    }
+
+    /// Unhide memories the cleanup merged or hid.
+    func restore(_ ids: [String]) async throws {
+        _ = try await api.post("/api/jarvis-memory/cleanup/restore", json: ["ids": ids])
+    }
 }

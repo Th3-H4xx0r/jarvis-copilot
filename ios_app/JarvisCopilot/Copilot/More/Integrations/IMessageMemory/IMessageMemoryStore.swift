@@ -85,11 +85,6 @@ final class IMessageMemoryStore {
         await change { try await self.api.setEnabled(enabled) }
     }
 
-    func setAgent(_ choice: AgentChoice?) async {
-        card?.agent = choice
-        await change { try await self.api.setAgent(choice) }
-    }
-
     func setAskFacts(_ on: Bool) async {
         card?.askFacts = on
         await change { try await self.api.setAskFacts(on) }

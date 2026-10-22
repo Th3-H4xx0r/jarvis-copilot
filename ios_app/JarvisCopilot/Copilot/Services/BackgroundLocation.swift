@@ -128,7 +128,11 @@ final class BackgroundLocationService: LocationTracking {
                                 lastReportAt: lastReportAt, now: now()) else { return }
         lastReported = fix
         lastReportAt = now()
-        Task { await report(fix) }
+        Task {
+            await report(fix)
+            // A fix is also a chance to refresh the calendar snapshot (throttled there).
+            await ContextSnapshot.shared.pushIfDue()
+        }
     }
 
     /// `POST /api/devices/mobile/location`. A failure is not surfaced — the next
