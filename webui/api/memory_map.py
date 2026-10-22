@@ -12,8 +12,6 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-_MIGRATED_KEY = "imessage_agent_migrated"
-
 
 def _store():
     from plugins.memory.jarvis_memory import external
@@ -41,22 +39,7 @@ def complete(prompt: str, max_tokens: int = 1500) -> str:
     ref, _label = resolve_map_model()
     if not ref:
         raise RuntimeError("no memory model set")
-    return writer._one_shot(ref, prompt)
-
-
-def migrate_imessage_choice() -> None:
-    """Once: a model or harness he had picked for iMessage becomes the memory model."""
-    store = _store()
-    if store.kv_get("__settings__", _MIGRATED_KEY):
-        return
-    try:
-        from api.imessage_memory import store as im_store
-        agent = im_store().settings().get("agent")
-    except Exception:
-        agent = None
-    if agent:
-        set_agent(agent)
-    store.kv_set("__settings__", _MIGRATED_KEY, "1")
+    return writer._one_shot(ref, prompt, max_tokens)
 
 
 def _register_brief_sources() -> None:
@@ -71,10 +54,6 @@ def install() -> None:
     """Called once at web server start."""
     from plugins.memory.jarvis_memory import llm
     llm.set_completer(complete)
-    try:
-        migrate_imessage_choice()
-    except Exception:
-        logger.warning("memory map: iMessage model choice not migrated", exc_info=True)
     _register_brief_sources()
 
 

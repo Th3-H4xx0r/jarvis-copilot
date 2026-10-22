@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
@@ -31,6 +32,9 @@ _THERE = re.compile(r"\b(?:navigate|directions|drive|take me|go|get me|route|hea
                     re.IGNORECASE)
 
 _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-mem-vague")
+# A slow memory model leaves calls running past the turn's timeout; with both
+# slots still busy a new turn skips resolving rather than queueing behind them.
+_slots = threading.BoundedSemaphore(2)
 
 
 @dataclass
@@ -93,7 +97,11 @@ def resolve(phrase: str, text: str, brief: str, context: str, hits, *,
                          for h in list(hits or [])[:8]) or "- (none)"
     prompt = PROMPT.format(text=text, phrase=phrase, brief=(brief or "(nothing)")[:2500],
                            context=(context or "(none)")[:1200], memories=memories)
+    if not _slots.acquire(blocking=False):
+        logger.info("jarvis_memory: resolver busy; skipped %r", phrase)
+        return None
     fut = _pool.submit(complete, prompt, 300)
+    fut.add_done_callback(lambda _f: _slots.release())
     try:
         reply = fut.result(timeout=timeout_s)
     except FutureTimeout:

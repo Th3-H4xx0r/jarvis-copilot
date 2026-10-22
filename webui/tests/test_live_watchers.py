@@ -2472,3 +2472,18 @@ def test_a_recording_shorter_than_a_window_is_remembered_when_it_stops(
     assert any(":fact:" in s for s in sources)
     window = next(m for m in memory.remembered if ":fact:" not in m["source"])
     assert "moved the dentist appointment" in window["body"]
+
+
+
+def test_a_window_the_model_could_not_summarise_leaves_no_window_memory(cfg, events, model, monkeypatch):
+    """The monitor's fallback "summary" is raw transcript — it must never reach
+    long-term memory (his rule: summaries only)."""
+    memory = _FakeMemory()
+    monkeypatch.setattr(live_watchers, "_long_term_memory", lambda: memory)
+    cfg["memory_extraction"] = True
+    cfg["min_window_words"] = 1
+    session = _session()
+    _say(session, "we moved the dentist appointment to Friday at nine")
+    model.reply = ""
+    live_watchers.on_session_ended(session, block=True)
+    assert not any("dentist" in m["body"] or "(no summary)" in m["body"] for m in memory.remembered)

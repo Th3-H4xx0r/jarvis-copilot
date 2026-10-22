@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -151,6 +152,20 @@ ROLE_WORDS = {
 }
 
 
+_QUESTION_WORDS = {"where", "who", "whom", "when", "time", "date"}
+
+
+def roles_for(text: str) -> List[str]:
+    """Slot roles a question asks about — from its raw words, since "where",
+    "who" and "when" are filler to keyword search but not here."""
+    words = re.findall(r"\w+", (text or "").lower())
+    # "where / who / when" name a role only when little else does: "where is
+    # it" asks for a venue, "where does Pranav live" doesn't.
+    vague = len(content_tokens(text)) <= 1
+    return sorted({r for w in words for r in ROLE_WORDS.get(w, ())
+                   if vague or w not in _QUESTION_WORDS})
+
+
 @dataclass
 class RecallQuery:
     text: str
@@ -212,7 +227,7 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
                 if only is None or c in only]
     channels["entity"] = ent_hits
 
-    roles = sorted({r for t in content_tokens(text) for r in ROLE_WORDS.get(t, ())})
+    roles = roles_for(text)
     if roles:
         role_ids = store.ids_with_slot_roles(namespace, roles, CHANNEL_DEPTH * 2)
         role_ids = [c for c in role_ids if only is None or c in only]

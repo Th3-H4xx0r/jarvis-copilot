@@ -34,6 +34,27 @@ def content_tokens(text: str):
     return out
 
 
+_SPECIFIC = re.compile(r"\$?\d[\d,.:]*(?:am|pm|%|k)?|\b[A-Z][\w'-]+", re.UNICODE)
+
+
+def specifics(text: str) -> set:
+    """Numbers, times, amounts and names in ``text`` (a capitalised word that
+    doesn't start a sentence). Two memories that read alike but differ here —
+    Tue vs Thu, $50 vs $15, Sam vs Priya — are different memories."""
+    out = set()
+    for m in _SPECIFIC.finditer(text or ""):
+        word = m.group(0)
+        before = (text[:m.start()].rstrip() or ".")[-1]
+        if word[0].isupper() and before in ".!?:\n":
+            continue  # a sentence's first word
+        out.add(word.lower().rstrip(".,"))
+    return out
+
+
+def same_specifics(a: str, b: str) -> bool:
+    return specifics(a) == specifics(b)
+
+
 def fts_query(text: str) -> str:
     """An FTS5 MATCH expression OR-ing the content words (quoted, so FTS
     operators in the text are inert). "" when nothing meaningful is left."""

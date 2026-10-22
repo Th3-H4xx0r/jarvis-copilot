@@ -53,7 +53,8 @@ def test_snapshot_post_writes_file_and_marks_dirty(monkeypatch, _home):
     monkeypatch.setattr(api.auth, "parse_cookie", lambda h: "cookie")
     monkeypatch.setattr(api.pairing, "find_device_by_session", lambda c: {"id": "phone1"})
     got = _capture(monkeypatch)
-    brief._dirty.clear()
+    state = brief._state_for("global")
+    state["dirty"].clear()
     mm.handle_context_post(object(), {
         "tz": "America/New_York",
         "calendar": [{"title": "Mom's Bday", "start_iso": "2026-10-23T00:00:00-05:00", "all_day": True},
@@ -65,7 +66,7 @@ def test_snapshot_post_writes_file_and_marks_dirty(monkeypatch, _home):
     snap = json.loads((_home / "memory" / "context_snapshot.json").read_text())
     assert snap["tz"] == "America/New_York" and snap["calendar"][0]["title"] == "Mom's Bday"
     assert tz.user_zone().key == "America/New_York"
-    assert brief._dirty.is_set()
+    assert state["dirty"].is_set()
 
 
 def test_snapshot_rejects_unpaired(monkeypatch, _home):
@@ -147,3 +148,56 @@ def test_messages_source(monkeypatch, _home):
             return [{"guid": "g", "name": "Sid", "last_sender": "Sid", "last_at": NOW.timestamp() - 7200}]
     monkeypatch.setattr(im, "store", lambda: Fake())
     assert bs.messages_source(_ctx()) == "Messages waiting on you: Sid (2 h ago)"
+
+
+def test_inbox_reads_the_response_of_a_real_cron_output(monkeypatch, _home):
+    import os
+    monkeypatch.setattr(bs, "_email_jobs", lambda: [{"id": "job1", "name": "Email monitor"}])
+    folder = _home / "cron" / "output" / "job1"
+    folder.mkdir(parents=True)
+    f = folder / "2026-10-21_20-00-00.md"
+    f.write_text("# Cron Job: Email monitor\n\n**Job ID:** job1\n**Run Time:** 2026-10-21 20:00:00\n"
+                 "**Schedule:** every 15m\n**Runs on:** x\n\n## Prompt\n\nCheck my inbox.\n\n"
+                 "## Response\n\nAmEx statement due Oct 28.\nUPS delivery today.\n")
+    os.utime(f, (NOW.timestamp(), NOW.timestamp()))
+    text = bs.inbox_source(_ctx())
+    assert "AmEx statement due Oct 28." in text and "Job ID" not in text and "Check my inbox" not in text
+
+
+def test_car_line_uses_the_snapshot_fields(monkeypatch, _home):
+    monkeypatch.setattr(bs, "_car_snapshot", lambda: {"car": {
+        "range_mi": 240, "fuel_pct": 62, "odometer_mi": 18000, "doors": {"open": [], "locked": True},
+        "location": {"lat": 30.2, "lon": -97.7, "at": "x", "source": "gps"}}})
+    import plugins.door_alarm.service as door
+    monkeypatch.setattr(door.DoorService, "instance", classmethod(lambda cls: (_ for _ in ()).throw(RuntimeError())))
+    text = bs.home_source(_ctx())
+    assert "fuel 62%" in text and "range 240 mi" in text and "locked" in text
+    assert "'lat'" not in text
+
+
+def test_habit_streak_counts_from_quit_date_or_last_relapse(monkeypatch, _home):
+    import jarvis_health.store as hs
+    import jarvis_health.window as win
+
+    class Store:
+        def habits(self):
+            return [{"id": "h1", "name": "Vaping", "started_at": "2026-10-01T05:00:00Z"},
+                    {"id": "h2", "name": "Soda", "started_at": "2026-09-01T05:00:00Z"}]
+
+        def latest_relapse(self, hid):
+            return {"at": "2026-10-18T05:00:00Z"} if hid == "h2" else None
+
+        def workouts(self, *a):
+            return []
+    monkeypatch.setattr(hs, "HealthStore", Store)
+    monkeypatch.setattr(win, "today", lambda store, now: {"start": "x", "stats": {}, "battery": {}})
+    text = bs.health_source(_ctx())
+    assert "Vaping 20 d" in text and "Soda 3 d" in text
+
+
+def test_calendar_leaves_out_what_already_ended(_home):
+    bs.save_snapshot({"calendar": [
+        {"title": "This morning standup", "start_iso": "2026-10-21T14:00:00Z", "end_iso": "2026-10-21T14:30:00Z"},
+        {"title": "Going on now", "start_iso": "2026-10-22T01:00:00Z", "end_iso": "2026-10-22T03:00:00Z"},
+        {"title": "Tomorrow", "start_iso": "2026-10-22T15:00:00Z"}]})
+    assert [i["title"] for i in bs.calendar_items(_ctx())] == ["Going on now", "Tomorrow"]

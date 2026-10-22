@@ -126,11 +126,15 @@ def calendar_items(ctx) -> list:
     start = ctx.now.timestamp() - 86400
     end = (ctx.now + timedelta(days=ctx.horizon_days)).timestamp()
     out = []
+    now = ctx.now.timestamp()
     for ev in snap.get("calendar") or []:
         at = _parse_iso(ev.get("start_iso"), ctx.zone)
         if at is None or not (start <= at <= end):
             continue
-        out.append({"title": ev.get("title"), "start": at, "end": _parse_iso(ev.get("end_iso"), ctx.zone),
+        ends = _parse_iso(ev.get("end_iso"), ctx.zone)
+        if (ends or at) < now and not (ev.get("all_day") and at > now - 86400):
+            continue  # over already: not "coming up"
+        out.append({"title": ev.get("title"), "start": at, "end": ends,
                     "all_day": bool(ev.get("all_day")), "location": ev.get("location") or ""})
     return out
 
@@ -166,7 +170,10 @@ def health_source(ctx) -> Optional[str]:
         streaks = []
         for h in store.habits() or []:
             last = store.latest_relapse(h["id"]) if hasattr(store, "latest_relapse") else None
-            since = _parse_iso((last or {}).get("at") or h.get("since"), ctx.zone)
+            # A quit date moved past the last relapse is a fresh start (habits.summary's rule).
+            marks = [t for t in (_parse_iso(h.get("started_at"), ctx.zone),
+                                 _parse_iso((last or {}).get("at"), ctx.zone)) if t]
+            since = max(marks) if marks else None
             if since:
                 days = int((ctx.now.timestamp() - since) // 86400)
                 streaks.append(f"{h.get('name') or 'habit'} {days} d")
@@ -185,6 +192,15 @@ def _email_jobs() -> list:
         return []
 
 
+def _response_lines(text: str) -> List[str]:
+    """The job's answer from a cron output file (its "## Response" section),
+    without the run's header, prompt or markdown headings."""
+    if "## Response" in text:
+        text = text.split("## Response", 1)[1]
+    return [l.strip() for l in text.splitlines()
+            if l.strip() and not l.lstrip().startswith(("#", "**"))]
+
+
 def inbox_source(ctx) -> Optional[str]:
     lines = []
     cutoff = ctx.now.timestamp() - ctx.lookback_days * 86400
@@ -197,8 +213,7 @@ def inbox_source(ctx) -> Optional[str]:
         except Exception:
             continue
         for path in files[:1]:
-            text = [l.strip() for l in path.read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if l.strip() and not l.startswith("#")]
+            text = _response_lines(path.read_text(encoding="utf-8", errors="ignore"))
             if text and "nothing" not in text[0].lower():
                 lines.append(f"- {job.get('name') or 'Email'}: " + " ".join(text[:3])[:220])
     fresh = _fresh_inbox_lines()
@@ -228,8 +243,23 @@ def _car_snapshot() -> Optional[dict]:
     return asyncio.run(go())
 
 
-_CAR_KEYS = ("locked", "doors_locked", "fuel_percent", "fuel_level", "range_miles", "range",
-             "battery_percent", "charging", "parked_at", "location", "odometer")
+def _car_line(car: dict) -> Optional[str]:
+    """plugins.toyota.snapshot.build_snapshot's fields, in words."""
+    bits = []
+    if car.get("fuel_pct") is not None:
+        bits.append(f"fuel {round(car['fuel_pct'])}%")
+    if car.get("range_mi") is not None:
+        bits.append(f"range {round(car['range_mi'])} mi")
+    doors = car.get("doors") or {}
+    if doors.get("locked") is True:
+        bits.append("locked")
+    elif doors.get("locked") is False:
+        bits.append("UNLOCKED")
+    if doors.get("open"):
+        bits.append("open: " + ", ".join(doors["open"]))
+    if car.get("running"):
+        bits.append("running")
+    return "car: " + ", ".join(bits) if bits else None
 
 
 def home_source(ctx) -> Optional[str]:
@@ -242,11 +272,9 @@ def home_source(ctx) -> Optional[str]:
     except Exception:
         pass
     try:
-        state = _car_snapshot() or {}
-        car = state.get("car") or {}
-        shown = [f"{k.replace('_', ' ')} {car[k]}" for k in _CAR_KEYS if car.get(k) not in (None, "")]
-        if shown:
-            bits.append("car: " + ", ".join(shown[:4]))
+        line = _car_line((_car_snapshot() or {}).get("car") or {})
+        if line:
+            bits.append(line)
     except Exception:
         pass
     try:
@@ -327,6 +355,16 @@ def _fresh_inbox_lines() -> List[str]:
     return [str(l) for l in data.get("lines") or []]
 
 
+def _decode_header(raw: bytes) -> str:
+    """'Subject: =?UTF-8?B?…?=' → readable text."""
+    from email.header import decode_header, make_header
+    text = " ".join(raw.decode("utf-8", "ignore").split())
+    try:
+        return str(make_header(decode_header(text)))
+    except Exception:
+        return text
+
+
 def _imap_headers(since: datetime) -> List[str]:
     """Headers (From / Subject / Date) of unread mail since ``since`` — read
     with BODY.PEEK so nothing is marked read. [] without credentials."""
@@ -347,7 +385,7 @@ def _imap_headers(since: datetime) -> List[str]:
             _typ, msg = conn.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
             for part in msg or []:
                 if isinstance(part, tuple):
-                    out.append(" ".join(part[1].decode("utf-8", "ignore").split())[:240])
+                    out.append(_decode_header(part[1])[:240])
     finally:
         try:
             conn.logout()
@@ -367,10 +405,24 @@ strings, at most 5; [] when nothing matters.
 
 def check_inbox_once() -> Optional[List[str]]:
     """None when there's nothing to check with; else the important lines (cached)."""
-    headers = _imap_headers(datetime.now() - timedelta(days=2))
-    if not headers:
+    if not (os.getenv("EMAIL_ADDRESS") and os.getenv("EMAIL_PASSWORD") and os.getenv("EMAIL_IMAP_HOST")):
         return None
     from plugins.memory.jarvis_memory import brief, llm
+    headers = _imap_headers(datetime.now() - timedelta(days=2))
+    import hashlib
+    digest = hashlib.sha256("\n".join(sorted(headers)).encode("utf-8")).hexdigest()
+    try:
+        cached = json.loads(_store().kv_get("__brief__", _FRESH_KEY) or "{}")
+    except ValueError:
+        cached = {}
+    if cached.get("digest") == digest:  # same unread mail as last time: no model call
+        cached["at"] = time.time()
+        _store().kv_set("__brief__", _FRESH_KEY, json.dumps(cached))
+        return list(cached.get("lines") or [])
+    if not headers:  # all read: nothing to show
+        _store().kv_set("__brief__", _FRESH_KEY, json.dumps({"at": time.time(), "lines": [], "digest": digest}))
+        brief.mark_dirty()
+        return []
     reply = llm.complete(INBOX_PROMPT.format(headers="\n".join(headers)), 600)
     try:
         import re
@@ -378,7 +430,7 @@ def check_inbox_once() -> Optional[List[str]]:
         lines = [str(l)[:200] for l in lines if str(l).strip()][:5]
     except Exception:
         return None
-    _store().kv_set("__brief__", _FRESH_KEY, json.dumps({"at": time.time(), "lines": lines}))
+    _store().kv_set("__brief__", _FRESH_KEY, json.dumps({"at": time.time(), "lines": lines, "digest": digest}))
     brief.mark_dirty()
     return lines
 

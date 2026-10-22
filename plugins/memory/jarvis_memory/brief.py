@@ -43,9 +43,9 @@ class BriefCtx:
 _lock = threading.Lock()
 _sources: Dict[str, tuple] = {}     # name -> (order, fn, timeout)
 _data: Dict[str, tuple] = {}        # name -> (fn, timeout): items for "coming up"
-_state = {"text": "", "built_at": 0.0, "store": None, "namespace": None, "thread": None,
-          "stop": None}
-_dirty = threading.Event()
+# One brief per namespace: the gateway keeps each user in user:<id>, and one
+# user's plans must never show up in another's turns.
+_states: Dict[str, dict] = {}
 _pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="jarvis-brief")
 
 
@@ -66,23 +66,51 @@ def reset() -> None:
     with _lock:
         _sources.clear()
         _data.clear()
-        if _state["stop"] is not None:
-            _state["stop"].set()
-        _state.update(text="", built_at=0.0, store=None, namespace=None, thread=None, stop=None)
+        for st in _states.values():
+            st["stop"].set()
+            st["dirty"].set()
+        _states.clear()
     _register_builtins()
 
 
-def _set_text(text: str) -> None:
+def _state_for(namespace: str) -> dict:
     with _lock:
-        _state.update(text=text, built_at=time.time())
+        st = _states.get(namespace)
+        if st is None:
+            st = {"text": "", "built_at": 0.0, "store": None, "thread": None,
+                  "stop": threading.Event(), "dirty": threading.Event()}
+            _states[namespace] = st
+        return st
 
 
-def current_text() -> str:
-    return _state["text"]
+def _set_text(text: str, namespace: str = "global") -> None:
+    st = _state_for(namespace)
+    st.update(text=text, built_at=time.time())
+
+
+def current_text(namespace: str = "global") -> str:
+    """The cached brief, with its "Now:" line made current (the rest can be
+    up to ten minutes old; the clock can't)."""
+    st = _states.get(namespace)
+    text = st["text"] if st else ""
+    if not text:
+        return ""
+    lines = text.split("\n")
+    for i, line in enumerate(lines[:3]):
+        if line.startswith("Now: "):
+            try:
+                from . import tz
+                zone = tz.user_zone()
+                lines[i] = _now_line(datetime.now(zone))
+            except Exception:
+                pass
+            break
+    return "\n".join(lines)
 
 
 def mark_dirty() -> None:
-    _dirty.set()
+    for st in list(_states.values()):
+        st["dirty"].set()
 
 
 # ── formatting helpers ────────────────────────────────────────────────────
@@ -114,9 +142,12 @@ def _names(store, ids) -> List[str]:
 
 
 # ── built-in sources ──────────────────────────────────────────────────────
-def _now_source(ctx: BriefCtx) -> str:
-    n = ctx.now
+def _now_line(n: datetime) -> str:
     return f"Now: {n:%a} {n.day} {n:%b}, {_clock(n)} {n:%Z}"
+
+
+def _now_source(ctx: BriefCtx) -> str:
+    return _now_line(ctx.now)
 
 
 def _coming_up(ctx: BriefCtx) -> Optional[str]:
@@ -129,6 +160,8 @@ def _coming_up(ctx: BriefCtx) -> Optional[str]:
         if not ent:
             continue
         mems = s.memories_for_entities([eid], 30)
+        if not mems:
+            continue  # every memory about it was forgotten or hidden
         links = s.entities_for(mems)
         places, people = [], []
         for mid in mems:
@@ -260,41 +293,42 @@ def build(store, namespace, *, now: Optional[datetime] = None, zone=None) -> str
     return out[:MAX_CHARS]
 
 
-def rebuild() -> str:
-    store, ns = _state["store"], _state["namespace"]
+def rebuild(namespace: str = "global") -> str:
+    st = _state_for(namespace)
+    store = st["store"]
     if store is None:
-        return _state["text"]
+        return st["text"]
     try:
-        text = build(store, ns)
+        text = build(store, namespace)
     except Exception:
         logger.warning("jarvis_memory brief build failed", exc_info=True)
-        return _state["text"]
-    _set_text(text)
+        return st["text"]
+    _set_text(text, namespace)
     return text
 
 
 def start(store, namespace, *, interval: float = 600.0, debounce: float = 20.0) -> None:
     """Build now, then every ``interval`` s and ``debounce`` s after ``mark_dirty``."""
+    st = _state_for(namespace)
     with _lock:
-        _state.update(store=store, namespace=namespace)
-        thread = _state["thread"]
+        st["store"] = store
+        thread = st["thread"]
         if thread is not None and thread.is_alive():
-            _dirty.set()
+            st["dirty"].set()
             return
-
-        stop = threading.Event()
+        stop, dirty = st["stop"], st["dirty"]
 
         def run():
-            rebuild()
+            rebuild(namespace)
             while not stop.is_set():
-                fired = _dirty.wait(interval)
+                fired = dirty.wait(interval)
                 if stop.is_set():
                     return
                 if fired:
                     time.sleep(debounce)
-                    _dirty.clear()
-                rebuild()
+                    dirty.clear()
+                rebuild(namespace)
 
-        thread = threading.Thread(target=run, daemon=True, name="jarvis-mem-brief")
-        _state.update(thread=thread, stop=stop)
+        thread = threading.Thread(target=run, daemon=True, name=f"jarvis-mem-brief-{namespace}")
+        st["thread"] = thread
         thread.start()

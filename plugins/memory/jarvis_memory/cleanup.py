@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from .textq import same_specifics
+
 logger = logging.getLogger(__name__)
 
 DEDUP_THRESHOLD = 0.92
@@ -71,10 +73,10 @@ def restamp(body: str, zone) -> str:
     return _STAMP.sub(lambda m: _local_stamp(m, zone), body)
 
 
-def _rewrite(store, embedder, cid, body):
+def _rewrite(store, embedder, cid, body, slots=""):
     vec = None
     try:
-        vec = embedder.embed_one(body)
+        vec = embedder.embed_one(body + (" " + slots if slots else ""))  # keep the slot-augmented key
     except Exception:
         pass
     store.update_body(cid, body, embedding=vec, signature=embedder.signature if vec else None,
@@ -95,6 +97,7 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     examples: Dict[str, List[dict]] = {k: [] for k in ("merged", "hidden_trivial", "superseded",
                                                        "live_rewritten", "restamped")}
     started = time.time()
+    hidden_ids: Dict[str, List[str]] = {"merged": [], "hidden_trivial": [], "live_no_summary": []}
 
     def note(step, done=0, total=0):
         state = {"step": step, "done": done, "total": total, "started_at": started}
@@ -117,8 +120,9 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
         head = [l for l in chunk.body.splitlines() if l.strip() and not _LINE.match(l)]
         if not any(l.startswith("Summary:") for l in head):
             store.set_status([chunk.id], "hidden")
+            hidden_ids["live_no_summary"].append(chunk.id)
         else:
-            _rewrite(store, embedder, chunk.id, "\n".join(head))
+            _rewrite(store, embedder, chunk.id, "\n".join(head), chunk.slots)
         if not chunk.source_ref:
             store.set_map_fields(chunk.id, source_ref=":".join(chunk.source.split(":")[:3]))
         counts["live_rewritten"] += 1
@@ -133,7 +137,7 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
             continue
         body = restamp(chunk.body, zone)
         if body != chunk.body:
-            _rewrite(store, embedder, chunk.id, body)
+            _rewrite(store, embedder, chunk.id, body, chunk.slots)
             counts["restamped"] += 1
             keep("restamped", chunk.id)
         if i % 200 == 0:
@@ -156,9 +160,13 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
             o = by_id.get(other)
             if o is None or (o.created_at, o.id) < (chunk.created_at, chunk.id):
                 continue  # only merge forward: the earlier memory is the keeper
+            if not same_specifics(chunk.body, o.body):
+                continue  # reads alike, but another day / amount / person
             for source, tags in store.source_rows(other):
                 store.merge_source(cid, source, tags)
             store.set_status([other], "hidden")
+            store.set_map_fields(other, superseded_by=cid)  # forgetting cid takes the copy too
+            hidden_ids["merged"].append(other)
             hidden.add(other)
             counts["merged"] += 1
             keep("merged", other)
@@ -176,9 +184,11 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     for kind, cid in log:
         counts[kind] += 1
         keep(kind, cid)
+        if kind == "hidden_trivial":
+            hidden_ids["hidden_trivial"].append(cid)
 
     report = {"started_at": started, "finished_at": time.time(), "backup": backup_path,
-              "counts": counts, "examples": examples}
+              "counts": counts, "examples": examples, "hidden_ids": hidden_ids}
     path = report_path(store)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(report, indent=1), encoding="utf-8")

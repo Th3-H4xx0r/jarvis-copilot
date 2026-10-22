@@ -18,6 +18,7 @@ from typing import Optional
 from .config import load_config
 from .embed import make_embedder
 from .store import GLOBAL_NS, MemoryStore
+from .textq import same_specifics
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,10 @@ def remember(body: str, *, source: str, tags: str = "", created_at: Optional[flo
         if dedup and embedding is not None:
             hits = store.vector_search(namespace, embedding, embedder.signature, limit=1)
             if hits and hits[0][1] >= threshold:
-                store.merge_source(hits[0][0], source, tags)
-                return hits[0][0]
+                held = next(iter(store.get_chunks([hits[0][0]])), None)
+                if held is not None and same_specifics(held.body, body):
+                    store.merge_source(held.id, source, tags)
+                    return held.id
         return store.add_chunk(
             namespace, body, source, created_at or time.time(), score, tags,
             embedding=embedding,
@@ -113,7 +116,8 @@ def memories(source_prefix: str, *, limit: int = 200,
         store, _embedder, namespace, _threshold = _open(hermes_home)
         ids = store.filtered_ids(namespace, source_prefix=source_prefix, limit=limit)
         chunks = store.get_chunks(list(reversed(ids)))
-        return [{"id": c.id, "body": c.body, "source": c.source, "created_at": c.created_at}
+        return [{"id": c.id, "body": c.body, "created_at": c.created_at,
+                 "source": store.matching_source(c.id, source_prefix) or c.source}
                 for c in chunks]
     except Exception:
         logger.warning("jarvis_memory: could not list %s", source_prefix, exc_info=True)

@@ -507,7 +507,7 @@ class JarvisMemoryProvider(MemoryProvider):
         brief_text = ""
         try:
             from . import brief as _brief
-            brief_text = _brief.current_text()
+            brief_text = _brief.current_text(self._namespace)
         except Exception:
             brief_text = ""
         block = ""
@@ -634,14 +634,18 @@ class JarvisMemoryProvider(MemoryProvider):
         if entity:
             eid = self._entities().resolve(entity)
             ent = self._store.memories_for_entities([eid], 500) if eid else []
-            candidates = ent if candidates is None else [c for c in candidates if c in set(ent)]
+            keep = set(ent)
+            candidates = ent if candidates is None else [c for c in candidates if c in keep]
         if when:
             win = time_window(when, datetime.fromtimestamp(now, zone))
             if win is not None:
                 timed = self._store.ids_in_window(self._namespace, win.start, win.end, 500)
-                candidates = timed if candidates is None else [c for c in candidates if c in set(timed)]
+                keep = set(timed)
+                candidates = timed if candidates is None else [c for c in candidates if c in keep]
         if candidates is not None and not query.strip():
-            chunks = [(c, 1.0) for c in self._store.get_chunks(list(candidates)[-limit:])]
+            # A listing: the newest few, shown in time order.
+            listed = sorted(self._store.get_chunks(list(candidates)), key=lambda c: c.created_at)
+            chunks = [(c, 1.0) for c in listed[-limit:]]
         else:
             res = recall(self._store, self._embedder,
                          RecallQuery(text=query, now=now, zone=zone, limit=limit),

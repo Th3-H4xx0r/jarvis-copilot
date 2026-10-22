@@ -111,7 +111,10 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
 
     def index_for(ns):
         if ns not in indexes:
-            indexes[ns] = EntityIndex(store, ns)
+            idx = EntityIndex(store, ns)
+            idx.refresh()
+            idx.frozen = True  # one rebuild per batch; new names dedupe by canonical anyway
+            indexes[ns] = idx
         return indexes[ns]
 
     related = {c.id: _related(store, embedder, c) for c in chunks}
@@ -135,6 +138,7 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
         reply = complete(prompt, 4000)
     except Exception as exc:  # the model being unreachable must not burn retries
         logger.warning("jarvis_memory map: model call failed (%s); will retry", exc)
+        store.release([c.id for c in chunks])
         return counts
     by_id = {d["id"]: d for d in _parse(reply)}
     by_chunk = {c.id: c for c in chunks}
@@ -161,7 +165,8 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
 
 def _apply(store, embedder, c, item, related, zone, index, log=None) -> Dict[str, int]:
     out = {"enriched": 0, "hidden": 0, "superseded": 0}
-    if item.get("trivial") is True:
+    deliberate = c.pinned or (c.source or "").startswith(("tool:memory_store", "builtin:"))
+    if item.get("trivial") is True and not deliberate:  # never hide what he saved on purpose
         store.set_status([c.id], "hidden")
         store.set_map_fields(c.id, enriched_at=time.time())
         out["hidden"] = 1
@@ -246,7 +251,7 @@ def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[in
     from . import tz
     total = {"enriched": 0, "hidden": 0, "superseded": 0, "failed": 0, "batches": 0}
     while max_batches is None or total["batches"] < max_batches:
-        ids = store.queue_ids(BATCH)
+        ids = store.claim(BATCH)
         if not ids:
             break
         counts = enrich_batch(store, embedder, ids, zone=zone or tz.user_zone(), complete=complete,

@@ -14,6 +14,7 @@ import re
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -192,7 +193,8 @@ class MemoryStore:
             );
             CREATE INDEX IF NOT EXISTS ix_me_entity ON memory_entities(entity_id);
             CREATE TABLE IF NOT EXISTS map_queue(
-              memory_id TEXT PRIMARY KEY, queued_at REAL NOT NULL, attempts INTEGER DEFAULT 0
+              memory_id TEXT PRIMARY KEY, queued_at REAL NOT NULL, attempts INTEGER DEFAULT 0,
+              claimed_at REAL
             );
             CREATE TABLE IF NOT EXISTS recall_traces(
               id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, session_id TEXT,
@@ -201,6 +203,8 @@ class MemoryStore:
             CREATE INDEX IF NOT EXISTS ix_chunks_event ON chunks(event_start);
             """
         )
+        if "claimed_at" not in {r[1] for r in c.execute("PRAGMA table_info(map_queue)")}:
+            c.execute("ALTER TABLE map_queue ADD COLUMN claimed_at REAL")
         done = c.execute(
             "SELECT 1 FROM kv WHERE namespace='__map__' AND key='sources_done'").fetchone()
         if done is None:
@@ -226,7 +230,7 @@ class MemoryStore:
         ns_dir = self.vault_dir / sanitize_ns(namespace)
         ns_dir.mkdir(parents=True, exist_ok=True)
         path = ns_dir / f"{cid}.md"
-        with self._lock:
+        with self._lock, self._write():
             exists = self._conn.execute("SELECT 1 FROM chunks WHERE id=?", (cid,)).fetchone()
             if exists is None:
                 content_path = str(path)
@@ -354,7 +358,8 @@ class MemoryStore:
         q = np.asarray(query_vec, dtype=np.float32).reshape(-1)
         with self._lock:
             idx = self._index_for(namespace, signature, q.shape[0])
-            return idx.search(q, limit, only_ids=only_ids)
+            with self._shared["lock"]:  # other stores add/remove under this lock
+                return idx.search(q, limit, only_ids=only_ids)
 
     def keyword_search(self, namespace, query, limit=20, only_ids=None) -> List[Tuple[str, float]]:
         ns = namespace or GLOBAL_NS
@@ -439,6 +444,14 @@ class MemoryStore:
         with self._lock:
             return [r["id"] for r in self._conn.execute(
                 f"SELECT id FROM chunks WHERE {' AND '.join(where)} ORDER BY created_at", args)]
+
+    def matching_source(self, memory_id, source_prefix) -> str:
+        """The source of ``memory_id`` that starts with ``source_prefix`` ("" if none)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT source FROM memory_sources WHERE memory_id=? AND source LIKE ? ESCAPE '\\' "
+                "ORDER BY source LIMIT 1", (memory_id, _like_prefix(source_prefix))).fetchone()
+        return row["source"] if row else ""
 
     def source_rows(self, memory_id) -> List[Tuple[str, str]]:
         with self._lock:
@@ -527,9 +540,10 @@ class MemoryStore:
         """
         where, args = ["namespace=?", _ACTIVE], [namespace or GLOBAL_NS]
         if source_prefix:
-            escaped = source_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            where.append("source LIKE ? ESCAPE '\\'")
-            args.append(escaped + "%")
+            # Any source backing it — a merged memory belongs to every chat it came from.
+            where.append("EXISTS (SELECT 1 FROM memory_sources s WHERE s.memory_id=chunks.id "
+                         "AND s.source LIKE ? ESCAPE '\\')")
+            args.append(_like_prefix(source_prefix))
         if since is not None:
             where.append("created_at >= ?")
             args.append(float(since))
@@ -562,9 +576,9 @@ class MemoryStore:
         return self.get_chunks([r["id"] for r in rows])
 
     def delete_chunk(self, cid) -> bool:
-        with self._lock:
+        with self._lock, self._write():
             row = self._conn.execute(
-                "SELECT content_path FROM chunks WHERE id=?", (cid,)
+                "SELECT content_path, body FROM chunks WHERE id=?", (cid,)
             ).fetchone()
             cur = self._conn.execute("DELETE FROM chunks WHERE id=?", (cid,))
             self._conn.execute("DELETE FROM vectors WHERE chunk_id=?", (cid,))
@@ -573,6 +587,16 @@ class MemoryStore:
             self._index_drop([cid])
             if self._has_fts:
                 self._conn.execute("DELETE FROM chunks_fts WHERE chunk_id=?", (cid,))
+            # "Forget" means gone: the turns that quoted it lose the quote too.
+            if row and row["body"]:
+                snippet = " ".join(row["body"].split())[:80]
+                if len(snippet) >= 8:
+                    self._conn.execute("DELETE FROM recall_traces WHERE instr(injected, ?) > 0",
+                                       (snippet,))
+            # Copies cleanup merged into it (hidden, not past facts) go with it.
+            copies = [r["id"] for r in self._conn.execute(
+                "SELECT id FROM chunks WHERE superseded_by=? AND status='hidden' AND valid_to IS NULL",
+                (cid,))]
             self._conn.commit()
             deleted = cur.rowcount > 0
         # Remove the vault file too — "forget" must not leave plaintext on disk.
@@ -581,7 +605,45 @@ class MemoryStore:
                 Path(row["content_path"]).unlink(missing_ok=True)
             except Exception as e:
                 logger.warning("jarvis_memory vault unlink failed for %s: %s", cid, e)
+        if deleted:
+            self._scrub_report(cid)
+        for copy in copies:
+            self.delete_chunk(copy)
         return deleted
+
+    def _scrub_report(self, cid):
+        """Take a forgotten memory out of the cleanup report's examples."""
+        path = Path(self.db_path).parent / "cleanup_report.json"
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        changed = False
+        for kind, rows in (report.get("examples") or {}).items():
+            kept = [r for r in rows if r.get("id") != cid]
+            changed |= len(kept) != len(rows)
+            report["examples"][kind] = kept
+        for kind, ids in (report.get("hidden_ids") or {}).items():
+            if cid in ids:
+                report["hidden_ids"][kind] = [i for i in ids if i != cid]
+                changed = True
+        if changed:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(report, indent=1), encoding="utf-8")
+            tmp.replace(path)
+
+    @contextmanager
+    def _write(self):
+        """Roll back on any error, so a failed write never leaves this
+        connection holding the database's write lock."""
+        try:
+            yield
+        except BaseException:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            raise
 
     # -- sources (one memory may be backed by several) -------------------------
     def merge_source(self, memory_id, source, tags=""):
@@ -647,7 +709,7 @@ class MemoryStore:
         ids = list(ids or [])
         if not ids:
             return
-        with self._lock:
+        with self._lock, self._write():
             self._conn.executemany("UPDATE chunks SET status=? WHERE id=?", [(status, i) for i in ids])
             if status == "hidden":
                 self._index_drop(ids)
@@ -661,7 +723,7 @@ class MemoryStore:
             raise ValueError(f"not settable: {sorted(bad)}")
         if not fields:
             return
-        with self._lock:
+        with self._lock, self._write():
             cols = ", ".join(f"{k}=?" for k in fields)
             self._conn.execute(f"UPDATE chunks SET {cols} WHERE id=?", list(fields.values()) + [cid])
             if "slots" in fields:
@@ -672,7 +734,7 @@ class MemoryStore:
 
     def update_body(self, cid, body, *, embedding=None, signature=None, dim=None):
         """Rewrite a memory's text in place (same id): vault, FTS and vector."""
-        with self._lock:
+        with self._lock, self._write():
             row = self._conn.execute(
                 "SELECT namespace, content_path, slots FROM chunks WHERE id=?", (cid,)).fetchone()
             if row is None:
@@ -702,6 +764,30 @@ class MemoryStore:
                 f"WHERE q.attempts < ? AND {_C_ACTIVE} ORDER BY q.queued_at LIMIT ?",
                 (max_attempts, limit))]
 
+    def claim(self, limit=15, max_attempts=3, ttl=600.0) -> List[str]:
+        """Take up to ``limit`` queued memories for one map batch. A claim is
+        atomic across connections and processes, so two map loops (web server,
+        gateway, a cleanup run) never pay for the same memory; a claim older
+        than ``ttl`` (a crashed loop) is taken over."""
+        now = time.time()
+        with self._lock, self._write():
+            self._conn.commit()
+            self._conn.execute("BEGIN IMMEDIATE")
+            ids = [r["memory_id"] for r in self._conn.execute(
+                "SELECT q.memory_id FROM map_queue q JOIN chunks c ON c.id=q.memory_id "
+                f"WHERE q.attempts < ? AND {_C_ACTIVE} AND (q.claimed_at IS NULL OR q.claimed_at < ?) "
+                "ORDER BY q.queued_at LIMIT ?", (max_attempts, now - ttl, limit))]
+            self._conn.executemany("UPDATE map_queue SET claimed_at=? WHERE memory_id=?",
+                                   [(now, i) for i in ids])
+            self._conn.commit()
+        return ids
+
+    def release(self, ids):
+        with self._lock:
+            self._conn.executemany("UPDATE map_queue SET claimed_at=NULL WHERE memory_id=?",
+                                   [(i,) for i in ids])
+            self._conn.commit()
+
     def enqueue(self, ids):
         now = time.time()
         with self._lock:
@@ -717,8 +803,9 @@ class MemoryStore:
 
     def bump_attempts(self, ids):
         with self._lock:
-            self._conn.executemany("UPDATE map_queue SET attempts=attempts+1 WHERE memory_id=?",
-                                   [(i,) for i in ids])
+            self._conn.executemany(
+                "UPDATE map_queue SET attempts=attempts+1, claimed_at=NULL WHERE memory_id=?",
+                [(i,) for i in ids])
             self._conn.commit()
 
     # -- entities -------------------------------------------------------------

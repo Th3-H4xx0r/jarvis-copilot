@@ -730,6 +730,7 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
         return None
 
     summary = str(parsed.get("summary") or "").strip()
+    model_summary = summary  # what long-term memory may keep (never the fallback below)
     if not summary:
         # The boundary MUST advance even when the model gave us nothing usable.
         # Leaving it put would re-send the same window on every tick — a silent
@@ -756,7 +757,7 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
         if _long_term_memory() is not None:
             # Into the memory chat and voice recall from, with who said what and
             # when — not MEMORY.md, which rides in every prompt of every chat.
-            facts = _remember_window(live_session_id, segments, summary=summary,
+            facts = _remember_window(live_session_id, segments, summary=model_summary,
                                      facts=_string_list(parsed.get("facts")),
                                      speaker_ids=window_speakers)
         else:

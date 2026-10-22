@@ -37,21 +37,10 @@ def test_set_agent_validates_and_round_trips():
     assert mm.get_agent() is None
 
 
-def test_imessage_choice_migrates_once():
-    import api.imessage_memory as im
-    im.store().update_settings(agent={"model": "gpt-5.5", "provider": "openai"})
-    mm.migrate_imessage_choice()
-    assert mm.get_agent() == {"model": "gpt-5.5", "provider": "openai"}
-    im.store().update_settings(agent={"harness_id": "later"})
-    mm.set_agent({"model": "claude-haiku-5-5", "provider": "anthropic-api"})
-    mm.migrate_imessage_choice()
-    assert mm.get_agent() == {"model": "claude-haiku-5-5", "provider": "anthropic-api"}
-
-
 def test_complete_goes_through_one_shot(monkeypatch):
     import api.imessage_memory_writer as w
     calls = []
-    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt: calls.append((ref, prompt)) or "ok")
+    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200: calls.append((ref, prompt)) or "ok")
     assert mm.complete("hello", 300) == "ok"
     assert calls == [("@anthropic-api:claude-haiku-5-5", "hello")]
 
@@ -59,7 +48,7 @@ def test_complete_goes_through_one_shot(monkeypatch):
 def test_install_registers_completer(monkeypatch):
     from plugins.memory.jarvis_memory import llm
     import api.imessage_memory_writer as w
-    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt: "done")
+    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200: "done")
     monkeypatch.setattr(mm, "_register_brief_sources", lambda: None)
     mm.install()
     try:
@@ -110,3 +99,15 @@ def test_cleanup_start_status_restore(monkeypatch):
     mm.handle_cleanup_restore(None, {"ids": [cid, 5]})
     assert calls[-1] == {"ok": True, "restored": 1}
     assert store.count_chunks("global") == 1
+
+
+def test_complete_passes_max_tokens_to_the_provider(monkeypatch):
+    import api.config as cfg
+    import agent.auxiliary_client as aux
+    seen = {}
+    monkeypatch.setattr(cfg, "resolve_model_provider", lambda ref: ("claude-haiku-5-5", "anthropic-api", ""))
+    monkeypatch.setattr(cfg, "route_anthropic_via_claude_code", lambda m, p, b: (m, p, b))
+    monkeypatch.setattr(aux, "call_llm", lambda **kw: seen.update(kw) or object())
+    monkeypatch.setattr(aux, "extract_content_or_reasoning", lambda r: "[]")
+    assert mm.complete("x", 4000) == "[]"
+    assert seen["max_tokens"] == 4000

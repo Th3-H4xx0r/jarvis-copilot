@@ -96,3 +96,12 @@ def test_source_ref_is_kept(home):
     cid = external.remember("They planned the trip.", source="live:s1:1-4",
                             source_ref="live:s1:1-4", hermes_home=home)
     assert external._open(home)[0].get_chunks([cid])[0].source_ref == "live:s1:1-4"
+
+
+def test_a_merged_fact_is_listed_under_every_chat_backing_it(home):
+    cid = external.remember("Sid is driving to Austin.", source="imessage:a:fact:1-2:f", hermes_home=home)
+    external.remember("Sid is driving to Austin.", source="imessage:b:fact:7-8:f", hermes_home=home)
+    for chat in ("a", "b"):
+        rows = external.memories(f"imessage:{chat}:", hermes_home=home)
+        assert [r["id"] for r in rows] == [cid]
+        assert rows[0]["source"].startswith(f"imessage:{chat}:fact:")

@@ -60,7 +60,7 @@ def card(st: IMStore) -> dict:
              for c in st.chats()]
     writer = _writer()
     try:
-        runs_on = writer.resolve_extraction_model(settings.get("agent"))[1]
+        runs_on = writer._memory_model()[1]
     except Exception:
         runs_on = ""
     return {"enabled": bool(settings.get("enabled")),

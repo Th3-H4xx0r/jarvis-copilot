@@ -28,8 +28,11 @@ class EntityIndex:
         self._alias: Dict[str, Set[str]] = {}
         self._first: Dict[str, Set[str]] = {}
         self._types: Dict[str, str] = {}
+        self.frozen = False  # set by a batch that refreshed once and wants no more rebuilds
 
     def refresh(self) -> None:
+        if self.frozen and self._version is not None:
+            return
         version = self._store.entity_version()
         with self._lock:
             if version == self._version:

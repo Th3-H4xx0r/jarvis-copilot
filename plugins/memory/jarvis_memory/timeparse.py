@@ -126,7 +126,9 @@ def window(text: str, now: datetime) -> Optional[TimeWindow]:
             d = today.replace(month=month, day=day)
         except ValueError:
             return None
-        if (today - d).days > 180:
+        if past and d > today:
+            d = d.replace(year=d.year - 1)  # "what did we do on April 10" looks back
+        elif not past and (today - d).days > 180:
             d = d.replace(year=d.year + 1)
         return _span(d, d, m.group(0), now)
     m = re.search(r"\bthe (\d{1,2})(?:st|nd|rd|th)\b", t)
@@ -135,7 +137,13 @@ def window(text: str, now: datetime) -> Optional[TimeWindow]:
             d = today.replace(day=int(m.group(1)))
         except ValueError:
             return None
-        if d < today and not past:
+        if past and d > today:  # "what happened on the 25th" — last month's
+            month = (d.month - 2) % 12 + 1
+            try:
+                d = d.replace(year=d.year - (1 if month == 12 else 0), month=month)
+            except ValueError:
+                return None
+        elif d < today and not past:
             month = d.month % 12 + 1
             try:
                 d = d.replace(year=d.year + (1 if month == 1 else 0), month=month)
