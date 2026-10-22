@@ -613,18 +613,126 @@ final class MemoryGraphTests: XCTestCase {
                                             search: "sam")
         XCTAssertEqual(found.map(\.id), ["p3"])
     }
+
+    // MARK: Review fixes
+
+    func testAFailedFilterChangeRollsBackAndSays() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        var fail = false
+        transport.route("/api/jarvis-memory/graph") { _ in
+            fail ? MockTransport.Reply(status: 500, body: Data("{}".utf8))
+                 : MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: Self.graphJSON))
+        }
+        let store = MemoryGraphStore(api: JarvisMemoryAPI(api: api), now: { self.now })
+        await store.load()
+        fail = true
+        var filters = store.filters
+        filters.time = .week
+        await store.setFilters(filters)
+        XCTAssertEqual(store.filters.time, .all, "the chips go back to what the map shows")
+        XCTAssertNotNil(store.toast, "with a graph on screen the error is a toast")
+        XCTAssertNil(store.error)
+        XCTAssertNotNil(store.graph.node("e1"), "the old graph stays")
+    }
+
+    func testARecallThatIsGoneSaysSoAndShowsTheNormalView() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/graph/highlight", json: ["error": "not found"], status: 404)
+        transport.route("/api/jarvis-memory/graph", json: Self.graphJSON)
+        let store = MemoryGraphStore(api: JarvisMemoryAPI(api: api), now: { self.now })
+        await store.showRecall(MemoryRecall(id: "99", query: "Old"))
+        XCTAssertNil(store.recall)
+        XCTAssertEqual(store.toast, MemoryGraphStore.recallGoneMessage)
+        XCTAssertNotNil(store.graph.node("e1"), "the normal You view")
+        XCTAssertTrue(store.graph.highlight.isEmpty)
+        XCTAssertNil(store.error)
+    }
+
+    func testAnExpandThatLandsAfterAReloadIsIgnored() async throws {
+        let inner = MockTransport()
+        let gated = GatedTransport(inner: inner, gate: "center=e1")
+        let api = JarvisAPI(credentials: TestCredentials(), transport: gated)
+        inner.route("/api/jarvis-memory/graph") { request in
+            let expand = request.url?.query?.contains("center=e1") == true
+            let json: JSONObject = expand ? [
+                "center": ["id": "e1", "label": "Sam", "type": "person"],
+                "nodes": [Self.node("e7", 2)], "edges": [["a": "e1", "b": "e7", "weight": 2]],
+            ] : Self.graphJSON
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: json))
+        }
+        let store = MemoryGraphStore(api: JarvisMemoryAPI(api: api), now: { self.now })
+        await store.load()
+        let expanding = Task { await store.expand("e1") }
+        await servicesWaitUntil { gated.parked }
+        await store.load()
+        gated.open()
+        await expanding.value
+        XCTAssertNil(store.graph.node("e7"), "the graph was reloaded under it")
+        XCTAssertFalse(store.graph.expanded.contains("e1"))
+    }
+
+    func testSheetErrorsShowInTheSheet() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/graph", json: Self.graphJSON)
+        transport.route("/api/jarvis-memory/entity", json: ["error": "nope"], status: 500)
+        let store = MemoryGraphStore(api: JarvisMemoryAPI(api: api), now: { self.now })
+        await store.load()
+        store.sheetOpen = true
+        let pinned = await store.setPinned("e2", true)
+        XCTAssertNil(pinned)
+        XCTAssertNotNil(store.sheetToast, "shown in the sheet")
+        XCTAssertNil(store.toast, "not in the map's toast under the sheet")
+        XCTAssertEqual(store.graph.node("e2")?.pinned, false)
+        store.sheetOpen = false
+        _ = await store.rename("e2", to: "X")
+        XCTAssertNotNil(store.toast)
+    }
+
+    func testUnlinkingAMemoryLightensTheNode() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/graph", json: Self.graphJSON)
+        let store = MemoryGraphStore(api: JarvisMemoryAPI(api: api), now: { self.now })
+        await store.load()
+        store.memoryUnlinked(from: "e1")
+        XCTAssertEqual(store.graph.node("e1")?.weight, 11)
+        XCTAssertEqual(store.graph.edge("me", "e1")?.weight, 11)
+    }
+
+    func testTheSheetReportsWhetherAnUnlinkWorked() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/entity/unlink", json: ["error": "x"], status: 500)
+        transport.route("/api/jarvis-memory/entity", json: [
+            "entity": ["id": "e1", "type": "person", "label": "Sam"],
+            "memories": [["id": "m1", "body": "A", "created_at": 1]], "neighbors": [],
+        ])
+        let sheet = MemoryEntitySheetModel(id: "e1", api: JarvisMemoryAPI(api: api))
+        await sheet.load()
+        let ok = await sheet.unlink("m1")
+        XCTAssertFalse(ok)
+        XCTAssertEqual(sheet.detail?.memories.map(\.id), ["m1"])
+        XCTAssertNotNil(sheet.toast)
+    }
 }
 
 /// The "memories used" chip under a Jarvis reply.
 @MainActor
 final class MemoryRecallChipTests: XCTestCase {
 
+    /// 40+ characters, like the rules blocks the surfaces really send.
+    private static let rules = "[Voice mode — keep it short, no lists, no markdown, speak naturally]"
+
     func testALeadingRulesBlockIsStripped() {
-        XCTAssertEqual(MemoryRecallMatch.normalize("[Rules: be brief]\n\nWhat did Sam say?"), "What did Sam say?")
-        XCTAssertEqual(MemoryRecallMatch.normalize("  [Context\nline two]\n \n  Hi there \n"), "Hi there")
+        XCTAssertEqual(MemoryRecallMatch.normalize(Self.rules + "\n\nWhat did Sam say?"), "What did Sam say?")
+        XCTAssertEqual(MemoryRecallMatch.normalize("  [Context: a long block of things\nline two, still going on]\n \n  Hi there \n"),
+                       "Hi there")
+        XCTAssertEqual(MemoryRecallMatch.normalize(Self.rules + "\n\n" + Self.rules + "\n\nTwo blocks"), "Two blocks",
+                       "however many blocks lead")
+        XCTAssertEqual(MemoryRecallMatch.normalize("[Rules: a [nested] note that is long enough to count]\n\nHi"), "Hi")
         XCTAssertEqual(MemoryRecallMatch.normalize("  plain question  "), "plain question")
         XCTAssertEqual(MemoryRecallMatch.normalize("[1] is a list marker"), "[1] is a list marker",
                        "a bracket without a blank line after it is text")
+        XCTAssertEqual(MemoryRecallMatch.normalize("[short]\n\nHi"), "[short]\n\nHi",
+                       "under 40 characters it is his own text, as on the server")
     }
 
     private func turns(_ items: [(Bool, String)]) -> [MemoryRecallTurn] {
@@ -633,11 +741,11 @@ final class MemoryRecallChipTests: XCTestCase {
 
     func testTheChipGoesUnderTheReplyToTheMatchingQuestion() {
         let rows = turns([
-            (true, "[Rules]\n\nWhat did Sam say?"),
-            (false, "Calling a tool"),
-            (false, "He said hi."),
+            (true, Self.rules + "\n\nWhat did Sam say?"),
+            (false, ""),
+            (false, ""),
             (true, "Thanks"),
-            (false, "Any time."),
+            (false, ""),
         ])
         let recalls = [MemoryRecall(id: "1", query: "What did Sam say?")]
         let chips = MemoryRecallMatch.chips(turns: rows, recalls: recalls)
@@ -645,23 +753,43 @@ final class MemoryRecallChipTests: XCTestCase {
     }
 
     func testNoRecallNoChip() {
-        let rows = turns([(true, "Hello"), (false, "Hi")])
+        let rows = turns([(true, "Hello"), (false, "")])
         XCTAssertTrue(MemoryRecallMatch.chips(turns: rows, recalls: []).isEmpty)
         XCTAssertTrue(MemoryRecallMatch.chips(turns: rows,
                                               recalls: [MemoryRecall(id: "1", query: "Other")]).isEmpty)
     }
 
-    func testAQuestionAskedTwicePairsInOrder() {
-        let rows = turns([(true, "Where am I?"), (false, "Leeds"), (true, "Where am I?"), (false, "York")])
+    func testWithoutTimesAQuestionAskedTwicePairsInOrder() {
+        let rows = turns([(true, "Where am I?"), (false, ""), (true, "Where am I?"), (false, "")])
         // Newest first, as the server sends them.
         let recalls = [MemoryRecall(id: "new", query: "Where am I?"), MemoryRecall(id: "old", query: "Where am I?")]
         let chips = MemoryRecallMatch.chips(turns: rows, recalls: recalls)
         XCTAssertEqual(chips.mapValues(\.id), [1: "old", 3: "new"])
     }
 
+    /// Asked twice, only the second time used memory: the chip goes on the reply
+    /// whose question came just before the recall, not the first one.
+    func testARepeatedQuestionPairsByTime() {
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        let rows = [
+            MemoryRecallTurn(isUser: true, text: "Where am I?", time: t0),
+            MemoryRecallTurn(isUser: false, text: "", time: t0.addingTimeInterval(5)),
+            MemoryRecallTurn(isUser: true, text: "Where am I?", time: t0.addingTimeInterval(600)),
+            MemoryRecallTurn(isUser: false, text: "", time: t0.addingTimeInterval(605)),
+        ]
+        let recall = MemoryRecall(id: "r", ts: t0.addingTimeInterval(601), query: "Where am I?")
+        XCTAssertEqual(MemoryRecallMatch.chips(turns: rows, recalls: [recall]).mapValues(\.id), [3: "r"])
+    }
+
     func testAReplyWithNoQuestionBeforeItGetsNoChip() {
-        let rows = turns([(false, "Good morning")])
+        let rows = turns([(false, "")])
         XCTAssertTrue(MemoryRecallMatch.chips(turns: rows, recalls: [MemoryRecall(id: "1", query: "")]).isEmpty)
+    }
+
+    private func reply(_ text: String = "Hello") -> ChatMessage {
+        var reply = ChatMessage.assistant()
+        reply.appendToken(text)
+        return reply
     }
 
     func testTheChatLoadsRecallsOncePerChat() async throws {
@@ -674,9 +802,7 @@ final class MemoryRecallChipTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 1, "one request per open chat")
         XCTAssertEqual(transport.query(0), ["session_id": "s1", "limit": "100"])
         XCTAssertEqual(store.recalls.map(\.id), ["5"])
-        var reply = ChatMessage.assistant()
-        reply.appendToken("Hello")
-        let rows = ChatRow.rows(for: [ChatMessage.user("[Rules]\n\nHi"), reply])
+        let rows = ChatRow.rows(for: [ChatMessage.user(Self.rules + "\n\nHi"), reply()])
         let chips = store.chips(for: rows, sessionID: "s1")
         XCTAssertEqual(chips.count, 1)
         XCTAssertEqual(chips[rows[1].id]?.id, "5", "keyed by the reply's message id")
@@ -687,11 +813,84 @@ final class MemoryRecallChipTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 2)
     }
 
+    /// A new chat makes its session right before sending, so the open-time
+    /// fetch is empty; the finished turn fetches once more — once per turn.
+    func testAFinishedTurnFetchesOnce() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        var answer: [JSONObject] = []
+        transport.route("/api/jarvis-memory/recalls") { _ in
+            MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: ["recalls": answer]))
+        }
+        let store = ChatRecallStore(api: JarvisMemoryAPI(api: api))
+        await store.load(sessionID: "s1")
+        XCTAssertTrue(store.recalls.isEmpty)
+
+        answer = [["id": 8, "query": "Hi", "session_id": "s1"]]
+        let rows = ChatRow.rows(for: [ChatMessage.user("Hi"), reply()])
+        await store.turnFinished(rows: rows, sessionID: "s1")
+        XCTAssertEqual(transport.requests.count, 2)
+        XCTAssertEqual(store.chips(for: rows, sessionID: "s1")[rows[1].id]?.id, "8")
+
+        await store.turnFinished(rows: rows, sessionID: "s1")
+        XCTAssertEqual(transport.requests.count, 2, "a reply that has its chip needs no fetch")
+
+        let more = ChatRow.rows(for: [ChatMessage.user("Hi"), reply(), ChatMessage.user("Ok"), reply("Sure")])
+        await store.turnFinished(rows: more, sessionID: "s1")
+        XCTAssertEqual(transport.requests.count, 3, "the next turn fetches once")
+        await store.turnFinished(rows: more, sessionID: "s1")
+        XCTAssertEqual(transport.requests.count, 3, "and only once")
+    }
+
     func testAnOldServerJustShowsNoChips() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/jarvis-memory/recalls", json: ["error": "not found"], status: 404)
         let store = ChatRecallStore(api: JarvisMemoryAPI(api: api))
         await store.load(sessionID: "s1")
         XCTAssertTrue(store.recalls.isEmpty)
+    }
+}
+
+/// Parks GETs whose URL contains `gate` until `open()`.
+final class GatedTransport: APITransport, @unchecked Sendable {
+    let inner: MockTransport
+    let gate: String
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    init(inner: MockTransport, gate: String) {
+        self.inner = inner
+        self.gate = gate
+    }
+
+    var parked: Bool { lock.lock(); defer { lock.unlock() }; return !waiters.isEmpty }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let parked = waiters
+        waiters = []
+        lock.unlock()
+        parked.forEach { $0.resume() }
+    }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        if request.url?.absoluteString.contains(gate) == true {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if isOpen {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }
+        return try await inner.send(request)
+    }
+
+    func stream(_ request: URLRequest) async throws -> (AsyncThrowingStream<Data, Error>, HTTPURLResponse) {
+        try await inner.stream(request)
     }
 }

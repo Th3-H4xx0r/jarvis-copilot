@@ -37,6 +37,12 @@ final class MemoryGraphStore {
     private(set) var error: String?
     private(set) var expanding: String?
     var toast: String?
+    /// Set while the node sheet is up: fix-tool errors then show in the sheet
+    /// (`sheetToast`), not in the map's toast hidden under it.
+    var sheetOpen = false
+    var sheetToast: String?
+
+    static let recallGoneMessage = "That recall is gone — its memories changed since. Showing the whole map."
 
     init(api: JarvisMemoryAPI = JarvisMemoryAPI(), now: @escaping () -> Date = Date.init) {
         self.api = api
@@ -50,34 +56,60 @@ final class MemoryGraphStore {
     /// The You view under the current filters (or the recall's lit view).
     func load() async {
         if let recall { await showRecall(recall); return }
+        _ = await loadYou()
+    }
+
+    /// False only when this request failed (a superseded one is not a failure).
+    private func loadYou() async -> Bool {
         generation += 1
         let id = generation
         loading = true
         defer { if id == generation { loading = false } }
         do {
             let payload = try await api.graph(center: MemoryGraph.meID, filters: filters, now: now())
-            guard id == generation else { return }
+            guard id == generation else { return true }
             install(payload)
+            hasLoaded = true
+            return true
         } catch {
-            guard id == generation, !wasCancelled(error) else { return }
-            self.error = apiErrorMessage(error)
+            guard id == generation, !wasCancelled(error) else { return true }
+            fail(apiErrorMessage(error))
+            hasLoaded = true
+            return false
         }
-        hasLoaded = true
+    }
+
+    /// With a graph on screen an error is a toast (the graph stays); with none,
+    /// it fills the canvas with a retry.
+    private func fail(_ message: String) {
+        if graph.isEmpty { error = message } else { toast = message }
+    }
+
+    /// Fix-tool errors: in the sheet while it is up.
+    private func report(_ message: String) {
+        if sheetOpen { sheetToast = message } else { toast = message }
     }
 
     func loadIfNeeded() async {
         if !hasLoaded && !loading { await load() }
     }
 
+    /// A failed reload puts the chips back to what the map still shows.
     func setFilters(_ new: MemoryGraphFilters) async {
         guard new != filters else { return }
+        let (oldFilters, oldRecall) = (filters, recall)
         filters = new
         recall = nil
-        await load()
+        if !(await loadYou()) {
+            filters = oldFilters
+            recall = oldRecall
+        }
     }
 
-    /// Open the map lit up on what one recall used.
+    /// Open the map lit up on what one recall used. A recall the server no
+    /// longer has says so and leaves the plain You view up.
     func showRecall(_ recall: MemoryRecall) async {
+        let previous = self.recall
         self.recall = recall
         generation += 1
         let id = generation
@@ -87,17 +119,28 @@ final class MemoryGraphStore {
             let payload = try await api.highlight(recallID: recall.id)
             guard id == generation else { return }
             install(payload)
+            hasLoaded = true
         } catch {
             guard id == generation, !wasCancelled(error) else { return }
-            self.error = apiErrorMessage(error)
+            if case APIError.http(status: 404, message: _) = error {
+                self.recall = nil
+                toast = Self.recallGoneMessage
+                // Whatever was lit belonged to another recall; show the plain view.
+                if graph.isEmpty || isHighlighting || previous != nil { _ = await loadYou() }
+                hasLoaded = true
+                return
+            }
+            self.recall = previous
+            fail(apiErrorMessage(error))
+            hasLoaded = true
         }
-        hasLoaded = true
     }
 
     /// Back to the plain You view.
     func clearRecall() async {
+        let previous = recall
         recall = nil
-        await load()
+        if !(await loadYou()) { recall = previous }
     }
 
     private func install(_ payload: MemoryGraphPayload) {
@@ -113,18 +156,30 @@ final class MemoryGraphStore {
     // MARK: Expand
 
     /// Merge the node's neighbours into the canvas; existing nodes stay put.
+    /// A reload while it is on the wire wins: the late answer is dropped.
     func expand(_ id: String) async {
         guard id != MemoryGraph.meID, expanding == nil else { return }
         expanding = id
         defer { expanding = nil }
+        let started = generation
         do {
             let payload = try await api.graph(center: id, filters: filters, now: now())
+            guard generation == started else { return }
             let added = graph.merge(payload)
             relayout()
             if added.isEmpty { toast = "Nothing more linked to it" }
         } catch {
+            guard generation == started, !wasCancelled(error) else { return }
             toast = apiErrorMessage(error)
         }
+    }
+
+    /// A memory's link to `id` was removed: one memory lighter, on the node and
+    /// its edge to You (the edge weight is its memory count).
+    func memoryUnlinked(from id: String) {
+        graph.memoryUnlinked(from: id)
+        layout.sync(with: graph)   // new radius; nothing added, so it stays at rest
+        layoutVersion += 1
     }
 
     // MARK: Layout ticks
@@ -155,7 +210,7 @@ final class MemoryGraphStore {
             relayout()
             return true
         } catch {
-            toast = apiErrorMessage(error)
+            report(apiErrorMessage(error))
             return false
         }
     }
@@ -194,7 +249,7 @@ final class MemoryGraphStore {
             }
             return entity
         } catch {
-            toast = apiErrorMessage(error)
+            report(apiErrorMessage(error))
             return nil
         }
     }
@@ -229,12 +284,15 @@ final class MemoryEntitySheetModel {
     }
 
     /// A wrong link: the memory stays, it just stops pointing at this entity.
-    func unlink(_ memoryID: String) async {
+    @discardableResult
+    func unlink(_ memoryID: String) async -> Bool {
         do {
             try await api.unlink(memoryID: memoryID, entityID: id)
             detail?.memories.removeAll { $0.id == memoryID }
+            return true
         } catch {
             toast = apiErrorMessage(error)
+            return false
         }
     }
 
@@ -245,14 +303,20 @@ final class MemoryEntitySheetModel {
     }
 }
 
-/// The chat's "memories used" chips: one recalls request per opened chat.
+/// The chat's "memories used" chips: one recalls request when a chat opens,
+/// and one more after each finished turn whose reply has no chip yet (a new
+/// chat makes its session right before sending, so the open-time fetch is
+/// empty). Never a request per message, never a poll.
 @Observable
 @MainActor
 final class ChatRecallStore {
     private let api: JarvisMemoryAPI
     private(set) var recalls: [MemoryRecall] = []
     @ObservationIgnored private var loadedSession: String?
-    @ObservationIgnored private var cache: (ids: [UUID], session: String?, count: Int, chips: [UUID: MemoryRecall])?
+    /// The last reply a finished-turn fetch was made for.
+    @ObservationIgnored private var fetchedForReply: UUID?
+    @ObservationIgnored private var cache: (ids: [UUID], session: String?, recalls: [String],
+                                            chips: [UUID: MemoryRecall])?
 
     init(api: JarvisMemoryAPI = JarvisMemoryAPI()) { self.api = api }
 
@@ -261,8 +325,28 @@ final class ChatRecallStore {
     func load(sessionID: String?) async {
         guard sessionID != loadedSession || (sessionID == nil && !recalls.isEmpty) else { return }
         loadedSession = sessionID
+        fetchedForReply = nil
         recalls = []
         guard let sessionID, !sessionID.isEmpty else { return }
+        await fetch(sessionID)
+    }
+
+    /// A turn finished streaming. Fetch once if its reply has no chip yet.
+    func turnFinished(rows: [ChatRow], sessionID: String?) async {
+        guard let sessionID, !sessionID.isEmpty,
+              let last = rows.last, !last.message.isUser,
+              rows.contains(where: \.message.isUser),
+              fetchedForReply != last.id,
+              chips(for: rows, sessionID: sessionID)[last.id] == nil else { return }
+        fetchedForReply = last.id
+        if loadedSession != sessionID {
+            loadedSession = sessionID
+            recalls = []
+        }
+        await fetch(sessionID)
+    }
+
+    private func fetch(_ sessionID: String) async {
         do {
             let found = try await api.recalls(limit: 100, sessionID: sessionID)
             guard loadedSession == sessionID else { return }
@@ -274,19 +358,25 @@ final class ChatRecallStore {
 
     /// Message id → recall, for the rows on screen. Recomputed only when the
     /// rows themselves or the recalls change: a streamed token changes neither,
-    /// so a reply streaming in doesn't re-read the whole thread per token.
+    /// so a reply streaming in doesn't re-read the thread per token. Only user
+    /// messages' text is read.
     func chips(for rows: [ChatRow], sessionID: String?) -> [UUID: MemoryRecall] {
         guard !recalls.isEmpty else { return [:] }
         let ids = rows.map(\.id)
-        if let cache, cache.ids == ids, cache.session == sessionID, cache.count == recalls.count {
+        let recallIDs = recalls.map(\.id)
+        if let cache, cache.ids == ids, cache.session == sessionID, cache.recalls == recallIDs {
             return cache.chips
         }
-        let turns = rows.map { MemoryRecallTurn(isUser: $0.message.isUser, text: $0.message.plainText) }
+        let turns = rows.map { row in
+            MemoryRecallTurn(isUser: row.message.isUser,
+                             text: row.message.isUser ? row.message.plainText : "",
+                             time: row.message.timestamp.map { Date(timeIntervalSince1970: TimeInterval($0)) })
+        }
         var out: [UUID: MemoryRecall] = [:]
         for (index, recall) in MemoryRecallMatch.chips(turns: turns, recalls: recalls) {
             out[rows[index].id] = recall
         }
-        cache = (ids, sessionID, recalls.count, out)
+        cache = (ids, sessionID, recallIDs, out)
         return out
     }
 }

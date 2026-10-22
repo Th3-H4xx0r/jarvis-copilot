@@ -20,6 +20,9 @@ struct MemoryMapScreen: View {
     let store: MemoryGraphStore
     /// The recall the map should open lit up for (the chat chip).
     var recall: MemoryRecall?
+    /// Shown outside Long-term Memory (the chat chip's sheet), where the List
+    /// view is not one tap away.
+    var standalone = false
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
@@ -55,6 +58,8 @@ struct MemoryMapScreen: View {
         .onDisappear { visible = false }
         .sheet(item: $selected) { selection in
             MemoryNodeSheet(graph: store, id: selection.id)
+                .onAppear { store.sheetOpen = true }
+                .onDisappear { store.sheetOpen = false }
                 .presentationDetents([.medium, .large])
                 .presentationBackground(JcTheme.surface)
         }
@@ -69,9 +74,9 @@ struct MemoryMapScreen: View {
         } else if store.hasLoaded && store.graph.isEmpty && !store.loading {
             JcEmptyState(symbol: "point.3.connected.trianglepath.dotted",
                          title: "Nothing mapped yet",
-                         subtitle: store.filters.isDefault
-                            ? "Run Cleanup & map in the List view."
-                            : "Nothing matches these filters.")
+                         subtitle: !store.filters.isDefault ? "Nothing matches these filters."
+                            : standalone ? "Open Long-term Memory → List to run Cleanup & map."
+                            : "Run Cleanup & map in the List view.")
                 .allowsHitTesting(false)
         }
     }
@@ -196,15 +201,21 @@ struct MemoryGraphCanvas: View {
     @State private var pan: CGSize = .zero
     /// Shrinks a big settled graph to fit the view (never enlarges).
     @State private var fit: CGFloat = 1
-    @GestureState private var pinch: CGFloat = 1
+    @GestureState private var pinch = PinchState()
     @GestureState private var drag: CGSize = .zero
+    /// A pinch is on: one-finger drag moves are ignored so the pan doesn't drift.
+    @State private var pinching = false
+    /// This drag overlapped a pinch, so its translation is not committed.
+    @State private var dragSawPinch = false
+    /// Colours, labels and the selection's neighbours, rebuilt once per graph
+    /// change, not per frame.
+    @State private var cache = MemoryGraphDrawCache()
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.35...4
 
-    private var liveZoom: CGFloat { clampZoom(zoom * pinch) * fit }
-    private var livePan: CGSize {
-        let k = clampZoom(zoom * pinch) / zoom
-        return CGSize(width: pan.width * k + drag.width, height: pan.height * k + drag.height)
+    struct PinchState: Equatable {
+        var scale: CGFloat = 1
+        var anchor: CGPoint = .zero
     }
 
     var body: some View {
@@ -214,9 +225,9 @@ struct MemoryGraphCanvas: View {
         let paused = !running || store.isSettled
         GeometryReader { geo in
             TimelineView(.animation(minimumInterval: 1.0 / 60, paused: paused)) { context in
-                let viewport = MemoryGraphViewport(size: geo.size, pan: livePan, zoom: liveZoom)
+                let viewport = liveViewport(geo.size)
                 Canvas(rendersAsynchronously: false) { ctx, _ in
-                    _ = version
+                    cache.prepare(graph: graph, version: version, selected: selectedID)
                     draw(&ctx, graph: graph, viewport: viewport)
                 }
                 .onChange(of: context.date) { _, _ in store.tick() }
@@ -232,23 +243,48 @@ struct MemoryGraphCanvas: View {
                 })
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4)
-                    .updating($drag) { value, state, _ in state = value.translation }
+                    .updating($drag) { value, state, _ in
+                        if !pinching { state = value.translation }
+                    }
                     .onEnded { value in
+                        defer { dragSawPinch = false }
+                        guard !dragSawPinch, !pinching else { return }
                         pan.width += value.translation.width
                         pan.height += value.translation.height
                     })
             .simultaneousGesture(
                 MagnifyGesture()
-                    .updating($pinch) { value, state, _ in state = value.magnification }
+                    .updating($pinch) { value, state, _ in
+                        state = PinchState(scale: value.magnification, anchor: value.startLocation)
+                    }
+                    .onChanged { _ in
+                        if !pinching { pinching = true }
+                        dragSawPinch = true
+                    }
                     .onEnded { value in
+                        pinching = false
                         let next = clampZoom(zoom * value.magnification)
-                        let k = next / zoom
-                        pan = CGSize(width: pan.width * k, height: pan.height * k)
+                        pan = Self.panAfterZoom(pan, by: next / zoom, around: value.startLocation, in: geo.size)
                         zoom = next
                     })
             .onChange(of: store.isSettled, initial: true) { _, settled in
                 if settled { fitToView(geo.size, graph: graph) }
             }
+            // One element per node for VoiceOver (the drawing itself is opaque to it).
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Memory map")
+            .accessibilityValue("\(max(0, graph.nodeIDs.count - 1)) people, places and topics around you")
+            .accessibilityChildren {
+                ForEach(Self.accessibleNodes(graph)) { node in
+                    Rectangle()
+                        .accessibilityElement()
+                        .accessibilityLabel(node.label)
+                        .accessibilityValue("\(node.kind.label), \(node.weight == 1 ? "1 memory" : "\(node.weight) memories")")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { onTap(node.id) }
+                }
+            }
+            // Outside the combined element, so VoiceOver reaches it.
             .overlay(alignment: .bottomTrailing) {
                 if zoom != 1 || pan != .zero {
                     GlassIconButton(symbol: "scope", size: 40, iconSize: 17) {
@@ -263,8 +299,25 @@ struct MemoryGraphCanvas: View {
             }
         }
         .clipped()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Memory map, \(max(0, graph.nodeIDs.count - 1)) people, places and topics around you")
+    }
+
+    /// Heaviest first, without You.
+    static func accessibleNodes(_ graph: MemoryGraph) -> [MemoryGraphNode] {
+        graph.nodes.filter { $0.id != MemoryGraph.meID }.sorted { $0.weight > $1.weight }
+    }
+
+    /// Zooming by `k` around a screen point keeps the world point under it still.
+    static func panAfterZoom(_ pan: CGSize, by k: CGFloat, around anchor: CGPoint, in size: CGSize) -> CGSize {
+        let cx = anchor.x - size.width / 2, cy = anchor.y - size.height / 2
+        return CGSize(width: cx * (1 - k) + pan.width * k, height: cy * (1 - k) + pan.height * k)
+    }
+
+    private func liveViewport(_ size: CGSize) -> MemoryGraphViewport {
+        let z = clampZoom(zoom * pinch.scale)
+        var p = pan
+        if pinch.scale != 1 { p = Self.panAfterZoom(pan, by: z / zoom, around: pinch.anchor, in: size) }
+        if !pinching { p.width += drag.width; p.height += drag.height }
+        return MemoryGraphViewport(size: size, pan: p, zoom: z * fit)
     }
 
     /// Once the layout rests, scale it down if it spills past the view.
@@ -292,76 +345,128 @@ struct MemoryGraphCanvas: View {
         let sim = store.layout
         let lit = graph.highlight
         let dimming = !lit.isEmpty
-        let focus: Set<String> = selectedID.map { Set([$0] + graph.neighbors(of: $0)) } ?? []
+        let focus = cache.focus
 
         func isLit(_ id: String) -> Bool { !dimming || lit.contains(id) || id == MemoryGraph.meID }
 
         // Edges under the nodes.
-        for edge in graph.edges {
+        let edgeScale = min(1.4, max(0.6, viewport.zoom))
+        for edge in cache.edges {
             guard let a = sim.position(edge.a), let b = sim.position(edge.b) else { continue }
             var path = Path()
             path.move(to: viewport.toScreen(a))
             path.addLine(to: viewport.toScreen(b))
-            let touchesSelection = selectedID != nil && (edge.a == selectedID || edge.b == selectedID)
             let opacity: Double
-            if touchesSelection {
+            if edge.touchesSelection {
                 opacity = 0.55
             } else if dimming {
                 opacity = isLit(edge.a) && isLit(edge.b) ? 0.38 : 0.04
             } else {
                 opacity = 0.13
             }
-            let width = (0.6 + min(2.2, log(Double(max(1, edge.weight)) + 1) * 0.45)) * min(1.4, max(0.6, viewport.zoom))
-            ctx.stroke(path, with: .color((touchesSelection ? JcTheme.accent : Color.white).opacity(opacity)),
-                       lineWidth: width)
+            ctx.stroke(path, with: .color((edge.touchesSelection ? JcTheme.accent : Color.white).opacity(opacity)),
+                       lineWidth: edge.width * edgeScale)
         }
 
         // Nodes, then every label on top of every node.
-        var labels: [(Text, CGPoint)] = []
-        for node in graph.nodes {
-            guard let p = sim.position(node.id), let r0 = sim.radius(node.id) else { continue }
+        var labels: [(String, Bool, CGPoint)] = []
+        for style in cache.nodes {
+            guard let p = sim.position(style.id), let r0 = sim.radius(style.id) else { continue }
             let center = viewport.toScreen(p)
             let r = CGFloat(r0) * viewport.zoom
             let rect = CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)
-            let kind = node.kind
-            let color = MemoryGraphPalette.color(kind)
-            let dim = !isLit(node.id) || (!focus.isEmpty && !focus.contains(node.id) && !dimming)
+            let dim = !isLit(style.id) || (!focus.isEmpty && !focus.contains(style.id) && !dimming)
             let alpha = dim ? (dimming ? 0.16 : 0.45) : 1
 
-            if kind == .me {
+            if style.kind == .me {
                 ctx.fill(Path(ellipseIn: rect.insetBy(dx: -r * 0.45, dy: -r * 0.45)),
                          with: .color(JcTheme.accent.opacity(0.14)))
                 ctx.fill(Path(ellipseIn: rect), with: .color(JcTheme.accent))
             } else {
                 // An opaque backing so edges never show through a node.
                 ctx.fill(Path(ellipseIn: rect), with: .color(JcTheme.bg))
-                ctx.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.9 * alpha)))
+                ctx.fill(Path(ellipseIn: rect), with: .color(style.color.opacity(0.9 * alpha)))
                 ctx.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.22 * alpha)), lineWidth: 0.8)
             }
-            if dimming && lit.contains(node.id) {
+            if dimming && lit.contains(style.id) {
                 ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)),
                            with: .color(JcTheme.accent.opacity(0.8)), lineWidth: 1.5)
             }
-            if node.pinned {
+            if style.pinned {
                 let pin = CGRect(x: center.x + r * 0.55, y: center.y - r * 0.95, width: 6, height: 6)
                 ctx.fill(Path(ellipseIn: pin), with: .color(.white.opacity(0.9 * alpha)))
             }
-            if node.id == selectedID {
+            if style.id == selectedID {
                 ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)),
                            with: .color(JcTheme.accent), lineWidth: 2.5)
             }
 
             // Labels: You, the selection, lit nodes, bigger nodes, and all when zoomed in.
-            let showLabel = kind == .me || node.id == selectedID || (dimming && lit.contains(node.id))
-                || r >= 12 || viewport.zoom >= 1.6 || focus.contains(node.id)
+            let showLabel = style.kind == .me || style.id == selectedID || (dimming && lit.contains(style.id))
+                || r >= 12 || viewport.zoom >= 1.6 || focus.contains(style.id)
             guard showLabel, !(dim && dimming) else { continue }
-            let label = node.label.count > 24 ? String(node.label.prefix(23)) + "…" : node.label
-            let text = Text(label)
-                .font(.system(size: kind == .me ? 12.5 : 11, weight: kind == .me ? .semibold : .medium))
-                .foregroundColor(JcTheme.text.opacity(dim ? 0.5 : 0.92))
-            labels.append((text, CGPoint(x: center.x, y: center.y + r + 9)))
+            labels.append((style.id, dim, CGPoint(x: center.x, y: center.y + r + 9)))
         }
-        for (text, point) in labels { ctx.draw(text, at: point, anchor: .center) }
+        for (id, dim, point) in labels {
+            if let text = cache.label(id, dim: dim, in: ctx) { ctx.draw(text, at: point, anchor: .center) }
+        }
+    }
+}
+
+/// What drawing needs that only changes with the graph or the selection.
+final class MemoryGraphDrawCache {
+    struct NodeStyle {
+        let id: String
+        let kind: MemoryEntityKind
+        let color: Color
+        let label: String
+        let pinned: Bool
+    }
+
+    struct EdgeStyle {
+        let a: String
+        let b: String
+        let width: Double
+        let touchesSelection: Bool
+    }
+
+    private var key: (version: Int, nodes: Int, edges: Int, selected: String?)?
+    private(set) var nodes: [NodeStyle] = []
+    private(set) var edges: [EdgeStyle] = []
+    /// The selection and its neighbours (empty with nothing selected).
+    private(set) var focus: Set<String> = []
+    private var labels: [String: GraphicsContext.ResolvedText] = [:]
+
+    func prepare(graph: MemoryGraph, version: Int, selected: String?) {
+        let next = (version, graph.nodeIDs.count, graph.edges.count, selected)
+        if let key, key == next { return }
+        key = next
+        nodes = graph.nodes.map { node in
+            NodeStyle(id: node.id, kind: node.kind, color: MemoryGraphPalette.color(node.kind),
+                      label: node.label.count > 24 ? String(node.label.prefix(23)) + "…" : node.label,
+                      pinned: node.pinned)
+        }
+        edges = graph.edges.map { edge in
+            EdgeStyle(a: edge.a, b: edge.b,
+                      width: 0.6 + min(2.2, log(Double(max(1, edge.weight)) + 1) * 0.45),
+                      touchesSelection: selected != nil && (edge.a == selected || edge.b == selected))
+        }
+        focus = selected.map { Set([$0] + graph.neighbors(of: $0)) } ?? []
+        labels = [:]
+    }
+
+    /// The laid-out label, resolved once and reused every frame after.
+    func label(_ id: String, dim: Bool, in ctx: GraphicsContext) -> GraphicsContext.ResolvedText? {
+        let key = dim ? id + "|dim" : id
+        if let hit = labels[key] { return hit }
+        guard let style = nodes.first(where: { $0.id == id }) else { return nil }
+        let me = style.kind == .me
+        let text = Text(style.label)
+            .font(.system(size: me ? 12.5 : 11, weight: me ? .semibold : .medium))
+            .foregroundColor(JcTheme.text.opacity(dim ? 0.5 : 0.92))
+        let resolved = ctx.resolve(text)
+        labels[key] = resolved
+        return resolved
     }
 }
 
@@ -400,7 +505,7 @@ struct MemoryRecallMapSheet: View {
 
     var body: some View {
         NavigationStack {
-            MemoryMapScreen(store: store, recall: recall)
+            MemoryMapScreen(store: store, recall: recall, standalone: true)
                 .jcScreen("Memory map")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -408,5 +513,7 @@ struct MemoryRecallMapSheet: View {
                     }
                 }
         }
+        // Panning the map must not swipe the sheet away.
+        .interactiveDismissDisabled()
     }
 }

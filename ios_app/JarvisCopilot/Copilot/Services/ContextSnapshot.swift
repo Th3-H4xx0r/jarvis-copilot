@@ -8,17 +8,24 @@ struct ReminderRecord: Sendable, Equatable {
     let list: String
 }
 
+/// One calendar or reminders read, keeping apart the three things the server
+/// must not confuse: no access (the key is left out — the server keeps what it
+/// knows), a failed read (nothing is sent), and a real list (`[]` = nothing on it,
+/// which the server acts on by forgetting what has gone).
+enum ContextRead<T: Sendable>: Sendable {
+    case noAccess
+    case failed
+    case items([T])
+}
+
 /// Where the snapshot's calendar and reminders come from. Neither read may
 /// prompt: the snapshot runs from the background (a location fix, a calendar
 /// change), where a permission sheet has no one to answer it.
-///
-/// No access = empty (that IS what the phone can see). A read that failed = nil,
-/// and nothing is sent: an empty list would wipe the server's snapshot.
 @MainActor
 protocol ContextSources: AnyObject {
-    func events(from: Date, to: Date) async -> [CalendarEventRecord]?
+    func events(from: Date, to: Date) async -> ContextRead<CalendarEventRecord>
     /// Incomplete reminders — only when Reminders full access is already granted.
-    func openReminders() async -> [ReminderRecord]?
+    func openReminders() async -> ContextRead<ReminderRecord>
     /// The store whose `EKEventStoreChanged` means our data changed. nil = none.
     var changeObject: AnyObject? { get }
     /// Shows the system sheet, on the same store the reads use.
@@ -157,33 +164,48 @@ final class ContextSnapshot {
     }
 
     /// The POST body, or nil when a read failed. Events use the
-    /// `list_calendar_events` field shape.
+    /// `list_calendar_events` field shape. A list without access is left out
+    /// (never `[]`, which the server reads as "nothing on it" and forgets).
     func payload() async -> [String: Any]? {
         let at = now()
-        guard let events = await sources.events(from: at.addingTimeInterval(-Self.lookBack),
-                                                to: at.addingTimeInterval(Self.lookAhead)),
-              let reminders = await sources.openReminders() else { return nil }
-        return [
-            "tz": timeZone().identifier,
-            "calendar": events.map { event in
-                [
-                    "title": event.title,
-                    "start_iso": event.start.map(DataSkills.isoString) ?? "",
-                    "end_iso": event.end.map(DataSkills.isoString) ?? "",
-                    "all_day": event.allDay,
-                    "location": event.location,
-                    "calendar": event.calendar,
-                ] as [String: Any]
-            },
-            "reminders": reminders.map { reminder in
-                [
-                    "title": reminder.title,
-                    "due_iso": reminder.due.map { DataSkills.isoString($0) as Any } ?? NSNull(),
-                    "list": reminder.list,
-                ] as [String: Any]
-            },
-            "sent_at": DataSkills.isoString(at),
-        ]
+        let eventsRead = await sources.events(from: at.addingTimeInterval(-Self.lookBack),
+                                              to: at.addingTimeInterval(Self.lookAhead))
+        let remindersRead = await sources.openReminders()
+        var body: [String: Any] = ["tz": timeZone().identifier, "sent_at": DataSkills.isoString(at)]
+        switch eventsRead {
+        case .failed: return nil
+        case .noAccess: break
+        case .items(let events): body["calendar"] = Self.calendarJSON(events)
+        }
+        switch remindersRead {
+        case .failed: return nil
+        case .noAccess: break
+        case .items(let reminders): body["reminders"] = Self.remindersJSON(reminders)
+        }
+        return body
+    }
+
+    private static func calendarJSON(_ events: [CalendarEventRecord]) -> [[String: Any]] {
+        events.map { event in
+            [
+                "title": event.title,
+                "start_iso": event.start.map(DataSkills.isoString) ?? "",
+                "end_iso": event.end.map(DataSkills.isoString) ?? "",
+                "all_day": event.allDay,
+                "location": event.location,
+                "calendar": event.calendar,
+            ] as [String: Any]
+        }
+    }
+
+    private static func remindersJSON(_ reminders: [ReminderRecord]) -> [[String: Any]] {
+        reminders.map { reminder in
+            [
+                "title": reminder.title,
+                "due_iso": reminder.due.map { DataSkills.isoString($0) as Any } ?? NSNull(),
+                "list": reminder.list,
+            ] as [String: Any]
+        }
     }
 }
 
@@ -221,20 +243,20 @@ final class EventKitContextSources: ContextSources {
 
     var changeObject: AnyObject? { store }
 
-    func events(from: Date, to: Date) async -> [CalendarEventRecord]? {
+    func events(from: Date, to: Date) async -> ContextRead<CalendarEventRecord> {
         resetIfAccessChanged()
-        guard eventStatus == .fullAccess else { return [] }
+        guard eventStatus == .fullAccess else { return .noAccess }
         do {
-            return try await calendar.events(from: from, to: to, limit: Self.limit)
+            return .items(try await calendar.events(from: from, to: to, limit: Self.limit))
         } catch {
             JcLog.dropped(JcLog.services, "context snapshot calendar", error)
-            return nil
+            return .failed
         }
     }
 
-    func openReminders() async -> [ReminderRecord]? {
+    func openReminders() async -> ContextRead<ReminderRecord> {
         resetIfAccessChanged()
-        guard reminderStatus == .fullAccess else { return [] }
+        guard reminderStatus == .fullAccess else { return .noAccess }
         let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil,
                                                                calendars: nil)
         let fetched: [ReminderRecord]? = await withCheckedContinuation { continuation in
@@ -248,15 +270,15 @@ final class EventKitContextSources: ContextSources {
                 continuation.resume(returning: out)
             }
         }
-        guard let records = fetched else { return nil }
+        guard let records = fetched else { return .failed }
         // Dated ones first, soonest first; then the undated.
-        return Array(records.sorted { a, b in
+        return .items(Array(records.sorted { a, b in
             switch (a.due, b.due) {
             case let (x?, y?): return x < y
             case (_?, nil): return true
             default: return false
             }
-        }.prefix(Self.limit))
+        }.prefix(Self.limit)))
     }
 
     func requestRemindersAccess() async -> Bool {

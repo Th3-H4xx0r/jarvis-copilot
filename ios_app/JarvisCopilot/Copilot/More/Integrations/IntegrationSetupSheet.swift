@@ -26,6 +26,7 @@ struct IntegrationSetupSheet: View {
                                  showsComposer: setup.finished == nil) {
                 if setup.finished != nil { closeBar }
             }
+            .memoryChipsHidden()
             .jcScreen("New integration")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)

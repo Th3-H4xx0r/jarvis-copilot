@@ -52,6 +52,9 @@ struct MemoryNodeSheet: View {
                 Text("A name another \(kind.label.lowercased()) already has merges the two.")
             }
             .moreToast($model.toast)
+            // Pin / rename / aliases / merge errors, shown here rather than in
+            // the map's toast hidden under the sheet.
+            .moreToast(Binding(get: { graph.sheetToast }, set: { graph.sheetToast = $0 }))
         }
         .tint(JcTheme.accent)
         .task { await model.load() }
@@ -124,12 +127,13 @@ struct MemoryNodeSheet: View {
         }
     }
 
+    /// The node's own weight: every memory it links, not just the ones listed.
     private var subtitle: String {
         var parts = [kind.label]
-        if let detail = model.detail {
-            parts.append(detail.memories.count == 1 ? "1 memory" : "\(detail.memories.count) memories")
-        } else if let weight = node?.weight, weight > 0 {
+        if let weight = node?.weight, weight > 0 {
             parts.append(weight == 1 ? "1 memory" : "\(weight) memories")
+        } else if let count = model.detail?.memories.count, count > 0 {
+            parts.append(count == 1 ? "1 memory" : "\(count) memories")
         }
         if let start = model.detail?.entity.eventStart ?? node?.eventStart {
             parts.append(RelativeTime.absolute(start))
@@ -147,13 +151,18 @@ struct MemoryNodeSheet: View {
             } label: {
                 Label("Rename", jcIcon: "pencil")
             }
+            // Only once the saved aliases are known: editing from an empty list
+            // would save over them.
             NavigationLink {
                 MemoryAliasesEditor(aliases: aliases) { list in
-                    if let saved = await graph.setAliases(id, list) { model.apply(saved) }
+                    guard let saved = await graph.setAliases(id, list) else { return false }
+                    model.apply(saved)
+                    return true
                 }
             } label: {
                 Label(aliases.isEmpty ? "Add aliases" : "Aliases (\(aliases.count))", jcIcon: "text.badge.plus")
             }
+            .disabled(model.detail == nil)
             NavigationLink {
                 MemoryMergePicker(graph: graph, id: id, name: name, kind: kind,
                                   neighbors: model.detail?.neighbors ?? []) {
@@ -183,7 +192,9 @@ struct MemoryNodeSheet: View {
                     MemoryLinkRow(memory: memory)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                Task { await model.unlink(memory.id) }
+                                Task {
+                                    if await model.unlink(memory.id) { graph.memoryUnlinked(from: id) }
+                                }
                             } label: {
                                 Label("Remove link", jcIcon: "scissors")
                             }
@@ -195,7 +206,14 @@ struct MemoryNodeSheet: View {
                 HStack { Spacer(); ProgressView(); Spacer() }
             }
         } header: {
-            Text("Memories")
+            HStack {
+                Text("Memories")
+                Spacer()
+                // The sheet lists the newest; the node may link many more.
+                if let shown = model.detail?.memories.count, let weight = node?.weight, shown < weight {
+                    Text("showing \(shown)").textCase(nil)
+                }
+            }
         } footer: {
             if model.detail?.memories.isEmpty == false {
                 Text("Swipe a memory to remove a wrong link. The memory itself stays.")
@@ -249,13 +267,14 @@ struct MemoryLinkRow: View {
 
 /// Edit a node's other names.
 struct MemoryAliasesEditor: View {
-    let onSave: ([String]) async -> Void
+    /// True when saved; on false the editor stays open (the error shows in the sheet).
+    let onSave: ([String]) async -> Bool
     @State private var aliases: [String]
     @State private var draft = ""
     @State private var saving = false
     @Environment(\.dismiss) private var dismiss
 
-    init(aliases: [String], onSave: @escaping ([String]) async -> Void) {
+    init(aliases: [String], onSave: @escaping ([String]) async -> Bool) {
         self.onSave = onSave
         _aliases = State(initialValue: aliases)
     }
@@ -294,9 +313,9 @@ struct MemoryAliasesEditor: View {
                     Task {
                         saving = true
                         add()
-                        await onSave(aliases)
+                        let saved = await onSave(aliases)
                         saving = false
-                        dismiss()
+                        if saved { dismiss() }
                     }
                 } label: {
                     if saving { ProgressView() } else { Text("Save").bold() }

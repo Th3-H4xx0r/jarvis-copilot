@@ -139,6 +139,38 @@ final class ContextSnapshotTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 1)
     }
 
+    /// No access is not "nothing on it": the key is left out, so the server keeps
+    /// what it knows instead of forgetting every event or reminder.
+    func testNoAccessLeavesTheKeyOut() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/devices/mobile/context", json: ["ok": true])
+        let clock = SnapshotClock(base)
+        let sources = FakeContextSources(reminders: [ReminderRecord(title: "Pay rent", due: nil, list: "Bills")])
+        sources.calendarGranted = false
+        let snapshot = ContextSnapshot(api: api, sources: sources, now: { clock.now }, timeZone: .gmt)
+
+        await snapshot.pushIfDue()
+        var body = transport.lastBody()
+        XCTAssertEqual(Set(body.keys), ["tz", "reminders", "sent_at"], "no calendar key without Calendar access")
+        XCTAssertEqual((body["reminders"] as? [[String: Any]])?.count, 1)
+
+        sources.calendarGranted = true
+        sources.remindersGranted = false
+        clock.now = base.addingTimeInterval(20 * 60)
+        await snapshot.pushIfDue()
+        body = transport.lastBody()
+        XCTAssertEqual(Set(body.keys), ["tz", "calendar", "sent_at"], "no reminders key without Reminders access")
+        XCTAssertEqual((body["calendar"] as? [[String: Any]])?.count, 0, "access with nothing on it IS []")
+
+        sources.calendarGranted = false
+        clock.now = base.addingTimeInterval(40 * 60)
+        await snapshot.pushIfDue()
+        body = transport.lastBody()
+        XCTAssertEqual(Set(body.keys), ["tz", "sent_at"])
+        XCTAssertNil(body["calendar"])
+        XCTAssertNil(body["reminders"])
+    }
+
     /// Even a forced push keeps a minute after the last one.
     func testForcedPushesKeepAMinuteApart() async {
         let (api, transport) = JarvisAPI.mocked()
@@ -208,6 +240,8 @@ private final class FakeContextSources: ContextSources {
     let reminderList: [ReminderRecord]
     var failEvents = false
     var failReminders = false
+    var calendarGranted = true
+    var remindersGranted = true
     let changeObject: AnyObject? = NSObject()
     private(set) var windows: [(from: Date, to: Date)] = []
 
@@ -216,12 +250,16 @@ private final class FakeContextSources: ContextSources {
         reminderList = reminders
     }
 
-    func events(from: Date, to: Date) async -> [CalendarEventRecord]? {
+    func events(from: Date, to: Date) async -> ContextRead<CalendarEventRecord> {
         windows.append((from, to))
-        return failEvents ? nil : eventList
+        if !calendarGranted { return .noAccess }
+        return failEvents ? .failed : .items(eventList)
     }
 
-    func openReminders() async -> [ReminderRecord]? { failReminders ? nil : reminderList }
+    func openReminders() async -> ContextRead<ReminderRecord> {
+        if !remindersGranted { return .noAccess }
+        return failReminders ? .failed : .items(reminderList)
+    }
 
     func requestRemindersAccess() async -> Bool { true }
 }

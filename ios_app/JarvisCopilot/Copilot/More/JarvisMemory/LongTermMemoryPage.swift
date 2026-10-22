@@ -72,10 +72,8 @@ struct LongTermMemoryPage: View {
         }
         .task { if !store.hasLoaded { store.onAppear() } }
         .onAppear {
-            map.appeared()
             remindersUnasked = RemindersAccess.notDetermined
         }
-        .onDisappear { map.disappeared() }
         // Locked or in the background: no 3 s cleanup poll.
         .onChange(of: scenePhase) { _, phase in map.setActive(phase == .active) }
         .confirmationDialog("Run cleanup?", isPresented: $confirmingCleanup, titleVisibility: .visible) {
@@ -125,6 +123,10 @@ struct LongTermMemoryPage: View {
         }
         .refreshable { await store.refresh() }
         .scrollDismissesKeyboard(.interactively)
+        // The memory model and the Cleanup card live here, so their load and
+        // the cleanup poll follow the List view, not the page: on Map, no poll.
+        .onAppear { map.appeared() }
+        .onDisappear { map.disappeared() }
     }
 
     private var statsHeader: some View {

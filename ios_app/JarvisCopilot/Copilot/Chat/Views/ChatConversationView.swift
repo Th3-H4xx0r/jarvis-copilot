@@ -29,10 +29,14 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     /// while it is focused otherwise leaves the old text on screen.
     @State private var composerGeneration = 0
     @FocusState private var focused: Bool
-    /// "Memories used" chips: one recalls request per opened chat, matched to
-    /// replies locally — never a request per message.
-    @State private var recalls = MainActor.assumeIsolated { ChatRecallStore() }
+    /// "Memories used" chips: one recalls request per opened chat and one per
+    /// finished turn, matched to replies locally — never a request per message.
+    /// Made once, on first use (not on every init of this view).
+    @State private var recalls: ChatRecallStore?
     @State private var openRecall: MemoryRecall?
+    /// Off for a conversation that isn't a chat with Jarvis's memory (the
+    /// integration setup sheet): no fetch, no chips.
+    private var memoryChips = true
 
     private static var bottomAnchor: String { "chat.bottom" }
     private static var welcomeAnchor: String { "chat.welcome" }
@@ -95,7 +99,7 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                 .frame(minHeight: max(0, geometry.size.height - 29))
                                 .id(Self.welcomeAnchor)
                         }
-                        let chips = recalls.chips(for: store.rows, sessionID: store.sessionID)
+                        let chips = recalls?.chips(for: store.rows, sessionID: store.sessionID) ?? [:]
                         ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
                             VStack(alignment: .leading, spacing: 0) {
                                 ChatMessageRow(
@@ -130,7 +134,16 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                                     to: nil, from: nil, for: nil)
                 }
                 .onAppear { jump(proxy) }
-                .task(id: store.sessionID) { await recalls.load(sessionID: store.sessionID) }
+                .task(id: store.sessionID) {
+                    guard memoryChips else { return }
+                    if recalls == nil { recalls = ChatRecallStore() }
+                    await recalls?.load(sessionID: store.sessionID)
+                }
+                // A turn just finished: its recall may only exist now.
+                .onChange(of: store.streaming) { _, streaming in
+                    guard memoryChips, !streaming, let recalls else { return }
+                    Task { await recalls.turnFinished(rows: store.rows, sessionID: store.sessionID) }
+                }
                 .sheet(item: $openRecall) { recall in MemoryRecallMapSheet(recall: recall) }
                 // A tick, not the transcript: `onChange(of: store.messages)` compares
                 // every message in the thread on every streamed token
@@ -204,6 +217,13 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     }
 
     private func stop() { Task { await store.cancel() } }
+
+    /// No "memories used" chips (and no recalls request) in this conversation.
+    func memoryChipsHidden() -> Self {
+        var copy = self
+        copy.memoryChips = false
+        return copy
+    }
 }
 
 /// The model this conversation runs on, and a tap to change it.

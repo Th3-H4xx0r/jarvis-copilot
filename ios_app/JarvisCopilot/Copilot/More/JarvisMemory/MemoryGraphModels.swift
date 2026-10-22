@@ -288,64 +288,90 @@ struct MemoryRecall: Identifiable, Equatable, Sendable {
     }
 }
 
-/// One transcript message, as the chip matching needs it.
+/// One transcript message, as the chip matching needs it. Assistant turns
+/// carry no text (only user messages are compared).
 struct MemoryRecallTurn: Equatable, Sendable {
     var isUser: Bool
     var text: String
+    /// When it was said, if known (a stored message has its timestamp).
+    var time: Date?
+
+    init(isUser: Bool, text: String, time: Date? = nil) {
+        self.isUser = isUser
+        self.text = text
+        self.time = time
+    }
 }
 
 /// Which Jarvis replies get the "memories used" chip.
 enum MemoryRecallMatch {
-    /// Strip a leading `[...]` block that a blank line follows (the rules the app
-    /// puts in front of a message), then trim.
+    /// The server's `strip_injected`: a bracketed block of 40+ characters ending
+    /// "]" then a blank line (it may hold its own brackets), however many lead.
+    private static let injected = try! NSRegularExpression(
+        pattern: #"\A\s*\[.{40,}?\]\s*\n\s*\n"#, options: [.dotMatchesLineSeparators])
+
+    /// A recall is logged just after the question is sent; this much clock skew
+    /// between the phone's message time and the server's is tolerated.
+    static let skew: TimeInterval = 120
+
+    /// His own words: leading instruction blocks dropped, then trimmed.
     static func normalize(_ text: String) -> String {
-        var s = Substring(text)
-        while let first = s.first, first.isWhitespace { s = s.dropFirst() }
-        if s.first == "[" {
-            var index = s.startIndex
-            while let close = s[index...].firstIndex(of: "]") {
-                var after = s.index(after: close)
-                // Spaces/tabs, a newline, optional spaces, then another newline.
-                var newlines = 0
-                while after < s.endIndex, s[after].isWhitespace {
-                    if s[after].isNewline { newlines += 1 }
-                    after = s.index(after: after)
-                }
-                if newlines >= 2 {
-                    s = s[after...]
-                    break
-                }
-                index = s.index(after: close)
-            }
+        var s = text
+        while let m = injected.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
+              let range = Range(m.range, in: s) {
+            s = String(s[range.upperBound...])
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Assistant row index → the recall behind it. The chip goes under the LAST
-    /// assistant message of a turn (a turn can be several), and a question asked
-    /// twice pairs its recalls oldest-first.
+    /// assistant message of a turn (a turn can be several). A question asked more
+    /// than once pairs by time — each recall goes to the latest matching question
+    /// sent before it — and, without times, oldest-first in order.
     static func chips(turns: [MemoryRecallTurn], recalls: [MemoryRecall]) -> [Int: MemoryRecall] {
         guard !recalls.isEmpty, !turns.isEmpty else { return [:] }
-        // Oldest first per question.
-        var queue: [String: [MemoryRecall]] = [:]
-        for recall in recalls.reversed() {
-            let key = normalize(recall.query)
-            guard !key.isEmpty else { continue }
-            queue[key, default: []].append(recall)
-        }
-        guard !queue.isEmpty else { return [:] }
-        var out: [Int: MemoryRecall] = [:]
-        var question: String?
+        // Each question: its normalized text, when, and the reply row its chip goes on.
+        struct Question { let text: String; let time: Date?; let reply: Int }
+        var questions: [Question] = []
+        var open: (text: String, time: Date?)?
         for (index, turn) in turns.enumerated() {
             if turn.isUser {
-                question = normalize(turn.text)
+                open = (normalize(turn.text), turn.time)
                 continue
             }
             let lastOfTurn = index + 1 >= turns.count || turns[index + 1].isUser
-            guard lastOfTurn, let q = question, var waiting = queue[q], !waiting.isEmpty else { continue }
-            out[index] = waiting.removeFirst()
-            queue[q] = waiting
-            question = nil
+            if lastOfTurn, let q = open, !q.text.isEmpty {
+                questions.append(Question(text: q.text, time: q.time, reply: index))
+                open = nil
+            }
+        }
+        guard !questions.isEmpty else { return [:] }
+        var out: [Int: MemoryRecall] = [:]
+        var used = Set<Int>()   // indexes into `questions`
+        // Oldest recall first, so in-order pairing stays stable.
+        for recall in recalls.reversed() {
+            let key = normalize(recall.query)
+            guard !key.isEmpty else { continue }
+            let candidates = questions.indices.filter { questions[$0].text == key && !used.contains($0) }
+            guard !candidates.isEmpty else { continue }
+            var pick = candidates[0]
+            if let ts = recall.ts, candidates.contains(where: { questions[$0].time != nil }) {
+                // The latest stored question sent before the recall; a question
+                // with no time yet (sent this visit) is newer than every stored one.
+                let before = candidates.filter {
+                    guard let t = questions[$0].time else { return false }
+                    return t <= ts.addingTimeInterval(skew)
+                }
+                if let latest = before.last {
+                    pick = latest
+                } else if let fresh = candidates.first(where: { questions[$0].time == nil }) {
+                    pick = fresh
+                } else {
+                    continue   // every matching question came after it
+                }
+            }
+            used.insert(pick)
+            out[questions[pick].reply] = recall
         }
         return out
     }
@@ -583,6 +609,18 @@ struct MemoryGraph: Equatable, Sendable {
     }
 
     mutating func clearHighlight() { highlight = [] }
+
+    /// One memory no longer links to `id`.
+    mutating func memoryUnlinked(from id: String) {
+        guard var node = nodesByID[id] else { return }
+        node.weight = max(0, node.weight - 1)
+        nodesByID[id] = node
+        let key = MemoryEdgeKey(Self.meID, id)
+        if var edge = edgesByKey[key] {
+            edge.weight = max(0, edge.weight - 1)
+            edgesByKey[key] = edge
+        }
+    }
 
     // MARK: Internals
 
