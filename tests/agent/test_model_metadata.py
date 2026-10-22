@@ -1336,3 +1336,17 @@ class TestContextLengthCache:
         with patch("agent.model_metadata._get_context_cache_path", return_value=cache_file):
             save_context_length(model, url, 200000)
             assert get_cached_context_length(model, url) == 200000
+
+
+def test_anthropic_models_lookup_is_cached_across_agents(tmp_path, monkeypatch):
+    """Each new chat builds an agent; the /v1/models lookup (~0.3 s) must run
+    once per model, not once per chat."""
+    from agent import model_metadata as mm
+    monkeypatch.setattr(mm, "_get_context_cache_path", lambda: tmp_path / "context_length_cache.yaml")
+    calls = []
+    monkeypatch.setattr(mm, "_query_anthropic_context_length",
+                        lambda model, base_url, api_key: calls.append(model) or 1_000_000)
+    for _ in range(2):
+        assert mm.get_model_context_length("claude-test-9-9", base_url="https://api.anthropic.com",
+                                           api_key="sk-ant-api-x", provider="anthropic") == 1_000_000
+    assert calls == ["claude-test-9-9"]

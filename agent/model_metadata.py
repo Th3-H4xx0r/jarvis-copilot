@@ -1598,6 +1598,10 @@ def get_model_context_length(
     ):
         ctx = _query_anthropic_context_length(model, base_url or "https://api.anthropic.com", api_key)
         if ctx:
+            # Cached like the other probes: every new chat builds an agent, and
+            # this lookup cost ~0.3 s each time.
+            if base_url:
+                save_context_length(model, base_url, ctx)
             return ctx
 
     # 4b. (Bedrock handled earlier at step 1b — before custom-endpoint probe.)
