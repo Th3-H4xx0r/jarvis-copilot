@@ -1,17 +1,18 @@
 """Prompt-cache breakpoints for providers that need explicit markers.
 
 The shared layout (docs/superpowers/specs/2026-10-11-shared-prompt-cache-design.md):
-every agent on a model sends the same tools and the same stable system block,
-so those are cached on their own breakpoints and shared across chats, harness
-nodes and jobs; the volatile system tail (memory, profile, model line) sits
-after them, so a memory change re-sends only that tail. Up to 4 breakpoints:
+every agent on a model sends the same tools, cached on their own breakpoint and
+shared across chats, harness nodes and jobs; then the system prompt — stable
+block plus volatile tail (memory, profile, date, model line, chat guidance) —
+cached through its END, because that tail is the same for every new chat on a
+day (a changed tail re-sends only the system block, never the tools). Up to 4:
 
-    tools (1)  →  stable system block (1)  →  last 2 messages
+    tools (1)  →  whole system prompt (1)  →  last 2 messages
     (no tools: the last 3 messages; old callers without ``system_parts``:
      system + last 3, as before)
 
 Retention is generic (``standard`` | ``long``); here ``long`` means the 1-hour
-tier on the tools, the stable block and the older tail marker, and 5 minutes
+tier on the tools, the system prompt and the older tail marker, and 5 minutes
 on the newest message (a 1-hour entry must come before any 5-minute one).
 Providers that cache automatically never call this.
 
@@ -82,8 +83,9 @@ def tool_cache_marker(retention: str = "standard") -> Dict[str, str]:
 
 
 def _split_system(msg: dict, system_parts, marker: dict) -> bool:
-    """Send the system prompt as [stable (cached), volatile] text blocks when
-    ``system_parts`` really is this prompt; False leaves it to the caller."""
+    """Send the system prompt as [stable, volatile] text blocks, cached through
+    the volatile one, when ``system_parts`` really is this prompt; False leaves
+    it to the caller."""
     if not isinstance(system_parts, dict):
         return False
     stable = system_parts.get("stable") or ""
@@ -93,9 +95,14 @@ def _split_system(msg: dict, system_parts, marker: dict) -> bool:
         return False
     if content != (stable + "\n\n" + volatile if volatile else stable):
         return False
-    blocks = [{"type": "text", "text": stable, "cache_control": marker}]
+    # One marker, after the volatile tail: it is the same for every new chat on
+    # a day (memory, profile, date, chat guidance), so caching only the stable
+    # block made each new chat's first message re-read ~8k tokens. The tools
+    # keep their own marker, so a changed tail re-reads just the system block.
+    blocks = [{"type": "text", "text": stable}]
     if volatile:
         blocks.append({"type": "text", "text": volatile})
+    blocks[-1]["cache_control"] = marker
     msg["content"] = blocks
     return True
 

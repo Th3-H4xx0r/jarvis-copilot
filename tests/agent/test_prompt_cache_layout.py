@@ -1,6 +1,7 @@
-"""The shared prompt layout's cache markers: the tools and the stable system
-block are cached on their own (so every agent on a model shares them, and a
-memory change doesn't invalidate them), the newest messages ride the tail."""
+"""The shared prompt layout's cache markers: the tools are cached on their own
+(every agent on a model shares them), the whole system prompt through its
+volatile tail next (every new chat on a day shares it), the newest messages
+ride the tail."""
 from agent.prompt_caching import apply_anthropic_cache_control, tool_cache_marker
 
 
@@ -24,13 +25,17 @@ def _markers(msgs):
 PARTS = {"stable": "STABLE", "volatile": "VOLATILE"}
 
 
-def test_system_splits_into_a_cached_stable_block_and_an_uncached_volatile_one():
+def test_system_is_cached_through_its_volatile_tail():
+    # The tail (memory, profile, date, chat guidance) is the same for every new
+    # chat on a day: caching only the stable block re-read ~8k tokens on every
+    # new chat's first message. The tools keep their own marker, so a memory
+    # change re-reads only the system block once.
     msgs = apply_anthropic_cache_control(_msgs(), system_parts=PARTS, retention="long",
                                          reserve_for_tools=True)
     blocks = msgs[0]["content"]
     assert [b["text"] for b in blocks] == ["STABLE", "VOLATILE"]
-    assert blocks[0]["cache_control"]["ttl"] == "1h"
-    assert "cache_control" not in blocks[1]
+    assert "cache_control" not in blocks[0]
+    assert blocks[1]["cache_control"]["ttl"] == "1h"
 
 
 def test_never_more_than_four_breakpoints_counting_the_tools():
