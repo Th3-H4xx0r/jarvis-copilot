@@ -90,7 +90,7 @@ def is_small_talk(text: str) -> bool:
     words = re.findall(r"[a-z0-9']+", (text or "").lower().replace("’", "'"))
     if not words or len(words) > 6:
         return False
-    return all(re.sub(r"(.)\1{2,}", r"\1", w) in _SMALL_TALK for w in words)
+    return all(w in _SMALL_TALK or re.sub(r"(.)\1+", r"\1", w) in _SMALL_TALK for w in words)
 
 
 def strip_stamp(text: str) -> str:

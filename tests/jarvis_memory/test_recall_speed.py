@@ -69,7 +69,7 @@ def test_failed_embed_is_not_cached():
     assert len(e.calls) == 2
 
 
-@pytest.mark.parametrize("text", ["Hello", "Yooo", "What's up", "What’s up", "thanks!",
+@pytest.mark.parametrize("text", ["Hello", "Yooo", "Yoo", "heyy", "hiiii", "What's up", "What’s up", "thanks!",
                                   "Good morning Jarvis", "hey how are you", "ok cool", "lol"])
 def test_small_talk(text):
     assert is_small_talk(text)
