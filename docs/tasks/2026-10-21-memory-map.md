@@ -14,9 +14,9 @@ Spec: docs/superpowers/specs/2026-10-21-memory-map-recall-design.md (gitignored)
 - [x] Personal eval (6 real misses mined; baseline old injection 1/6)
 
 ## Waiting on live checks
-- [ ] Backfill finishes on the server (started 2026-10-22 ~04:00 UTC; log $HERMES_HOME/memory/backfill.log)
-- [ ] Eval after backfill: `scripts/memory_eval.py compare` — venue case passes
-- [ ] iPhone build installed; context snapshot arrives (calendar in the brief)
+- [x] Backfill mapped ~7k memories (parallel: ~170/min after batching + no-thinking); 667 nodes / 11k links
+- [x] Eval: venue case passes first try (brief + retrieval); 2/6 vs 1/6 old (other 4 = ESP32 board follow-ups)
+- [x] iPhone build installed; context snapshot arrived (13 events, CT)
 - [ ] He grants Reminders in Long-term Memory
 - [ ] Ask "navigate to the venue"-style question live → right first time
 - [ ] Glance at the cleanup report (merges / hidden trivia) and Restore anything wrong
@@ -28,3 +28,12 @@ Spec: docs/superpowers/specs/2026-10-21-memory-map-recall-design.md (gitignored)
 - jarvis_health latest_relapse picks the most recently logged relapse, not the latest `at`
 - UTC ranges written with an ASCII hyphen aren't restamped
 - Eval counts a memory as existing by created_at (event time for iMessage/Live)
+
+## Phase 2 + 3 (2026-10-22)
+- [x] Memory map screen: web + iPhone (Long-term Memory → Map/List; you at the center; filters; node sheet with fix tools; Recent recalls; "memories used" chip)
+- [x] Every source into the map: calendar, reminders, email reports, integration reports, health (day finished), places, drives
+- [x] Cleanup & map: Stop button, clear naming, runs from anywhere shown
+- [x] Parallel bug sweep (server 14, web 11, iOS 12) → fixed
+- [ ] He opens Long-term Memory → Map and tries it; check gestures/VoiceOver on device
+- [ ] Recheck live recall latency after the backfill finishes (eval p50 0.9 s was under backfill load)
+- [ ] Health + places memories appear from tomorrow (written for the day just finished)
