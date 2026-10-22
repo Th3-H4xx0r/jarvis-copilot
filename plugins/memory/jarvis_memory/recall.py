@@ -255,7 +255,7 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
     scored = []
     for cid, base in fused.items():
         c = chunks.get(cid)
-        if c is None:
+        if c is None or c.status == "hidden":
             continue
         if seen_in[cid] == {"keyword"} and kw_score.get(cid, 0.0) < WEAK_KEYWORD * kw_best:
             continue
@@ -282,7 +282,7 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
             if nid in have or (only is not None and nid not in only):
                 continue
             nc = chunks.get(nid) or next(iter(store.get_chunks([nid])), None)
-            if nc is None or nc.valid_to:
+            if nc is None or nc.valid_to or nc.status == "hidden":
                 continue
             chunks[nid] = nc
             have.add(nid)

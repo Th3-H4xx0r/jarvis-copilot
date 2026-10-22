@@ -28,6 +28,18 @@ GLOBAL_NS = "global"
 # Keyword hit found only by the substring fallback (no FTS strength to go on).
 LIKE_SCORE = 0.2
 
+_SHARED: dict = {}
+_SHARED_LOCK = threading.Lock()
+
+
+def _shared_state(db_path: str) -> dict:
+    """Process-wide vector-index state for one database file."""
+    key = str(Path(db_path).resolve())
+    with _SHARED_LOCK:
+        if key not in _SHARED:
+            _SHARED[key] = {"lock": threading.RLock(), "indexes": {}, "seen": None}
+        return _SHARED[key]
+
 
 @dataclass
 class Chunk:
@@ -118,7 +130,7 @@ class MemoryStore:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=15000")
         self._has_fts = False
-        self._vindex: dict = {}
+        self._shared = _shared_state(self.db_path)
         self._bootstrap()
 
     def _bootstrap(self):
@@ -264,45 +276,78 @@ class MemoryStore:
             self._conn.commit()
 
     # -- in-memory vector index (built on first search, kept in step after) ----
+    # One index per database per process, shared by every MemoryStore on it
+    # (each agent opens its own); a generation counter in the database tells
+    # it when another process changed vectors, so it rebuilds instead of
+    # serving hidden or stale rows.
+    def _bump_gen(self):
+        row = self._conn.execute(
+            "INSERT INTO kv(namespace,key,value,updated_at) VALUES ('__map__','vec_gen','1',?) "
+            "ON CONFLICT(namespace,key) DO UPDATE SET value=CAST(value AS INTEGER)+1, "
+            "updated_at=excluded.updated_at RETURNING value", (time.time(),)).fetchone()
+        gen = int(row[0])
+        sh = self._shared
+        with sh["lock"]:
+            if sh["seen"] is not None and gen != sh["seen"] + 1:
+                sh["indexes"].clear()  # someone else wrote in between
+            sh["seen"] = gen
+
     def _index_put(self, cid, namespace, signature, embedding):
-        idx = self._vindex.get((namespace or GLOBAL_NS, signature))
-        if idx is None:
-            return
-        row = self._conn.execute("SELECT status FROM chunks WHERE id=?", (cid,)).fetchone()
-        if row is not None and (row["status"] or "active") != "hidden":
-            idx.add(cid, embedding)
+        self._bump_gen()
+        sh = self._shared
+        with sh["lock"]:
+            idx = sh["indexes"].get((namespace or GLOBAL_NS, signature))
+            if idx is None:
+                return
+            row = self._conn.execute("SELECT status FROM chunks WHERE id=?", (cid,)).fetchone()
+            if row is not None and (row["status"] or "active") != "hidden":
+                idx.add(cid, embedding)
 
     def _index_drop(self, ids):
-        for idx in self._vindex.values():
-            for cid in ids:
-                idx.remove(cid)
+        self._bump_gen()
+        sh = self._shared
+        with sh["lock"]:
+            for idx in sh["indexes"].values():
+                for cid in ids:
+                    idx.remove(cid)
 
     def _index_reload(self, ids):
         """Put rows back into any built index (after they become active)."""
-        if not self._vindex or not ids:
-            return
-        q = ",".join("?" * len(ids))
-        for r in self._conn.execute(
-                f"SELECT chunk_id, namespace, model_signature, embedding FROM vectors "
-                f"WHERE chunk_id IN ({q})", list(ids)):
-            idx = self._vindex.get((r["namespace"], r["model_signature"]))
-            if idx is not None:
-                idx.add(r["chunk_id"], _unpack(r["embedding"]))
+        self._bump_gen()
+        sh = self._shared
+        with sh["lock"]:
+            if not sh["indexes"] or not ids:
+                return
+            q = ",".join("?" * len(ids))
+            for r in self._conn.execute(
+                    f"SELECT chunk_id, namespace, model_signature, embedding FROM vectors "
+                    f"WHERE chunk_id IN ({q})", list(ids)):
+                idx = sh["indexes"].get((r["namespace"], r["model_signature"]))
+                if idx is not None:
+                    idx.add(r["chunk_id"], _unpack(r["embedding"]))
 
     def _index_for(self, namespace, signature, dim):
         key = (namespace or GLOBAL_NS, signature)
-        idx = self._vindex.get(key)
-        if idx is None or idx.dim != dim:
-            idx = VectorIndex(dim)
-            rows = self._conn.execute(
-                "SELECT v.chunk_id AS chunk_id, v.embedding AS embedding FROM vectors v "
-                "JOIN chunks c ON c.id=v.chunk_id "
-                f"WHERE v.namespace=? AND v.model_signature=? AND {_C_ACTIVE}",
-                key,
-            ).fetchall()
-            idx.build((r["chunk_id"], _unpack(r["embedding"])) for r in rows)
-            self._vindex[key] = idx
-        return idx
+        row = self._conn.execute(
+            "SELECT value FROM kv WHERE namespace='__map__' AND key='vec_gen'").fetchone()
+        gen = int(row[0]) if row else 0
+        sh = self._shared
+        with sh["lock"]:
+            if gen != sh["seen"]:
+                sh["indexes"].clear()
+                sh["seen"] = gen
+            idx = sh["indexes"].get(key)
+            if idx is None or idx.dim != dim:
+                idx = VectorIndex(dim)
+                rows = self._conn.execute(
+                    "SELECT v.chunk_id AS chunk_id, v.embedding AS embedding FROM vectors v "
+                    "JOIN chunks c ON c.id=v.chunk_id "
+                    f"WHERE v.namespace=? AND v.model_signature=? AND {_C_ACTIVE}",
+                    key,
+                ).fetchall()
+                idx.build((r["chunk_id"], _unpack(r["embedding"])) for r in rows)
+                sh["indexes"][key] = idx
+            return idx
 
     def vector_search(self, namespace, query_vec, signature, limit=20,
                       only_ids=None) -> List[Tuple[str, float]]:
@@ -381,6 +426,13 @@ class MemoryStore:
             for r in rows
         }
         return [by_id[i] for i in ids if i in by_id]
+
+    def vector_of(self, cid, signature) -> Optional[list]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT embedding FROM vectors WHERE chunk_id=? AND model_signature=?",
+                (cid, signature)).fetchone()
+        return _unpack(row["embedding"]).tolist() if row else None
 
     def ids_with_slot_roles(self, namespace, roles, limit=60) -> List[str]:
         """Memories whose map slots fill any of ``roles`` ("venue: …"), newest first."""

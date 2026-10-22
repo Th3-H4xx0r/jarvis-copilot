@@ -248,6 +248,20 @@ class JarvisMemoryProvider(MemoryProvider):
             t = threading.Thread(target=self._proactive_loop, args=(hermes_home, interval),
                                  daemon=True, name="jarvis-mem-reflect")
             t.start()
+        # Map pass: a background loop gives new memories their dates, people,
+        # places and roles. One per database, on the process-wide store handle
+        # (an agent's own store closes when the agent goes away).
+        enrich = cfg.get("map_enrich")
+        if enrich is None:
+            enrich = (cfg.get("embedder") or "ollama").lower() != "fake"
+        if enrich and str(enrich).lower() not in ("off", "false", "0"):
+            try:
+                from . import external
+                from .enrich import start_loop
+                store, embedder, _ns, _th = external._open(hermes_home)
+                start_loop(store, embedder, interval=float(cfg.get("map_interval_sec", 30)))
+            except Exception as e:
+                logger.warning("jarvis_memory map loop not started: %s", e)
         # Auto-fetch: ingest configured external sources (folders, later MCP/email)
         # into memory on a schedule. Only runs if sources are configured.
         self._autofetch = None

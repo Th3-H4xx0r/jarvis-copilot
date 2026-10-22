@@ -61,3 +61,30 @@ def test_keyword_score_reflects_strength(tmp_path):
     hits = dict(s.keyword_search("global", "the race venue"))
     assert hits[strong] > hits[weak]
     assert all(0.0 < v < 1.0 for v in hits.values())
+
+
+def test_index_sees_other_connections_writes(tmp_path):
+    a = _store(tmp_path)
+    b = MemoryStore(tmp_path / "memory.db", tmp_path / "vault")
+    x = a.add_chunk("global", "x", "x", 1.0, 1.0, embedding=[1, 0, 0, 0], signature="t", dim=4)
+    assert [c for c, _ in a.vector_search("global", [1, 0, 0, 0], "t")] == [x]
+    y = b.add_chunk("global", "y", "y", 1.0, 1.0, embedding=[0.9, 0.1, 0, 0], signature="t", dim=4)
+    assert [c for c, _ in a.vector_search("global", [1, 0, 0, 0], "t")] == [x, y]
+    b.set_status([x], "hidden")
+    assert [c for c, _ in a.vector_search("global", [1, 0, 0, 0], "t")] == [y]
+    b.set_vector(y, "global", [0, 0, 1, 0], "t", 4)
+    assert a.vector_search("global", [0, 0, 1, 0], "t")[0][1] > 0.99
+
+
+def test_index_sees_another_process_writes(tmp_path):
+    import subprocess, sys, textwrap
+    a = _store(tmp_path)
+    x = a.add_chunk("global", "x", "x", 1.0, 1.0, embedding=[1, 0, 0, 0], signature="t", dim=4)
+    assert [c for c, _ in a.vector_search("global", [1, 0, 0, 0], "t")] == [x]
+    code = textwrap.dedent(f"""
+        from plugins.memory.jarvis_memory.store import MemoryStore
+        s = MemoryStore({str(tmp_path / 'memory.db')!r}, {str(tmp_path / 'vault')!r})
+        s.set_status([{x!r}], "hidden")
+    """)
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=str(__import__("pathlib").Path(__file__).resolve().parents[2]))
+    assert a.vector_search("global", [1, 0, 0, 0], "t") == []

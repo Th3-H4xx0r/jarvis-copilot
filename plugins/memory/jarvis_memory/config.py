@@ -40,6 +40,10 @@ DEFAULTS = {
     # Auto-fetch external sources into memory (empty = disabled). Folder paths
     # whose text files are ingested incrementally. MCP/email sources plug into
     # the same SyncSource ABC (see autofetch.py).
+    # Map pass (dates, people, places, events per memory) on the memory model.
+    # None = auto: on for real embedders, off for the test embedder.
+    "map_enrich": None,
+    "map_interval_sec": 30,
     "autofetch_folders": [],
     "autofetch_interval_min": 20,
 }
