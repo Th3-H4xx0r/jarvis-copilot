@@ -117,3 +117,33 @@ def test_restore_hidden(env):
     s.set_status([cid], "hidden")
     assert cleanup.restore_hidden(s, [cid]) == 1
     assert s.count_chunks(GLOBAL_NS) == 1
+
+
+def test_stop_ends_the_run_between_batches_and_resumes_later(env):
+    s, e, add = env
+    ids = [add(f"fact number {i} about things", "fact:extracted", when=float(i)) for i in range(40)]
+    calls = []
+
+    def model(prompt, n):
+        calls.append(1)
+        if len(calls) == 1:
+            cleanup.request_stop(s)  # he pressed Stop while the first batch ran
+        got = [l.split("id ")[1].split(" ")[0] for l in prompt.splitlines() if l.startswith("- id ")]
+        return json.dumps([{"id": i, "kind": "fact", "importance": 5, "trivial": False, "event_start": None,
+                            "event_end": None, "entities": [], "slots": "", "supersedes": []} for i in got])
+    report = cleanup.run(s, e, zone=CT, complete=model, workers=1)
+    assert report["stopped"] is True and len(calls) == 1
+    assert cleanup.progress(s) is None  # not running any more
+    report = cleanup.run(s, e, zone=CT, complete=model, workers=1)
+    assert report["stopped"] is False
+    assert len(s.active_ids(unenriched=True)) == 0
+
+
+def test_progress_is_visible_across_processes(env):
+    s, e, add = env
+    s.kv_set("__cleanup__", "progress", json.dumps({"step": "map", "done": 3, "total": 10,
+                                                     "started_at": 1.0, "at": __import__("time").time()}))
+    assert cleanup.progress(s)["done"] == 3
+    s.kv_set("__cleanup__", "progress", json.dumps({"step": "map", "done": 3, "total": 10,
+                                                     "started_at": 1.0, "at": 1.0}))
+    assert cleanup.progress(s) is None  # stale: that run died

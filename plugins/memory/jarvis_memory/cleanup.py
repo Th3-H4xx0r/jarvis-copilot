@@ -89,6 +89,30 @@ def _example(store, cid) -> dict:
     return {"id": cid, "body": " ".join(c.body.split())[:200] if c else ""}
 
 
+STALE_S = 180  # no progress note for this long = that run is gone
+
+
+def request_stop(store) -> None:
+    """Ask a running cleanup (in this or any process) to stop after its
+    current batch. Everything done so far stays; running again continues."""
+    store.kv_set("__cleanup__", "stop", "1")
+
+
+def _stop_requested(store) -> bool:
+    return store.kv_get("__cleanup__", "stop") == "1"
+
+
+def progress(store) -> Optional[dict]:
+    """The running cleanup's progress (any process), or None."""
+    try:
+        state = json.loads(store.kv_get("__cleanup__", "progress") or "null")
+    except ValueError:
+        return None
+    if not isinstance(state, dict) or time.time() - float(state.get("at") or 0) > STALE_S:
+        return None
+    return state
+
+
 def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] = None,
         progress: Optional[Callable[[dict], None]] = None, workers: int = 6) -> dict:
     from .enrich import drain
@@ -100,8 +124,16 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     started = time.time()
     hidden_ids: Dict[str, List[str]] = {"merged": [], "hidden_trivial": [], "live_no_summary": []}
 
+    store.kv_set("__cleanup__", "stop", "")
+    stopped = {"flag": False}
+
+    def halted():
+        if not stopped["flag"] and _stop_requested(store):
+            stopped["flag"] = True
+        return stopped["flag"]
+
     def note(step, done=0, total=0):
-        state = {"step": step, "done": done, "total": total, "started_at": started}
+        state = {"step": step, "done": done, "total": total, "started_at": started, "at": time.time()}
         store.kv_set("__cleanup__", "progress", json.dumps(state))
         if progress:
             progress(state)
@@ -116,6 +148,8 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     # 1. Live windows: summary + link only.
     live = store.active_ids(source_prefix="live:")
     for i, chunk in enumerate(store.get_chunks(live)):
+        if i % 20 == 0 and halted():
+            break
         if not _LINE.search(chunk.body):
             continue
         head = [l for l in chunk.body.splitlines() if l.strip() and not _LINE.match(l)]
@@ -134,6 +168,8 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     # 2. "… UTC" stamps → his local time.
     ids = store.active_ids()
     for i, chunk in enumerate(store.get_chunks(ids)):
+        if i % 200 == 0 and halted():
+            break
         if " UTC" not in chunk.body:
             continue
         body = restamp(chunk.body, zone)
@@ -150,6 +186,8 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     hidden = set()
     by_id = {c.id: c for c in store.get_chunks(ids)}
     for i, cid in enumerate(ids):
+        if i % 100 == 0 and halted():
+            break
         if cid in hidden:
             continue
         chunk = by_id.get(cid)
@@ -176,11 +214,12 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
             note("duplicates", i, len(ids))
 
     # 4. The map pass over everything not yet mapped.
-    todo = store.active_ids(unenriched=True)
+    todo = [] if halted() else store.active_ids(unenriched=True)
     store.enqueue(todo)
     log: list = []
     total = drain(store, embedder, zone=zone, complete=complete, log=log, workers=workers,
-                  progress=lambda t: note("map", t.get("enriched", 0) + t.get("hidden", 0), len(todo)))
+                  progress=lambda t: note("map", t.get("enriched", 0) + t.get("hidden", 0), len(todo)),
+                  should_stop=halted) if todo else {}
     counts["enriched"] += total.get("enriched", 0)
     counts["failed"] += total.get("failed", 0)
     for kind, cid in log:
@@ -190,12 +229,14 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
             hidden_ids["hidden_trivial"].append(cid)
 
     report = {"started_at": started, "finished_at": time.time(), "backup": backup_path,
-              "counts": counts, "examples": examples, "hidden_ids": hidden_ids}
+              "counts": counts, "examples": examples, "hidden_ids": hidden_ids,
+              "stopped": stopped["flag"]}
     path = report_path(store)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(report, indent=1), encoding="utf-8")
     tmp.replace(path)
     store.kv_set("__cleanup__", "progress", "")
+    store.kv_set("__cleanup__", "stop", "")
     if progress:
         progress({"step": "done", "done": 1, "total": 1, "started_at": started})
     return report

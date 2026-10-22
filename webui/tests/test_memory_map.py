@@ -113,3 +113,19 @@ def test_complete_passes_max_tokens_to_the_provider(monkeypatch):
     assert seen["max_tokens"] == 4000
     # Claude 5.x thinks by default: a JSON pass must not spend its budget thinking.
     assert seen["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_cleanup_stop_and_status_from_another_process(monkeypatch):
+    import json as _json
+    import time as _time
+    import api.helpers as helpers
+    calls = []
+    monkeypatch.setattr(helpers, "j", lambda h, payload, status=200, **k: calls.append(payload))
+    store = mm._store()
+    store.kv_set("__cleanup__", "progress", _json.dumps({"step": "map", "done": 60, "total": 5519,
+                                                          "started_at": 1.0, "at": _time.time()}))
+    mm.handle_cleanup_status(None)
+    assert calls[-1]["running"] is True and calls[-1]["progress"]["total"] == 5519
+    mm.handle_cleanup_stop(None)
+    assert calls[-1] == {"ok": True}
+    assert store.kv_get("__cleanup__", "stop") == "1"

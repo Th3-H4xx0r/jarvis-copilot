@@ -5995,6 +5995,9 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/jarvis-memory/cleanup/start":
         from api.memory_map import handle_cleanup_start
         return handle_cleanup_start(handler)
+    if parsed.path == "/api/jarvis-memory/cleanup/stop":
+        from api.memory_map import handle_cleanup_stop
+        return handle_cleanup_stop(handler)
     if parsed.path == "/api/jarvis-memory/cleanup/restore":
         from api.memory_map import handle_cleanup_restore
         return handle_cleanup_restore(handler, body)

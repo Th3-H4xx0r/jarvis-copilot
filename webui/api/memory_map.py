@@ -115,8 +115,9 @@ def handle_cleanup_start(handler):
     from api.helpers import j
     with _cleanup_lock:
         thread = _cleanup["thread"]
-        if thread is not None and thread.is_alive():
-            return j(handler, {"ok": True, "started": False})
+        from plugins.memory.jarvis_memory import cleanup as _cl
+        if (thread is not None and thread.is_alive()) or _cl.progress(_store()) is not None:
+            return j(handler, {"ok": True, "started": False})  # one run at a time, any process
         _cleanup.update(progress={"step": "starting", "done": 0, "total": 0}, error="")
         thread = _threading.Thread(target=_run_cleanup, daemon=True, name="memory-cleanup")
         _cleanup["thread"] = thread
@@ -125,12 +126,26 @@ def handle_cleanup_start(handler):
 
 
 def handle_cleanup_status(handler):
+    """Running = a cleanup in this server or any other process (the shell
+    backfill) noted progress in the last few minutes."""
     from api.helpers import j
     from plugins.memory.jarvis_memory import cleanup
+    store = _store()
     thread = _cleanup["thread"]
-    running = bool(thread is not None and thread.is_alive())
-    return j(handler, {"running": running, "progress": _cleanup["progress"] if running else None,
-                       "error": _cleanup["error"], "report": cleanup.load_report(_store())})
+    here = bool(thread is not None and thread.is_alive())
+    shared = cleanup.progress(store)
+    running = here or shared is not None
+    state = shared or (_cleanup["progress"] if here else None)
+    return j(handler, {"running": running, "progress": state if running else None,
+                       "stopping": running and store.kv_get("__cleanup__", "stop") == "1",
+                       "error": _cleanup["error"], "report": cleanup.load_report(store)})
+
+
+def handle_cleanup_stop(handler):
+    from api.helpers import j
+    from plugins.memory.jarvis_memory import cleanup
+    cleanup.request_stop(_store())
+    return j(handler, {"ok": True})
 
 
 def handle_cleanup_restore(handler, body: Optional[dict]):

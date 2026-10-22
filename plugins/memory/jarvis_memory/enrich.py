@@ -272,7 +272,7 @@ def start_loop(store, embedder, *, interval: float = 30.0, stop: Optional[thread
 
 def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[int] = None,
           progress: Optional[Callable[[dict], None]] = None, log: Optional[list] = None,
-          workers: int = 1) -> Dict[str, int]:
+          workers: int = 1, should_stop: Optional[Callable[[], bool]] = None) -> Dict[str, int]:
     """Map everything queued (or ``max_batches``), ``workers`` batches at a
     time — claims keep them apart, so the model calls overlap. A worker stops
     when a batch makes no progress (model down)."""
@@ -283,6 +283,8 @@ def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[in
 
     def worker():
         while True:
+            if should_stop is not None and should_stop():
+                return
             with lock:
                 if max_batches is not None and total["batches"] >= max_batches:
                     return
