@@ -370,7 +370,9 @@ class JarvisMemoryProvider(MemoryProvider):
             try:
                 hits = self._store.vector_search(self._namespace, emb, self._embedder.signature, limit=1)
                 if hits and hits[0][1] >= self._dedup_threshold:
-                    return None  # already remembered
+                    # Already remembered: this source now backs it too.
+                    self._store.merge_source(hits[0][0], source, tag)
+                    return None
             except Exception:
                 pass
         use_emb = emb if (emb and len(emb)) else None

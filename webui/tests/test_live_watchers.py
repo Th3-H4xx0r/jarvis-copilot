@@ -2353,9 +2353,9 @@ class _FakeMemory:
     def __init__(self):
         self.remembered, self.forgotten = [], []
 
-    def remember(self, body, *, source, tags="", created_at=None, dedup=True, **_):
+    def remember(self, body, *, source, tags="", created_at=None, dedup=True, source_ref="", **_):
         self.remembered.append({"body": body, "source": source, "tags": tags,
-                                "created_at": created_at, "dedup": dedup})
+                                "created_at": created_at, "dedup": dedup, "source_ref": source_ref})
         return f"id{len(self.remembered)}"
 
     def forget(self, *, source_prefix="", tag=""):
@@ -2372,7 +2372,7 @@ def _utc():
     return timezone.utc
 
 
-def test_a_window_memory_says_who_said_what_and_when(monkeypatch):
+def test_a_window_memory_says_who_and_when_but_keeps_no_transcript(monkeypatch):
     monkeypatch.setattr(live_watchers, "_speaker_labels", lambda: {"s1": "Pranav", "s2": "Brenda"})
     monkeypatch.setattr(live_watchers, "_speaker_label",
                         lambda seg, names: names.get(seg.get("speaker_id"), "Someone"))
@@ -2392,24 +2392,19 @@ def test_a_window_memory_says_who_said_what_and_when(monkeypatch):
                                     "21:31–21:32 UTC (recording abcdef12)")
     assert "Speakers: Pranav, Brenda" in body
     assert "Summary: They greeted each other." in body
-    assert "[21:31:05] Pranav: Are you there?" in body
-    assert "[21:32:05] Brenda (es): Hello, how are you?  (spoken: Hola, ¿cómo estás?)" in body
+    # Memory keeps the summary; the words themselves stay in Live's own store.
+    assert "Are you there?" not in body and "[21:31:05]" not in body
     assert when == _STARTED + 5
 
 
-def test_a_long_window_is_split_and_every_part_keeps_who_and_when(monkeypatch):
+def test_a_window_without_a_summary_leaves_no_window_memory(monkeypatch):
     monkeypatch.setattr(live_watchers, "_speaker_labels", lambda: {"s1": "Pranav"})
     monkeypatch.setattr(live_watchers, "_speaker_label",
                         lambda seg, names: names.get(seg.get("speaker_id"), "Someone"))
     segments = [{"seq": i, "ts_start_ms": i * 1000, "ts_end_ms": i * 1000 + 900,
                  "speaker_id": "s1", "text": "word " * 60, "lang": "en"} for i in range(12)]
-    memories = live_watchers._window_memories("abcdef1234", segments, summary="",
-                                              started_at=_STARTED, zone=_utc())
-    assert len(memories) > 1
-    for body, _when in memories:
-        assert len(body) <= live_watchers._MEMORY_CHUNK_CHARS + 400
-        assert body.startswith("Live conversation on Tuesday 22 September 2026")
-        assert "Speakers: Pranav" in body
+    assert live_watchers._window_memories("abcdef1234", segments, summary="",
+                                          started_at=_STARTED, zone=_utc()) == []
 
 
 def test_a_window_and_its_facts_go_to_long_term_memory_with_their_stamp(monkeypatch):
@@ -2432,8 +2427,10 @@ def test_a_window_and_its_facts_go_to_long_term_memory_with_their_stamp(monkeypa
     window, fact = memory.remembered
     assert window["source"] == "live:sess123456:7-7"
     assert window["tags"] == "live,conversation,speaker:s1"
-    assert window["created_at"] == _STARTED + 1 and window["dedup"] is False
-    assert "[21:31:01] Pranav: I live in Houston." in window["body"]
+    assert window["created_at"] == _STARTED + 1 and window["dedup"] is True
+    assert "Summary: Where he lives." in window["body"]
+    assert "I live in Houston." not in window["body"]
+    assert window["source_ref"] == "live:sess123456:7-7"
     assert fact["source"] == "live:sess123456:fact:7-7"
     assert fact["tags"] == "live,fact,overheard,speaker:s1"
     assert fact["body"].startswith("Pranav lives in Houston. (overheard in a Live conversation "
@@ -2474,4 +2471,4 @@ def test_a_recording_shorter_than_a_window_is_remembered_when_it_stops(
     assert any(s.startswith(f"live:{session}:") and ":fact:" not in s for s in sources)
     assert any(":fact:" in s for s in sources)
     window = next(m for m in memory.remembered if ":fact:" not in m["source"])
-    assert "dentist appointment to Friday" in window["body"]
+    assert "moved the dentist appointment" in window["body"]

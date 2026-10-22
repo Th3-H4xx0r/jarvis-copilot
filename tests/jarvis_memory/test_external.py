@@ -36,7 +36,9 @@ def test_the_same_fact_twice_is_remembered_once(home):
                               hermes_home=home)
     again = external.remember("Pranav lives in Houston.", source="live:s2:fact:5-6",
                               hermes_home=home)
-    assert first and again is None
+    assert first and again == first  # merged: one memory, both sources
+    store = external._open(home)[0]
+    assert store.sources_of(first) == ["live:s1:fact:1-2", "live:s2:fact:5-6"]
 
 
 def test_forgetting_a_recording_or_a_voice_takes_only_theirs(home):
@@ -67,3 +69,30 @@ def test_nothing_is_written_when_another_provider_is_in_use(monkeypatch):
     monkeypatch.setattr(main_config, "load_config",
                         lambda: {"memory": {"provider": "jarvis_memory"}})
     assert external.is_active() is True
+
+
+def test_forgetting_one_chat_keeps_a_fact_another_chat_backs(home):
+    cid = external.remember("Parking near COTA is about $50 a day.", source="imessage:a:1-2:f",
+                            hermes_home=home)
+    assert external.remember("Parking near COTA is about $50 a day.", source="imessage:b:9-9:f",
+                             hermes_home=home) == cid
+    assert external.forget(source_prefix="imessage:a:", hermes_home=home) == 0
+    assert [r["body"] for r in _rows(home)] == ["Parking near COTA is about $50 a day."]
+    assert external.forget(source_prefix="imessage:b:", hermes_home=home) == 1
+    assert _rows(home) == []
+
+
+def test_scoped_delete_unlinks_only_that_source(home):
+    cid = external.remember("Sid is driving to Austin.", source="imessage:a:1-2:f", hermes_home=home)
+    external.remember("Sid is driving to Austin.", source="live:s9:fact:1-1", hermes_home=home)
+    assert external.delete(cid, source_prefix="imessage:a:", hermes_home=home) is True
+    assert external._open(home)[0].sources_of(cid) == ["live:s9:fact:1-1"]
+    assert external.delete(cid, source_prefix="imessage:", hermes_home=home) is False
+    assert external.delete(cid, source_prefix="live:s9:", hermes_home=home) is True
+    assert _rows(home) == []
+
+
+def test_source_ref_is_kept(home):
+    cid = external.remember("They planned the trip.", source="live:s1:1-4",
+                            source_ref="live:s1:1-4", hermes_home=home)
+    assert external._open(home)[0].get_chunks([cid])[0].source_ref == "live:s1:1-4"

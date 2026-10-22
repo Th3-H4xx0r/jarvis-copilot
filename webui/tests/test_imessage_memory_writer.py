@@ -115,7 +115,9 @@ def test_facts_stamped_with_person_and_date(st):
     assert w.close_once(st, T0 + 60 + GAP_SECONDS, memory=mem, complete=_reply()) == 1
     convo = [m for m in mem.saved if m["tags"] == "imessage,conversation"]
     facts = [m for m in mem.saved if m["tags"] == "imessage,fact"]
-    assert convo[0]["source"] == "imessage:one:1-2:p1" and convo[0]["dedup"] is False
+    assert convo[0]["source"] == "imessage:one:1-2:p1" and convo[0].get("dedup", True) is True
+    assert convo[0]["source_ref"] == "imessage:one:1-2"
+    assert facts[0]["source_ref"] == "imessage:one:1-2"
     assert "Summary: Sam shared his address." in convo[0]["body"]
     assert facts[0]["body"] == ("Sam Lee's address is 12 Oak St, Oakland (from an iMessage chat with "
                                 "Sam Lee on Sun 19 Oct 2025 17:02 PDT)")

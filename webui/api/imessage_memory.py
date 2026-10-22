@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS bursts (
     count       INTEGER NOT NULL,
     status      TEXT NOT NULL,
     created_at  REAL NOT NULL,
+    last_is_from_me INTEGER,
+    last_sender TEXT,
     PRIMARY KEY (guid, first_rowid)
 );
 CREATE TABLE IF NOT EXISTS fact_cards (
@@ -116,6 +118,12 @@ def normalize_handle(handle) -> str:
     return digits[-10:] if digits else h
 
 
+def _last_word(burst) -> tuple:
+    """(is_from_me, sender) of a burst's newest message."""
+    last = max(burst.rows, key=lambda r: (r.get("ts") or 0, r.get("rowid") or 0))
+    return (1 if last.get("is_from_me") else 0, str(last.get("sender") or ""))
+
+
 @dataclass
 class Burst:
     guid: str
@@ -157,6 +165,11 @@ class IMStore:
                     conn = sqlite3.connect(self.path, timeout=10)
                     conn.execute("PRAGMA journal_mode=WAL")
                     conn.executescript(_SCHEMA)
+                    have = {r[1] for r in conn.execute("PRAGMA table_info(bursts)")}
+                    for col, decl in (("last_is_from_me", "INTEGER"), ("last_sender", "TEXT")):
+                        if col not in have:  # who spoke last: "threads waiting on him"
+                            conn.execute(f"ALTER TABLE bursts ADD COLUMN {col} {decl}")
+                    conn.commit()
                     conn.close()
                     self._ready = True
         conn = sqlite3.connect(self.path, timeout=10)
@@ -341,9 +354,10 @@ class IMStore:
             db.execute("DELETE FROM fact_cards WHERE guid=? AND first_rowid=? AND status='pending'",
                        (burst.guid, burst.first_rowid))
             db.execute("INSERT OR REPLACE INTO bursts(guid, first_rowid, last_rowid, start, end, count, "
-                       "status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'storing', ?)",
+                       "status, created_at, last_is_from_me, last_sender) "
+                       "VALUES (?, ?, ?, ?, ?, ?, 'storing', ?, ?, ?)",
                        (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
-                        len(burst.rows), time.time()))
+                        len(burst.rows), time.time(), *_last_word(burst)))
 
     def storing_bursts(self) -> list:
         with self._db() as db:
@@ -352,6 +366,27 @@ class IMStore:
     def drop_burst_record(self, guid: str, first_rowid: int) -> None:
         with self._db() as db:
             db.execute("DELETE FROM bursts WHERE guid=? AND first_rowid=?", (guid, first_rowid))
+
+    def waiting_threads(self, since: float) -> list:
+        """Chats whose newest message since ``since`` came from the other
+        person — stored bursts and still-buffered messages alike — newest
+        first, as ``{guid, name, last_sender, last_at}``."""
+        latest: dict = {}
+        with self._db() as db:
+            for r in db.execute(
+                    "SELECT guid, end AS ts, last_is_from_me AS me, last_sender AS sender FROM bursts b "
+                    "WHERE end >= ? AND last_is_from_me IS NOT NULL "
+                    "AND end = (SELECT MAX(end) FROM bursts WHERE guid=b.guid)", (since,)):
+                latest[r["guid"]] = dict(r)
+            for r in db.execute(
+                    "SELECT guid, ts, is_from_me AS me, sender FROM pending p WHERE ts >= ? "
+                    "AND ts = (SELECT MAX(ts) FROM pending WHERE guid=p.guid)", (since,)):
+                if r["guid"] not in latest or r["ts"] >= latest[r["guid"]]["ts"]:
+                    latest[r["guid"]] = dict(r)
+            names = {r["guid"]: r["name"] for r in db.execute("SELECT guid, name FROM chats")}
+        out = [{"guid": g, "name": names.get(g) or g, "last_sender": v["sender"] or "",
+                "last_at": v["ts"]} for g, v in latest.items() if not v["me"]]
+        return sorted(out, key=lambda w: w["last_at"], reverse=True)
 
     def mark_burst(self, burst: Burst, status: str, remembered: bool = True) -> bool:
         """Record a remembered burst (the dedupe record), drop its buffered rows.
@@ -365,9 +400,10 @@ class IMStore:
                            (burst.guid, burst.first_rowid))
                 return False
             db.execute("INSERT OR REPLACE INTO bursts(guid, first_rowid, last_rowid, start, end, count, "
-                       "status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                       "status, created_at, last_is_from_me, last_sender) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                        (burst.guid, burst.first_rowid, burst.last_rowid, burst.start, burst.end,
-                        len(burst.rows), status, time.time()))
+                        len(burst.rows), status, time.time(), *_last_word(burst)))
             if remembered:
                 db.execute("UPDATE chats SET remembered=remembered+1 WHERE guid=?", (burst.guid,))
             for job_id in burst.job_ids:

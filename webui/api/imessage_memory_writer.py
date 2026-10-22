@@ -283,6 +283,11 @@ def _sources(burst: Burst) -> Tuple[str, str]:
     return _prefixes(burst.guid, burst.first_rowid, burst.last_rowid)
 
 
+def _ref(burst: Burst) -> str:
+    """Link back to the original messages: chat + ROWID range."""
+    return f"imessage:{burst.guid}:{burst.first_rowid}-{burst.last_rowid}"
+
+
 def _take_back(memory, burst: Burst) -> None:
     for prefix in _sources(burst):
         memory.forget(source_prefix=prefix)
@@ -327,7 +332,8 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
     st.begin_burst(burst)
     if keep and summary:
         if not memory.remember(_header(burst, chat, zone, summary), source=f"{base}p1",
-                               tags="imessage,conversation", created_at=burst.start, dedup=False):
+                               tags="imessage,conversation", created_at=burst.start,
+                               source_ref=_ref(burst)):
             _take_back(memory, burst)
             st.drop_burst_record(burst.guid, burst.first_rowid)
             logger.warning("imessage memory: memory refused %s; will retry", base)
@@ -345,7 +351,7 @@ def store_burst(st: IMStore, burst: Burst, *, memory, complete=None, zone=None) 
         else:
             for fact in facts:
                 memory.remember(f"{fact} {stamp}", source=f"{fact_source}f",
-                                tags="imessage,fact", created_at=burst.start)
+                                tags="imessage,fact", created_at=burst.start, source_ref=_ref(burst))
     if not st.mark_burst(burst, status, remembered=status == "stored"):
         _take_back(memory, burst)  # Forget landed while this was written
         st.delete_cards(burst.guid, burst.first_rowid)
@@ -395,14 +401,15 @@ def push_facts(burst: Burst, chat: dict, facts: List[str]) -> int:
 
 
 def _store_cards(st: IMStore, cards: list, memory, status: str) -> int:
-    """Remember claimed cards. Written without dedup so ``None`` only ever
-    means the write failed — those go back to waiting. A card deleted while
-    this ran (he pressed Forget) has its memory taken back."""
+    """Remember claimed cards. ``None`` only ever means the write failed (a
+    near-duplicate merges into the memory already held and returns its id) —
+    those go back to waiting. A card deleted while this ran (he pressed
+    Forget) has its memory taken back."""
     written, failed = [], []
     try:
         for card in cards:
             ok = memory.remember(card["body"], source=card["source"], tags="imessage,fact",
-                                 created_at=card["at"], dedup=False)
+                                 created_at=card["at"])
             (written if ok else failed).append(card)
     finally:
         untouched = [c["id"] for c in cards if c not in written and c not in failed]

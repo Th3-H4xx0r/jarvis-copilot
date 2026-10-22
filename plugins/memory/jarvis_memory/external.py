@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import List, Optional
+from typing import Optional
 
 from .config import load_config
 from .embed import make_embedder
@@ -62,14 +62,17 @@ def _open(hermes_home: Optional[str] = None):
 
 
 def remember(body: str, *, source: str, tags: str = "", created_at: Optional[float] = None,
-             score: float = 1.0, dedup: bool = True,
+             score: float = 1.0, dedup: bool = True, source_ref: str = "",
              hermes_home: Optional[str] = None) -> Optional[str]:
-    """Store one memory. Returns its id, or None when skipped or failed.
+    """Store one memory. Returns its id, or None when it failed.
 
     ``source`` identifies where it came from and is what ``forget`` matches on;
     ``tags`` is a comma list (``live,conversation,speaker:<id>``); ``created_at``
-    is WHEN it happened, not when it was stored. ``dedup`` skips a memory nearly
-    identical to one already held, at the threshold chat capture uses.
+    is WHEN it happened, not when it was stored; ``source_ref`` links back to
+    the original (a chat's message range, a recording). With ``dedup`` a memory
+    nearly identical to one already held is not stored twice: the existing one
+    gains this source too (so forgetting either source alone keeps it) and its
+    id is returned.
     """
     body = (body or "").strip()
     if not body:
@@ -87,12 +90,13 @@ def remember(body: str, *, source: str, tags: str = "", created_at: Optional[flo
         if dedup and embedding is not None:
             hits = store.vector_search(namespace, embedding, embedder.signature, limit=1)
             if hits and hits[0][1] >= threshold:
-                return None
+                store.merge_source(hits[0][0], source, tags)
+                return hits[0][0]
         return store.add_chunk(
             namespace, body, source, created_at or time.time(), score, tags,
             embedding=embedding,
             signature=embedder.signature if embedding is not None else None,
-            dim=embedder.dim if embedding is not None else None)
+            dim=embedder.dim if embedding is not None else None, source_ref=source_ref)
     except Exception:
         logger.warning("jarvis_memory: could not remember %s", source, exc_info=True)
         return None
@@ -117,16 +121,14 @@ def memories(source_prefix: str, *, limit: int = 200,
 
 
 def delete(chunk_id: str, *, source_prefix: str, hermes_home: Optional[str] = None) -> bool:
-    """Delete one memory, only if its source starts with ``source_prefix`` —
-    a screen for one source can't reach anything else by id."""
+    """Take one memory away from the sources starting with ``source_prefix`` —
+    a screen for one source can't reach anything else by id. The memory itself
+    goes when no other source backs it."""
     if not chunk_id or not source_prefix:
         return False
     try:
         store, _embedder, _namespace, _threshold = _open(hermes_home)
-        chunk = next(iter(store.get_chunks([chunk_id])), None)
-        if chunk is None or not (chunk.source or "").startswith(source_prefix):
-            return False
-        return bool(store.delete_chunk(chunk_id))
+        return store.unlink_sources(chunk_id, source_prefix) > 0
     except Exception:
         logger.warning("jarvis_memory: could not delete %s", chunk_id, exc_info=True)
         return False
@@ -134,8 +136,8 @@ def delete(chunk_id: str, *, source_prefix: str, hermes_home: Optional[str] = No
 
 def forget(*, source_prefix: str = "", tag: str = "",
            hermes_home: Optional[str] = None) -> int:
-    """Delete every memory whose source starts with ``source_prefix`` or whose
-    tags include ``tag``. Returns how many went.
+    """Unlink every source starting with ``source_prefix`` or carrying ``tag``;
+    memories no other source backs are deleted. Returns how many went.
 
     The other half of every Live delete path: a recording or a voice the user
     deleted must not live on in what Jarvis recalls.
@@ -144,19 +146,7 @@ def forget(*, source_prefix: str = "", tag: str = "",
         return 0
     try:
         store, _embedder, namespace, _threshold = _open(hermes_home)
-        ids: List[str] = []
-        with store._lock:
-            if source_prefix:
-                escaped = (source_prefix.replace("\\", "\\\\")
-                           .replace("%", "\\%").replace("_", "\\_"))
-                ids += [row["id"] for row in store._conn.execute(
-                    "SELECT id FROM chunks WHERE namespace=? AND source LIKE ? ESCAPE '\\'",
-                    (namespace, escaped + "%"))]
-            if tag:
-                ids += [row["id"] for row in store._conn.execute(
-                    "SELECT id FROM chunks WHERE namespace=? AND (',' || tags || ',') LIKE ?",
-                    (namespace, f"%,{tag},%"))]
-        return sum(1 for cid in dict.fromkeys(ids) if store.delete_chunk(cid))
+        return store.forget_source(source_prefix=source_prefix, tag=tag, namespace=namespace)
     except Exception:
         logger.warning("jarvis_memory: could not forget %s%s", source_prefix, tag, exc_info=True)
         return 0

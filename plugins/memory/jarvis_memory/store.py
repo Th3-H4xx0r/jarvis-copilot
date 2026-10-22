@@ -582,6 +582,21 @@ class MemoryStore:
                 "SELECT 1 FROM memory_sources WHERE memory_id=?", (m,)).fetchone() is None]
         return sum(1 for m in orphans if self.delete_chunk(m))
 
+    def unlink_sources(self, memory_id, source_prefix) -> int:
+        """Unlink one memory's sources that start with ``source_prefix``;
+        delete the memory when none remain. Returns how many were unlinked."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM memory_sources WHERE memory_id=? AND source LIKE ? ESCAPE '\\'",
+                (memory_id, _like_prefix(source_prefix)))
+            n = cur.rowcount
+            self._conn.commit()
+            left = self._conn.execute(
+                "SELECT 1 FROM memory_sources WHERE memory_id=?", (memory_id,)).fetchone()
+        if n and left is None:
+            self.delete_chunk(memory_id)
+        return n
+
     def sources_of(self, memory_id) -> List[str]:
         with self._lock:
             return [r["source"] for r in self._conn.execute(

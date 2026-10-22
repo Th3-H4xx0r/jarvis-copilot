@@ -234,3 +234,21 @@ def test_stop_while_analyzing_drops_unread_rows(st):
     st.update_job(job["id"], status="analyzing")
     st.stop_job(job["id"])
     assert st.job(job["id"])["status"] == "stopped" and st.totals()["pending"] == 0
+
+
+def test_waiting_threads_are_chats_whose_last_word_was_theirs(st):
+    from api.imessage_memory import Burst
+    st.upsert_chats([{"guid": "two", "name": "Priya Rao", "is_group": False,
+                      "participants": [{"handle": "+14155550000", "label": "Priya Rao"}]}])
+    st.ingest([_msg("one", 1, T0, "see you at 7?"), _msg("one", 2, T0 + 60, "you there?")])
+    st.ingest([_msg("two", 5, T0, "lunch?", handle="+14155550000"), _msg("two", 6, T0 + 30, "yes!", me=True)])
+    for b in st.open_bursts(T0 + 10 * GAP_SECONDS):
+        st.mark_burst(b, "stored")
+    waiting = st.waiting_threads(T0 - 1)
+    assert [(w["guid"], w["last_sender"]) for w in waiting] == [("one", "Sam Lee")]
+    # A reply he sends later (still buffered) means it no longer waits on him.
+    st.ingest([_msg("one", 3, T0 + 3000, "on my way", me=True)])
+    assert st.waiting_threads(T0 - 1) == []
+    # Messages still buffered count too.
+    st.ingest([_msg("two", 7, T0 + 4000, "did you leave?", handle="+14155550000")])
+    assert [w["guid"] for w in st.waiting_threads(T0 - 1)] == ["two"]

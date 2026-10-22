@@ -822,13 +822,9 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
 # Live used to put only a handful of "facts" into MEMORY.md, which is pasted
 # into EVERY prompt of every chat, and kept nothing of who said what or when.
 # With jarvis_memory as the provider, each window goes into the same store a
-# chat turn does — searched per prompt, the relevant few injected — as the
-# window's own words with names, date and time, and the extracted facts with
-# the same stamp.
-
-# A stored memory is embedded whole; past this a window is split into several,
-# each carrying the header, so none loses who and when.
-_MEMORY_CHUNK_CHARS = 1500
+# chat turn does — searched per prompt, the relevant few injected — as a
+# summary with names, date and time (the words stay in Live's store), and the
+# extracted facts with the same stamp.
 
 
 def _long_term_memory():
@@ -860,16 +856,18 @@ def _local_zone():
 
 def _window_memories(live_session_id: str, segments: list, *, summary: str,
                      started_at: float, zone) -> list:
-    """`(body, created_at)` for each memory a window becomes: a header with
-    date, time, speakers, recording and summary, then `[HH:MM:SS] Name: text`
-    lines — split so no memory passes `_MEMORY_CHUNK_CHARS`."""
+    """`(body, created_at)` for the memory a window becomes: date, time,
+    speakers, recording and the summary. The words themselves stay in Live's
+    own store (his rule: memory keeps summaries, never raw transcripts), so a
+    window with no summary leaves no window memory."""
     from datetime import datetime
 
+    if not summary.strip():
+        return []
     names = _speaker_labels()
-    lines, first_ms, last_ms, voices = [], None, None, []
+    first_ms, last_ms, voices = None, None, []
     for segment in segments:
-        text = _readable_text(segment)
-        if not text:
+        if not _readable_text(segment):
             continue
         start_ms = _int(segment.get("ts_start_ms"))
         first_ms = start_ms if first_ms is None else first_ms
@@ -877,11 +875,7 @@ def _window_memories(live_session_id: str, segments: list, *, summary: str,
         speaker = _speaker_label(segment, names)
         if speaker not in voices:
             voices.append(speaker)
-        spoken_at = datetime.fromtimestamp(started_at + start_ms / 1000, zone)
-        lang = str(segment.get("lang") or "").split("-")[0]
-        tag = f" ({lang})" if lang and lang != "en" else ""
-        lines.append(f"[{spoken_at:%H:%M:%S}] {speaker}{tag}: {text}")
-    if not lines:
+    if first_ms is None:
         return []
     begin = datetime.fromtimestamp(started_at + (first_ms or 0) / 1000, zone)
     end = datetime.fromtimestamp(started_at + (last_ms or 0) / 1000, zone)
@@ -889,18 +883,8 @@ def _window_memories(live_session_id: str, segments: list, *, summary: str,
               f"{begin:%H:%M}\u2013{end:%H:%M} {begin:%Z} "
               f"(recording {live_session_id[:8]})",
               "Speakers: " + ", ".join(voices)]
-    if summary:
-        header.append("Summary: " + summary)
-    head = "\n".join(header)
-    chunks, current = [], []
-    for line in lines:
-        size = len(head) + sum(len(x) + 1 for x in current) + len(line)
-        if current and size > _MEMORY_CHUNK_CHARS:
-            chunks.append(current)
-            current = []
-        current.append(line)
-    chunks.append(current)
-    return [(head + "\n" + "\n".join(part), begin.timestamp()) for part in chunks]
+    header.append("Summary: " + summary.strip())
+    return [("\n".join(header), begin.timestamp())]
 
 
 def _remember_window(live_session_id: str, segments: list, *, summary: str,
@@ -921,7 +905,8 @@ def _remember_window(live_session_id: str, segments: list, *, summary: str,
                                 started_at=started_at, zone=zone)
     for part, (body, when) in enumerate(memories, start=1):
         source = f"live:{live_session_id}:{seq_range}" + (f":p{part}" if part > 1 else "")
-        if memory.remember(body, source=source, tags=tags, created_at=when, dedup=False):
+        if memory.remember(body, source=source, tags=tags, created_at=when,
+                           source_ref=f"live:{live_session_id}:{seq_range}"):
             counts["remembered"] += 1
 
     candidates = [f[:_MAX_FACT_CHARS].strip() for f in facts if str(f or "").strip()]
