@@ -196,6 +196,83 @@ final class MemoryMapTests: XCTestCase {
         store.disappeared()
     }
 
+    // MARK: Stop
+
+    func testStoppingReadsFromTheStatus() {
+        let stopping = MemoryCleanupStatus(json: ["running": true, "stopping": true])
+        XCTAssertTrue(stopping.stopping)
+        XCTAssertFalse(stopping.canStop, "the Stop button is disabled while it stops")
+        XCTAssertEqual(stopping.stopTitle, "Stopping…")
+        let running = MemoryCleanupStatus(json: ["running": true])
+        XCTAssertFalse(running.stopping, "an older server without the key is not stopping")
+        XCTAssertTrue(running.canStop)
+        XCTAssertEqual(running.stopTitle, "Stop")
+    }
+
+    func testTheRunButtonReadsRunAgainAfterAReport() {
+        XCTAssertEqual(MemoryCleanupStatus(json: ["running": false]).runTitle, "Run cleanup")
+        XCTAssertEqual(MemoryCleanupStatus(json: ["running": false, "report": Self.report]).runTitle, "Run again")
+    }
+
+    func testStopPostsAndShowsStopping() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        var stopped = false
+        transport.route("/api/jarvis-memory/cleanup/stop") { _ in
+            stopped = true
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: ["ok": true]))
+        }
+        transport.route("/api/jarvis-memory/cleanup/status") { _ in
+            let body: JSONObject = ["running": true, "stopping": stopped,
+                                    "progress": ["step": "map", "done": 2, "total": 9]]
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: body))
+        }
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api),
+                                   sleeper: { _ in try await Task.sleep(nanoseconds: 50_000_000) })
+        await store.load()
+        XCTAssertEqual(store.cleanup?.canStop, true)
+
+        await store.stopCleanup()
+        let stop = try XCTUnwrap(transport.requests.firstIndex { $0.url?.path == "/api/jarvis-memory/cleanup/stop" })
+        XCTAssertEqual(transport.method(stop), "POST")
+        assertJSONEqual(transport.body(stop), [:])
+        XCTAssertEqual(store.cleanup?.stopping, true)
+        XCTAssertEqual(store.cleanup?.canStop, false)
+        store.disappeared()
+    }
+
+    func testAStopFailureIsShownAndTheButtonComesBack() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/jarvis-memory/cleanup/stop", json: ["error": "nope"], status: 500)
+        transport.route("/api/jarvis-memory/cleanup/status", json: ["running": true])
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api), sleeper: { _ in })
+        await store.load()
+        await store.stopCleanup()
+        XCTAssertNotNil(store.toast)
+        XCTAssertFalse(store.requestingStop)
+        XCTAssertEqual(store.cleanup?.canStop, true)
+    }
+
+    /// A run the server started itself (the shell backfill) shows its progress
+    /// and is polled with no Run tap on this phone.
+    func testARunStartedElsewhereIsFollowed() async {
+        let (api, transport) = JarvisAPI.mocked()
+        var polls = 0
+        transport.route("/api/jarvis-memory/cleanup/status") { _ in
+            polls += 1
+            let body: JSONObject = polls < 3
+                ? ["running": true, "progress": ["step": "map", "done": polls, "total": 3]]
+                : ["running": false, "report": Self.report]
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: body))
+        }
+        transport.route("/api/jarvis-memory/map-settings", json: ["agent": NSNull(), "label": "Default"])
+        let store = MemoryMapStore(api: JarvisMemoryAPI(api: api), sleeper: { _ in })
+        store.appeared()
+        await servicesWaitUntil { store.cleanup?.report != nil }
+        XCTAssertEqual(store.cleanup?.running, false)
+        XCTAssertFalse(transport.paths.contains("/api/jarvis-memory/cleanup/start"))
+        XCTAssertGreaterThanOrEqual(polls, 3)
+    }
+
     func testRestorePostsTheIdMarksTheRowAndRefreshes() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/jarvis-memory/cleanup/restore", json: ["ok": true, "restored": 1])

@@ -31,6 +31,9 @@ final class JarvisMemoryStore {
     private(set) var results: [MemoryEntry] = []
     /// One-shot user-facing message (delete failed, reflection started, …).
     var toast: String?
+    /// The latest turns that used memory ("Recent recalls"). Empty on a server
+    /// without the endpoint, which hides the section.
+    private(set) var recalls: [MemoryRecall] = []
 
     init(api: JarvisMemoryAPI = JarvisMemoryAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
@@ -40,7 +43,10 @@ final class JarvisMemoryStore {
     deinit {
         headerTask.cancel()
         searchTask.cancel()
+        recallsTask.cancel()
     }
+
+    private let recallsTask = TaskHandle()
 
     var available: Bool { data.available }
     var unavailableMessage: String? { data.unavailableMessage }
@@ -55,6 +61,7 @@ final class JarvisMemoryStore {
     func onAppear() {
         reload()
         runSearch("")
+        recallsTask.replace(Task { [weak self] in await self?.loadRecalls() })
     }
 
     func reload() {
@@ -69,6 +76,16 @@ final class JarvisMemoryStore {
     func refresh() async {
         await loadHeader()
         await performSearch(query)
+        await loadRecalls()
+    }
+
+    /// Fail-soft: an older server has no recalls endpoint.
+    func loadRecalls() async {
+        do {
+            recalls = try await api.recalls(limit: 30)
+        } catch {
+            JcLog.dropped(JcLog.more, "jarvis-memory recalls", error)
+        }
     }
 
     private func loadHeader() async {
@@ -192,6 +209,8 @@ final class MemoryMapStore {
     private(set) var settings: MemoryMapSettings?
     private(set) var cleanup: MemoryCleanupStatus?
     private(set) var startingCleanup = false
+    /// The Stop request is on the wire.
+    private(set) var requestingStop = false
     /// Rows restored this visit, so their button reads "Restored".
     private(set) var restored: Set<String> = []
     var toast: String?
@@ -257,6 +276,21 @@ final class MemoryMapStore {
         defer { startingCleanup = false }
         do {
             try await api.startCleanup()
+        } catch {
+            toast = apiErrorMessage(error)
+            return
+        }
+        await refreshCleanup()
+    }
+
+    /// Stop a running cleanup, wherever it was started. The status then reads
+    /// `stopping` (button disabled, "Stopping…") until the run has wound down.
+    func stopCleanup() async {
+        guard !requestingStop, cleanup?.canStop == true else { return }
+        requestingStop = true
+        defer { requestingStop = false }
+        do {
+            try await api.stopCleanup()
         } catch {
             toast = apiErrorMessage(error)
             return

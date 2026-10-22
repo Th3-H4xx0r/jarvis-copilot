@@ -239,13 +239,23 @@ struct MemoryCleanupReport: Equatable {
 
 /// `/api/jarvis-memory/cleanup/status`.
 struct MemoryCleanupStatus: Equatable {
+    /// True for a run started anywhere — this phone, the web, or the server's
+    /// own shell backfill.
     var running: Bool
+    /// A Stop was asked for and the run is winding down.
+    var stopping: Bool
     var progress: MemoryCleanupProgress?
     var report: MemoryCleanupReport?
     var error: String?
 
+    var canStop: Bool { running && !stopping }
+    var stopTitle: String { stopping ? "Stopping…" : "Stop" }
+    /// After a finished run it is a re-run, still behind the confirmation.
+    var runTitle: String { report == nil ? "Run cleanup" : "Run again" }
+
     init(json: JSONObject) {
         running = MoreJSON.isTrue(json["running"])
+        stopping = MoreJSON.isTrue(json["stopping"])
         if let p = json["progress"] as? JSONObject {
             progress = MemoryCleanupProgress(step: MoreJSON.text(p["step"]),
                                              done: MoreJSON.int(p["done"]),

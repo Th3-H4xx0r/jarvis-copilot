@@ -82,4 +82,59 @@ struct JarvisMemoryAPI {
     func restore(_ ids: [String]) async throws {
         _ = try await api.post("/api/jarvis-memory/cleanup/restore", json: ["ids": ids])
     }
+
+    /// Ask a running cleanup to stop; the status then reads `stopping` until it has.
+    func stopCleanup() async throws {
+        _ = try await api.post("/api/jarvis-memory/cleanup/stop", json: JSONObject())
+    }
+
+    // MARK: Memory graph (the map screen)
+
+    /// `center` is "me" or an entity id; the filters become types/since/source.
+    func graph(center: String, filters: MemoryGraphFilters, now: Date = Date()) async throws -> MemoryGraphPayload {
+        let response = try await api.get("/api/jarvis-memory/graph", query: filters.query(center: center, now: now))
+        return MemoryGraphPayload(json: try response.object())
+    }
+
+    /// The You view lit up on what one recall used.
+    func highlight(recallID: String) async throws -> MemoryGraphPayload {
+        let response = try await api.get("/api/jarvis-memory/graph/highlight", query: ["recall": recallID])
+        return MemoryGraphPayload(json: try response.object())
+    }
+
+    func entity(_ id: String, limit: Int = 50) async throws -> MemoryEntityDetail {
+        let response = try await api.get("/api/jarvis-memory/entity", query: ["id": id, "limit": String(limit)])
+        return MemoryEntityDetail(json: try response.object())
+    }
+
+    /// Only what is passed is sent. A rename onto another entity's name merges
+    /// into it, and the answer is then the survivor (a different id).
+    func updateEntity(_ id: String, label: String? = nil, aliases: [String]? = nil,
+                      pinned: Bool? = nil) async throws -> MemoryEntity {
+        var body: JSONObject = ["id": id]
+        if let label { body["label"] = label }
+        if let aliases { body["aliases"] = aliases }
+        if let pinned { body["pinned"] = pinned }
+        let response = try await api.post("/api/jarvis-memory/entity", json: body)
+        return MemoryEntity(json: MoreJSON.map(try response.object()["entity"]))
+    }
+
+    /// `from` is deleted on the server; the answer is `into` after the merge.
+    func mergeEntity(from: String, into: String) async throws -> MemoryEntity {
+        let response = try await api.post("/api/jarvis-memory/entity/merge", json: ["from": from, "into": into])
+        return MemoryEntity(json: MoreJSON.map(try response.object()["entity"]))
+    }
+
+    func unlink(memoryID: String, entityID: String) async throws {
+        _ = try await api.post("/api/jarvis-memory/entity/unlink",
+                               json: ["memory_id": memoryID, "entity_id": entityID])
+    }
+
+    /// Newest first; `sessionID` narrows to one chat.
+    func recalls(limit: Int = 30, sessionID: String? = nil) async throws -> [MemoryRecall] {
+        var query = ["limit": String(limit)]
+        if let sessionID { query["session_id"] = sessionID }
+        let response = try await api.get("/api/jarvis-memory/recalls", query: query)
+        return MemoryRecall.list(try response.object())
+    }
 }

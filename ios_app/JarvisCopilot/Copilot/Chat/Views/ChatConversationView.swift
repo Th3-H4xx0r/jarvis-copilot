@@ -29,6 +29,10 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     /// while it is focused otherwise leaves the old text on screen.
     @State private var composerGeneration = 0
     @FocusState private var focused: Bool
+    /// "Memories used" chips: one recalls request per opened chat, matched to
+    /// replies locally — never a request per message.
+    @State private var recalls = MainActor.assumeIsolated { ChatRecallStore() }
+    @State private var openRecall: MemoryRecall?
 
     private static var bottomAnchor: String { "chat.bottom" }
     private static var welcomeAnchor: String { "chat.welcome" }
@@ -91,19 +95,27 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                 .frame(minHeight: max(0, geometry.size.height - 29))
                                 .id(Self.welcomeAnchor)
                         }
+                        let chips = recalls.chips(for: store.rows, sessionID: store.sessionID)
                         ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
-                            ChatMessageRow(
-                                row: row,
-                                isFirst: index == 0,
-                                onCopy: { UIPasteboard.general.string = row.message.plainText },
-                                onRetryOnServer: row.message.onDevice
-                                    ? { Task { await store.retryOnServer(row.message) } } : nil,
-                                // A submitted form becomes the user's next message,
-                                // so the turn after it reads the answers normally.
-                                onFormSubmit: { reply in Task { await store.send(reply) } },
-                                jobs: (row.message.meta?.jobs ?? []).map(store.job),
-                                onStopJob: { id in Task { await store.stopJob(id) } })
-                                .id(row.id)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ChatMessageRow(
+                                    row: row,
+                                    isFirst: index == 0,
+                                    onCopy: { UIPasteboard.general.string = row.message.plainText },
+                                    onRetryOnServer: row.message.onDevice
+                                        ? { Task { await store.retryOnServer(row.message) } } : nil,
+                                    // A submitted form becomes the user's next message,
+                                    // so the turn after it reads the answers normally.
+                                    onFormSubmit: { reply in Task { await store.send(reply) } },
+                                    jobs: (row.message.meta?.jobs ?? []).map(store.job),
+                                    onStopJob: { id in Task { await store.stopJob(id) } })
+                                if let recall = chips[row.id] {
+                                    MemoryUsedChip(recall: recall) { openRecall = recall }
+                                        .padding(.horizontal, 24)
+                                        .padding(.top, 8)
+                                }
+                            }
+                            .id(row.id)
                         }
                         Color.clear.frame(height: 1).id(Self.bottomAnchor)
                     }
@@ -118,6 +130,8 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                                     to: nil, from: nil, for: nil)
                 }
                 .onAppear { jump(proxy) }
+                .task(id: store.sessionID) { await recalls.load(sessionID: store.sessionID) }
+                .sheet(item: $openRecall) { recall in MemoryRecallMapSheet(recall: recall) }
                 // A tick, not the transcript: `onChange(of: store.messages)` compares
                 // every message in the thread on every streamed token
                 // (swift-correctness H9).

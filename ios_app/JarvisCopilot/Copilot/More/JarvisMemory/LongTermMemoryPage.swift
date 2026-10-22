@@ -11,6 +11,9 @@ import SwiftUI
 struct LongTermMemoryPage: View {
     @State private var store: JarvisMemoryStore
     @State private var map: MemoryMapStore
+    /// The memory map (Map mode): its own store, loaded the first time Map shows.
+    @State private var graph: MemoryGraphStore
+    @State private var mode: MemoryPageMode = .map
     /// Re-read on every appear: Settings can change it while the page is away.
     @State private var remindersUnasked = false
     @State private var expanded: Set<String> = []
@@ -22,9 +25,10 @@ struct LongTermMemoryPage: View {
     @State private var query = ""
     @State private var pendingDelete: MemoryEntry?
 
-    init(store: JarvisMemoryStore? = nil, map: MemoryMapStore? = nil) {
+    init(store: JarvisMemoryStore? = nil, map: MemoryMapStore? = nil, graph: MemoryGraphStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { JarvisMemoryStore() })
         _map = State(initialValue: map ?? MainActor.assumeIsolated { MemoryMapStore() })
+        _graph = State(initialValue: graph ?? MainActor.assumeIsolated { MemoryGraphStore() })
     }
 
     var body: some View {
@@ -40,14 +44,29 @@ struct LongTermMemoryPage: View {
                 ScrollView { unavailable.padding(.horizontal, 16).padding(.top, 64) }
                     .refreshable { await store.refresh() }
             } else {
-                loaded
+                VStack(spacing: 0) {
+                    JcSegmented(items: MemoryPageMode.allCases, selection: $mode,
+                                label: { $0.label }, symbol: { $0.symbol })
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                        .padding(.bottom, 10)
+                    if mode == .map {
+                        MemoryMapScreen(store: graph)
+                    } else {
+                        loaded
+                    }
+                }
             }
         }
         .jcScreen("Long-term memory")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 GlassIconButton(symbol: "arrow.clockwise", size: 34, iconSize: 16) {
-                    store.reload()
+                    if mode == .map {
+                        Task { await graph.load() }
+                    } else {
+                        store.reload()
+                    }
                 }
             }
         }
@@ -95,6 +114,9 @@ struct LongTermMemoryPage: View {
                 }
                 searchBox.padding(.bottom, 12)
                 results
+                if !store.recalls.isEmpty {
+                    recentRecalls.padding(.top, 24)
+                }
                 reflections.padding(.top, 24)
             }
             .padding(.horizontal, 16)
@@ -192,6 +214,31 @@ struct LongTermMemoryPage: View {
         }
     }
 
+    /// Turns where Jarvis drew on memory. Tap one → the map, lit up on what it used.
+    private var recentRecalls: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("Recent recalls") {
+                StatusPill("\(store.recalls.count)", color: JcTheme.accent, dense: true)
+            }
+            GlassCard(padding: 0, fill: JcTheme.surface) {
+                VStack(spacing: 0) {
+                    ForEach(Array(store.recalls.prefix(12).enumerated()), id: \.element.id) { index, recall in
+                        if index > 0 {
+                            Rectangle().fill(JcTheme.glassBorder).frame(height: 1).padding(.leading, 14)
+                        }
+                        Button {
+                            mode = .map
+                            Task { await graph.showRecall(recall) }
+                        } label: {
+                            MemoryRecallRow(recall: recall)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
     private var reflections: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Reflections") {
@@ -270,13 +317,31 @@ struct LongTermMemoryPage: View {
 
     private func cleanupSection(_ cleanup: MemoryCleanupStatus) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionHeader("Cleanup") {
-                if cleanup.running { StatusPill("Running", color: JcTheme.accent, live: true, dense: true) }
+            SectionHeader("Cleanup & map") {
+                if cleanup.running {
+                    StatusPill(cleanup.stopping ? "Stopping" : "Running", color: JcTheme.accent,
+                               live: true, dense: true)
+                }
             }
             GlassCard {
                 VStack(alignment: .leading, spacing: 14) {
                     if cleanup.running {
+                        // A run from anywhere — this phone, the web, or the server's backfill.
                         cleanupProgress(cleanup.progress)
+                        Button {
+                            Task { await map.stopCleanup() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if map.requestingStop || cleanup.stopping {
+                                    ProgressView().controlSize(.mini)
+                                } else {
+                                    JcIcon("stop.fill", size: 12)
+                                }
+                                Text(cleanup.stopTitle)
+                            }
+                        }
+                        .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
+                        .disabled(!cleanup.canStop || map.requestingStop)
                     } else {
                         if let error = cleanup.error {
                             Text(error)
@@ -286,14 +351,8 @@ struct LongTermMemoryPage: View {
                         }
                         if let report = cleanup.report {
                             cleanupReport(report)
-                        } else {
-                            Text("Backs up your memory, merges duplicates, fixes times, hides trivia and maps "
-                                 + "every memory to dates, people and places. Nothing is deleted.")
-                                .font(.system(size: 13))
-                                .foregroundStyle(JcTheme.muted)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        GradientButton("Run cleanup", symbol: "wand.and.stars", busy: map.startingCleanup,
+                        GradientButton(cleanup.runTitle, symbol: "wand.and.stars", busy: map.startingCleanup,
                                        full: true) {
                             confirmingCleanup = true
                         }
@@ -301,6 +360,14 @@ struct LongTermMemoryPage: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            Text("One-time tidy-up: backs up, merges duplicates, fixes times, then maps older memories to "
+                 + "dates, people and places. New memories are mapped automatically — you don't need to "
+                 + "run this again.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
         }
     }
 
@@ -408,6 +475,41 @@ struct LongTermMemoryPage: View {
 }
 
 // MARK: - Rows
+
+/// Map or List at the top of Long-term memory.
+enum MemoryPageMode: String, CaseIterable, Identifiable, Hashable {
+    case map, list
+    var id: String { rawValue }
+    var label: String { self == .map ? "Map" : "List" }
+    var symbol: String { self == .map ? "point.3.connected.trianglepath.dotted" : "list.bullet" }
+}
+
+/// One recall: the question, when, and how many memories it used.
+struct MemoryRecallRow: View {
+    let recall: MemoryRecall
+
+    var body: some View {
+        HStack(spacing: 12) {
+            JcIcon("brain", size: 14).foregroundStyle(JcTheme.accent)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(recall.title)
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.text)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                let when = recall.ts.map { RelativeTime.format($0) } ?? ""
+                let used = recall.memoryIDs.count == 1 ? "1 memory" : "\(recall.memoryIDs.count) memories"
+                Text([when, used].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            JcIcon("chevron.right", size: 11).foregroundStyle(JcTheme.muted.opacity(0.6))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .contentShape(Rectangle())
+    }
+}
 
 /// A namespace bucket: its name plus a tinted count badge.
 struct MemoryNamespaceChip: View {
