@@ -73,3 +73,40 @@ def test_imessage_writer_uses_memory_model(monkeypatch):
     mm.set_agent({"harness_id": "h9"})
     monkeypatch.setattr(w, "resolve_extraction_model", lambda agent: (f"ref:{agent}", "x"))
     assert w._memory_model()[0] == "ref:{'harness_id': 'h9'}"
+
+
+def test_cleanup_start_status_restore(monkeypatch):
+    import threading
+    import api.helpers as helpers
+    from plugins.memory.jarvis_memory import cleanup
+    calls = []
+    monkeypatch.setattr(helpers, "j", lambda h, payload, status=200, **k: calls.append(payload))
+    gate = threading.Event()
+
+    def fake_run(store, embedder, *, zone, complete=None, progress=None):
+        progress({"step": "map", "done": 3, "total": 10, "started_at": 1.0})
+        gate.wait(5)
+        report = {"counts": {"merged": 2}, "examples": {}, "backup": "b", "started_at": 1, "finished_at": 2}
+        cleanup.report_path(store).write_text(__import__("json").dumps(report))
+        return report
+    monkeypatch.setattr(cleanup, "run", fake_run)
+    mm.handle_cleanup_start(None)
+    assert calls[-1] == {"ok": True, "started": True}
+    mm.handle_cleanup_start(None)
+    assert calls[-1] == {"ok": True, "started": False}  # one run at a time
+    import time
+    deadline = time.time() + 3
+    while (mm._cleanup["progress"] or {}).get("done") != 3 and time.time() < deadline:
+        time.sleep(0.01)
+    mm.handle_cleanup_status(None)
+    assert calls[-1]["running"] is True and calls[-1]["progress"]["done"] == 3
+    gate.set()
+    mm._cleanup["thread"].join(5)
+    mm.handle_cleanup_status(None)
+    assert calls[-1]["running"] is False and calls[-1]["report"]["counts"]["merged"] == 2
+    store = mm._store()
+    cid = store.add_chunk("global", "The user has a father.", "fact:extracted", 1.0, 1.0)
+    store.set_status([cid], "hidden")
+    mm.handle_cleanup_restore(None, {"ids": [cid, 5]})
+    assert calls[-1] == {"ok": True, "restored": 1}
+    assert store.count_chunks("global") == 1

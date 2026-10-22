@@ -338,10 +338,81 @@
     });
   }
 
+  // ── Cleanup: one-time backfill of the memory map, with a report ──
+  var cleanupTimer = null;
+  var CLEANUP_LABELS = {
+    merged: "Merged duplicates", hidden_trivial: "Hidden trivia", superseded: "Marked out of date",
+    live_rewritten: "Live rewritten", restamped: "Times fixed", enriched: "Mapped", failed: "Couldn't map",
+  };
+
+  async function loadCleanup() {
+    var el = document.getElementById("jmemCleanup");
+    if (!el) return;
+    var d;
+    try { d = await fetch("api/jarvis-memory/cleanup/status").then(function (r) { return r.json(); }); }
+    catch (e) { return; }
+    var box = '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--card,var(--bg))">';
+    var head = '<div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">Cleanup</b>';
+    if (d.running) {
+      var p = d.progress || {};
+      el.innerHTML = box + head + '<span style="font-size:12px;color:var(--muted)">' + esc(p.step || "working") +
+        (p.total ? " · " + esc(String(p.done)) + "/" + esc(String(p.total)) : "") + "</span></div></div>";
+      clearTimeout(cleanupTimer);
+      cleanupTimer = setTimeout(loadCleanup, 3000);
+      return;
+    }
+    var r = d.report;
+    var html = box + head +
+      '<button id="jmemCleanupRun" style="margin-left:auto;font-size:12px">' + (r ? "Run again" : "Run cleanup") + "</button></div>";
+    if (d.error) html += '<div style="font-size:12px;color:var(--danger,#c33);margin-top:6px">' + esc(d.error) + "</div>";
+    if (!r) {
+      html += '<div style="font-size:12px;color:var(--muted);margin-top:6px">Backs up your memory, merges duplicates, ' +
+        "fixes times to your time zone, hides trivia and maps every memory to dates, people and places. Nothing is deleted.</div>";
+    } else {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">';
+      Object.keys(CLEANUP_LABELS).forEach(function (k) {
+        if (r.counts && r.counts[k]) html += _chip(CLEANUP_LABELS[k], String(r.counts[k]));
+      });
+      html += "</div>";
+      ["merged", "hidden_trivial", "superseded"].forEach(function (k) {
+        var rows = (r.examples || {})[k] || [];
+        if (!rows.length) return;
+        html += '<details style="margin-top:6px"><summary style="font-size:12px;cursor:pointer">' + esc(CLEANUP_LABELS[k]) + "</summary>";
+        rows.forEach(function (x) {
+          html += '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:4px 0">' +
+            '<span style="flex:1">' + esc(x.body) + "</span>" +
+            (k === "superseded" ? "" : '<button class="jmemRestore" data-id="' + esc(x.id) + '" style="font-size:11px">Restore</button>') +
+            "</div>";
+        });
+        html += "</details>";
+      });
+    }
+    el.innerHTML = html + "</div>";
+    var run = document.getElementById("jmemCleanupRun");
+    if (run) run.addEventListener("click", async function () {
+      run.disabled = true;
+      try { await fetch("api/jarvis-memory/cleanup/start", { method: "POST" }); } catch (e) { /* status shows it */ }
+      loadCleanup();
+    });
+    el.querySelectorAll(".jmemRestore").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        b.disabled = true;
+        try {
+          await fetch("api/jarvis-memory/cleanup/restore", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: [b.getAttribute("data-id")] }),
+          });
+          b.textContent = "Restored";
+        } catch (e) { b.disabled = false; }
+      });
+    });
+  }
+
   window.loadJarvisMemory = async function () {
     renderShell();
     await loadStatus();
     await loadModel();
+    await loadCleanup();
     await loadStats();
     await loadReflections();
     await runSearch();

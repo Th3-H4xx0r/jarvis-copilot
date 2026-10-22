@@ -97,8 +97,9 @@ def _related(store, embedder, chunk) -> List:
 
 def enrich_batch(store, embedder, ids: List[str], *, zone,
                  complete: Optional[Callable[[str, int], str]] = None,
-                 now: Optional[float] = None) -> Dict[str, int]:
-    """Map up to ``BATCH`` memories in one model call. Returns counts."""
+                 now: Optional[float] = None, log: Optional[list] = None) -> Dict[str, int]:
+    """Map up to ``BATCH`` memories in one model call. Returns counts; with
+    ``log``, appends ``(what, memory_id)`` for each hidden / superseded one."""
     from . import llm
     complete = complete or llm.complete
     counts = {"enriched": 0, "hidden": 0, "superseded": 0, "failed": 0}
@@ -146,7 +147,8 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
         if c is None:
             continue
         try:
-            counts_one = _apply(store, embedder, c, item, related.get(cid, []), zone, index_for(c.namespace))
+            counts_one = _apply(store, embedder, c, item, related.get(cid, []), zone,
+                                index_for(c.namespace), log)
             for k, v in counts_one.items():
                 counts[k] += v
             store.dequeue([cid])
@@ -157,11 +159,14 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
     return counts
 
 
-def _apply(store, embedder, c, item, related, zone, index) -> Dict[str, int]:
+def _apply(store, embedder, c, item, related, zone, index, log=None) -> Dict[str, int]:
     out = {"enriched": 0, "hidden": 0, "superseded": 0}
     if item.get("trivial") is True:
         store.set_status([c.id], "hidden")
+        store.set_map_fields(c.id, enriched_at=time.time())
         out["hidden"] = 1
+        if log is not None:
+            log.append(("hidden_trivial", c.id))
         return out
     kind = str(item.get("kind") or "").lower()
     try:
@@ -195,6 +200,8 @@ def _apply(store, embedder, c, item, related, zone, index) -> Dict[str, int]:
         if old in offered and old != c.id:
             store.set_map_fields(old, valid_to=c.created_at, superseded_by=c.id)
             out["superseded"] += 1
+            if log is not None:
+                log.append(("superseded", old))
     fields = {"slots": slots, "enriched_at": time.time()}
     if kind in KINDS:
         fields["kind"] = kind
@@ -233,7 +240,7 @@ def start_loop(store, embedder, *, interval: float = 30.0, stop: Optional[thread
 
 
 def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[int] = None,
-          progress: Optional[Callable[[dict], None]] = None) -> Dict[str, int]:
+          progress: Optional[Callable[[dict], None]] = None, log: Optional[list] = None) -> Dict[str, int]:
     """Map everything queued (or ``max_batches``). Stops early when a batch
     makes no progress (model down)."""
     from . import tz
@@ -242,7 +249,8 @@ def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[in
         ids = store.queue_ids(BATCH)
         if not ids:
             break
-        counts = enrich_batch(store, embedder, ids, zone=zone or tz.user_zone(), complete=complete)
+        counts = enrich_batch(store, embedder, ids, zone=zone or tz.user_zone(), complete=complete,
+                              log=log)
         total["batches"] += 1
         for k, v in counts.items():
             total[k] += v

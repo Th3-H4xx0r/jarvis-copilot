@@ -4822,6 +4822,9 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/jarvis-memory/map-settings":
         from api.memory_map import handle_settings_get
         return handle_settings_get(handler)
+    if parsed.path == "/api/jarvis-memory/cleanup/status":
+        from api.memory_map import handle_cleanup_status
+        return handle_cleanup_status(handler)
     if parsed.path == "/api/notify/targets":
         return _handle_notify_list(handler)
 
@@ -5989,6 +5992,12 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/jarvis-memory/map-settings":
         from api.memory_map import handle_settings_post
         return handle_settings_post(handler, body)
+    if parsed.path == "/api/jarvis-memory/cleanup/start":
+        from api.memory_map import handle_cleanup_start
+        return handle_cleanup_start(handler)
+    if parsed.path == "/api/jarvis-memory/cleanup/restore":
+        from api.memory_map import handle_cleanup_restore
+        return handle_cleanup_restore(handler, body)
     if parsed.path == "/api/notify":
         return _handle_notify(handler, body)
 

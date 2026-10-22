@@ -111,3 +111,51 @@ def handle_context_post(handler, body: Optional[dict]):
         return j(handler, {"error": "no matching device for session"}, status=401)
     from api.brief_sources import save_snapshot
     return j(handler, {"ok": True, **save_snapshot(body if isinstance(body, dict) else {})})
+
+
+# ── cleanup / backfill ───────────────────────────────────────────────────
+import threading as _threading
+
+_cleanup = {"thread": None, "error": "", "progress": None}
+_cleanup_lock = _threading.Lock()
+
+
+def _run_cleanup():
+    from plugins.memory.jarvis_memory import cleanup, external, tz
+    store, embedder, _ns, _th = external._open()
+    try:
+        cleanup.run(store, embedder, zone=tz.user_zone(),
+                    progress=lambda state: _cleanup.update(progress=state))
+        _cleanup["error"] = ""
+    except Exception as exc:
+        logger.warning("memory cleanup failed", exc_info=True)
+        _cleanup["error"] = str(exc)[:300]
+
+
+def handle_cleanup_start(handler):
+    from api.helpers import j
+    with _cleanup_lock:
+        thread = _cleanup["thread"]
+        if thread is not None and thread.is_alive():
+            return j(handler, {"ok": True, "started": False})
+        _cleanup.update(progress={"step": "starting", "done": 0, "total": 0}, error="")
+        thread = _threading.Thread(target=_run_cleanup, daemon=True, name="memory-cleanup")
+        _cleanup["thread"] = thread
+        thread.start()
+    return j(handler, {"ok": True, "started": True})
+
+
+def handle_cleanup_status(handler):
+    from api.helpers import j
+    from plugins.memory.jarvis_memory import cleanup
+    thread = _cleanup["thread"]
+    running = bool(thread is not None and thread.is_alive())
+    return j(handler, {"running": running, "progress": _cleanup["progress"] if running else None,
+                       "error": _cleanup["error"], "report": cleanup.load_report(_store())})
+
+
+def handle_cleanup_restore(handler, body: Optional[dict]):
+    from api.helpers import j
+    from plugins.memory.jarvis_memory import cleanup
+    ids = [i for i in (body or {}).get("ids") or [] if isinstance(i, str)]
+    return j(handler, {"ok": True, "restored": cleanup.restore_hidden(_store(), ids)})

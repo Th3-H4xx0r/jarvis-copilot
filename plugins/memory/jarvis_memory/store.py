@@ -427,6 +427,24 @@ class MemoryStore:
         }
         return [by_id[i] for i in ids if i in by_id]
 
+    def active_ids(self, *, unenriched=False, source_prefix="") -> List[str]:
+        """Every visible memory (oldest first), optionally only the unmapped
+        ones or one source family — what the backfill walks."""
+        where, args = [_ACTIVE], []
+        if unenriched:
+            where.append("enriched_at IS NULL")
+        if source_prefix:
+            where.append("source LIKE ? ESCAPE '\\'")
+            args.append(_like_prefix(source_prefix))
+        with self._lock:
+            return [r["id"] for r in self._conn.execute(
+                f"SELECT id FROM chunks WHERE {' AND '.join(where)} ORDER BY created_at", args)]
+
+    def source_rows(self, memory_id) -> List[Tuple[str, str]]:
+        with self._lock:
+            return [(r["source"], r["tags"] or "") for r in self._conn.execute(
+                "SELECT source, tags FROM memory_sources WHERE memory_id=? ORDER BY source", (memory_id,))]
+
     def recent_entity_counts(self, namespace, since, types) -> List[Tuple[str, int]]:
         """(entity_id, memories said since ``since``) for entities of ``types``, busiest first."""
         types = list(types or [])
