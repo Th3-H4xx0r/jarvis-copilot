@@ -47,6 +47,11 @@ _RECALL_SCHEMA = {
             "since": {"type": "string", "description": "ISO date or datetime, his local time."},
             "until": {"type": "string", "description": (
                 "ISO date or datetime, his local time; a bare date includes that whole day.")},
+            "entity": {"type": "string", "description": (
+                "Only memories linked to this person, place or event (e.g. 'COTA', 'Arnav').")},
+            "when": {"type": "string", "description": (
+                "Plain-words time: 'this weekend', 'last Tuesday', 'Oct 24' — matches when "
+                "things happen, not just when they were said.")},
         },
     },
 }
@@ -217,6 +222,8 @@ class JarvisMemoryProvider(MemoryProvider):
         self._lock = threading.Lock()
         self._prefetch_lock = threading.Lock()
         self._prefetch_cache = ""
+        self._now = time.time
+        self._entity_index = None
         # Auto-start a local Ollama server (background, best-effort) so the
         # default embedder works without manual setup. Never installs/pulls at
         # runtime — that happens once in post_setup.
@@ -514,47 +521,76 @@ class JarvisMemoryProvider(MemoryProvider):
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})
 
     def _recall_tool(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """memory_recall: hybrid search, optionally inside a source / person /
-        date window. Filters with no query list the window in time order — the
-        "what did Sam and I talk about yesterday" path, which ranking by
-        similarity to an empty query could not answer."""
-        from datetime import datetime, timezone
+        """memory_recall: the same multi-channel recall a turn gets, optionally
+        inside a source / person / entity / time window. Filters with no query
+        list the window in time order — the "what did Sam and I talk about
+        yesterday" path, which ranking by similarity to an empty query could
+        not answer."""
+        from datetime import datetime
+
+        from . import tz
+        from .recall import RecallQuery, recall
+        from .timeparse import window as time_window
 
         query = str(args.get("query") or "")
         limit = max(1, int(args.get("limit") or 5))
         source = str(args.get("source") or "").strip().lower()
         person = str(args.get("person") or "").strip()
-        zone = None
-        try:
-            from jarviscopilot_time import get_timezone
-            zone = get_timezone()
-        except Exception:
-            pass
-        zone = zone or timezone.utc
+        entity = str(args.get("entity") or "").strip()
+        when = str(args.get("when") or "").strip()
+        zone = tz.user_zone()
+        now = self._now()
         since = parse_when(args.get("since"), end_of_day=False, zone=zone)
         until = parse_when(args.get("until"), end_of_day=True, zone=zone)
-        filtered = bool(source or person or since is not None or until is not None)
-        if filtered:
+        candidates = None
+        if source or person or since is not None or until is not None:
             # Ranking a query needs every match (an old fact must still be
             # findable); a time-ordered listing only needs the newest few.
-            ids = self._store.filtered_ids(
+            candidates = self._store.filtered_ids(
                 self._namespace, source_prefix=f"{source}:" if source else "",
                 since=since, until=until, person=person,
                 limit=None if query.strip() else max(limit, 50))
-            if query.strip():
-                hits = hybrid_recall(self._store, self._embedder, query, self._namespace,
-                                     limit=limit, candidate_ids=set(ids))
-                chunks = [(h.chunk, h.score) for h in hits]
-            else:
-                chunks = [(c, 1.0) for c in self._store.get_chunks(ids[-limit:])]
+        if entity:
+            eid = self._entities().resolve(entity)
+            ent = self._store.memories_for_entities([eid], 500) if eid else []
+            candidates = ent if candidates is None else [c for c in candidates if c in set(ent)]
+        if when:
+            win = time_window(when, datetime.fromtimestamp(now, zone))
+            if win is not None:
+                timed = self._store.ids_in_window(self._namespace, win.start, win.end, 500)
+                candidates = timed if candidates is None else [c for c in candidates if c in set(timed)]
+        if candidates is not None and not query.strip():
+            chunks = [(c, 1.0) for c in self._store.get_chunks(list(candidates)[-limit:])]
         else:
-            hits = hybrid_recall(self._store, self._embedder, query, self._namespace,
-                                 limit=limit,
-                                 min_relevance=float(self._cfg.get("min_relevance", 0.0)))
-            chunks = [(h.chunk, h.score) for h in hits]
-        return [{"id": c.id, "body": c.body, "score": round(s, 4), "source": c.source,
-                 "created_at": datetime.fromtimestamp(c.created_at, zone).isoformat(timespec="minutes")}
-                for c, s in chunks]
+            res = recall(self._store, self._embedder,
+                         RecallQuery(text=query, now=now, zone=zone, limit=limit),
+                         entity_index=self._entities(), namespace=self._namespace,
+                         candidate_ids=set(candidates) if candidates is not None else None)
+            chunks = [(h.chunk, h.score) for h in res.hits]
+
+        def iso(t):
+            return datetime.fromtimestamp(float(t), zone).isoformat(timespec="minutes") if t else None
+
+        out = []
+        for c, s in chunks:
+            row = {"id": c.id, "body": c.body, "score": round(s, 4), "source": c.source,
+                   "created_at": iso(c.created_at)}
+            if c.event_start:
+                row["event_start"] = iso(c.event_start)
+            if c.kind:
+                row["kind"] = c.kind
+            if c.source_ref:
+                row["source_ref"] = c.source_ref
+            row["past"] = bool(c.valid_to)
+            out.append(row)
+        return out
+
+    def _entities(self):
+        from .entities import EntityIndex
+        idx = getattr(self, "_entity_index", None)
+        if idx is None:
+            idx = self._entity_index = EntityIndex(self._store, self._namespace)
+        return idx
 
     def shutdown(self) -> None:
         try:

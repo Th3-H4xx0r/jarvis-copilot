@@ -382,6 +382,36 @@ class MemoryStore:
         }
         return [by_id[i] for i in ids if i in by_id]
 
+    def ids_in_window(self, namespace, start, end, limit=50) -> List[str]:
+        """Memories about something happening in [start, end] (event time), or
+        — for timeless ones — said in it, soonest first."""
+        with self._lock:
+            return [r["id"] for r in self._conn.execute(
+                f"SELECT id FROM chunks WHERE namespace=? AND {_ACTIVE} AND ("
+                "(event_start IS NOT NULL AND event_start <= ? AND IFNULL(event_end, event_start) >= ?) "
+                "OR (event_start IS NULL AND created_at BETWEEN ? AND ?)) "
+                "ORDER BY IFNULL(event_start, created_at) LIMIT ?",
+                (namespace or GLOBAL_NS, end, start, start, end, limit))]
+
+    def event_entities_in_window(self, namespace, start, end) -> List[str]:
+        with self._lock:
+            return [r["id"] for r in self._conn.execute(
+                "SELECT id FROM entities WHERE namespace=? AND event_start IS NOT NULL "
+                "AND event_start <= ? AND IFNULL(event_end, event_start) >= ? ORDER BY event_start",
+                (namespace or GLOBAL_NS, end, start))]
+
+    def entity_degree(self, entity_ids) -> dict:
+        """How many memories each entity is linked to (hubs like the user
+        himself are skipped when following links)."""
+        ids = list(entity_ids or [])
+        if not ids:
+            return {}
+        with self._lock:
+            q = ",".join("?" * len(ids))
+            return {r["entity_id"]: r["n"] for r in self._conn.execute(
+                f"SELECT entity_id, COUNT(*) AS n FROM memory_entities WHERE entity_id IN ({q}) "
+                "GROUP BY entity_id", ids)}
+
     def filtered_ids(self, namespace, *, source_prefix="", since=None, until=None,
                      person="", limit=200) -> List[str]:
         """Ids of memories matching every given filter, oldest first.

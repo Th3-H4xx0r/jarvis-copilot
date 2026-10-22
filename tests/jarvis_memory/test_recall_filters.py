@@ -84,8 +84,8 @@ def test_query_with_filters_ranks_within_candidates(tmp_path):
 
 
 def test_until_bare_date_means_end_of_day_local(tmp_path, monkeypatch):
-    import jarviscopilot_time
-    monkeypatch.setattr(jarviscopilot_time, "get_timezone", lambda: LA)
+    from plugins.memory.jarvis_memory import tz
+    monkeypatch.setattr(tz, "user_zone", lambda: LA)
     p = _provider(tmp_path)
     _seed(p)
     hits = _recall(p, source="imessage", since="2026-10-19", until="2026-10-19", limit=10)
