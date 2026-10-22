@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional
 
+from .textq import content_tokens
+
 logger = logging.getLogger(__name__)
 
 HEADER = "[Now — what's going on in his life]"
@@ -192,6 +194,7 @@ def _coming_up(ctx: BriefCtx) -> Optional[str]:
             continue
         rows.append((c.event_start, f"- {_span(c.event_start, c.event_end, zone)}: "
                                     f"{' '.join(c.body.split())[:140]}", c.body.lower()[:60]))
+    by_day: Dict[str, List[set]] = {}
     for item in ctx.data.get("calendar", []):
         title = str(item.get("title") or "").strip()
         at = item.get("start")
@@ -199,6 +202,16 @@ def _coming_up(ctx: BriefCtx) -> Optional[str]:
             continue
         if title.lower() in seen:
             continue
+        # The same thing on several calendars ("Mom's Bday" / "Mom's 47th
+        # Birthday"): one line per day per shared name.
+        day = datetime.fromtimestamp(float(at), zone).date().isoformat()
+        words = {w for w in content_tokens(title.replace("’", "'")) if not w.isdigit()}
+        words = {w[:-2] if w.endswith("'s") else w for w in words} | {"birthday"} \
+            if {"bday", "birthday"} & words else words
+        if any(len(words & other) >= max(1, min(len(words), len(other)) - 1) and words & other
+               for other in by_day.get(day, [])):
+            continue
+        by_day.setdefault(day, []).append(words)
         seen.add(title.lower())
         line = f"- {_span(float(at), item.get('end'), zone, bool(item.get('all_day')))}: {title}"
         if item.get("location"):

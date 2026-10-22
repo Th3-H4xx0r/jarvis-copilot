@@ -115,3 +115,14 @@ def test_prefetch_contains_brief_and_recall(tmp_path):
     assert out.index("[Now") < out.index("[Long-term memory]")
     assert "deploy_both.sh" in out
     p.shutdown()
+
+
+def test_same_day_calendar_duplicates_listed_once(tmp_path):
+    s, _e, _ids = build_venue_store(tmp_path)
+    brief.register_data("calendar", lambda ctx: [
+        {"title": "Mom's Bday", "start": ts(2026, 10, 23, 0, 0), "all_day": True},
+        {"title": "Mom's birthday", "start": ts(2026, 10, 23, 0, 0), "all_day": True},
+        {"title": "Mom’s 47th Birthday", "start": ts(2026, 10, 23, 0, 0), "all_day": True},
+        {"title": "Dentist", "start": ts(2026, 10, 23, 9, 0), "all_day": False}])
+    text = brief.build(s, GLOBAL_NS, now=NOW)
+    assert sum("Mom" in l for l in text.splitlines()) == 1 and "Dentist" in text

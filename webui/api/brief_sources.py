@@ -214,7 +214,8 @@ def inbox_source(ctx) -> Optional[str]:
             continue
         for path in files[:1]:
             text = _response_lines(path.read_text(encoding="utf-8", errors="ignore"))
-            if text and "nothing" not in text[0].lower():
+            quiet = ("nothing", "no new", "no email", "no activity", "no messages")
+            if text and not any(q in text[0].lower() for q in quiet):
                 lines.append(f"- {job.get('name') or 'Email'}: " + " ".join(text[:3])[:220])
     fresh = _fresh_inbox_lines()
     lines += [f"- {l}" for l in fresh[:5]]
@@ -227,6 +228,8 @@ def messages_source(ctx) -> Optional[str]:
         waiting = im_store().waiting_threads(ctx.now.timestamp() - ctx.lookback_days * 86400)
     except Exception:
         return None
+    # His own Jarvis number texting him isn't a person waiting on a reply.
+    waiting = [w for w in waiting if "jarvis" not in str(w.get("name") or "").lower()]
     if not waiting:
         return None
     now = ctx.now.timestamp()

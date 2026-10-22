@@ -201,3 +201,22 @@ def test_calendar_leaves_out_what_already_ended(_home):
         {"title": "Going on now", "start_iso": "2026-10-22T01:00:00Z", "end_iso": "2026-10-22T03:00:00Z"},
         {"title": "Tomorrow", "start_iso": "2026-10-22T15:00:00Z"}]})
     assert [i["title"] for i in bs.calendar_items(_ctx())] == ["Going on now", "Tomorrow"]
+
+
+def test_quiet_inbox_runs_and_jarvis_threads_are_left_out(monkeypatch, _home):
+    import os
+    monkeypatch.setattr(bs, "_email_jobs", lambda: [{"id": "job1", "name": "email monitor"}])
+    folder = _home / "cron" / "output" / "job1"
+    folder.mkdir(parents=True)
+    f = folder / "run.md"
+    f.write_text("# Cron Job: x\n\n## Response\n\nNo new email activity.\n")
+    os.utime(f, (NOW.timestamp(), NOW.timestamp()))
+    assert bs.inbox_source(_ctx()) is None
+    import api.imessage_memory as im
+
+    class Fake:
+        def waiting_threads(self, since):
+            return [{"guid": "j", "name": "Jarvis", "last_sender": "Jarvis", "last_at": NOW.timestamp()},
+                    {"guid": "s", "name": "Sid", "last_sender": "Sid", "last_at": NOW.timestamp() - 60}]
+    monkeypatch.setattr(im, "store", lambda: Fake())
+    assert bs.messages_source(_ctx()) == "Messages waiting on you: Sid (1 min ago)"
