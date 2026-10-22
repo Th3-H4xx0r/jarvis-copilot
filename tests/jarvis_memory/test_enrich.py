@@ -158,3 +158,39 @@ def test_a_cut_off_reply_keeps_its_complete_items(env):
     assert counts["enriched"] == 1 and counts["failed"] == 1
     assert s.get_chunks([a])[0].slots == "with: Sid"
     assert s.queue_ids(10) == [b]
+
+
+def test_a_batch_is_re_embedded_in_one_call(env):
+    s, e, add = env
+    ids = [add(f"memory {i} about the race", _ts(2026, 10, 20, 12, i)) for i in range(5)]
+    calls = []
+    real = e.embed
+    e.embed = lambda texts: calls.append(list(texts)) or real(texts)
+    reply = json.dumps([{"id": i, "kind": "fact", "importance": 5, "trivial": False, "event_start": None,
+                         "event_end": None, "entities": [], "slots": "venue: COTA", "supersedes": []} for i in ids])
+    enrich_batch(s, e, ids, zone=CT, complete=Model(reply))
+    assert len([c for c in calls if len(c) > 1]) == 1 and len(calls[-1]) == 5
+
+
+def test_drain_runs_batches_side_by_side(tmp_path):
+    import threading
+    import time as _time
+    from plugins.memory.jarvis_memory.enrich import drain
+    s = MemoryStore(tmp_path / "memory.db", tmp_path / "vault")
+    e = FakeEmbedder(dim=64)
+    for i in range(45):
+        s.add_chunk(GLOBAL_NS, f"fact number {i} about things", f"f:{i}", float(i), 1.0)
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def model(prompt, n):
+        ids = [l.split("id ")[1].split(" ")[0] for l in prompt.splitlines() if l.startswith("- id ")]
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        _time.sleep(0.2)
+        with lock:
+            live[0] -= 1
+        return json.dumps([{"id": i, "kind": "fact", "importance": 5, "trivial": False, "event_start": None,
+                            "event_end": None, "entities": [], "slots": "", "supersedes": []} for i in ids])
+    total = drain(s, e, zone=CT, complete=model, workers=3)
+    assert total["enriched"] == 45 and peak[0] >= 2

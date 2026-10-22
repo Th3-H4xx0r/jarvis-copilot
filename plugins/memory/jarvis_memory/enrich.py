@@ -155,6 +155,7 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
         return counts
     by_id = {d["id"]: d for d in _parse(reply)}
     by_chunk = {c.id: c for c in chunks}
+    to_embed: List[tuple] = []  # (chunk, text) — embedded together after the batch
     missing = [cid for cid in by_chunk if cid not in by_id]
     if missing:
         store.bump_attempts(missing)
@@ -165,7 +166,7 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
             continue
         try:
             counts_one = _apply(store, embedder, c, item, related.get(cid, []), zone,
-                                index_for(c.namespace), log)
+                                index_for(c.namespace), log, to_embed)
             for k, v in counts_one.items():
                 counts[k] += v
             store.dequeue([cid])
@@ -173,10 +174,18 @@ def enrich_batch(store, embedder, ids: List[str], *, zone,
             logger.warning("jarvis_memory map: could not apply %s", cid, exc_info=True)
             store.bump_attempts([cid])
             counts["failed"] += 1
+    if to_embed:
+        try:
+            vecs = embedder.embed([text for _c, text in to_embed])
+            for (c, _text), vec in zip(to_embed, vecs):
+                if vec:
+                    store.set_vector(c.id, c.namespace, vec, embedder.signature, embedder.dim)
+        except Exception:
+            logger.debug("jarvis_memory map: re-embed failed for a batch", exc_info=True)
     return counts
 
 
-def _apply(store, embedder, c, item, related, zone, index, log=None) -> Dict[str, int]:
+def _apply(store, embedder, c, item, related, zone, index, log=None, to_embed=None) -> Dict[str, int]:
     out = {"enriched": 0, "hidden": 0, "superseded": 0}
     deliberate = c.pinned or (c.source or "").startswith(("tool:memory_store", "builtin:"))
     if item.get("trivial") is True and not deliberate:  # never hide what he saved on purpose
@@ -230,12 +239,16 @@ def _apply(store, embedder, c, item, related, zone, index, log=None) -> Dict[str
         fields["event_end"] = end
     store.set_map_fields(c.id, **fields)
     if slots:
-        try:
-            vec = embedder.embed_one(c.body + " " + slots)
-            if vec:
-                store.set_vector(c.id, c.namespace, vec, embedder.signature, embedder.dim)
-        except Exception:
-            logger.debug("jarvis_memory map: re-embed failed for %s", c.id, exc_info=True)
+        text = c.body + " " + slots
+        if to_embed is not None:
+            to_embed.append((c, text))
+        else:
+            try:
+                vec = embedder.embed_one(text)
+                if vec:
+                    store.set_vector(c.id, c.namespace, vec, embedder.signature, embedder.dim)
+            except Exception:
+                logger.debug("jarvis_memory map: re-embed failed for %s", c.id, exc_info=True)
     out["enriched"] = 1
     return out
 
@@ -258,24 +271,46 @@ def start_loop(store, embedder, *, interval: float = 30.0, stop: Optional[thread
 
 
 def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[int] = None,
-          progress: Optional[Callable[[dict], None]] = None, log: Optional[list] = None) -> Dict[str, int]:
-    """Map everything queued (or ``max_batches``). Stops early when a batch
-    makes no progress (model down)."""
+          progress: Optional[Callable[[dict], None]] = None, log: Optional[list] = None,
+          workers: int = 1) -> Dict[str, int]:
+    """Map everything queued (or ``max_batches``), ``workers`` batches at a
+    time — claims keep them apart, so the model calls overlap. A worker stops
+    when a batch makes no progress (model down)."""
     from . import tz
+    zone = zone or tz.user_zone()
     total = {"enriched": 0, "hidden": 0, "superseded": 0, "failed": 0, "batches": 0}
-    while max_batches is None or total["batches"] < max_batches:
-        ids = store.claim(BATCH)
-        if not ids:
-            break
-        counts = enrich_batch(store, embedder, ids, zone=zone or tz.user_zone(), complete=complete,
-                              log=log)
-        total["batches"] += 1
-        for k, v in counts.items():
-            total[k] += v
-        if progress:
-            progress(dict(total))
-        if not any(counts.values()):
-            break
+    lock = threading.Lock()
+
+    def worker():
+        while True:
+            with lock:
+                if max_batches is not None and total["batches"] >= max_batches:
+                    return
+                total["batches"] += 1  # reserve the slot
+            ids = store.claim(BATCH)
+            if not ids:
+                with lock:
+                    total["batches"] -= 1
+                return
+            counts = enrich_batch(store, embedder, ids, zone=zone, complete=complete, log=log)
+            with lock:
+                for k, v in counts.items():
+                    total[k] += v
+                snapshot = dict(total)
+            if progress:
+                progress(snapshot)
+            if not any(counts.values()):
+                return
+
+    if workers <= 1:
+        worker()
+    else:
+        threads = [threading.Thread(target=worker, daemon=True, name=f"jarvis-mem-map-{i}")
+                   for i in range(workers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
     if total["enriched"] or total["hidden"]:
         try:
             from . import brief
@@ -288,6 +323,6 @@ def drain(store, embedder, *, zone=None, complete=None, max_batches: Optional[in
 def _run(store, embedder, interval, stop):
     while not stop.wait(interval):
         try:
-            drain(store, embedder, max_batches=20)
+            drain(store, embedder, max_batches=20, workers=2)
         except Exception:
             logger.warning("jarvis_memory map loop tick failed", exc_info=True)

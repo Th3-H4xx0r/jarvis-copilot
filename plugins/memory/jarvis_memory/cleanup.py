@@ -90,7 +90,7 @@ def _example(store, cid) -> dict:
 
 
 def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] = None,
-        progress: Optional[Callable[[dict], None]] = None) -> dict:
+        progress: Optional[Callable[[dict], None]] = None, workers: int = 6) -> dict:
     from .enrich import drain
 
     counts = {"merged": 0, "hidden_trivial": 0, "superseded": 0, "live_rewritten": 0,
@@ -179,7 +179,7 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
     todo = store.active_ids(unenriched=True)
     store.enqueue(todo)
     log: list = []
-    total = drain(store, embedder, zone=zone, complete=complete, log=log,
+    total = drain(store, embedder, zone=zone, complete=complete, log=log, workers=workers,
                   progress=lambda t: note("map", t.get("enriched", 0) + t.get("hidden", 0), len(todo)))
     counts["enriched"] += total.get("enriched", 0)
     counts["failed"] += total.get("failed", 0)

@@ -88,32 +88,58 @@ class OllamaEmbedder(Embedder):
         return self._dim
 
     def embed(self, texts: List[str]) -> List[List[float]]:
+        """All of ``texts`` in one request (``/api/embed``): a batch costs about
+        what one text does on the server's CPU. Falls back to one request per
+        text on an Ollama too old for it."""
         import json as _json
+        import urllib.error
         import urllib.request  # stdlib — no third-party dependency
 
-        out: List[List[float]] = []
-        for t in texts:
-            req = urllib.request.Request(
-                f"{self._url}/api/embeddings",
-                # keep_alive: an unloaded model costs ~3 s on the next turn.
-                data=_json.dumps({"model": self._model, "prompt": t or "",
-                                  "keep_alive": "24h"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
+        texts = [t or "" for t in texts]
+        if not texts:
+            return []
+        req = urllib.request.Request(
+            f"{self._url}/api/embed",
+            # keep_alive: an unloaded model costs ~3 s on the next turn.
+            data=_json.dumps({"model": self._model, "input": texts,
+                              "keep_alive": "24h"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 payload = _json.loads(resp.read().decode("utf-8"))
-            emb = payload.get("embedding") or []
-            if emb and len(emb) != self._dim and not self._warned_dim:
-                # Do NOT mutate self._dim — that would change the signature and
-                # strand previously stored vectors. Warn once; fix the config.
-                logger.warning(
-                    "jarvis_memory: ollama model %s returned dim %d but configured "
-                    "embed_dim=%d; set plugins.jarvis_memory.embed_dim=%d to match",
-                    self._model, len(emb), self._dim, len(emb),
-                )
-                self._warned_dim = True
-            out.append([float(x) for x in emb])
+            out = [[float(x) for x in emb] for emb in payload.get("embeddings") or []]
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            out = [self._embed_legacy(t) for t in texts]
+        for emb in out:
+            self._check_dim(emb)
         return out
+
+    def _embed_legacy(self, text: str) -> List[float]:
+        import json as _json
+        import urllib.request
+        req = urllib.request.Request(
+            f"{self._url}/api/embeddings",
+            data=_json.dumps({"model": self._model, "prompt": text,
+                              "keep_alive": "24h"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+        return [float(x) for x in payload.get("embedding") or []]
+
+    def _check_dim(self, emb) -> None:
+        if emb and len(emb) != self._dim and not self._warned_dim:
+            # Do NOT mutate self._dim — that would change the signature and
+            # strand previously stored vectors. Warn once; fix the config.
+            logger.warning(
+                "jarvis_memory: ollama model %s returned dim %d but configured "
+                "embed_dim=%d; set plugins.jarvis_memory.embed_dim=%d to match",
+                self._model, len(emb), self._dim, len(emb),
+            )
+            self._warned_dim = True
 
 
 def make_embedder(cfg: dict) -> Embedder:

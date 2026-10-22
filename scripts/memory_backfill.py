@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--report", action="store_true", help="print the last report and exit")
+    ap.add_argument("--workers", type=int, default=6, help="map batches running at once (default 6)")
     args = ap.parse_args()
     from plugins.memory.jarvis_memory import cleanup, external, tz
     store, embedder, _ns, _th = external._open()
@@ -33,7 +34,7 @@ def main() -> int:
         install()
     except Exception as exc:
         print(f"(memory model: using the default — {exc})", file=sys.stderr)
-    report = cleanup.run(store, embedder, zone=tz.user_zone(),
+    report = cleanup.run(store, embedder, zone=tz.user_zone(), workers=args.workers,
                          progress=lambda s: print(f"\r{s['step']} {s['done']}/{s['total']}   ",
                                                   end="", file=sys.stderr, flush=True))
     print(file=sys.stderr)
