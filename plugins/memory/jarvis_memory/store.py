@@ -824,6 +824,10 @@ class MemoryStore:
         eid = "e_" + hashlib.sha256(key).hexdigest()[:20]
         aliases = [" ".join(str(a).split()) for a in (e.get("aliases") or []) if str(a).strip()]
         aliases = [a for a in aliases if a.lower() != canonical.lower()]
+        # A node he renamed keeps its first id: find it by its current name.
+        existing = self.find_entity(ns, etype, canonical)
+        if existing:
+            eid = existing
         with self._lock:
             row = self._conn.execute("SELECT aliases FROM entities WHERE id=?", (eid,)).fetchone()
             if row is None:
@@ -908,11 +912,85 @@ class MemoryStore:
                 "DELETE FROM recall_traces WHERE id <= (SELECT MAX(id) FROM recall_traces) - 2000")
             self._conn.commit()
 
-    def recent_traces(self, n=20) -> List[dict]:
+    def recent_traces(self, n=20, session_id=None) -> List[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM recall_traces ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+            if session_id:
+                rows = self._conn.execute(
+                    "SELECT * FROM recall_traces WHERE session_id=? ORDER BY id DESC LIMIT ?",
+                    (session_id, n)).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM recall_traces ORDER BY id DESC LIMIT ?", (n,)).fetchall()
         return [dict(r) | {"trace": json.loads(r["trace"] or "{}")} for r in rows]
+
+    def get_trace(self, trace_id) -> Optional[dict]:
+        with self._lock:
+            r = self._conn.execute("SELECT * FROM recall_traces WHERE id=?", (trace_id,)).fetchone()
+        return dict(r) | {"trace": json.loads(r["trace"] or "{}")} if r else None
+
+    # -- fixing the map (rename, merge, unlink) ---------------------------------
+    def find_entity(self, namespace, etype, name) -> Optional[str]:
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT id FROM entities WHERE namespace=? AND type=? AND lower(canonical)=lower(?) LIMIT 1",
+                (namespace or GLOBAL_NS, etype, " ".join(str(name).split()))).fetchone()
+        return r["id"] if r else None
+
+    def _bump_entity_version(self):
+        cur = self._conn.execute(
+            "SELECT value FROM kv WHERE namespace='__map__' AND key='entity_version'").fetchone()
+        version = int(cur["value"]) if cur else 0
+        self._conn.execute("INSERT OR REPLACE INTO kv(namespace,key,value,updated_at) "
+                           "VALUES ('__map__','entity_version',?,?)", (str(version + 1), time.time()))
+
+    def edit_entity(self, entity_id, *, canonical=None, aliases=None, pinned=None):
+        with self._lock, self._write():
+            row = self._conn.execute("SELECT canonical, aliases FROM entities WHERE id=?",
+                                     (entity_id,)).fetchone()
+            if row is None:
+                return
+            names = json.loads(row["aliases"] or "[]") if aliases is None else \
+                [" ".join(str(a).split()) for a in aliases if str(a).strip()]
+            new_name = row["canonical"]
+            if canonical and canonical != row["canonical"]:
+                new_name = canonical
+                names = [row["canonical"]] + names  # the old name still finds it
+            names = [a for a in _dedup_ci(names) if a.lower() != new_name.lower()]
+            fields = {"canonical": new_name, "aliases": json.dumps(names), "updated_at": time.time()}
+            if pinned is not None:
+                fields["pinned"] = 1 if pinned else 0
+            cols = ", ".join(f"{k}=?" for k in fields)
+            self._conn.execute(f"UPDATE entities SET {cols} WHERE id=?", list(fields.values()) + [entity_id])
+            self._bump_entity_version()
+            self._conn.commit()
+
+    def merge_entities(self, from_id, into_id, extra_aliases=()):
+        with self._lock, self._write():
+            self._conn.execute(
+                "INSERT OR IGNORE INTO memory_entities(memory_id, entity_id, role) "
+                "SELECT memory_id, ?, role FROM memory_entities WHERE entity_id=?", (into_id, from_id))
+            self._conn.execute("DELETE FROM memory_entities WHERE entity_id=?", (from_id,))
+            row = self._conn.execute("SELECT canonical, aliases, pinned FROM entities WHERE id=?",
+                                     (into_id,)).fetchone()
+            names = _dedup_ci(json.loads(row["aliases"] or "[]") + [a for a in extra_aliases if a])
+            names = [a for a in names if a.lower() != row["canonical"].lower()]
+            src = self._conn.execute("SELECT pinned, event_start, event_end FROM entities WHERE id=?",
+                                     (from_id,)).fetchone()
+            self._conn.execute(
+                "UPDATE entities SET aliases=?, pinned=MAX(pinned, ?), "
+                "event_start=COALESCE(event_start, ?), event_end=COALESCE(event_end, ?), updated_at=? "
+                "WHERE id=?", (json.dumps(names), src["pinned"] if src else 0,
+                               src["event_start"] if src else None, src["event_end"] if src else None,
+                               time.time(), into_id))
+            self._conn.execute("DELETE FROM entities WHERE id=?", (from_id,))
+            self._bump_entity_version()
+            self._conn.commit()
+
+    def unlink_entity(self, memory_id, entity_id):
+        with self._lock, self._write():
+            self._conn.execute("DELETE FROM memory_entities WHERE memory_id=? AND entity_id=?",
+                               (memory_id, entity_id))
+            self._conn.commit()
 
     def count_chunks(self, namespace=None) -> int:
         with self._lock:
