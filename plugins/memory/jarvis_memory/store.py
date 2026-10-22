@@ -20,8 +20,13 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from .textq import content_tokens, fts_query
+from .vecindex import VectorIndex
+
 logger = logging.getLogger(__name__)
 GLOBAL_NS = "global"
+# Keyword hit found only by the substring fallback (no FTS strength to go on).
+LIKE_SCORE = 0.2
 
 
 @dataclass
@@ -100,13 +105,6 @@ def _entity_row(r) -> dict:
     return d
 
 
-def _fts_or_query(query: str) -> str:
-    # \w is Unicode-aware in Python 3 — keep accented/CJK tokens (the FTS table
-    # uses unicode61, which indexes them). Quoting neutralizes FTS operators.
-    toks = re.findall(r"\w+", query or "", flags=re.UNICODE)
-    return " OR ".join(f'"{t}"' for t in toks)
-
-
 class MemoryStore:
     def __init__(self, db_path, vault_dir):
         self.db_path = str(db_path)
@@ -120,6 +118,7 @@ class MemoryStore:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=15000")
         self._has_fts = False
+        self._vindex: dict = {}
         self._bootstrap()
 
     def _bootstrap(self):
@@ -250,6 +249,7 @@ class MemoryStore:
                     "VALUES (?,?,?,?,?)",
                     (cid, namespace, _pack(embedding), signature, int(dim or len(embedding))),
                 )
+                self._index_put(cid, namespace, signature, embedding)
             self._conn.commit()
         return cid
 
@@ -260,32 +260,56 @@ class MemoryStore:
                 "VALUES (?,?,?,?,?)",
                 (chunk_id_, namespace or GLOBAL_NS, _pack(embedding), signature, int(dim)),
             )
+            self._index_put(chunk_id_, namespace or GLOBAL_NS, signature, embedding)
             self._conn.commit()
 
-    def vector_search(self, namespace, query_vec, signature, limit=20,
-                      only_ids=None) -> List[Tuple[str, float]]:
-        with self._lock:
+    # -- in-memory vector index (built on first search, kept in step after) ----
+    def _index_put(self, cid, namespace, signature, embedding):
+        idx = self._vindex.get((namespace or GLOBAL_NS, signature))
+        if idx is None:
+            return
+        row = self._conn.execute("SELECT status FROM chunks WHERE id=?", (cid,)).fetchone()
+        if row is not None and (row["status"] or "active") != "hidden":
+            idx.add(cid, embedding)
+
+    def _index_drop(self, ids):
+        for idx in self._vindex.values():
+            for cid in ids:
+                idx.remove(cid)
+
+    def _index_reload(self, ids):
+        """Put rows back into any built index (after they become active)."""
+        if not self._vindex or not ids:
+            return
+        q = ",".join("?" * len(ids))
+        for r in self._conn.execute(
+                f"SELECT chunk_id, namespace, model_signature, embedding FROM vectors "
+                f"WHERE chunk_id IN ({q})", list(ids)):
+            idx = self._vindex.get((r["namespace"], r["model_signature"]))
+            if idx is not None:
+                idx.add(r["chunk_id"], _unpack(r["embedding"]))
+
+    def _index_for(self, namespace, signature, dim):
+        key = (namespace or GLOBAL_NS, signature)
+        idx = self._vindex.get(key)
+        if idx is None or idx.dim != dim:
+            idx = VectorIndex(dim)
             rows = self._conn.execute(
                 "SELECT v.chunk_id AS chunk_id, v.embedding AS embedding FROM vectors v "
                 "JOIN chunks c ON c.id=v.chunk_id "
                 f"WHERE v.namespace=? AND v.model_signature=? AND {_C_ACTIVE}",
-                (namespace or GLOBAL_NS, signature),
+                key,
             ).fetchall()
-        if only_ids is not None:
-            rows = [r for r in rows if r["chunk_id"] in only_ids]
-        if not rows:
-            return []
-        q = np.asarray(query_vec, dtype=np.float32)
-        qn = float(np.linalg.norm(q)) or 1.0
-        scored: List[Tuple[str, float]] = []
-        for r in rows:
-            v = _unpack(r["embedding"])
-            if v.shape[0] != q.shape[0]:
-                continue
-            vn = float(np.linalg.norm(v)) or 1.0
-            scored.append((r["chunk_id"], float(np.dot(q, v) / (qn * vn))))
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return scored[:limit]
+            idx.build((r["chunk_id"], _unpack(r["embedding"])) for r in rows)
+            self._vindex[key] = idx
+        return idx
+
+    def vector_search(self, namespace, query_vec, signature, limit=20,
+                      only_ids=None) -> List[Tuple[str, float]]:
+        q = np.asarray(query_vec, dtype=np.float32).reshape(-1)
+        with self._lock:
+            idx = self._index_for(namespace, signature, q.shape[0])
+            return idx.search(q, limit, only_ids=only_ids)
 
     def keyword_search(self, namespace, query, limit=20, only_ids=None) -> List[Tuple[str, float]]:
         ns = namespace or GLOBAL_NS
@@ -294,26 +318,33 @@ class MemoryStore:
         # top `limit` — the candidates may all rank below it — so it reads every
         # match and filters before cutting.
         sql_limit = -1 if only_ids is not None else limit
+        scores: dict = {}
         with self._lock:
             if self._has_fts:
-                q = _fts_or_query(query)
+                q = fts_query(query)
                 if q:
                     try:
                         rows = self._conn.execute(
-                            "SELECT f.chunk_id AS cid FROM chunks_fts f "
+                            "SELECT f.chunk_id AS cid, bm25(chunks_fts) AS rank FROM chunks_fts f "
                             "JOIN chunks c ON c.id=f.chunk_id "
                             "WHERE c.namespace=? AND f.body MATCH ? "
                             f"AND {_C_ACTIVE} "
-                            "ORDER BY bm25(chunks_fts) LIMIT ?",
+                            "ORDER BY rank LIMIT ?",
                             (ns, q, sql_limit),
                         ).fetchall()
                         ids = [r["cid"] for r in rows]
+                        # bm25 is negative, more negative = stronger; map the
+                        # strength s onto (0, 1) so a weak match scores low no
+                        # matter where it lands in the list.
+                        for r in rows:
+                            s = max(-float(r["rank"] or 0.0), 0.0)
+                            scores[r["cid"]] = s / (1.0 + s)
                     except sqlite3.OperationalError:
                         ids = []
             if only_ids is not None:
                 ids = [cid for cid in ids if cid in only_ids]
             if not ids:
-                toks = re.findall(r"\w+", query or "", flags=re.UNICODE)
+                toks = content_tokens(query)
                 if toks:
                     like = " OR ".join(["body LIKE ?"] * len(toks))
                     args = [ns] + [f"%{t}%" for t in toks] + [sql_limit]
@@ -325,9 +356,7 @@ class MemoryStore:
                     ids = [r["id"] for r in rows]
                     if only_ids is not None:
                         ids = [cid for cid in ids if cid in only_ids]
-        ids = ids[:limit]
-        n = len(ids)
-        return [(cid, (n - i) / n) for i, cid in enumerate(ids)] if n else []
+        return [(cid, scores.get(cid, LIKE_SCORE)) for cid in ids[:limit]]
 
     def get_chunks(self, ids: List[str]) -> List[Chunk]:
         if not ids:
@@ -407,6 +436,7 @@ class MemoryStore:
             self._conn.execute("DELETE FROM vectors WHERE chunk_id=?", (cid,))
             for table in ("memory_sources", "memory_entities", "map_queue"):
                 self._conn.execute(f"DELETE FROM {table} WHERE memory_id=?", (cid,))
+            self._index_drop([cid])
             if self._has_fts:
                 self._conn.execute("DELETE FROM chunks_fts WHERE chunk_id=?", (cid,))
             self._conn.commit()
@@ -470,6 +500,10 @@ class MemoryStore:
             return
         with self._lock:
             self._conn.executemany("UPDATE chunks SET status=? WHERE id=?", [(status, i) for i in ids])
+            if status == "hidden":
+                self._index_drop(ids)
+            else:
+                self._index_reload(ids)
             self._conn.commit()
 
     def set_map_fields(self, cid, **fields):
@@ -502,6 +536,7 @@ class MemoryStore:
                     "INSERT OR REPLACE INTO vectors(chunk_id,namespace,embedding,model_signature,dim) "
                     "VALUES (?,?,?,?,?)",
                     (cid, row["namespace"], _pack(embedding), signature, int(dim or len(embedding))))
+                self._index_put(cid, row["namespace"], signature, embedding)
             self._conn.commit()
         if row["content_path"]:
             try:
