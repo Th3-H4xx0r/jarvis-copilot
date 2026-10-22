@@ -192,3 +192,14 @@ def test_noise_written_before_is_cleared(home, monkeypatch):
     monkeypatch.setattr(sync, "_email_jobs", lambda: [])
     sync.sync_once(now=NOW)
     assert _memories("email:") == []
+
+
+def test_machine_output_and_dividers(home, monkeypatch):
+    monkeypatch.setattr(sync, "_email_jobs", lambda: [])
+    monkeypatch.setattr(sync, "_other_jobs", lambda: [{"id": "h", "name": "Jarvis Health"},
+                                                      {"id": "f", "name": "Flight tracking"}])
+    _run_file(home, "h", "a", '--- {"space": "jarvis-health", "scores": {"sleep": {"value": 81}}}')
+    _run_file(home, "f", "a", "---\nFlight AA100 to Austin leaves Fri 7:05 AM from gate B12.")
+    sync.sync_once(now=NOW)
+    assert [m["body"] for m in _memories("cron:")] == [
+        "Flight tracking, Wed 21 Oct: Flight AA100 to Austin leaves Fri 7:05 AM from gate B12."]

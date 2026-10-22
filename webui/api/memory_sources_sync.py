@@ -153,7 +153,10 @@ _STATUS = re.compile(
 def _report_text(lines: List[str]) -> str:
     """What a run actually reported — its status words removed. "" when the
     run only said it ran (or failed): that's not something to remember."""
-    text = " ".join(lines)
+    text = " ".join(l for l in lines if not re.fullmatch(r"[-=*_ ]{3,}", l)).strip()
+    text = re.sub(r"^[-=*_]{3,}\s*", "", text)  # a leading divider
+    if text[:1] in "{[":
+        return ""  # machine output (JSON) — the source has its own memory, if any
     if re.search(r"\b(failed|could ?n[o']t (?:start|run))\b", text[:200], re.IGNORECASE):
         return ""
     rest = _STATUS.sub(" ", text)
