@@ -35,5 +35,13 @@ Spec: docs/superpowers/specs/2026-10-21-memory-map-recall-design.md (gitignored)
 - [x] Cleanup & map: Stop button, clear naming, runs from anywhere shown
 - [x] Parallel bug sweep (server 14, web 11, iOS 12) → fixed
 - [ ] He opens Long-term Memory → Map and tries it; check gestures/VoiceOver on device
-- [ ] Recheck live recall latency after the backfill finishes (eval p50 0.9 s was under backfill load)
+- [x] Recheck live recall latency after the backfill finishes → slow: see Latency below
 - [ ] Health + places memories appear from tomorrow (written for the day just finished)
+
+## Latency (2026-10-22, "messages take way too long")
+Measured on the server: before the memory map, prep before the model call was ~0.07 s; after it, 0.3–0.7 s (up to 1.5 s during the backfill). Nearly all of it was ONE bge-m3 embed of "message + previous message + names" (0.55–0.65 s on the 4-vCPU CPU); the rest of recall is <20 ms.
+- [ ] Embed starts as the message arrives (webui `_warm_memory_query`), overlapping the ~0.3–0.7 s agent build
+- [ ] Embed only his message; the previous message's vector comes from cache (it was last turn's query) and is blended in
+- [ ] No recall for small talk ("Hello", "Yooo", "What's up") — no embed, no injected memories
+- [ ] Deploy + check `jarvis_memory prefetch … ms` on live turns
+Other time in a turn (not memory): agent build 0.3–0.7 s; ~1.4–2.2 s between the phone's tap and the server's turn start/finish (network + new-chat round trip); first two turns of a chat had ~10k uncached prompt tokens.

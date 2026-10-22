@@ -8,10 +8,27 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import threading
 from abc import ABC, abstractmethod
+from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import List
 
 logger = logging.getLogger(__name__)
+
+# Query vectors, shared by every embedder in the process with the same model:
+# bge-m3 on the server's CPU takes 0.2–0.6 s per text, and a turn's words are
+# often embedded already — by prewarm() as the message arrived, or as the
+# previous turn's query (the next turn's context).
+_CACHE_MAX = 256
+_cache: "OrderedDict[tuple, Future]" = OrderedDict()
+_cache_lock = threading.Lock()
+_prewarm_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem-prewarm")
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
 
 
 class Embedder(ABC):
@@ -31,6 +48,70 @@ class Embedder(ABC):
 
     def embed_one(self, text: str) -> List[float]:
         return self.embed([text])[0]
+
+    def _cache_key(self, text: str) -> tuple:
+        return (type(self).__name__, self.signature, getattr(self, "_url", ""), text)
+
+    def peek(self, text: str):
+        """``text``'s vector if it is already cached and finished, else None —
+        never waits and never starts a request."""
+        with _cache_lock:
+            fut = _cache.get(self._cache_key(text))
+        if fut is None or not fut.done() or fut.exception() is not None:
+            return None
+        return fut.result()
+
+    def embed_cached(self, texts: List[str]) -> List[List[float]]:
+        """``embed`` through the shared cache: texts already embedded (or being
+        embedded right now) are reused; the rest go in one request."""
+        keys = [self._cache_key(t) for t in texts]
+        mine = {}
+        with _cache_lock:
+            for k in keys:
+                if k in _cache:
+                    _cache.move_to_end(k)
+                elif k not in mine:
+                    mine[k] = _cache[k] = Future()
+            futures = [_cache[k] for k in keys]
+            while len(_cache) > _CACHE_MAX:
+                _cache.popitem(last=False)
+        if mine:
+            try:
+                vecs = self.embed([k[3] for k in mine])
+                if len(vecs) != len(mine):
+                    raise ValueError(f"embedder returned {len(vecs)} vectors for {len(mine)} texts")
+                for fut, vec in zip(mine.values(), vecs):
+                    fut.set_result(vec)
+            except BaseException as e:
+                with _cache_lock:
+                    for k in mine:
+                        _cache.pop(k, None)
+                # Waiters in other threads get an ordinary error, never this
+                # thread's KeyboardInterrupt / SystemExit.
+                shared = e if isinstance(e, Exception) else RuntimeError("embed interrupted")
+                for fut in mine.values():
+                    if not fut.done():
+                        fut.set_exception(shared)
+                if shared is not e:
+                    raise
+        return [f.result() for f in futures]
+
+    def prewarm(self, text: str) -> None:
+        """Start embedding ``text`` in the background; a later ``embed_cached``
+        of the same text waits for this request instead of making its own."""
+        if not text:
+            return
+        with _cache_lock:
+            if self._cache_key(text) in _cache:
+                return
+
+        def run():
+            try:
+                self.embed_cached([text])
+            except Exception as e:
+                logger.debug("jarvis_memory prewarm failed: %s", e)
+
+        _prewarm_pool.submit(run)
 
 
 class FakeEmbedder(Embedder):

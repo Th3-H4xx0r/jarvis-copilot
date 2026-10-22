@@ -131,6 +131,11 @@ def replay(store, embedder, cases: List[Case], *, mode: str, zone, namespace: st
     for case in cases:
         existed = set(store.filtered_ids(namespace, until=case.as_of, limit=None))
         prev_user = next((t["content"] for t in reversed(case.prior_turns) if t["role"] == "user"), "")
+        if prev_user and mode != "legacy":
+            try:
+                embedder.embed_cached([prev_user])  # embedded on its own turn, as live
+            except Exception:
+                pass
         t0 = time.perf_counter()
         brief_text = ""
         if mode == "legacy":
@@ -140,7 +145,8 @@ def replay(store, embedder, cases: List[Case], *, mode: str, zone, namespace: st
         else:
             brief_text = brief_mod.build(store, namespace, now=datetime.fromtimestamp(case.as_of, zone))
             res = recall(store, embedder,
-                         RecallQuery(text=case.question, context=prev_user, now=case.as_of, zone=zone),
+                         RecallQuery(text=case.question, context=prev_user, prior=prev_user,
+                                     now=case.as_of, zone=zone),
                          entity_index=index, namespace=namespace, candidate_ids=existed)
             got = [h.chunk.id for h in res.hits]
         ms = (time.perf_counter() - t0) * 1000

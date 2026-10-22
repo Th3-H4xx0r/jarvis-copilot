@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from .embed import Embedder
 from .store import Chunk, GLOBAL_NS, MemoryStore
-from .textq import content_tokens
+from .textq import content_tokens, is_small_talk
 from .timeparse import TimeWindow, window as time_window
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,7 @@ WEAK_KEYWORD = 0.3        # a keyword-only hit under this share of the best one 
 HOP_PARENTS = 3
 HOP_MAX = 4
 VECTOR_BAND = 0.12        # vector hits must be within this cosine of the best one
+PRIOR_WEIGHT = 0.5        # share of the previous message in the query vector
 HUB_DEGREE = 60           # an entity linked to more memories than this isn't followed
 _embed_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-mem-embed")
 
@@ -172,6 +173,9 @@ class RecallQuery:
     now: float
     zone: Any
     context: str = ""
+    # His previous message: blended into the vector search for follow-ups
+    # ("parking there?"); its vector is usually cached from the last turn.
+    prior: str = ""
     limit: int = 6
     budget_chars: int = 2400
     embed_timeout: float = 5.0
@@ -205,6 +209,13 @@ def _salience(c: Chunk, now: float) -> float:
     return max(factor, 0.1)
 
 
+def _blend(a: List[float], b: List[float], weight: float) -> List[float]:
+    """Unit vector of ``a + weight·b``."""
+    v = [x + weight * y for x, y in zip(a, b)]
+    norm = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / norm for x in v]
+
+
 def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_index,
            namespace: str = GLOBAL_NS, candidate_ids=None) -> RecallResult:
     t0 = time.perf_counter()
@@ -213,7 +224,7 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
     if not both:
         return RecallResult([], "", {"ms": 0})
     only = set(candidate_ids) if candidate_ids is not None else None
-    fut = _embed_pool.submit(embedder.embed_one, both)
+    fut = _embed_pool.submit(embedder.embed_cached, [text or both])
 
     channels: Dict[str, List[str]] = {}
     kw = store.keyword_search(namespace, text or both, CHANNEL_DEPTH, only_ids=only)
@@ -249,8 +260,15 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
                 timed.append(c)
         channels["time"] = [c for c in timed if only is None or c in only]
 
+    t_wait = time.perf_counter()
     try:
-        vec = fut.result(timeout=q.embed_timeout)
+        vec = fut.result(timeout=q.embed_timeout)[0]
+        prior = (q.prior or "").strip()
+        # Only a vector already cached (last turn's query) — never wait for one.
+        prior_vec = (embedder.peek(prior) if text and prior and prior != text
+                     and not is_small_talk(prior) else None)
+        if prior_vec is not None:
+            vec = _blend(vec, prior_vec, PRIOR_WEIGHT)
         found = store.vector_search(namespace, vec, embedder.signature, CHANNEL_DEPTH, only_ids=only)
         top_cos = found[0][1] if found else 0.0
         # Vector search ranks everything, related or not; keep only hits near
@@ -259,6 +277,7 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
     except Exception as e:
         logger.warning("jarvis_memory vector arm failed: %s", e)
         channels["vector"] = []
+    embed_wait_ms = round((time.perf_counter() - t_wait) * 1000, 1)
 
     fused: Dict[str, float] = {}
     seen_in: Dict[str, set] = {}
@@ -313,5 +332,6 @@ def recall(store: MemoryStore, embedder: Embedder, q: RecallQuery, *, entity_ind
         "hits": [(cid, round(sc, 5)) for cid, sc in final],
         "hop": [cid for cid, _ in hop],
         "ms": ms,
+        "embed_wait_ms": embed_wait_ms,
     }
     return RecallResult(hits, block, trace, win)

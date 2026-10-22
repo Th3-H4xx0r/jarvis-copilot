@@ -199,6 +199,16 @@ def _carry_late_harness_results(current_messages, previous_len, merged):
     return list(merged) + late
 
 
+def _warm_memory_query(msg_text):
+    """Start embedding his words for the memory recall now, while the agent is
+    still being built — the embed was ~0.3–0.6 s on the turn's critical path."""
+    try:
+        from plugins.memory.jarvis_memory.external import warm_query
+        warm_query(msg_text)
+    except Exception:
+        pass
+
+
 def _plan_for_turn(s, msg_text, attachments):
     """Which harness node answers this turn (api/harness_runner.py).
 
@@ -3038,6 +3048,7 @@ def _run_agent_streaming(
     if q is None:
         return
     _turn_t0 = time.monotonic()
+    _warm_memory_query(msg_text)
     register_active_run(
         stream_id,
         session_id=session_id,

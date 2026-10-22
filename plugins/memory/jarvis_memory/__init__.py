@@ -496,6 +496,11 @@ class JarvisMemoryProvider(MemoryProvider):
                 names = []
         return " ".join([str(last_user)[:600]] + names).strip()
 
+    def _prior_user(self) -> str:
+        """His previous message exactly as the last turn's recall embedded it
+        (so its vector is cached); history copies can be cut mid rules-block."""
+        return getattr(self, "_last_query", "") or ""
+
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         """The brief of what's going on now + memories for THIS message.
 
@@ -515,11 +520,15 @@ class JarvisMemoryProvider(MemoryProvider):
             brief_text = ""
         block = ""
         trace = {}
-        if (query or "").strip():
+        from .textq import is_small_talk
+        if is_small_talk(query):
+            trace = {"skipped": "small talk"}  # "Yooo": the brief is enough
+        elif (query or "").strip():
             try:
                 res = recall(
                     self._store, self._embedder,
-                    RecallQuery(text=query, context=self._recall_context(), now=self._now(),
+                    RecallQuery(text=query, context=self._recall_context(), prior=self._prior_user(),
+                                now=self._now(),
                                 zone=tz.user_zone(),
                                 limit=int(self._cfg.get("recall_limit", 6)),
                                 budget_chars=int(self._cfg.get("max_context_chars", 2400)),
@@ -529,6 +538,7 @@ class JarvisMemoryProvider(MemoryProvider):
                 block += self._resolve_vague(query, brief_text, res.hits, trace)
             except Exception as e:
                 logger.warning("jarvis_memory prefetch recall failed: %s", e)
+        self._last_query = query
         out = (brief_text + "\n\n" if brief_text else "") + block
         ms = round((time.perf_counter() - t0) * 1000, 1)
         trace["total_ms"] = ms

@@ -62,6 +62,20 @@ def _open(hermes_home: Optional[str] = None):
         return handle
 
 
+def warm_query(text: str, hermes_home: Optional[str] = None) -> None:
+    """Start embedding a message's words as it arrives (the web server calls
+    this before it builds the agent), so the turn's recall finds the vector
+    ready instead of waiting on the embedder. Small talk isn't recalled for."""
+    try:
+        from .textq import is_small_talk, strip_injected
+        words = strip_injected(text)
+        if not words or is_small_talk(words) or not is_active():
+            return
+        _open(hermes_home)[1].prewarm(words)
+    except Exception as e:
+        logger.debug("jarvis_memory warm_query failed: %s", e)
+
+
 def remember(body: str, *, source: str, tags: str = "", created_at: Optional[float] = None,
              score: float = 1.0, dedup: bool = True, source_ref: str = "",
              hermes_home: Optional[str] = None) -> Optional[str]:

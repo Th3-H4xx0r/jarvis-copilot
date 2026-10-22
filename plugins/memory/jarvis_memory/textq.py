@@ -57,18 +57,40 @@ def same_specifics(a: str, b: str) -> bool:
 
 # A bracketed block of 40+ chars ending "]" + blank line; it may hold its own [brackets].
 _INJECTED = re.compile(r"\A\s*\[.{40,}?\]\s*\n\s*\n", re.DOTALL)
+# The web chat's working-directory tag, "[Workspace::v1: /root/workspace] ".
+_WORKSPACE = re.compile(r"\A\s*\[Workspace::v1:\s*(?:\\.|[^\]\\])+\]\s*")
 _STAMP = re.compile(r"\s*\((?:from an iMessage chat|overheard in a Live conversation)[^)]*\)")
 
 
 def strip_injected(text: str) -> str:
     """His own words: drop the bracketed instruction blocks surfaces put in
-    front of a turn ("[Voice mode — … rules …]\\n\\n"), however many."""
+    front of a turn ("[Voice mode — … rules …]\\n\\n", the workspace tag),
+    however many."""
     text = text or ""
     while True:
-        m = _INJECTED.match(text)
+        m = _WORKSPACE.match(text) or _INJECTED.match(text)
         if not m:
             return text.strip()
         text = text[m.end():]
+
+
+# Greetings, thanks and acks: nothing in them to look up. Only these words —
+# "who is he?" or "open it" are follow-ups, not small talk.
+_SMALL_TALK = frozenset("""
+hi hii hello hey heya hiya yo sup wassup whats what's whatsup up howdy morning afternoon
+evening night gm gn good great nice cool awesome thanks thank thx ty ok okay k kk alright
+lol lmao haha hehe bye cya later sir dude bro man jarvis you how how's hows are doing
+going it
+""".split())
+
+
+def is_small_talk(text: str) -> bool:
+    """True for "Hello", "Yooo", "What's up", "thanks!" — a message with no
+    words worth recalling memories for (stretched letters count: "yooo" = "yo")."""
+    words = re.findall(r"[a-z0-9']+", (text or "").lower().replace("’", "'"))
+    if not words or len(words) > 6:
+        return False
+    return all(re.sub(r"(.)\1{2,}", r"\1", w) in _SMALL_TALK for w in words)
 
 
 def strip_stamp(text: str) -> str:
