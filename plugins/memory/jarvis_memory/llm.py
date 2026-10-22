@@ -38,7 +38,8 @@ def complete(prompt: str, max_tokens: int = 1500) -> str:
     resp = call_llm(task="memory_map", provider=DEFAULT_AGENT["provider"],
                     model=DEFAULT_AGENT["model"],
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=max_tokens, temperature=0.0, timeout=60)
+                    max_tokens=max_tokens, temperature=0.0, timeout=60,
+                    extra_body={"thinking": {"type": "disabled"}})  # Claude 5.x thinks by default
     return str(extract_content_or_reasoning(resp) or "")
 
 

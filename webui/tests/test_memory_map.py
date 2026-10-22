@@ -40,7 +40,7 @@ def test_set_agent_validates_and_round_trips():
 def test_complete_goes_through_one_shot(monkeypatch):
     import api.imessage_memory_writer as w
     calls = []
-    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200: calls.append((ref, prompt)) or "ok")
+    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200, thinking=True: calls.append((ref, prompt)) or "ok")
     assert mm.complete("hello", 300) == "ok"
     assert calls == [("@anthropic-api:claude-haiku-5-5", "hello")]
 
@@ -48,7 +48,7 @@ def test_complete_goes_through_one_shot(monkeypatch):
 def test_install_registers_completer(monkeypatch):
     from plugins.memory.jarvis_memory import llm
     import api.imessage_memory_writer as w
-    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200: "done")
+    monkeypatch.setattr(w, "_one_shot", lambda ref, prompt, max_tokens=1200, thinking=True: "done")
     monkeypatch.setattr(mm, "_register_brief_sources", lambda: None)
     mm.install()
     try:
@@ -111,3 +111,5 @@ def test_complete_passes_max_tokens_to_the_provider(monkeypatch):
     monkeypatch.setattr(aux, "extract_content_or_reasoning", lambda r: "[]")
     assert mm.complete("x", 4000) == "[]"
     assert seen["max_tokens"] == 4000
+    # Claude 5.x thinks by default: a JSON pass must not spend its budget thinking.
+    assert seen["extra_body"] == {"thinking": {"type": "disabled"}}

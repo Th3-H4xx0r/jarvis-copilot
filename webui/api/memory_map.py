@@ -39,7 +39,7 @@ def complete(prompt: str, max_tokens: int = 1500) -> str:
     ref, _label = resolve_map_model()
     if not ref:
         raise RuntimeError("no memory model set")
-    return writer._one_shot(ref, prompt, max_tokens)
+    return writer._one_shot(ref, prompt, max_tokens, thinking=False)
 
 
 def _register_brief_sources() -> None:

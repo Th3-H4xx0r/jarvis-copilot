@@ -202,7 +202,7 @@ def _memory_model() -> Tuple[str, str]:
     return resolve_extraction_model(get_agent())
 
 
-def _one_shot(model_ref: str, prompt: str, max_tokens: int = 1200) -> str:
+def _one_shot(model_ref: str, prompt: str, max_tokens: int = 1200, thinking: bool = True) -> str:
     """One extraction call. Straight to the provider (``call_llm``): building
     a whole agent per conversation was CPU-bound and serialised the parallel
     workers (~0.4 conversations/s). Only a provider that is an agent CLI
@@ -212,8 +212,13 @@ def _one_shot(model_ref: str, prompt: str, max_tokens: int = 1200) -> str:
     model, provider, base_url = cfg.route_anthropic_via_claude_code(*cfg.resolve_model_provider(model_ref))
     if provider and provider not in _AGENT_ONLY_PROVIDERS:
         from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+        extra = {}
+        if not thinking and str(provider).startswith("anthropic"):
+            # Claude 5.x thinks by default; a JSON pass would spend its budget on it.
+            extra["extra_body"] = {"thinking": {"type": "disabled"}}
         response = call_llm(provider=provider, model=model, base_url=base_url or None,
-                            messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens, timeout=120)
+                            messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens, timeout=120,
+                            **extra)
         return str(extract_content_or_reasoning(response) or "")
     from api.harness_llm import one_shot_completion
     return one_shot_completion(model_ref, prompt, max_tokens=max_tokens, platform="imessage_memory")
