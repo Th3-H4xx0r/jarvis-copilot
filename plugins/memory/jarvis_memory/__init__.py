@@ -483,8 +483,9 @@ class JarvisMemoryProvider(MemoryProvider):
         """What the recent turns add to a short follow-up ("parking there?"):
         the previous user message and the names in Jarvis's last reply."""
         recent = getattr(self, "_recent", None) or []
-        last_user = next((m.get("content") for m in reversed(recent)
-                          if m.get("role") == "user" and m.get("content")), "")
+        from .textq import strip_injected
+        last_user = strip_injected(next((m.get("content") for m in reversed(recent)
+                                         if m.get("role") == "user" and m.get("content")), ""))
         last_reply = next((m.get("content") for m in reversed(recent)
                            if m.get("role") == "assistant" and m.get("content")), "")
         names = []
@@ -502,7 +503,9 @@ class JarvisMemoryProvider(MemoryProvider):
         warmed on the previous message, so a first turn got nothing)."""
         from . import tz
         from .recall import RecallQuery, recall
+        from .textq import strip_injected
 
+        query = strip_injected(query)  # voice / board rules aren't what he asked
         t0 = time.perf_counter()
         brief_text = ""
         try:

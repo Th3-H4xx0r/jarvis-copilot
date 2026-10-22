@@ -55,6 +55,26 @@ def same_specifics(a: str, b: str) -> bool:
     return specifics(a) == specifics(b)
 
 
+_INJECTED = re.compile(r"\A\s*\[[^\]]{40,}\]\s*\n\s*\n", re.DOTALL)
+_STAMP = re.compile(r"\s*\((?:from an iMessage chat|overheard in a Live conversation)[^)]*\)")
+
+
+def strip_injected(text: str) -> str:
+    """His own words: drop the bracketed instruction blocks surfaces put in
+    front of a turn ("[Voice mode — … rules …]\\n\\n"), however many."""
+    text = text or ""
+    while True:
+        m = _INJECTED.match(text)
+        if not m:
+            return text.strip()
+        text = text[m.end():]
+
+
+def strip_stamp(text: str) -> str:
+    """A memory's body without its "(from an iMessage chat with … UTC)" stamp."""
+    return _STAMP.sub("", text or "")
+
+
 def fts_query(text: str) -> str:
     """An FTS5 MATCH expression OR-ing the content words (quoted, so FTS
     operators in the text are inert). "" when nothing meaningful is left."""

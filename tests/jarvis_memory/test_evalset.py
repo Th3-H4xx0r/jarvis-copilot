@@ -64,3 +64,25 @@ def test_cases_round_trip(tmp_path):
                         gold_ids=["a"], category="implicit")
     evalset.save_cases(tmp_path / "cases.jsonl", [case])
     assert evalset.load_cases(tmp_path / "cases.jsonl") == [case]
+
+
+def test_mining_ignores_rules_blocks_and_stamps(tmp_path):
+    rules = "[Voice mode — read aloud. Follow these rules exactly: weather calendar news today.]\n\n"
+    recall = json.dumps({"ok": True, "results": [
+        {"id": "c_f1", "body": "Parking near COTA costs about $50 per day during the F1 race weekend."},
+        {"id": "c_grad", "body": "Arnav suggested parking near the graduation venue. "
+                                 "(from an iMessage chat with the group \"F1 gc\" on Fri 12 Jun 2026 22:37 UTC)"}]})
+    _state_db(tmp_path / "state.db", [
+        ("s1", "user", rules + "what's the weather", None, None, NOW.timestamp() - 100),
+        ("s1", "assistant", "Sunny.", None, None, NOW.timestamp() - 99),
+        ("s1", "user", rules + "Can you open navigation to the venue", None, None, NOW.timestamp()),
+        ("s1", "assistant", "Which venue?", None, None, NOW.timestamp() + 5),
+        ("s1", "user", rules + "the venue for the race", None, None, NOW.timestamp() + 20),
+        ("s1", "assistant", "", json.dumps([{"function": {"name": "memory_recall"}}]), None, NOW.timestamp() + 21),
+        ("s1", "tool", recall, None, "memory_recall", NOW.timestamp() + 22),
+        ("s1", "assistant", "COTA directions are open; parking runs about $50 a day per your group chat.",
+         None, None, NOW.timestamp() + 25),
+    ])
+    cases = evalset.mine_cases(tmp_path / "state.db", since=NOW.timestamp() - 86400)
+    assert [c.question for c in cases] == ["Can you open navigation to the venue"]
+    assert cases[0].gold_ids == ["c_f1"]

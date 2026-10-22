@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from .textq import content_tokens
+from .textq import content_tokens, strip_injected, strip_stamp
 
 _REASK = 0.25       # word overlap between the miss and the re-ask
 _USED = 2           # content words a gold memory must share with the final answer
@@ -83,6 +83,8 @@ def mine_cases(state_db, *, since: Optional[float] = None, since_days: int = 60)
         turns = []  # (user message, [messages until the next user message])
         for m in msgs:
             if m["role"] == "user":
+                m = dict(m)
+                m["content"] = strip_injected(m["content"] or "")
                 turns.append((m, []))
             elif turns:
                 turns[-1][1].append(m)
@@ -105,10 +107,10 @@ def mine_cases(state_db, *, since: Optional[float] = None, since_days: int = 60)
                     except ValueError:
                         results = []
                     for res in results:
-                        if len(words & set(content_tokens(res.get("body", "")))) >= _USED:
+                        if len(words & set(content_tokens(strip_stamp(res.get("body", ""))))) >= _USED:
                             gold.append(res["id"])
                 if gold:
-                    prior = [{"role": m["role"], "content": (m["content"] or "")[:600]}
+                    prior = [{"role": m["role"], "content": strip_injected(m["content"] or "")[:600]}
                              for m in msgs if m["timestamp"] < user["timestamp"]
                              and m["role"] in ("user", "assistant") and (m["content"] or "").strip()][-3:]
                     cases.append(Case(id=f"{sid}:{int(user['timestamp'])}", as_of=float(user["timestamp"]),

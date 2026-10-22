@@ -75,3 +75,21 @@ def test_recent_messages_for_memory_shapes_history():
     assert all(m["role"] in ("user", "assistant") for m in got)
     assert len(got) == 6 and all(len(m["content"]) <= 2000 for m in got)
     assert "current" not in " ".join(m["content"] for m in got)
+
+
+VOICE = ("[Voice mode — a small fast model's reply, read aloud by text-to-speech. Follow these rules exactly:\n"
+         "1. Plain spoken language only — speak each part's result (date, weather, calendar, news) today.\n"
+         "Answer with only the actual content — nothing else.]\n\n")
+
+
+def test_injected_rules_block_is_not_part_of_the_query(tmp_path):
+    from plugins.memory.jarvis_memory.textq import strip_injected
+    assert strip_injected(VOICE + "where is the race") == "where is the race"
+    assert strip_injected("[a note] about brackets in my own words") == "[a note] about brackets in my own words"
+    p = _provider(tmp_path)
+    _store(p, "Pranav is going to the F1 race at COTA in Austin this weekend")
+    out = p.prefetch(VOICE + "where is the race")
+    assert "COTA" in out
+    [trace] = p._store.recent_traces(1)
+    assert trace["query"] == "where is the race"
+    p.shutdown()
