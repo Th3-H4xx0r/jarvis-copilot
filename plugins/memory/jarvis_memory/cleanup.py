@@ -73,12 +73,13 @@ def restamp(body: str, zone) -> str:
     return _STAMP.sub(lambda m: _local_stamp(m, zone), body)
 
 
-def _rewrite(store, embedder, cid, body, slots=""):
+def _rewrite(store, embedder, cid, body, slots="", reembed=True):
     vec = None
-    try:
-        vec = embedder.embed_one(body + (" " + slots if slots else ""))  # keep the slot-augmented key
-    except Exception:
-        pass
+    if reembed:
+        try:
+            vec = embedder.embed_one(body + (" " + slots if slots else ""))  # keep the slot-augmented key
+        except Exception:
+            pass
     store.update_body(cid, body, embedding=vec, signature=embedder.signature if vec else None,
                       dim=embedder.dim if vec else None)
 
@@ -137,7 +138,8 @@ def run(store, embedder, *, zone, complete: Optional[Callable[[str, int], str]] 
             continue
         body = restamp(chunk.body, zone)
         if body != chunk.body:
-            _rewrite(store, embedder, chunk.id, body, chunk.slots)
+            # Same meaning, local clock: keep the vector (no embed per memory).
+            _rewrite(store, embedder, chunk.id, body, chunk.slots, reembed=False)
             counts["restamped"] += 1
             keep("restamped", chunk.id)
         if i % 200 == 0:

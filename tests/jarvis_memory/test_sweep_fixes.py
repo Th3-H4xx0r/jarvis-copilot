@@ -249,14 +249,21 @@ def test_now_line_is_current_when_read(tmp_path):
     assert "Coming up" in text
 
 
-def test_restamp_keeps_slots_in_the_vector(tmp_path):
+def test_restamp_keeps_the_slot_augmented_vector(tmp_path):
+    """A stamp moving from UTC to local time doesn't re-embed (thousands of
+    embeds on the server's CPU) — the memory keeps the vector it has."""
     s = _store(tmp_path)
     e = FakeEmbedder(dim=64)
     body = "Parking near COTA. (from an iMessage chat with Sid on Thu 22 Oct 2026 01:37 UTC)"
-    cid = s.add_chunk(GLOBAL_NS, body, "imessage:s:1-1:f", 1.0, 1.0)
-    s.set_map_fields(cid, slots="venue: Circuit of the Americas", enriched_at=1.0)
+    slots = "venue: Circuit of the Americas"
+    cid = s.add_chunk(GLOBAL_NS, body, "imessage:s:1-1:f", 1.0, 1.0,
+                      embedding=e.embed_one(body + " " + slots), signature=e.signature, dim=e.dim)
+    s.set_map_fields(cid, slots=slots, enriched_at=1.0)
     s.dequeue([cid])
+    calls = []
+    real = e.embed_one
+    e.embed_one = lambda t: calls.append(t) or real(t)
     cleanup.run(s, e, zone=CT, complete=lambda p, n: "[]")
-    [c] = s.get_chunks([cid])
-    want = e.embed_one(c.body + " " + c.slots)
-    assert s.vector_search(GLOBAL_NS, want, e.signature, 1)[0][1] > 0.999
+    assert s.get_chunks([cid])[0].body.endswith("20:37 CDT)")
+    assert not any("CDT" in t for t in calls)
+    assert s.vector_search(GLOBAL_NS, real(body + " " + slots), e.signature, 1)[0][1] > 0.999
