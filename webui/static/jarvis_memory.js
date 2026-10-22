@@ -90,6 +90,196 @@
     });
   }
 
+  // ── Map / List switch ──
+  var VIEW_KEY = "jmem-view";
+  var SEG = "font-size:12px;padding:6px 16px;border:none;cursor:pointer;background:transparent;color:var(--muted)";
+  var _view = "map";
+  try { if (localStorage.getItem(VIEW_KEY) === "list") _view = "list"; } catch (e) {}
+
+  function setView(v) {
+    _view = v === "list" ? "list" : "map";
+    try { localStorage.setItem(VIEW_KEY, _view); } catch (e) {}
+    applyView();
+  }
+
+  function applyView() {
+    var map = document.getElementById("jmemMapView");
+    var list = document.getElementById("jmemListView");
+    if (!map || !list) return;
+    map.style.display = _view === "map" ? "block" : "none";
+    list.style.display = _view === "list" ? "block" : "none";
+    ["jmemViewMap", "jmemViewList"].forEach(function (id) {
+      var b = document.getElementById(id);
+      if (!b) return;
+      var on = b.getAttribute("data-view") === _view;
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.style.background = on ? "var(--accent-bg-strong,var(--accent-bg,transparent))" : "transparent";
+      b.style.color = on ? "var(--text,var(--fg))" : "var(--muted)";
+      b.style.fontWeight = on ? "600" : "400";
+    });
+    if (_view === "map" && window.MemoryMap) {
+      try { MemoryMap.mount(map); MemoryMap.show(); } catch (e) { /* the list still works */ }
+    }
+  }
+
+  // ── Recent recalls (List side) ──
+  async function loadRecalls() {
+    var el = document.getElementById("jmemRecalls");
+    if (!el || !window.MemoryGraph) return;
+    var d = null;
+    try {
+      var r = await fetch(MemoryGraph.recallsUrl({ limit: 30 }));
+      d = r.ok ? await r.json() : null;
+    } catch (e) { d = null; }
+    var head = '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Recent recalls</div>';
+    if (!d) { el.innerHTML = head + '<div style="font-size:12px;color:var(--muted)">Couldn’t load recent recalls.</div>'; return; }
+    var rows = Array.isArray(d.recalls) ? d.recalls : [];
+    if (!rows.length) {
+      el.innerHTML = head + '<div style="font-size:12px;color:var(--muted)">No recalls yet — they appear when Jarvis uses a memory in a reply.</div>';
+      return;
+    }
+    el.innerHTML = head + '<div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px">' +
+      rows.map(function (rc) {
+        var nm = (rc.memory_ids || []).length, ne = (rc.entity_ids || []).length;
+        var meta = [ago(rc.ts), nm + (nm === 1 ? " memory" : " memories"), ne ? ne + (ne === 1 ? " node" : " nodes") : "",
+          rc.ms != null ? Math.round(rc.ms) + " ms" : ""].filter(Boolean).join(" · ");
+        return '<button type="button" class="jmem-recall-row" data-recall="' + esc(rc.id) + '" data-query="' + esc(rc.query) + '" ' +
+          'style="display:block;width:100%;text-align:left;padding:8px 10px;border:none;border-bottom:1px solid var(--border);' +
+          'background:none;color:var(--text,var(--fg));cursor:pointer">' +
+          '<div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(rc.query || "(no text)") + "</div>" +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + esc(meta) + "</div></button>";
+      }).join("") + "</div>";
+    el.querySelectorAll(".jmem-recall-row").forEach(function (b) {
+      b.addEventListener("click", function () { openRecall(b.getAttribute("data-recall"), b.getAttribute("data-query")); });
+    });
+  }
+
+  // Open the panel's map lit up on one recall (Recent recalls row or chat chip).
+  function openRecall(recallId, query) {
+    if (recallId == null || recallId === "") return;
+    showPanel();
+    var body = renderShell();
+    var fresh = body && !body.dataset.loadedOnce;
+    setView("map");
+    if (window.MemoryMap) {
+      try { MemoryMap.highlightRecall(recallId, query || ""); } catch (e) {}
+    }
+    if (fresh) window.loadJarvisMemory();
+  }
+
+  window.JarvisMemory = { openRecall: openRecall };
+
+  // ── Chat chip: "memories used" under replies that used long-term memory ──
+  // One request per open chat (cached), refreshed once per completed reply.
+  var _chipCache = {};
+  var _chipOrder = [];
+  var _chipTimer = null;
+
+  function _chipSid() {
+    try { return (typeof S !== "undefined" && S && S.session && S.session.session_id) || null; } catch (e) { return null; }
+  }
+
+  function _chipMessages() {
+    try { return (typeof S !== "undefined" && S && Array.isArray(S.messages)) ? S.messages : []; } catch (e) { return []; }
+  }
+
+  function _chipBusy(inner) {
+    try {
+      if (typeof S !== "undefined" && S && S.busy) return true;
+    } catch (e) {}
+    return !!inner.querySelector("#liveAssistantTurn, [data-live-assistant]");
+  }
+
+  function scheduleChips() {
+    clearTimeout(_chipTimer);
+    _chipTimer = setTimeout(function () { try { decorateChips(); } catch (e) { /* never break chat */ } }, 250);
+  }
+
+  function fetchChipRecalls(sid, count) {
+    var prev = _chipCache[sid];
+    var c = { recalls: prev ? prev.recalls : [], count: count, inflight: true };
+    _chipCache[sid] = c;
+    if (_chipOrder.indexOf(sid) < 0) {
+      _chipOrder.push(sid);
+      while (_chipOrder.length > 20) delete _chipCache[_chipOrder.shift()];
+    }
+    var url;
+    try { url = MemoryGraph.recallsUrl({ sessionId: sid, limit: 100 }); } catch (e) { c.inflight = false; return; }
+    fetch(url).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (d && Array.isArray(d.recalls)) c.recalls = d.recalls;
+    }).catch(function () { /* no chips, chat unaffected */ }).then(function () {
+      c.inflight = false;
+      if (_chipSid() === sid) scheduleChips();
+    });
+  }
+
+  function decorateChips() {
+    var inner = document.getElementById("msgInner");
+    var sid = _chipSid();
+    if (!inner || !sid || !window.MemoryGraph) return;
+    var msgs = _chipMessages();
+    var c = _chipCache[sid];
+    var busy = _chipBusy(inner);
+    if (!c) { if (!busy) fetchChipRecalls(sid, msgs.length); return; }
+    if (c.inflight) return;
+    if (!busy && msgs.length > c.count) { fetchChipRecalls(sid, msgs.length); return; }
+    if (!c.recalls.length) return;
+    var users = [];
+    msgs.forEach(function (m, i) {
+      if (m && m.role === "user") users.push({ key: i, text: MemoryGraph.messageText(m.content), ts: m._ts || m.timestamp });
+    });
+    var matched = MemoryGraph.matchRecalls(users, c.recalls);
+    inner.querySelectorAll('.msg-row[data-role="user"][data-msg-idx]').forEach(function (row) {
+      var rc = matched[Number(row.dataset.msgIdx)];
+      if (!rc) return;
+      var turn = null;
+      for (var el = row.nextElementSibling; el; el = el.nextElementSibling) {
+        if (el.matches('.msg-row[data-role="user"]')) break;
+        if (el.classList.contains("assistant-turn")) { turn = el; break; }
+      }
+      if (!turn || turn.id === "liveAssistantTurn" || turn.querySelector("[data-live-assistant]")) return;
+      var host = turn.querySelector(".assistant-turn-blocks") || turn;
+      var have = host.querySelector(":scope > .jmem-recall-chip");
+      if (have && have.getAttribute("data-recall") === String(rc.id)) return;
+      if (have) have.remove();
+      var n = (rc.memory_ids || []).length;
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "jmem-recall-chip";
+      chip.setAttribute("data-recall", String(rc.id));
+      chip.setAttribute("data-query", String(rc.query || ""));
+      chip.title = "Show the memories Jarvis used on the map";
+      chip.style.cssText = "display:inline-flex;align-items:center;gap:5px;margin:4px 0 2px;padding:2px 9px;font-size:11px;" +
+        "border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);cursor:pointer";
+      chip.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+        '<circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="12" cy="21" r="2"/>' +
+        '<path d="M6 7l4 3M18 7l-4 3M12 15v4"/></svg>' +
+        esc(n ? n + (n === 1 ? " memory used" : " memories used") : "memories used");
+      host.appendChild(chip);
+    });
+  }
+
+  function initChips() {
+    var inner = document.getElementById("msgInner");
+    if (!inner || inner._jmemChips || !window.MutationObserver) return;
+    inner._jmemChips = true;
+    try {
+      // Re-renders replace #msgInner's children; a finished stream drops the live markers.
+      new MutationObserver(scheduleChips).observe(inner, { childList: true });
+      new MutationObserver(scheduleChips).observe(inner, {
+        subtree: true, attributes: true, attributeFilter: ["id", "data-live-assistant"],
+      });
+    } catch (e) { return; }
+    document.addEventListener("click", function (ev) {
+      var b = ev.target && ev.target.closest ? ev.target.closest(".jmem-recall-chip") : null;
+      if (!b) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      try { openRecall(b.getAttribute("data-recall"), b.getAttribute("data-query")); } catch (e) {}
+    });
+    scheduleChips();
+  }
+
   // ── Body sections ──
   function renderShell() {
     ensurePanel();
@@ -98,10 +288,17 @@
     if (!body.dataset.built) {
       body.dataset.built = "1";
       body.innerHTML =
-        '<div id="jmemStatus" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>' +
+        '<div id="jmemStatus" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>' +
+        '<div role="tablist" aria-label="Memory view" style="display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px">' +
+        '<button type="button" role="tab" id="jmemViewMap" data-view="map" style="' + SEG + '">Map</button>' +
+        '<button type="button" role="tab" id="jmemViewList" data-view="list" style="' + SEG + ';border-left:1px solid var(--border)">List</button>' +
+        '</div>' +
+        '<div id="jmemMapView" style="display:none"></div>' +
+        '<div id="jmemListView" style="display:none">' +
         '<div id="jmemModel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>' +
         '<div id="jmemCleanup" style="margin-bottom:14px"></div>' +
         '<div id="jmemReflect" style="margin-bottom:14px"></div>' +
+        '<div id="jmemRecalls" style="margin-bottom:14px"></div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">' +
         '<input id="jmemQ" type="text" placeholder="Search your long-term memory…" ' +
         'style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">' +
@@ -110,7 +307,11 @@
         '<div style="margin-top:18px">' +
         '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Memory activity (live)</div>' +
         '<div id="jmemLogs" style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card,var(--bg))"></div>' +
-        '</div>';
+        '</div></div>';
+      body.querySelectorAll('[role="tab"][data-view]').forEach(function (b) {
+        b.addEventListener("click", function () { setView(b.getAttribute("data-view")); });
+      });
+      applyView();
       var q = document.getElementById("jmemQ");
       var t = null;
       q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(runSearch, 200); });
@@ -174,16 +375,26 @@
     }
     list.innerHTML = entries.map(rowHtml).join("");
     list.querySelectorAll(".jmem-del").forEach(function (b) {
-      b.addEventListener("click", async function () {
-        if (!confirm("Forget this memory? This cannot be undone.")) return;
-        try {
-          await fetch("api/jarvis-memory/delete", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: b.getAttribute("data-id") }),
-          });
-        } catch (e) {}
-        runSearch();
-        loadStatus();
+      // Inline "Forget forever? Yes / No" instead of a browser dialog.
+      b.addEventListener("click", function () {
+        var holder = document.createElement("span");
+        holder.style.cssText = "margin-left:auto;display:inline-flex;gap:6px;align-items:center;font-size:11px";
+        holder.innerHTML = '<span style="color:var(--muted)">Forget forever?</span>' +
+          '<button type="button" class="jmem-del-yes" style="font-size:11px;color:var(--danger,#c33);background:none;border:1px solid var(--border);border-radius:6px;cursor:pointer">Forget</button>' +
+          '<button type="button" class="jmem-del-no" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer">Cancel</button>';
+        b.replaceWith(holder);
+        holder.querySelector(".jmem-del-no").addEventListener("click", function () { holder.replaceWith(b); });
+        holder.querySelector(".jmem-del-yes").addEventListener("click", async function (ev) {
+          ev.target.disabled = true;
+          try {
+            await fetch("api/jarvis-memory/delete", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: b.getAttribute("data-id") }),
+            });
+          } catch (e) {}
+          runSearch();
+          loadStatus();
+        });
       });
     });
   }
@@ -256,6 +467,7 @@
   }
 
   var _logTimer = null;
+  var _logTicks = 0;
 
   async function loadLogs() {
     var el = document.getElementById("jmemLogs");
@@ -287,6 +499,8 @@
         return;
       }
       loadLogs();
+      // A cleanup started elsewhere shows up here (a running one polls itself).
+      if (++_logTicks % 5 === 0 && !(_cleanupLast && _cleanupLast.running)) loadCleanup();
     }, 3000);
   }
 
@@ -338,37 +552,75 @@
     });
   }
 
-  // ── Cleanup: one-time backfill of the memory map, with a report ──
+  // ── Cleanup & map: one-time backfill of the memory map, with a report ──
+  // A run can be started elsewhere (iPhone, CLI): status drives the card, the
+  // panel's poll picks it up. No browser dialogs: confirm inline.
   var cleanupTimer = null;
+  var _cleanupConfirm = false;
+  var _cleanupSig = "";
+  var _cleanupLast = null;
   var CLEANUP_LABELS = {
     merged: "Merged duplicates", hidden_trivial: "Hidden trivia", superseded: "Marked out of date",
     live_rewritten: "Live rewritten", restamped: "Times fixed", enriched: "Mapped", failed: "Couldn't map",
   };
+  var CLEANUP_LINE = "One-time tidy-up: backs up, merges duplicates, fixes times, then maps older memories to dates, " +
+    "people and places. New memories are mapped automatically — you don't need to run this again.";
+  var CBTN = "font-size:12px;padding:3px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text,var(--fg));cursor:pointer";
 
-  async function loadCleanup() {
+  async function loadCleanup(force) {
     var el = document.getElementById("jmemCleanup");
     if (!el) return;
     var d;
-    try { d = await fetch("api/jarvis-memory/cleanup/status").then(function (r) { return r.json(); }); }
-    catch (e) { return; }
+    try {
+      var r = await fetch("api/jarvis-memory/cleanup/status");
+      d = await r.json();
+    } catch (e) { return; }
+    if (!d || typeof d !== "object") return;
+    clearTimeout(cleanupTimer);
+    if (d.running) cleanupTimer = setTimeout(function () { loadCleanup(); }, 3000);
+    var sig = JSON.stringify(d);
+    if (!force && sig === _cleanupSig && el.innerHTML) return;   // unchanged: keep open <details>
+    if (!d.running && _cleanupConfirm && !force) return;           // don't clobber an open "Are you sure?"
+    _cleanupSig = sig;
+    _cleanupLast = d;
+    renderCleanup(el, d);
+  }
+
+  function renderCleanup(el, d) {
     var box = '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--card,var(--bg))">';
-    var head = '<div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">Cleanup</b>';
+    var head = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:13px">Cleanup &amp; map</b>';
+    var line = '<div style="font-size:12px;color:var(--muted);margin-top:6px">' + esc(CLEANUP_LINE) + "</div>";
     if (d.running) {
+      _cleanupConfirm = false;
       var p = d.progress || {};
-      el.innerHTML = box + head + '<span style="font-size:12px;color:var(--muted)">' + esc(p.step || "working") +
-        (p.total ? " · " + esc(String(p.done)) + "/" + esc(String(p.total)) : "") + "</span></div></div>";
-      clearTimeout(cleanupTimer);
-      cleanupTimer = setTimeout(loadCleanup, 3000);
+      var stopping = !!d.stopping;
+      el.innerHTML = box + head + '<span style="font-size:12px;color:var(--muted)">' +
+        (stopping ? "Stopping…" : esc(p.step || "working") + (p.total ? " · " + esc(String(p.done)) + "/" + esc(String(p.total)) : "")) +
+        "</span>" +
+        '<button type="button" id="jmemCleanupStop" style="margin-left:auto;' + CBTN + '"' + (stopping ? " disabled" : "") + ">" +
+        (stopping ? "Stopping…" : "Stop") + "</button></div>" + line + "</div>";
+      var stop = document.getElementById("jmemCleanupStop");
+      if (stop && !stopping) stop.addEventListener("click", async function () {
+        stop.disabled = true;
+        stop.textContent = "Stopping…";
+        try {
+          await fetch("api/jarvis-memory/cleanup/stop", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          });
+        } catch (e) { /* status shows what stuck */ }
+        loadCleanup(true);
+      });
       return;
     }
     var r = d.report;
-    var html = box + head +
-      '<button id="jmemCleanupRun" style="margin-left:auto;font-size:12px">' + (r ? "Run again" : "Run cleanup") + "</button></div>";
+    var actions = _cleanupConfirm
+      ? '<span style="margin-left:auto;font-size:12px">Are you sure?</span>' +
+        '<button type="button" id="jmemCleanupGo" style="' + CBTN + '">Run</button>' +
+        '<button type="button" id="jmemCleanupCancel" style="' + CBTN + '">Cancel</button>'
+      : '<button type="button" id="jmemCleanupRun" style="margin-left:auto;' + CBTN + '">' + (r ? "Run again" : "Run cleanup") + "</button>";
+    var html = box + head + actions + "</div>" + line;
     if (d.error) html += '<div style="font-size:12px;color:var(--danger,#c33);margin-top:6px">' + esc(d.error) + "</div>";
-    if (!r) {
-      html += '<div style="font-size:12px;color:var(--muted);margin-top:6px">Backs up your memory, merges duplicates, ' +
-        "fixes times to your time zone, hides trivia and maps every memory to dates, people and places. Nothing is deleted.</div>";
-    } else {
+    if (r) {
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">';
       Object.keys(CLEANUP_LABELS).forEach(function (k) {
         if (r.counts && r.counts[k]) html += _chip(CLEANUP_LABELS[k], String(r.counts[k]));
@@ -389,10 +641,15 @@
     }
     el.innerHTML = html + "</div>";
     var run = document.getElementById("jmemCleanupRun");
-    if (run) run.addEventListener("click", async function () {
-      run.disabled = true;
+    if (run) run.addEventListener("click", function () { _cleanupConfirm = true; renderCleanup(el, d); });
+    var cancel = document.getElementById("jmemCleanupCancel");
+    if (cancel) cancel.addEventListener("click", function () { _cleanupConfirm = false; renderCleanup(el, d); });
+    var go = document.getElementById("jmemCleanupGo");
+    if (go) go.addEventListener("click", async function () {
+      go.disabled = true;
+      _cleanupConfirm = false;
       try { await fetch("api/jarvis-memory/cleanup/start", { method: "POST" }); } catch (e) { /* status shows it */ }
-      loadCleanup();
+      loadCleanup(true);
     });
     el.querySelectorAll(".jmemRestore").forEach(function (b) {
       b.addEventListener("click", async function () {
@@ -409,12 +666,15 @@
   }
 
   window.loadJarvisMemory = async function () {
-    renderShell();
+    var body = renderShell();
+    if (body) body.dataset.loadedOnce = "1";
+    applyView();
     await loadStatus();
     await loadModel();
     await loadCleanup();
     await loadStats();
     await loadReflections();
+    await loadRecalls();
     await runSearch();
     await loadLogs();
     startLogPolling();
@@ -424,7 +684,11 @@
     injectNavButtons();
     ensurePanel();
     attachLeaveHandlers();
-    setTimeout(function () { injectNavButtons(); ensurePanel(); attachLeaveHandlers(); }, 1500);
+    try { initChips(); } catch (e) {}
+    setTimeout(function () {
+      injectNavButtons(); ensurePanel(); attachLeaveHandlers();
+      try { initChips(); } catch (e) {}
+    }, 1500);
   }
 
   if (document.readyState === "loading") {
