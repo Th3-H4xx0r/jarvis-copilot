@@ -29,8 +29,9 @@ def home(tmp_path, monkeypatch):
         "embedder": "fake", "embed_dim": 64, "namespace": "global", "dedup_threshold": 0.92,
         "db_path": str(tmp_path / "memory" / "memory.db"), "vault_dir": str(tmp_path / "memory" / "vault")})
     monkeypatch.setattr(tz, "user_zone", lambda: CT)
-    for name in ("_email_jobs", "_other_jobs", "_health_line", "_places", "_drives"):
-        monkeypatch.setattr(sync, name, lambda *a, **k: [] if name != "_health_line" else None)
+    for name in ("_email_jobs", "_other_jobs", "_health_line_for", "_places", "_drives"):
+        monkeypatch.setattr(sync, name, lambda *a, **k: [] if name != "_health_line_for" else None)
+    monkeypatch.setattr(external, "is_active", lambda: True)
     return tmp_path
 
 
@@ -82,16 +83,76 @@ def test_email_and_integration_runs_become_memories(home, monkeypatch):
     assert [m["body"] for m in _memories("cron:")] == ["Flight tracking, Wed 21 Oct: Flight AA100 is on time, gate B12."]
 
 
-def test_health_places_and_drives(home, monkeypatch):
-    monkeypatch.setattr(sync, "_health_line", lambda ctx: "woke 5:25 AM; Body Battery 27 (Low)")
-    monkeypatch.setattr(sync, "_places", lambda day, zone: ["Pease Street, Downtown", "Minute Maid Park"]
-                        if day.date() == NOW.date() else [])
+def _cal(title, start_iso, end_iso=None):
+    return {"title": title, "start_iso": start_iso, "end_iso": end_iso}
+
+
+def test_a_snapshot_without_calendar_or_reminders_forgets_nothing(home):
+    bs.save_snapshot({"tz": "America/Chicago", "calendar": [_cal("Dentist", "2026-10-22T14:00:00Z")],
+                      "reminders": [{"title": "Buy parking pass"}]})
+    sync.sync_once(now=NOW)
+    bs.save_snapshot({"tz": "America/Chicago"})  # no access / keys left out
+    sync.sync_once(now=NOW)
+    assert len(_memories("calendar:")) == 1 and len(_memories("reminder:")) == 1
+
+
+def test_only_events_inside_the_phones_window_can_be_forgotten(home):
+    bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T14:00:00Z"),
+                                   _cal("Ski trip", "2026-12-20T14:00:00Z")]})
+    sync.sync_once(now=NOW)
+    bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T14:00:00Z")]})
+    sync.sync_once(now=NOW)
+    assert len(_memories("calendar:")) == 2  # Dec 20 is past the 14-day window, not cancelled
+
+
+def test_calendar_key_survives_a_different_time_format(home):
+    bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T14:00:00Z")]})
+    sync.sync_once(now=NOW)
+    bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T09:00:00-05:00")]})
+    assert sync.sync_once(now=NOW)["calendar"] == 0
+    assert len(_memories("calendar:")) == 1
+
+
+def test_health_and_places_are_written_for_the_day_just_finished(home, monkeypatch):
+    monkeypatch.setattr(sync, "_health_line_for", lambda day, zone: "slept 7 h; Body Battery 80")
+    monkeypatch.setattr(sync, "_places", lambda day, zone: ["Pease Street"] if day.day == 20 else ["Elsewhere"])
+    sync.sync_once(now=NOW)
+    assert [m["body"] for m in _memories("health:")] == ["Health on Tue 20 Oct: slept 7 h; Body Battery 80"]
+    assert [m["body"] for m in _memories("location:")] == ["Places on Tue 20 Oct: Pease Street"]
+
+
+def test_a_drive_keeps_one_memory_while_its_clips_arrive(home, monkeypatch):
+    end = NOW.timestamp() - 7200
     monkeypatch.setattr(sync, "_drives", lambda since: [
-        {"id": "d1", "start": NOW.timestamp() - 3600, "end": NOW.timestamp() - 1800, "distance_m": 16093.4}])
+        {"id": "dr_1_a", "camera_id": "cam", "start": end - 600, "end": end, "distance_m": 8000}])
     sync.sync_once(now=NOW)
-    assert [m["body"] for m in _memories("health:")] == ["Health on Wed 21 Oct: woke 5:25 AM; Body Battery 27 (Low)"]
-    assert [m["body"] for m in _memories("location:")] == ["Places on Wed 21 Oct: Pease Street, Downtown; Minute Maid Park"]
-    assert [m["body"] for m in _memories("dashcam:")] == ["Drove 10 mi on Wed 21 Oct, 7:56–8:26 PM"]
-    monkeypatch.setattr(sync, "_health_line", lambda ctx: "woke 5:25 AM; Body Battery 31 (Low)")
+    monkeypatch.setattr(sync, "_drives", lambda since: [
+        {"id": "dr_0_b", "camera_id": "cam", "start": end - 1800, "end": end, "distance_m": 16093.4}])
     sync.sync_once(now=NOW)
-    assert [m["body"] for m in _memories("health:")] == ["Health on Wed 21 Oct: woke 5:25 AM; Body Battery 31 (Low)"]
+    assert [m["body"] for m in _memories("dashcam:")] == ["Drove 10 mi on Wed 21 Oct, 6:26–6:56 PM"]
+
+
+def test_a_drive_still_going_is_not_written_yet(home, monkeypatch):
+    monkeypatch.setattr(sync, "_drives", lambda since: [
+        {"id": "d", "camera_id": "cam", "start": NOW.timestamp() - 900, "end": NOW.timestamp() - 60,
+         "distance_m": 5000}])
+    sync.sync_once(now=NOW)
+    assert _memories("dashcam:") == []
+
+
+def test_a_hidden_synced_item_is_not_written_again(home):
+    from plugins.memory.jarvis_memory import external
+    bs.save_snapshot({"calendar": [_cal("Standup", "2026-10-22T14:00:00Z")]})
+    sync.sync_once(now=NOW)
+    store = external._open()[0]
+    [cid] = store.active_ids(source_prefix="calendar:")
+    store.set_status([cid], "hidden")
+    assert sync.sync_once(now=NOW)["calendar"] == 0
+    assert store.active_ids(source_prefix="calendar:") == []
+
+
+def test_sync_does_nothing_when_another_memory_is_active(home, monkeypatch):
+    from plugins.memory.jarvis_memory import external
+    monkeypatch.setattr(external, "is_active", lambda: False)
+    bs.save_snapshot({"calendar": [_cal("Dentist", "2026-10-22T14:00:00Z")]})
+    assert sync.sync_once(now=NOW) == {}

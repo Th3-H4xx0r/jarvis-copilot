@@ -83,7 +83,9 @@ def build(store, namespace, *, center="me", types=None, since=None, source=None,
     weights = {r["id"]: r["w"] for r in rows}
     ents = store.get_entities(list(weights))
     nodes = [_node(ents[i], w) for i, w in weights.items() if i in ents]
-    edges = _edges_among(store, [center] + [n["id"] for n in nodes], where, args)
+    # Nodes are already type-filtered; the center keeps its edges whatever its own type.
+    e_where, e_args = _filters(namespace, None, since, source)
+    edges = _edges_among(store, [center] + [n["id"] for n in nodes], e_where, e_args)
     return {"center": {"id": center, "label": ent["canonical"], "type": ent["type"]},
             "nodes": nodes, "edges": edges}
 
@@ -125,6 +127,8 @@ def merge(store, from_id, into_id) -> dict:
     src, dst = ents[from_id], ents[into_id]
     if src["type"] != dst["type"]:
         raise ValueError("only nodes of the same type can merge")
+    if src["namespace"] != dst["namespace"]:
+        raise ValueError("these nodes belong to different people")
     store.merge_entities(from_id, into_id, extra_aliases=[src["canonical"]] + list(src.get("aliases") or []))
     return _entity_out(store.get_entities([into_id])[into_id])
 
@@ -140,7 +144,12 @@ def update_entity(store, entity_id, *, label=None, aliases=None, pinned=None) ->
         if label.lower() != ent["canonical"].lower():
             twin = store.find_entity(ent["namespace"], ent["type"], label)
             if twin and twin != entity_id:
-                return merge(store, entity_id, twin)  # renaming onto an existing name merges
+                merge(store, entity_id, twin)  # renaming onto an existing name merges
+                if aliases is not None or pinned is not None:
+                    keep = store.get_entities([twin])[twin]
+                    extra = list(keep.get("aliases") or []) + list(aliases or [])
+                    store.edit_entity(twin, aliases=extra if aliases is not None else None, pinned=pinned)
+                return _entity_out(store.get_entities([twin])[twin])
     store.edit_entity(entity_id, canonical=label, aliases=aliases, pinned=pinned)
     return _entity_out(store.get_entities([entity_id])[entity_id])
 

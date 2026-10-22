@@ -194,3 +194,14 @@ def test_drain_runs_batches_side_by_side(tmp_path):
                             "event_end": None, "entities": [], "slots": "", "supersedes": []} for i in ids])
     total = drain(s, e, zone=CT, complete=model, workers=3)
     assert total["enriched"] == 45 and peak[0] >= 2
+
+
+def test_event_times_set_by_a_source_are_kept(env):
+    s, e, add = env
+    cid = add("Calendar: Dentist, Thu 22 Oct 9:00 AM", _ts(2026, 10, 20, 12, 0), source="calendar:k")
+    s.set_map_fields(cid, event_start=_ts(2026, 10, 22, 9, 0), event_end=_ts(2026, 10, 22, 10, 0), kind="event")
+    model = Model(lambda p: json.dumps([{"id": cid, "kind": "event", "importance": 5, "trivial": False,
+        "event_start": "2026-10-22T08:00", "event_end": None, "entities": [], "slots": "", "supersedes": []}]))
+    enrich_batch(s, e, [cid], zone=CT, complete=model)
+    c = s.get_chunks([cid])[0]
+    assert c.event_start == _ts(2026, 10, 22, 9, 0) and c.event_end == _ts(2026, 10, 22, 10, 0)

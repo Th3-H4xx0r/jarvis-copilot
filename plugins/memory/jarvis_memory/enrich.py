@@ -234,7 +234,7 @@ def _apply(store, embedder, c, item, related, zone, index, log=None, to_embed=No
         fields["kind"] = kind
     if importance is not None:
         fields["importance"] = importance
-    if start is not None:
+    if start is not None and c.event_start is None:  # times a source set directly win
         fields["event_start"] = start
         fields["event_end"] = end
     store.set_map_fields(c.id, **fields)

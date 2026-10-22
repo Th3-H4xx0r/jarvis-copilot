@@ -56,7 +56,8 @@ def handle_get(handler, parsed):
     if path == "/api/jarvis-memory/entity":
         store, _ns = _store_ns()
         try:
-            return j(handler, graph.entity_detail(store, _arg(q, "id"), limit=_int(_arg(q, "limit"), 50)))
+            limit = max(1, min(_int(_arg(q, "limit"), 50), 200))
+            return j(handler, graph.entity_detail(store, _arg(q, "id"), limit=limit))
         except KeyError:
             return j(handler, {"error": "no such node"}, status=404)
     if path == "/api/jarvis-memory/recalls":

@@ -77,3 +77,13 @@ def test_recalls_and_highlight(out):
 
 def test_unknown_path_is_not_handled(out):
     assert mg.handle_get(None, _get("/api/jarvis-memory/other")) is None
+
+
+def test_entity_limit_is_clamped(out, monkeypatch):
+    calls, store, ids = out
+    seen = {}
+    import plugins.memory.jarvis_memory.graph as g
+    real = g.entity_detail
+    monkeypatch.setattr(g, "entity_detail", lambda st, eid, limit=50: seen.update(limit=limit) or real(st, eid, limit))
+    mg.handle_get(None, _get(f"/api/jarvis-memory/entity?id={ids['sid']}&limit=-1"))
+    assert seen["limit"] == 1

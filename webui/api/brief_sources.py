@@ -66,7 +66,7 @@ def save_snapshot(body: dict) -> dict:
         for it in raw if isinstance(raw, list) else []:
             if isinstance(it, dict) and str(it.get("title") or "").strip():
                 out.append({k: it.get(k) for k in keys})
-        return out[:300]
+        return out[:1000]
 
     zone_name = str(body.get("tz") or "").strip()
     try:
@@ -76,9 +76,12 @@ def save_snapshot(body: dict) -> dict:
         zone_name = ""
     snap = {
         "tz": zone_name,
+        # A key the phone left out (no access) is "unknown", not "empty".
         "calendar": items(body.get("calendar"),
-                          ("title", "start_iso", "end_iso", "all_day", "location", "calendar")),
-        "reminders": items(body.get("reminders"), ("title", "due_iso", "list")),
+                          ("title", "start_iso", "end_iso", "all_day", "location", "calendar"))
+        if "calendar" in body else None,
+        "reminders": items(body.get("reminders"), ("title", "due_iso", "list"))
+        if "reminders" in body else None,
         "sent_at": body.get("sent_at"),
         "received_at": time.time(),
     }
@@ -94,7 +97,7 @@ def save_snapshot(body: dict) -> dict:
         memory_sources_sync.kick()  # the new calendar/reminders into the map now
     except Exception:
         pass
-    return {"calendar": len(snap["calendar"]), "reminders": len(snap["reminders"]), "tz": zone_name}
+    return {"calendar": len(snap["calendar"] or []), "reminders": len(snap["reminders"] or []), "tz": zone_name}
 
 
 # ── sources ──────────────────────────────────────────────────────────────

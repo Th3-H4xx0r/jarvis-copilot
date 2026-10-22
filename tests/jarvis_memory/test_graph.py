@@ -103,3 +103,32 @@ def test_recalls_and_highlight(venue):
     assert set(rec[0]["entity_ids"]) == {ids["e_f1"], ids["e_cota"]}
     g = graph.highlight(s, GLOBAL_NS, rec[0]["id"])
     assert set(g["highlight"]) == {ids["e_f1"], ids["e_cota"]} and _ids(g["nodes"]) >= set(g["highlight"])
+
+
+def test_rename_onto_existing_keeps_the_aliases_typed_with_it(venue):
+    s, _e, ids = venue
+    other = s.upsert_entity({"type": "person", "canonical": "Sai Kumar"})
+    merged = graph.update_entity(s, other, label="Sid Patel", aliases=["Saikumar"], pinned=True)
+    assert merged["id"] == ids["e_sid"]
+    assert "Saikumar" in merged["aliases"] and merged["pinned"] is True
+
+
+def test_center_edges_survive_a_type_filter_that_excludes_the_center(venue):
+    s, _e, ids = venue
+    g = graph.build(s, GLOBAL_NS, center=ids["e_f1"], types=["place", "person"])
+    touching = {e["b"] if e["a"] == ids["e_f1"] else e["a"] for e in g["edges"] if ids["e_f1"] in (e["a"], e["b"])}
+    assert touching == {n["id"] for n in g["nodes"]}
+
+
+def test_merge_requires_same_namespace(venue):
+    s, _e, ids = venue
+    other = s.upsert_entity({"namespace": "user:9", "type": "person", "canonical": "Sid Patel"})
+    with pytest.raises(ValueError):
+        graph.merge(s, other, ids["e_sid"])
+
+
+def test_a_merged_away_name_still_finds_the_survivor(venue):
+    s, _e, ids = venue
+    sid2 = s.upsert_entity({"type": "person", "canonical": "Siddharth Patel"})
+    graph.merge(s, sid2, ids["e_sid"])
+    assert s.upsert_entity({"type": "person", "canonical": "Siddharth Patel"}) == ids["e_sid"]

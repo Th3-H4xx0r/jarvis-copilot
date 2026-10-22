@@ -156,6 +156,14 @@ def forget(*, source_prefix: str = "", tag: str = "",
         return 0
 
 
+def has_source(source: str, *, hermes_home: Optional[str] = None) -> bool:
+    """Whether a memory (hidden or not) is backed by exactly ``source``."""
+    try:
+        return bool(_open(hermes_home)[0].ids_for_source(source))
+    except Exception:
+        return False
+
+
 def upsert(body: str, *, source: str, tags: str = "", created_at: Optional[float] = None,
            event_start: Optional[float] = None, event_end: Optional[float] = None, kind: str = "",
            hermes_home: Optional[str] = None) -> Optional[str]:
@@ -167,13 +175,14 @@ def upsert(body: str, *, source: str, tags: str = "", created_at: Optional[float
         return None
     try:
         store, embedder, namespace, _threshold = _open(hermes_home)
-        found = [cid for cid in store.filtered_ids(namespace, source_prefix=source, limit=None)
-                 if store.matching_source(cid, source) == source]
+        found = store.ids_for_source(source)  # hidden ones too: he (or the map) hid it — leave it
         fields = {k: v for k, v in (("event_start", event_start), ("event_end", event_end),
                                     ("kind", kind)) if v}
         if found:
             cid = found[-1]
             chunk = next(iter(store.get_chunks([cid])), None)
+            if chunk is not None and chunk.status == "hidden":
+                return cid
             if chunk is not None and chunk.body != body:
                 vec = None
                 try:

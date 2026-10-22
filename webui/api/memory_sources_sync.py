@@ -29,6 +29,8 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 EVERY_S = 30 * 60
+WINDOW_DAYS = 14          # the phone sends the next 14 days of calendar
+DRIVE_SETTLE_S = 30 * 60  # a drive is written once its clips stop arriving
 LOOKBACK_DAYS = 7
 CUT = 600
 
@@ -69,13 +71,16 @@ def _calendar_line(ev: dict, zone) -> Optional[tuple]:
     else:
         when = f"{_day(start, zone)} {_clock(start, zone)}"
     body = f"Calendar: {title}, {when}" + (f" @ {ev['location']}" if ev.get("location") else "")
-    return f"calendar:{_key(title.lower(), ev.get('start_iso'))}", body, start, end
+    # Keyed on the instant, not its text: "14:00Z" and "09:00-05:00" are one event.
+    return f"calendar:{_key(title.lower(), int(start))}", body, start, end
 
 
 def _sync_calendar(now: float, zone) -> int:
     from api.brief_sources import snapshot
     mem = _memory()
     snap = snapshot()
+    if snap.get("calendar") is None:
+        return 0  # no access / not sent: nothing to add, nothing to forget
     added, seen = 0, set()
     for ev in snap.get("calendar") or []:
         line = _calendar_line(ev, zone)
@@ -83,16 +88,16 @@ def _sync_calendar(now: float, zone) -> int:
             continue
         source, body, start, end = line
         seen.add(source)
-        before = mem.memories(source, limit=1)
+        before = mem.has_source(source)
         if mem.upsert(body, source=source, tags="calendar", created_at=start,
                       event_start=start, event_end=end or start, kind="event") and not before:
             added += 1
-    if snap.get("calendar") is not None:
-        # An event still ahead that the phone no longer has was moved or cancelled.
-        for m in mem.memories("calendar:", limit=1000):
-            source = m["source"]
-            if source not in seen and m["created_at"] > now:
-                mem.forget(source_prefix=source)
+    # An event inside the phone's window that it no longer has was moved or
+    # cancelled; past events and ones beyond the window stay.
+    horizon = now + WINDOW_DAYS * 86400
+    for m in mem.memories("calendar:", limit=2000):
+        if m["source"] not in seen and now < m["created_at"] <= horizon:
+            mem.forget(source_prefix=m["source"])
     return added
 
 
@@ -101,7 +106,7 @@ def _sync_reminders(zone) -> int:
     mem = _memory()
     snap = snapshot()
     if snap.get("reminders") is None:
-        return 0
+        return 0  # no Reminders access / not sent
     added, seen = 0, set()
     for r in snap.get("reminders") or []:
         title = str(r.get("title") or "").strip()
@@ -114,7 +119,7 @@ def _sync_reminders(zone) -> int:
         if due:
             bits.append(f"due {_day(due, zone)}")
         body = f"Reminder: {title}" + (f" ({', '.join(bits)})" if bits else "")
-        before = mem.memories(source, limit=1)
+        before = mem.has_source(source)
         if mem.upsert(body, source=source, tags="reminder", event_start=due, kind="plan") and not before:
             added += 1
     for m in mem.memories("reminder:", limit=1000):
@@ -152,7 +157,7 @@ def _sync_runs(prefix: str, jobs: list, now: float, zone) -> int:
             continue
         for path in runs:
             source = f"{prefix}:{job.get('id')}:{path.stem}"
-            if mem.memories(source, limit=1):
+            if mem.has_source(source):
                 continue
             lines = _response_lines(path.read_text(encoding="utf-8", errors="ignore"))
             if not lines or any(q in lines[0].lower() for q in quiet):
@@ -172,7 +177,7 @@ def _sync_fresh_inbox(now: float, zone) -> int:
     added = 0
     for line in _fresh_inbox_lines():
         source = f"email:fresh:{_key(line)}"
-        if mem.memories(source, limit=1):
+        if mem.has_source(source):
             continue
         if mem.upsert(f"Email, {_day(now, zone)}: {line}", source=source, tags="email", created_at=now):
             added += 1
@@ -184,6 +189,21 @@ def _health_line(ctx) -> Optional[str]:
     from api.brief_sources import health_source
     text = health_source(ctx)
     return text.removeprefix("Health today: ") if text else None
+
+
+def _health_line_for(day: datetime, zone) -> Optional[str]:
+    """The last health line seen on ``day`` (kept by each sync during it)."""
+    try:
+        return _memory()._open()[0].kv_get("__sync__", f"health:{day.date().isoformat()}")
+    except Exception:
+        return None
+
+
+def _note_health_today(now_dt: datetime, zone) -> None:
+    from plugins.memory.jarvis_memory.brief import BriefCtx
+    line = _health_line(BriefCtx(now=now_dt, zone=zone, store=None, namespace="global"))
+    if line:
+        _memory()._open()[0].kv_set("__sync__", f"health:{now_dt.date().isoformat()}", line)
 
 
 def _places(day: datetime, zone) -> List[str]:
@@ -233,43 +253,47 @@ def _ts(value) -> Optional[float]:
 
 
 def _sync_days(now_dt: datetime, zone) -> int:
-    from plugins.memory.jarvis_memory.brief import BriefCtx
+    """Health and places for the day just finished — written once it's over,
+    so a day still in progress isn't re-mapped every half hour."""
     mem = _memory()
     added = 0
-    today = now_dt.date().isoformat()
-    line = _health_line(BriefCtx(now=now_dt, zone=zone, store=None, namespace="global"))
-    if line:
-        if mem.upsert(f"Health on {_day(now_dt.timestamp(), zone)}: {line}", source=f"health:day:{today}",
-                      tags="health", created_at=now_dt.timestamp()):
-            added += 1
-    for back in (1, 0):
-        day = now_dt - timedelta(days=back)
-        places = _places(day, zone)
-        if places:
-            key = day.date().isoformat()
-            midday = datetime(day.year, day.month, day.day, 12, tzinfo=zone).timestamp()
-            if mem.upsert(f"Places on {_day(midday, zone)}: " + "; ".join(places),
-                          source=f"location:day:{key}", tags="location", created_at=midday):
-                added += 1
-    for d in _drives(now_dt.timestamp() - LOOKBACK_DAYS * 86400):
+    try:
+        _note_health_today(now_dt, zone)
+    except Exception:
+        logger.debug("memory sources: today's health line not noted", exc_info=True)
+    day = now_dt - timedelta(days=1)
+    key = day.date().isoformat()
+    midday = datetime(day.year, day.month, day.day, 12, tzinfo=zone).timestamp()
+    line = _health_line_for(day, zone)
+    if line and mem.upsert(f"Health on {_day(midday, zone)}: {line}", source=f"health:day:{key}",
+                           tags="health", created_at=midday):
+        added += 1
+    places = _places(day, zone)
+    if places and mem.upsert(f"Places on {_day(midday, zone)}: " + "; ".join(places),
+                             source=f"location:day:{key}", tags="location", created_at=midday):
+        added += 1
+    now = now_dt.timestamp()
+    for d in _drives(now - LOOKBACK_DAYS * 86400):
         start, end = _ts(d.get("start")), _ts(d.get("end"))
-        if not start:
-            continue
+        if not start or not end or end > now - DRIVE_SETTLE_S:
+            continue  # still driving / clips still uploading
         miles = (d.get("distance_m") or 0) / 1609.34
-        span = f"{_clock(start, zone)}–{_clock(end, zone)}" if end else _clock(start, zone)
-        a, b = (_clock(start, zone), _clock(end, zone)) if end else (span, "")
-        if end and a[-2:] == b[-2:]:  # same AM/PM once: "7:56–8:26 PM"
-            span = f"{a[:-3]}–{b}"
-        if mem.upsert(f"Drove {miles:.0f} mi on {_day(start, zone)}, {span}",
-                      source=f"dashcam:drive:{d.get('id')}", tags="dashcam", created_at=start,
-                      event_start=start, event_end=end or start, kind="event"):
+        a, b = _clock(start, zone), _clock(end, zone)
+        span = f"{a[:-3]}–{b}" if a[-2:] == b[-2:] else f"{a}–{b}"
+        # Keyed on camera + when it ended: clips arrive newest first, so the
+        # start (and the drive's own id) moves earlier as they upload.
+        source = f"dashcam:drive:{d.get('camera_id') or 'cam'}:{int(end // 600)}"
+        if mem.upsert(f"Drove {miles:.0f} mi on {_day(start, zone)}, {span}", source=source,
+                      tags="dashcam", created_at=start, event_start=start, event_end=end, kind="event"):
             added += 1
     return added
 
 
 # ── the loop ─────────────────────────────────────────────────────────────
 def sync_once(now: Optional[datetime] = None) -> dict:
-    from plugins.memory.jarvis_memory import tz
+    from plugins.memory.jarvis_memory import external, tz
+    if not external.is_active():
+        return {}  # jarvis_memory isn't the memory agents read
     zone = tz.user_zone()
     now = now or datetime.now(zone)
     ts = now.timestamp()

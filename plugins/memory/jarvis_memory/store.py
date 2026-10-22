@@ -930,11 +930,28 @@ class MemoryStore:
 
     # -- fixing the map (rename, merge, unlink) ---------------------------------
     def find_entity(self, namespace, etype, name) -> Optional[str]:
+        """The entity of ``etype`` named ``name`` — its current name first, else
+        an alias (a merged-away or renamed name still finds the survivor)."""
+        name = " ".join(str(name).split())
         with self._lock:
             r = self._conn.execute(
                 "SELECT id FROM entities WHERE namespace=? AND type=? AND lower(canonical)=lower(?) LIMIT 1",
-                (namespace or GLOBAL_NS, etype, " ".join(str(name).split()))).fetchone()
-        return r["id"] if r else None
+                (namespace or GLOBAL_NS, etype, name)).fetchone()
+            if r:
+                return r["id"]
+            needle = name.lower()
+            for row in self._conn.execute(
+                    "SELECT id, aliases FROM entities WHERE namespace=? AND type=? AND instr(lower(aliases), ?) > 0",
+                    (namespace or GLOBAL_NS, etype, needle)):
+                if needle in (a.lower() for a in json.loads(row["aliases"] or "[]")):
+                    return row["id"]
+        return None
+
+    def ids_for_source(self, source) -> List[str]:
+        """Memories backed by exactly ``source`` — hidden ones too."""
+        with self._lock:
+            return [r["memory_id"] for r in self._conn.execute(
+                "SELECT memory_id FROM memory_sources WHERE source=?", (source,))]
 
     def _bump_entity_version(self):
         cur = self._conn.execute(
