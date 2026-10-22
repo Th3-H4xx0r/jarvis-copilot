@@ -45,3 +45,4 @@ Measured on the server: before the memory map, prep before the model call was ~0
 - [x] No recall for small talk ("Hello", "Yooo", "What's up") — no embed, no injected memories
 - [x] Deploy + check `jarvis_memory prefetch … ms` on live turns → 8–82 ms on real questions (embed wait 2–57 ms), 0 ms small talk; "Yoo" (2 o's) slipped through → fixed
 Other time in a turn (not memory): agent build 0.3–0.7 s; ~1.4–2.2 s between the phone's tap and the server's turn start/finish (network + new-chat round trip); first two turns of a chat had ~10k uncached prompt tokens.
+- [ ] First chat after every webui restart: /api/chat/start sat 6.8–7.7 s in resolve_model_provider — `has_aws_credentials()` → botocore probing EC2 instance metadata (not on AWS). Fixed by systemd drop-in `AWS_EC2_METADATA_DISABLED=true` (webui + gateway; check 4.2 s → 0.17 s); live after next webui restart. Also: setup 2.1 s on the first turn after a restart (cold), ~0.35–0.7 s after.
