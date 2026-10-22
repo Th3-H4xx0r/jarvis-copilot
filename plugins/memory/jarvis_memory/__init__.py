@@ -260,8 +260,10 @@ class JarvisMemoryProvider(MemoryProvider):
                 from .enrich import start_loop
                 store, embedder, _ns, _th = external._open(hermes_home)
                 start_loop(store, embedder, interval=float(cfg.get("map_interval_sec", 30)))
+                from . import brief
+                brief.start(store, self._namespace)
             except Exception as e:
-                logger.warning("jarvis_memory map loop not started: %s", e)
+                logger.warning("jarvis_memory map loop / brief not started: %s", e)
         # Auto-fetch: ingest configured external sources (folders, later MCP/email)
         # into memory on a schedule. Only runs if sources are configured.
         self._autofetch = None

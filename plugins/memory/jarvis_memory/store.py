@@ -427,6 +427,28 @@ class MemoryStore:
         }
         return [by_id[i] for i in ids if i in by_id]
 
+    def recent_entity_counts(self, namespace, since, types) -> List[Tuple[str, int]]:
+        """(entity_id, memories said since ``since``) for entities of ``types``, busiest first."""
+        types = list(types or [])
+        if not types:
+            return []
+        q = ",".join("?" * len(types))
+        with self._lock:
+            return [(r["id"], r["n"]) for r in self._conn.execute(
+                f"SELECT e.id AS id, COUNT(DISTINCT c.id) AS n FROM entities e "
+                f"JOIN memory_entities m ON m.entity_id=e.id JOIN chunks c ON c.id=m.memory_id "
+                f"WHERE e.namespace=? AND e.type IN ({q}) AND c.created_at >= ? AND {_C_ACTIVE} "
+                f"GROUP BY e.id ORDER BY n DESC, MAX(c.created_at) DESC",
+                [namespace or GLOBAL_NS] + types + [since])]
+
+    def pinned_chunks(self, namespace, limit=8) -> List[Chunk]:
+        with self._lock:
+            ids = [r["id"] for r in self._conn.execute(
+                f"SELECT id FROM chunks WHERE namespace=? AND pinned=1 AND {_ACTIVE} "
+                "AND valid_to IS NULL ORDER BY created_at DESC LIMIT ?",
+                (namespace or GLOBAL_NS, limit))]
+        return self.get_chunks(ids)
+
     def vector_of(self, cid, signature) -> Optional[list]:
         with self._lock:
             row = self._conn.execute(
