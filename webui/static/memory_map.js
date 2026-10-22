@@ -68,7 +68,7 @@
     selected: null, hover: null, highlight: null, highlightQuery: "",
     raf: 0, drawRaf: 0, ticks: 0, calm: 0,
     pointers: new Map(), drag: null, pinch: null,
-    loaded: false, loading: false, seq: 0, sideSeq: 0,
+    loaded: false, loading: false, seq: 0, sideSeq: 0, loadedAt: 0,
     entity: null, fixOpen: false, mergeQ: "", confirmMerge: null, colors: null,
   };
 
@@ -107,10 +107,11 @@
       '<div id="jmapFilters" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px"></div>' +
       '<div id="jmapBanner" style="display:none;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;' +
       'border:1px solid var(--border);border-radius:10px;font-size:12px;background:var(--accent-bg,transparent)"></div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:stretch">' +
+      '<div id="jmapWrap" style="position:relative;display:flex;flex-wrap:wrap;gap:10px;align-items:stretch">' +
       '<div id="jmapStage" style="position:relative;flex:3 1 420px;min-width:0;height:calc(100vh - 290px);min-height:360px;' +
       'border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card,var(--bg));touch-action:none">' +
-      '<canvas id="jmapCanvas" role="img" aria-label="Memory map" style="display:block;width:100%;height:100%;cursor:grab"></canvas>' +
+      '<canvas id="jmapCanvas" tabindex="0" role="application" aria-label="Memory map: drag to pan, scroll or pinch to zoom, ' +
+      'click a node for its memories, Escape closes the node panel" style="display:block;width:100%;height:100%;cursor:grab"></canvas>' +
       '<div id="jmapStatus" style="position:absolute;left:0;right:0;top:45%;text-align:center;font-size:13px;color:var(--muted);pointer-events:none"></div>' +
       '<div style="position:absolute;right:8px;bottom:8px;display:flex;gap:4px">' +
       '<button type="button" class="jmap-zoom" data-z="in" title="Zoom in" style="' + BTN + ';width:30px;padding:4px 0">+</button>' +
@@ -139,7 +140,47 @@
     if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
     else window.addEventListener("resize", resize);
     resize();
+    watchDpr();
     if (st.selected) renderSide();
+  }
+
+  // Re-read devicePixelRatio when the window moves to a screen with another one.
+  var _dprMq = null;
+  function watchDpr() {
+    if (!window.matchMedia) return;
+    try {
+      if (_dprMq) _dprMq.removeEventListener("change", onDprChange);
+      _dprMq = window.matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+      _dprMq.addEventListener("change", onDprChange);
+    } catch (e) { /* older browsers: a resize still picks it up */ }
+  }
+  function onDprChange() { resize(); watchDpr(); }
+
+  // Phone width: the node panel is a bottom sheet over the canvas, not a
+  // block below a tall stage (which would be off screen).
+  var NARROW = "(max-width: 730px)";
+  function narrow() {
+    try { return !!(window.matchMedia && window.matchMedia(NARROW).matches); } catch (e) { return false; }
+  }
+  function layoutSide() {
+    var el = sideEl();
+    if (!el) return;
+    if (narrow()) {
+      el.style.position = "absolute";
+      el.style.left = "0"; el.style.right = "0"; el.style.bottom = "0"; el.style.top = "auto";
+      el.style.zIndex = "5";
+      el.style.maxHeight = "65%";
+      el.style.minHeight = "0";
+      el.style.flex = "none";
+      el.style.boxShadow = "0 -6px 24px rgba(0,0,0,.18)";
+    } else {
+      el.style.position = "";
+      el.style.left = el.style.right = el.style.bottom = el.style.top = el.style.zIndex = "";
+      el.style.maxHeight = "calc(100vh - 290px)";
+      el.style.minHeight = "360px";
+      el.style.flex = "1 1 300px";
+      el.style.boxShadow = "";
+    }
   }
 
   function visible() {
@@ -157,6 +198,7 @@
     st.w = w; st.h = h; st.dpr = dpr;
     st.canvas.width = Math.round(w * dpr);
     st.canvas.height = Math.round(h * dpr);
+    layoutSide();
     requestDraw();
   }
 
@@ -225,28 +267,30 @@
   }
 
   // ── loading ──
-  function loadBase() {
+  // refresh: keep node positions and the view (a background reload).
+  function loadBase(refresh) {
     var seq = ++st.seq;
     st.loading = true;
-    setStatus(st.graph.nodes.length > 1 ? "" : "Loading the map…");
+    if (!refresh) setStatus(st.graph.nodes.length > 1 ? "" : "Loading the map…");
     var url = G.graphUrl({ center: "me", types: st.filters.types, time: st.filters.time, source: st.filters.source }, nowSec());
     return getJson(url).then(function (d) {
       if (seq !== st.seq) return;
-      G.loadGraph(st.graph, d);
+      G.loadGraph(st.graph, d, { keepPositions: !!refresh });
       st.loaded = true;
+      st.loadedAt = Date.now();
       afterLoad(st.graph.nodes.length > 1 ? "" :
-        "No mapped memories match these filters yet. New memories are mapped automatically.");
+        "No mapped memories match these filters yet. New memories are mapped automatically.", refresh);
     }).catch(function () {
       if (seq !== st.seq) return;
       setStatus("Couldn’t load the map.");
     }).then(function () { if (seq === st.seq) st.loading = false; });
   }
 
-  function afterLoad(status) {
+  function afterLoad(status, keepView) {
     if (st.selected && !G.node(st.graph, st.selected)) closeSide();
     setStatus(status);
     updateCount();
-    st.view = { x: st.w / 2, y: st.h / 2, k: 1 };
+    if (!keepView) st.view = { x: st.w / 2, y: st.h / 2, k: 1 };
     kick();
   }
 
@@ -260,6 +304,7 @@
       G.loadGraph(st.graph, d);
       st.highlight = new Set(((d && d.highlight) || []).map(String));
       st.loaded = true;
+      st.loadedAt = Date.now();
       renderBanner();
       afterLoad(st.graph.nodes.length > 1 ? "" : "Those memories aren’t mapped to anything yet.");
     }).catch(function () {
@@ -300,6 +345,7 @@
     st.ticks++;
     draw();
     st.calm = G.isSettled(e, st.graph.nodes.length) ? st.calm + 1 : 0;
+    if (st.drag && !st.pointers.size) endDrag(null);               // a lost drag must not pin the loop
     if (!st.drag && (st.calm >= 10 || st.ticks > 1500)) return;   // settled: stop the loop
     st.raf = requestAnimationFrame(frame);
   }
@@ -383,6 +429,7 @@
   function wireCanvas() {
     var cv = st.canvas;
     cv.addEventListener("pointerdown", function (e) {
+      if (!G.acceptsPointer(e)) return;          // right / middle mouse buttons never start a drag
       var p = local(e);
       try { cv.setPointerCapture(e.pointerId); } catch (err) {}
       st.pointers.set(e.pointerId, p);
@@ -395,7 +442,8 @@
       }
       if (st.pointers.size > 2) return;
       var hit = G.hitTest(st.graph, st.view, p.x, p.y);
-      st.drag = { node: hit && hit.id !== G.ME ? hit : null, hit: hit, start: p, moved: false, view: Object.assign({}, st.view) };
+      st.drag = { node: hit && hit.id !== G.ME ? hit : null, hit: hit, start: p, moved: false,
+        slop: G.tapSlop(e.pointerType), pointerId: e.pointerId, view: Object.assign({}, st.view) };
       if (st.drag.node) st.drag.node.fixed = true;
       cv.style.cursor = "grabbing";
     });
@@ -414,7 +462,7 @@
       var d = st.drag;
       if (d) {
         var dx = p.x - d.start.x, dy = p.y - d.start.y;
-        if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
+        if (!d.moved && Math.hypot(dx, dy) > d.slop) d.moved = true;
         if (!d.moved) return;
         if (d.node) {
           var w = G.toWorld(st.view, p.x, p.y);
@@ -432,20 +480,23 @@
       if (id !== st.hover) { st.hover = id; requestDraw(); }
     });
     function end(e) {
+      if (!st.pointers.has(e.pointerId)) return;  // already ended (lostpointercapture after pointerup)
       st.pointers.delete(e.pointerId);
       if (st.pinch) { if (st.pointers.size < 2) st.pinch = null; return; }
-      var d = st.drag;
-      st.drag = null;
-      cv.style.cursor = "grab";
-      if (!d) return;
-      if (d.node) { d.node.fixed = false; kick(); }
-      if (!d.moved && e.type === "pointerup") {
-        if (d.hit && d.hit.id !== G.ME) openNode(d.hit.id);
-        else closeSide();
-      }
+      endDrag(e.type === "pointerup" ? e : null);
     }
     cv.addEventListener("pointerup", end);
     cv.addEventListener("pointercancel", end);
+    cv.addEventListener("lostpointercapture", end);
+    cv.addEventListener("contextmenu", function () {
+      // A context menu swallows the pointerup: end everything.
+      st.pointers.clear();
+      st.pinch = null;
+      endDrag(null);
+    });
+    cv.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && st.selected) { e.preventDefault(); closeSide(); }
+    });
     cv.addEventListener("pointerleave", function () { if (st.hover && !st.drag) { st.hover = null; requestDraw(); } });
     cv.addEventListener("wheel", function (e) {
       e.preventDefault();
@@ -454,6 +505,19 @@
       st.view = G.zoomAt(st.view, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), p.x, p.y);
       requestDraw();
     }, { passive: false });
+  }
+
+  // Finish a drag. `up` is the pointerup event for a tap, null for a cancel.
+  function endDrag(up) {
+    var d = st.drag;
+    st.drag = null;
+    if (st.canvas) st.canvas.style.cursor = "grab";
+    if (!d) return;
+    if (d.node) { d.node.fixed = false; kick(); }
+    if (up && !d.moved) {
+      if (d.hit && d.hit.id !== G.ME) openNode(d.hit.id);
+      else closeSide();
+    }
   }
 
   // ── side panel ──
@@ -524,10 +588,10 @@
       '<button type="button" id="jmapFixBtn" aria-expanded="' + st.fixOpen + '" style="' + BTN + '">Fix</button></div>' +
       '<div id="jmapMsg" style="font-size:12px;margin-top:6px;color:' + (errMsg ? "var(--danger,#c33)" : "var(--muted)") + '">' + esc(errMsg || "") + "</div>";
     if (st.fixOpen) html += fixHtml(label, aliases);
-    html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">Memories' +
-      (mems.length ? " (" + mems.length + ")" : "") + "</div>";
+    html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">' +
+      esc(loadingMsg ? "Memories" : G.memoriesHeading(mems.length, n.weight)) + "</div>";
     if (loadingMsg) html += '<div style="font-size:12px;color:var(--muted)">' + esc(loadingMsg) + "</div>";
-    else if (!mems.length && !errMsg) html += '<div style="font-size:12px;color:var(--muted)">No memories under the current filters.</div>';
+    else if (!mems.length && !errMsg) html += '<div style="font-size:12px;color:var(--muted)">No memories linked to this node.</div>';
     html += mems.map(function (m) {
       var meta = [fmtDay(m.event_start || m.created_at), sourceLabel(m.source), m.role || ""].filter(Boolean).join(" · ");
       return '<div class="jmap-mem" style="padding:8px 10px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px">' +
@@ -538,8 +602,11 @@
         '<button type="button" class="jmap-unlink" data-mem="' + esc(m.id) + '" style="margin-left:auto;font-size:11px;' +
         'color:var(--danger,#c33);background:none;border:none;cursor:pointer">Remove link</button></div></div>';
     }).join("");
+    var wasHidden = el.style.display !== "block";
     el.innerHTML = html;
     el.style.display = "block";
+    layoutSide();
+    if (wasHidden && narrow()) el.scrollTop = 0;
     wireSide(el);
   }
 
@@ -602,16 +669,19 @@
     });
     list.querySelectorAll(".jmap-merge-go").forEach(function (b) {
       b.addEventListener("click", function () {
-        var from = st.selected, into = b.getAttribute("data-id");
+        var from = st.selected, into = b.getAttribute("data-id"), seq = st.seq;
         b.disabled = true;
         postJson("api/jarvis-memory/entity/merge", { from: from, into: into }).then(function (d) {
           var ent = (d && d.entity) || {};
           var survivor = ent.id != null ? String(ent.id) : into;
-          G.mergeNodes(st.graph, from, survivor, ent);
+          if (seq === st.seq) {                           // the map wasn't reloaded meanwhile
+            G.mergeNodes(st.graph, from, survivor, ent);
+            updateCount();
+            kick();
+          }
+          if (st.selected !== from) return;               // he moved on: keep his selection
           st.confirmMerge = null;
           st.fixOpen = false;
-          updateCount();
-          kick();
           openNode(survivor);
         }).catch(function (err) {
           b.disabled = false;
@@ -624,39 +694,47 @@
   function wireSide(el) {
     el.querySelector("#jmapClose").addEventListener("click", closeSide);
     el.querySelector("#jmapPin").addEventListener("click", function (ev) {
-      var id = st.selected, n = G.node(st.graph, id);
+      var id = st.selected, n = G.node(st.graph, id), seq = st.seq;
       var ent = st.entity && st.entity.entity;
       var want = !(ent && ent.pinned != null ? ent.pinned : n && n.pinned);
       ev.target.disabled = true;
       postJson("api/jarvis-memory/entity", { id: id, pinned: want }).then(function (d) {
         var e = (d && d.entity) || {};
         var val = e.pinned != null ? !!e.pinned : want;
-        if (n) n.pinned = val;
-        if (ent) ent.pinned = val;
+        var cur = seq === st.seq ? n : G.node(st.graph, id);   // a reload replaced the node objects
+        if (cur) cur.pinned = val;
+        if (st.selected === id && st.entity && st.entity.entity) st.entity.entity.pinned = val;
         if (st.selected === id) renderSide();
         requestDraw();
-      }).catch(function () { ev.target.disabled = false; setMsg("Couldn’t change the pin.", true); });
+      }).catch(function () {
+        if (st.selected === id) { ev.target.disabled = false; setMsg("Couldn’t change the pin.", true); }
+      });
     });
     el.querySelector("#jmapExpand").addEventListener("click", function (ev) {
-      var id = st.selected, btn = ev.target;
+      var id = st.selected, btn = ev.target, seq = st.seq;
       btn.disabled = true;
       btn.textContent = "Expanding…";
       var url = G.graphUrl({ center: id, types: st.filters.types, time: st.filters.time, source: st.filters.source }, nowSec());
       getJson(url).then(function (d) {
-        var added = G.mergeGraph(st.graph, d, { anchor: id, cap: G.MAX_NODES, protect: [st.selected] });
+        if (seq !== st.seq || !G.node(st.graph, id)) {     // the map reloaded (filters, recall): drop it
+          btn.disabled = false;
+          btn.textContent = "Expand";
+          return;
+        }
+        var added = G.mergeGraph(st.graph, d, { anchor: id, cap: G.MAX_NODES, protect: [id, st.selected].filter(Boolean) });
         updateCount();
         kick();
         btn.textContent = added.length ? "Expanded (+" + added.length + ")" : "Nothing new";
       }).catch(function () {
         btn.disabled = false;
         btn.textContent = "Expand";
-        setMsg("Couldn’t expand this node.", true);
+        if (st.selected === id) setMsg("Couldn’t expand this node.", true);
       });
     });
     el.querySelector("#jmapFixBtn").addEventListener("click", function () { st.fixOpen = !st.fixOpen; renderSide(); });
     var save = el.querySelector("#jmapSave");
     if (save) save.addEventListener("click", function () {
-      var id = st.selected;
+      var id = st.selected, seq = st.seq;
       var name = (el.querySelector("#jmapName").value || "").trim();
       var aliases = (el.querySelector("#jmapAliases").value || "").split(",")
         .map(function (s) { return s.trim(); }).filter(Boolean);
@@ -666,20 +744,26 @@
         var ent = (d && d.entity) || {};
         var newId = ent.id != null ? String(ent.id) : id;
         if (newId !== id) {
-          G.mergeNodes(st.graph, id, newId, ent);           // renamed onto an existing name: merged
-          updateCount();
-          kick();
+          if (seq === st.seq) {                             // renamed onto an existing name: merged
+            G.mergeNodes(st.graph, id, newId, ent);
+            updateCount();
+            kick();
+          }
+          if (st.selected !== id) return;
           st.fixOpen = false;
           openNode(newId);
           return;
         }
         var n = G.node(st.graph, id);
         if (n) { n.label = ent.label != null ? String(ent.label) : name; n.aliases = Array.isArray(ent.aliases) ? ent.aliases.slice() : aliases; }
+        requestDraw();
+        if (st.selected !== id) return;                     // he moved on: don't repaint his new panel
         if (st.entity && st.entity.entity) Object.assign(st.entity.entity, ent.id != null ? ent : { label: name, aliases: aliases });
         renderSide();
         setMsg("Saved.");
         requestDraw();
       }).catch(function (err) {
+        if (st.selected !== id) return;
         save.disabled = false;
         setMsg("Couldn’t save: " + (err && err.message ? err.message : "error"), true);
       });
@@ -714,16 +798,33 @@
     readColors();
     resize();
     if (!st.loaded && !st.loading) loadBase();
+    else if (!st.loading && !st.highlight && G.isStale(st.loadedAt, Date.now())) loadBase(true);
     else kick();
+  }
+
+  // New data on the server (e.g. a cleanup run finished): refresh now if the
+  // map is on screen and not showing a recall, else on the next show().
+  function invalidate() {
+    st.loadedAt = 0;
+    if (st.loaded && !st.loading && !st.highlight && visible()) loadBase(true);
   }
 
   window.MemoryMap = {
     mount: mount,
     show: show,
     stop: stop,
+    invalidate: invalidate,
     reload: function () { clearHighlight(true); return loadBase(); },
     highlightRecall: highlightRecall,
   };
 
   document.addEventListener("visibilitychange", function () { if (!document.hidden && visible()) kick(); });
+  // Escape closes the node panel while the map is on screen (unless a field in it is being edited).
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || !st.selected || !visible()) return;
+    var t = e.target;
+    if (t === st.canvas) return;                       // the canvas handler did it
+    if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && !(sideEl() && sideEl().contains(t))) return;
+    closeSide();
+  });
 })();

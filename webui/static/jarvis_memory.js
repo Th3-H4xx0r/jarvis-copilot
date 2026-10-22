@@ -50,9 +50,16 @@
     });
   }
 
+  function panelVisible() {
+    var el = document.getElementById("mainJmemory");
+    return !!(el && el.style.display !== "none" && el.isConnected);
+  }
+
   function hidePanel() {
     var el = document.getElementById("mainJmemory");
     if (el) el.style.display = "none";
+    clearTimeout(cleanupTimer);                         // background polls stop with the panel
+    cleanupTimer = null;
     var chat = document.getElementById("mainChat");
     if (chat) chat.style.display = "";                  // restore (CSS decides the real view)
     document.body.classList.remove("cm-fullwidth");
@@ -158,13 +165,15 @@
   function openRecall(recallId, query) {
     if (recallId == null || recallId === "") return;
     showPanel();
-    var body = renderShell();
-    var fresh = body && !body.dataset.loadedOnce;
+    renderShell();
     setView("map");
     if (window.MemoryMap) {
       try { MemoryMap.highlightRecall(recallId, query || ""); } catch (e) {}
     }
-    if (fresh) window.loadJarvisMemory();
+    // Same entry as the nav button: refreshes the sections and (re)starts the
+    // panel's background updates. The highlight load above is already in
+    // flight, so the map's show() won't replace it.
+    window.loadJarvisMemory();
   }
 
   window.JarvisMemory = { openRecall: openRecall };
@@ -195,9 +204,9 @@
     _chipTimer = setTimeout(function () { try { decorateChips(); } catch (e) { /* never break chat */ } }, 250);
   }
 
-  function fetchChipRecalls(sid, count) {
+  function fetchChipRecalls(sid, sig) {
     var prev = _chipCache[sid];
-    var c = { recalls: prev ? prev.recalls : [], count: count, inflight: true };
+    var c = { recalls: prev ? prev.recalls : [], sig: sig, inflight: true };
     _chipCache[sid] = c;
     if (_chipOrder.indexOf(sid) < 0) {
       _chipOrder.push(sid);
@@ -220,10 +229,12 @@
     var msgs = _chipMessages();
     var c = _chipCache[sid];
     var busy = _chipBusy(inner);
-    if (!c) { if (!busy) fetchChipRecalls(sid, msgs.length); return; }
+    // Count or last reply changed (a new turn, a Regenerate, an undo) → refetch once.
+    var sig = MemoryGraph.chatSignature(msgs);
+    if (!c) { if (!busy) fetchChipRecalls(sid, sig); return; }
     if (c.inflight) return;
-    if (!busy && msgs.length > c.count) { fetchChipRecalls(sid, msgs.length); return; }
-    if (!c.recalls.length) return;
+    if (!busy && sig !== c.sig) { fetchChipRecalls(sid, sig); return; }
+    if (!c.recalls.length && !inner.querySelector(".jmem-recall-chip")) return;
     var users = [];
     msgs.forEach(function (m, i) {
       if (m && m.role === "user") users.push({ key: i, text: MemoryGraph.messageText(m.content), ts: m._ts || m.timestamp });
@@ -231,7 +242,6 @@
     var matched = MemoryGraph.matchRecalls(users, c.recalls);
     inner.querySelectorAll('.msg-row[data-role="user"][data-msg-idx]').forEach(function (row) {
       var rc = matched[Number(row.dataset.msgIdx)];
-      if (!rc) return;
       var turn = null;
       for (var el = row.nextElementSibling; el; el = el.nextElementSibling) {
         if (el.matches('.msg-row[data-role="user"]')) break;
@@ -240,6 +250,7 @@
       if (!turn || turn.id === "liveAssistantTurn" || turn.querySelector("[data-live-assistant]")) return;
       var host = turn.querySelector(".assistant-turn-blocks") || turn;
       var have = host.querySelector(":scope > .jmem-recall-chip");
+      if (!rc) { if (have) have.remove(); return; }     // e.g. a Regenerate that used no memory
       if (have && have.getAttribute("data-recall") === String(rc.id)) return;
       if (have) have.remove();
       var n = (rc.memory_ids || []).length;
@@ -577,7 +588,17 @@
     } catch (e) { return; }
     if (!d || typeof d !== "object") return;
     clearTimeout(cleanupTimer);
-    if (d.running) cleanupTimer = setTimeout(function () { loadCleanup(); }, 3000);
+    cleanupTimer = null;
+    // Re-poll a running cleanup only while the panel is on screen; showing the
+    // panel again (loadJarvisMemory) resumes it.
+    if (d.running && panelVisible()) {
+      cleanupTimer = setTimeout(function () { if (panelVisible()) loadCleanup(); }, 3000);
+    }
+    var wasRunning = !!(_cleanupLast && _cleanupLast.running);
+    if (wasRunning && !d.running && window.MemoryMap) {
+      try { MemoryMap.invalidate(); } catch (e) {}          // a finished run changed the map
+    }
+    if (d.running !== (_cleanupLast && _cleanupLast.running)) _cleanupLast = d;
     var sig = JSON.stringify(d);
     if (!force && sig === _cleanupSig && el.innerHTML) return;   // unchanged: keep open <details>
     if (!d.running && _cleanupConfirm && !force) return;           // don't clobber an open "Are you sure?"

@@ -79,3 +79,31 @@ def test_panel_has_map_list_switch_recalls_and_chat_chip():
     assert "MemoryGraph.matchRecalls" in js
     assert "jmem-recall-chip" in js
     assert "MutationObserver" in js
+
+
+def test_review_fixes_are_wired():
+    js = _read("memory_map.js")
+    # Drags can't stick: non-primary mouse buttons ignored; every way a pointer ends, ends the drag.
+    assert "G.acceptsPointer(e)" in js
+    assert "G.tapSlop(e.pointerType)" in js
+    for ev in ('"lostpointercapture"', '"contextmenu"', '"pointercancel"'):
+        assert ev in js, ev
+    # Late async results don't land on a reloaded map.
+    assert js.count("seq === st.seq") + js.count("seq !== st.seq") >= 6
+    # Phone width: the node panel becomes a sheet over the canvas.
+    assert "(max-width: 730px)" in js and "layoutSide()" in js
+    # Stale base graph reloads on show(); DPR changes are picked up; Escape + a focusable canvas.
+    assert "G.isStale(st.loadedAt" in js
+    assert "(resolution: " in js
+    assert 'tabindex="0"' in js and '"Escape"' in js
+    assert "G.memoriesHeading(" in js
+    assert "under the current filters" not in js
+
+    panel = _read("jarvis_memory.js")
+    assert "MemoryGraph.chatSignature(msgs)" in panel
+    assert "panelVisible()" in panel
+    assert "MemoryMap.invalidate()" in panel
+    open_recall = panel[panel.index("function openRecall("):panel.index("window.JarvisMemory =")]
+    assert "window.loadJarvisMemory()" in open_recall
+    assert "if (fresh)" not in open_recall
+    assert "confirm(" not in panel

@@ -389,3 +389,85 @@ test('recallsUrl: per-session chip request and the Recent recalls list', () => {
   assert.equal(G.recallsUrl({ sessionId: 'a b', limit: 100 }), 'api/jarvis-memory/recalls?limit=100&session_id=a%20b');
   assert.equal(G.recallsUrl({ limit: 30 }), 'api/jarvis-memory/recalls?limit=30');
 });
+
+// ── review fixes ──
+
+test('matchRecalls prefers the latest recall in the window (Regenerate re-ran the recall)', () => {
+  const recalls = [
+    { id: 'old', ts: 1001, query: 'where is mom?' },
+    { id: 'regen', ts: 1500, query: 'where is mom?' },
+  ];
+  const m = G.matchRecalls([{ key: 'u', text: 'where is mom?', ts: 1000 }], recalls);
+  assert.equal(m.u.id, 'regen');
+});
+
+test('matchRecalls latest-in-window still keeps each turn to its own window', () => {
+  const recalls = [
+    { id: 'a', ts: 1001, query: 'hi' }, { id: 'a2', ts: 1050, query: 'hi' },
+    { id: 'b', ts: 2001, query: 'hi' },
+  ];
+  const m = G.matchRecalls([{ key: 0, text: 'hi', ts: 1000 }, { key: 1, text: 'hi', ts: 2000 }], recalls);
+  assert.equal(m[0].id, 'a2');
+  assert.equal(m[1].id, 'b');
+});
+
+test('matchRecalls without timestamps gives the last turns the latest recalls', () => {
+  const recalls = [{ id: 'a', ts: 10, query: 'x' }, { id: 'b', ts: 20, query: 'x' }, { id: 'c', ts: 30, query: 'x' }];
+  const m = G.matchRecalls([{ key: 1, text: 'x' }, { key: 2, text: 'x' }], recalls);
+  assert.equal(m[1].id, 'b');
+  assert.equal(m[2].id, 'c');
+});
+
+test('chatSignature changes with the message count and with the last assistant reply', () => {
+  const base = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }];
+  const s0 = G.chatSignature(base);
+  assert.equal(G.chatSignature(base.map(m => Object.assign({}, m))), s0, 'stable for equal chats');
+  assert.notEqual(G.chatSignature(base.concat([{ role: 'user', content: 'x' }])), s0);
+  const regen = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hey there' }];
+  assert.notEqual(G.chatSignature(regen), s0, 'regenerated reply');
+  const sameLen = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hellp' }];
+  assert.notEqual(G.chatSignature(sameLen), s0, 'same length, different text');
+  assert.equal(typeof G.chatSignature(null), 'string');
+});
+
+test('isStale: reload the base graph when it is older than two minutes', () => {
+  assert.equal(G.isStale(0, 1000), true);
+  assert.equal(G.isStale(1000, 1000 + 60e3), false);
+  assert.equal(G.isStale(1000, 1000 + G.BASE_MAX_AGE_MS + 1), true);
+  assert.equal(G.BASE_MAX_AGE_MS, 120000);
+});
+
+test('loadGraph keepPositions: nodes already on the map stay put, new ones still get a spot', () => {
+  const g = G.createGraph();
+  G.loadGraph(g, payload('me', [['a', 'person', 5], ['b', 'place', 2]], [['me', 'a', 5], ['me', 'b', 2]]));
+  G.node(g, 'a').x = 321; G.node(g, 'a').y = -45;
+  G.loadGraph(g, payload('me', [['a', 'person', 9], ['c', 'topic', 1]], [['me', 'a', 9], ['me', 'c', 1]]), { keepPositions: true });
+  assert.equal(G.node(g, 'a').x, 321);
+  assert.equal(G.node(g, 'a').y, -45);
+  assert.equal(G.node(g, 'a').weight, 9);
+  assert.ok(!G.node(g, 'b'));
+  const c = G.node(g, 'c');
+  assert.ok(Number.isFinite(c.x) && Math.hypot(c.x, c.y) > 20);
+  // Without the option a load still lays everything out fresh.
+  G.loadGraph(g, payload('me', [['a', 'person', 9]], [['me', 'a', 9]]));
+  assert.notEqual(G.node(g, 'a').x, 321);
+});
+
+test('pointer filtering: only the primary mouse button drags; touch gets a bigger tap slop', () => {
+  assert.equal(G.acceptsPointer({ pointerType: 'mouse', button: 0 }), true);
+  assert.equal(G.acceptsPointer({ pointerType: 'mouse', button: 2 }), false);
+  assert.equal(G.acceptsPointer({ pointerType: 'mouse', button: 1 }), false);
+  assert.equal(G.acceptsPointer({ pointerType: 'touch', button: 0 }), true);
+  assert.equal(G.acceptsPointer({ pointerType: 'pen', button: 0 }), true);
+  assert.equal(G.tapSlop('touch'), 10);
+  assert.equal(G.tapSlop('pen'), 10);
+  assert.equal(G.tapSlop('mouse'), 4);
+});
+
+test('memoriesHeading: "50 of N" when the node weight says there are more', () => {
+  assert.equal(G.memoriesHeading(50, 611), 'Memories (50 of 611)');
+  assert.equal(G.memoriesHeading(3, 3), 'Memories (3)');
+  assert.equal(G.memoriesHeading(3, 1), 'Memories (3)');
+  assert.equal(G.memoriesHeading(3, null), 'Memories (3)');
+  assert.equal(G.memoriesHeading(0, 0), 'Memories');
+});

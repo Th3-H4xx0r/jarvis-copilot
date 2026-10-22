@@ -43,6 +43,7 @@
   const MAX_ZOOM = 5;
   const MAX_RADIUS = 34;
   const ME = 'me';
+  const BASE_MAX_AGE_MS = 2 * 60 * 1000;   // the base graph is reloaded on show() after this
 
   // Physics (world units ≈ CSS px at zoom 1).
   const REPULSION = 2200;
@@ -142,7 +143,10 @@
   }
 
   // Fresh "You at the center" load (also the highlight payload).
-  function loadGraph(g, payload) {
+  // opts.keepPositions: nodes already on the map keep their place (a refresh).
+  function loadGraph(g, payload, opts) {
+    const old = new Map();
+    if (opts && opts.keepPositions) for (const n of g.nodes) old.set(n.id, n);
     g.nodes = [meNode()];
     g.edges = [];
     const nodes = (payload && payload.nodes) || [];
@@ -152,7 +156,8 @@
     }
     nodes.forEach((raw, i) => {
       if (!raw || raw.id == null || raw.id === ME || node(g, String(raw.id))) return;
-      const [x, y] = ringPos(0, 0, i, 90, 24);
+      const prev = old.get(String(raw.id));
+      const [x, y] = prev ? [prev.x, prev.y] : ringPos(0, 0, i, 90, 24);
       g.nodes.push(makeNode(raw, x, y));
     });
     const idx = new Map();
@@ -433,6 +438,15 @@
     }
     for (const list of byQuery.values()) list.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
     const used = new Set();
+    // For each user turn: how many LATER turns ask the same thing.
+    const laterSame = new Map();
+    const seen = new Map();
+    for (let i = users.length - 1; i >= 0; i--) {
+      const q = users[i] ? normalizeQuery(users[i].text) : '';
+      if (!q) continue;
+      laterSame.set(i, seen.get(q) || 0);
+      seen.set(q, (seen.get(q) || 0) + 1);
+    }
     users.forEach((u, i) => {
       if (!u) return;
       const q = normalizeQuery(u.text);
@@ -446,24 +460,69 @@
           const nts = users[j] && Number(users[j].ts);
           if (Number.isFinite(nts) && nts > 0) { hi = Math.min(hi, Math.max(nts, uts)); break; }
         }
-        let best = Infinity;
+        // The latest recall in this turn's window: a Regenerate re-runs the
+        // recall for the same question, and the newest one fed the reply shown.
+        let best = -Infinity;
         for (const r of list) {
           if (used.has(r)) continue;
           const rts = Number(r.ts);
           if (!Number.isFinite(rts)) continue;
           if (rts < uts - SKEW || rts > hi) continue;
-          const d = Math.abs(rts - uts);
-          if (d < best) { best = d; pick = r; }
+          if (rts > best) { best = rts; pick = r; }
         }
       } else {
-        pick = list.find(r => !used.has(r)) || null;
+        // No clock: align from the end — the last turns asking this got the
+        // latest recalls.
+        const later = laterSame.get(i) || 0;
+        const free = list.filter(r => !used.has(r));
+        pick = free.length > later ? free[free.length - 1 - later] : null;
       }
       if (pick) { used.add(pick); out[u.key] = pick; }
     });
     return out;
   }
 
+  // A cheap fingerprint of a chat: message count + the last assistant reply
+  // (so a Regenerate, which keeps the count, still refreshes the chip).
+  function chatSignature(messages) {
+    if (!Array.isArray(messages)) return '0';
+    let last = '';
+    let lastIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.role === 'assistant') { last = messageText(m.content); lastIdx = i; break; }
+    }
+    let h = 2166136261;
+    for (let i = 0; i < last.length; i++) { h ^= last.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return messages.length + ':' + lastIdx + ':' + last.length + ':' + (h >>> 0).toString(36);
+  }
+
+  function isStale(loadedAtMs, nowMs) {
+    return !loadedAtMs || nowMs - loadedAtMs > BASE_MAX_AGE_MS;
+  }
+
+  // Mouse drags only with the primary button; touch / pen always.
+  function acceptsPointer(e) {
+    if (!e) return false;
+    if (e.pointerType === 'mouse' || !e.pointerType) return e.button === 0;
+    return true;
+  }
+
+  // How far a pointer may move before a tap becomes a drag (CSS px).
+  function tapSlop(pointerType) {
+    return pointerType === 'touch' || pointerType === 'pen' ? 10 : 4;
+  }
+
+  function memoriesHeading(shown, weight) {
+    shown = Number(shown) || 0;
+    const w = Number(weight) || 0;
+    if (!shown && !w) return 'Memories';
+    if (w > shown) return 'Memories (' + shown + ' of ' + w + ')';
+    return 'Memories (' + shown + ')';
+  }
+
   return {
+    BASE_MAX_AGE_MS, chatSignature, isStale, acceptsPointer, tapSlop, memoriesHeading,
     TYPES, TYPE_LABELS, TIME_RANGES, SOURCES, COLORS, BASE_LIMIT, MAX_NODES, MIN_ZOOM, MAX_ZOOM, MAX_RADIUS, ME,
     sinceFor, graphUrl, recallsUrl,
     createGraph, node, edgeKey, loadGraph, mergeGraph, capGraph, removeNode, mergeNodes, mergeCandidates,
