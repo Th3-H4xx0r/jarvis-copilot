@@ -6837,7 +6837,18 @@ def handle_post(handler, parsed) -> bool:
             ts=_num(body.get("ts")),
             address=addr,
         )
+        try:
+            from plugins.memory.jarvis_memory import brief as _brief
+            _brief.mark_dirty()  # "where he is" in the now brief
+        except Exception:
+            pass
         return j(handler, {"ok": True, "stored": entry})
+
+    # ── Mobile client: calendar + reminders + time zone for the now brief ──
+    # POST /api/devices/mobile/context
+    if parsed.path == "/api/devices/mobile/context":
+        from api.memory_map import handle_context_post
+        return handle_context_post(handler, body)
 
     # ── Rename a paired device (POST /api/devices/<id>/rename {name}) ──
     if parsed.path.startswith("/api/devices/") and parsed.path.endswith("/rename"):

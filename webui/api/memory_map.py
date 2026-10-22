@@ -99,3 +99,15 @@ def handle_settings_post(handler, body: Optional[dict]):
     if "agent" not in body or not set_agent(body.get("agent")):
         return bad(handler, "agent must be null, {harness_id} or {model, provider}")
     return j(handler, settings_payload())
+
+
+def handle_context_post(handler, body: Optional[dict]):
+    """The phone's calendar (next 14 days), open reminders and time zone."""
+    from api.auth import parse_cookie
+    from api.helpers import j
+    from api.pairing import find_device_by_session
+    device = find_device_by_session(parse_cookie(handler) or "")
+    if not device:
+        return j(handler, {"error": "no matching device for session"}, status=401)
+    from api.brief_sources import save_snapshot
+    return j(handler, {"ok": True, **save_snapshot(body if isinstance(body, dict) else {})})
