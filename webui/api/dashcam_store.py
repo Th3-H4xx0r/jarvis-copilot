@@ -8,7 +8,8 @@ A JSON-file store under the webui state dir, beside the island/widget stores::
         settings.json             {"rules": {...}, "staging_cap_bytes": n}
         destinations.json         {"destinations": {dest_id: {id, type, name, remote, path, enabled, kinds,
                                                               host, port, user, status, error, created_at}}}
-        clips/<clip_id>.json      one clip (see ``_new_clip``)
+        clips/<clip_id>.json      one clip (see ``_new_clip``); ``card_delete`` while a delete he asked for
+                                  waits for the camera: {asked_at, forget, attempts, last_error, last_try_at}
         fixes/<clip_id>.json      {"fixes": [[t_unix, lat, lon, speed_mps|null, heading_deg|null], ...]}
         thumbs/<clip_id>.jpg
         drives.json               {"drives": {drive_id: {...}}, "built_at"}   (written by dashcam_drives.rebuild)
@@ -30,6 +31,10 @@ clip no enabled destination takes any more goes back to ``none`` (``abandon_uplo
 phone sends it again later; an upload is refused (``no_destination``) while none takes it.
 Each destination entry walks ``pending -> uploading -> done`` (or ``failed`` after
 the relay's retries).
+
+A clip's ``card_delete`` is the backlog of deletes he asked for while the phone couldn't reach the
+camera. The phone flushes it on its next connection; the entry closes once the camera no longer lists
+the clip (deleted, or recorded over). ``forget`` (deleted everywhere) drops the clip at that moment.
 
 Secrets (FTP/SFTP/SMB passwords, Drive tokens, camera Wi-Fi passwords) are never
 written here: they go straight into the rclone config. Writes are atomic
@@ -578,6 +583,8 @@ class DashcamStore:
                 if clip.get("camera_id") == camera_id and clip["id"] not in seen and clip.get("on_camera"):
                     clip["on_camera"] = False
                     self._save_clip(clip)
+                    if clip.get("card_delete"):
+                        self._close_card_delete(clip)
         return rows
 
     @staticmethod
@@ -585,7 +592,8 @@ class DashcamStore:
         return {"id": clip["id"], "path": clip["path"], "has_gps": bool(clip.get("has_gps")),
                 "has_thumb": bool(clip.get("has_thumb")), "uploaded": _is_uploaded(clip, dests),
                 "size_stable": bool(clip.get("size_stable")),
-                "phone_state": (clip.get("phone") or {}).get("state")}
+                "phone_state": (clip.get("phone") or {}).get("state"),
+                "card_delete": bool(clip.get("card_delete"))}
 
     def list_clips(self, *, kind=None, lens=None, state=None, drive=None, start_from=None, start_to=None,
                    cursor=None, limit=100, tag=None) -> tuple[list[dict], str | None]:
@@ -620,6 +628,74 @@ class DashcamStore:
         page = out[:limit]
         nxt = page[-1]["id"] if len(out) > limit else None
         return page, nxt
+
+    # ── card deletes ─────────────────────────────────────────────────────────
+    def _close_card_delete(self, clip: dict) -> None:
+        """The camera no longer has the clip: the entry is done. Deleted everywhere → forgotten now."""
+        entry = clip.pop("card_delete", None) or {}
+        if entry.get("forget"):
+            self.forget_clip(clip["id"])
+        else:
+            self._save_clip(clip)
+
+    def mark_card_deletes(self, entries: list[dict]) -> tuple[list[str], list[str], list[str]]:
+        """Queues card deletes ``[{id, forget}]``; returns ``(marked, closed, missing)``. Asking again
+        is harmless (``forget`` only ever turns on). A clip already off the card closes at once."""
+        marked, closed, missing = [], [], []
+        with _LOCK:
+            for e in entries:
+                clip = self.get_clip(e["id"])
+                if clip is None:
+                    missing.append(e["id"])
+                    continue
+                entry = clip.get("card_delete") or {"asked_at": now_iso(), "forget": False, "attempts": 0,
+                                                     "last_error": None, "last_try_at": None}
+                entry["forget"] = bool(entry.get("forget") or e.get("forget"))
+                clip["card_delete"] = entry
+                if clip.get("on_camera"):
+                    self._save_clip(clip)
+                    marked.append(clip["id"])
+                else:
+                    self._close_card_delete(clip)
+                    closed.append(clip["id"])
+        return marked, closed, missing
+
+    def card_deletes(self, camera_id: str | None = None) -> list[dict]:
+        """Open entries, oldest ask first (for one camera, or all)."""
+        out = []
+        for clip in self.all_clips():
+            entry = clip.get("card_delete")
+            if not entry or (camera_id and clip.get("camera_id") != camera_id):
+                continue
+            out.append({"id": clip["id"], "path": clip["path"], "camera_id": clip.get("camera_id"),
+                        "forget": bool(entry.get("forget")), "attempts": int(entry.get("attempts") or 0),
+                        "last_error": entry.get("last_error"), "asked_at": entry.get("asked_at")})
+        out.sort(key=lambda e: (str(e["asked_at"] or ""), e["id"]))
+        return out
+
+    def close_card_deletes(self, ids: list[str]) -> int:
+        """The phone deleted these from the card; returns how many entries closed."""
+        n = 0
+        with _LOCK:
+            for cid in ids:
+                clip = self.get_clip(cid)
+                if clip is not None and clip.get("card_delete"):
+                    self._close_card_delete(clip)
+                    n += 1
+        return n
+
+    def card_delete_failed(self, clip_id: str, error) -> bool:
+        """The camera refused: the entry stays, with the attempt counted. False without an open entry."""
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            entry = clip.get("card_delete") if clip else None
+            if not entry:
+                return False
+            entry["attempts"] = int(entry.get("attempts") or 0) + 1
+            entry["last_error"] = str(error or "")[:300] or None
+            entry["last_try_at"] = now_iso()
+            self._save_clip(clip)
+        return True
 
     def set_phone_state(self, clip_id: str, state: str, error: str | None = None) -> dict | None:
         if state not in PHONE_STATES:

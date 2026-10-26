@@ -42,6 +42,11 @@ Endpoints (GET/POST/DELETE only)::
     POST   /uploads/<id>/chunk?n=<n>    raw bytes (<= chunk_size) -> {ok, received, chunks}
     POST   /uploads/<id>/complete       -> {ok, clip} | 400 {error: missing_chunks (+missing) | size_mismatch | sha256_mismatch}
                                            (a .ts clip is remuxed to MP4 first, in this request; see dashcam_store)
+    GET    /card_deletes?camera=<id>    -> {clips:[{id, path, camera_id, forget, attempts, last_error, asked_at}]}
+                                           deletes he asked for that still wait for the camera
+    POST   /card_deletes {clips:[{id, forget?}]} -> {ok, marked, closed, missing}   (closed: already off the card)
+    POST   /card_deletes/done {ids:[...]} -> {ok, closed}   the phone deleted them; forget entries drop the clip
+    POST   /card_deletes/failed {id, error} -> {ok}   | 404 no open entry
     GET    /drives?from&to              -> {drives}
     GET    /drives/<id>                 -> {ok, drive, polyline:[[lat, lon, speed], ...], clips}
     GET    /drives/<id>.gpx             -> application/gpx+xml
@@ -105,6 +110,7 @@ _RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete|token|reconn
 _RE_DEST_OAUTH = re.compile(rf"^/destinations/{_DEST}/oauth$")
 _RE_CLIP_DIRECT = re.compile(rf"^/clips/{_CLIP}/direct$")
 _RE_CLIP_TAGS = re.compile(rf"^/clips/{_CLIP}/tags$")
+_RE_CLIP_ID = re.compile(rf"^{_CLIP}$")
 _RE_TAG_DELETE = re.compile(r"^/tags/([a-z0-9_]{1,64})/delete$")
 
 _UNKNOWN = (404, {"ok": False, "error": "unknown dashcam endpoint"})
@@ -229,6 +235,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
             return 200, {"tags": store.tags()}
         if p == "/drives":
             return _list_drives(store, q)
+        if p == "/card_deletes":
+            return 200, {"clips": store.card_deletes(q.get("camera") or None)}
         if p == "/destinations":
             return 200, {"destinations": [_dest_view(d) for d in store.destinations()]}
         m = _RE_DEST_OAUTH.match(p)
@@ -289,6 +297,18 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
         m = _RE_CLIP_DIRECT.match(p)
         if m:
             return _record_direct(store, m.group(1), body)
+        if p == "/card_deletes":
+            return _mark_card_deletes(store, body)
+        if p == "/card_deletes/done":
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not all(isinstance(i, str) and _RE_CLIP_ID.match(i) for i in ids):
+                return _err(400, "ids must be a list of clip ids")
+            return 200, {"ok": True, "closed": store.close_card_deletes(ids)}
+        if p == "/card_deletes/failed":
+            cid = body.get("id")
+            if not isinstance(cid, str) or not _RE_CLIP_ID.match(cid):
+                return _err(400, "id must be a clip id")
+            return (200, {"ok": True}) if store.card_delete_failed(cid, body.get("error")) else _err(404, "no card delete for that clip")
         if p == "/tags":
             tag, err = store.add_tag(body.get("name"))
             return (200, {"ok": True, "tag": tag}) if tag else _err(400, err)
@@ -388,6 +408,19 @@ def _list_clips(store, q):
     for clip in clips:
         clip["uploaded"] = store.is_uploaded(clip, dests)
     return 200, {"clips": clips, "next": nxt}
+
+
+def _mark_card_deletes(store, body):
+    clips = body.get("clips")
+    if not isinstance(clips, list) or not all(isinstance(c, dict) for c in clips):
+        return _err(400, "clips must be a list of {id, forget}")
+    entries = []
+    for c in clips:
+        if not isinstance(c.get("id"), str) or not _RE_CLIP_ID.match(c["id"]):
+            return _err(400, "each clip needs a clip id")
+        entries.append({"id": c["id"], "forget": c.get("forget") is True})
+    marked, closed, missing = store.mark_card_deletes(entries)
+    return 200, {"ok": True, "marked": marked, "closed": closed, "missing": missing}
 
 
 def _set_tags(store, cid, body):

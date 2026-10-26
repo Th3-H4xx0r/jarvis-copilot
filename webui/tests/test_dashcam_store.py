@@ -1146,3 +1146,94 @@ def test_a_change_adds_and_removes_without_the_whole_list(store):
     assert store.set_clip_tags(front, remove=["gone_long_ago"])[1] is None, "taking off what isn't there is fine"
     assert store.set_clip_tags(front)[1] == "tags must be a list of tag ids"
     assert store.set_clip_tags(front, add="accident")[1] == "tags must be a list of tag ids"
+
+
+# ── card deletes (the backlog of deletes waiting for the camera) ─────────────
+
+def _cid(it, camera=CAM):
+    return DashcamStore.clip_id(camera, it["path"])
+
+
+def test_mark_card_delete_sets_entry_and_row_flag(store):
+    a, b = item("a.ts"), item("b.ts")
+    store.apply_inventory(CAM, [a, b])
+    marked, closed, missing = store.mark_card_deletes([{"id": _cid(a), "forget": False}])
+    assert (marked, closed, missing) == ([_cid(a)], [], [])
+    entry = clip_of(store, a)["card_delete"]
+    assert entry["forget"] is False and entry["attempts"] == 0 and entry["asked_at"]
+    rows = {r["path"]: r for r in store.apply_inventory(CAM, [a, b])}
+    assert rows[a["path"]]["card_delete"] is True
+    assert rows[b["path"]]["card_delete"] is False
+
+
+def test_mark_is_idempotent_and_forget_wins(store):
+    a = item("a.ts")
+    store.apply_inventory(CAM, [a])
+    store.mark_card_deletes([{"id": _cid(a), "forget": True}])
+    store.mark_card_deletes([{"id": _cid(a), "forget": False}])
+    assert clip_of(store, a)["card_delete"]["forget"] is True
+    assert len(store.card_deletes(CAM)) == 1
+
+
+def test_mark_unknown_clip_is_missing(store):
+    marked, closed, missing = store.mark_card_deletes([{"id": "c_" + "0" * 20, "forget": True}])
+    assert (marked, closed, missing) == ([], [], ["c_" + "0" * 20])
+
+
+def test_mark_clip_already_off_card_closes_and_forgets(store):
+    a, b = item("a.ts"), item("b.ts")
+    store.apply_inventory(CAM, [a, b])
+    store.apply_inventory(CAM, [b])                     # a left the card
+    marked, closed, _ = store.mark_card_deletes([{"id": _cid(a), "forget": True}])
+    assert marked == [] and closed == [_cid(a)]
+    assert clip_of(store, a) is None
+
+
+def test_inventory_without_the_clip_closes_its_entry(store):
+    a, b = item("a.ts"), item("b.ts")
+    store.apply_inventory(CAM, [a, b])
+    store.mark_card_deletes([{"id": _cid(a), "forget": False}, {"id": _cid(b), "forget": True}])
+    store.apply_inventory(CAM, [])                      # both deleted from the card
+    assert clip_of(store, a) is not None and "card_delete" not in clip_of(store, a)
+    assert clip_of(store, a)["on_camera"] is False
+    assert clip_of(store, b) is None                    # deleted everywhere: gone from the library now
+    assert store.card_deletes(CAM) == []
+
+
+def test_inventory_still_listing_keeps_entry(store):
+    a = item("a.ts")
+    store.apply_inventory(CAM, [a])
+    store.mark_card_deletes([{"id": _cid(a), "forget": True}])
+    store.apply_inventory(CAM, [a])                     # the camera refused: still on the card
+    assert clip_of(store, a)["card_delete"]["forget"] is True
+
+
+def test_done_forgets_only_forget_entries(store):
+    a, b, c = item("a.ts"), item("b.ts"), item("c.ts")
+    store.apply_inventory(CAM, [a, b, c])
+    store.mark_card_deletes([{"id": _cid(a), "forget": False}, {"id": _cid(b), "forget": True}])
+    assert store.close_card_deletes([_cid(a), _cid(b), _cid(c)]) == 2
+    assert clip_of(store, a) is not None and "card_delete" not in clip_of(store, a)
+    assert clip_of(store, b) is None
+    assert clip_of(store, c) is not None
+
+
+def test_failed_counts_attempts(store):
+    a = item("a.ts")
+    store.apply_inventory(CAM, [a])
+    store.mark_card_deletes([{"id": _cid(a), "forget": False}])
+    assert store.card_delete_failed(_cid(a), "deletefile: not in playback mode" + "x" * 400) is True
+    assert store.card_delete_failed(_cid(a), "again") is True
+    entry = clip_of(store, a)["card_delete"]
+    assert entry["attempts"] == 2 and entry["last_error"] == "again" and entry["last_try_at"]
+    assert store.card_delete_failed(_cid(item("nope.ts")), "x") is False
+
+
+def test_card_deletes_filters_by_camera(store):
+    a, b = item("a.ts"), item("b.ts")
+    store.apply_inventory(CAM, [a])
+    store.apply_inventory("OTHER", [b])
+    store.mark_card_deletes([{"id": _cid(a), "forget": False}, {"id": _cid(b, "OTHER"), "forget": True}])
+    assert [e["path"] for e in store.card_deletes(CAM)] == [a["path"]]
+    assert {e["camera_id"] for e in store.card_deletes(None)} == {CAM, "OTHER"}
+    assert set(store.card_deletes(CAM)[0]) >= {"id", "path", "camera_id", "forget", "attempts", "last_error"}

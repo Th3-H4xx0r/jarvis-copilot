@@ -784,3 +784,26 @@ def test_a_tag_change_by_add_and_remove(H, store):
     assert H("POST", f"/clips/{cid}/tags", {"add": ["accident", "scenic"]})[1]["clips"][0]["tags"] == ["accident", "scenic"]
     assert H("POST", f"/clips/{cid}/tags", {"remove": ["accident"]})[1]["clips"][0]["tags"] == ["scenic"]
     assert H("POST", f"/clips/{cid}/tags", {})[0] == 400
+
+
+def test_card_deletes_routes_round_trip(H):
+    a, b = inventory(H, "a.ts", "b.ts")
+    status, p = H("POST", "/card_deletes", {"clips": [{"id": a, "forget": True}, {"id": "c_" + "1" * 20}]})
+    assert status == 200 and p["marked"] == [a] and p["missing"] == ["c_" + "1" * 20] and p["closed"] == []
+    status, p = H("GET", "/card_deletes", query={"camera": CAM})
+    assert status == 200 and [c["id"] for c in p["clips"]] == [a] and p["clips"][0]["forget"] is True
+    status, p = H("GET", f"/clips/{a}")
+    assert p["clip"]["card_delete"]["forget"] is True
+    assert H("POST", "/card_deletes/failed", {"id": a, "error": "refused"})[0] == 200
+    assert H("POST", "/card_deletes/failed", {"id": "c_" + "1" * 20, "error": "x"})[0] == 404
+    status, p = H("POST", "/card_deletes/done", {"ids": [a]})
+    assert status == 200 and p["closed"] == 1
+    assert H("GET", "/card_deletes", query={"camera": CAM})[1]["clips"] == []
+    assert H("GET", f"/clips/{a}")[0] == 404           # deleted everywhere: forgotten once the card delete is done
+
+
+def test_card_deletes_bad_bodies_400(H):
+    assert H("POST", "/card_deletes", {"clips": "nope"})[0] == 400
+    assert H("POST", "/card_deletes", {"clips": [{"id": "../etc"}]})[0] == 400
+    assert H("POST", "/card_deletes/done", {"ids": "nope"})[0] == 400
+    assert H("POST", "/card_deletes/failed", {"id": "bad"})[0] == 400
