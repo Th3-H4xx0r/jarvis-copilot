@@ -1157,8 +1157,8 @@ def _cid(it, camera=CAM):
 def test_mark_card_delete_sets_entry_and_row_flag(store):
     a, b = item("a.ts"), item("b.ts")
     store.apply_inventory(CAM, [a, b])
-    marked, closed, missing = store.mark_card_deletes([{"id": _cid(a), "forget": False}])
-    assert (marked, closed, missing) == ([_cid(a)], [], [])
+    marked, missing = store.mark_card_deletes([{"id": _cid(a), "forget": False}])
+    assert (marked, missing) == ([_cid(a)], [])
     entry = clip_of(store, a)["card_delete"]
     assert entry["forget"] is False and entry["attempts"] == 0 and entry["asked_at"]
     rows = {r["path"]: r for r in store.apply_inventory(CAM, [a, b])}
@@ -1176,28 +1176,20 @@ def test_mark_is_idempotent_and_forget_wins(store):
 
 
 def test_mark_unknown_clip_is_missing(store):
-    marked, closed, missing = store.mark_card_deletes([{"id": "c_" + "0" * 20, "forget": True}])
-    assert (marked, closed, missing) == ([], [], ["c_" + "0" * 20])
+    marked, missing = store.mark_card_deletes([{"id": "c_" + "0" * 20, "forget": True}])
+    assert (marked, missing) == ([], ["c_" + "0" * 20])
 
 
-def test_mark_clip_already_off_card_closes_and_forgets(store):
-    a, b = item("a.ts"), item("b.ts")
-    store.apply_inventory(CAM, [a, b])
-    store.apply_inventory(CAM, [b])                     # a left the card
-    marked, closed, _ = store.mark_card_deletes([{"id": _cid(a), "forget": True}])
-    assert marked == [] and closed == [_cid(a)]
-    assert clip_of(store, a) is None
-
-
-def test_inventory_without_the_clip_closes_its_entry(store):
+def test_a_listing_without_the_clip_never_closes_its_entry(store):
+    """A listing can come back short (a folder that errored): only the phone's done closes an entry."""
     a, b = item("a.ts"), item("b.ts")
     store.apply_inventory(CAM, [a, b])
     store.mark_card_deletes([{"id": _cid(a), "forget": False}, {"id": _cid(b), "forget": True}])
-    store.apply_inventory(CAM, [])                      # both deleted from the card
-    assert clip_of(store, a) is not None and "card_delete" not in clip_of(store, a)
+    store.apply_inventory(CAM, [])
     assert clip_of(store, a)["on_camera"] is False
-    assert clip_of(store, b) is None                    # deleted everywhere: gone from the library now
-    assert store.card_deletes(CAM) == []
+    assert clip_of(store, a)["card_delete"]["forget"] is False
+    assert clip_of(store, b)["card_delete"]["forget"] is True, "deleted everywhere, but kept until done"
+    assert len(store.card_deletes(CAM)) == 2
 
 
 def test_inventory_still_listing_keeps_entry(store):

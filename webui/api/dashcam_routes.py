@@ -44,8 +44,9 @@ Endpoints (GET/POST/DELETE only)::
                                            (a .ts clip is remuxed to MP4 first, in this request; see dashcam_store)
     GET    /card_deletes?camera=<id>    -> {clips:[{id, path, camera_id, forget, attempts, last_error, asked_at}]}
                                            deletes he asked for that still wait for the camera
-    POST   /card_deletes {clips:[{id, forget?}]} -> {ok, marked, closed, missing}   (closed: already off the card)
-    POST   /card_deletes/done {ids:[...]} -> {ok, closed}   the phone deleted them; forget entries drop the clip
+    POST   /card_deletes {clips:[{id, forget?}]} -> {ok, marked, missing}
+    POST   /card_deletes/done {ids:[...]} -> {ok, closed}   the phone deleted them (or the camera stopped listing
+                                           them on two passes running); forget entries drop the clip
     POST   /card_deletes/failed {id, error} -> {ok}   | 404 no open entry
     GET    /drives?from&to              -> {drives}
     GET    /drives/<id>                 -> {ok, drive, polyline:[[lat, lon, speed], ...], clips}
@@ -419,8 +420,8 @@ def _mark_card_deletes(store, body):
         if not isinstance(c.get("id"), str) or not _RE_CLIP_ID.match(c["id"]):
             return _err(400, "each clip needs a clip id")
         entries.append({"id": c["id"], "forget": c.get("forget") is True})
-    marked, closed, missing = store.mark_card_deletes(entries)
-    return 200, {"ok": True, "marked": marked, "closed": closed, "missing": missing}
+    marked, missing = store.mark_card_deletes(entries)
+    return 200, {"ok": True, "marked": marked, "missing": missing}
 
 
 def _set_tags(store, cid, body):

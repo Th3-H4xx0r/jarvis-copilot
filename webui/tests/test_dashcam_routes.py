@@ -789,7 +789,7 @@ def test_a_tag_change_by_add_and_remove(H, store):
 def test_card_deletes_routes_round_trip(H):
     a, b = inventory(H, "a.ts", "b.ts")
     status, p = H("POST", "/card_deletes", {"clips": [{"id": a, "forget": True}, {"id": "c_" + "1" * 20}]})
-    assert status == 200 and p["marked"] == [a] and p["missing"] == ["c_" + "1" * 20] and p["closed"] == []
+    assert status == 200 and p["marked"] == [a] and p["missing"] == ["c_" + "1" * 20]
     status, p = H("GET", "/card_deletes", query={"camera": CAM})
     assert status == 200 and [c["id"] for c in p["clips"]] == [a] and p["clips"][0]["forget"] is True
     status, p = H("GET", f"/clips/{a}")

@@ -33,8 +33,9 @@ Each destination entry walks ``pending -> uploading -> done`` (or ``failed`` aft
 the relay's retries).
 
 A clip's ``card_delete`` is the backlog of deletes he asked for while the phone couldn't reach the
-camera. The phone flushes it on its next connection; the entry closes once the camera no longer lists
-the clip (deleted, or recorded over). ``forget`` (deleted everywhere) drops the clip at that moment.
+camera. The phone flushes it on its next connection; only the phone closes an entry (``done``), once the
+camera deleted the clip or stopped listing it on two passes running. A listing alone never closes one: a
+listing can come back short (a folder that errored), and ``forget`` (deleted everywhere) drops the clip.
 
 Secrets (FTP/SFTP/SMB passwords, Drive tokens, camera Wi-Fi passwords) are never
 written here: they go straight into the rclone config. Writes are atomic
@@ -583,8 +584,6 @@ class DashcamStore:
                 if clip.get("camera_id") == camera_id and clip["id"] not in seen and clip.get("on_camera"):
                     clip["on_camera"] = False
                     self._save_clip(clip)
-                    if clip.get("card_delete"):
-                        self._close_card_delete(clip)
         return rows
 
     @staticmethod
@@ -638,10 +637,10 @@ class DashcamStore:
         else:
             self._save_clip(clip)
 
-    def mark_card_deletes(self, entries: list[dict]) -> tuple[list[str], list[str], list[str]]:
-        """Queues card deletes ``[{id, forget}]``; returns ``(marked, closed, missing)``. Asking again
-        is harmless (``forget`` only ever turns on). A clip already off the card closes at once."""
-        marked, closed, missing = [], [], []
+    def mark_card_deletes(self, entries: list[dict]) -> tuple[list[str], list[str]]:
+        """Queues card deletes ``[{id, forget}]``; returns ``(marked, missing)``. Asking again is
+        harmless (``forget`` only ever turns on)."""
+        marked, missing = [], []
         with _LOCK:
             for e in entries:
                 clip = self.get_clip(e["id"])
@@ -652,13 +651,9 @@ class DashcamStore:
                                                      "last_error": None, "last_try_at": None}
                 entry["forget"] = bool(entry.get("forget") or e.get("forget"))
                 clip["card_delete"] = entry
-                if clip.get("on_camera"):
-                    self._save_clip(clip)
-                    marked.append(clip["id"])
-                else:
-                    self._close_card_delete(clip)
-                    closed.append(clip["id"])
-        return marked, closed, missing
+                self._save_clip(clip)
+                marked.append(clip["id"])
+        return marked, missing
 
     def card_deletes(self, camera_id: str | None = None) -> list[dict]:
         """Open entries, oldest ask first (for one camera, or all)."""
