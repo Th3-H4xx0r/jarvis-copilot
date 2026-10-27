@@ -14,13 +14,19 @@ struct InmoMediaView: View {
     init(gallery: InmoGallery? = nil) { _gallery = ObservedObject(wrappedValue: gallery ?? .shared) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Photos & videos").font(.headline)
-                Spacer()
-                Button { Task { await gallery.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .buttonStyle(.jcGlass(compact: true))
-                    .disabled(media.busy || !session.isReady)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("Photos & videos") {
+                HStack(spacing: 14) {
+                    Button { Task { await gallery.refresh() } } label: { JcIcon("arrow.clockwise", size: 15) }
+                        .accessibilityLabel("Refresh photos and videos")
+                        .disabled(media.busy || !session.isReady)
+                    if gallery.entries.count > shown {
+                        NavigationLink { InmoGalleryView(gallery: gallery) } label: {
+                            Text("See all").font(.subheadline.weight(.semibold))
+                        }
+                    }
+                }
+                .foregroundStyle(JcTheme.accent)
             }
             GlassCard {
                 VStack(alignment: .leading, spacing: 12) {
@@ -30,20 +36,8 @@ struct InmoMediaView: View {
                             ForEach(gallery.entries.prefix(shown)) { InmoGalleryTile(entry: $0, gallery: gallery) }
                         }
                     }
-                    InmoGallerySaveBar(gallery: gallery)
-                    if gallery.entries.count > shown {
-                        NavigationLink { InmoGalleryView(gallery: gallery) } label: {
-                            Label("See all (\(gallery.entries.count))", systemImage: "square.grid.3x3")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
+                    if !gallery.entries.isEmpty || gallery.run != nil { InmoGallerySaveBar(gallery: gallery) }
                     if !gallery.other.isEmpty { otherFiles }
-                    DisclosureGroup("Connection details") {
-                        TextField("Glasses Wi-Fi address", text: $media.serverAddress)
-                            .keyboardType(.decimalPad).textInputAutocapitalization(.never)
-                        Text("The observed address is 192.168.40.1. Saving joins the glasses' Wi-Fi, so the phone's internet pauses until it's done.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
                     if let error = actionError { Text(error).font(.caption).foregroundStyle(JcTheme.danger).accessibilityLabel("Media error: \(error)") }
                 }
                 .tint(JcTheme.accent)

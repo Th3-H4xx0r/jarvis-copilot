@@ -22,9 +22,43 @@ final class GlassesScreenRenderTests: XCTestCase {
 
     /// The page as it first opens tomorrow: nothing on the route yet.
     func testThePage() throws {
-        try RenderHarness.write(NavigationStack { InmoGo3View() }, size: CGSize(width: 402, height: 1900),
+        try RenderHarness.write(NavigationStack { InmoGo3View() }, size: CGSize(width: 402, height: 2300),
                                 name: "glasses-page")
     }
+    /// Every page behind the main page's rows.
+    func testTheSubpages() throws {
+        let pages: [(String, AnyView, CGFloat)] = [
+            ("glasses-display", AnyView(GlassesDisplaySoundPage()), 900),
+            ("glasses-controls", AnyView(GlassesControlsPage()), 1000),
+            ("glasses-talking", AnyView(GlassesTalkingPage()), 700),
+            ("glasses-notifications", AnyView(GlassesNotificationsPage()), 600),
+            ("glasses-teleprompter", AnyView(GlassesTeleprompterPage()), 1100),
+            ("glasses-about", AnyView(GlassesAboutPage()), 1300),
+            ("glasses-advanced", AnyView(GlassesAdvancedPage()), 1500),
+            ("glasses-owner", AnyView(GlassesOwnerSetupPage()), 600),
+            ("glasses-setup", AnyView(GlassesSetupPage()), 600),
+        ]
+        for (name, page, height) in pages {
+            try RenderHarness.write(NavigationStack { page }, size: CGSize(width: 402, height: height), name: name, settle: 1.2)
+        }
+    }
+
+    func testOneConnectedRuleForCardAndPage() {
+        XCTAssertEqual(GlassesConnectionStatus.of(control: .ready, audio: false), .connected)
+        XCTAssertEqual(GlassesConnectionStatus.of(control: .ready, audio: true), .connected)
+        for state in [InmoConnectionState.discovering, .connecting, .discoveringServices, .subscribing, .authenticating] {
+            XCTAssertEqual(GlassesConnectionStatus.of(control: state, audio: true), .connecting)
+        }
+        XCTAssertEqual(GlassesConnectionStatus.of(control: .setupRequired, audio: true), .setupNeeded)
+        for state in [InmoConnectionState.idle, .unavailable, .failed, .disconnected] {
+            XCTAssertEqual(GlassesConnectionStatus.of(control: state, audio: true), .audioOnly)
+            XCTAssertEqual(GlassesConnectionStatus.of(control: state, audio: false), .offline)
+        }
+        XCTAssertTrue(GlassesConnectionStatus.connected.lit)
+        XCTAssertFalse(GlassesConnectionStatus.audioOnly.lit)
+        XCTAssertFalse(GlassesConnectionStatus.setupNeeded.title.lowercased().contains("identity"))
+    }
+
     func testOfficialTraceScreens() throws {
         try RenderHarness.write(NavigationStack { InmoTraceView() }, size: CGSize(width: 402, height: 874), name: "inmo-traces-empty")
         try RenderHarness.write(NavigationStack { InmoTraceGuideView() }, size: CGSize(width: 402, height: 1200), name: "inmo-traces-guide")

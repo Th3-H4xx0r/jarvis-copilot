@@ -217,6 +217,7 @@
 		2D6B14657A9AAA603DCBDBF4 /* AgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825BF17F1CEDD4050B88C836 /* AgentConversation.swift */; };
 		2DD8308B23C561858D564A79 /* ExerciseImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A0E5B833A8F0D10B524890 /* ExerciseImages.swift */; };
 		2DDFC7BC8830C7D03EAD898E /* DashcamLinkable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90A532F9507E8828DF76ECA /* DashcamLinkable.swift */; };
+		2DF5B01FE61EE5E99A455176 /* GlassesPageKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0C743AAF4DABDFBF5817A0 /* GlassesPageKit.swift */; };
 		2E12423F0B8580476368531D /* LiveActivityModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B3E4ABF4C21C088EC1CCAD /* LiveActivityModels.swift */; };
 		2E7E24501CF070BD04CF5A14 /* SkillRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4C39883A267185DB68992 /* SkillRegistry.swift */; };
 		2E9532D76494BC45E2E7E66B /* BridgeReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */; };
@@ -321,6 +322,7 @@
 		40E29E9419B13DA1FF368078 /* HarnessDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5395B8C568D8507C6702CE /* HarnessDefaultTests.swift */; };
 		4118BE782BBE548F691A9EE2 /* DashcamRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89041CFEB376E8D96A524649 /* DashcamRulesTests.swift */; };
 		413D405F5E66AC8D45A7F751 /* SessionVitals.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */; };
+		4271883FA571108147A0F7D8 /* GlassesSubpages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A011D9942EB8599F29A2453 /* GlassesSubpages.swift */; };
 		4280C98253227B7412E5C2AC /* InmoBluetoothFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE084463952C282DCF39416 /* InmoBluetoothFrameCodec.swift */; };
 		428A406108E0AA79A95AC30D /* InmoGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CF4CDACC1684B211CF39F35 /* InmoGalleryView.swift */; };
 		43102216468ABD49BA332553 /* PushHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */; };
@@ -498,6 +500,7 @@
 		676DE5AE96CF5217DEE4CC38 /* RingWearPromptRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */; };
 		677391D62784EE2E761560E5 /* TemplatesRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E90CCD8298956A5C5ADE7EB /* TemplatesRow.swift */; };
 		67E5D07257C3B152084C6456 /* WidgetDesignStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4470617425A5653F88F3892E /* WidgetDesignStore.swift */; };
+		681D6FFFE33B06202003BC67 /* GlassesConnectionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992C55700AC1DF4ADCBCD66A /* GlassesConnectionStatus.swift */; };
 		688722A68CC4AC3C4735BC2F /* MemoryGraphSimulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5370D60B179CE5A1655AE9CD /* MemoryGraphSimulation.swift */; };
 		689A792CAE9E330F4353949F /* PendingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BFBB82CA0EF423335E59D1 /* PendingActions.swift */; };
 		690B8053A1E0D4AF0B80D469 /* HarnessFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */; };
@@ -803,7 +806,6 @@
 		ACD7FE3EC687EDDAC7BCFABD /* RingDecoders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2FB39B7C5383487AF59F1A /* RingDecoders.swift */; };
 		ACF7B5A3E9F2ACC303CB0207 /* VoiceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C2B34BEC3DB3CBC1D0BA13 /* VoiceSnapshotTests.swift */; };
 		AD0149C434169BE24E61D230 /* LiveTranscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7334BC4CDF991F8F581254FC /* LiveTranscriptTests.swift */; };
-		AD0AF939F70B80C247BC4B55 /* InmoControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1066E089AF5BEBF4ED2204 /* InmoControlsView.swift */; };
 		AD287ED70C82C175E44537FB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B41F649D854309CB84F046F /* SwiftUI.framework */; };
 		AD32EEEE4CCFBDDACA4FE12E /* WidgetModelSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50DBF31FAD4DAF34B9F011DD /* WidgetModelSnapshots.swift */; };
 		AD39E628942C7960B7BF9B92 /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBB75BCC6096760AD3D53ACA /* QRScanner.swift */; };
@@ -1288,6 +1290,7 @@
 		09A6D4A89AFA43BB8B0A8975 /* JarvisWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWidget.swift; path = JarvisWidget/JarvisWidget.swift; sourceTree = "<group>"; };
 		09B892DDF16C02A8C8730BEA /* AgentActivityViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityViews.swift; sourceTree = "<group>"; };
 		09DCE2A73AC7636FCB8673D5 /* RenderHarness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RenderHarness.swift; sourceTree = "<group>"; };
+		0A011D9942EB8599F29A2453 /* GlassesSubpages.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesSubpages.swift; sourceTree = "<group>"; };
 		0A26954813A192B570D6CF9B /* RingDonut.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDonut.swift; sourceTree = "<group>"; };
 		0A39F960D71FEDFAF350D453 /* PhoneDeviceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneDeviceTests.swift; sourceTree = "<group>"; };
 		0A6FC7810141604FE28A053C /* TaskHandle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaskHandle.swift; sourceTree = "<group>"; };
@@ -1902,6 +1905,7 @@
 		987397858F0F9074BC45EC65 /* LiveStore+Captions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "LiveStore+Captions.swift"; sourceTree = "<group>"; };
 		98D7E647D7050F18109CFB3B /* SwipeToDelete.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwipeToDelete.swift; sourceTree = "<group>"; };
 		99007A8FDBB3E8969C37916F /* PcmChunker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcmChunker.swift; sourceTree = "<group>"; };
+		992C55700AC1DF4ADCBCD66A /* GlassesConnectionStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesConnectionStatus.swift; sourceTree = "<group>"; };
 		9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesPage.swift; sourceTree = "<group>"; };
 		9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.mlpackage; path = WeSpeakerResNet34.mlpackage; sourceTree = "<group>"; };
 		998B50D8F92D14EDBE3B973E /* CarPlayConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayConfirmTests.swift; sourceTree = "<group>"; };
@@ -1913,6 +1917,7 @@
 		9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesTextTests.swift; sourceTree = "<group>"; };
 		9A92BB925B8DE354D14CEFF5 /* CarLightsRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsRenderTests.swift; sourceTree = "<group>"; };
 		9AC12F5609914381F51043A4 /* JarvisShared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisShared.swift; sourceTree = "<group>"; };
+		9B0C743AAF4DABDFBF5817A0 /* GlassesPageKit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesPageKit.swift; sourceTree = "<group>"; };
 		9B2E6C72B7515CE01B1871AA /* WearableLinksTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableLinksTests.swift; sourceTree = "<group>"; };
 		9B604D03EA22E47F41B3332A /* DashcamTombstones.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamTombstones.swift; sourceTree = "<group>"; };
 		9BBAF4DEE3A26FB116A04D7C /* OnDeviceModelCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceModelCatalog.swift; sourceTree = "<group>"; };
@@ -2174,7 +2179,6 @@
 		CEEB4B66C6F2B120AB1EE622 /* DashcamEsp32NewSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamEsp32NewSkillsTests.swift; sourceTree = "<group>"; };
 		CEEF0DF60FC079D24550920C /* IslandBindings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandBindings.swift; sourceTree = "<group>"; };
 		CF0B065C7F9A5025760E124A /* ActionAgent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionAgent.swift; sourceTree = "<group>"; };
-		CF1066E089AF5BEBF4ED2204 /* InmoControlsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoControlsView.swift; sourceTree = "<group>"; };
 		CF1D7492E612547E4B6D96F8 /* WidgetDesignCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesignCacheTests.swift; sourceTree = "<group>"; };
 		CF2DCCFAD52533B6A5D0D97B /* InmoTeleprompter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoTeleprompter.swift; sourceTree = "<group>"; };
 		CF61F4EA6282E9423F771747 /* ControlButtons.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlButtons.swift; sourceTree = "<group>"; };
@@ -2503,8 +2507,9 @@
 			isa = PBXGroup;
 			children = (
 				A0B384B7D25776A11F5D5FFD /* InmoMediaView.swift */,
-				CF1066E089AF5BEBF4ED2204 /* InmoControlsView.swift */,
 				8CF4CDACC1684B211CF39F35 /* InmoGalleryView.swift */,
+				9B0C743AAF4DABDFBF5817A0 /* GlassesPageKit.swift */,
+				0A011D9942EB8599F29A2453 /* GlassesSubpages.swift */,
 			);
 			name = Views;
 			path = Views;
@@ -2945,6 +2950,7 @@
 				5D52F2FE594A9DDED23BA2F0 /* Translate */,
 				B97CE4FED7031332E041B76A /* FaceLink */,
 				7795D33828B2AB68A44E8FFC /* LiveLens */,
+				992C55700AC1DF4ADCBCD66A /* GlassesConnectionStatus.swift */,
 			);
 			name = Glasses;
 			path = Glasses;
@@ -5629,7 +5635,6 @@
 				5622D1CB274D9F8645BA2E0C /* InmoWireCodec.swift in Sources */,
 				18D9152F0C81C7D54EFDCC51 /* InmoMediaView.swift in Sources */,
 				20942FCEED5E141C12EC1AD2 /* InmoTeleprompter.swift in Sources */,
-				AD0AF939F70B80C247BC4B55 /* InmoControlsView.swift in Sources */,
 				92DD4A256D1C8B1F961FB678 /* InmoAdvancedControls.swift in Sources */,
 				BE07A9154B4BC0F8ADCF0F8E /* InmoDeviceTrial.swift in Sources */,
 				ED1634C71A49D7D0C50976E1 /* InmoRuntimeDiagnostics.swift in Sources */,
@@ -5926,6 +5931,9 @@
 				1DD63BB781CEBA1FA1C03EC2 /* InmoMediaLibrary.swift in Sources */,
 				7F96BA9FD201B0D2AD964774 /* InmoVideoMerger.swift in Sources */,
 				428A406108E0AA79A95AC30D /* InmoGalleryView.swift in Sources */,
+				681D6FFFE33B06202003BC67 /* GlassesConnectionStatus.swift in Sources */,
+				2DF5B01FE61EE5E99A455176 /* GlassesPageKit.swift in Sources */,
+				4271883FA571108147A0F7D8 /* GlassesSubpages.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
