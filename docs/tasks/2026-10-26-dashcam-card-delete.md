@@ -11,11 +11,19 @@ showing all the clips like it does in the same order, but those need deletion, i
 
 Design: docs/superpowers/specs/2026-10-26-dashcam-card-delete-design.md
 
-- [ ] 1. Design approved
-- [ ] 2. Server: `card_deletes.json` backlog + routes + inventory auto-close + `delete_pending` on clips
-- [ ] 3. Phone: delete each clip off the card right after its download checks out (refusal → backlog)
-- [ ] 4. Phone: backlog flush at pass start (server + local mirror), migrate the 7 queued clips
-- [ ] 5. Phone: "Delete everywhere" keeps the clip until the card delete happens; batched multi-select
-- [ ] 6. Phone UI: "Pending deletion" mark in place (library row + player)
-- [ ] 7. Agent: `dashcam_delete_file` queues when away
+- [x] 1. Design — he said to work autonomously from here; my calls are in the spec ("Calls made after the builder check")
+- [x] 2. Server: backlog on the clip record (`card_delete`) + `/card_deletes` routes (140ea83b81, bb1956950d) — live on
+  jc-hermes 2026-10-27 01:57 UTC. Bug sweep: a listing never closes an entry (short listings); only the phone's `done`.
+- [x] 3. Phone: delete each clip off the card right after its download (once its size held), plus a sweep each pass of
+  clips already on the phone or in the cloud (370a3aae4f, 55d94d45d8) — installed 2026-10-27
+- [x] 4. Phone: backlog flush at pass start + push at launch (60be9dff98). The 7 old clips: the server had already
+  forgotten them (the old 'everywhere' bug), so they stay on the phone's list and go on the next connection
+- [x] 5. Phone: "Delete everywhere" keeps the clip until the card delete happens — seen live: his 2 clips (00:12)
+  marked on the server 02:15 UTC, still in the library
+- [x] 6. Phone UI: "Pending deletion" mark in place (library row + player); "only copy" warning
+- [x] 7. Agent: `dashcam_delete_file` queues when away
 - [ ] 8. Live: clips leave the A4 one by one; note whether plain deletes work while recording
+
+Bug sweep (2 Opus reviewers): short listings closing entries (server + phone), size-held check before any card
+delete, parked re-check per file in the playback batch, server told what left the card in the same pass.
+Unrelated, pre-existing: tests/skills/test_jarvis_ring_skill.py::test_sdk_covers_every_ring_skill_the_phone_advertises (21 vs 13).
