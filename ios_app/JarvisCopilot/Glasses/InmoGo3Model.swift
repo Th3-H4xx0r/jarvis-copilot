@@ -40,10 +40,10 @@ enum InmoGo3Model {
     private static let endWidth: CGFloat = 0.06
     /// Each half of the front turns back this far from the bridge.
     private static let wrap: CGFloat = 0.06
-    /// The camera: 7 mm across — about the arm's height — tucked into the lens's top outer
-    /// corner, its centre just under the lens top and 4.4 mm outside it.
+    /// The camera: 7 mm across — about the arm's height — tucked into the lens's rounded top
+    /// outer corner, its centre 1 mm under the lens top and 3.6 mm outside it.
     private static let cameraRadius: CGFloat = 0.035
-    private static let cameraCentre = CGPoint(x: lensSize.width / 2 + 0.044, y: lensSize.height / 2 - 0.006)
+    private static let cameraCentre = CGPoint(x: lensSize.width / 2 + 0.036, y: lensSize.height / 2 - 0.01)
     /// Half the arm's height (8 mm tall); it is this many times taller than wide.
     private static let armHalf: CGFloat = 0.04
     private static let armAspect: CGFloat = 1.5
@@ -78,8 +78,8 @@ enum InmoGo3Model {
     private static func lensOutline(grow g: CGFloat = 0) -> CGPath {
         let w = lensSize.width / 2, h = lensSize.height / 2
         return roundedPolygon([
-            (CGPoint(x: -w - g, y: h + g), 0.09 + g),
-            (CGPoint(x: w + g, y: h + g), 0.045 + g),
+            (CGPoint(x: -w - g, y: h + g), 0.10 + g),
+            (CGPoint(x: w + g, y: h + g), 0.08 + g),
             (CGPoint(x: w - 0.015 + g, y: -h - g), 0.17 + g),
             (CGPoint(x: 0, y: -h - 0.014 - g), 1),
             (CGPoint(x: -w + 0.065 - g, y: -h - g), 0.17 + g),
@@ -93,9 +93,9 @@ enum InmoGo3Model {
         let w = lensSize.width / 2, h = lensSize.height / 2
         return roundedPolygon([
             (CGPoint(x: -w - rimSide, y: frameTop), 0.02),
-            (CGPoint(x: w + endReach, y: frameTop), 0.022),
-            (CGPoint(x: w + endReach, y: h - 0.05), 0.04),
-            (CGPoint(x: w + rimSide, y: h - 0.14), 0.07),
+            (CGPoint(x: w + endReach, y: frameTop), 0.055),
+            (CGPoint(x: w + endReach, y: h - 0.05), 0.05),
+            (CGPoint(x: w + rimSide, y: h - 0.14), 0.09),
             (CGPoint(x: w - 0.015 + rimSide, y: -h - rimBottom), 0.17 + rimBottom),
             (CGPoint(x: 0, y: -h - 0.014 - rimBottom), 1),
             (CGPoint(x: -w + 0.065 - rimSide, y: -h - rimBottom), 0.17 + rimBottom),
@@ -110,8 +110,8 @@ enum InmoGo3Model {
         return out
     }
 
-    /// The keyhole's arch peaks this high — 2 mm under the lens tops, 7.5 mm under the brow.
-    private static let archTop = lensSize.height / 2 - 0.02
+    /// The keyhole's arch peaks this high — level with the lens tops, 5.5 mm under the brow.
+    private static let archTop = lensSize.height / 2
 
     /// The whole front as one outline: both halves, and between them the keyhole bridge — the
     /// brow straight across and under it a rounded arch over the nose — with the two lens
@@ -122,10 +122,10 @@ enum InmoGo3Model {
         bridge.addLine(to: CGPoint(x: 0.16, y: frameTop))
         bridge.addLine(to: CGPoint(x: 0.16, y: -0.02))
         bridge.addLine(to: CGPoint(x: 0.068, y: -0.02))
-        bridge.addCurve(to: CGPoint(x: 0, y: archTop), control1: CGPoint(x: 0.062, y: archTop - 0.05),
-                        control2: CGPoint(x: 0.04, y: archTop))
-        bridge.addCurve(to: CGPoint(x: -0.068, y: -0.02), control1: CGPoint(x: -0.04, y: archTop),
-                        control2: CGPoint(x: -0.062, y: archTop - 0.05))
+        bridge.addCurve(to: CGPoint(x: 0, y: archTop), control1: CGPoint(x: 0.066, y: archTop - 0.07),
+                        control2: CGPoint(x: 0.048, y: archTop))
+        bridge.addCurve(to: CGPoint(x: -0.068, y: -0.02), control1: CGPoint(x: -0.048, y: archTop),
+                        control2: CGPoint(x: -0.066, y: archTop - 0.07))
         bridge.addLine(to: CGPoint(x: -0.16, y: -0.02))
         bridge.closeSubpath()
         var solid: CGPath = bridge
