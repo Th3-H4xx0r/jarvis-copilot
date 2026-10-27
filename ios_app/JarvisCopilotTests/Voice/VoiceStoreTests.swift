@@ -1789,6 +1789,17 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertTrue(rig.audioSession.claims.allSatisfy { $0 == "mixed" }, "the mic start keeps the mixing session")
     }
 
+    /// With Jarvis in the background the talk claims the mixing-only session first and
+    /// never forces a re-activation — the call iOS refuses there.
+    func testABackgroundOneShotClaimsWithoutReactivating() async {
+        let rig = makeRig(mode: .quality)
+        let started = await rig.store.startOneShotTurn(inBackground: true)
+        XCTAssertTrue(started)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.audioSession.claims.first, "mixed")
+        XCTAssertFalse(rig.audioSession.activeCalls.contains(true), "no forced setActive(true)")
+    }
+
     func testAnotherAudioErrorIsNotRetried() async {
         let rig = makeRig(mode: .quality)
         rig.audioSession.carConfigureError = NSError(domain: NSOSStatusErrorDomain, code: 561017449)   // '!pri'

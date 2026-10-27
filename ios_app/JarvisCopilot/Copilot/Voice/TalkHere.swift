@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 protocol TalkHereVoice: AnyObject {
     var isActive: Bool { get }
-    func startOneShotTurn() async -> Bool
+    func startOneShotTurn(inBackground: Bool) async -> Bool
     func waitUntilCapturing(timeout: TimeInterval) async -> Bool
     func stopTalk() async
 }
@@ -29,16 +29,21 @@ final class TalkHere {
     private let isForeground: () -> Bool
     private let island: LiveActivityCoordinating
     private let log: (String) -> Void
+    /// Keeps Jarvis's background audio session recordable from now on (the
+    /// record-ready keepalive): the first press arms it.
+    private let arm: () -> Void
 
     init(voice: TalkHereVoice, isForeground: @escaping () -> Bool, island: LiveActivityCoordinating,
-         log: @escaping (String) -> Void = { _ in }) {
+         log: @escaping (String) -> Void = { _ in }, arm: @escaping () -> Void = {}) {
         self.voice = voice
         self.isForeground = isForeground
         self.island = island
         self.log = log
+        self.arm = arm
     }
 
     func press() async -> TalkHereBridge.Outcome {
+        arm()
         if voice.isActive {
             log("talk here: a talk is running — stopping it")
             await voice.stopTalk()
@@ -54,7 +59,7 @@ final class TalkHere {
         // one while recording) from its connecting frame on, and the island pops open
         // on its first "Listening…", the moment the mic is live — not before.
         island.presentVoiceTurn()
-        guard await voice.startOneShotTurn() else {
+        guard await voice.startOneShotTurn(inBackground: true) else {
             log("talk here: the one-shot turn didn't start")
             island.reportVoice(Self.frame("idle"))
             return .needsApp

@@ -772,7 +772,7 @@ final class VoiceStore {
     /// voice mode is (the car has no Send button). False when the mic is refused or
     /// a session is already running (see `answerOnce()` for that case).
     @discardableResult
-    func startOneShotTurn() async -> Bool {
+    func startOneShotTurn(inBackground: Bool = false) async -> Bool {
         guard !machine.state.isActive else {
             note("one-shot refused: a session is running (\(machine.state))")
             return false
@@ -785,7 +785,7 @@ final class VoiceStore {
         guard !machine.state.isActive else { return false }
         // The audio session now, so a refusal is said here, before anything half-starts.
         do {
-            try acquireOneShotSession()
+            try acquireOneShotSession(inBackground: inBackground)
         } catch let failure {
             _ = JcLog.report(JcLog.voice, "one-shot audio session", failure)
             error = Self.audioSessionReason(failure).map { "Mic blocked: \($0)" }
@@ -806,45 +806,34 @@ final class VoiceStore {
         return true
     }
 
-    /// The one-shot's audio session: the car's mixing, ducking one; when iOS refuses
-    /// that from the background ('!int' — it reads ducking as cutting into other
-    /// audio), the mixing-only one, then that again after a moment. Every attempt
-    /// goes in the voice log with the session's state, the evidence for which
-    /// background starts iOS allows.
-    private func acquireOneShotSession() throws {
+    /// The one-shot's audio session. On the car's screen: the car's mixing, ducking
+    /// one. With Jarvis in the background (the Action button): the mixing-only one,
+    /// which matches the record-ready keepalive exactly, so claiming it switches
+    /// nothing and wakes nothing — the only claim iOS grants a backgrounded app
+    /// ('!int' otherwise). Each falls back to the other once. Every attempt goes in
+    /// the voice log with the session's state.
+    private func acquireOneShotSession(inBackground: Bool) throws {
         note("one-shot audio before: \(audioDiagnostics())")
-        carAudio = true
-        mixedAudio = false
-        do {
-            try acquireAudioSession()
-            return
-        } catch let failure where Self.isInterruptRefusal(failure) {
-            note("one-shot car session refused (!int) — trying mixing only")
-        } catch let failure {
-            carAudio = false
-            throw failure
+        let order: [Bool] = inBackground ? [false, true] : [true, false]   // car session?
+        var last: Error?
+        for car in order {
+            carAudio = car
+            mixedAudio = !car
+            do {
+                try acquireAudioSession()
+                note("one-shot on the \(car ? "car (ducking)" : "mixing-only") session")
+                return
+            } catch let failure where Self.isInterruptRefusal(failure) {
+                note("one-shot \(car ? "car" : "mixing-only") session refused (!int): \(audioDiagnostics())")
+                last = failure
+            } catch let failure {
+                last = failure
+                break
+            }
         }
         carAudio = false
-        mixedAudio = true
-        do {
-            try acquireAudioSession()
-            note("one-shot on the mixing-only session")
-            return
-        } catch let failure where Self.isInterruptRefusal(failure) {
-            note("one-shot mixing-only refused (!int): \(audioDiagnostics()) — once more")
-        } catch let failure {
-            mixedAudio = false
-            throw failure
-        }
-        Thread.sleep(forTimeInterval: 0.25)
-        do {
-            try acquireAudioSession()
-            note("one-shot on the mixing-only session (second try)")
-        } catch let failure {
-            mixedAudio = false
-            note("one-shot audio after: \(audioDiagnostics())")
-            throw failure
-        }
+        mixedAudio = false
+        throw last ?? CancellationError()
     }
 
     /// '!int' (560557684): iOS won't let a backgrounded app take audio that interrupts others.

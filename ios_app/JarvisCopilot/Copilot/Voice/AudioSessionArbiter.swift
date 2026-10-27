@@ -165,6 +165,21 @@ final class AudioSessionArbiter {
         category: .playback, mode: .default, options: [.mixWithOthers], active: true,
         sampleRate: keepaliveSampleRate, ioBufferDuration: 0.1)
 
+    /// The keepalive once "Talk to JARVIS here" is in use: the same silent hold, but
+    /// in the category a talk records in — `mixedVoicePlan`'s category, mode and
+    /// options exactly. From the background iOS refuses both a category switch and a
+    /// re-activation ('!int', his tries 2026-10-27 18:10–18:11, keepalive active, no
+    /// other audio), so a press can only switch the mic on in a session that is
+    /// already recordable. The mic stays off (no orange dot) until a press. 48 kHz,
+    /// because the hardware rate is what the mic will capture at; ten buffers a
+    /// second, as above.
+    static let keepaliveRecordReadyPlan = AudioSessionPlan(
+        category: .playAndRecord, mode: .default, options: mixedVoiceOptions, active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: 0.1)
+
+    /// True once "Talk to JARVIS here" has been pressed (set by the app on iOS).
+    static var keepaliveRecordReady: @MainActor () -> Bool = { false }
+
     /// The rate the silent engine renders at, so its buffer matches the hardware
     /// and the mixer has no rate conversion to do.
     static let keepaliveSampleRate: Double = 8_000
@@ -225,10 +240,11 @@ final class AudioSessionArbiter {
 
     /// `carVoicePlan` without `.duckOthers`: the last thing a backgrounded app can ask
     /// for that touches no other audio, so iOS has nothing to refuse as an interruption.
+    static let mixedVoiceOptions: AVAudioSession.CategoryOptions = [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP]
     static let mixedVoicePlan = AudioSessionPlan(
         category: .playAndRecord,
         mode: .default,
-        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP],
+        options: mixedVoiceOptions,
         active: true,
         sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
@@ -290,7 +306,7 @@ final class AudioSessionArbiter {
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientAvoidsCallMic() ? ambientPlanWithoutCallMic : ambientPlan }
         if holders.contains(.playback) { return playbackPlan }
-        if holders.contains(.keepalive) { return keepalivePlan }
+        if holders.contains(.keepalive) { return keepaliveRecordReady() ? keepaliveRecordReadyPlan : keepalivePlan }
         return idlePlan
     }
 

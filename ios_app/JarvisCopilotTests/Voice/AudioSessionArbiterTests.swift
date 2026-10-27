@@ -203,6 +203,20 @@ final class AudioSessionArbiterTests: XCTestCase {
                        AudioSessionArbiter.plan(for: [.voice]))
     }
 
+    /// Armed, the keepalive holds exactly the background talk's session, so claiming
+    /// that one changes nothing iOS could refuse.
+    func testTheRecordReadyKeepaliveMatchesTheBackgroundTalkSession() {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        defer { AudioSessionArbiter.keepaliveRecordReady = { false } }
+        let held = AudioSessionArbiter.plan(for: [.keepalive])
+        let talk = AudioSessionArbiter.plan(for: [.keepalive, .mixedVoice])
+        XCTAssertEqual(held, AudioSessionArbiter.keepaliveRecordReadyPlan)
+        XCTAssertEqual(held.category, talk.category)
+        XCTAssertEqual(held.mode, talk.mode)
+        XCTAssertEqual(held.options, talk.options)
+        XCTAssertEqual(held.sampleRate, talk.sampleRate)
+    }
+
     /// The whole truth table over every client, so another one cannot be added
     /// without deciding where it sits.
     func testEveryCombinationResolvesToTheStrongestClaim() {

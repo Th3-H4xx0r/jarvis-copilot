@@ -12,8 +12,11 @@ final class TalkHereTests: XCTestCase {
         private(set) var started = 0
         private(set) var stopped = 0
 
-        func startOneShotTurn() async -> Bool {
+        private(set) var inBackground: [Bool] = []
+
+        func startOneShotTurn(inBackground: Bool) async -> Bool {
             started += 1
+            self.inBackground.append(inBackground)
             if starts { isActive = true }
             return starts
         }
@@ -38,8 +41,18 @@ final class TalkHereTests: XCTestCase {
         let outcome = await talk.press()
         XCTAssertEqual(outcome, .listening)
         XCTAssertEqual(voice.started, 1)
+        XCTAssertEqual(voice.inBackground, [true], "the session that needs no switch from the background")
         XCTAssertTrue(log.contains("liveActivity.present"))
         XCTAssertTrue(island.voiceReports.isEmpty, "the turn's own frames drive the island")
+    }
+
+    func testTheFirstPressArmsTheRecordReadyKeepalive() async {
+        let voice = FakeVoice()
+        var arms = 0
+        let talk = TalkHere(voice: voice, isForeground: { true }, island: FakeLiveActivityCoordinator(ServiceRecorder()),
+                            arm: { arms += 1 })
+        _ = await talk.press()
+        XCTAssertEqual(arms, 1, "even a press that opens Jarvis arms it, so the next one can stay put")
     }
 
     func testASecondPressStops() async {

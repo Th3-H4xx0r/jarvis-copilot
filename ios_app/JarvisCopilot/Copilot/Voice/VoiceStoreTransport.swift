@@ -100,9 +100,14 @@ extension VoiceStore {
     /// the matching `setActive(false)` in `stop()` only DROPS the claim — it
     /// deactivates nothing while the keepalive still needs the session.
     func acquireAudioSession() throws {
+        if mixedAudio {
+            // The claim activates only a session that isn't already: in the background
+            // a forced re-activation is exactly what iOS refuses.
+            try audioSession.configureForMixedConversation()
+            return
+        }
         if usesExternalInput { try audioSession.configureForExternalInput() }
         else if carAudio { try audioSession.configureForCarConversation() }
-        else if mixedAudio { try audioSession.configureForMixedConversation() }
         else { try audioSession.configureForConversation() }
         try audioSession.setActive(true)
     }
