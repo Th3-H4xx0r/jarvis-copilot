@@ -85,7 +85,9 @@ struct SecureActionRunner {
     }
     var now: () -> Date = Date.init
 
-    func door(_ command: DoorButtonCommand, skipFaceID: Bool, physical: Bool) async -> String {
+    /// `unlocked`: tapped on the alarm's Lock Screen card, which iOS runs only once the iPhone is
+    /// unlocked (Face ID or passcode) — his choice to count that unlock as the approval.
+    func door(_ command: DoorButtonCommand, skipFaceID: Bool, physical: Bool, unlocked: Bool = false) async -> String {
         do {
             switch command {
             case .armHome, .armAway:
@@ -96,7 +98,7 @@ struct SecureActionRunner {
                 return line(try await doorState())
             case .disarm, .silence:
                 let domain = DoorAlarmAPI.domain
-                if skipFaceID && physical && buttonKeyRegistered() {
+                if (skipFaceID && physical || unlocked) && buttonKeyRegistered() {
                     do {
                         let proof = try buttonProof(command.rawValue, domain)
                         return line(try await sendDoor(command.rawValue, proof, true))
@@ -187,8 +189,9 @@ enum SecureActionPending {
     static let freshFor: TimeInterval = 3 * 60
     static var defaults: UserDefaults = .standard
 
-    /// True while any saved button skips Face ID, so a Face ID prompt also restores the button key.
-    static var wantsButtonKey: Bool { ControlButtonStore.shared.buttons.contains { $0.skipsFaceID } }
+    /// Every Face ID approval also registers the button key if the server lacks it: buttons that
+    /// skip Face ID and the alarm card's Disarm after an unlock both sign with it.
+    static var wantsButtonKey: Bool { true }
 
     static func ask(_ action: PendingSecureAction, title: String) async -> Bool {
         do {

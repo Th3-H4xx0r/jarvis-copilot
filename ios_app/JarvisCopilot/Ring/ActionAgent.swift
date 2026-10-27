@@ -23,6 +23,8 @@ struct RingActionContext: Equatable, Sendable {
     var chatTitle: String
     var widgetAgent: WidgetAgent? = nil
     var physical: Bool = false
+    /// Pressed on a Lock Screen card that iOS ran only after the iPhone was unlocked.
+    var unlocked: Bool = false
 
     /// Ring gestures share one "Ring" chat, as they always have.
     static let ring = RingActionContext(chatKey: "ring.inputs", chatTitle: "Ring")

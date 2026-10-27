@@ -225,7 +225,8 @@ final class ControlButtonStore: ObservableObject {
     /// One press from Control Center. A Jarvis prompt's reply comes back as a notification —
     /// Control Center has nowhere to show it — and so does a failure; anything else is silent.
     /// A button that keeps its state flips it.
-    func press(_ id: String, widget: String? = nil, physical: Bool = true, shownState: String? = nil) async {
+    func press(_ id: String, widget: String? = nil, physical: Bool = true, shownState: String? = nil,
+               unlocked: Bool = false) async {
         guard let button = button(id) else { return }
         if button.keepsState { return await set(id, !button.isOn, widget: widget, physical: physical) }
         // A button with live states runs what it shows NOW; a press that saw an older state does
@@ -243,7 +244,9 @@ final class ControlButtonStore: ObservableObject {
             await restate()
             return
         }
-        let line = await runAction(action, context(button, widget: widget, physical: physical))
+        var where_ = context(button, widget: widget, physical: physical)
+        where_.unlocked = unlocked
+        let line = await runAction(action, where_)
         record(id, line)
         await report(button, line, ran: action)
         await didRun(button, action, line)
@@ -271,10 +274,10 @@ final class ControlButtonStore: ObservableObject {
             await set(press.buttonID, on, widget: press.widgetID, physical: press.physical)
         } else if press.buttonID == LiveButtons.doorCardID {
             // Stop on a door card the server started (no button behind it).
-            await LiveButtons.shared.pressDoorCard(shownState: press.shownState)
+            await LiveButtons.shared.pressDoorCard(shownState: press.shownState, unlocked: press.unlocked)
         } else {
             await self.press(press.buttonID, widget: press.widgetID, physical: press.physical,
-                             shownState: press.shownState)
+                             shownState: press.shownState, unlocked: press.unlocked)
         }
     }
 

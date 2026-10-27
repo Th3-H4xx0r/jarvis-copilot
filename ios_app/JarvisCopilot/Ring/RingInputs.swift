@@ -525,7 +525,8 @@ enum RingActionRunner {
         case .prompt(let text, let agent):
             return await ask(text, agent: agent, context: context)
         case .door(let command, let skip):
-            return await SecureActionRunner().door(command, skipFaceID: skip, physical: context.physical)
+            return await SecureActionRunner().door(command, skipFaceID: skip, physical: context.physical,
+                                                   unlocked: context.unlocked)
         case .car(let command, let skip):
             return await SecureActionRunner().car(command, skipFaceID: skip, physical: context.physical)
         case .serverDevice(let deviceID, let skill, let values):

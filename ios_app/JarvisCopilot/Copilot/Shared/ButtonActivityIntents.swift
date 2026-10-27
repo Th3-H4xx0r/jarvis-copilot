@@ -39,8 +39,46 @@ struct StopButtonActivityIntent: LiveActivityIntent {
         return .result()
     }
 
-    static func press(buttonID: String, stateID: String) -> ButtonPress {
+    static func press(buttonID: String, stateID: String, unlocked: Bool = false) -> ButtonPress {
         ButtonPress(buttonID: buttonID.isEmpty ? doorAlarmID : buttonID, physical: false,
-                    shownState: stateID.isEmpty ? nil : stateID)
+                    shownState: stateID.isEmpty ? nil : stateID, unlocked: unlocked)
+    }
+
+    /// The card states whose press disarms or silences the alarm: those go through
+    /// `UnlockedButtonActivityIntent`.
+    static func needsUnlock(_ stateID: String) -> Bool {
+        stateID.hasPrefix("door.armed") || ["door.entry", "door.triggered", "door.siren"].contains(stateID)
+    }
+}
+
+/// Disarm or Silence on the alarm's Lock Screen card or Dynamic Island. iOS runs it only once the
+/// iPhone is unlocked (it asks for Face ID, or the passcode, first), and that unlock is the
+/// approval — his call (2026-10-27): the alarm disarms right there, signed with the button key,
+/// instead of a "Tap to approve" notification. Still refuses a card whose state has moved on.
+struct UnlockedButtonActivityIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Disarm from a Jarvis alarm card"
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+    static let isDiscoverable = false
+
+    @Parameter(title: "Button")
+    var buttonID: String
+
+    @Parameter(title: "State")
+    var stateID: String
+
+    init() {
+        buttonID = ""
+        stateID = ""
+    }
+
+    init(buttonID: String, stateID: String) {
+        self.buttonID = buttonID
+        self.stateID = stateID
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        await ControlButtonShelf.dispatch(StopButtonActivityIntent.press(buttonID: buttonID, stateID: stateID, unlocked: true))
+        return .result()
     }
 }

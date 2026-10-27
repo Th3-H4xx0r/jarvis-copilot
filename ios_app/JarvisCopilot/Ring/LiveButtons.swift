@@ -115,8 +115,8 @@ final class LiveButtons {
 
     /// Stop on a door card the server started: cancels arming while it is still arming; anything
     /// else (the entry delay) disarms through Face ID.
-    func pressDoorCard(shownState: String?) async {
-        let context = RingActionContext(chatKey: "ring.inputs", chatTitle: "Ring", physical: false)
+    func pressDoorCard(shownState: String?, unlocked: Bool = false) async {
+        let context = RingActionContext(chatKey: "ring.inputs", chatTitle: "Ring", physical: false, unlocked: unlocked)
         var line: String?
         if let alarm = await Self.within(3, fetchDoor) {
             live.door = alarm

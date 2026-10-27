@@ -252,7 +252,17 @@ private struct ButtonStopButton: View {
     let wide: Bool
 
     var body: some View {
-        Button(intent: StopButtonActivityIntent(buttonID: look.attributes.buttonID, stateID: look.state.id)) {
+        // Disarm / Silence: iOS unlocks the iPhone first, then the press runs with that as approval.
+        if StopButtonActivityIntent.needsUnlock(look.state.id) {
+            Button(intent: UnlockedButtonActivityIntent(buttonID: look.attributes.buttonID, stateID: look.state.id)) { label }
+                .buttonStyle(.plain)
+        } else {
+            Button(intent: StopButtonActivityIntent(buttonID: look.attributes.buttonID, stateID: look.state.id)) { label }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private var label: some View {
             HStack(spacing: 6) {
                 Image(systemName: look.state.symbol)
                     .font(.system(size: 13, weight: .bold))
@@ -267,7 +277,5 @@ private struct ButtonStopButton: View {
             .background(Capsule().fill(Color.white.opacity(0.11)))
             .background(Capsule().fill(JcState.danger.opacity(0.2)))
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
     }
 }

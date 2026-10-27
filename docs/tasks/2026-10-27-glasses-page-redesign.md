@@ -9,3 +9,7 @@ Spec: docs/superpowers/specs/2026-10-27-glasses-page-redesign-design.md (local) 
 - [x] 5. Model matched to the real GO3 photos: rounded wayfarer lenses, keyhole bridge, flush corner cameras, red hinges + rings, black arms with battery sticks (da9406d893, fdc0fecbc8)
 - [x] 6. Model sweep (saddle mesh, end-piece block, floating nose wires, arch tabs fixed), push, install on the phone
 - [ ] 7. His look on the phone: page + model next to his real glasses
+
+## Door alarm (same day)
+- [x] Live Activity Disarm/Silence disarms right away: card uses an unlock-only intent (iOS asks Face ID/passcode to unlock), signed with the button key — no "Tap to approve" notification. His call: phone unlock = approval.
+- [ ] Live check: alarm in entry delay → tap Disarm on the Lock Screen card → disarms after unlock. (First time only: if the button key isn't registered yet, one Face ID approval in Jarvis registers it.)

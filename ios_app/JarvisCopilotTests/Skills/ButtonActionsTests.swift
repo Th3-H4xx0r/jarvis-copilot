@@ -62,6 +62,39 @@ final class ButtonActionsTests: XCTestCase {
         XCTAssertEqual(asked.map(\.command), ["disarm"])
     }
 
+    func testTheAlarmCardsUnlockedDisarmUsesTheButtonKey() async {
+        let line = await runner().door(.disarm, skipFaceID: false, physical: false, unlocked: true)
+        XCTAssertEqual(line, "Disarmed")
+        XCTAssertEqual(sentDoor.map(\.1), ["button"])
+        XCTAssertEqual(sentDoor.map(\.2), [true])
+        XCTAssertTrue(asked.isEmpty, "no 'Tap to approve' notification")
+    }
+
+    func testAnUnlockedDisarmWithoutARegisteredKeyStillAsks() async {
+        registered = false
+        _ = await runner().door(.silence, skipFaceID: false, physical: false, unlocked: true)
+        XCTAssertTrue(sentDoor.isEmpty)
+        XCTAssertEqual(asked.map(\.command), ["silence"])
+    }
+
+    func testOnlyDisarmAndSilenceCardsAskForTheUnlock() {
+        for id in ["door.armed_away", "door.armed_home", "door.entry", "door.triggered", "door.siren"] {
+            XCTAssertTrue(StopButtonActivityIntent.needsUnlock(id), id)
+        }
+        for id in ["door.arming", "door.disarmed", "car.locked", ""] {
+            XCTAssertFalse(StopButtonActivityIntent.needsUnlock(id), id)
+        }
+        XCTAssertTrue(StopButtonActivityIntent.press(buttonID: "", stateID: "door.entry", unlocked: true).unlocked)
+        XCTAssertTrue(SecureActionPending.wantsButtonKey, "any Face ID approval registers the key the card signs with")
+    }
+
+    func testAQueuedPressNeverKeepsTheUnlock() {
+        let press = ButtonPress(buttonID: "door", physical: false, shownState: "door.entry", unlocked: true)
+        let later = ButtonPress(queueEntry: press.queueEntry)
+        XCTAssertFalse(later.unlocked, "run later, it isn't the unlock he just did")
+        XCTAssertEqual(later.shownState, "door.entry")
+    }
+
     func testAServerWithoutTheKeyFallsBackToFaceIDAndIsRemembered() async {
         serverHasKey = false
         let line = await runner().door(.silence, skipFaceID: true, physical: true)

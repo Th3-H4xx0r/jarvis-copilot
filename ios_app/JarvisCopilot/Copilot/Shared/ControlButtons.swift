@@ -93,6 +93,9 @@ struct ButtonPress: Equatable, Sendable {
     /// since (armed while it still read "Stop arming"), the press is refused, never turned into a
     /// different action.
     var shownState: String? = nil
+    /// From the alarm card's unlock-only Disarm: iOS ran it after the iPhone was unlocked. Never
+    /// queued — a press run later isn't the unlock he just did, so a queued one asks for Face ID.
+    var unlocked = false
 
     /// How the widget extension queues a press it can't run: `id[=on|=off][|w=<widget>][|shortcut]`.
     /// Entries from older builds ("id", "id=on") read the same as before.
@@ -106,12 +109,13 @@ struct ButtonPress: Equatable, Sendable {
     }
 
     init(buttonID: String, widgetID: String? = nil, physical: Bool = true, on: Bool? = nil,
-         shownState: String? = nil) {
+         shownState: String? = nil, unlocked: Bool = false) {
         self.buttonID = buttonID
         self.widgetID = widgetID
         self.physical = physical
         self.on = on
         self.shownState = shownState
+        self.unlocked = unlocked
     }
 
     init(queueEntry: String) {
