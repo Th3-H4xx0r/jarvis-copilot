@@ -12,124 +12,13 @@ func jcStateLabel(_ s: String) -> String {
     }
 }
 
-/// The JARVIS orb: the real app-icon orb (circle-clipped) wrapped in a breathing
-/// glow halo tinted by the voice state. The halo pulses on iOS 17+ — symbol
-/// effects are the reliable way to get continuous motion inside a Live Activity.
+/// The JARVIS orb everywhere in the Live Activities: the Voice page's liquid-glass orb,
+/// animated with symbol effects (`JarvisLiveOrb`), its glow tinted by the voice state.
 struct JarvisOrb: View {
     let state: String
     var size: CGFloat = 44
     var body: some View {
-        let c = jcStateColor(state)
-        ZStack {
-            halo(c)
-            orbPicture(c)
-                .frame(width: size * 0.84, height: size * 0.84)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(c.opacity(0.55), lineWidth: max(1, size * 0.03)))
-        }
-        .frame(width: size, height: size)
-        .shadow(color: c.opacity(0.6), radius: size * 0.16)
-    }
-
-    @ViewBuilder private func orbPicture(_ c: Color) -> some View {
-        if let ui = jarvisOrbUIImage {
-            Image(uiImage: ui).resizable().scaledToFill()
-        } else {
-            Circle().fill(RadialGradient(colors: [c, c.opacity(0.3)],
-                center: .center, startRadius: 0, endRadius: size * 0.5))
-        }
-    }
-
-    @ViewBuilder private func halo(_ c: Color) -> some View {
-        let g = Image(systemName: "circle.fill")
-            .font(.system(size: size))
-            .foregroundStyle(c.opacity(0.6))
-            .blur(radius: size * 0.16)
-        // Only animate the halo while something is happening — a continuously
-        // pulsing widget surface draws power the entire time the activity shows.
-        if state != "idle" {
-            g.symbolEffect(.pulse, options: .repeating)
-        } else {
-            g
-        }
-    }
-}
-
-/// Devices strip: a CENTERED row of icons, one per ONLINE connected device
-/// (laptop / phone / desktop / watch / …), each lit with a green glow. No count.
-struct JarvisDevices: View {
-    let st: JarvisActivityAttributes.ContentState
-    var body: some View {
-        // Always show at least this phone, even before the device list loads.
-        let kinds = st.devices.isEmpty ? ["phone"] : st.devices
-        HStack(spacing: 16) {
-            ForEach(Array(kinds.enumerated()), id: \.offset) { _, kind in
-                Image(systemName: jcDeviceSymbol(kind))
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .shadow(color: Color.green.opacity(0.6), radius: 3)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-}
-
-/// Maps a normalized device kind (set in voice_controller's `_deviceIconKind`,
-/// plus "watch" folded in natively) to an SF Symbol.
-func jcDeviceSymbol(_ kind: String) -> String {
-    switch kind {
-    case "laptop": return "laptopcomputer"
-    case "phone": return "iphone"
-    case "desktop": return "desktopcomputer"
-    case "watch": return "applewatch"
-    case "tablet": return "ipad"
-    case "web": return "globe"
-    default: return "display"
-    }
-}
-
-/// Small state pill, e.g. a cyan `LISTENING`.
-func jcStatePill(_ state: String) -> some View {
-    let c = jcStateColor(state)
-    return Text(jcStateLabel(state).uppercased())
-        .font(.system(size: 10, weight: .heavy)).tracking(1).foregroundStyle(c)
-        .padding(.vertical, 5).padding(.horizontal, 11)
-        .background(Capsule().fill(c.opacity(0.2)))
-        .overlay(Capsule().stroke(c.opacity(0.45), lineWidth: 1))
-}
-
-/// Conversation panel: `YOU` / `JARVIS` rows in a state-tinted glass card.
-struct JarvisConvo: View {
-    let st: JarvisActivityAttributes.ContentState
-    var body: some View {
-        let c = jcStateColor(st.state)
-        VStack(alignment: .leading, spacing: 6) {
-            if !st.transcript.isEmpty {
-                row("YOU", .white.opacity(0.4), st.transcript, .white.opacity(0.95), 2)
-            }
-            if !st.activity.isEmpty {
-                row("JARVIS", c.opacity(0.95), st.activity, .white.opacity(0.78), 2)
-            }
-            if st.transcript.isEmpty && st.activity.isEmpty {
-                Text("Tap to talk")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 8).padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 14).fill(c.opacity(0.12)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.opacity(0.24), lineWidth: 1))
-    }
-
-    private func row(_ label: String, _ lc: Color, _ text: String,
-                     _ tc: Color, _ lines: Int) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label).font(.system(size: 9, weight: .bold)).tracking(0.7)
-                .foregroundStyle(lc).frame(width: 44, alignment: .leading).padding(.top, 2)
-            Text(text).font(.system(size: 13, weight: .medium))
-                .foregroundStyle(tc).lineLimit(lines)
-        }
+        JarvisLiveOrb(size: size, glow: jcStateColor(state))
     }
 }
 

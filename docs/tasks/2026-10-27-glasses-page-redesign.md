@@ -13,3 +13,8 @@ Spec: docs/superpowers/specs/2026-10-27-glasses-page-redesign-design.md (local) 
 ## Door alarm (same day)
 - [x] Live Activity Disarm/Silence disarms right away: card uses an unlock-only intent (iOS asks Face ID/passcode to unlock), signed with the button key — no "Tap to approve" notification. His call: phone unlock = approval.
 - [ ] Live check: alarm in entry delay → tap Disarm on the Lock Screen card → disarms after unlock. (First time only: if the button key isn't registered yet, one Face ID approval in Jarvis registers it.)
+
+## Voice Live Activity (same day)
+- [x] Animated Voice orb (`JarvisLiveOrb`: glass bubble, rocking blue liquid, orange glint, twinkling stars, breathing glow — SF Symbol effects) replaces the static ringed icon in the collapsed island, minimal, expanded view, lock screen, CarPlay card, and designs' "orb" inside Live Activities
+- [x] Voice Live Activity redesigned (his pick: clean Apple style): orb + "Listening…" + live waveform, the latest words in large type; no boxes, labels or device icons; collapsed island = orb left, state waveform right
+- [ ] Live check on the phone: orb animates in the island (liquid rocks, stars twinkle, glow breathes)

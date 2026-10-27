@@ -36,17 +36,17 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         return DynamicIsland {
             DynamicIslandExpandedRegion(.leading) {
                 if isRegions {
-                    JCDesignRenderer(tint: tint).render(node?.node("leading"), ctx)
+                    JCDesignRenderer(tint: tint, liveOrb: true).render(node?.node("leading"), ctx)
                 }
             }
             DynamicIslandExpandedRegion(.trailing) {
                 if isRegions {
-                    JCDesignRenderer(tint: tint).render(node?.node("trailing"), ctx)
+                    JCDesignRenderer(tint: tint, liveOrb: true).render(node?.node("trailing"), ctx)
                 }
             }
             DynamicIslandExpandedRegion(.center) {
                 if isRegions {
-                    JCDesignRenderer(tint: tint).render(node?.node("center"), ctx)
+                    JCDesignRenderer(tint: tint, liveOrb: true).render(node?.node("center"), ctx)
                 }
             }
             DynamicIslandExpandedRegion(.bottom) {
@@ -55,9 +55,9 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 // still pad their own root (see the skill's layout rules).
                 Group {
                     if isRegions {
-                        JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
+                        JCDesignRenderer(tint: tint, liveOrb: true).render(node?.node("bottom"), ctx)
                     } else if let node = node {
-                        JCDesignRenderer(tint: tint).render(node, ctx)
+                        JCDesignRenderer(tint: tint, liveOrb: true).render(node, ctx)
                     } else {
                         JCDesignFallback(st: st)
                     }
@@ -74,8 +74,8 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         .widgetURL(URL(string: jcWidgetURL(st)))
     }
     return DynamicIsland {
-        // Header left-aligned: orb + JARVIS/Connected sit together on the
-        // leading side (a little padding off the orb), state pill trailing.
+        // Voice: the animated orb leading, what Jarvis is doing beside it, a live waveform
+        // trailing, and the latest words under them. Coding keeps its fleet view.
         DynamicIslandExpandedRegion(.leading) {
             if st.mode == "coding" {
                 HStack(spacing: 9) {
@@ -91,28 +91,28 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 }
                 .padding(.leading, 4)
             } else {
-                HStack(spacing: 9) {
-                    JarvisOrb(state: st.state, size: 42)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("JARVIS").font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(.white)
-                        HStack(spacing: 4) {
-                            Circle().fill(st.connected ? Color.green : Color.gray)
-                                .frame(width: 5, height: 5)
-                            Text(st.connected ? "Connected" : "Offline")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
-                    }
-                }
-                .padding(.leading, 4)
+                JarvisLiveOrb(size: 36, glow: jcStateColor(st.state))
+                    .padding(.leading, 4)
+                    .padding(.top, 2)
             }
         }
         DynamicIslandExpandedRegion(.trailing) {
             if st.mode == "coding" {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
-                jcStatePill(st.state).padding(.trailing, 4)
+                JarvisVoiceWave(state: st.connected ? st.state : "error", size: 20)
+                    .padding(.trailing, 6)
+                    .padding(.top, 8)
+            }
+        }
+        DynamicIslandExpandedRegion(.center) {
+            if st.mode != "coding" {
+                Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(st.connected && st.state != "idle" ? jcStateColor(st.state) : .white.opacity(0.7))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -125,36 +125,34 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                     }
                     JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                 }
-            } else {
-                // Both the expanded island AND the lock-screen banner are
-                // height-capped by the system, so the waveform is dropped
-                // from both. State is conveyed by the pill + animating orb,
-                // so the freed room goes to the content.
-                VStack(spacing: 6) {
-                    JarvisConvo(st: st)
-                    JarvisDevices(st: st)
-                }
+            } else if let line = jcVoiceLine(st) {
+                // The latest words, large — your words while you talk, Jarvis's reply after.
+                Text(line)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.7 : 0.95))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
             }
         }
     } compactLeading: {
         if st.mode == "coding" {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
-            JarvisOrb(state: st.state, size: 24)
+            JarvisLiveOrb(size: 24, glow: jcStateColor(st.state))
         }
     } compactTrailing: {
         if st.mode == "coding" {
             JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
         } else {
-            Text(jcStateLabel(st.state))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(jcStateColor(st.state))
+            JarvisVoiceWave(state: st.connected ? st.state : "error", size: 15)
         }
     } minimal: {
         if st.mode == "coding" {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
-            JarvisOrb(state: st.state, size: 22)
+            JarvisLiveOrb(size: 22, glow: jcStateColor(st.state))
         }
     }
     .widgetURL(URL(string: jcWidgetURL(st)))
@@ -174,8 +172,8 @@ func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
     }
 }
 
-/// The Lock Screen / banner presentation — the full layout: header (orb +
-/// JARVIS / Connected + state pill), waveform, conversation panel, devices.
+/// The Lock Screen / banner presentation: custom design, the coding fleet, or the voice card
+/// (orb, state, waveform, the latest words).
 struct JarvisLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -188,29 +186,7 @@ struct JarvisLockScreen: View {
             JarvisCodingBody(st: st)
                 .padding(.horizontal, 16).padding(.vertical, 13)
         } else {
-            // No waveform here: the lock-screen banner is height-capped too, and a
-            // two-row conversation was pushing the devices strip off the bottom.
-            // The pill already shows state, so the room goes to the content.
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 12) {
-                    JarvisOrb(state: st.state, size: 44)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("JARVIS").font(.system(size: 16, weight: .heavy)).foregroundStyle(.white)
-                        HStack(spacing: 5) {
-                            Circle().fill(st.connected ? Color.green : Color.gray)
-                                .frame(width: 6, height: 6)
-                            Text(st.connected ? "Connected" : "Offline")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
-                    }
-                    Spacer()
-                    jcStatePill(st.state)
-                }
-                JarvisConvo(st: st)
-                JarvisDevices(st: st)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 13)
+            JarvisVoiceLockScreen(st: st)
         }
     }
 }

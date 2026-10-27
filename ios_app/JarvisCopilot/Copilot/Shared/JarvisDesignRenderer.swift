@@ -16,11 +16,15 @@ final class JCDesignRenderer {
     let designID: String?
     /// The moment drawn: a widget timeline entry's date, so a button's state at that time shows.
     let now: Date
+    /// Inside a Live Activity the reserved "orb" image is the animated `JarvisLiveOrb`; a
+    /// Home Screen widget, where symbol effects don't play, keeps the still picture.
+    let liveOrb: Bool
 
-    init(tint: Color, designID: String? = nil, now: Date = Date()) {
+    init(tint: Color, designID: String? = nil, now: Date = Date(), liveOrb: Bool = false) {
         self.tint = tint
         self.designID = designID
         self.now = now
+        self.liveOrb = liveOrb
     }
 
     func render(_ node: JCNode?, _ ctx: JCBindingContext, depth: Int = 0) -> AnyView {
@@ -225,6 +229,9 @@ final class JCDesignRenderer {
         let h = n.style?.height.map { CGFloat($0) } ?? w
         let shape = n.string("shape") ?? "circle"
         let base: AnyView = {
+            if source == "orb", liveOrb {
+                return AnyView(JarvisLiveOrb(size: min(w, h)))
+            }
             if source == "orb", let ui = jarvisOrbUIImage {
                 return AnyView(Image(uiImage: ui).resizable().scaledToFill())
             }

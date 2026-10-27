@@ -26,7 +26,7 @@ struct JCDesignView: View {
         if let design = JCDesignCache.load(st.designId) {
             let ctx = JCBindingContext(dataJSON: st.data)
             let tint = jcParseColor(design.tint) ?? jcCodingColor("working")
-            let renderer = JCDesignRenderer(tint: tint)
+            let renderer = JCDesignRenderer(tint: tint, liveOrb: true)
             let node = pickNode(design)
             content(renderer, node, ctx)
         } else {
