@@ -217,6 +217,7 @@ final class DashcamSync: ObservableObject {
         wireTopics()
         cleanUpDue = true                       // what reached its destinations while the app was closed
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
+        Task { await pushLocalDeletes() }
         // What earlier runs left in the caches, even with cloud backup paused (then no upload run sweeps).
         Task.detached(priority: .utility) { DashcamPlayable.sweep() }
         Task { [uploader] in await uploader.sweepTemp() }
@@ -342,6 +343,14 @@ final class DashcamSync: ObservableObject {
         }
         passSoon()                    // the pass retries it, in playback mode when parked
         return false
+    }
+
+    /// Sends this phone's queued card deletes to the server's backlog without waiting for the camera — an older
+    /// build's list, or asks made while the server couldn't be reached — so they show "Pending deletion".
+    func pushLocalDeletes() async {
+        let local = pendingCameraDeletes
+        guard !local.isEmpty, let cameraID = setupProvider()?.cameraID, !cameraID.isEmpty else { return }
+        _ = try? await server.markCardDeletes(local.map { (id: DashcamIDs.clipID(cameraID: cameraID, path: $0.key), forget: $0.value) })
     }
 
     /// Deletes the clips the camera refused outside playback mode in one playback-mode visit: only while

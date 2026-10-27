@@ -646,6 +646,15 @@ final class DashcamSyncTests: XCTestCase {
         XCTAssertEqual(sync.pendingCameraDeletes, [asked.path: false], "kept on the new list until the camera does it")
     }
 
+    func testQueuedDeletesReachTheServerAwayFromTheCamera() async {
+        onCamera = false
+        let asked = cam.files[2]
+        sync.defaults.setValue([asked.path], forKey: DashcamSync.cameraDeletesKey)   // an older build's list
+        await sync.pushLocalDeletes()
+        XCTAssertEqual(server.marked.map(\.id), [id(asked)])
+        XCTAssertEqual(sync.pendingCameraDeletes, [asked.path: false], "kept until the camera has done it")
+    }
+
     func testADeleteAskedAwayWaitsOnTheServerAndThePhone() async {
         onCamera = false
         let asked = cam.files[1]
