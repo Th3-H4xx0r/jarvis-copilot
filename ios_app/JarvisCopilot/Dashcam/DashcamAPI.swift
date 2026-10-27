@@ -36,6 +36,24 @@ struct DashcamDestinationState: Equatable, Sendable {
     init(state: String, error: String? = nil) { self.state = state; self.error = error }
 }
 
+/// A card delete he asked for that still waits for the camera (the server's backlog entry).
+struct DashcamCardDelete: Equatable, Sendable {
+    var id: String
+    var path: String
+    var forget: Bool
+    var attempts: Int = 0
+    var lastError: String?
+
+    init(id: String, path: String, forget: Bool, attempts: Int = 0, lastError: String? = nil) {
+        self.id = id; self.path = path; self.forget = forget; self.attempts = attempts; self.lastError = lastError
+    }
+    init?(json: [String: Any], id: String? = nil, path: String? = nil) {
+        guard let id = id ?? str(json["id"]), let path = path ?? str(json["path"]) else { return nil }
+        self.init(id: id, path: path, forget: bool(json["forget"]), attempts: Int(num(json["attempts"]) ?? 0),
+                  lastError: str(json["last_error"]))
+    }
+}
+
 struct DashcamServerClip: Identifiable, Equatable, Sendable {
     let id: String
     var cameraID: String
@@ -61,6 +79,9 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var serverUploaded: Bool?
     /// Tags he put on it (ids, in the tag list's order).
     var tags: [String] = []
+    /// He asked for it to be deleted from the dashcam, and the camera hasn't done it yet.
+    var cardDelete: DashcamCardDelete?
+    var deletePending: Bool { cardDelete != nil }
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
@@ -91,6 +112,7 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
         driveID = str(json["drive_id"])
         serverUploaded = json["uploaded"].map(bool)
         tags = (json["tags"] as? [Any] ?? []).compactMap { $0 as? String }
+        cardDelete = (json["card_delete"] as? [String: Any]).flatMap { DashcamCardDelete(json: $0, id: id, path: path) }
     }
 
     var end: Date { start.addingTimeInterval(durationS) }
@@ -299,6 +321,27 @@ struct DashcamAPI: Sendable {
         _ = try await api.post(Self.prefix + "/clips/\(clipID)/delete_cloud", timeout: 120)
     }
 
+    // MARK: Card deletes (the backlog of deletes waiting for the camera)
+
+    func cardDeletes(cameraID: String) async throws -> [DashcamCardDelete] {
+        let o = try await api.get(Self.prefix + "/card_deletes", query: ["camera": cameraID]).object()
+        return (o["clips"] as? [[String: Any]] ?? []).compactMap { DashcamCardDelete(json: $0) }
+    }
+
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> (closed: [String], missing: [String]) {
+        let body: [String: Any] = ["clips": entries.map { ["id": $0.id, "forget": $0.forget] as [String: Any] }]
+        let o = try await api.post(Self.prefix + "/card_deletes", json: body).object()
+        return ((o["closed"] as? [Any] ?? []).compactMap(str), (o["missing"] as? [Any] ?? []).compactMap(str))
+    }
+
+    func cardDeletesDone(_ ids: [String]) async throws {
+        _ = try await api.post(Self.prefix + "/card_deletes/done", json: ["ids": ids])
+    }
+
+    func cardDeleteFailed(id: String, error: String) async throws {
+        _ = try await api.post(Self.prefix + "/card_deletes/failed", json: ["id": id, "error": error])
+    }
+
     func clip(_ id: String) async throws -> (clip: DashcamServerClip, fixes: [DashcamFix]) {
         let o = try await api.get(Self.prefix + "/clips/\(id)").object()
         let body = o["clip"] as? [String: Any] ?? o
@@ -457,6 +500,8 @@ struct DashcamInventoryRow: Equatable, Sendable {
     var sizeStable: Bool
     /// Deleted from the phone by hand: never pulled again on its own (only "Download again").
     var phoneDeleted = false
+    /// A delete he asked for waits for the camera.
+    var cardDelete = false
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
@@ -467,5 +512,6 @@ struct DashcamInventoryRow: Equatable, Sendable {
         hasThumb = bool(json["has_thumb"])
         uploaded = bool(json["uploaded"])
         sizeStable = bool(json["size_stable"])
+        cardDelete = bool(json["card_delete"])
     }
 }

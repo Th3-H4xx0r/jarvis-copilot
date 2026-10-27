@@ -33,6 +33,24 @@ final class DashcamUIModelTests: XCTestCase {
         XCTAssertNil(DashcamTrack.fix(at: 0, in: []))
     }
 
+    func testPendingDeletionStatusWins() throws {
+        let clip = try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p", "uploaded": true, "phone": ["state": "failed"],
+                                                         "card_delete": ["forget": false]]))
+        XCTAssertEqual(DashcamClipStatus.of(clip).label, "Pending deletion")
+        XCTAssertTrue(DashcamClipStatus.pendingLine(DashcamCardDelete(id: "c", path: "/p", forget: true, attempts: 2, lastError: "busy"))
+            .contains("refused 2×: busy"))
+    }
+
+    func testOnlyOnPhone() throws {
+        func clip(_ extra: [String: Any]) throws -> DashcamServerClip {
+            try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p", "phone": ["state": "local"]].merging(extra) { $1 }))
+        }
+        XCTAssertTrue(DashcamClipPlaces.onlyOnPhone(try clip(["on_camera": false])))
+        XCTAssertFalse(DashcamClipPlaces.onlyOnPhone(try clip(["on_camera": true])), "still on the card")
+        XCTAssertFalse(DashcamClipPlaces.onlyOnPhone(try clip(["on_camera": false, "uploaded": true])), "in the cloud")
+        XCTAssertFalse(DashcamClipPlaces.onlyOnPhone(try clip(["on_camera": false, "phone": ["state": "deleted"]])), "not on the phone")
+    }
+
     func testStatusChipPrefersFailureThenUploaded() throws {
         var json: [String: Any] = ["id": "c", "path": "/p", "on_camera": true,
                                    "destinations": ["d": ["state": "failed", "error": "auth"]]]

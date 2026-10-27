@@ -82,7 +82,9 @@ final class DashcamDevice: WearableDevice {
                     "confirm": ["type": "boolean", "description": "Must be true."],
                 ], required: ["confirm"])),
             DeviceCapability(name: "dashcam_delete_file", description: """
-                Delete one file from the dashcam's card (path from the library). Requires confirm=true.
+                Delete one file from the dashcam's card (path from the library). Requires confirm=true. \
+                Away from the camera's Wi‑Fi a full path is queued (shown as pending deletion) and deleted on the \
+                next connection.
                 """, inputSchema: DeviceCapability.schema([
                     "path": ["type": "string", "description": "The file's path on the camera."],
                     "confirm": ["type": "boolean", "description": "Must be true."],
@@ -254,6 +256,12 @@ final class DashcamDevice: WearableDevice {
                 throw DeviceError.badArgument("deleting removes the file from the card — pass confirm=true to proceed")
             }
             guard let path = args["path"] as? String, !path.isEmpty else { throw DeviceError.badArgument("path is required") }
+            // Away from the camera: it waits in the pending-deletion backlog for the next connection.
+            if setup() != nil, !wifi(), path.hasPrefix("/") {
+                _ = await sync.deleteFromCamera(path)
+                return ["ok": true, "queued": true, "path": path,
+                        "note": "Not on the dashcam's Wi‑Fi: marked pending deletion; it's deleted the next time the phone connects."]
+            }
             let cam = try camera()
             // A full camera path (from the library) is deleted as is — no listing, which playback-only
             // firmware refuses outside playback mode. A bare name is looked up in the last listing.

@@ -83,7 +83,8 @@ struct DashcamClipRow: View {
                 let status = DashcamClipStatus.of(clip, uploadingID: uploadingID)
                 let places = DashcamClipPlaces.of(clip)
                 HStack(spacing: 5) {
-                    place("sdcard", places.card, "On the camera's SD card")
+                    place("sdcard", places.card, clip.deletePending ? "Waiting to be deleted from the SD card" : "On the camera's SD card",
+                          tint: clip.deletePending ? JcTheme.danger : nil)
                     place("iphone", places.phone, "On this phone")
                     place("icloud", places.cloud, "In the cloud")
                     Text(status.label).font(.caption).foregroundStyle(status.tint).lineLimit(1)
@@ -99,9 +100,9 @@ struct DashcamClipRow: View {
         }
     }
 
-    private func place(_ symbol: String, _ on: Bool, _ label: String) -> some View {
+    private func place(_ symbol: String, _ on: Bool, _ label: String, tint: Color? = nil) -> some View {
         JcIcon(symbol, size: 11)
-            .foregroundStyle(on ? JcTheme.accent : JcTheme.muted.opacity(0.35))
+            .foregroundStyle(on ? (tint ?? JcTheme.accent) : JcTheme.muted.opacity(0.35))
             .accessibilityLabel(on ? label : "Not \(label.prefix(1).lowercased() + label.dropFirst())")
     }
 
@@ -125,10 +126,17 @@ struct DashcamLibraryView: View {
     @ObservedObject private var wifi: DashcamWiFi = .shared
     @ObservedObject private var tagStore = DashcamTagStore.shared
     @State private var confirmDelete: DashcamServerClip?
+    @State private var confirmOnlyCopy: DashcamServerClip?
+    static let onlyCopyWarning = "This is the only copy — it isn't on the dashcam or in the cloud."
     @State private var note: String?
     private var selecting: Bool { get { model.selecting } nonmutating set { model.selecting = newValue } }
     private var selected: Set<String> { get { model.selected } nonmutating set { model.selected = newValue } }
     private var bulkDelete: Set<Place>? { get { model.bulkDelete } nonmutating set { model.bulkDelete = newValue } }
+    /// Selected clips a phone delete would lose for good.
+    private var bulkOnlyCopies: Int {
+        guard bulkDelete?.contains(.phone) == true else { return 0 }
+        return model.clips.filter { selected.contains($0.id) && DashcamClipPlaces.onlyOnPhone($0) }.count
+    }
     @State private var openedID: String?
     @State private var deleting: (done: Int, total: Int)?
     @State private var deleteTask: Task<Void, Never>?
@@ -205,7 +213,8 @@ struct DashcamLibraryView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("From " + [bulkDelete?.contains(.phone) == true ? "this phone" : nil, bulkDelete?.contains(.cloud) == true ? "the cloud" : nil,
-                            bulkDelete?.contains(.camera) == true ? "the dashcam" : nil].compactMap { $0 }.joined(separator: ", ") + ". This can't be undone.")
+                            bulkDelete?.contains(.camera) == true ? "the dashcam" : nil].compactMap { $0 }.joined(separator: ", ") + ". This can't be undone."
+                 + (bulkOnlyCopies > 0 ? " \(bulkOnlyCopies) of them \(bulkOnlyCopies == 1 ? "is" : "are") the only copy — not on the dashcam or in the cloud." : ""))
         }
         .fullScreenCover(isPresented: Binding(get: { deleting != nil }, set: { _ in })) {
             DashcamDeletingPopup(done: deleting?.done ?? 0, total: deleting?.total ?? 0) { deleteTask?.cancel() }
@@ -229,11 +238,19 @@ struct DashcamLibraryView: View {
         }
         .alert("Delete from the camera?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
             Button("Delete", role: .destructive) {
-                if let clip = confirmDelete { Task { await deleteFromCamera(clip) } }
+                if let clip = confirmDelete { Task { await delete(clip, [.camera]) } }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The file is removed from the dashcam's SD card. Copies already uploaded stay where they are.")
+            Text("The file is removed from the dashcam's SD card — now, or the next time the phone is on its Wi‑Fi. Copies on the phone and in the cloud stay where they are.")
+        }
+        .alert("Delete the only copy?", isPresented: Binding(get: { confirmOnlyCopy != nil }, set: { if !$0 { confirmOnlyCopy = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let clip = confirmOnlyCopy { Task { await delete(clip, [.phone]) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Self.onlyCopyWarning)
         }
     }
 
@@ -291,7 +308,9 @@ struct DashcamLibraryView: View {
         let places = DashcamClipPlaces.of(clip)
         Menu {
             if places.phone {
-                Button(role: .destructive) { Task { await delete(clip, [.phone]) } } label: { Label("From this phone", systemImage: "iphone") }
+                Button(role: .destructive) {
+                    if DashcamClipPlaces.onlyOnPhone(clip) { confirmOnlyCopy = clip } else { Task { await delete(clip, [.phone]) } }
+                } label: { Label("From this phone", systemImage: "iphone") }
             }
             if places.cloud || clip.uploading {
                 Button(role: .destructive) { Task { await delete(clip, [.cloud]) } } label: { Label("From the cloud", systemImage: "icloud") }
@@ -337,16 +356,6 @@ struct DashcamLibraryView: View {
                               : "Couldn't delete everywhere — " + failed.joined(separator: "; ")
         await model.reload()
         return failed.isEmpty
-    }
-
-    private func deleteFromCamera(_ clip: DashcamServerClip) async {
-        do {
-            _ = try await DashcamDevice.shared.invoke("dashcam_delete_file", args: ["path": clip.path, "confirm": true])
-            note = "Deleted \(clip.name) from the camera."
-            await sync.syncNow()
-        } catch {
-            note = error.localizedDescription
-        }
     }
 }
 

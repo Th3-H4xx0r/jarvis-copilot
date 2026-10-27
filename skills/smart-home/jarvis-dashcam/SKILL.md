@@ -119,7 +119,12 @@ Units: the server stores metres and m/s; the CLI adds miles and mph. Times are U
 - **Device skills need the phone on the camera's Wi-Fi.** Away, they fail fast; don't retry in
   a loop — sync happens by itself the next time the phone joins.
 - **`dashcam_format_sd` and `dashcam_delete_file` erase footage on the camera.** Only with the
-  user's explicit go-ahead in this conversation, and always with `confirm`.
+  user's explicit go-ahead in this conversation, and always with `confirm`. Away from the
+  camera, `dashcam_delete_file` (with a full path) answers `queued`: the clip shows "Pending
+  deletion" and is deleted the next time the phone connects.
+- **The phone clears the card on its own.** Each clip is deleted from the camera right after it
+  downloads, and every pass deletes clips already on the phone or in the cloud. The card only
+  keeps footage nothing else has yet, so don't delete clips just to free space.
 - **A clip still being recorded grows** between listings; it isn't uploaded until its size is
   stable, so the newest clip lags by a minute or two.
 - **A clip uploads only while an enabled destination takes its kind.** Otherwise it stays on

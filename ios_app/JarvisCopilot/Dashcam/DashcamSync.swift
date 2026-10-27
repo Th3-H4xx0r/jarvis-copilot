@@ -14,6 +14,10 @@ protocol DashcamSyncServer: Sendable {
     func state() async throws -> DashcamServerState
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?)
     func updateRules(_ rules: DashcamRules) async throws
+    func cardDeletes(cameraID: String) async throws -> [DashcamCardDelete]
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> (closed: [String], missing: [String])
+    func cardDeletesDone(_ ids: [String]) async throws
+    func cardDeleteFailed(id: String, error: String) async throws
 }
 
 extension DashcamAPI: DashcamSyncServer {}
@@ -123,6 +127,8 @@ final class DashcamSync: ObservableObject {
         var gps = 0
         var thumbs = 0
         var downloaded: [String] = []
+        /// Deleted from the card this pass (his deletes, clips already safe, fresh downloads).
+        var cardDeleted: [String] = []
         var skippedUnstable = 0
         var usedPlayback = false
     }
@@ -287,44 +293,152 @@ final class DashcamSync: ObservableObject {
 
     // MARK: Deleting from the camera
 
+    /// Builds before the server backlog kept a plain list of paths here.
     static let cameraDeletesKey = "jc.dashcam.cameraDeletes"
-    /// Card paths to delete from the dashcam: kept until done, so a delete asked for away from the camera
-    /// happens the next time the phone is on its Wi‑Fi.
-    var pendingCameraDeletes: Set<String> {
-        get { Set(defaults.stringArray(forKey: Self.cameraDeletesKey) ?? []) }
-        set { defaults.set(Array(newValue), forKey: Self.cameraDeletesKey) }
+    static let cardDeletesKey = "jc.dashcam.cardDeletes"
+    /// Card deletes asked for on this phone (path → deleted everywhere), kept until the camera has done
+    /// them. The server's backlog (`/card_deletes`) is the record that lasts; this copy is what the phone
+    /// asked for even when the server couldn't be reached, and it goes to the server every pass.
+    var pendingCameraDeletes: [String: Bool] {
+        get {
+            var out = defaults.dictionary(forKey: Self.cardDeletesKey) as? [String: Bool] ?? [:]
+            for p in defaults.stringArray(forKey: Self.cameraDeletesKey) ?? [] where out[p] == nil { out[p] = false }
+            return out
+        }
+        set {
+            defaults.set(newValue, forKey: Self.cardDeletesKey)
+            defaults.removeObject(forKey: Self.cameraDeletesKey)
+        }
     }
 
-    /// Deletes a clip from the card now when on the camera's Wi‑Fi (true), otherwise queues it.
-    func deleteFromCamera(_ path: String) async -> Bool {
-        pendingCameraDeletes.insert(path)
+    /// Playback-mode delete failures per path this app session: a file the firmware always refuses
+    /// (a protected one) must not put the camera in playback mode every parked pass.
+    private var playbackDeleteFails: [String: Int] = [:]
+    static let playbackDeleteTries = 3
+
+    /// Deletes a clip from the card now when on the camera's Wi‑Fi (true); otherwise it waits in the server's
+    /// backlog (and this phone's copy of it) for the next connection. `forget`: deleted everywhere, so the
+    /// server drops the clip from the library once the card delete is done.
+    @discardableResult
+    func deleteFromCamera(_ path: String, clipID: String? = nil, forget: Bool = false) async -> Bool {
+        var pending = pendingCameraDeletes
+        pending[path] = (pending[path] ?? false) || forget
+        pendingCameraDeletes = pending
+        let id = clipID ?? setupProvider().map { DashcamIDs.clipID(cameraID: $0.cameraID, path: path) }
+        if let id { _ = try? await server.markCardDeletes([(id: id, forget: pending[path] ?? forget)]) }
         guard onCameraProvider(), let setup = setupProvider(), let cam = cameraFactory(setup) else { return false }
         let f = DashcamFile(path: path, kind: .normal, lens: .front, start: now(), durationS: 0, size: 0)
-        if (try? await cam.delete(f)) != nil { pendingCameraDeletes.remove(path); return true }
+        if (try? await cam.delete(f)) != nil {
+            var now = pendingCameraDeletes
+            now[path] = nil
+            pendingCameraDeletes = now
+            if let id { try? await server.cardDeletesDone([id]) }
+            cameraFiles.removeAll { $0.path == path }
+            return true
+        }
         passSoon()                    // the pass retries it, in playback mode when parked
         return false
     }
 
-    private func applyCameraDeletes(_ files: [DashcamFile], camera cam: DashcamCamera) async -> [DashcamFile] {
-        var pending = pendingCameraDeletes
-        let listed = Set(files.map(\.path))
-        pending = pending.filter { listed.contains($0) }          // already gone from the card
-        var refused: [DashcamFile] = []
-        for f in files where pending.contains(f.path) {
-            if (try? await cam.delete(f)) != nil { pending.remove(f.path) } else { refused.append(f) }
+    /// Deletes the clips the camera refused outside playback mode in one playback-mode visit: only while
+    /// parked (or already in playback mode for this pass), recording restored after. A path that failed
+    /// there `playbackDeleteTries` times this session is left alone. Returns the paths deleted.
+    private func deleteInPlayback(_ refused: [DashcamFile], camera cam: DashcamCamera, inPlayback: Bool,
+                                  errors: inout [String: String]) async -> Set<String> {
+        let tries = refused.filter { playbackDeleteFails[$0.path, default: 0] < Self.playbackDeleteTries }
+        guard !tries.isEmpty, setupProvider()?.family == .viidure, !liveActive else { return [] }
+        if !inPlayback {
+            guard await parked() else { return [] }
         }
-        // Some firmware only deletes in playback mode — only ever while parked, recording restored after.
-        if !refused.isEmpty, setupProvider()?.family == .viidure, await parked(), !liveActive {
-            let wasRecording = try? await cam.isRecording()
+        var done = Set<String>()
+        var wasRecording: Bool?
+        var entered = inPlayback
+        if !inPlayback {
+            wasRecording = try? await cam.isRecording()
             maybeInPlayback = true
-            if (try? await cam.playback(true)) != nil {
-                for f in refused where (try? await cam.delete(f)) != nil { pending.remove(f.path) }
-            }
-            await leavePlayback(cam, wasRecording: wasRecording)
+            entered = (try? await cam.playback(true)) != nil
         }
-        let asked = pendingCameraDeletes.intersection(listed)          // deleted now, or still waiting
-        pendingCameraDeletes = pending
-        return files.filter { !asked.contains($0.path) }               // neither comes back into the library
+        if entered {
+            for f in tries {
+                do { try await cam.delete(f); done.insert(f.path) } catch {
+                    playbackDeleteFails[f.path, default: 0] += 1
+                    errors[f.path] = error.localizedDescription
+                }
+            }
+        }
+        if !inPlayback { await leavePlayback(cam, wasRecording: wasRecording) }
+        return done
+    }
+
+    /// The backlog of deletes he asked for, flushed at the start of a pass: this phone's asks go to the server,
+    /// then every entry for this camera (his asks from anywhere) is deleted from the card. Done ones are
+    /// reported, refused ones counted. Returns the listing as the card now is (refused clips stay in it, so the
+    /// server keeps them pending) and the paths still waiting, kept out of this pass's downloads.
+    private func applyCameraDeletes(_ files: [DashcamFile], camera cam: DashcamCamera, cameraID: String,
+                                    inPlayback: Bool, report: inout Report) async -> (listing: [DashcamFile], skip: Set<String>) {
+        let local = pendingCameraDeletes
+        var ids: [String: String] = [:]                                  // path → clip id
+        var pending: [String: Bool] = [:]
+        for (path, forget) in local {
+            ids[path] = DashcamIDs.clipID(cameraID: cameraID, path: path)
+            pending[path] = forget
+        }
+        if !local.isEmpty { _ = try? await server.markCardDeletes(local.map { (id: ids[$0.key]!, forget: $0.value) }) }
+        for e in (try? await server.cardDeletes(cameraID: cameraID)) ?? [] where !e.path.isEmpty {
+            ids[e.path] = e.id
+            pending[e.path] = (pending[e.path] ?? false) || e.forget
+        }
+        guard !pending.isEmpty else {
+            if !local.isEmpty { pendingCameraDeletes = local }       // moves an old build's list to the new key
+            return (files, [])
+        }
+        let listed = Set(files.map(\.path))
+        var done = Set(pending.keys.filter { !listed.contains($0) })    // already gone from the card
+        var errors: [String: String] = [:]
+        var refused: [DashcamFile] = []
+        for f in files where pending[f.path] != nil {
+            do { try await cam.delete(f); done.insert(f.path) } catch {
+                refused.append(f)
+                errors[f.path] = error.localizedDescription
+            }
+        }
+        // Some firmware only deletes in playback mode.
+        if !refused.isEmpty { done.formUnion(await deleteInPlayback(refused, camera: cam, inPlayback: inPlayback, errors: &errors)) }
+        // Asked for while this ran stays: only what was done comes off the phone's list.
+        var mine = pendingCameraDeletes
+        for p in done { mine[p] = nil }
+        pendingCameraDeletes = mine
+        if !done.isEmpty { try? await server.cardDeletesDone(done.compactMap { ids[$0] }) }
+        for f in refused where !done.contains(f.path) {
+            try? await server.cardDeleteFailed(id: ids[f.path] ?? DashcamIDs.clipID(cameraID: cameraID, path: f.path),
+                                               error: errors[f.path] ?? "the dashcam refused")
+        }
+        report.cardDeleted += files.map(\.path).filter { done.contains($0) }
+        return (files.filter { !done.contains($0.path) }, Set(pending.keys).subtracting(done))
+    }
+
+    /// Clears the card of every listed clip that is safe elsewhere: a complete copy is on this phone, or the
+    /// server says every destination has it. Plain deletes first; the refused ones get one playback-mode try
+    /// while parked. Never a clip only the card has. Returns the paths deleted.
+    private func sweepCard(_ files: [DashcamFile], rows: [String: DashcamInventoryRow], skip: Set<String>,
+                           camera cam: DashcamCamera, cameraID: String, inPlayback: Bool,
+                           stable: (DashcamFile) -> Bool, mayContinue: () async -> Bool) async -> Set<String> {
+        let safe = files.filter {
+            !skip.contains($0.path) && stable($0)
+                && (rows[$0.path]?.uploaded == true || storage.exists(camera: cameraID, file: $0))
+        }
+        guard !safe.isEmpty else { return [] }
+        var done = Set<String>()
+        var refused: [DashcamFile] = []
+        for (i, f) in safe.enumerated() {
+            guard await mayContinue() else { return done }
+            phase = .syncing("Clearing the card (\(i + 1) of \(safe.count))")
+            if (try? await cam.delete(f)) != nil { done.insert(f.path) } else { refused.append(f) }
+        }
+        var errors: [String: String] = [:]
+        if !refused.isEmpty { done.formUnion(await deleteInPlayback(refused, camera: cam, inPlayback: inPlayback, errors: &errors)) }
+        cameraFiles.removeAll { done.contains($0.path) }
+        return done
     }
 
     /// The controls changed recording by hand.
@@ -514,11 +628,16 @@ final class DashcamSync: ObservableObject {
         // One entry per path, whatever the firmware's folders do.
         var seen = Set<String>()
         files = files.filter { seen.insert($0.path).inserted }
-        // Deletions asked for while away from the camera, done before anything else (and never listed).
-        if !pendingCameraDeletes.isEmpty { files = await applyCameraDeletes(files, camera: cam) }
+        // Deletes he asked for (here or anywhere), done before anything else. Only with a listing: an empty one
+        // may be a listing that failed, and must not count the backlog as done.
+        var skip = Set<String>()
+        if !files.isEmpty {
+            (files, skip) = await applyCameraDeletes(files, camera: cam, cameraID: info.id, inPlayback: usedPlayback,
+                                                     report: &report)
+        }
         if !files.isEmpty {
             report = await work(on: files, camera: cam, cameraID: info.id, zone: zone,
-                                recording: wasRecording ?? true, inPlayback: usedPlayback, report: report)
+                                recording: wasRecording ?? true, inPlayback: usedPlayback, skip: skip, report: report)
         }
         if usedPlayback { await leavePlayback(cam, wasRecording: wasRecording) }
         if case .syncing = phase { phase = .idle }
@@ -532,7 +651,7 @@ final class DashcamSync: ObservableObject {
     var setupStore: (DashcamSetup) -> Void = { _ in }
 
     private func work(on files: [DashcamFile], camera cam: DashcamCamera, cameraID: String, zone: TimeZone,
-                      recording: Bool, inPlayback: Bool, report start: Report) async -> Report {
+                      recording: Bool, inPlayback: Bool, skip: Set<String>, report start: Report) async -> Report {
         var report = start
         report.listed = files.count
         cameraFiles = files.sorted { $0.start > $1.start }
@@ -585,6 +704,7 @@ final class DashcamSync: ObservableObject {
         let tagged = DashcamTagged.ids(defaults: defaults)
         func isTagged(_ f: DashcamFile) -> Bool { !tagged.isEmpty && tagged.contains(clipID(f)) }
         func wanted(_ f: DashcamFile) -> Bool {
+            guard !skip.contains(f.path) else { return false }          // he asked for it to be deleted
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
             // Deleted on this phone (even everywhere, and the card lists it again): only a pull by hand brings it back.
             if !deleted.isEmpty, deleted.contains(clipID(f)), !forced.contains(f.path) { return false }
@@ -603,6 +723,13 @@ final class DashcamSync: ObservableObject {
             }
         }
         await takeAsked()
+
+        // The card keeps only what isn't safe anywhere else: every clip already on the phone or in the cloud goes
+        // now (one left behind by a crash, an older build, or a delete the camera refused last pass).
+        let swept = await sweepCard(files, rows: rows, skip: skip, camera: cam, cameraID: cameraID, inPlayback: inPlayback,
+                                    stable: stable, mayContinue: mayContinue)
+        report.cardDeleted += files.map(\.path).filter { swept.contains($0) }
+        let files = files.filter { !swept.contains($0.path) }
 
         // 1. Events, parking clips and photos first — they matter most.
         let urgent = DashcamRules.order(files.filter { $0.kind != .normal && wanted($0) })
@@ -719,6 +846,12 @@ final class DashcamSync: ObservableObject {
                 return
             }
             report.downloaded.append(f.path)
+            // Safe on the phone: off the card at once, one clip at a time. Refused (some firmware only deletes in
+            // playback mode, never entered while driving) → the next pass's sweep tries again.
+            if (try? await cam.delete(f)) != nil {
+                report.cardDeleted.append(f.path)
+                cameraFiles.removeAll { $0.path == f.path }
+            }
             // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
             let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
             await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind, confirmed: known)

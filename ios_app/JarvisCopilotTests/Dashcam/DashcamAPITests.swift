@@ -54,6 +54,16 @@ final class DashcamAPITests: XCTestCase {
         XCTAssertThrowsError(try DashcamAPI.uploadStart(["ok": true]))
     }
 
+    func testServerClipReadsCardDelete() throws {
+        let pending = try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p",
+                                                            "card_delete": ["forget": true, "attempts": 2, "last_error": "x"]]))
+        XCTAssertTrue(pending.deletePending)
+        XCTAssertEqual(pending.cardDelete, DashcamCardDelete(id: "c", path: "/p", forget: true, attempts: 2, lastError: "x"))
+        let plain = try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p"]))
+        XCTAssertFalse(plain.deletePending)
+        XCTAssertEqual(DashcamInventoryRow(json: ["id": "c", "path": "/p", "card_delete": true])?.cardDelete, true)
+    }
+
     func testServerUploadedFlagWins() throws {
         let c = try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p", "uploaded": true, "destinations": [:]]))
         XCTAssertTrue(c.uploaded)

@@ -77,6 +77,12 @@ struct DashcamClipPlaces: Equatable {
     static func of(_ clip: DashcamServerClip) -> DashcamClipPlaces {
         .init(card: clip.onCamera, phone: clip.phoneState == "local" || clip.phoneState == "uploading", cloud: clip.uploaded)
     }
+
+    /// The phone holds the only copy: deleting it there loses the clip for good.
+    static func onlyOnPhone(_ clip: DashcamServerClip) -> Bool {
+        let p = of(clip)
+        return p.phone && !p.card && !p.cloud
+    }
 }
 
 /// A transfer in progress for one clip, for its row and the page header.
@@ -114,6 +120,8 @@ struct DashcamClipStatus: Equatable {
     let tint: Color
 
     static func of(_ clip: DashcamServerClip, uploadingID: String? = nil) -> DashcamClipStatus {
+        // He asked for it to go from the dashcam; the camera hasn't done it yet (the phone wasn't on its Wi‑Fi).
+        if clip.deletePending { return .init(label: "Pending deletion", symbol: "trash", tint: JcTheme.danger) }
         if clip.failed {
             let reason = clip.destinations.values.first { $0.state == "failed" }?.error ?? clip.phoneError
             return .init(label: reason.map { "Failed: \($0)" } ?? "Failed", symbol: "exclamationmark.triangle.fill", tint: JcTheme.danger)
@@ -132,6 +140,14 @@ struct DashcamClipStatus: Equatable {
         }
         if clip.onCamera { return .init(label: "On the SD card", symbol: "sdcard", tint: JcTheme.muted) }
         return .init(label: "Gone from camera", symbol: "sdcard.fill", tint: JcTheme.muted)
+    }
+
+    /// The player's line for a clip waiting to be deleted from the dashcam.
+    static func pendingLine(_ d: DashcamCardDelete) -> String {
+        var line = "Pending deletion — deleted from the dashcam the next time the phone is on its Wi‑Fi"
+        if d.attempts > 0 { line += ". The dashcam refused \(d.attempts)×" + (d.lastError.map { ": \($0)" } ?? "") }
+        if d.forget { line += ". Then it leaves the library." }
+        return line
     }
 }
 

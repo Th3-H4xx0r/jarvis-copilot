@@ -44,7 +44,22 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     func set(_ name: String, _ value: String) async throws {}
     func sdInfo() async throws -> DashcamSDInfo { DashcamSDInfo(ok: true) }
     func format() async throws {}
-    func delete(_ file: DashcamFile) async throws {}
+    /// Paths deleted from the card, in order.
+    var deleted: [String] = []
+    /// Some firmware only deletes in playback mode.
+    var refuseDeleteOutsidePlayback = false
+    /// Paths the camera refuses to delete every time (a protected file).
+    var refuseDelete = Set<String>()
+    /// Off by default: most fixtures read `files` after a pass.
+    var deleteRemovesFile = false
+    func delete(_ file: DashcamFile) async throws {
+        calls.append("delete=\(file.path)")
+        if refuseDelete.contains(file.path) || (refuseDeleteOutsidePlayback && !inPlayback) {
+            throw DashcamError.camera("deletefile: refused")
+        }
+        deleted.append(file.path)
+        if deleteRemovesFile { files.removeAll { $0.path == file.path } }
+    }
     func setWiFi(ssid: String?, password: String?) async throws {}
     func playback(_ enter: Bool) async throws {
         calls.append("playback=\(enter)")
@@ -69,6 +84,13 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
     var unreachable = false
     /// Forgotten by the server (deleted everywhere): their phone-state updates 404.
     var gone = Set<String>()
+    /// The card-delete backlog, by clip id; what the phone reported back.
+    var backlog: [String: DashcamCardDelete] = [:]
+    var marked: [(id: String, forget: Bool)] = []
+    var doneIDs: [String] = []
+    var failedIDs: [String] = []
+    /// Clip ids the server has no record of (mark answers them as missing).
+    var unknown = Set<String>()
 
     func upsertCamera(_ info: DashcamCameraInfo, ssid: String) async throws {}
     func inventory(cameraID: String, files: [DashcamFile]) async throws -> [String: DashcamInventoryRow] {
@@ -78,9 +100,33 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
         for f in files {
             let id = DashcamIDs.clipID(cameraID: cameraID, path: f.path)
             out[f.path] = DashcamInventoryRow(json: ["id": id, "path": f.path, "has_gps": fixes[id] != nil,
-                                                     "has_thumb": thumbs.contains(id), "uploaded": uploadedIDs.contains(id)])
+                                                     "has_thumb": thumbs.contains(id), "uploaded": uploadedIDs.contains(id),
+                                                     "card_delete": backlog[id] != nil])
         }
         return out
+    }
+    func cardDeletes(cameraID: String) async throws -> [DashcamCardDelete] {
+        if unreachable { throw APIError.http(status: 502, message: "down") }
+        return backlog.values.sorted { $0.id < $1.id }
+    }
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> (closed: [String], missing: [String]) {
+        if unreachable { throw APIError.http(status: 502, message: "down") }
+        marked += entries
+        var missing: [String] = []
+        for e in entries {
+            if unknown.contains(e.id) { missing.append(e.id); continue }
+            backlog[e.id] = DashcamCardDelete(id: e.id, path: backlog[e.id]?.path ?? "", forget: e.forget || backlog[e.id]?.forget == true)
+        }
+        return ([], missing)
+    }
+    func cardDeletesDone(_ ids: [String]) async throws {
+        if unreachable { throw APIError.http(status: 502, message: "down") }
+        doneIDs += ids
+        for id in ids { backlog[id] = nil }
+    }
+    func cardDeleteFailed(id: String, error: String) async throws {
+        if unreachable { throw APIError.http(status: 502, message: "down") }
+        failedIDs.append(id)
     }
     func putFixes(clipID: String, fixes f: [DashcamFix]) async throws { fixes[clipID] = f.count }
     func putThumb(clipID: String, jpeg: Data) async throws { thumbs.insert(clipID) }
@@ -301,7 +347,8 @@ final class DashcamSyncTests: XCTestCase {
         XCTAssertFalse(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"))
         // Jarvis asks for the rear clip around t=0..30 explicitly.
         let n = await sync.fetch(from: Date(timeIntervalSince1970: 1_790_000_000), to: Date(timeIntervalSince1970: 1_790_000_010))
-        XCTAssertGreaterThanOrEqual(n, 2)
+        XCTAssertEqual(n, 1, "front_0 already came down and left the card: only rear_0 is still there")
+        XCTAssertTrue(cam.deleted.contains { $0.hasSuffix("front_0.mp4") })
         _ = await sync.syncPass()
         XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"))
     }
@@ -447,6 +494,151 @@ final class DashcamSyncTests: XCTestCase {
     }
 
     // MARK: Deleted clips stay deleted
+
+    // MARK: Deleting from the card
+
+    private func id(_ f: DashcamFile) -> String { DashcamIDs.clipID(cameraID: "CAM", path: f.path) }
+
+    func testEachDownloadIsDeletedFromTheCardRightAfter() async {
+        var deletedBeforeFetch: [String: Int] = [:]
+        let cam = self.cam!, fetcher = self.fetcher!
+        fetcher.onFetch = { if let name = fetcher.fetched.last?.lastPathComponent { deletedBeforeFetch[name] = cam.deleted.count } }
+        let report = await sync.syncPass()
+        XCTAssertEqual(Set(cam.deleted), Set(report.downloaded), "every download leaves the card, nothing else does")
+        XCTAssertEqual(report.downloaded.count, 2)
+        // One at a time: the first clip was already off the card when the second came down.
+        XCTAssertEqual(deletedBeforeFetch.values.sorted(), [0, 1])
+        XCTAssertEqual(Set(report.cardDeleted), Set(report.downloaded))
+    }
+
+    func testTheSweepDeletesClipsAlreadyUploaded() async {
+        let old = cam.files[0]                       // normal footage, not pulled by default, but in the cloud
+        server.uploadedIDs = [id(old)]
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(old.path))
+    }
+
+    func testTheSweepDeletesClipsAlreadyOnThePhone() async throws {
+        let old = cam.files[0]
+        let url = sync.storage.localURL(camera: "CAM", file: old)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 10).write(to: url)
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(old.path))
+    }
+
+    func testTheSweepLeavesClipsThatAreOnlyOnTheCard() async {
+        let tagged = cam.files[0]
+        DashcamTagged.mark(id(tagged), defaults: sync.defaults)
+        fetcher.failAfter = 0                        // nothing comes down
+        _ = await sync.syncPass()
+        XCTAssertEqual(cam.deleted, [], "only on the card: never deleted, tagged or not")
+    }
+
+    func testATombstonedDownloadIsNotDeletedFromTheCard() async {
+        let defaults = sync.defaults, id = eventID, name = eventClip.name, fetcher = self.fetcher!
+        fetcher.onFetch = { if fetcher.fetched.last?.lastPathComponent == name { DashcamTombstones.add(id, defaults: defaults) } }
+        _ = await sync.syncPass()
+        XCTAssertFalse(cam.deleted.contains(eventClip.path))
+    }
+
+    func testAShortDownloadIsNotDeletedFromTheCard() async {
+        cam.files = [DashcamFile(path: "/mnt/card/emr/front_30.mp4", kind: .event, lens: .front,
+                                 start: Date(timeIntervalSince1970: 1_790_000_030), durationS: 60, size: 50_000, folder: "emr")]
+        _ = await sync.syncPass()                    // the fake writes 10 bytes: far short of the listing
+        XCTAssertEqual(cam.deleted, [])
+    }
+
+    func testBacklogFromTheServerIsFlushedAndReportedDone() async {
+        let asked = cam.files[1]
+        server.backlog[id(asked)] = DashcamCardDelete(id: id(asked), path: asked.path, forget: true)
+        let report = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(asked.path))
+        XCTAssertEqual(server.doneIDs, [id(asked)])
+        XCTAssertFalse(server.inventoried.contains { $0.path == asked.path }, "deleted: the server hears it's gone")
+        XCTAssertFalse(report.downloaded.contains(asked.path))
+    }
+
+    func testARefusedBacklogDeleteStaysListedForTheServer() async {
+        let asked = eventClip
+        server.backlog[id(asked)] = DashcamCardDelete(id: id(asked), path: asked.path, forget: false)
+        cam.refuseDelete = [asked.path]
+        let report = await sync.syncPass()
+        XCTAssertTrue(server.inventoried.contains { $0.path == asked.path }, "still on the card: the entry must stay open")
+        XCTAssertEqual(server.failedIDs, [id(asked)])
+        XCTAssertTrue(server.doneIDs.isEmpty)
+        XCTAssertFalse(report.downloaded.contains(asked.path), "asked to be deleted: never pulled")
+    }
+
+    func testABacklogEntryNoLongerOnTheCardIsDone() async {
+        let gone = "/mnt/card/loop/front_999.mp4"
+        server.backlog[DashcamIDs.clipID(cameraID: "CAM", path: gone)] =
+            DashcamCardDelete(id: DashcamIDs.clipID(cameraID: "CAM", path: gone), path: gone, forget: false)
+        _ = await sync.syncPass()
+        XCTAssertEqual(server.doneIDs, [DashcamIDs.clipID(cameraID: "CAM", path: gone)])
+    }
+
+    func testOldLocalQueueMigratesToTheServer() async {
+        let asked = cam.files[2]
+        sync.defaults.setValue([asked.path], forKey: DashcamSync.cameraDeletesKey)
+        cam.refuseDelete = [asked.path]              // so it stays queued
+        _ = await sync.syncPass()
+        XCTAssertTrue(server.marked.contains { $0.id == id(asked) && !$0.forget })
+        XCTAssertNil(sync.defaults.stringArray(forKey: DashcamSync.cameraDeletesKey), "the old list is gone")
+        XCTAssertEqual(sync.pendingCameraDeletes, [asked.path: false], "kept on the new list until the camera does it")
+    }
+
+    func testADeleteAskedAwayWaitsOnTheServerAndThePhone() async {
+        onCamera = false
+        let asked = cam.files[1]
+        let now = await sync.deleteFromCamera(asked.path, clipID: id(asked), forget: true)
+        XCTAssertFalse(now)
+        XCTAssertTrue(server.marked.contains { $0.id == id(asked) && $0.forget })
+        XCTAssertEqual(sync.pendingCameraDeletes[asked.path], true)
+        onCamera = true
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(asked.path))
+        XCTAssertTrue(sync.pendingCameraDeletes.isEmpty)
+        XCTAssertTrue(server.doneIDs.contains(id(asked)))
+    }
+
+    func testDeleteFromTheDashcamAwayWaitsMarkedWithTheClipsID() async throws {
+        onCamera = false
+        let f = cam.files[1]
+        let clip = try XCTUnwrap(DashcamServerClip(json: ["id": "c_server_id", "camera_id": "CAM", "path": f.path, "on_camera": true]))
+        let (done, failed) = await DashcamClipActions.delete(clip, [.camera], sync: sync)
+        XCTAssertTrue(failed.isEmpty)
+        XCTAssertEqual(done, ["dashcam (pending — deletes when next connected)"])
+        XCTAssertEqual(server.marked.map(\.id), ["c_server_id"], "the server's own id for the clip")
+        XCTAssertEqual(server.marked.map(\.forget), [false])
+    }
+
+    func testPlaybackDeleteRetryStopsAfterThreeFailures() async {
+        let stuck = cam.files[0]
+        server.uploadedIDs = [id(stuck)]
+        cam.refuseDelete = [stuck.path]
+        parked = true
+        var passesInPlayback = 0
+        for _ in 0..<4 {
+            cam.calls = []
+            _ = await sync.syncPass()
+            if cam.calls.contains("playback=true") { passesInPlayback += 1 }
+        }
+        XCTAssertEqual(passesInPlayback, 3)
+        XCTAssertFalse(cam.inPlayback, "always left playback mode")
+    }
+
+    func testPlaybackOnlyFirmwareDeletesWhileParkedNeverWhileDriving() async {
+        cam.refuseDeleteOutsidePlayback = true
+        parked = false
+        let report = await sync.syncPass()
+        XCTAssertFalse(cam.calls.contains("playback=true"), "never playback mode while driving")
+        XCTAssertEqual(cam.deleted, [])
+        parked = true
+        _ = await sync.syncPass()
+        XCTAssertEqual(Set(cam.deleted), Set(report.downloaded), "the sweep clears them once parked")
+        XCTAssertTrue(cam.recordingOn, "recording restored")
+    }
 
     private var eventClip: DashcamFile { cam.files.first { $0.kind == .event }! }
     private var eventID: String { DashcamIDs.clipID(cameraID: "CAM", path: eventClip.path) }

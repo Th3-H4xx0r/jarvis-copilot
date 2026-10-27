@@ -149,12 +149,19 @@ enum DashcamClipActions {
             try? await DashcamAPI().setPhone(clipID: clip.id, state: "deleted", error: nil)
             done.append("phone")
         }
+        let everywhere = places == [.phone, .cloud, .camera]
+        var waiting = false
         if places.contains(.camera), clip.onCamera {
-            // Now when on the camera's Wi‑Fi, otherwise queued for the next connection — never lost.
-            done.append(await sync.deleteFromCamera(clip.path) ? "dashcam" : "dashcam (when next connected)")
+            // Now when on the camera's Wi‑Fi, otherwise it waits in the server's backlog for the next connection —
+            // never lost, and marked "Pending deletion" in the library until then.
+            let now = await sync.deleteFromCamera(clip.path, clipID: clip.id, forget: everywhere && failed.isEmpty)
+            waiting = !now
+            done.append(now ? "dashcam" : "dashcam (pending — deletes when next connected)")
         }
-        if places == [.phone, .cloud, .camera], failed.isEmpty {
-            try? await DashcamAPI().forgetClip(clip.id)          // gone from the library too
+        // Gone from the library too — but a clip still waiting on the card stays (marked) until the camera has
+        // deleted it; the server forgets it then.
+        if everywhere, failed.isEmpty, !waiting {
+            try? await DashcamAPI().forgetClip(clip.id)
         }
         return (done, failed)
     }

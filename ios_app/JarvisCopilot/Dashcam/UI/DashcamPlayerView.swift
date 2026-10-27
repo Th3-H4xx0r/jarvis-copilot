@@ -332,6 +332,11 @@ struct DashcamPlayerView: View {
                 } else if !model.source.isEmpty {
                     Text(model.source).font(.caption).foregroundStyle(.secondary)
                 }
+                if let pending = model.clip.cardDelete {
+                    Label(DashcamClipStatus.pendingLine(pending), systemImage: "trash")
+                        .font(.caption.weight(.semibold)).foregroundStyle(JcTheme.danger)
+                        .multilineTextAlignment(.center).padding(.horizontal, 20)
+                }
                 if let error = model.error {
                     CardGroup { CardEmptyBlock(error, symbol: "film") }
                 }

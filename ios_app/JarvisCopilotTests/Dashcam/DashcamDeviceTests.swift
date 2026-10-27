@@ -29,6 +29,18 @@ final class DashcamDeviceTests: XCTestCase {
         XCTAssertEqual(device.deviceID, "dashcam-CAM")
     }
 
+    func testDeleteFileToolQueuesWhenAway() async throws {
+        onCamera = false
+        let server = FakeSyncServer()
+        device.sync.server = server
+        device.sync.defaults = UserDefaults(suiteName: "dashcam-device-\(UUID().uuidString)")!
+        let out = try await device.invoke("dashcam_delete_file", args: ["path": "/mnt/card/video_front/a_f.ts", "confirm": true])
+        XCTAssertEqual(out["queued"] as? Bool, true)
+        XCTAssertEqual(device.sync.pendingCameraDeletes, ["/mnt/card/video_front/a_f.ts": false])
+        XCTAssertEqual(server.marked.map(\.id), [DashcamIDs.clipID(cameraID: "CAM", path: "/mnt/card/video_front/a_f.ts")])
+        XCTAssertTrue(cam.deleted.isEmpty)
+    }
+
     func testCameraCommandsNeedTheCameraWiFiButStatusDoesNot() async throws {
         onCamera = false
         do {
