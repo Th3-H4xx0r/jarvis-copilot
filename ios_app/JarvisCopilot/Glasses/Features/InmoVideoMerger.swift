@@ -11,15 +11,25 @@ enum InmoOpusFile {
     /// One packet's worth of silence: 20 ms at 16 kHz, PCM16.
     static let silentPacket = Data(count: 320 * 2)
 
+    /// A packet can itself end in 0x0a (about 1 in 256), giving a run of 4–5 newlines; a packet
+    /// never starts with one (the glasses' TOC byte is 0xb8), so a run's leftover newlines belong
+    /// to the end of the packet before it. Splitting at the first three would cut that packet short
+    /// and start the next with a bogus TOC byte.
     static func packets(_ data: Data) -> [Data] {
         let bytes = [UInt8](data)
         var packets: [Data] = []
         var start = 0, i = 0
-        while i + separator.count <= bytes.count {
-            if bytes[i] == 0x0a, bytes[i + 1] == 0x0a, bytes[i + 2] == 0x0a {
-                if i > start { packets.append(Data(bytes[start..<i])) }
-                i += separator.count; start = i
-            } else { i += 1 }
+        while i < bytes.count {
+            guard bytes[i] == 0x0a else { i += 1; continue }
+            var end = i
+            while end < bytes.count, bytes[end] == 0x0a { end += 1 }
+            let run = end - i
+            if run >= separator.count {
+                let packetEnd = i + (start == 0 && i == 0 ? 0 : run % separator.count)
+                if packetEnd > start { packets.append(Data(bytes[start..<packetEnd])) }
+                start = end
+            }
+            i = end
         }
         if start < bytes.count { packets.append(Data(bytes[start...])) }
         return packets

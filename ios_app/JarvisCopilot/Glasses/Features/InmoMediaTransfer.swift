@@ -3,6 +3,12 @@ import Combine
 import Network
 import NetworkExtension
 
+/// The phone couldn't open a connection to the glasses at all (as opposed to one file failing).
+struct InmoMediaConnectionError: LocalizedError {
+    let underlying: Error
+    var errorDescription: String? { underlying.localizedDescription }
+}
+
 @MainActor
 final class InmoMediaTransfer: ObservableObject {
     static let shared = InmoMediaTransfer()
@@ -120,6 +126,7 @@ final class InmoMediaTransfer: ObservableObject {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
             guard wifiRevision != priorWiFi, wifiOpen else { throw InmoMediaError(message: "The glasses did not confirm Wi-Fi startup.") }
+            try check(token)
             statusText = "Joining glasses Wi-Fi…"
             let config = password.isEmpty ? NEHotspotConfiguration(ssid: ssid) : NEHotspotConfiguration(ssid: ssid, passphrase: password, isWEP: false)
             config.joinOnce = true
@@ -157,7 +164,10 @@ final class InmoMediaTransfer: ObservableObject {
                 do { try await Task.sleep(nanoseconds: 180_000_000_000) } catch { return }
                 self?.connection?.cancel()
             }
-            try await connect(network)
+            do { try await connect(network) } catch {
+                if generation == token { throw InmoMediaConnectionError(underlying: error) }
+                throw error
+            }
             try check(token)
             let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("INMOMedia", isDirectory: true)
             let sink = try InmoMediaFileSink(item: item, directory: root)
@@ -253,6 +263,14 @@ final class InmoMediaTransfer: ObservableObject {
                     }
                 }
                 network.start(queue: .main)
+                // Off the glasses' network (screen locked, Jarvis in the background) a connection
+                // sits in .waiting rather than failing; don't let it hold the batch for minutes.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                    guard let waiting = pending else { return }
+                    pending = nil
+                    waiting.resume(throwing: InmoMediaError(message: "Couldn't reach the glasses over Wi-Fi. Keep Jarvis open and the screen on, then try again."))
+                    network.cancel()
+                }
             }
         } onCancel: { network.cancel() }
     }

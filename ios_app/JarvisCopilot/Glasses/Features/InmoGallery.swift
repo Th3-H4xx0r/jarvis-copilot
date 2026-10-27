@@ -1,11 +1,14 @@
 import Combine
 import Foundation
 import Photos
+import UIKit
 
 /// The glasses side of the gallery: the inventory and the Wi-Fi file transfer.
 @MainActor
 protocol InmoMediaFetching: AnyObject {
     var inventory: [InmoMediaItem] { get }
+    /// A Wi-Fi session is open (a batch, a single download, or the notes' photo fetch).
+    var busy: Bool { get }
     var inventoryChanges: AnyPublisher<[InmoMediaItem], Never> { get }
     func refresh() async throws
     func openSession() async throws
@@ -64,10 +67,13 @@ final class InmoGallery: ObservableObject {
     private let fetcher: InmoMediaFetching
     private let saver: InmoPhotosSaving
     private var cancelled = false
+    /// Only cancel the transfer once this batch owns its session — before that it may be someone else's.
+    private var ownsSession = false
     private var watch: AnyCancellable?
 
     init(fetcher: InmoMediaFetching, saver: InmoPhotosSaving, library: InmoMediaLibrary) {
         self.fetcher = fetcher; self.saver = saver; self.library = library
+        if fetcher.busy == false { library.sweepLeftovers() }
         reload()
         watch = fetcher.inventoryChanges.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reload() }
     }
@@ -90,6 +96,7 @@ final class InmoGallery: ObservableObject {
     @discardableResult
     func startSaveAll(keys: [String]? = nil) throws -> Int {
         guard run == nil else { throw InmoMediaError(message: "Already saving from the glasses.") }
+        guard !fetcher.busy else { throw InmoMediaError(message: "Another glasses download is running; try again when it finishes.") }
         let todo = pending(keys)
         guard !todo.isEmpty else { throw InmoMediaError(message: "Everything on the glasses is already in your camera roll.") }
         begin(todo)
@@ -105,12 +112,12 @@ final class InmoGallery: ObservableObject {
     func cancel() {
         guard run != nil else { return }
         cancelled = true
-        fetcher.cancel()
+        if ownsSession { fetcher.cancel() }
     }
 
     /// The batch, awaited (tests and `startSaveAll`).
     func saveAll(keys: [String]? = nil) async {
-        guard run == nil else { return }
+        guard run == nil, !fetcher.busy else { return }
         let todo = pending(keys)
         guard !todo.isEmpty else { return }
         begin(todo)
@@ -130,7 +137,10 @@ final class InmoGallery: ObservableObject {
     }
 
     private func perform(_ todo: [InmoGalleryItem]) async {
-        defer { run = nil; reload() }
+        let idle = UIApplication.shared.isIdleTimerDisabled
+        // A locked screen drops the glasses' join-once network mid-batch.
+        UIApplication.shared.isIdleTimerDisabled = true
+        defer { run = nil; ownsSession = false; UIApplication.shared.isIdleTimerDisabled = idle; reload() }
         guard await saver.authorize() else {
             message = "Allow Jarvis to add to Photos (Settings → Jarvis → Photos) to save from the glasses."
             return
@@ -140,7 +150,10 @@ final class InmoGallery: ObservableObject {
             message = cancelled ? "Cancelled." : error.localizedDescription
             return
         }
+        ownsSession = true
+        if cancelled { fetcher.cancel() }
         var saved = 0, silent = 0
+        var lost: String?
         for item in todo {
             if cancelled { break }
             run?.current = item.key
@@ -148,6 +161,14 @@ final class InmoGallery: ObservableObject {
                 if try await saveOne(item) == false { silent += 1 }
                 saved += 1
                 failed.remove(item.key)
+            } catch is CancellationError {
+                cancelled = true
+                break
+            } catch let error as InmoMediaConnectionError {
+                // The glasses' network is gone; every other item would wait out the same timeout.
+                failed.insert(item.key)
+                lost = error.localizedDescription
+                break
             } catch {
                 if cancelled { break }
                 failed.insert(item.key)
@@ -156,10 +177,12 @@ final class InmoGallery: ObservableObject {
             reload()
         }
         await fetcher.closeSession()
+        try? library.persist()
         let left = todo.count - saved
         var summary = "Saved \(saved) to your camera roll."
         if silent > 0 { summary += " \(silent) video\(silent == 1 ? "" : "s") without sound." }
-        if left > 0 { summary += cancelled ? " Cancelled — \(left) not saved." : " \(left) failed; try again." }
+        if let lost { summary += " Stopped: \(lost)" }
+        else if left > 0 { summary += cancelled ? " Cancelled — \(left) not saved." : " \(left) failed; try again." }
         message = summary
     }
 
@@ -174,10 +197,10 @@ final class InmoGallery: ObservableObject {
         if item.kind == .video {
             var sound: URL?
             if let part = item.sound {
-                do {
-                    let url = try await fetcher.fetch(part)
-                    files.append(url); sound = url
-                } catch { if cancelled { throw error } }
+                // A transfer error leaves the item unsaved and retryable; only a missing or
+                // undecodable sound file gives a picture-only save.
+                let url = try await fetcher.fetch(part)
+                files.append(url); sound = url
             }
             let work = library.directory.appendingPathComponent("work", isDirectory: true)
             try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
@@ -189,11 +212,12 @@ final class InmoGallery: ObservableObject {
         }
         if cancelled { throw CancellationError() }
         try await saver.save(toSave, name: name, isPhoto: item.kind == .photo, date: item.capturedAt)
-        // In Photos now: write the record before anything else can fail, so it's never saved twice.
+        // In Photos now: record it before anything else can fail, so it's never saved twice. A failed
+        // write keeps the memory copy and is retried at the end of the batch — the item still counts.
         var record = InmoGalleryRecord(key: item.key, kind: item.kind, capturedAt: item.capturedAt,
                                        parts: Dictionary(item.parts.map { ($0.name, $0.size) }, uniquingKeysWith: { $1 }),
                                        savedAt: Date(), withoutSound: item.kind == .video && !withSound)
-        try library.record(record)
+        try? library.record(record)
         if let thumb = try? await InmoMediaThumbnail.make(toSave, kind: item.kind) {
             let file = item.key + ".jpg"
             try? FileManager.default.createDirectory(at: library.thumbsDirectory, withIntermediateDirectories: true)

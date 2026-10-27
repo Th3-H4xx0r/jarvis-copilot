@@ -110,11 +110,37 @@ final class InmoMediaLibrary {
 
     func isSaved(_ key: String) -> Bool { records[key]?.savedAt != nil }
 
+    /// Upserts in memory first, then writes; a failed write leaves the memory copy for `persist()`.
     func record(_ record: InmoGalleryRecord) throws {
         records[record.key] = record
+        try persist()
+    }
+
+    func persist() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let list = records.values.sorted { $0.capturedAt > $1.capturedAt }
         try Self.encoder.encode(list).write(to: file, options: .atomic)
+    }
+
+    /// Files a killed app left mid-save, over an hour old: unfinished downloads, published copies
+    /// (`<uuid>-INMO…`) and merge outputs. The record and previews stay. The age keeps a single
+    /// download that was just handed to Jarvis or the share sheet.
+    func sweepLeftovers(olderThan age: TimeInterval = 3600, now: Date = Date()) {
+        let fm = FileManager.default
+        let work = directory.appendingPathComponent("work", isDirectory: true)
+        func old(_ url: URL) -> Bool {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return modified.map { now.timeIntervalSince($0) > age } ?? false
+        }
+        for name in (try? fm.contentsOfDirectory(atPath: work.path)) ?? [] {
+            let url = work.appendingPathComponent(name)
+            if old(url) { try? fm.removeItem(at: url) }
+        }
+        for name in (try? fm.contentsOfDirectory(atPath: directory.path)) ?? [] {
+            let url = directory.appendingPathComponent(name)
+            let uuidPrefixed = name.count > 37 && UUID(uuidString: String(name.prefix(36))) != nil && name.dropFirst(36).hasPrefix("-INMO")
+            if name.hasSuffix(".partial") || uuidPrefixed, old(url) { try? fm.removeItem(at: url) }
+        }
     }
 
     func thumbnailURL(_ record: InmoGalleryRecord?) -> URL? {

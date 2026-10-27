@@ -93,6 +93,12 @@ final class InmoGalleryTests: XCTestCase {
         XCTAssertEqual(InmoOpusFile.packets(Data()), [])
     }
 
+    func testPacketEndingInNewlineKeepsItsByte() {
+        // A packet whose last byte is 0x0a, then the separator: the extra newline is the packet's.
+        let data = Data([0xb8, 0x01, 0x0a, 0x0a, 0x0a, 0x0a, 0xb8, 0x02, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0xb8, 0x03])
+        XCTAssertEqual(InmoOpusFile.packets(data), [Data([0xb8, 0x01, 0x0a]), Data([0xb8, 0x02, 0x0a, 0x0a]), Data([0xb8, 0x03])])
+    }
+
     func testUndecodablePacketsBecomeSilence() throws {
         let garbage = Data(repeating: 0xff, count: 2000) + Data(InmoOpusFile.separator) + Data(repeating: 0xff, count: 2000)
         let result = try InmoOpusFile.pcm(garbage)
@@ -126,8 +132,8 @@ final class InmoGalleryTests: XCTestCase {
         let opus = URL(fileURLWithPath: dir).appendingPathComponent("INMOVID_1790457871450.opus")
         try XCTSkipUnless(!dir.isEmpty && FileManager.default.fileExists(atPath: mp4.path), "no JC_INMO_FIXTURES")
         let decoded = try InmoOpusFile.pcm(try Data(contentsOf: opus))
-        XCTAssertGreaterThan(decoded.packets, 300)
-        XCTAssertLessThan(decoded.failed, 10)
+        XCTAssertEqual(decoded.packets, 334)
+        XCTAssertEqual(decoded.failed, 0)
         let output = root.appendingPathComponent("merged.mp4")
         let withSound = await InmoVideoMerger.merge(video: mp4, opus: opus, to: output)
         XCTAssertTrue(withSound)
@@ -240,6 +246,61 @@ final class InmoGalleryTests: XCTestCase {
         XCTAssertEqual(gallery.failed, ["INMOIMG_2-100"])
         XCTAssertEqual(gallery.unsaved.map(\.key), ["INMOIMG_2-100"])
         XCTAssertEqual(fetcher.closes, 1)
+    }
+
+    func testSoundFetchFailureLeavesVideoRetryable() async {
+        let fetcher = GalleryFakeFetcher(root: root, inventory: video(1))
+        fetcher.failing = ["INMOVID_1.opus"]
+        let saver = GalleryFakeSaver()
+        let library = InmoMediaLibrary(directory: root)
+        let gallery = InmoGallery(fetcher: fetcher, saver: saver, library: library)
+        await gallery.saveAll()
+        XCTAssertTrue(saver.saved.isEmpty, "never saved silent because the sound didn't come over")
+        XCTAssertFalse(library.isSaved("INMOVID_1-900"))
+        XCTAssertEqual(gallery.failed, ["INMOVID_1-900"])
+    }
+
+    func testLostWiFiStopsTheBatch() async {
+        let fetcher = GalleryFakeFetcher(root: root, inventory: [photo(3), photo(2), photo(1)])
+        fetcher.unreachableAfter = 1
+        let saver = GalleryFakeSaver()
+        let gallery = InmoGallery(fetcher: fetcher, saver: saver, library: InmoMediaLibrary(directory: root))
+        await gallery.saveAll()
+        XCTAssertEqual(saver.saved.map(\.name), ["INMOIMG_3.jpg"])
+        XCTAssertEqual(fetcher.fetched.count, 2, "stops at the first unreachable item instead of timing out on each")
+        XCTAssertEqual(fetcher.closes, 1)
+        XCTAssertTrue(gallery.message?.contains("Stopped") == true)
+    }
+
+    func testBusyTransferRefusesToStartAndCancelLeavesItAlone() async throws {
+        let fetcher = GalleryFakeFetcher(root: root, inventory: [photo(1)])
+        fetcher.busy = true
+        let gallery = InmoGallery(fetcher: fetcher, saver: GalleryFakeSaver(), library: InmoMediaLibrary(directory: root))
+        XCTAssertThrowsError(try gallery.startSaveAll())
+        await gallery.saveAll()
+        XCTAssertEqual(fetcher.opens, 0)
+        gallery.cancel()
+        XCTAssertEqual(fetcher.cancels, 0)
+    }
+
+    func testSweepRemovesOldLeftoversOnly() throws {
+        let library = InmoMediaLibrary(directory: root)
+        let fm = FileManager.default
+        try fm.createDirectory(at: root.appendingPathComponent("work"), withIntermediateDirectories: true)
+        let oldDate = Date().addingTimeInterval(-7200)
+        let names = ["\(UUID().uuidString)-INMOVID_1.mp4", "\(UUID().uuidString).partial", "work/\(UUID().uuidString).m4a"]
+        for name in names {
+            let url = root.appendingPathComponent(name)
+            try Data([1]).write(to: url)
+            try fm.setAttributes([.modificationDate: oldDate], ofItemAtPath: url.path)
+        }
+        let fresh = root.appendingPathComponent("\(UUID().uuidString)-INMOAUD_1.opus")
+        try Data([1]).write(to: fresh)
+        try library.record(InmoGalleryRecord(key: "k", kind: .photo, capturedAt: Date(), parts: [:], savedAt: Date()))
+        library.sweepLeftovers()
+        for name in names { XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent(name).path), name) }
+        XCTAssertTrue(fm.fileExists(atPath: fresh.path))
+        XCTAssertTrue(InmoMediaLibrary(directory: root).isSaved("k"))
     }
 
     func testSaveFailureLeavesItemUnsaved() async {
@@ -362,6 +423,8 @@ private final class GalleryFakeFetcher: InmoMediaFetching {
     let root: URL
     let inventory: [InmoMediaItem]
     var inventoryChanges: AnyPublisher<[InmoMediaItem], Never> { Empty().eraseToAnyPublisher() }
+    var busy = false
+    var unreachableAfter: Int?
     var opens = 0, closes = 0, cancels = 0
     var fetched: [String] = []
     var handedOut: [URL] = []
@@ -373,6 +436,10 @@ private final class GalleryFakeFetcher: InmoMediaFetching {
     func openSession() async throws { opens += 1; cancelled = false }
     func fetch(_ item: InmoMediaItem) async throws -> URL {
         if cancelled { throw CancellationError() }
+        if let limit = unreachableAfter, fetched.count >= limit {
+            fetched.append(item.name)
+            throw InmoMediaConnectionError(underlying: InmoMediaError(message: "Couldn't reach the glasses over Wi-Fi."))
+        }
         fetched.append(item.name)
         if failing.contains(item.name) { throw InmoMediaError(message: "gone") }
         let url = root.appendingPathComponent(UUID().uuidString + "-" + item.name)

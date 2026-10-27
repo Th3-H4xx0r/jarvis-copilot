@@ -250,7 +250,9 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
             guard let id = args["id"] as? String else { throw DeviceError.badArgument("id is required") }
             let url = try await InmoMediaTransfer.shared.download(id: id)
             return ["state": "confirmed", "artifact": url.lastPathComponent, "local_url": url.absoluteString]
-        case "glasses_media_cancel": InmoMediaTransfer.shared.cancel(); return ["state": "cancelled"]
+        case "glasses_media_cancel":
+            if InmoGallery.shared.run != nil { InmoGallery.shared.cancel() } else { InmoMediaTransfer.shared.cancel() }
+            return ["state": "cancelled"]
         default: throw DeviceError.badArgument("\(name) is not initialized or supported; inspect glasses_capabilities")
         }
         try await session.send(bytes)

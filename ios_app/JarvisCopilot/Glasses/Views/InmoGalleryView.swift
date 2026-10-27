@@ -106,8 +106,10 @@ struct InmoGalleryTile: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!entry.saved && (entry.item == nil || gallery.run != nil || transfer.busy))
+        // Opening Photos mid-batch would background Jarvis while it's on the glasses' Wi-Fi.
+        .disabled(gallery.run != nil || transfer.busy || (!entry.saved && entry.item == nil))
         .accessibilityLabel(accessibility)
+        .accessibilityHint(entry.saved ? "Opens Photos" : "")
     }
 
     private var isCurrent: Bool { gallery.run?.current == entry.key }
@@ -159,8 +161,10 @@ struct InmoGalleryTile: View {
 
     private var accessibility: String {
         var parts = [entry.kind == .video ? "Video" : "Photo", entry.capturedAt.formatted(date: .abbreviated, time: .shortened)]
-        if entry.saved { parts.append(entry.record?.withoutSound == true ? "saved without sound" : "saved") }
-        else { parts.append("tap to save to your camera roll") }
+        if isCurrent { parts.append("saving") }
+        else if entry.saved { parts.append(entry.record?.withoutSound == true ? "saved without sound" : "saved") }
+        else if gallery.failed.contains(entry.key) { parts.append("couldn't save, tap to try again") }
+        else if entry.item != nil { parts.append("tap to save to your camera roll") }
         if entry.item == nil { parts.append("not on glasses") }
         return parts.joined(separator: ", ")
     }
