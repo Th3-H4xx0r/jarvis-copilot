@@ -61,7 +61,8 @@ struct GlassesCard: View {
         }
         .frame(height: 190)
         .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: status == .offline || status == .audioOnly)
+        // Audio on the route means "now", not "last seen".
+        .lastSeenCorner(lastSeen, visible: status == .offline)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
@@ -90,6 +91,7 @@ struct InmoGo3View: View {
     @State private var renaming = false
     @State private var confirmForget = false
     @State private var connectError: String?
+    @State private var showOwnerSetup = false
 
     private var route: GlassesRouteState { link.state }
     private var known: Bool { link.known }
@@ -128,6 +130,8 @@ struct InmoGo3View: View {
             })
         }
         .onAppear { link.refresh(); actions.clear() }
+        // Outside the status switch: the setup page stays put while the status changes under it.
+        .navigationDestination(isPresented: $showOwnerSetup) { GlassesOwnerSetupPage() }
         .wearableRename(isPresented: $renaming, current: name) {
             WearableNames.shared.rename(WearableKeepAlive.glasses, to: $0)
         }
@@ -177,22 +181,28 @@ struct InmoGo3View: View {
         return status.title
     }
 
-    /// Connect when the control link is down; the pairing key when it needs one.
+    /// Connect when the control link is down; the pairing key when it needs one. Errors are put
+    /// in plain words here; the raw text is under About › Advanced.
     @ViewBuilder private var heroAction: some View {
         switch status {
         case .setupNeeded:
             VStack(spacing: 6) {
-                NavigationLink { GlassesOwnerSetupPage() } label: { Label("Finish setup", jcIcon: "key.fill") }
-                    .buttonStyle(.jcGlass(tint: JcTheme.amber))
-                Text("Jarvis needs your glasses' pairing key once.")
+                HStack(spacing: 10) {
+                    Button { showOwnerSetup = true } label: { Label("Add pairing key", jcIcon: "key.fill") }
+                        .buttonStyle(.jcGlass(tint: JcTheme.amber))
+                    Button { connect() } label: { Label("Connect", jcIcon: "dot.radiowaves.left.and.right") }
+                        .buttonStyle(.jcGlass)
+                }
+                Text(Self.plain(connectError ?? session.lastError) ?? "Jarvis needs your glasses' pairing key once.")
                     .font(.caption).foregroundStyle(JcTheme.muted)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 4)
         case .offline, .audioOnly:
             VStack(spacing: 6) {
                 Button { connect() } label: { Label("Connect", jcIcon: "dot.radiowaves.left.and.right") }
                     .buttonStyle(.jcGlass)
-                if let message = connectError ?? session.lastError {
+                if let message = Self.plain(connectError ?? session.lastError) {
                     Text(message).font(.caption).foregroundStyle(JcTheme.muted)
                         .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 }
@@ -203,11 +213,23 @@ struct InmoGo3View: View {
         }
     }
 
+    /// The session's errors are written for debugging; the main page says what to do.
+    static func plain(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let lower = raw.lowercased()
+        if lower.contains("bluetooth is unavailable") || lower.contains("bluetooth is off") || lower.contains("allow jarvis") {
+            return "Turn on Bluetooth and allow Jarvis to use it."
+        }
+        if lower.contains("unlock") { return "Unlock your iPhone once, then tap Connect." }
+        if lower.contains("owner identity") || lower.contains("identity") { return "Jarvis needs your glasses' pairing key once." }
+        return "Couldn't reach the glasses. Make sure they're on and nearby, close the INMO app, then try again."
+    }
+
     private func connect() {
         connectError = nil
         Task {
             do { try await session.ensureConnected(force: true) }
-            catch { connectError = "\(error.localizedDescription) If the INMO app is open, close it and try again." }
+            catch { connectError = error.localizedDescription }
         }
     }
 

@@ -95,14 +95,16 @@ struct GlassRow<Trailing: View>: View {
         self.trailing = trailing()
     }
 
+    @Environment(\.isEnabled) private var isEnabled
     private var tint: Color { danger ? JcTheme.danger : JcTheme.text }
 
     var body: some View {
         VStack(spacing: 0) {
+            // A disabled row looks it, like every other control.
             if let action {
-                Button(action: action) { row }.buttonStyle(.plain)
+                Button(action: action) { row }.buttonStyle(.plain).opacity(isEnabled ? 1 : 0.45)
             } else {
-                row
+                row.opacity(isEnabled ? 1 : 0.45)
             }
             if !last {
                 Rectangle().fill(JcTheme.glassBorder)

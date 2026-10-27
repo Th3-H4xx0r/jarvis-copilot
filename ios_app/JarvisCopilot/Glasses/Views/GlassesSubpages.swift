@@ -385,7 +385,7 @@ struct GlassesAboutPage: View {
     var body: some View {
         let details = link.details
         GlassesSubpage("About") {
-            GlassesSection(nil) {
+            GlassesSection(nil, note: staleNote) {
                 GlassesInfoRow(symbol: "eyeglasses", title: "Model", value: session.status.model ?? "INMO GO3 · IMG301")
                 GlassesInfoRow(symbol: "cpu", title: "Firmware", value: session.status.firmware ?? "—")
                 GlassesInfoRow(symbol: "battery.75", title: "Battery", value: session.status.battery.map { "\($0)%" } ?? "—")
@@ -396,6 +396,7 @@ struct GlassesAboutPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 GlassQuietLabel("Battery")
                 GlassCard { batteryChart }
+                LiveSettingsNote("Kept for seven days on this iPhone. Charging or a gap starts a new line.")
             }
             GlassesSection("Bluetooth audio") {
                 GlassesInfoRow(symbol: "dot.radiowaves.left.and.right", title: "Name", value: link.state.glasses?.name ?? "—")
@@ -428,6 +429,15 @@ struct GlassesAboutPage: View {
         }
     }
 
+    /// Values are the last the glasses reported; say so when that isn't now.
+    private var staleNote: String? {
+        guard let date = session.status.lastReceived else {
+            return session.isReady ? nil : "Connect the glasses to read these."
+        }
+        guard !session.isReady || Date().timeIntervalSince(date) > 300 else { return nil }
+        return "Last reported \(date.formatted(.relative(presentation: .named)))."
+    }
+
     private var batteryChart: some View {
         VStack(alignment: .leading, spacing: 10) {
             Picker("Battery history", selection: $batteryWindow) {
@@ -450,6 +460,10 @@ struct GlassesAboutPage: View {
                 .chartYScale(domain: 0...100)
                 .frame(height: 130)
                 .accessibilityLabel("Glasses battery over the selected window")
+                if let first = points.first, let last = points.last, first.segment == last.segment {
+                    Text("Used \(max(0, first.percent - last.percent))% in \(Int(last.date.timeIntervalSince(first.date) / 60)) min")
+                        .font(.footnote).foregroundStyle(JcTheme.muted)
+                }
             }
             if let estimate = device.history.estimate(), session.isReady, let last = device.history.samples.last,
                Date().timeIntervalSince(last.date) <= 300 {
@@ -470,7 +484,8 @@ struct GlassesAdvancedPage: View {
 
     var body: some View {
         GlassesSubpage("Advanced") {
-            GlassesSection("Control link", note: "Audio and the control link are separate Bluetooth connections.") {
+            GlassesSection("Control link", note: session.lastError.map { "Last error: \($0)" }
+                           ?? "Audio and the control link are separate Bluetooth connections.") {
                 GlassesInfoRow(symbol: "link", title: "State", value: String(describing: session.state))
                 GlassRow(symbol: "power", title: session.isReady ? "Disconnect" : "Connect",
                          action: {
@@ -501,7 +516,7 @@ struct GlassesAdvancedPage: View {
                 GlassesLinkRow(symbol: "waveform.path.ecg", title: "INMO app traces",
                                subtitle: "Record on your Mac · import, inspect and export", last: true) { InmoTraceView() }
             }
-            GlassesSection("Media transfer", note: "The glasses' own Wi-Fi, used when saving photos and videos.") {
+            GlassesSection("Media transfer", note: "The glasses' own Wi-Fi, used when saving photos and videos. The phone's internet pauses while it's joined.") {
                 GlassRow(symbol: "wifi", title: "Glasses address", last: true) {
                     TextField("192.168.40.1", text: $media.serverAddress)
                         .keyboardType(.decimalPad).textInputAutocapitalization(.never)
@@ -669,7 +684,7 @@ struct InmoCapabilitiesView: View {
                 ForEach(Array(InmoGo3Device.inventory.enumerated()), id: \.element.id) { index, entry in
                     let reason = device.inventorySnapshot().first(where: { $0["id"] as? String == entry.id })?["reason"] as? String
                     GlassRow(symbol: reason == nil ? "checkmark.circle" : "minus.circle", title: entry.title,
-                             subtitle: reason ?? entry.group, subtitleLineLimit: 3,
+                             subtitle: reason ?? entry.evidence, subtitleLineLimit: 3,
                              last: index == InmoGo3Device.inventory.count - 1) { EmptyView() }
                 }
             }
