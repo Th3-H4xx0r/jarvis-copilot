@@ -38,7 +38,11 @@ final class DefaultActivityController: ActivityControlling {
         return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    func update(_ state: LiveActivityState) {
+    /// A sound file that is silence: an alert's own sound would play over the
+    /// listening chime.
+    static let silentAlertSound = "jc-silence.caf"
+
+    func update(_ state: LiveActivityState, alert: LiveActivityAlert?) {
         guard areActivitiesEnabled else { return }
         images?.prefetch(IslandImageCache.urls(inData: state.data))
         let content = ActivityContent(state: Self.contentState(state), staleDate: nil,
@@ -46,7 +50,7 @@ final class DefaultActivityController: ActivityControlling {
         recentSent.append(content.state)
         if recentSent.count > 4 { recentSent.removeFirst(recentSent.count - 4) }
         let running = Activity<JarvisActivityAttributes>.activities
-        Self.trace("update", content.state, activities: running)
+        Self.trace(alert == nil ? "update" : "update+alert", content.state, activities: running)
         if !running.isEmpty {
             // An activity left from an earlier launch is watched too (its server pushes).
             startObserving()
@@ -56,8 +60,16 @@ final class DefaultActivityController: ActivityControlling {
             // Through the queue, not a bare `Task`: unstructured tasks run in an
             // arbitrary order, so a stale frame could land after a newer one and
             // freeze the island on old text.
+            let pop = alert.map {
+                AlertConfiguration(title: LocalizedStringResource(stringLiteral: $0.title),
+                                   body: LocalizedStringResource(stringLiteral: $0.body),
+                                   sound: .named(Self.silentAlertSound))
+            }
             queue.enqueue {
-                for activity in running { await activity.update(content) }
+                for activity in running {
+                    if let pop { await activity.update(content, alertConfiguration: pop) }
+                    else { await activity.update(content) }
+                }
             }
             return
         }

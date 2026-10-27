@@ -176,6 +176,14 @@ struct LiveFleet: Equatable, Sendable {
     }
 }
 
+/// An update that pops the Dynamic Island open (expanded) for a moment, as a talk
+/// started from the Action button wants: "Listening…", then the reply. The title and
+/// body only show where there's no island (an Apple Watch, an older iPhone).
+struct LiveActivityAlert: Equatable, Sendable {
+    var title: String
+    var body: String
+}
+
 /// Starting, updating and ending the OS-level activity.
 ///
 /// Behind a protocol because `ActivityKit` needs a real device context (and iOS
@@ -186,10 +194,16 @@ protocol ActivityControlling: AnyObject {
     /// running one. Never ends it — the island lingers as a tap-to-talk launcher
     /// (the Flutter client pushes an explicit "idle" on stop).
     func update(_ state: LiveActivityState)
+    /// The same, popping the island open (and lighting a locked screen) with `alert`.
+    func update(_ state: LiveActivityState, alert: LiveActivityAlert?)
     func end()
     /// Called with each activity's APNs push token, so the server can
     /// push-to-update while the app is suspended. Tokens rotate.
     var onPushToken: ((String) -> Void)? { get set }
     /// Content arrived that this app didn't send (the server's APNs push-to-update).
     var onExternalUpdate: (() -> Void)? { get set }
+}
+
+extension ActivityControlling {
+    func update(_ state: LiveActivityState) { update(state, alert: nil) }
 }

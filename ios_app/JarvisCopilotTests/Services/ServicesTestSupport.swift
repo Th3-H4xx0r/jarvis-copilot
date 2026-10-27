@@ -85,6 +85,7 @@ final class FakeLiveActivityCoordinator: LiveActivityCoordinating {
         voiceReports.append(snapshot)
         log.record("liveActivity.voice")
     }
+    func presentVoiceTurn() { log.record("liveActivity.present") }
 }
 
 @MainActor
@@ -139,9 +140,14 @@ final class FakeActivityController: ActivityControlling {
     var onPushToken: ((String) -> Void)?
     var onExternalUpdate: (() -> Void)?
     private(set) var updates: [LiveActivityState] = []
+    /// The alert each update carried, in step with `updates`.
+    private(set) var alerts: [LiveActivityAlert?] = []
     private(set) var ends = 0
 
-    func update(_ state: LiveActivityState) { updates.append(state) }
+    func update(_ state: LiveActivityState, alert: LiveActivityAlert?) {
+        updates.append(state)
+        alerts.append(alert)
+    }
     func end() { ends += 1 }
     /// Pretend iOS handed us an activity push token.
     func emitToken(_ token: String) { onPushToken?(token) }

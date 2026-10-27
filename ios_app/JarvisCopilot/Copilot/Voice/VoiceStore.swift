@@ -761,7 +761,9 @@ final class VoiceStore {
     }
 
     /// One question, one answer, then the session closes: the CarPlay Talk widget's
-    /// orb, which opens Jarvis on the car's screen. Realtime whatever the phone's
+    /// orb, which opens Jarvis on the car's screen, and "Talk to JARVIS here" (the
+    /// Action button, Jarvis in the background — the mixing car session is the one
+    /// iOS is likeliest to start there). Realtime whatever the phone's
     /// voice mode is (the car has no Send button). False when the mic is refused or
     /// a session is already running (see `answerOnce()` for that case).
     @discardableResult
@@ -793,6 +795,20 @@ final class VoiceStore {
         raise(.startRequested)
         armOneShotSilence()   // bounds the connect too: a dead zone can't hold the mic
         return true
+    }
+
+    /// Until the mic is really capturing (its first frame) — true — or the turn
+    /// failed, stopped or ran out of `timeout` — false. iOS lets a backgrounded app
+    /// start recording only while the intent that asked is still running, so the
+    /// Action button's intent returns no sooner than this.
+    func waitUntilCapturing(timeout: TimeInterval = 4) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if captureReady { return true }
+            guard machine.state.isActive else { return false }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return captureReady
     }
 
     /// This reply handed something to the car's screen (directions, a call, an app):

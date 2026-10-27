@@ -18,3 +18,10 @@ Spec: docs/superpowers/specs/2026-10-27-glasses-page-redesign-design.md (local) 
 - [x] Animated Voice orb (`JarvisLiveOrb`: glass bubble, rocking blue liquid, orange glint, twinkling stars, breathing glow — SF Symbol effects) replaces the static ringed icon in the collapsed island, minimal, expanded view, lock screen, CarPlay card, and designs' "orb" inside Live Activities
 - [x] Voice Live Activity redesigned (his pick: clean Apple style): orb + "Listening…" + live waveform, the latest words in large type; no boxes, labels or device icons; collapsed island = orb left, state waveform right
 - [ ] Live check on the phone: orb animates in the island (liquid rocks, stars twinkle, glow breathes)
+
+## Action button: talk to Jarvis without opening it (same day)
+He: "when I press the action button it starts listening and the dynamic island expands and shows that it's listening, without having me need to redirect to the app at all". His picks: Siri-style (one question, one answer; a reply that asks listens once more; press again stops); if iOS refuses the mic in the background → open Jarvis listening (today's shortcut behaviour).
+- [x] `TalkToJarvisHereIntent` (AudioRecordingIntent + LiveActivityIntent, unlock first) runs the one-shot turn in the background and returns once the mic is live; "Talk to JARVIS here" Control (Action button → Controls) + Shortcuts action
+- [x] Island pops open (silent alert) on "Listening…" and again on the reply
+- [x] Refused / mic never live → Jarvis opens listening (iOS 26 continueInForeground)
+- [ ] Live check: Settings → Action Button → Controls → "Talk to JARVIS here"; press on the Home Screen with Jarvis in the background → island opens on Listening, reply shows, no app switch. If it opened Jarvis instead, pull voice.log ("one-shot refused: …" says why).

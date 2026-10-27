@@ -44,6 +44,8 @@ protocol LiveActivityCoordinating: AnyObject {
     func start()
     func onResume()
     func reportVoice(_ snapshot: VoiceLiveActivitySnapshot)
+    /// The next voice talk pops the island open (the Action button's talk).
+    func presentVoiceTurn()
 }
 
 /// Opt-in background location history.
@@ -318,6 +320,10 @@ final class AppServices {
         //      a press if it has to. A press that reached the widget extension instead waits
         //      in the App Group until now.
         ControlButtonBridge.run = { press in await ControlButtonStore.shared.run(press) }
+        // "Talk to JARVIS here" (the Action button): a Siri-style talk in the background.
+        let talkHere = TalkHere(voice: VoiceStore.shared, isForeground: { [weak self] in self?.lifecycle.isForeground ?? false },
+                                island: liveActivity)
+        TalkHereBridge.press = { await talkHere.press() }
         // Lock Screen cards the server started (or left from before a relaunch) are picked up.
         ButtonActivityController.shared.observe()
         // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).

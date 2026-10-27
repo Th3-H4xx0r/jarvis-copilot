@@ -116,6 +116,29 @@ struct JarvisVoiceControl: ControlWidget {
     }
 }
 
+// ── Talk to JARVIS here (iOS 18+) ────────────────────────────────────────────
+//
+// For the Action button (Settings → Action Button → Controls → JARVIS): Jarvis
+// listens right where he is, like Siri — one question, one answer — with the
+// Dynamic Island popped open on it, and never opens the app. A second press stops.
+// `TalkToJarvisHereIntent` runs in the app (an AudioRecordingIntent); if iOS won't
+// start the mic in the background it opens Jarvis listening instead.
+
+@available(iOS 18.0, *)
+struct JarvisTalkHereControl: ControlWidget {
+    static let kind = "com.jarviscopilot.jarviscopilotMobileAndIOS.JarvisWidget1.TalkHereControl"
+
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: Self.kind) {
+            ControlWidgetButton(action: TalkToJarvisHereIntent()) {
+                Label("Talk to JARVIS here", systemImage: "waveform")
+            }
+        }
+        .displayName("Talk to JARVIS here")
+        .description("Jarvis listens where you are — the Dynamic Island shows it. Press again to stop.")
+    }
+}
+
 // ── Jarvis buttons (iOS 18+) ─────────────────────────────────────────────────
 //
 // One control, added as many times as you like: each copy is pointed at one of the

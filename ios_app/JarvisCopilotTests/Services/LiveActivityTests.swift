@@ -161,6 +161,46 @@ final class LiveActivityTests: XCTestCase {
         XCTAssertTrue(state.isWorthStarting)
     }
 
+    private func voice(_ state: String, said: String = "", reply: String = "") -> VoiceLiveActivitySnapshot {
+        VoiceLiveActivitySnapshot(state: state, transcript: said, activity: reply, connected: true, devices: [])
+    }
+
+    /// The Action button's talk: "Listening…" and then the reply pop the island open,
+    /// once each; connecting/thinking frames and repeats don't.
+    func testAPresentedTalkPopsTheIslandOnListeningAndOnTheReply() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.presentVoiceTurn()
+        coordinator.reportVoice(voice("thinking"))   // connecting
+        coordinator.reportVoice(voice("listening"))
+        coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))
+        coordinator.reportVoice(voice("thinking", said: "what's on tomorrow"))
+        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow"))
+        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30."))
+        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30, then lunch."))
+
+        XCTAssertEqual(controller.alerts, [nil, LiveActivityAlert(title: "Jarvis", body: "Listening…"), nil, nil, nil,
+                                           LiveActivityAlert(title: "Jarvis", body: "Stand-up at 9:30."), nil])
+    }
+
+    func testATalkThatEndedPopsNothingMore() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.presentVoiceTurn()
+        coordinator.reportVoice(voice("idle"))   // refused
+        coordinator.reportVoice(voice("listening"))   // a talk started in the app later
+        coordinator.reportVoice(voice("speaking", reply: "Hi"))
+        XCTAssertEqual(controller.alerts, [nil, nil, nil])
+    }
+
+    func testOrdinaryVoiceTurnsNeverPopTheIsland() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.reportVoice(voice("listening"))
+        coordinator.reportVoice(voice("speaking", reply: "Hi"))
+        XCTAssertEqual(controller.alerts, [nil, nil])
+    }
+
     func testIdenticalSnapshotsAreNotPushedTwice() {
         let controller = FakeActivityController()
         let (coordinator, _) = makeCoordinator(controller: controller)

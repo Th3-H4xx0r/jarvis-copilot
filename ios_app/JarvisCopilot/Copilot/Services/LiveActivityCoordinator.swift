@@ -58,6 +58,11 @@ final class LiveActivityCoordinator {
     private var catalog = IslandCatalog.empty
 
     private var lastPushed: LiveActivityState?
+    /// A talk started from the Action button with Jarvis in the background: its
+    /// "Listening…" and its reply each pop the island open once, the way Siri shows
+    /// itself. Over when the talk is.
+    private var presenting = false
+    private var presented: Set<String> = []
     private var lastFetch = Date(timeIntervalSince1970: 0)
     private var lastUsageFetch = Date(timeIntervalSince1970: 0)
     private var lastIslandFetch = Date(timeIntervalSince1970: 0)
@@ -356,7 +361,37 @@ final class LiveActivityCoordinator {
         let state = compose()
         guard state != lastPushed else { return }
         lastPushed = state
-        controller.update(state)
+        controller.update(state, alert: alert(for: state))
+    }
+
+    /// The next voice talk pops the island open: its listening, then its reply.
+    func presentVoiceTurn() {
+        presenting = true
+        presented = []
+    }
+
+    /// Whether this frame of a presented talk pops the island: the first listening
+    /// frame, and the first with the reply's words. The talk ending (idle, or an
+    /// error) ends the presenting.
+    private func alert(for state: LiveActivityState) -> LiveActivityAlert? {
+        guard presenting else { return nil }
+        let key: String
+        let body: String
+        switch state.state {
+        case "listening":
+            key = "listening"
+            body = jcVoiceTitle("listening")
+        case "speaking" where !state.activity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+            key = "speaking"
+            body = state.activity
+        case "idle", "error":
+            presenting = false
+            return nil
+        default:
+            return nil
+        }
+        guard presented.insert(key).inserted else { return nil }
+        return LiveActivityAlert(title: "Jarvis", body: body)
     }
 
 }

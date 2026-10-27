@@ -1766,6 +1766,23 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
     }
 
+    /// The Action button's intent returns only once the mic is really capturing.
+    func testWaitUntilCapturingIsTrueOnTheFirstMicFrame() async throws {
+        let rig = makeRig(mode: .quality)
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertTrue(started)
+        await settleVoiceTasks()
+        rig.input.emit(amplitude: 0.01, ms: 20)
+        let live = await rig.store.waitUntilCapturing(timeout: 1)
+        XCTAssertTrue(live)
+    }
+
+    func testWaitUntilCapturingIsFalseWithNoTurn() async {
+        let rig = makeRig(mode: .quality)
+        let live = await rig.store.waitUntilCapturing(timeout: 1)
+        XCTAssertFalse(live, "nothing running: no mic to wait for")
+    }
+
     func testOneShotTurnClosesAfterTheReply() async throws {
         let rig = makeRig(mode: .quality)
         var finished = 0
