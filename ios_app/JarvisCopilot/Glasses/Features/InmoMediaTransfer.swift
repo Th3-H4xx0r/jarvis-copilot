@@ -14,6 +14,7 @@ final class InmoMediaTransfer: ObservableObject {
     @Published private(set) var completedURLs: [URL] = []
     /// Session evidence only; user-configurable because firmware may use another subnet.
     @Published var serverAddress = "192.168.40.1"
+    var inventory: [InmoMediaItem] { items }
     private var ssid = ""
     private var password = ""
     private var observer: UUID?
@@ -21,6 +22,7 @@ final class InmoMediaTransfer: ObservableObject {
     private var wifiRevision = 0
     private var wifiOpen = false
     private var generation = UUID()
+    private var sessionToken: UUID?
     private var connection: NWConnection?
     private var joinedSSID: String?
     private var cancelJoin: (() -> Void)?
@@ -79,9 +81,26 @@ final class InmoMediaTransfer: ObservableObject {
          "completed_files": completedURLs.map(\.lastPathComponent),
          "export_processing": "Original files; separate Opus audio and motion data are preserved. Video muxing and stabilization are not verified."]
     }
+    /// One file, opening and closing the glasses' Wi-Fi around it.
     func download(id: String) async throws -> URL {
         guard !busy else { throw InmoMediaError(message: "Another media download is running.") }
         guard let item = items.first(where: { $0.id == id }) else { throw InmoMediaError(message: "Refresh media and choose an existing file.") }
+        try await openSession()
+        do {
+            let url = try await fetch(item)
+            completedURLs.append(url)
+            await closeSession()
+            return url
+        } catch {
+            await closeSession()
+            throw error
+        }
+    }
+
+    /// Opens the glasses' Wi-Fi and joins it, once for any number of `fetch`es. Always pair with
+    /// `closeSession()`.
+    func openSession() async throws {
+        guard !busy else { throw InmoMediaError(message: "Another media download is running.") }
         guard !ssid.isEmpty else { throw InmoMediaError(message: "The glasses did not supply Wi-Fi credentials. Refresh media first.") }
         let components = serverAddress.split(separator: ".", omittingEmptySubsequences: false)
         let address = components.compactMap { UInt8($0) }
@@ -90,9 +109,10 @@ final class InmoMediaTransfer: ObservableObject {
         }
         busy = true; progress = 0; lastError = nil
         generation = UUID(); let token = generation
-        defer { busy = false; connection?.cancel(); connection = nil; deadline?.cancel(); deadline = nil }
+        sessionToken = token
         do {
             let priorWiFi = wifiRevision
+            statusText = "Turning on the glasses' Wi-Fi…"
             try await InmoSession.shared.send(InmoCommand.wifi(open: true))
             let wifiDeadline = Date().addingTimeInterval(10)
             while wifiRevision == priorWiFi, Date() < wifiDeadline {
@@ -105,6 +125,31 @@ final class InmoMediaTransfer: ObservableObject {
             config.joinOnce = true
             try await join(config)
             joinedSSID = ssid
+            try check(token)
+        } catch {
+            lastError = error.localizedDescription
+            statusText = generation == token ? "Could not reach the glasses over Wi-Fi." : "Download cancelled."
+            await closeSession()
+            throw error
+        }
+    }
+
+    /// Ends the Wi-Fi session: leaves the glasses' network and turns their Wi-Fi off.
+    func closeSession() async {
+        connection?.cancel(); connection = nil
+        deadline?.cancel(); deadline = nil
+        sessionToken = nil
+        await cleanupWiFi()
+        busy = false
+    }
+
+    /// One verified file over its own TCP connection, inside an open session. The file lands in the
+    /// media folder; the caller owns it.
+    func fetch(_ item: InmoMediaItem) async throws -> URL {
+        guard let token = sessionToken else { throw InmoMediaError(message: "The glasses' Wi-Fi is not open.") }
+        progress = 0
+        defer { connection?.cancel(); connection = nil; deadline?.cancel(); deadline = nil }
+        do {
             try check(token)
             let network = NWConnection(host: NWEndpoint.Host(serverAddress), port: 10000, using: .tcp)
             connection = network
@@ -146,14 +191,11 @@ final class InmoMediaTransfer: ObservableObject {
             }
             try check(token)
             let url = try sink.publish(to: root)
-            completedURLs.append(url)
             statusText = "Verified and saved \(item.name)."
-            await cleanupWiFi()
             return url
         } catch {
             lastError = error.localizedDescription
             statusText = generation == token ? "Download failed. The incomplete file was discarded." : "Download cancelled."
-            await cleanupWiFi()
             throw error
         }
     }
