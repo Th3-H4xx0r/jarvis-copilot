@@ -6,7 +6,7 @@ Spec: docs/superpowers/specs/2026-10-26-glasses-gallery-design.md (local) · Pla
 - [x] 2. Video sound merge (glasses .opus → AAC into the .mp4) + thumbnails
 - [x] 3. Save & download all: one Wi‑Fi session, photos first, Photos add-only, Jarvis copy removed after save
 - [x] 4. Gallery grid on the glasses page + full gallery + `glasses_media_save_all` tool
-- [ ] 5. Bug sweep, push, install on the phone
+- [x] 5. Bug sweep, push, install on the phone (fffb35ac3c, installed 2026-10-26)
 - [ ] 6. Live check with the glasses: photos + videos (with sound) land in the camera roll, phone back on normal Wi‑Fi
 
 Bug sweep (2 Opus reviewers) fixed: a failed .opus fetch saved the video silent for good (now retryable);
