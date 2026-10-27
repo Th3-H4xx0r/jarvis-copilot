@@ -45,13 +45,20 @@ final class DefaultActivityController: ActivityControlling {
                                       relevanceScore: Self.relevance(state))
         recentSent.append(content.state)
         if recentSent.count > 4 { recentSent.removeFirst(recentSent.count - 4) }
-        if let existing = Activity<JarvisActivityAttributes>.activities.first {
+        let running = Activity<JarvisActivityAttributes>.activities
+        Self.trace("update", content.state, activities: running)
+        if !running.isEmpty {
             // An activity left from an earlier launch is watched too (its server pushes).
             startObserving()
+            // Every one of them: a second Jarvis activity (an older launch's, or one the
+            // server started) is the one the island may be showing, and updating only
+            // `.first` left that one frozen on its first frame ("Listening…").
             // Through the queue, not a bare `Task`: unstructured tasks run in an
             // arbitrary order, so a stale frame could land after a newer one and
             // freeze the island on old text.
-            queue.enqueue { await existing.update(content) }
+            queue.enqueue {
+                for activity in running { await activity.update(content) }
+            }
             return
         }
         guard state.isWorthStarting else { return }
@@ -92,6 +99,15 @@ final class DefaultActivityController: ActivityControlling {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
         }
+    }
+
+    /// One line in voice.log per island update — lengths only, never the words (the log's
+    /// privacy rule), so a stuck island can be read off the phone afterwards.
+    static func trace(_ what: String, _ st: JarvisActivityAttributes.ContentState,
+                      activities: [Activity<JarvisActivityAttributes>]) {
+        let states = activities.map { "\($0.activityState)" }.joined(separator: ",")
+        VoiceLogFile.shared.append("[island] \(what) state=\(st.state) mode=\(st.mode) said=\(st.transcript.count)ch "
+                                   + "reply=\(st.activity.count)ch activities=\(activities.count)[\(states)]")
     }
 
     /// How strongly iOS should prefer this activity for the Dynamic Island when
@@ -148,6 +164,7 @@ final class DefaultActivityController: ActivityControlling {
                 for await content in activity.contentUpdates {
                     await MainActor.run {
                         guard let self, !self.recentSent.contains(content.state) else { return }
+                        Self.trace("server push", content.state, activities: Activity<JarvisActivityAttributes>.activities)
                         self.onExternalUpdate?()
                     }
                 }

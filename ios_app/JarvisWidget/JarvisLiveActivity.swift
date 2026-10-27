@@ -91,28 +91,32 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 }
                 .padding(.leading, 4)
             } else {
-                JarvisLiveOrb(size: 36, glow: jcStateColor(st.state))
-                    .padding(.leading, 4)
-                    .padding(.top, 2)
+                // Orb and state side by side, centred on one line with the waveform.
+                HStack(spacing: 10) {
+                    JarvisLiveOrb(size: 36, glow: jcStateColor(st.state))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Jarvis")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                        Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(st.connected && st.state != "idle" ? jcStateColor(st.state) : .white)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+                .padding(.leading, 4)
+                .dynamicIsland(verticalPlacement: .belowIfTooWide)
             }
         }
         DynamicIslandExpandedRegion(.trailing) {
             if st.mode == "coding" {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
-                JarvisVoiceWave(state: st.connected ? st.state : "error", size: 20)
-                    .padding(.trailing, 6)
-                    .padding(.top, 8)
-            }
-        }
-        DynamicIslandExpandedRegion(.center) {
-            if st.mode != "coding" {
-                Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(st.connected && st.state != "idle" ? jcStateColor(st.state) : .white.opacity(0.7))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 8)
+                JarvisVoiceWave(state: st.connected ? st.state : "error", size: 22)
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .padding(.trailing, 8)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -133,6 +137,7 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)
+                    .padding(.top, 6)
                     .padding(.bottom, 4)
             }
         }
