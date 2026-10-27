@@ -102,6 +102,7 @@ extension VoiceStore {
     func acquireAudioSession() throws {
         if usesExternalInput { try audioSession.configureForExternalInput() }
         else if carAudio { try audioSession.configureForCarConversation() }
+        else if mixedAudio { try audioSession.configureForMixedConversation() }
         else { try audioSession.configureForConversation() }
         try audioSession.setActive(true)
     }

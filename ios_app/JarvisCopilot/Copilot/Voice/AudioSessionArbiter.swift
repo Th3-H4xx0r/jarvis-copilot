@@ -36,6 +36,9 @@ enum AudioSessionClient: CaseIterable, Sendable {
     case voice
     /// A car turn from the CarPlay Talk widget, started with Jarvis in the background.
     case carVoice
+    /// A talk started with Jarvis in the background when iOS refused `carVoice`'s
+    /// ducking session ('!int'): mixing only, nothing else's volume touched.
+    case mixedVoice
     /// Raw wearable PCM already supplies input; never open the headset microphone.
     case externalVoice
     /// The `record_audio` skill's clip capture.
@@ -220,6 +223,15 @@ final class AudioSessionArbiter {
         active: true,
         sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
+    /// `carVoicePlan` without `.duckOthers`: the last thing a backgrounded app can ask
+    /// for that touches no other audio, so iOS has nothing to refuse as an interruption.
+    static let mixedVoicePlan = AudioSessionPlan(
+        category: .playAndRecord,
+        mode: .default,
+        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP],
+        active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
+
     /// Playing a recording back. `.playback` like the keepalive, so a clip under
     /// the keepalive changes no category at all — the Pod clip player used to set
     /// its own, and iOS refused it with '!pri' (561017449) while another claim
@@ -273,6 +285,7 @@ final class AudioSessionArbiter {
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
         if holders.contains(.externalVoice) { return playbackPlan }
         if holders.contains(.carVoice) { return carVoicePlan }
+        if holders.contains(.mixedVoice) { return mixedVoicePlan }
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientAvoidsCallMic() ? ambientPlanWithoutCallMic : ambientPlan }
@@ -305,6 +318,18 @@ final class AudioSessionArbiter {
     #endif
 
     func holds(_ client: AudioSessionClient) -> Bool { holders.contains(client) }
+
+    #if os(iOS)
+    /// The claims, our belief about activation, and the live session — one log line,
+    /// for telling a background mic start iOS allows from one it refuses.
+    var summary: String {
+        let live = AVAudioSession.sharedInstance()
+        let claims = holders.map { "\($0)" }.sorted().joined(separator: ",")
+        return "claims=[\(claims)] active=\(isActive) live=\(live.category.rawValue.replacingOccurrences(of: "AVAudioSessionCategory", with: ""))"
+            + "/\(live.mode.rawValue.replacingOccurrences(of: "AVAudioSessionMode", with: "")) opts=\(live.categoryOptions.rawValue)"
+            + " otherAudio=\(live.isOtherAudioPlaying) silenceHint=\(live.secondaryAudioShouldBeSilencedHint)"
+    }
+    #endif
 
     /// Claim the session for `client` and apply whatever the union now asks for.
     ///

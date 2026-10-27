@@ -1777,6 +1777,26 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertTrue(live)
     }
 
+    /// From the background iOS refused the car session's ducking ('!int'); the
+    /// one-shot takes the mixing-only session instead of giving up.
+    func testARefusedDuckingSessionFallsBackToMixingOnly() async {
+        let rig = makeRig(mode: .quality)
+        rig.audioSession.carConfigureError = NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertTrue(started)
+        XCTAssertEqual(rig.audioSession.claims.prefix(1), ["mixed"])
+        await settleVoiceTasks()
+        XCTAssertTrue(rig.audioSession.claims.allSatisfy { $0 == "mixed" }, "the mic start keeps the mixing session")
+    }
+
+    func testAnotherAudioErrorIsNotRetried() async {
+        let rig = makeRig(mode: .quality)
+        rig.audioSession.carConfigureError = NSError(domain: NSOSStatusErrorDomain, code: 561017449)   // '!pri'
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertFalse(started)
+        XCTAssertTrue(rig.audioSession.claims.isEmpty)
+    }
+
     func testWaitUntilCapturingIsFalseWithNoTurn() async {
         let rig = makeRig(mode: .quality)
         let live = await rig.store.waitUntilCapturing(timeout: 1)

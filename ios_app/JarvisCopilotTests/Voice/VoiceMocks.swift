@@ -315,10 +315,20 @@ final class MockAudioSessionControlling: AudioSessionControlling {
         claims.append("conversation")
     }
 
+    /// Thrown by the car (ducking) claim only, as iOS does from the background.
+    var carConfigureError: Error?
+
     func configureForCarConversation() throws {
         if let configureError { throw configureError }
+        if let carConfigureError { throw carConfigureError }
         configureCount += 1
         claims.append("car")
+    }
+
+    func configureForMixedConversation() throws {
+        if let configureError { throw configureError }
+        configureCount += 1
+        claims.append("mixed")
     }
 
     func configureForExternalInput() throws { try configureForConversation() }

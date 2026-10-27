@@ -91,6 +91,11 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
         try arbiter.hold(voiceClient)
     }
 
+    func configureForMixedConversation() throws {
+        voiceClient = .mixedVoice
+        try arbiter.hold(voiceClient)
+    }
+
     func setActive(_ active: Bool) throws {
         if active {
             try arbiter.hold(voiceClient, reassert: true)

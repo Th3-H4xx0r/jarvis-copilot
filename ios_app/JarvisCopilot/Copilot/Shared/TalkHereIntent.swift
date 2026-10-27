@@ -28,11 +28,25 @@ struct TalkToJarvisHereIntent: AudioRecordingIntent, LiveActivityIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        // Nil in the widget extension: no microphone there. Nothing happens.
-        guard let press = TalkHereBridge.press else { return .result() }
-        guard await press() == .needsApp else { return .result() }
+        var mode = "-"
+        if #available(iOS 26.0, *) { mode = "\(systemContext.currentMode)" }
+        // Nil in the widget extension: no microphone there. Nothing happens but a
+        // note the app logs on its next launch (a press that never reached the app).
+        guard let press = TalkHereBridge.press else {
+            TalkHereBridge.noteOutsideApp(mode: mode)
+            return .result()
+        }
+        TalkHereBridge.log?("press (intent mode \(mode))")
+        let outcome = await press()
+        TalkHereBridge.log?("press → \(outcome)")
+        guard outcome == .needsApp else { return .result() }
         if #available(iOS 26.0, *) {
-            try await continueInForeground(nil, alwaysConfirm: false)
+            do {
+                try await continueInForeground(nil, alwaysConfirm: false)
+            } catch {
+                TalkHereBridge.log?("continue in foreground refused: \(error)")
+                throw error
+            }
         }
         // The same request the "open Jarvis and listen" intent makes.
         UserDefaults.standard.set(true, forKey: JarvisShared.pendingVoiceKey)
@@ -53,4 +67,21 @@ enum TalkHereBridge {
 
     /// Runs one press. Set by the app at launch; nil in the widget.
     @MainActor static var press: (() async -> Outcome)?
+    /// A line in the phone's voice.log. Set by the app.
+    @MainActor static var log: ((String) -> Void)?
+
+    private static let outsideKey = "jc.talkHere.outsideApp"
+    private static var shared: UserDefaults { UserDefaults(suiteName: JarvisShared.appGroupID) ?? .standard }
+
+    /// A press that ran somewhere without the voice session (the widget extension).
+    static func noteOutsideApp(mode: String, at now: Date = Date()) {
+        shared.set("\(Bundle.main.bundleIdentifier ?? "?") mode=\(mode) at \(now)", forKey: outsideKey)
+    }
+
+    /// The last such press, once (the app logs it at launch).
+    static func takeOutsideApp() -> String? {
+        let note = shared.string(forKey: outsideKey)
+        if note != nil { shared.removeObject(forKey: outsideKey) }
+        return note
+    }
 }

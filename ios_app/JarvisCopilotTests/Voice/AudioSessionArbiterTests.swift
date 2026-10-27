@@ -230,16 +230,20 @@ final class AudioSessionArbiterTests: XCTestCase {
             let rides = !holders.isDisjoint(with: [.voice, .recording, .ambient])
             return (holders.union([.playback]), rides ? plan : AudioSessionArbiter.playbackPlan)
         }
+        // A background talk's mixing-only session takes over those.
+        let withMixed = (expected + withPlayback).map { holders, _ in
+            (holders.union([AudioSessionClient.mixedVoice]), AudioSessionArbiter.mixedVoicePlan)
+        }
         // A car turn takes its mixing session over any other claim.
-        let withCar = (expected + withPlayback).map { holders, _ in
+        let withCar = (expected + withPlayback + withMixed).map { holders, _ in
             (holders.union([AudioSessionClient.carVoice]), AudioSessionArbiter.carVoicePlan)
         }
-        let withExternal = (expected + withPlayback + withCar).map { holders, _ in
+        let withExternal = (expected + withPlayback + withMixed + withCar).map { holders, _ in
             (holders.union([AudioSessionClient.externalVoice]), AudioSessionArbiter.playbackPlan)
         }
-        XCTAssertEqual(expected.count + withPlayback.count + withCar.count + withExternal.count,
-                       1 << AudioSessionClient.allCases.count, "a client was added without a row here")
-        for (holders, plan) in expected + withPlayback + withCar + withExternal {
+        let all = expected + withPlayback + withMixed + withCar + withExternal
+        XCTAssertEqual(all.count, 1 << AudioSessionClient.allCases.count, "a client was added without a row here")
+        for (holders, plan) in all {
             XCTAssertEqual(AudioSessionArbiter.plan(for: holders), plan, "\(holders)")
         }
     }

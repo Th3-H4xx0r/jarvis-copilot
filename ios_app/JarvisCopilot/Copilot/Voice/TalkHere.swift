@@ -28,35 +28,46 @@ final class TalkHere {
     private let voice: TalkHereVoice
     private let isForeground: () -> Bool
     private let island: LiveActivityCoordinating
+    private let log: (String) -> Void
 
-    init(voice: TalkHereVoice, isForeground: @escaping () -> Bool, island: LiveActivityCoordinating) {
+    init(voice: TalkHereVoice, isForeground: @escaping () -> Bool, island: LiveActivityCoordinating,
+         log: @escaping (String) -> Void = { _ in }) {
         self.voice = voice
         self.isForeground = isForeground
         self.island = island
+        self.log = log
     }
 
     func press() async -> TalkHereBridge.Outcome {
         if voice.isActive {
+            log("talk here: a talk is running — stopping it")
             await voice.stopTalk()
             return .stopped
         }
         // Jarvis is on screen: its own Voice screen listens, as the old shortcut did.
-        if isForeground() { return .needsApp }
+        if isForeground() {
+            log("talk here: Jarvis is on screen — its Voice screen listens")
+            return .needsApp
+        }
+        log("talk here: starting a one-shot turn in the background")
         // The turn's own frames put the Live Activity up (`AudioRecordingIntent` wants
         // one while recording) from its connecting frame on, and the island pops open
         // on its first "Listening…", the moment the mic is live — not before.
         island.presentVoiceTurn()
         guard await voice.startOneShotTurn() else {
+            log("talk here: the one-shot turn didn't start")
             island.reportVoice(Self.frame("idle"))
             return .needsApp
         }
         guard await voice.waitUntilCapturing(timeout: Self.micTimeout) else {
+            log("talk here: the mic didn't come up in \(Int(Self.micTimeout)) s")
             await voice.stopTalk()
             // Straight to the card, past the voice throttle, which can drop a repeat
             // "idle" as a duplicate and leave the "listening" above showing.
             island.reportVoice(Self.frame("idle"))
             return .needsApp
         }
+        log("talk here: mic live")
         return .listening
     }
 

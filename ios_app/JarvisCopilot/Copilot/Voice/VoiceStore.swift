@@ -346,6 +346,11 @@ final class VoiceStore {
     /// This session is a car turn: it holds the mixing car audio session for its
     /// whole length (set before the first claim, cleared at teardown).
     private(set) var carAudio = false
+    /// This one-shot holds the mixing-only session: iOS refused the car session's
+    /// ducking from the background (`startOneShotTurn`).
+    private(set) var mixedAudio = false
+    /// The audio session's claims and live state, for the voice log. Set by the app.
+    var audioDiagnostics: () -> String = { "" }
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -768,16 +773,20 @@ final class VoiceStore {
     /// a session is already running (see `answerOnce()` for that case).
     @discardableResult
     func startOneShotTurn() async -> Bool {
-        guard !machine.state.isActive else { return false }
+        guard !machine.state.isActive else {
+            note("one-shot refused: a session is running (\(machine.state))")
+            return false
+        }
         startup = VoiceStartupTimer(tap: clock.now)
-        guard await ensureMic(), await ensureTranscription() else { return false }
+        guard await ensureMic(), await ensureTranscription() else {
+            note("one-shot refused: \(error ?? "no mic permission")")
+            return false
+        }
         guard !machine.state.isActive else { return false }
         // The audio session now, so a refusal is said here, before anything half-starts.
-        carAudio = true
         do {
-            try acquireAudioSession()
+            try acquireOneShotSession()
         } catch let failure {
-            carAudio = false
             _ = JcLog.report(JcLog.voice, "one-shot audio session", failure)
             error = Self.audioSessionReason(failure).map { "Mic blocked: \($0)" }
                 ?? "Could not start voice: \(failure.localizedDescription)"
@@ -795,6 +804,53 @@ final class VoiceStore {
         raise(.startRequested)
         armOneShotSilence()   // bounds the connect too: a dead zone can't hold the mic
         return true
+    }
+
+    /// The one-shot's audio session: the car's mixing, ducking one; when iOS refuses
+    /// that from the background ('!int' — it reads ducking as cutting into other
+    /// audio), the mixing-only one, then that again after a moment. Every attempt
+    /// goes in the voice log with the session's state, the evidence for which
+    /// background starts iOS allows.
+    private func acquireOneShotSession() throws {
+        note("one-shot audio before: \(audioDiagnostics())")
+        carAudio = true
+        mixedAudio = false
+        do {
+            try acquireAudioSession()
+            return
+        } catch let failure where Self.isInterruptRefusal(failure) {
+            note("one-shot car session refused (!int) — trying mixing only")
+        } catch let failure {
+            carAudio = false
+            throw failure
+        }
+        carAudio = false
+        mixedAudio = true
+        do {
+            try acquireAudioSession()
+            note("one-shot on the mixing-only session")
+            return
+        } catch let failure where Self.isInterruptRefusal(failure) {
+            note("one-shot mixing-only refused (!int): \(audioDiagnostics()) — once more")
+        } catch let failure {
+            mixedAudio = false
+            throw failure
+        }
+        Thread.sleep(forTimeInterval: 0.25)
+        do {
+            try acquireAudioSession()
+            note("one-shot on the mixing-only session (second try)")
+        } catch let failure {
+            mixedAudio = false
+            note("one-shot audio after: \(audioDiagnostics())")
+            throw failure
+        }
+    }
+
+    /// '!int' (560557684): iOS won't let a backgrounded app take audio that interrupts others.
+    nonisolated static func isInterruptRefusal(_ error: Error) -> Bool {
+        let ns = error as NSError
+        return ns.domain == NSOSStatusErrorDomain && ns.code == 560557684
     }
 
     /// Until the mic is really capturing (its first frame) — true — or the turn
@@ -1732,6 +1788,7 @@ final class VoiceStore {
         followupTimer?.cancel()
         followupTimer = nil
         carAudio = false
+        mixedAudio = false
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()

@@ -321,9 +321,21 @@ final class AppServices {
         //      in the App Group until now.
         ControlButtonBridge.run = { press in await ControlButtonStore.shared.run(press) }
         // "Talk to JARVIS here" (the Action button): a Siri-style talk in the background.
-        let talkHere = TalkHere(voice: VoiceStore.shared, isForeground: { [weak self] in self?.lifecycle.isForeground ?? false },
-                                island: liveActivity)
+        // On screen = the app is really active right now: the tracked foreground flag
+        // starts true on a launch iOS made in the background for this very press.
+        let talkLog: (String) -> Void = { VoiceLogFile.shared.append("[talk-here] \($0)") }
+        let talkHere = TalkHere(voice: VoiceStore.shared,
+                                isForeground: { UIApplication.shared.applicationState == .active },
+                                island: liveActivity, log: talkLog)
         TalkHereBridge.press = { await talkHere.press() }
+        TalkHereBridge.log = talkLog
+        VoiceStore.shared.audioDiagnostics = {
+            "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
+                + " app=\(UIApplication.shared.applicationState.rawValue)"
+        }
+        if let outside = TalkHereBridge.takeOutsideApp() {
+            talkLog("a press ran outside the app (no voice session there): \(outside)")
+        }
         // Lock Screen cards the server started (or left from before a relaunch) are picked up.
         ButtonActivityController.shared.observe()
         // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).
