@@ -121,11 +121,13 @@ enum InmoGo3Model {
         bridge.move(to: CGPoint(x: -0.16, y: frameTop))
         bridge.addLine(to: CGPoint(x: 0.16, y: frameTop))
         bridge.addLine(to: CGPoint(x: 0.16, y: -0.02))
-        bridge.addLine(to: CGPoint(x: 0.068, y: -0.02))
-        bridge.addCurve(to: CGPoint(x: 0, y: archTop), control1: CGPoint(x: 0.066, y: archTop - 0.07),
+        // The arch's legs start where the lens rim's inner edge crosses y = -0.02, so they meet
+        // it flush instead of leaving a tab.
+        bridge.addLine(to: CGPoint(x: 0.087, y: -0.02))
+        bridge.addCurve(to: CGPoint(x: 0, y: archTop), control1: CGPoint(x: 0.072, y: archTop - 0.07),
                         control2: CGPoint(x: 0.048, y: archTop))
-        bridge.addCurve(to: CGPoint(x: -0.068, y: -0.02), control1: CGPoint(x: -0.048, y: archTop),
-                        control2: CGPoint(x: -0.066, y: archTop - 0.07))
+        bridge.addCurve(to: CGPoint(x: -0.087, y: -0.02), control1: CGPoint(x: -0.048, y: archTop),
+                        control2: CGPoint(x: -0.072, y: archTop - 0.07))
         bridge.addLine(to: CGPoint(x: -0.16, y: -0.02))
         bridge.closeSubpath()
         var solid: CGPath = bridge
@@ -144,9 +146,11 @@ enum InmoGo3Model {
         roundedPolygon([
             (CGPoint(x: -0.022, y: frameTop - 0.011), 0.014),
             (CGPoint(x: 0.022, y: frameTop - 0.011), 0.014),
-            (CGPoint(x: 0.06, y: archTop - 0.022), 0.03),
+            // Small radii: the side corners are sharp (~33°), and a larger round overruns
+            // their edges into a loop SceneKit builds no mesh for.
+            (CGPoint(x: 0.06, y: archTop - 0.022), 0.012),
             (CGPoint(x: 0, y: archTop + 0.008), 0.05),
-            (CGPoint(x: -0.06, y: archTop - 0.022), 0.03),
+            (CGPoint(x: -0.06, y: archTop - 0.022), 0.012),
         ])
     }
 
@@ -189,12 +193,14 @@ enum InmoGo3Model {
     /// at the front, where it is part of the frame's corner, closing down to the arm at the hinge.
     private static var endProfile: CGPath {
         roundedPolygon([
-            (CGPoint(x: 0, y: frameTop), 0),
+            // Its front starts under the front's rounded outer corner (radius 0.055) so no square
+            // block shows past the curve.
+            (CGPoint(x: 0, y: frameTop - 0.045), 0),
             (CGPoint(x: 0.07, y: frameTop - 0.003), 0.03),
             (CGPoint(x: armStart, y: hingeHeight + armHalf + 0.002), 0.012),
             (CGPoint(x: armStart, y: hingeHeight - armHalf - 0.002), 0.012),
             (CGPoint(x: 0.055, y: lensSize.height / 2 - 0.075), 0.04),
-            (CGPoint(x: 0, y: lensSize.height / 2 - 0.085), 0),
+            (CGPoint(x: 0, y: lensSize.height / 2 - 0.05), 0),
         ])
     }
 
@@ -563,9 +569,11 @@ enum InmoGo3Model {
             onArm(stick)
 
             // A clear silicone nose pad on a short metal arm behind each side of the arch.
-            let wireFrom = SCNVector3(side * 0.06, 0.07, back + 0.002)
+            // Anchored on the frame's solid back face, and exactly as long as the gap it spans.
+            let wireFrom = SCNVector3(side * 0.09, 0.02, back + 0.002)
             let padAt = SCNVector3(side * 0.1, -0.035, back - 0.055)
-            let wire = node(SCNCylinder(radius: 0.0035, height: 0.115), silver(),
+            let span = simd_distance(SIMD3<Float>(wireFrom), SIMD3<Float>(padAt))
+            let wire = node(SCNCylinder(radius: 0.0035, height: CGFloat(span)), silver(),
                             at: SCNVector3((wireFrom.x + padAt.x) / 2, (wireFrom.y + padAt.y) / 2, (wireFrom.z + padAt.z) / 2))
             wire.simdLook(at: SIMD3(padAt), up: SIMD3(0, 0, 1), localFront: SIMD3(0, 1, 0))
             body.addChildNode(wire)
