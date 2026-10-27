@@ -328,10 +328,11 @@ struct DashcamAPI: Sendable {
         return (o["clips"] as? [[String: Any]] ?? []).compactMap { DashcamCardDelete(json: $0) }
     }
 
-    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> (closed: [String], missing: [String]) {
+    /// Returns the ids the server has no clip for.
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> [String] {
         let body: [String: Any] = ["clips": entries.map { ["id": $0.id, "forget": $0.forget] as [String: Any] }]
         let o = try await api.post(Self.prefix + "/card_deletes", json: body).object()
-        return ((o["closed"] as? [Any] ?? []).compactMap(str), (o["missing"] as? [Any] ?? []).compactMap(str))
+        return (o["missing"] as? [Any] ?? []).compactMap(str)
     }
 
     func cardDeletesDone(_ ids: [String]) async throws {

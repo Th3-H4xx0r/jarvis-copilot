@@ -38,7 +38,7 @@ final class DashcamUIModelTests: XCTestCase {
                                                          "card_delete": ["forget": false]]))
         XCTAssertEqual(DashcamClipStatus.of(clip).label, "Pending deletion")
         XCTAssertTrue(DashcamClipStatus.pendingLine(DashcamCardDelete(id: "c", path: "/p", forget: true, attempts: 2, lastError: "busy"))
-            .contains("refused 2×: busy"))
+            .contains("refused it (busy)"))
     }
 
     func testOnlyOnPhone() throws {

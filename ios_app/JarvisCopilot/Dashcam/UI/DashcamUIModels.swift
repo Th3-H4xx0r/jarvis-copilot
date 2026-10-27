@@ -144,8 +144,10 @@ struct DashcamClipStatus: Equatable {
 
     /// The player's line for a clip waiting to be deleted from the dashcam.
     static func pendingLine(_ d: DashcamCardDelete) -> String {
-        var line = "Pending deletion — deleted from the dashcam the next time the phone is on its Wi‑Fi"
-        if d.attempts > 0 { line += ". The dashcam refused \(d.attempts)×" + (d.lastError.map { ": \($0)" } ?? "") }
+        var line = d.attempts > 0
+            ? "Pending deletion — the dashcam refused it" + (d.lastError.map { " (\($0))" } ?? "") + "; it tries again every sync"
+            : "Pending deletion — deleted from the dashcam the next time the phone is on its Wi‑Fi"
+
         if d.forget { line += ". Then it leaves the library." }
         return line
     }

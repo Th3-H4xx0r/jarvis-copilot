@@ -15,7 +15,7 @@ protocol DashcamSyncServer: Sendable {
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?)
     func updateRules(_ rules: DashcamRules) async throws
     func cardDeletes(cameraID: String) async throws -> [DashcamCardDelete]
-    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> (closed: [String], missing: [String])
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> [String]
     func cardDeletesDone(_ ids: [String]) async throws
     func cardDeleteFailed(id: String, error: String) async throws
 }
@@ -315,6 +315,10 @@ final class DashcamSync: ObservableObject {
     /// (a protected one) must not put the camera in playback mode every parked pass.
     private var playbackDeleteFails: [String: Int] = [:]
     static let playbackDeleteTries = 3
+    /// Passes in a row whose listing lacked a backlog path. A listing can come back short (a folder that
+    /// errored), so one miss proves nothing; two in a row mean the camera deleted it or recorded over it.
+    private var unlistedPasses: [String: Int] = [:]
+    static let unlistedPassesToClose = 2
 
     /// Deletes a clip from the card now when on the camera's Wi‑Fi (true); otherwise it waits in the server's
     /// backlog (and this phone's copy of it) for the next connection. `forget`: deleted everywhere, so the
@@ -360,6 +364,8 @@ final class DashcamSync: ObservableObject {
         }
         if entered {
             for f in tries {
+                // Re-checked before every file: the car may drive off mid-batch (playback mode can pause recording).
+                guard onCameraProvider(), !liveActive, await parked() else { break }
                 do { try await cam.delete(f); done.insert(f.path) } catch {
                     playbackDeleteFails[f.path, default: 0] += 1
                     errors[f.path] = error.localizedDescription
@@ -368,6 +374,13 @@ final class DashcamSync: ObservableObject {
         }
         if !inPlayback { await leavePlayback(cam, wasRecording: wasRecording) }
         return done
+    }
+
+    /// The clip's size is the same as in the previous listing (this phone's, or the server's): the camera has
+    /// finished writing it. A card delete never goes on one listing alone — even a clip that "isn't recording"
+    /// can still be growing (parking mode).
+    private func sizeHeld(_ f: DashcamFile, rows: [String: DashcamInventoryRow] = [:]) -> Bool {
+        lastSizes[f.path] == f.size || rows[f.path]?.sizeStable == true
     }
 
     /// The backlog of deletes he asked for, flushed at the start of a pass: this phone's asks go to the server,
@@ -388,12 +401,14 @@ final class DashcamSync: ObservableObject {
             ids[e.path] = e.id
             pending[e.path] = (pending[e.path] ?? false) || e.forget
         }
-        guard !pending.isEmpty else {
-            if !local.isEmpty { pendingCameraDeletes = local }       // moves an old build's list to the new key
-            return (files, [])
-        }
+        guard !pending.isEmpty else { return (files, []) }
         let listed = Set(files.map(\.path))
-        var done = Set(pending.keys.filter { !listed.contains($0) })    // already gone from the card
+        var done = Set<String>()
+        for p in pending.keys {
+            if listed.contains(p) { unlistedPasses[p] = nil; continue }
+            unlistedPasses[p, default: 0] += 1
+            if unlistedPasses[p]! >= Self.unlistedPassesToClose { done.insert(p); unlistedPasses[p] = nil }   // gone from the card
+        }
         var errors: [String: String] = [:]
         var refused: [DashcamFile] = []
         for f in files where pending[f.path] != nil {
@@ -418,13 +433,14 @@ final class DashcamSync: ObservableObject {
     }
 
     /// Clears the card of every listed clip that is safe elsewhere: a complete copy is on this phone, or the
-    /// server says every destination has it. Plain deletes first; the refused ones get one playback-mode try
-    /// while parked. Never a clip only the card has. Returns the paths deleted.
+    /// server says every destination has it — and its size held since the last listing, so the camera has
+    /// finished writing it. Plain deletes first; the refused ones get one playback-mode try while parked.
+    /// Never a clip only the card has. Returns the paths deleted.
     private func sweepCard(_ files: [DashcamFile], rows: [String: DashcamInventoryRow], skip: Set<String>,
                            camera cam: DashcamCamera, cameraID: String, inPlayback: Bool,
                            stable: (DashcamFile) -> Bool, mayContinue: () async -> Bool) async -> Set<String> {
         let safe = files.filter {
-            !skip.contains($0.path) && stable($0)
+            !skip.contains($0.path) && stable($0) && sizeHeld($0, rows: rows)
                 && (rows[$0.path]?.uploaded == true || storage.exists(camera: cameraID, file: $0))
         }
         guard !safe.isEmpty else { return [] }
@@ -807,6 +823,12 @@ final class DashcamSync: ObservableObject {
             if !onCameraProvider() { break }
         }
         queuedDownloads = 0
+        // What left the card this pass: the server hears now, not a pass later (the library's "only copy" check
+        // reads it).
+        if !report.cardDeleted.isEmpty {
+            let gone = Set(report.cardDeleted)
+            _ = try? await server.inventory(cameraID: cameraID, files: files.filter { !gone.contains($0.path) })
+        }
         return report
     }
 
@@ -848,7 +870,7 @@ final class DashcamSync: ObservableObject {
             report.downloaded.append(f.path)
             // Safe on the phone: off the card at once, one clip at a time. Refused (some firmware only deletes in
             // playback mode, never entered while driving) → the next pass's sweep tries again.
-            if (try? await cam.delete(f)) != nil {
+            if sizeHeld(f), (try? await cam.delete(f)) != nil {
                 report.cardDeleted.append(f.path)
                 cameraFiles.removeAll { $0.path == f.path }
             }
