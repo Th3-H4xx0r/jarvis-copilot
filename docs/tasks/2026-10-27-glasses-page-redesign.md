@@ -33,3 +33,5 @@ He: "when I press the action button it starts listening and the dynamic island e
 He found the island unprofessional; two rounds of mockups (research: Apple HIG Live Activities, call/Voice Memos/Siri islands). Round 1 (4 colourful directions) rejected; round 2 he picked "3 · Centered".
 - [x] Centered layout: pulsing orb (app icon art) leading, glass stop trailing, "Listening 0:04" (system-ticked timer) under the camera, words + answer centred below; thinking shows what Jarvis is doing in a chip; one colour (the accent) for every state; compact = orb + running timer — checked in the iOS 27 simulator
 - [ ] His look on the phone: centred layout, timer ticks, answer fits two lines, stop works
+- [x] Island reads the reply along (teleprompter): the page Jarvis is saying (≤72 chars, two lines), turning with the spoken-word count; each turn re-alerts (gap 1.2 s) so it stays open (669945d14f)
+- [ ] His look on the phone: long answers turn pages in step with the voice, island stays open to the end
