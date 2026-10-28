@@ -277,6 +277,23 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertTrue(applier.isActive)
     }
 
+    /// His 19:26 press: a talk left the session in VoiceChat, the background refused
+    /// switching it back, and the next background talk asked for its own mode — '!int'.
+    /// A background talk now takes any active session that records, as it is.
+    func testABackgroundTalkTakesAnActiveRecordingSessionAsItIs() throws {
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)
+        try arbiter.hold(.voice)
+        XCTAssertEqual(applier.mode, .videoChat)
+        applier.categoryError = NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+        try? arbiter.release(.voice)                 // the switch back is refused
+        XCTAssertEqual(applier.mode, .videoChat)
+        let before = applier.calls
+        XCTAssertNoThrow(try arbiter.hold(.mixedVoice))
+        XCTAssertEqual(applier.calls, before, "no category switch, no re-activation")
+        XCTAssertEqual(applier.category, .playAndRecord)
+    }
+
     /// Playing a clip during a Live recording leaves the recording's session alone.
     func testPlayingAClipDuringLiveKeepsTheCapture() throws {
         let (arbiter, applier) = makeArbiter()

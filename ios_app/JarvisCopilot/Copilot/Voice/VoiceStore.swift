@@ -351,6 +351,12 @@ final class VoiceStore {
     private(set) var mixedAudio = false
     /// The audio session's claims and live state, for the voice log. Set by the app.
     var audioDiagnostics: () -> String = { "" }
+    /// Builds the next mic without echo cancellation (true) or with it again. A talk
+    /// started in the background takes none: its unit took ~0.6 s to build on his
+    /// phone — most of the wait before Listening — and leaves the session in
+    /// VoiceChat mode, which the next background talk then can't switch back
+    /// ('!int'). A one-shot takes no talk-over, so it has no use for it. Set by the app.
+    var skipEchoCancellation: (Bool) -> Void = { _ in }
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -819,6 +825,7 @@ final class VoiceStore {
         for car in order {
             carAudio = car
             mixedAudio = !car
+            skipEchoCancellation(inBackground)
             do {
                 try acquireAudioSession()
                 note("one-shot on the \(car ? "car (ducking)" : "mixing-only") session")
@@ -833,6 +840,7 @@ final class VoiceStore {
         }
         carAudio = false
         mixedAudio = false
+        skipEchoCancellation(false)
         throw last ?? CancellationError()
     }
 
@@ -1778,6 +1786,7 @@ final class VoiceStore {
         followupTimer = nil
         carAudio = false
         mixedAudio = false
+        skipEchoCancellation(false)
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()

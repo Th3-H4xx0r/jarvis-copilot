@@ -21,7 +21,7 @@ final class IslandLiveProbeTests: XCTestCase {
         let steps: [(String, String, String)] = [
             ("listening", "What's on my calendar", ""),
             ("thinking", "What's on my calendar tomorrow?", ""),
-            ("speaking", "What's on my calendar tomorrow?", "Stand-up at 9:30, then the dentist at 11."),
+            ("speaking", "What's on my calendar tomorrow?", "Stand-up with Maya at 9:30, then the dentist at 11, and the gym at 6."),
             ("idle", "What's on my calendar tomorrow?", "Stand-up at 9:30, then the dentist at 11."),
         ]
         let alerts = ProcessInfo.processInfo.environment["JC_ISLAND_ALERTS"] == "1"

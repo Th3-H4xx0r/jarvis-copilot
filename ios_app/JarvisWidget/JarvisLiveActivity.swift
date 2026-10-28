@@ -94,8 +94,8 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
             } else {
                 // Music Recognition's layout: the pulsing orb and what Jarvis is doing.
                 HStack(spacing: 8) {
-                    JarvisOrbBadge(st: st, size: 58)
-                    Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
+                    JarvisOrbBadge(st: st, size: 54)
+                    Text(jcVoiceHeader(st))
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -108,15 +108,10 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
             if st.mode == "coding" {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
-                // The state's glyph, and the ✕ that ends the talk.
-                HStack(spacing: 12) {
-                    JarvisVoiceWave(state: st.connected ? st.state : "error", size: 18)
-                    if jcVoiceActive(st) {
-                        JarvisStopButton(tint: jcStopTint(st), size: 42)
-                    }
-                }
-                .frame(height: 58)
-                .padding(.trailing, 4)
+                // The state's glyph and the ✕ that ends the talk; at rest, a mic.
+                JarvisVoiceControls(st: st, size: 42)
+                    .frame(height: 54)
+                    .padding(.trailing, 4)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -130,14 +125,9 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                     JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                 }
             } else {
-                // The latest words — yours while you talk, Jarvis's reply after.
-                if let line = jcVoiceLine(st) {
-                    Text(line)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.7 : 0.95))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // The exchange: his question small over Jarvis's answer.
+                if jcHasExchange(st) {
+                    JarvisExchange(st: st, answerSize: 16, answerLines: 2)
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }

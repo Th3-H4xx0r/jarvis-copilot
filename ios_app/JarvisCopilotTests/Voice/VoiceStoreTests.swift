@@ -1800,6 +1800,18 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertFalse(rig.audioSession.activeCalls.contains(true), "no forced setActive(true)")
     }
 
+    /// A background talk builds its mic without echo cancellation (~0.6 s faster, and
+    /// no VoiceChat session left behind); the turn's end puts it back.
+    func testABackgroundOneShotSkipsEchoCancellationUntilItEnds() async {
+        let rig = makeRig(mode: .quality)
+        var skips: [Bool] = []
+        rig.store.skipEchoCancellation = { skips.append($0) }
+        _ = await rig.store.startOneShotTurn(inBackground: true)
+        XCTAssertEqual(skips.first, true)
+        await rig.store.stopAll()
+        XCTAssertEqual(skips.last, false)
+    }
+
     func testAnotherAudioErrorIsNotRetried() async {
         let rig = makeRig(mode: .quality)
         rig.audioSession.carConfigureError = NSError(domain: NSOSStatusErrorDomain, code: 561017449)   // '!pri'

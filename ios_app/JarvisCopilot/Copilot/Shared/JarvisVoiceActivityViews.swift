@@ -1,8 +1,8 @@
 import SwiftUI
 
-// The voice Live Activity in Apple's own register (Phone, Siri, Shazam): the animated orb,
-// what Jarvis is doing, a live waveform, and the latest words in large type — no boxes, no
-// labels, no device strip. Shared with the app so render tests can draw it.
+// The voice Live Activity in Apple's own register (Music Recognition, Siri): the pulsing
+// orb and what Jarvis is doing, the ✕ (or a mic at rest), and the exchange — his question
+// small over Jarvis's answer. Shared with the app so render tests can draw it.
 
 /// "Listening…", "Thinking…", …; idle invites a tap.
 func jcVoiceTitle(_ state: String) -> String {
@@ -15,30 +15,8 @@ func jcVoiceTitle(_ state: String) -> String {
     }
 }
 
-/// The one line worth reading: Jarvis's reply (or what he's doing) once he answers, your
-/// words while you talk.
-func jcVoiceLine(_ st: JarvisActivityAttributes.ContentState) -> String? {
-    let said = st.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-    let reply = st.activity.trimmingCharacters(in: .whitespacesAndNewlines)
-    switch st.state {
-    case "thinking", "speaking", "error": return reply.isEmpty ? (said.isEmpty ? nil : "“\(said)”") : reply
-    default: return said.isEmpty ? (reply.isEmpty ? nil : reply) : "“\(said)”"
-    }
-}
-
-/// The state's short name, for the small label over the words.
-func jcVoiceLabel(_ state: String) -> String {
-    switch state {
-    case "listening": return "Listening"
-    case "thinking": return "Thinking"
-    case "speaking": return "Jarvis"
-    case "error": return "Couldn't reach Jarvis"
-    default: return "Jarvis"
-    }
-}
-
 /// The state's glyph in its colour — the island's trailing mark and the card's
-/// corner. Still: a Live Activity plays no symbol effect (the ring is the motion).
+/// corner. Still: a Live Activity plays no symbol effect (the pulse is the motion).
 struct JarvisVoiceWave: View {
     let state: String
     var size: CGFloat = 18
@@ -120,52 +98,100 @@ func jcStopTint(_ st: JarvisActivityAttributes.ContentState) -> Color {
     st.connected ? jcStateColor(st.state) : .white
 }
 
-/// The expanded island's and the card's text: the state's small label over the
-/// latest words, or — before there are any — the state itself, large.
-struct JarvisVoiceText: View {
+/// The header's words: what Jarvis is doing, or just "Jarvis" at rest.
+func jcVoiceHeader(_ st: JarvisActivityAttributes.ContentState) -> String {
+    guard st.connected else { return "Offline" }
+    switch st.state {
+    case "listening", "thinking", "speaking", "error": return jcVoiceTitle(st.state)
+    default: return "Jarvis"
+    }
+}
+
+/// The ✕ during a talk; at rest a mic that starts one right there (the Action
+/// button's talk); the state's glyph beside the ✕.
+struct JarvisVoiceControls: View {
     let st: JarvisActivityAttributes.ContentState
-    var wordsSize: CGFloat = 17
+    var size: CGFloat = 40
 
     var body: some View {
-        let tint = st.connected && st.state != "idle" ? jcStateColor(st.state) : .white.opacity(0.6)
-        VStack(alignment: .leading, spacing: 2) {
-            if !st.connected {
-                Label("Offline", systemImage: "wifi.slash")
-                    .font(.system(size: wordsSize, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-            } else if let line = jcVoiceLine(st) {
-                Text(jcVoiceLabel(st.state))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(tint)
-                Text(line)
-                    .font(.system(size: wordsSize, weight: .semibold))
-                    .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.72 : 0.96))
-                    .lineLimit(2)
+        HStack(spacing: 12) {
+            if jcVoiceActive(st) {
+                JarvisVoiceWave(state: st.connected ? st.state : "error", size: size * 0.45)
+                JarvisStopButton(tint: jcStopTint(st), size: size)
+            } else if #available(iOS 18.0, *) {
+                Button(intent: TalkToJarvisHereIntent()) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: size * 0.4, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: size, height: size)
+                        .background(Circle().fill(.white.opacity(0.16)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Talk to Jarvis")
+            }
+        }
+    }
+}
+
+/// The exchange, Siri's way: once Jarvis answers, his question small and grey over
+/// the answer; before that, his words (or what Jarvis is doing) as the main line.
+struct JarvisExchange: View {
+    let st: JarvisActivityAttributes.ContentState
+    var answerSize: CGFloat = 16
+    var answerLines = 2
+
+    var body: some View {
+        let said = st.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reply = st.activity.trimmingCharacters(in: .whitespacesAndNewlines)
+        VStack(alignment: .leading, spacing: 3) {
+            if !reply.isEmpty {
+                if !said.isEmpty {
+                    Text(said)
+                        .font(.system(size: answerSize - 3, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
+                Text(reply)
+                    .font(.system(size: answerSize, weight: .semibold))
+                    .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.75 : 0.96))
+                    .lineLimit(answerLines)
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(jcVoiceTitle(st.state))
-                    .font(.system(size: wordsSize + 2, weight: .semibold))
-                    .foregroundStyle(st.state == "idle" ? .white : tint)
-                    .lineLimit(1)
+            } else if !said.isEmpty {
+                Text(said)
+                    .font(.system(size: answerSize, weight: .semibold))
+                    .foregroundStyle(.white.opacity(st.state == "listening" ? 0.96 : 0.7))
+                    .lineLimit(answerLines)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// The Lock Screen / banner card: the ringed orb, the text beside it, the state's
-/// glyph at the trailing edge.
+/// Whether there's an exchange to show under the header.
+func jcHasExchange(_ st: JarvisActivityAttributes.ContentState) -> Bool {
+    !st.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        || !st.activity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+/// The Lock Screen / banner card: the island's header row, the exchange under it.
 struct JarvisVoiceLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            JarvisOrbBadge(st: st, size: 58)
-            JarvisVoiceText(st: st)
-            if jcVoiceActive(st) {
-                JarvisStopButton(tint: jcStopTint(st), size: 38)
-            } else {
-                JarvisVoiceWave(state: st.connected ? st.state : "error", size: 20)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                JarvisOrbBadge(st: st, size: 46)
+                Text(jcVoiceHeader(st))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                JarvisVoiceControls(st: st, size: 38)
+            }
+            if jcHasExchange(st) {
+                JarvisExchange(st: st, answerSize: 17, answerLines: 3)
+                    .padding(.leading, 4)
             }
         }
         .padding(.horizontal, 16)

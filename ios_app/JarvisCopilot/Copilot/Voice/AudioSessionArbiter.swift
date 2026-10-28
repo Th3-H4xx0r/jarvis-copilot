@@ -398,7 +398,11 @@ final class AudioSessionArbiter {
         // not the only thing in the process that can touch the session (a media
         // services reset rewrites it behind our back), and `setCategory` on a
         // session that already matches is a no-op inside CoreAudio anyway.
-        if !matches(plan) {
+        // A background talk (mixedVoice) takes an active session that already records
+        // as it is, whatever its mode: from the background iOS refuses every category
+        // switch ('!int'), and a leftover VoiceChat session records just as well.
+        let recordsAlready = isActive && plan == Self.mixedVoicePlan && session.category == .playAndRecord
+        if !matches(plan), !recordsAlready {
             try session.setCategory(plan.category, mode: plan.mode, options: plan.options)
         }
         // Preferences, not commands: iOS clamps both to what the current route

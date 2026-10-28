@@ -323,7 +323,11 @@ final class AppServices {
         // "Talk to JARVIS here" (the Action button): a Siri-style talk in the background.
         // On screen = the app is really active right now: the tracked foreground flag
         // starts true on a launch iOS made in the background for this very press.
-        let talkLog: (String) -> Void = { VoiceLogFile.shared.append("[talk-here] \($0)") }
+        let talkClock = DateFormatter()
+        talkClock.dateFormat = "HH:mm:ss.SSS"
+        let talkLog: (String) -> Void = { line in
+            VoiceLogFile.shared.append("[talk-here] \(talkClock.string(from: Date())) \(line)")
+        }
         // Once he uses it, the keepalive holds a recordable session so a press only has
         // to switch the mic on — the one thing iOS lets a backgrounded app do.
         let armedKey = "jc.talkHere.armed"
@@ -339,6 +343,7 @@ final class AppServices {
         TalkHereBridge.press = { await talkHere.press() }
         TalkHereBridge.log = talkLog
         TalkHereBridge.stop = { await VoiceStore.shared.stopAll() }
+        VoiceStore.shared.skipEchoCancellation = { VoiceAudioEngine.shared.skipVoiceProcessing = $0 }
         VoiceStore.shared.audioDiagnostics = {
             "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
                 + " app=\(UIApplication.shared.applicationState.rawValue)"

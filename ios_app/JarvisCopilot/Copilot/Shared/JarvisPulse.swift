@@ -23,6 +23,8 @@ struct JarvisPulse: View {
     var since: Double
 
     static let bands = 8
+    /// How far down the ripple moves to sit centred on the orb (share of its size).
+    static let lineBoxLift: CGFloat = 0.062
     /// The orb's share of the badge: the ripple starts at its edge.
     static let orbShare: CGFloat = 0.6
 
@@ -43,6 +45,10 @@ struct JarvisPulse: View {
                 }
             }
             .frame(width: size, height: size)
+            // The system lays a timer text out in a line box ~12% taller than the
+            // font, centred, so the ripple rode 6% high (measured in the iOS 27
+            // simulator against a circle centred on the orb).
+            .offset(y: size * Self.lineBoxLift)
             .accessibilityHidden(true)
         }
     }
