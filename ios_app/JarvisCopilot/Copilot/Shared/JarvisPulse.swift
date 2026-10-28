@@ -57,11 +57,11 @@ struct JarvisPulse: View {
     /// tests) the timers would draw as plain digits, so nothing is drawn.
     static let fontsReady = UIFont(name: "JCPulse0", size: 10) != nil
 
-    /// The pulse's colour for a voice state; nil at rest (no pulse).
+    /// The pulse's colour for a voice state — the island's one colour, the accent;
+    /// nil at rest (no pulse).
     static func color(_ state: String) -> Color? {
         switch state {
-        case "listening", "speaking": return jcStateColor(state)
-        case "thinking": return .white
+        case "listening", "thinking", "speaking": return JcAccent.color
         default: return nil
         }
     }

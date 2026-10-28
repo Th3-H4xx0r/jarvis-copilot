@@ -25,3 +25,11 @@ He: "when I press the action button it starts listening and the dynamic island e
 - [x] Island pops open (silent alert) on "Listening…" and again on the reply
 - [x] Refused / mic never live → Jarvis opens listening (iOS 26 continueInForeground)
 - [ ] Live check: Settings → Action Button → Controls → "Talk to JARVIS here"; press on the Home Screen with Jarvis in the background → island opens on Listening, reply shows, no app switch. If it opened Jarvis instead, pull voice.log ("one-shot refused: …" says why).
+- [x] Mic starts in the background: armed keepalive holds a recordable session (51af68c078) — he: "It worked now"
+- [x] Island: Music Recognition-style pulse (timer-font trick; symbol effects never run in a Live Activity), ✕ stop button, stays open for the talk, states go out at once (eba592a0ce) — checked in the iOS 27 simulator
+- [ ] His look on the phone: pulse moves, states change, ✕ stops, island stays open until the reply ends
+
+## Island redesign: "3 · Centered" (same day, from the mockups canvas)
+He found the island unprofessional; two rounds of mockups (research: Apple HIG Live Activities, call/Voice Memos/Siri islands). Round 1 (4 colourful directions) rejected; round 2 he picked "3 · Centered".
+- [x] Centered layout: pulsing orb (app icon art) leading, glass stop trailing, "Listening 0:04" (system-ticked timer) under the camera, words + answer centred below; thinking shows what Jarvis is doing in a chip; one colour (the accent) for every state; compact = orb + running timer — checked in the iOS 27 simulator
+- [ ] His look on the phone: centred layout, timer ticks, answer fits two lines, stop works

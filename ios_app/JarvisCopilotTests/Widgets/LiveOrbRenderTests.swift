@@ -57,12 +57,12 @@ final class LiveOrbRenderTests: XCTestCase {
                 JarvisVoiceLockScreen(st: st)
                     .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
-            // The collapsed island: orb leading, waveform trailing, either side of the camera.
+            // The collapsed island: orb leading, the running timer trailing, either side of the camera.
             ForEach(["listening", "thinking", "speaking"], id: \.self) { state in
                 HStack {
-                    JarvisLiveOrb(size: 24, glow: jcStateColor(state))
+                    JarvisOrbArt(size: 24)
                     Spacer()
-                    JarvisVoiceWave(state: state, size: 15)
+                    JarvisCompactTrailing(st: State(state: state))
                 }
                 .padding(.horizontal, 12)
                 .frame(width: 250, height: 37)

@@ -74,8 +74,8 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         .widgetURL(URL(string: jcWidgetURL(st)))
     }
     return DynamicIsland {
-        // Voice, laid out like Music Recognition: the pulsing orb and "Listening…"
-        // leading, the state's glyph and a ✕ trailing, the latest words under them.
+        // Voice, centred like Siri: the pulsing orb leading, the glass stop trailing,
+        // and under them, centred, "Listening 0:04", his words and Jarvis's answer.
         // Coding keeps its fleet view.
         DynamicIslandExpandedRegion(.leading) {
             if st.mode == "coding" {
@@ -92,26 +92,25 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 }
                 .padding(.leading, 4)
             } else {
-                // Music Recognition's layout: the pulsing orb and what Jarvis is doing.
-                HStack(spacing: 8) {
-                    JarvisOrbBadge(st: st, size: 54)
-                    Text(jcVoiceHeader(st))
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-                .padding(.leading, 2)
+                JarvisOrbBadge(st: st, size: 58)
+                    .padding(.leading, 2)
             }
         }
         DynamicIslandExpandedRegion(.trailing) {
             if st.mode == "coding" {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
-                // The state's glyph and the ✕ that ends the talk; at rest, a mic.
+                // The stop that ends the talk; at rest, a mic.
                 JarvisVoiceControls(st: st, size: 42)
-                    .frame(height: 54)
+                    .frame(height: 58)
                     .padding(.trailing, 4)
+            }
+        }
+        DynamicIslandExpandedRegion(.center) {
+            // Under the camera, between the orb and the stop: "Listening 0:04".
+            if st.mode != "coding" {
+                JarvisVoiceStateLine(st: st)
+                    .padding(.top, 2)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -125,11 +124,11 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                     JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                 }
             } else {
-                // The exchange: his question small over Jarvis's answer.
-                if jcHasExchange(st) {
-                    JarvisExchange(st: st, answerSize: 16, answerLines: 2)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 6)
+                // Centred: his words and Jarvis's answer.
+                if jcVoiceHasWords(st) {
+                    JarvisExchange(st: st, mainSize: 17, mainLines: 2)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
                 }
             }
         }
@@ -143,7 +142,7 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         if st.mode == "coding" {
             JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
         } else {
-            JarvisVoiceWave(state: st.connected ? st.state : "error", size: 15)
+            JarvisCompactTrailing(st: st)
                 .frame(height: 34)
         }
     } minimal: {

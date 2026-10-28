@@ -20,7 +20,7 @@ final class IslandLiveProbeTests: XCTestCase {
         try await Task.sleep(nanoseconds: 12_000_000_000)   // time to leave the app
         let steps: [(String, String, String)] = [
             ("listening", "What's on my calendar", ""),
-            ("thinking", "What's on my calendar tomorrow?", ""),
+            ("thinking", "What's on my calendar tomorrow?", "Checking your calendar"),
             ("speaking", "What's on my calendar tomorrow?", "Stand-up with Maya at 9:30, then the dentist at 11, and the gym at 6."),
             ("idle", "What's on my calendar tomorrow?", "Stand-up at 9:30, then the dentist at 11."),
         ]
