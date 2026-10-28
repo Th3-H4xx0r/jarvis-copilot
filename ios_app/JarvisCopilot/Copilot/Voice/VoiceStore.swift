@@ -357,6 +357,9 @@ final class VoiceStore {
     /// VoiceChat mode, which the next background talk then can't switch back
     /// ('!int'). A one-shot takes no talk-over, so it has no use for it. Set by the app.
     var skipEchoCancellation: (Bool) -> Void = { _ in }
+    /// Builds the next engine without a mic (true) for a talk whose words come from
+    /// the glasses, or with one again. Set by the app.
+    var playbackOnlyEngine: (Bool) -> Void = { _ in }
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -752,6 +755,7 @@ final class VoiceStore {
         input.onFrame = nil
         input = source ?? DefaultAudioInput()
         usesExternalInput = source != nil
+        playbackOnlyEngine(usesExternalInput)
         if source == nil { machine.mode = settings.mode }
         input.onFrame = { [weak self] chunk in self?.handleMicFrame(chunk) }
     }

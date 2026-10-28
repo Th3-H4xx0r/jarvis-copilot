@@ -294,6 +294,30 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertEqual(applier.category, .playAndRecord)
     }
 
+    /// His 19:04 / 19:43 glasses talks: the armed keepalive holds a recordable session,
+    /// the glasses' talk asks for playback only, and the background refuses the
+    /// switch. The recordable session plays, so it stays and the talk goes on.
+    func testAGlassesTalkKeepsTheArmedRecordableSessionWhenTheSwitchIsRefused() throws {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        defer { AudioSessionArbiter.keepaliveRecordReady = { false } }
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)
+        XCTAssertEqual(applier.category, .playAndRecord)
+        applier.categoryError = NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+        XCTAssertNoThrow(try arbiter.hold(.externalVoice))
+        XCTAssertEqual(applier.category, .playAndRecord)
+        XCTAssertTrue(applier.isActive)
+    }
+
+    /// Any other refusal still fails the claim — only a session that already serves
+    /// the plan is kept.
+    func testARefusedSwitchToAnUnservedCategoryStillFails() throws {
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)                  // .playback
+        applier.categoryError = NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+        XCTAssertThrowsError(try arbiter.hold(.voice), "playback can't record")
+    }
+
     /// Playing a clip during a Live recording leaves the recording's session alone.
     func testPlayingAClipDuringLiveKeepsTheCapture() throws {
         let (arbiter, applier) = makeArbiter()

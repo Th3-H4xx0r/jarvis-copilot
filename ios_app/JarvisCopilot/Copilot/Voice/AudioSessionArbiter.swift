@@ -402,8 +402,19 @@ final class AudioSessionArbiter {
         // as it is, whatever its mode: from the background iOS refuses every category
         // switch ('!int'), and a leftover VoiceChat session records just as well.
         let recordsAlready = isActive && plan == Self.mixedVoicePlan && session.category == .playAndRecord
+        // The live session kept as it is (above, or a refused switch below): it's
+        // active, and a forced re-activation is one more thing the background refuses.
+        var kept = recordsAlready && !matches(plan)
         if !matches(plan), !recordsAlready {
-            try session.setCategory(plan.category, mode: plan.mode, options: plan.options)
+            do {
+                try session.setCategory(plan.category, mode: plan.mode, options: plan.options)
+            } catch where Self.isInterruptRefusal(error) && isActive && Self.serves(session.category, plan) {
+                kept = true
+                // In the background iOS refuses the switch ('!int') — the glasses'
+                // playback session out of the armed keepalive's recordable one, his
+                // 19:04 / 19:43 tries. The live session already does what the plan
+                // needs (a recording session plays), so it stays as it is.
+            }
         }
         // Preferences, not commands: iOS clamps both to what the current route
         // allows and may ignore them outright, so they are never compared against
@@ -416,10 +427,23 @@ final class AudioSessionArbiter {
             try? session.setPreferredIOBufferDuration(plan.ioBufferDuration)
             appliedPreferences = plan.preferences
         }
-        if forceActivation || !isActive {
+        if (forceActivation && !kept) || !isActive {
             try session.setActive(true, options: [])
         }
         isActive = true
+    }
+
+    /// '!int' (560557684): iOS won't let a backgrounded app switch to audio that
+    /// interrupts others.
+    static func isInterruptRefusal(_ error: Error) -> Bool {
+        let ns = error as NSError
+        return ns.domain == NSOSStatusErrorDomain && ns.code == 560557684
+    }
+
+    /// Whether a live category can do what a plan's category is for: a recording
+    /// session also plays.
+    static func serves(_ live: AVAudioSession.Category, _ plan: AudioSessionPlan) -> Bool {
+        live == plan.category || (live == .playAndRecord && plan.category == .playback)
     }
 
     /// `options` is compared as a superset: iOS adds implicit flags of its own

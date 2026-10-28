@@ -1812,6 +1812,16 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(skips.last, false)
     }
 
+    /// The glasses' talk builds its engine with no phone mic; back on the phone, with one.
+    func testTheGlassesTalkBuildsAPlaybackOnlyEngine() async {
+        let rig = makeRig(mode: .quality)
+        var flags: [Bool] = []
+        rig.store.playbackOnlyEngine = { flags.append($0) }
+        await rig.store.useExternalInput(MockAudioInput())
+        await rig.store.useExternalInput(nil)
+        XCTAssertEqual(flags, [true, false])
+    }
+
     func testAnotherAudioErrorIsNotRetried() async {
         let rig = makeRig(mode: .quality)
         rig.audioSession.carConfigureError = NSError(domain: NSOSStatusErrorDomain, code: 561017449)   // '!pri'

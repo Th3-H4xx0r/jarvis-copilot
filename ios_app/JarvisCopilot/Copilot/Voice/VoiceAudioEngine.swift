@@ -48,6 +48,13 @@ final class VoiceAudioEngine {
     /// it's cleared has echo cancellation again.
     var skipVoiceProcessing = false
 
+    /// Build the next engine with no mic at all: the glasses' talk, whose words come
+    /// over Bluetooth and whose reply is all this plays. Its session used to be
+    /// playback-only, so no mic half was ever built; under the armed keepalive's
+    /// recordable session it would build the phone's mic and echo cancellation (and
+    /// VoiceChat mode) for nothing. Set by the voice store for that talk.
+    var playbackOnly = false
+
     /// Engine events for the voice diagnostics (the store points this at `note`).
     var onEvent: ((String) -> Void)?
 
@@ -218,7 +225,7 @@ final class VoiceAudioEngine {
         // only. Creating an input node and enabling VoiceProcessingIO here can
         // raise an Objective-C exception (not catchable with Swift do/catch).
         // Only microphone-capable sessions may build that half of the graph.
-        let input = Self.sessionPermitsMicrophone ? engine.inputNode : nil
+        let input = Self.sessionPermitsMicrophone && !playbackOnly ? engine.inputNode : nil
         let player = AVAudioPlayerNode()
         player.volume = replyVolume
         engine.attach(player)

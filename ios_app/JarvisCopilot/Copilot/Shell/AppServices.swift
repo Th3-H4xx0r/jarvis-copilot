@@ -344,6 +344,7 @@ final class AppServices {
         TalkHereBridge.log = talkLog
         TalkHereBridge.stop = { await VoiceStore.shared.stopAll() }
         VoiceStore.shared.skipEchoCancellation = { VoiceAudioEngine.shared.skipVoiceProcessing = $0 }
+        VoiceStore.shared.playbackOnlyEngine = { VoiceAudioEngine.shared.playbackOnly = $0 }
         VoiceStore.shared.audioDiagnostics = {
             "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
                 + " app=\(UIApplication.shared.applicationState.rawValue)"

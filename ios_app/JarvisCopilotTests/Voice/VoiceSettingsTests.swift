@@ -174,7 +174,7 @@ final class VoiceLiveActivityTests: XCTestCase {
     func testReOfferingTheSentContentCancelsAPendingPush() {
         let (throttle, clock, box) = make()
         throttle.offer(snapshot("listening"), terminal: false)
-        throttle.offer(snapshot("thinking"), terminal: false) // queued
+        throttle.offer(snapshot("listening", "he"), terminal: false) // words only: queued
         throttle.offer(snapshot("listening"), terminal: false) // back to what's on screen
         clock.advance(ms: 5000)
         XCTAssertEqual(box.pushes.count, 1)
