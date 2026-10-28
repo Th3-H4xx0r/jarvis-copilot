@@ -19,6 +19,8 @@ struct LiveActivityState: Equatable, Sendable {
     /// A one-shot (CarPlay Talk) reply is holding the card: voice wins and the
     /// activity stays top relevance. App-side only — not part of the ContentState.
     var voiceHold = false
+    /// When the voice state began (Unix seconds): the island's ring sweeps from here.
+    var stateSince: Double = 0
 
     /// "voice" | "coding" | "custom".
     var mode = "voice"

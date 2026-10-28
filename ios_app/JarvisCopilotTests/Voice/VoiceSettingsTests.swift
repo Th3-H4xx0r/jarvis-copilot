@@ -141,17 +141,25 @@ final class VoiceLiveActivityTests: XCTestCase {
         XCTAssertEqual(box.pushes.count, 1, "don't churn the activity")
     }
 
-    func testRapidChangesAreThrottledToTheTrailingEdge() {
+    func testRapidWordChangesAreThrottledToTheTrailingEdge() {
         let (throttle, clock, box) = make()
         throttle.offer(snapshot("listening"), terminal: false)
-        throttle.offer(snapshot("thinking"), terminal: false)
-        throttle.offer(snapshot("thinking", "hello"), terminal: false)
+        throttle.offer(snapshot("listening", "he"), terminal: false)
+        throttle.offer(snapshot("listening", "hello"), terminal: false)
         XCTAssertEqual(box.pushes.count, 1, "still inside the window")
 
         clock.advance(ms: VoiceLiveActivityThrottle.windowMs)
         XCTAssertEqual(box.pushes.count, 2)
         XCTAssertEqual(box.pushes.last?.transcript, "hello",
-                       "the LATEST state is sent, not the one that was queued first")
+                       "the LATEST words are sent, not the ones that were queued first")
+    }
+
+    /// A new state is what the island is for: it goes out at once, inside the window.
+    func testANewStateGoesOutAtOnce() {
+        let (throttle, _, box) = make()
+        throttle.offer(snapshot("listening"), terminal: false)
+        throttle.offer(snapshot("thinking", "hello"), terminal: false)
+        XCTAssertEqual(box.pushes.map(\.state), ["listening", "thinking"])
     }
 
     func testTerminalStatesBypassTheThrottle() {

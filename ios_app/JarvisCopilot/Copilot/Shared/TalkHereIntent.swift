@@ -69,6 +69,8 @@ enum TalkHereBridge {
     @MainActor static var press: (() async -> Outcome)?
     /// A line in the phone's voice.log. Set by the app.
     @MainActor static var log: ((String) -> Void)?
+    /// Ends the talk (the island's ✕). Set by the app; nil in the widget.
+    @MainActor static var stop: (() async -> Void)?
 
     private static let outsideKey = "jc.talkHere.outsideApp"
     private static var shared: UserDefaults { UserDefaults(suiteName: JarvisShared.appGroupID) ?? .standard }
@@ -83,5 +85,22 @@ enum TalkHereBridge {
         let note = shared.string(forKey: outsideKey)
         if note != nil { shared.removeObject(forKey: outsideKey) }
         return note
+    }
+}
+
+/// The ✕ on the voice island and Lock Screen card: ends the talk — mic off, reply
+/// stopped. A Live Activity intent, so it runs in the app, Jarvis staying where it is.
+struct StopJarvisVoiceIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Stop talking to JARVIS"
+    static let isDiscoverable = false
+    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+    init() {}
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        await TalkHereBridge.stop?()
+        TalkHereBridge.log?("stopped from the island")
+        return .result()
     }
 }

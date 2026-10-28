@@ -28,6 +28,19 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- The pulse rings round the voice orb (JarvisPulse): eight fonts whose even
+	     digits draw one ring of a ripple, driven by staggered system timers. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>JCPulse0.otf</string>
+		<string>JCPulse1.otf</string>
+		<string>JCPulse2.otf</string>
+		<string>JCPulse3.otf</string>
+		<string>JCPulse4.otf</string>
+		<string>JCPulse5.otf</string>
+		<string>JCPulse6.otf</string>
+		<string>JCPulse7.otf</string>
+	</array>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

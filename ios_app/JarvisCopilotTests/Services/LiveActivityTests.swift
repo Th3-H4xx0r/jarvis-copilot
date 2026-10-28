@@ -165,9 +165,10 @@ final class LiveActivityTests: XCTestCase {
         VoiceLiveActivitySnapshot(state: state, transcript: said, activity: reply, connected: true, devices: [])
     }
 
-    /// The Action button's talk: "Listening…" and then the reply pop the island open,
-    /// once each; connecting/thinking frames and repeats don't.
-    func testAPresentedTalkPopsTheIslandOnListeningAndOnTheReply() {
+    /// The Action button's talk: every state change pops the island open again (iOS
+    /// allows no holding it open); repeats of a state don't, and a growing reply only
+    /// after the gap (the test clock stands still, so not here).
+    func testAPresentedTalkPopsTheIslandOnEveryStateChange() {
         let controller = FakeActivityController()
         let (coordinator, _) = makeCoordinator(controller: controller)
         coordinator.presentVoiceTurn()
@@ -175,12 +176,13 @@ final class LiveActivityTests: XCTestCase {
         coordinator.reportVoice(voice("listening"))
         coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))
         coordinator.reportVoice(voice("thinking", said: "what's on tomorrow"))
-        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow"))
         coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30."))
         coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30, then lunch."))
+        coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))   // the reply asked
 
-        XCTAssertEqual(controller.alerts, [nil, LiveActivityAlert(title: "Jarvis", body: "Listening…"), nil, nil, nil,
-                                           LiveActivityAlert(title: "Jarvis", body: "Stand-up at 9:30."), nil])
+        let alert = { LiveActivityAlert(title: "Jarvis", body: $0) }
+        XCTAssertEqual(controller.alerts, [nil, alert("Listening…"), nil, alert("what's on tomorrow"),
+                                           alert("Stand-up at 9:30."), nil, alert("Listening…")])
     }
 
     func testATalkThatEndedPopsNothingMore() {

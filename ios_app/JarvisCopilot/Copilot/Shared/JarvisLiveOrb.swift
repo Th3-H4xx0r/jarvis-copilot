@@ -1,17 +1,14 @@
 import SwiftUI
 
 /// The Voice orb (`OrbShader.metal`'s liquid-glass bubble) for the Dynamic Island and Lock
-/// Screen card, where no shader and no custom animation runs. Built from what a Live Activity
-/// does animate — SF Symbol effects, which iOS plays by itself, the way Shazam's island icon
-/// moves: a glass bubble (dark body, bright rim, top highlight, warm edge), a blue liquid that
-/// sloshes (a half-filled disc rocking), ripples rolling across it, twinkling sparkles and a
-/// breathing glow.
+/// Screen card, where no shader runs: a glass bubble (dark body, bright rim, top highlight,
+/// warm edge), a blue liquid band, faint stars and a soft glow. Still — a Live Activity
+/// plays no SF Symbol effect or SwiftUI animation (probed 2026-10-27); the motion round it
+/// is `JarvisPulse`, built on the system's own timers.
 struct JarvisLiveOrb: View {
     var size: CGFloat
     /// The glow round it: the voice state's colour, or the orb's own blue.
     var glow: Color = JarvisLiveOrb.blue
-    /// False for a still frame (render tests, snapshots).
-    var animated = true
 
     static let blue = Color(red: 0.24, green: 0.40, blue: 1.0)
     private static let deep = Color(red: 0.07, green: 0.13, blue: 0.55)
@@ -60,46 +57,33 @@ struct JarvisLiveOrb: View {
         .accessibilityHidden(true)
     }
 
-    /// A soft glow that breathes.
-    @ViewBuilder private var halo: some View {
-        let disc = Image(systemName: "circle.fill")
-            .font(.system(size: size * 1.02))
-            .foregroundStyle(glow.opacity(0.45))
-            .blur(radius: size * 0.12)
-        if animated, #available(iOS 18.0, *) {
-            disc.symbolEffect(.breathe.pulse, options: .repeat(.continuous))
-        } else {
-            disc
-        }
+    /// A soft glow.
+    private var halo: some View {
+        Circle()
+            .fill(glow.opacity(0.4))
+            .frame(width: size * 1.02, height: size * 1.02)
+            .blur(radius: size * 0.1)
     }
 
-    /// The liquid: a soft blue wave across the middle (blurred bands, so no glyph shows),
-    /// rocking like the shader's wave.
-    @ViewBuilder private var liquid: some View {
-        let wave = ZStack {
-            Image(systemName: "capsule.fill")
-                .resizable()
-                .foregroundStyle(LinearGradient(colors: [Self.blue.opacity(0.85), Self.deep.opacity(0.8)],
-                                                startPoint: .top, endPoint: .bottom))
+    /// The liquid: a soft blue band across the middle, tilted like the shader's wave.
+    private var liquid: some View {
+        ZStack {
+            Capsule()
+                .fill(LinearGradient(colors: [Self.blue.opacity(0.85), Self.deep.opacity(0.8)],
+                                     startPoint: .top, endPoint: .bottom))
                 .frame(width: size * 1.3, height: size * 0.3)
                 .blur(radius: size * 0.07)
                 .offset(y: size * 0.1)
-            Image(systemName: "capsule.fill")
-                .resizable()
-                .foregroundStyle(Self.deep.opacity(0.55))
+            Capsule()
+                .fill(Self.deep.opacity(0.55))
                 .frame(width: size * 1.1, height: size * 0.34)
                 .blur(radius: size * 0.1)
                 .offset(y: size * 0.34)
         }
         .rotationEffect(.degrees(-18))
-        if animated, #available(iOS 18.0, *) {
-            wave.symbolEffect(.wiggle.clockwise, options: .repeat(.continuous))
-        } else {
-            wave
-        }
     }
 
-    /// The faint stars scattered in the app's orb, twinkling.
+    /// The faint stars scattered in the app's orb.
     private var stars: some View {
         ZStack {
             ForEach(Array(Self.starSpots.enumerated()), id: \.offset) { index, spot in
@@ -113,14 +97,8 @@ struct JarvisLiveOrb: View {
         CGPoint(x: 0.22, y: 0.05), CGPoint(x: -0.12, y: 0.12), CGPoint(x: 0.04, y: 0.1),
     ]
 
-    @ViewBuilder private func star(_ index: Int) -> some View {
-        let dot = Image(systemName: "circle.fill")
-            .font(.system(size: max(1.2, size * (index % 2 == 0 ? 0.022 : 0.016))))
-            .foregroundStyle(.white.opacity(0.7))
-        if animated {
-            dot.symbolEffect(.pulse, options: .repeating.speed(index % 3 == 0 ? 0.6 : 1.1))
-        } else {
-            dot
-        }
+    private func star(_ index: Int) -> some View {
+        let d = max(1.2, size * (index % 2 == 0 ? 0.044 : 0.032))
+        return Circle().fill(.white.opacity(index % 3 == 0 ? 0.55 : 0.75)).frame(width: d, height: d)
     }
 }

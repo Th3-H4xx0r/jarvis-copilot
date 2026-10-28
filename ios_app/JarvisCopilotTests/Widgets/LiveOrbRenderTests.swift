@@ -25,10 +25,10 @@ final class LiveOrbRenderTests: XCTestCase {
     /// The island orb at its sizes, still, beside the app's.
     func testTheIslandOrb() throws {
         let row = HStack(spacing: 24) {
-            JarvisLiveOrb(size: 120, animated: false)
-            JarvisLiveOrb(size: 44, animated: false)
-            JarvisLiveOrb(size: 24, animated: false)
-            JarvisLiveOrb(size: 24, glow: jcStateColor("speaking"), animated: false)
+            JarvisLiveOrb(size: 120)
+            JarvisLiveOrb(size: 44)
+            JarvisLiveOrb(size: 24)
+            JarvisLiveOrb(size: 24, glow: jcStateColor("speaking"))
             if let frame = OrbFrames.frames(count: 1, size: 120).first { Image(uiImage: frame) }
         }
         .padding(20)
@@ -60,7 +60,7 @@ final class LiveOrbRenderTests: XCTestCase {
             // The collapsed island: orb leading, waveform trailing, either side of the camera.
             ForEach(["listening", "thinking", "speaking"], id: \.self) { state in
                 HStack {
-                    JarvisLiveOrb(size: 24, glow: jcStateColor(state), animated: false)
+                    JarvisLiveOrb(size: 24, glow: jcStateColor(state))
                     Spacer()
                     JarvisVoiceWave(state: state, size: 15)
                 }

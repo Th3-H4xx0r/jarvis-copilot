@@ -19,14 +19,16 @@ struct VoiceLiveActivitySnapshot: Equatable, Sendable {
 }
 
 /// Throttles + dedupes Live Activity pushes. iOS gives an app a limited update
-/// budget: flooding it made the island flicker and get stuck on a stale state
-/// (e.g. showing "Listening" after Stop, because the final "idle" update was
-/// dropped). Terminal states bypass the throttle so that can't happen.
+/// budget, and an Apple engineer says the island is "purposely nerfed" against
+/// frequent updates: flooding it made the island lag and stick on a stale state
+/// (e.g. "Listening" after Stop, the final "idle" dropped). So a new STATE goes out
+/// at once — it's what the island is for — and only words changing within a state
+/// wait out the window.
 @MainActor
 final class VoiceLiveActivityThrottle {
 
-    /// Minimum gap between non-terminal pushes.
-    static let windowMs = 450
+    /// Minimum gap between pushes that only change the words.
+    static let windowMs = 1_200
 
     /// Bound the transcript — a long monologue could blow the ~4 KB ContentState
     /// budget and make iOS silently reject the update.
@@ -56,7 +58,8 @@ final class VoiceLiveActivityThrottle {
             return
         }
         let sinceMs = Int(clock.now.timeIntervalSince(lastPush) * 1000)
-        if terminal || sinceMs >= Self.windowMs {
+        let newState = sent?.state != snapshot.state || sent?.connected != snapshot.connected
+        if terminal || newState || sinceMs >= Self.windowMs {
             pendingTimer?.cancel()
             pendingTimer = nil
             push(snapshot)

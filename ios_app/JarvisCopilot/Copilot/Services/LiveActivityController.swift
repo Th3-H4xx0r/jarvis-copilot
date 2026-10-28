@@ -142,7 +142,7 @@ final class DefaultActivityController: ActivityControlling {
         if devices.count > 8 { devices = Array(devices.prefix(8)) }
         var sessions = s.sessions
         if sessions.count > LiveFleet.maxRows { sessions = Array(sessions.prefix(LiveFleet.maxRows)) }
-        return JarvisActivityAttributes.ContentState(
+        var content = JarvisActivityAttributes.ContentState(
             state: s.state, transcript: s.transcript, activity: s.activity,
             connected: s.connected, devices: devices,
             mode: s.mode, sessions: sessions,
@@ -151,6 +151,8 @@ final class DefaultActivityController: ActivityControlling {
             usage5: s.usage5, usageWeek: s.usageWeek,
             usage5Resets: s.usage5Resets, usageWeekResets: s.usageWeekResets,
             designId: s.designId, designVersion: s.designVersion, data: s.data)
+        content.stateSince = s.stateSince
+        return content
     }
 
     /// Observe push tokens for every current AND future activity. The

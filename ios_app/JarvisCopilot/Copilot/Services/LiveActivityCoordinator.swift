@@ -58,11 +58,17 @@ final class LiveActivityCoordinator {
     private var catalog = IslandCatalog.empty
 
     private var lastPushed: LiveActivityState?
-    /// A talk started from the Action button with Jarvis in the background: its
-    /// "Listening…" and its reply each pop the island open once, the way Siri shows
-    /// itself. Over when the talk is.
+    /// When the voice state last changed: the island's ring sweeps from here.
+    private var voiceSince = Date(timeIntervalSince1970: 0)
+    /// A talk started from the Action button with Jarvis in the background: every
+    /// state change pops the island open again, and so does a reply that grew, so it
+    /// reads as open for the whole talk the way Siri shows itself — iOS lets an app
+    /// open its island only for a moment per alert (no app can hold it open). Over
+    /// when the talk is.
     private var presenting = false
-    private var presented: Set<String> = []
+    private var lastAlert: (state: String, text: String, at: Date)?
+    /// A growing reply re-opens the island at most this often.
+    static let replyAlertGap: TimeInterval = 2.5
     private var lastFetch = Date(timeIntervalSince1970: 0)
     private var lastUsageFetch = Date(timeIntervalSince1970: 0)
     private var lastIslandFetch = Date(timeIntervalSince1970: 0)
@@ -162,6 +168,7 @@ final class LiveActivityCoordinator {
     /// `VoiceStore` reports here (through `VoiceLiveActivityThrottle.onPush`)
     /// rather than pushing ActivityKit itself.
     func reportVoice(_ snapshot: VoiceLiveActivitySnapshot) {
+        if snapshot.state != voice.state { voiceSince = now() }
         voice = snapshot
         push()
     }
@@ -298,6 +305,7 @@ final class LiveActivityCoordinator {
         state.connected = voice.connected
         state.devices = voice.devices
         state.voiceHold = voice.holdsCard
+        state.stateSince = voiceSince.timeIntervalSince1970
 
         var showCoding = false
         var activeDesign: IslandDesign?
@@ -364,33 +372,40 @@ final class LiveActivityCoordinator {
         controller.update(state, alert: alert(for: state))
     }
 
-    /// The next voice talk pops the island open: its listening, then its reply.
+    /// The next voice talk pops the island open on every change until it ends.
     func presentVoiceTurn() {
         presenting = true
-        presented = []
+        lastAlert = nil
     }
 
-    /// Whether this frame of a presented talk pops the island: the first listening
-    /// frame, and the first with the reply's words. The talk ending (idle, or an
-    /// error) ends the presenting.
+    /// Whether this frame of a presented talk pops the island: a new state (the
+    /// first listening, thinking, the reply, listening again for an answer), or the
+    /// reply's words grown since the last pop at least `replyAlertGap` ago. The talk
+    /// ending (idle, or an error) ends the presenting.
     private func alert(for state: LiveActivityState) -> LiveActivityAlert? {
         guard presenting else { return nil }
-        let key: String
+        let reply = state.activity.trimmingCharacters(in: .whitespacesAndNewlines)
+        let said = state.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let body: String
         switch state.state {
-        case "listening":
-            key = "listening"
-            body = jcVoiceTitle("listening")
-        case "speaking" where !state.activity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
-            key = "speaking"
-            body = state.activity
+        case "listening": body = jcVoiceTitle("listening")
+        case "thinking": body = said.isEmpty ? jcVoiceTitle("thinking") : said
+        case "speaking": body = reply.isEmpty ? jcVoiceTitle("speaking") : reply
         case "idle", "error":
             presenting = false
+            lastAlert = nil
             return nil
-        default:
-            return nil
+        default: return nil
         }
-        guard presented.insert(key).inserted else { return nil }
+        // Nothing pops before the first "Listening…": the connecting frame shows as
+        // thinking, and the mic isn't live yet.
+        if lastAlert == nil, state.state != "listening" { return nil }
+        let at = now()
+        if let last = lastAlert, last.state == state.state {
+            guard state.state == "speaking", reply != last.text,
+                  at.timeIntervalSince(last.at) >= Self.replyAlertGap else { return nil }
+        }
+        lastAlert = (state.state, state.state == "speaking" ? reply : "", at)
         return LiveActivityAlert(title: "Jarvis", body: body)
     }
 

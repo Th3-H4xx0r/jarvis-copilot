@@ -338,6 +338,7 @@ final class AppServices {
                                 })
         TalkHereBridge.press = { await talkHere.press() }
         TalkHereBridge.log = talkLog
+        TalkHereBridge.stop = { await VoiceStore.shared.stopAll() }
         VoiceStore.shared.audioDiagnostics = {
             "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
                 + " app=\(UIApplication.shared.applicationState.rawValue)"

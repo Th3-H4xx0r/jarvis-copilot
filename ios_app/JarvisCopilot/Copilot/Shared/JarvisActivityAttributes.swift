@@ -91,6 +91,10 @@ struct JarvisActivityAttributes: ActivityAttributes {
         var leadSince: Double = 0
         /// The engine key, for the tap's deep link.
         var leadKey: String = ""
+
+        /// When the voice state began (Unix seconds; 0 = unknown): the island's ring
+        /// sweeps from here, so a text update mid-state doesn't restart it.
+        var stateSince: Double = 0
     }
     var title: String = "JARVIS"
 }
@@ -127,5 +131,6 @@ extension JarvisActivityAttributes.ContentState {
         leadKind = try c.decodeIfPresent(String.self, forKey: .leadKind) ?? d.leadKind
         leadSince = try c.decodeIfPresent(Double.self, forKey: .leadSince) ?? d.leadSince
         leadKey = try c.decodeIfPresent(String.self, forKey: .leadKey) ?? d.leadKey
+        stateSince = try c.decodeIfPresent(Double.self, forKey: .stateSince) ?? d.stateSince
     }
 }

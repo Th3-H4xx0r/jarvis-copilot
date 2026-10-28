@@ -74,8 +74,9 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         .widgetURL(URL(string: jcWidgetURL(st)))
     }
     return DynamicIsland {
-        // Voice: the animated orb leading, what Jarvis is doing beside it, a live waveform
-        // trailing, and the latest words under them. Coding keeps its fleet view.
+        // Voice, laid out like Music Recognition: the pulsing orb and "Listening…"
+        // leading, the state's glyph and a ✕ trailing, the latest words under them.
+        // Coding keeps its fleet view.
         DynamicIslandExpandedRegion(.leading) {
             if st.mode == "coding" {
                 HStack(spacing: 9) {
@@ -91,32 +92,31 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 }
                 .padding(.leading, 4)
             } else {
-                // Orb and state side by side, centred on one line with the waveform.
-                HStack(spacing: 10) {
-                    JarvisLiveOrb(size: 36, glow: jcStateColor(st.state))
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Jarvis")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.6))
-                        Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(st.connected && st.state != "idle" ? jcStateColor(st.state) : .white)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
+                // Music Recognition's layout: the pulsing orb and what Jarvis is doing.
+                HStack(spacing: 8) {
+                    JarvisOrbBadge(st: st, size: 58)
+                    Text(st.connected ? jcVoiceTitle(st.state) : "Offline")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
-                .frame(maxHeight: .infinity, alignment: .center)
-                .padding(.leading, 4)
-                .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                .padding(.leading, 2)
             }
         }
         DynamicIslandExpandedRegion(.trailing) {
             if st.mode == "coding" {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
-                JarvisVoiceWave(state: st.connected ? st.state : "error", size: 22)
-                    .frame(maxHeight: .infinity, alignment: .center)
-                    .padding(.trailing, 8)
+                // The state's glyph, and the ✕ that ends the talk.
+                HStack(spacing: 12) {
+                    JarvisVoiceWave(state: st.connected ? st.state : "error", size: 18)
+                    if jcVoiceActive(st) {
+                        JarvisStopButton(tint: jcStopTint(st), size: 42)
+                    }
+                }
+                .frame(height: 58)
+                .padding(.trailing, 4)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
@@ -129,35 +129,38 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                     }
                     JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                 }
-            } else if let line = jcVoiceLine(st) {
-                // The latest words, large — your words while you talk, Jarvis's reply after.
-                Text(line)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.7 : 0.95))
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+            } else {
+                // The latest words — yours while you talk, Jarvis's reply after.
+                if let line = jcVoiceLine(st) {
+                    Text(line)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white.opacity(st.state == "thinking" ? 0.7 : 0.95))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 6)
+                }
             }
         }
     } compactLeading: {
         if st.mode == "coding" {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
-            JarvisLiveOrb(size: 24, glow: jcStateColor(st.state))
+            JarvisOrbBadge(st: st, size: 34)
         }
     } compactTrailing: {
         if st.mode == "coding" {
             JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
         } else {
             JarvisVoiceWave(state: st.connected ? st.state : "error", size: 15)
+                .frame(height: 34)
         }
     } minimal: {
         if st.mode == "coding" {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
-            JarvisLiveOrb(size: 22, glow: jcStateColor(st.state))
+            JarvisOrbBadge(st: st, size: 30)
         }
     }
     .widgetURL(URL(string: jcWidgetURL(st)))
