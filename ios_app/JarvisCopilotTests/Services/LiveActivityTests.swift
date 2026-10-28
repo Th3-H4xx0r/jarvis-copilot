@@ -128,7 +128,8 @@ final class LiveActivityTests: XCTestCase {
                                  cache: RecordingIslandCache = RecordingIslandCache(),
                                  preferences: KeyValueStore = MemoryKeyValueStore(),
                                  paired: Bool = true,
-                                 notifier: MockNotifier = MockNotifier())
+                                 notifier: MockNotifier = MockNotifier(),
+                                 now: @escaping () -> Date = { Date(timeIntervalSince1970: 1_700_000_000) })
     -> (LiveActivityCoordinator, MockTransport) {
         let (api, transport) = JarvisAPI.mocked()
         let coordinator = LiveActivityCoordinator(
@@ -140,7 +141,7 @@ final class LiveActivityTests: XCTestCase {
             lifecycle: AppLifecycle(),
             preferences: preferences,
             isPaired: { paired },
-            now: { Date(timeIntervalSince1970: 1_700_000_000) },
+            now: now,
             sleeper: instantSleeper)
         return (coordinator, transport)
     }
@@ -165,24 +166,45 @@ final class LiveActivityTests: XCTestCase {
         VoiceLiveActivitySnapshot(state: state, transcript: said, activity: reply, connected: true, devices: [])
     }
 
-    /// The Action button's talk: every state change pops the island open again (iOS
-    /// allows no holding it open); repeats of a state don't, and a growing reply only
-    /// after the gap (the test clock stands still, so not here).
-    func testAPresentedTalkPopsTheIslandOnEveryStateChange() {
+    /// The Action button's talk: the first "Listening" pops the island open; while
+    /// it's open (an alert holds it ~5.5 s, measured in the iOS 27 simulator) every
+    /// change goes as a plain update, which redraws the open island in place — a
+    /// re-alert there folds it and opens it again, the blink he saw. Once that time
+    /// is up the next change opens it again.
+    func testAPresentedTalkOpensTheIslandOnceAndUpdatesItInPlace() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
         let controller = FakeActivityController()
-        let (coordinator, _) = makeCoordinator(controller: controller)
+        let (coordinator, _) = makeCoordinator(controller: controller, now: { clock })
         coordinator.presentVoiceTurn()
         coordinator.reportVoice(voice("thinking"))   // connecting
         coordinator.reportVoice(voice("listening"))
+        clock += 1
         coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))
         coordinator.reportVoice(voice("thinking", said: "what's on tomorrow"))
+        clock += 2
         coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30."))
-        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "Stand-up at 9:30, then lunch."))
+        clock += 1.5
+        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "then lunch with Alex"))
+        // Past the open time: it has folded, so the next page opens it again.
+        clock += LiveActivityCoordinator.islandOpenFor
+        coordinator.reportVoice(voice("speaking", said: "what's on tomorrow", reply: "and the dentist at four."))
+        clock += 1
         coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))   // the reply asked
 
         let alert = { LiveActivityAlert(title: "Jarvis", body: $0) }
-        XCTAssertEqual(controller.alerts, [nil, alert("Listening"), nil, alert("what's on tomorrow"),
-                                           alert("Stand-up at 9:30."), nil, alert("Listening")])
+        XCTAssertEqual(controller.alerts, [nil, alert("Listening"), nil, nil, nil, nil,
+                                           alert("and the dentist at four."), nil])
+    }
+
+    func testAnOpenIslandThatFoldedWithNothingNewStaysFolded() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller, now: { clock })
+        coordinator.presentVoiceTurn()
+        coordinator.reportVoice(voice("listening"))
+        clock += LiveActivityCoordinator.islandOpenFor + 1
+        coordinator.reportVoice(voice("listening"))   // the same frame: nothing to show
+        XCTAssertEqual(controller.alerts.compactMap { $0 }.count, 1)
     }
 
     func testATalkThatEndedPopsNothingMore() {

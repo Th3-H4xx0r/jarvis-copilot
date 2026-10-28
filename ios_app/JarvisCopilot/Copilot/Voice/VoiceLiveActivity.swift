@@ -113,10 +113,10 @@ func voiceOutputLine(error: String?, toolStatus: String?,
 /// two lines of the island — and the one holding the word being said now (the last
 /// once it's all said).
 ///
-/// Pages, not a scroll: a Live Activity can't scroll, and the island stays open only
-/// while each frame re-alerts it, at most every few seconds
-/// (`LiveActivityCoordinator.replyAlertGap`); a page of speech lasts about that, so
-/// each turn of the page is one frame that keeps it open.
+/// Pages, not a scroll: a Live Activity can't scroll, and every frame is an update
+/// out of iOS's budget; a page of speech lasts a few seconds, so turning pages costs
+/// one update each. While the island is open a page turn redraws it in place
+/// (`LiveActivityCoordinator.islandOpenFor`).
 func voiceReplyPage(_ text: String, spokenWords: Int,
                     pageChars: Int = VoiceLiveActivityThrottle.pageChars) -> String {
     let words = voiceWordTokens(text)

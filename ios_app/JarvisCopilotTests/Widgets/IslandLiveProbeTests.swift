@@ -24,7 +24,28 @@ final class IslandLiveProbeTests: XCTestCase {
             ("speaking", "What's on my calendar tomorrow?", "Stand-up with Maya at 9:30, then the dentist at 11, and the gym at 6."),
             ("idle", "What's on my calendar tomorrow?", "Stand-up at 9:30, then the dentist at 11."),
         ]
-        let alerts = ProcessInfo.processInfo.environment["JC_ISLAND_ALERTS"] == "1"
+        let env = ProcessInfo.processInfo.environment
+        if env["JC_ISLAND_PAGES"] == "1" {
+            // One alert on "speaking", then a page of the reply every 1.5 s as plain
+            // updates: does an expanded island update in place, and how long does
+            // an alert keep it open?
+            st.state = "speaking"
+            st.stateSince = Date().timeIntervalSince1970
+            st.transcript = "What's on my calendar tomorrow?"
+            st.activity = "Page 1: You have three things tomorrow, starting with standup"
+            await activity.update(ActivityContent(state: st, staleDate: nil), alertConfiguration: AlertConfiguration(
+                title: "Jarvis", body: "speaking", sound: .default))
+            print("PROBE now alert")
+            for page in 2...9 {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+                st.activity = "Page \(page): and then a few more words of the answer go here"
+                await activity.update(ActivityContent(state: st, staleDate: nil))
+                print("PROBE now page\(page)")
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            return
+        }
+        let alerts = env["JC_ISLAND_ALERTS"] == "1"
         for (state, said, reply) in steps {
             if state != st.state { st.stateSince = Date().timeIntervalSince1970 }
             st.state = state

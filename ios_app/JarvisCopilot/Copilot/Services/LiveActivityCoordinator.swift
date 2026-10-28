@@ -66,11 +66,13 @@ final class LiveActivityCoordinator {
     /// open its island only for a moment per alert (no app can hold it open). Over
     /// when the talk is.
     private var presenting = false
-    private var lastAlert: (state: String, text: String, at: Date)?
-    /// A changed reply re-opens the island at most this often: the voice throttle's
-    /// window, so every turn of the reply's page (`voiceReplyPage`) re-alerts — a
-    /// plain update would fold the island shut mid-answer.
-    static let replyAlertGap: TimeInterval = Double(VoiceLiveActivityThrottle.windowMs) / 1000
+    /// When the last alert popped the island open (nil: not opened yet this talk).
+    private var openedAt: Date?
+    /// How long an alert holds the island open: ~5.5 s, measured in the iOS 27
+    /// simulator (2026-10-27), and a little over so a re-alert lands once it has
+    /// folded. Inside it, plain updates redraw the open island in place; an alert
+    /// there folds it and opens it again — the blink on every page turn.
+    static let islandOpenFor: TimeInterval = 6
     private var lastFetch = Date(timeIntervalSince1970: 0)
     private var lastUsageFetch = Date(timeIntervalSince1970: 0)
     private var lastIslandFetch = Date(timeIntervalSince1970: 0)
@@ -377,13 +379,14 @@ final class LiveActivityCoordinator {
     /// The next voice talk pops the island open on every change until it ends.
     func presentVoiceTurn() {
         presenting = true
-        lastAlert = nil
+        openedAt = nil
     }
 
-    /// Whether this frame of a presented talk pops the island: a new state (the
-    /// first listening, thinking, the reply, listening again for an answer), or the
-    /// reply's words grown since the last pop at least `replyAlertGap` ago. The talk
-    /// ending (idle, or an error) ends the presenting.
+    /// Whether this frame of a presented talk pops the island: the first
+    /// "Listening" opens it; while it's open (`islandOpenFor`) every change is a
+    /// plain update, redrawn in place; once it has folded, the next change opens it
+    /// again. Only changed frames reach here (`push` drops repeats). The talk ending
+    /// (idle, or an error) ends the presenting.
     private func alert(for state: LiveActivityState) -> LiveActivityAlert? {
         guard presenting else { return nil }
         let reply = state.activity.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -395,19 +398,19 @@ final class LiveActivityCoordinator {
         case "speaking": body = reply.isEmpty ? jcVoiceTitle("speaking") : reply
         case "idle", "error":
             presenting = false
-            lastAlert = nil
+            openedAt = nil
             return nil
         default: return nil
         }
-        // Nothing pops before the first "Listening…": the connecting frame shows as
-        // thinking, and the mic isn't live yet.
-        if lastAlert == nil, state.state != "listening" { return nil }
         let at = now()
-        if let last = lastAlert, last.state == state.state {
-            guard state.state == "speaking", reply != last.text,
-                  at.timeIntervalSince(last.at) >= Self.replyAlertGap else { return nil }
+        if let opened = openedAt {
+            guard at.timeIntervalSince(opened) >= Self.islandOpenFor else { return nil }
+        } else if state.state != "listening" {
+            // Nothing pops before the first "Listening": the connecting frame shows
+            // as thinking, and the mic isn't live yet.
+            return nil
         }
-        lastAlert = (state.state, state.state == "speaking" ? reply : "", at)
+        openedAt = at
         return LiveActivityAlert(title: "Jarvis", body: body)
     }
 
