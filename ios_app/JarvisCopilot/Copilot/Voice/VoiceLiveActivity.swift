@@ -34,6 +34,10 @@ final class VoiceLiveActivityThrottle {
     /// budget and make iOS silently reject the update.
     static let lineLimit = 120
 
+    /// A page of the reply on the island: two lines of its 17 pt text, with room
+    /// to spare for wide letters.
+    static let pageChars = 72
+
     /// The strip plus the 4 KB cap.
     static let maxDevices = 6
 
@@ -89,14 +93,48 @@ func voiceFirstLine(_ s: String, limit: Int = VoiceLiveActivityThrottle.lineLimi
     return String(line.prefix(limit)) + "…"
 }
 
-/// JARVIS's side of the line for the island.
+/// JARVIS's side of the line for the island: while he speaks, the page he's on
+/// (`voiceReplyPage`), so the island reads along like the Voice screen's
+/// teleprompter.
+/// `spokenWords`: how many of the reply's words have been said (nil: none yet).
 /// `holdReply`: a finished one-shot turn's reply stays on the card while idle.
 func voiceOutputLine(error: String?, toolStatus: String?,
-                     state: VoiceState, assistantText: String, holdReply: Bool = false) -> String {
+                     state: VoiceState, assistantText: String, spokenWords: Int? = nil,
+                     holdReply: Bool = false) -> String {
     if let error, !error.isEmpty { return error }
     if let toolStatus, !toolStatus.isEmpty { return toolStatus }
     if state == .speaking || (holdReply && state == .idle), !assistantText.isEmpty {
-        return voiceFirstLine(assistantText)
+        return voiceReplyPage(assistantText, spokenWords: spokenWords ?? 0)
     }
     return ""
+}
+
+/// The reply in island-sized pages — whole words, at most `pageChars` each, about
+/// two lines of the island — and the one holding the word being said now (the last
+/// once it's all said).
+///
+/// Pages, not a scroll: a Live Activity can't scroll, and the island stays open only
+/// while each frame re-alerts it, at most every few seconds
+/// (`LiveActivityCoordinator.replyAlertGap`); a page of speech lasts about that, so
+/// each turn of the page is one frame that keeps it open.
+func voiceReplyPage(_ text: String, spokenWords: Int,
+                    pageChars: Int = VoiceLiveActivityThrottle.pageChars) -> String {
+    let words = voiceWordTokens(text)
+    guard !words.isEmpty else { return "" }
+    var pages: [(text: String, end: Int)] = []   // `end`: one past the page's last word
+    var page = ""
+    for (i, word) in words.enumerated() {
+        let w = word.count > pageChars ? String(word.prefix(pageChars)) + "…" : word
+        if page.isEmpty {
+            page = w
+        } else if page.count + 1 + w.count <= pageChars {
+            page += " " + w
+        } else {
+            pages.append((page, i))
+            page = w
+        }
+    }
+    pages.append((page, words.count))
+    let now = min(max(spokenWords, 0), words.count - 1)
+    return pages.first { now < $0.end }?.text ?? pages[pages.count - 1].text
 }

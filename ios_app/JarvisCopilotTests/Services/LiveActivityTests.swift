@@ -181,8 +181,8 @@ final class LiveActivityTests: XCTestCase {
         coordinator.reportVoice(voice("listening", said: "what's on tomorrow"))   // the reply asked
 
         let alert = { LiveActivityAlert(title: "Jarvis", body: $0) }
-        XCTAssertEqual(controller.alerts, [nil, alert("Listening…"), nil, alert("what's on tomorrow"),
-                                           alert("Stand-up at 9:30."), nil, alert("Listening…")])
+        XCTAssertEqual(controller.alerts, [nil, alert("Listening"), nil, alert("what's on tomorrow"),
+                                           alert("Stand-up at 9:30."), nil, alert("Listening")])
     }
 
     func testATalkThatEndedPopsNothingMore() {

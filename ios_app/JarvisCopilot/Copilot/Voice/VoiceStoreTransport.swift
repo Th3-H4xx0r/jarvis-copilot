@@ -672,12 +672,19 @@ extension VoiceStore {
             transcript: voiceFirstLine(userTranscript),
             activity: voiceOutputLine(error: error, toolStatus: toolStatus,
                                       state: machine.state, assistantText: reply.text,
-                                      holdReply: holding),
+                                      spokenWords: reply.spokenWords, holdReply: holding),
             connected: voice.api.isPaired,
             devices: deviceKinds,
             holdsCard: holding)
         let terminal = machine.state == .idle || machine.state == .error
         liveActivity.offer(snapshot, terminal: terminal)
+    }
+
+    /// The voice moved on through the reply: the island turns to the page Jarvis is
+    /// on. Most ticks land on the same page, and the throttle drops those as unchanged.
+    func followSpokenWords() {
+        guard machine.state == .speaking else { return }
+        pushLiveActivity()
     }
 
     /// Refresh the online-device list (for the Live Activity strip) at most once

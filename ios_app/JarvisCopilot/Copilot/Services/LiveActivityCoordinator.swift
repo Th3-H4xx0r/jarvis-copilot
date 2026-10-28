@@ -67,8 +67,10 @@ final class LiveActivityCoordinator {
     /// when the talk is.
     private var presenting = false
     private var lastAlert: (state: String, text: String, at: Date)?
-    /// A growing reply re-opens the island at most this often.
-    static let replyAlertGap: TimeInterval = 2.5
+    /// A changed reply re-opens the island at most this often: the voice throttle's
+    /// window, so every turn of the reply's page (`voiceReplyPage`) re-alerts — a
+    /// plain update would fold the island shut mid-answer.
+    static let replyAlertGap: TimeInterval = Double(VoiceLiveActivityThrottle.windowMs) / 1000
     private var lastFetch = Date(timeIntervalSince1970: 0)
     private var lastUsageFetch = Date(timeIntervalSince1970: 0)
     private var lastIslandFetch = Date(timeIntervalSince1970: 0)

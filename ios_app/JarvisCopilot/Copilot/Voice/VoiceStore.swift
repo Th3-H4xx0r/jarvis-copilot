@@ -518,12 +518,15 @@ final class VoiceStore {
         // PCM); only `onSegmentComplete` is exact. See VoiceReply.clipStarted.
         audio.onClipStart = { [weak self] tag, ms in
             self?.reply.clipStarted(tag: tag, durationMs: ms, complete: false)
+            self?.followSpokenWords()
         }
         audio.onSegmentComplete = { [weak self] tag, ms in
             self?.reply.clipStarted(tag: tag, durationMs: ms, complete: true)
+            self?.followSpokenWords()
         }
         audio.onPosition = { [weak self] tag, ms in
             self?.reply.clipPosition(tag: tag, positionMs: ms)
+            self?.followSpokenWords()
         }
         self.synthesizer.onPlaybackStart = { [weak self] in
             guard let self, self.isActive else { return }

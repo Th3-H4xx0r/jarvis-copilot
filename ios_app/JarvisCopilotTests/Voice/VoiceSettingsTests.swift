@@ -197,7 +197,54 @@ final class VoiceLiveActivityTests: XCTestCase {
         XCTAssertEqual(voiceOutputLine(error: nil, toolStatus: "Running x",
                                        state: .speaking, assistantText: "Hi"), "Running x")
         XCTAssertEqual(voiceOutputLine(error: nil, toolStatus: nil,
-                                       state: .speaking, assistantText: "Hi\nthere"), "Hi")
+                                       state: .speaking, assistantText: "Hi\nthere"), "Hi there")
+    }
+
+    // MARK: - Teleprompter pages
+
+    private let longReply = "You have three things tomorrow. Standup with the team at nine, lunch with Alex at half past twelve, and the dentist at four in the afternoon."
+
+    func testTheIslandShowsThePageJarvisIsSaying() {
+        let first = voiceReplyPage(longReply, spokenWords: 0, pageChars: 40)
+        XCTAssertTrue(longReply.hasPrefix(first), "before the voice starts: the first page")
+        XCTAssertLessThanOrEqual(first.count, 40)
+        // Halfway through, the page holds the word being said.
+        let words = voiceWordTokens(longReply)
+        let mid = voiceReplyPage(longReply, spokenWords: 12, pageChars: 40)
+        XCTAssertTrue(mid.split(separator: " ").map(String.init).contains(words[12]))
+        XCTAssertNotEqual(mid, first, "it turned the page")
+    }
+
+    func testPagesCoverTheWholeReplyInOrder() {
+        let words = voiceWordTokens(longReply)
+        var pages: [String] = []
+        for spoken in 0...words.count {
+            let page = voiceReplyPage(longReply, spokenWords: spoken, pageChars: 40)
+            XCTAssertLessThanOrEqual(page.count, 40)
+            if pages.last != page { pages.append(page) }
+        }
+        XCTAssertEqual(pages.joined(separator: " "), words.joined(separator: " "),
+                       "every word shows once, in order, as the voice goes")
+    }
+
+    func testTheLastPageStaysOnceItsAllSaid() {
+        let words = voiceWordTokens(longReply)
+        XCTAssertEqual(voiceReplyPage(longReply, spokenWords: words.count, pageChars: 40),
+                       voiceReplyPage(longReply, spokenWords: words.count - 1, pageChars: 40))
+        XCTAssertEqual(voiceReplyPage("", spokenWords: 3), "")
+    }
+
+    func testAWordLongerThanAPageGetsAPageOfItsOwn() {
+        let long = String(repeating: "x", count: 50)
+        XCTAssertEqual(voiceReplyPage("hi \(long) there", spokenWords: 1, pageChars: 40).count, 41,
+                       "capped with an ellipsis, never an endless page")
+    }
+
+    func testTheSpeakingLineFollowsTheVoice() {
+        let words = voiceWordTokens(longReply)
+        let line = voiceOutputLine(error: nil, toolStatus: nil, state: .speaking,
+                                   assistantText: longReply, spokenWords: words.count)
+        XCTAssertTrue(line.contains("afternoon."), "the end of the reply once it's been said")
     }
 
     func testOutputLineIsEmptyWhenTheStateLabelAlreadySaysIt() {

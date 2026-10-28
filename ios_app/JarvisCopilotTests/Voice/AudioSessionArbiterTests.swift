@@ -19,6 +19,13 @@ import XCTest
 @MainActor
 final class AudioSessionArbiterTests: XCTestCase {
 
+    override func setUp() async throws {
+        try await super.setUp()
+        // The host app points this at its saved "armed" flag, which a simulator that
+        // ever ran the Action-button talk has on; tests that want it say so.
+        AudioSessionArbiter.keepaliveRecordReady = { false }
+    }
+
     private func makeArbiter() -> (AudioSessionArbiter, MockAudioSessionApplying) {
         let applier = MockAudioSessionApplying()
         return (AudioSessionArbiter(session: applier), applier)
