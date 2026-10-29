@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import Jarvis
 
@@ -133,5 +134,29 @@ final class AppUpdateTests: XCTestCase {
         try XCTSkipUnless(SecStaticCodeCreateWithPath(calculator as CFURL, [], &apple) == errSecSuccess)
         let problem = AppUpdateRules.signatureProblem(appAt: Bundle.main.bundleURL, own: apple)
         XCTAssertTrue(problem?.contains("developer certificate") == true, problem ?? "nil")
+    }
+}
+
+/// The update card drawn offscreen, to look at before it ships (set JC_UPDATE_SNAPSHOT to a folder).
+@MainActor
+final class UpdateCardRenderTests: XCTestCase {
+    func testTheUpdateCardRenders() throws {
+        let offer = try XCTUnwrap(MacAppUpdate(json: [
+            "available": true, "platform": "mac", "build": 263022206, "version": "1.0", "size": 6_563_067,
+            "install_url": "https://example.com/ota/d/x/Jarvis.zip",
+            "notes": "• A new look for this update card\n• Paste images and files straight into chat"]))
+        let out = ProcessInfo.processInfo.environment["JC_UPDATE_SNAPSHOT"] ?? "/tmp/macshots"
+        try FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
+        for (name, phase) in [("offered", AppUpdater.Phase.offered), ("downloading", .downloading(0.42)),
+                              ("failed", .failed("The download isn't signed by you, so it wasn't installed."))] {
+            let host = NSHostingView(rootView: UpdateCard(offer: offer, phase: phase).padding(30).background(Color(white: 0.2)))
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: "\(out)/update-\(name).png"))
+        }
     }
 }

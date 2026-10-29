@@ -256,77 +256,186 @@ private final class UpdatePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// The pop-up, on the island's black: what's new, Install now / Later, then the
-/// download's progress or what went wrong.
+/// The pop-up: the live updater's state handed to `UpdateCard`.
 private struct AppUpdateView: View {
     let updater: AppUpdater
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 34, height: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Update available").font(.system(size: 14, weight: .semibold)).foregroundStyle(ChatStyle.text)
-                    if let offer = updater.offer {
-                        Text(offer.version.isEmpty ? "Build \(offer.build)" : "Version \(offer.version) (\(offer.build))")
-                            .font(.system(size: 11)).foregroundStyle(ChatStyle.muted)
-                    }
-                }
-            }
-            if let notes = updater.offer?.notes, !notes.isEmpty {
-                ScrollView {
-                    Text(notes).font(.system(size: 12.5)).lineSpacing(2).foregroundStyle(ChatStyle.text)
-                        .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                }
-                .frame(maxHeight: 150).fixedSize(horizontal: false, vertical: true)
-            }
-            status
+        if let offer = updater.offer {
+            UpdateCard(offer: offer, phase: updater.phase,
+                       onInstall: { updater.installNow() }, onLater: { updater.later() })
         }
-        .padding(16)
-        .frame(width: 360)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+    }
+}
+
+/// The card in the phone's look: black glass with the accent glowing in from the top,
+/// the app's icon, a status pill, what's new in a glass panel, one bright Install Now —
+/// then the download's progress or what went wrong.
+struct UpdateCard: View {
+    let offer: MacAppUpdate
+    var phase: AppUpdater.Phase = .offered
+    var onInstall: () -> Void = {}
+    var onLater: () -> Void = {}
+
+    private let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            if !items.isEmpty { whatsNew.padding(.top, 18) }
+            status.padding(.top, 16)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 22)
+        .padding(.bottom, 14)
+        .frame(width: 380)
+        .background {
+            ZStack {
+                Color.black
+                Color.white.opacity(0.06)
+                RadialGradient(colors: [JcAccent.color.opacity(0.28), .clear],
+                               center: .top, startRadius: 0, endRadius: 220)
+            }
+            .clipShape(shape)
+        }
+        .overlay(shape.strokeBorder(LinearGradient(
+            colors: [JcAccent.color.opacity(0.55), .white.opacity(0.1), .white.opacity(0.1)],
+            startPoint: .top, endPoint: .bottom), lineWidth: 1))
         .environment(\.colorScheme, .dark)
     }
 
+    private var header: some View {
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
+                .shadow(color: JcAccent.color.opacity(0.5), radius: 18)
+            HStack(spacing: 6) {
+                Circle().fill(JcAccent.color).frame(width: 6, height: 6)
+                Text("Update available").font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ChatStyle.text.opacity(0.9))
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(.white.opacity(0.07), in: Capsule())
+            .padding(.top, 12)
+            Text(offer.version.isEmpty ? "Jarvis" : "Jarvis \(offer.version)")
+                .font(.system(size: 22, weight: .medium)).tracking(-0.5)
+                .foregroundStyle(ChatStyle.text)
+                .padding(.top, 9)
+            Text(subtitle).font(.system(size: 12)).foregroundStyle(ChatStyle.muted)
+                .padding(.top, 3)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// "Build 263022206 · 6.6 MB" — the build as digits; Text's own interpolation
+    /// would group it ("263,022,206").
+    private var subtitle: String {
+        var parts = ["Build " + String(offer.build)]
+        if offer.size > 0 {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(offer.size), countStyle: .file))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// One item per line, with the "•" / "-" the publisher typed taken off.
+    private var items: [String] {
+        offer.notes.split(whereSeparator: \.isNewline).map {
+            var line = $0.trimmingCharacters(in: .whitespaces)
+            if let first = line.first, "•-*".contains(first) { line.removeFirst() }
+            return line.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+    }
+
+    private var whatsNew: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("WHAT\u{2019}S NEW").font(.system(size: 10, weight: .semibold)).tracking(1.1)
+                .foregroundStyle(ChatStyle.muted)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "sparkle").font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(JcAccent.color)
+                            Text(item).font(.system(size: 13)).foregroundStyle(ChatStyle.text.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            }
+            .frame(maxHeight: 150).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(13)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(.white.opacity(0.1), lineWidth: 0.5))
+    }
+
     @ViewBuilder private var status: some View {
-        switch updater.phase {
+        switch phase {
         case .offered:
-            buttons(primary: "Install now")
+            buttons(primary: "Install Now")
         case .downloading(let f):
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 ProgressView(value: f).tint(JcAccent.color)
                 Text(downloadLine(f)).font(.system(size: 11)).foregroundStyle(ChatStyle.muted)
             }
+            .padding(.bottom, 4)
         case .verifying:
             line("Checking the download…")
         case .installing:
             line("Installing — Jarvis will reopen in a moment.")
         case .failed(let message):
-            Text(message).font(.system(size: 12)).foregroundStyle(ChatStyle.danger).fixedSize(horizontal: false, vertical: true)
-            buttons(primary: "Try again")
+            VStack(spacing: 10) {
+                Label(message, systemImage: "exclamationmark.circle.fill")
+                    .font(.system(size: 12)).foregroundStyle(ChatStyle.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                buttons(primary: "Try Again")
+            }
         }
     }
 
     private func line(_ text: String) -> some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text(text).font(.system(size: 11.5)).foregroundStyle(ChatStyle.muted)
+            Text(text).font(.system(size: 12)).foregroundStyle(ChatStyle.muted)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private func buttons(primary: String) -> some View {
-        HStack(spacing: 8) {
-            Spacer()
-            ChatPillButton(title: "Later", color: ChatStyle.muted) { updater.later() }
-            ChatPillButton(title: primary, color: JcAccent.color, strong: true, icon: "arrow.down.circle") { updater.installNow() }
+        VStack(spacing: 0) {
+            Button(action: onInstall) {
+                Label(primary, systemImage: "arrow.down.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 38)
+                    .background {
+                        Capsule().fill(LinearGradient(colors: [JcAccent.bright, JcAccent.color],
+                                                      startPoint: .top, endPoint: .bottom))
+                            .shadow(color: JcAccent.color.opacity(0.4), radius: 12, y: 3)
+                    }
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            Button(action: onLater) {
+                Text("Not Now").font(.system(size: 13, weight: .medium)).foregroundStyle(ChatStyle.muted)
+                    .frame(maxWidth: .infinity, minHeight: 32).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .padding(.top, 4)
         }
     }
 
     private func downloadLine(_ f: Double) -> String {
-        let total = updater.offer?.size ?? 0
-        guard total > 0 else { return "Downloading… \(Int(f * 100))%" }
+        guard offer.size > 0 else { return "Downloading… \(Int(f * 100))%" }
         let mb = { (b: Double) in String(format: "%.0f", b / 1_048_576) }
-        return "Downloading… \(mb(f * Double(total))) of \(mb(Double(total))) MB"
+        return "Downloading… \(mb(f * Double(offer.size))) of \(mb(Double(offer.size))) MB"
     }
 }
