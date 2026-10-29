@@ -936,26 +936,44 @@ def _resolve_image_input_mode(cfg: dict) -> str:
     return "native"
 
 
-def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachments, workspace: str, *, cfg: dict = None):
-    """Build native multimodal content parts for current-turn image uploads.
+# A PDF rides as a native ``document`` part only where the provider takes one
+# (Anthropic's Messages API: up to a 32 MB request); others keep the path.
+_NATIVE_PDF_MAX_BYTES = 24 * 1024 * 1024
+_NATIVE_PDF_PROVIDERS = frozenset({'anthropic-api', 'anthropic'})
+# A text file this small is read straight into the message for every model.
+_INLINE_TEXT_MAX_BYTES = 200 * 1024
+_INLINE_TEXT_EXTS = frozenset({
+    '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.yaml', '.yml',
+    '.toml', '.ini', '.cfg', '.conf', '.log', '.xml', '.html', '.htm', '.css',
+    '.py', '.js', '.ts', '.tsx', '.jsx', '.swift', '.kt', '.java', '.c', '.h',
+    '.cpp', '.hpp', '.cs', '.go', '.rs', '.rb', '.php', '.sh', '.zsh', '.sql',
+    '.r', '.m', '.tex', '.srt', '.vtt',
+})
 
-    WebUI uploads files into the active workspace. For image files, pass the
-    bytes to JarvisCopilot as OpenAI-style image_url data URLs so vision-capable main
-    models can consume them in the same request. Non-image files intentionally
-    stay as text path attachments so the agent can inspect them with file tools.
+
+def _native_pdf_provider(provider) -> bool:
+    return str(provider or '').strip().lower() in _NATIVE_PDF_PROVIDERS
+
+
+def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachments, workspace: str, *,
+                                     cfg: dict = None, native_pdf: bool = False):
+    """Build native multimodal content parts for current-turn uploads.
+
+    WebUI uploads files into the active workspace or the chat's attachment
+    inbox. Images go to vision-capable models as OpenAI-style image_url data
+    URLs; a PDF goes as a native ``document`` part when *native_pdf* (the
+    turn's provider takes one — see ``_native_pdf_provider``); a small text
+    file's contents are added to the message text for every model. Anything
+    else stays a path in the message text for the agent's file tools.
 
     When *cfg* is provided, respects ``agent.image_input_mode`` — if the resolved
-    mode is ``"text"``, returns a plain string (attachments are not embedded) so
-    the agent's text-mode pipeline (``vision_analyze``) handles images.
+    mode is ``"text"``, images and PDFs are not embedded, so the agent's
+    text-mode pipeline (``vision_analyze``) handles them.
     """
     if not attachments:
         return workspace_ctx + msg_text
 
-    # ── Check image_input_mode before embedding anything ──
-    if cfg is not None and _resolve_image_input_mode(cfg) == "text":
-        return workspace_ctx + msg_text
-
-    parts = [{'type': 'text', 'text': workspace_ctx + msg_text}]
+    embed_media = not (cfg is not None and _resolve_image_input_mode(cfg) == "text")
     workspace_root = Path(workspace).expanduser().resolve()
     # Stage-361 maintainer fix (Opus SHOULD-FIX): chat uploads from #2319 now
     # land in ~/.jarviscopilot/webui/attachments/<sid>/ (outside workspace_root by
@@ -971,7 +989,7 @@ def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachme
         _allowed_roots = (workspace_root, attachment_root)
     except Exception:
         _allowed_roots = (workspace_root,)
-    image_count = 0
+    documents, images, inlined = [], [], []
 
     for att in attachments or []:
         if not isinstance(att, dict):
@@ -989,21 +1007,44 @@ def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachme
             if not path.is_file():
                 continue
             size = path.stat().st_size
-            if size <= 0 or size > _NATIVE_IMAGE_MAX_BYTES:
+            if size <= 0:
                 continue
             mime = str(att.get('mime') or '').strip() or (mimetypes.guess_type(path.name)[0] or '')
-            if not mime.startswith('image/') or not _is_valid_image(path, mime):
-                continue
-            data = base64.b64encode(path.read_bytes()).decode('ascii')
+            if mime.startswith('image/'):
+                if not embed_media or size > _NATIVE_IMAGE_MAX_BYTES or not _is_valid_image(path, mime):
+                    continue
+                data = base64.b64encode(path.read_bytes()).decode('ascii')
+                images.append({
+                    'type': 'image_url',
+                    'image_url': {'url': f'data:{mime};base64,{data}'},
+                })
+            elif path.suffix.lower() == '.pdf' or mime == 'application/pdf':
+                if not (embed_media and native_pdf) or size > _NATIVE_PDF_MAX_BYTES:
+                    continue
+                raw = path.read_bytes()
+                if not raw.startswith(b'%PDF-'):
+                    continue
+                documents.append({
+                    'type': 'document',
+                    'source': {'type': 'base64', 'media_type': 'application/pdf',
+                               'data': base64.b64encode(raw).decode('ascii')},
+                })
+            elif (mime.startswith('text/') or path.suffix.lower() in _INLINE_TEXT_EXTS) \
+                    and size <= _INLINE_TEXT_MAX_BYTES:
+                body = path.read_bytes().decode('utf-8')
+                if not body.endswith('\n'):
+                    body += '\n'
+                inlined.append(f'<attached_file name="{path.name}">\n{body}</attached_file>')
         except Exception:
             continue
-        parts.append({
-            'type': 'image_url',
-            'image_url': {'url': f'data:{mime};base64,{data}'},
-        })
-        image_count += 1
 
-    return parts if image_count else workspace_ctx + msg_text
+    text = workspace_ctx + msg_text
+    if inlined:
+        text = '\n\n'.join([text, *inlined])
+    if not documents and not images:
+        return text
+    # Documents before the question (Anthropic's guidance), images after it as before.
+    return [*documents, {'type': 'text', 'text': text}, *images]
 
 
 def _strip_thinking_markup(text: str) -> str:
@@ -4246,7 +4287,8 @@ def _run_agent_streaming(
             _agent_msg_text = msg_text
             if _process_notifications:
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
-            user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
+            user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace,
+                                                            cfg=_cfg, native_pdf=_native_pdf_provider(resolved_provider))
             # One canonical tools list per model: every webui agent carries
             # `handoff`, sorted with the rest, once — so chats, nodes and jobs on a
             # model send the same prompt start. Whether this node may hand off, and

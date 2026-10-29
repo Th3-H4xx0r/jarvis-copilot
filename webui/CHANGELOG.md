@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Files read natively** — an attached PDF goes to a Claude (Anthropic API) model as a native document, so it reads the text and sees the charts and pages in the same turn instead of digging through the file with tools; other providers keep reading it by path. A small text file (txt, md, csv, json, code; up to 200 KB) is put straight into the message for every model.
+
 - **Paste to attach** — pasting into the chat box attaches what's on the clipboard, like ChatGPT: a screenshot, "Copy image" from a website, or a file copied in Finder lands in the attachment tray. Copied text still pastes as text — when the clipboard has real text beside a picture (Notes, Word, Slack), the text wins (#1620). The iPhone app's chat does the same from long-press → Paste.
 
 - **A model or a harness per schedule** — every schedule (Tasks, and each integration's schedules, on the web and the iPhone) has a **Runs on** choice: Default (the server's default model), any model, or a harness. A harness schedule plans the run like a chat turn (Route → answer node with its model, tool limits, notes and step budget), then runs the Background/Review nodes wired after it and delivers each result after the answer; a deleted harness falls back to Default and says so. The `cronjob` tool takes `model` / `harness`, the CLI `--model` / `--harness`. Harness planning now lives in a core package (`agent/harness/`) shared by the webui and the scheduler.
