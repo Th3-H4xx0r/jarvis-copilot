@@ -8,10 +8,7 @@ struct ChatComposer: View {
     /// for that job rather than for anything at all.
     var placeholder: String = "Message Jarvis"
     @Binding var draft: String
-    /// Bumped on every send: a multi-line `TextField` keeps stale text on screen
-    /// when its binding is cleared while focused, so the field is recreated.
-    let generation: Int
-    @FocusState.Binding var focused: Bool
+    @Binding var focused: Bool
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -45,16 +42,22 @@ struct ChatComposer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 AttachControl(sink: store, enabled: !store.streaming)
-                TextField(placeholder, text: $draft,
-                          prompt: Text(placeholder).foregroundStyle(JcTheme.muted), axis: .vertical)
-                    .id(generation)
-                    .font(.body)
-                    .foregroundStyle(JcTheme.text)
-                    .tint(JcTheme.cyan)
-                    .lineLimit(1...6)
-                    .focused($focused)
-                    .padding(.vertical, 11)
-                    .accessibilityLabel("Message")
+                // Paste attaches a copied image or file, like "+" does — but not
+                // mid-reply, where "+" is off too.
+                ComposerTextView(text: $draft, focused: $focused,
+                                 onPasteAttachments: store.streaming ? nil : { providers in
+                                     Task { await PasteboardAttachments.add(providers, to: store) }
+                                 })
+                    .overlay(alignment: .topLeading) {
+                        if draft.isEmpty {
+                            Text(placeholder)
+                                .font(.body)
+                                .foregroundStyle(JcTheme.muted)
+                                .padding(.vertical, 11)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
                 Button {
                     if canStop { onStop() } else { onSend() }
                 } label: {

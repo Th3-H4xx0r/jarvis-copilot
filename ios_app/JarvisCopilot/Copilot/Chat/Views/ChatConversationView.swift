@@ -25,10 +25,7 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     private let showsComposer: Bool
 
     @State private var draft = ""
-    /// Bumped on send so the multi-line field is recreated — clearing its binding
-    /// while it is focused otherwise leaves the old text on screen.
-    @State private var composerGeneration = 0
-    @FocusState private var focused: Bool
+    @State private var focused = false
     /// "Memories used" chips: one recalls request per opened chat and one per
     /// finished turn, matched to replies locally — never a request per message.
     /// Made once, on first use (not on every init of this view).
@@ -76,7 +73,7 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
             footer
             if showsComposer {
                 ChatComposer(store: store, placeholder: placeholder, draft: $draft,
-                             generation: composerGeneration, focused: $focused,
+                             focused: $focused,
                              onSend: send, onStop: stop)
             }
         }
@@ -160,7 +157,6 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     // The draft belonged to the chat that was open; starting or
                     // switching to another must not carry it across.
                     draft = ""
-                    composerGeneration += 1
                     jump(proxy)
                 }
                 .onChange(of: store.historyLoading) { _, loading in if !loading { jump(proxy) } }
@@ -212,7 +208,6 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                 (clarifying && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         else { return }
         draft = ""
-        composerGeneration += 1
         Task { await store.send(text) }
     }
 

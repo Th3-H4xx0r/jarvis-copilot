@@ -1129,22 +1129,28 @@ document.addEventListener('keydown',async e=>{
 });
 $('msg').addEventListener('paste',e=>{
   const items=Array.from(e.clipboardData?.items||[]);
-  // When the clipboard carries BOTH text and an image (common from Notes,
-  // Word, browsers, Slack — the OS attaches a rendered preview alongside
-  // the plain text), prefer the text and let the browser paste normally.
-  // Only intercept when the clipboard is image-only (true screenshot paste).
-  // Tighten the image filter to kind==='file' so string items advertising an
-  // image MIME (e.g. text/html with an embedded data URI) are not misclassified.
-  const hasText=items.some(i=>i.kind==='string'&&(i.type==='text/plain'||i.type==='text/html'));
-  const imageItems=items.filter(i=>i.kind==='file'&&i.type.startsWith('image/'));
-  if(!imageItems.length||hasText)return;
+  // Only kind==='file' items are attachments: a string item advertising an
+  // image MIME (text/html with an embedded data URI) is not one.
+  const blobs=items.filter(i=>i.kind==='file').map(i=>i.getAsFile()).filter(Boolean);
+  if(!blobs.length)return;
+  // Real plain text wins (#1620): Notes, Word and Slack attach a rendered
+  // preview image beside the text, and the user meant the text. "Copy image"
+  // from a website has no plain text (only an <img> text/html), and a file
+  // copied in Finder carries just its own name — both attach.
+  const text=(e.clipboardData.getData('text/plain')||'').trim();
+  const names=new Set(blobs.map(b=>b.name).filter(Boolean));
+  const textIsNames=text.split(/\r?\n/).every(l=>names.has(l.trim().split('/').pop()));
+  if(text&&!textIsNames)return;
   e.preventDefault();
   const pasteTs=Date.now();
-  const files=imageItems.map((i,idx)=>{
-    const blob=i.getAsFile();
-    const ext=i.type.split('/')[1]||'png';
-    const suffix=imageItems.length>1?`-${idx+1}`:'';
-    return new File([blob],`screenshot-${pasteTs}${suffix}.${ext}`,{type:i.type});
+  // Screenshots arrive nameless and browsers call every copied image
+  // image.png; both get a timestamp name so two pastes don't de-dupe.
+  const unnamed=blobs.filter(b=>!b.name||/^image\.\w+$/i.test(b.name));
+  const files=blobs.map(b=>{
+    if(!unnamed.includes(b))return b;
+    const ext=(b.type.split('/')[1]||'png').replace(/\+.*$/,'');
+    const suffix=unnamed.length>1?`-${unnamed.indexOf(b)+1}`:'';
+    return new File([b],`screenshot-${pasteTs}${suffix}.${ext}`,{type:b.type});
   });
   addFiles(files);
   setStatus(t('image_pasted')+files.map(f=>f.name).join(', '));

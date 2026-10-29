@@ -88,7 +88,7 @@ struct AttachControl: View {
             let ext = item.supportedContentTypes.first?.preferredFilenameExtension
                 ?? (isVideo ? "mov" : "jpg")
             let name = "\(isVideo ? "video" : "photo")-\(Int(Date().timeIntervalSince1970))-\(offset).\(ext)"
-            await add(name: name, data: data, isVideo: isVideo)
+            await sink.addPicked(name: name, data: data, isVideo: isVideo)
         }
     }
 
@@ -124,18 +124,22 @@ struct AttachControl: View {
                 sink.attachError = rejection
                 continue
             }
-            await add(name: url.lastPathComponent, data: data, isVideo: isVideo)
+            await sink.addPicked(name: url.lastPathComponent, data: data, isVideo: isVideo)
         }
     }
 
-    /// A video is uploaded whole, so the size gate runs before the bytes are ever
-    /// queued — `PendingAttachment.videoRejection` owns that rule.
+}
+
+extension AttachmentSink {
+    /// Queue a picked or pasted item. A video is uploaded whole, so the size gate
+    /// runs before the bytes are ever queued — `PendingAttachment.videoRejection`
+    /// owns that rule.
     ///
     /// Decoding the poster frame is done off the main actor: a long clip's first
     /// frame takes long enough to drop the composer's typing animation.
-    @MainActor private func add(name: String, data: Data, isVideo: Bool) async {
+    @MainActor func addPicked(name: String, data: Data, isVideo: Bool) async {
         if isVideo, let rejection = PendingAttachment.videoRejection(bytes: data.count) {
-            sink.attachError = rejection
+            attachError = rejection
             return
         }
         var poster: Data?
@@ -145,7 +149,7 @@ struct AttachControl: View {
                 ChatVideoPoster.firstFrame(of: data, extension: ext)
             }.value
         }
-        sink.addAttachment(PendingAttachment(
+        addAttachment(PendingAttachment(
             name: name,
             data: data,
             isImage: !isVideo && PendingAttachment.looksLikeImage(name),

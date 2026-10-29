@@ -46,7 +46,7 @@ def _run_node(source: str) -> str:
     return result.stdout.strip()
 
 
-def _paste_harness(items_js: str) -> dict:
+def _paste_harness(items_js: str, text: str = "") -> dict:
     paste_registration = json.dumps(_extract_msg_paste_registration())
     source = f"""
 const vm = require('vm');
@@ -86,7 +86,7 @@ const context = {{
 vm.createContext(context);
 vm.runInContext(pasteRegistration, context);
 listeners.paste({{
-  clipboardData: {{items: {items_js}}},
+  clipboardData: {{items: {items_js}, getData: (type) => type === 'text/plain' ? {json.dumps(text)} : ''}},
   preventDefault: () => {{ preventDefaultCount += 1; }},
 }});
 console.log(JSON.stringify({{
