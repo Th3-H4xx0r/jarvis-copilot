@@ -36,6 +36,7 @@ struct SettingsPage: View {
                 battery
                 navigation
                 danger
+                version
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
@@ -331,6 +332,17 @@ struct SettingsPage: View {
                 confirmUnpair = true
             }
         }
+    }
+
+    /// Which build is installed — the quick way to tell an in-app update landed.
+    private var version: some View {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+        return Text("Version \(short) (\(build))")
+            .font(.system(size: 12))
+            .foregroundStyle(JcTheme.muted)
+            .frame(maxWidth: .infinity)
     }
 }
 
