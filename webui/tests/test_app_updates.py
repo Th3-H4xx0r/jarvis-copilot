@@ -4,6 +4,7 @@ The install links are public (iOS's installer sends no cookie), so everything
 about them rests on the token: it names one build, expires, and can't be forged.
 """
 import io
+import json
 import plistlib
 import zipfile
 from types import SimpleNamespace
@@ -162,6 +163,26 @@ def test_the_manifest_and_ipa_are_served_for_a_valid_token_only():
     for bad in (f"/ota/d/{token}/Jarvis.zip", "/ota/m/nope.plist", "/ota/d/x/JarvisCopilot.ipa",
                 "/ota/", "/ota/../index.json"):
         assert _get(bad).status == 403, bad
+
+
+def test_install_status_turns_on_once_ios_fetches_the_package(monkeypatch):
+    monkeypatch.setattr(au, "_STARTED", {})
+    data = _archive("ios", 9)
+    au.store_upload("ios", 9, io.BytesIO(data), len(data))
+    token = au.make_token("ios", 9)
+
+    def status(t):
+        h = _Handler(f"/api/app-updates/install-status?token={t}")
+        assert au.handle_get(h, urlparse(h.path))
+        return json.loads(h.wfile.getvalue())["started"]
+
+    _get(f"/ota/m/{token}.plist")            # iOS reads the manifest before its confirm
+    assert status(token) is False
+    _get(f"/ota/d/{token}/JarvisCopilot.ipa")  # ...and the package only after Install
+    assert status(token) is True
+    assert status("other") is False
+    _get("/ota/d/forged/JarvisCopilot.ipa")
+    assert status("forged") is False
 
 
 def test_ota_paths_skip_the_session_check_for_reads_only(monkeypatch):

@@ -16,6 +16,7 @@ final class AppUpdateCenterTests: XCTestCase {
         XCTAssertEqual(offer.build, 263021514)
         XCTAssertEqual(offer.notes, "• Paste images\n• Faster PDFs")
         XCTAssertEqual(offer.installURL.scheme, "itms-services")
+        XCTAssertEqual(offer.installToken, "t", "the token that names the link to install-status")
     }
 
     func testTheSameOrAnOlderBuildIsNoOffer() {

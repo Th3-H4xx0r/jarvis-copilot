@@ -294,6 +294,9 @@ def _int(value: str) -> int:
 
 
 def handle_get(handler, parsed) -> bool:
+    if parsed.path == "/api/app-updates/install-status":
+        j(handler, {"started": install_started(_q(parsed, "token"))})
+        return True
     if parsed.path != "/api/app-updates/latest":
         return False
     platform = _q(parsed, "platform")
@@ -337,6 +340,26 @@ _OTA_MANIFEST = re.compile(r"^/ota/m/([^/]+)\.plist$")
 _OTA_DOWNLOAD = re.compile(r"^/ota/d/([^/]+)/([^/]+)$")
 
 
+# Install links whose package iOS has started fetching. iOS fetches it only after the
+# user taps Install on its own confirm, so this is how the app learns to step aside:
+# iOS won't install over a Jarvis that's still running.
+_STARTED: dict = {}
+_STARTED_LOCK = threading.Lock()
+
+
+def mark_started(token: str, *, now: Optional[float] = None) -> None:
+    now = now if now is not None else time.time()
+    with _STARTED_LOCK:
+        for old in [t for t, at in _STARTED.items() if now - at > 2 * LINK_TTL]:
+            del _STARTED[old]
+        _STARTED[token] = now
+
+
+def install_started(token: str) -> bool:
+    with _STARTED_LOCK:
+        return token in _STARTED
+
+
 def handle_ota(handler, parsed) -> bool:
     """Public install links. Anything without a valid token is a bare 403."""
     m = _OTA_MANIFEST.match(parsed.path)
@@ -362,6 +385,7 @@ def handle_ota(handler, parsed) -> bool:
             fh = open(path, "rb")
         except OSError:
             return _forbidden(handler)
+        mark_started(m.group(1))
         with fh:
             handler.send_response(200)
             handler.send_header("Content-Type", "application/octet-stream")

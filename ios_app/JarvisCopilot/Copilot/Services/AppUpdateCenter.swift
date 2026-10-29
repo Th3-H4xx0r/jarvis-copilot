@@ -10,6 +10,15 @@ struct AppUpdateOffer: Equatable {
     /// Bytes to download; 0 when the server didn't say.
     var size: Int64 = 0
 
+    /// The link's token, which names it to `/api/app-updates/install-status`: the
+    /// manifest URL inside `itms-services://?…&url=…/ota/m/<token>.plist`.
+    var installToken: String? {
+        guard let inner = URLComponents(url: installURL, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+              let name = URL(string: inner)?.lastPathComponent, name.hasSuffix(".plist") else { return nil }
+        return String(name.dropLast(".plist".count))
+    }
+
     /// The server's answer, or nil when it offers nothing newer than `installed`.
     static func decode(_ obj: [String: Any], installed: Int) -> AppUpdateOffer? {
         guard obj["available"] as? Bool == true,
@@ -56,6 +65,7 @@ final class AppUpdateCenter: ObservableObject {
     private var laterBuild: Int?
     private var window: UIWindow?
     private var started = false
+    private var installWatch: Task<Void, Never>?
 
     /// This build's number (`CFBundleVersion`, stamped at build time; `1` = unstamped).
     static var installedBuild: Int {
@@ -149,8 +159,42 @@ final class AppUpdateCenter: ObservableObject {
         guard let offer else { return }
         // iOS takes it from here: its own confirm, then it closes Jarvis to install.
         // The card stays, so a cancelled confirm can be tried again.
-        if !(await UIApplication.shared.open(offer.installURL)) {
+        if await UIApplication.shared.open(offer.installURL) {
+            if let token = offer.installToken { quitOnceInstalling(token) }
+        } else {
             error = "iOS couldn't open the install link."
+        }
+    }
+
+    /// iOS won't install over a Jarvis that's still running, and it never closes it
+    /// itself. It fetches the package only after the user taps Install on its confirm,
+    /// so once the server has seen that fetch Jarvis steps out to the Home Screen
+    /// (where the icon shows the install) and quits. A Cancel never fetches, so the
+    /// card just stays up.
+    private func quitOnceInstalling(_ token: String) {
+        installWatch?.cancel()
+        installWatch = Task { [weak self] in
+            for _ in 0..<180 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                let answer = try? await JarvisAPI.shared.get(
+                    "/api/app-updates/install-status", query: ["token": token], timeout: 5).object()
+                if answer?["started"] as? Bool == true {
+                    self?.quitForInstall()
+                    return
+                }
+            }
+        }
+    }
+
+    private func quitForInstall() {
+        let app = UIApplication.shared
+        let task = app.beginBackgroundTask(withName: "app-update-quit")
+        // Home first so it reads as stepping aside, not a crash; then gone.
+        UIControl().sendAction(#selector(URLSessionTask.suspend), to: app, for: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            _ = task
+            exit(0)
         }
     }
 
