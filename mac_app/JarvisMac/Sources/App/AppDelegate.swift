@@ -56,7 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             _ = session
         }
+        model.onAppUpdate = { AppUpdater.shared.signal($0) }
         model.attach()
+        AppUpdater.shared.start()
         registerShortcuts()
         MusicController.shared.start()
         WindowContext.startWatching()

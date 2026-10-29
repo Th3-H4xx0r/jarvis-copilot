@@ -132,6 +132,18 @@ def render_nginx(settings: Dict[str, Any]) -> str:
     routes = settings.get("routes") or {}
     listen_port = int(settings.get("nginx_listen_port", 8788))
 
+    # The app-update install links (/ota/*) are fetched by iOS's installer, which
+    # carries no cookie or Access token, so they're served on a hostname that has
+    # no Cloudflare Access app in front (``ota_route``). Every /ota/ URL carries
+    # its own signed, expiring token; nothing else on the WebUI is exposed there.
+    ota_route = str(settings.get("ota_route") or "").strip().lower()
+    webui_upstream = ""
+    for target in routes.values():
+        w_scheme, w_host, w_port = _parse_target(target)
+        if str(w_port) == str(settings.get("webui_port", 8787)):
+            webui_upstream = f"{w_scheme}://{w_host}:{w_port}"
+            break
+
     server_blocks = []
     for sub, target in routes.items():
         fqdn = _fqdn(sub, domain)
@@ -142,6 +154,25 @@ def render_nginx(settings: Dict[str, Any]) -> str:
         proxy_ssl = ("""
             proxy_ssl_verify off;
             proxy_ssl_server_name on;""" if scheme == "https" else "")
+        ota_location = ""
+        if sub == ota_route and webui_upstream and webui_upstream != upstream:
+            ota_ssl = ("""
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;""" if webui_upstream.startswith("https") else "")
+            ota_location = f"""
+        location ^~ /ota/ {{
+            proxy_pass {webui_upstream};{ota_ssl}
+            proxy_set_header Forwarded "";
+            proxy_set_header X-Forwarded-Host {fqdn};
+            proxy_set_header X-Real-Host {fqdn};
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Host {fqdn};
+            proxy_buffering off;
+            proxy_read_timeout 600s;
+        }}
+"""
         server_blocks.append(
             f"""    server {{
         listen 127.0.0.1:{listen_port};
@@ -172,7 +203,7 @@ def render_nginx(settings: Dict[str, Any]) -> str:
         limit_conn jc_edge_conn 512;
 
         client_max_body_size 64m;
-
+{ota_location}
         location / {{
             proxy_pass {upstream};{proxy_ssl}
 

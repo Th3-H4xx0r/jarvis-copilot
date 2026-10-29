@@ -36,6 +36,10 @@ _DEFAULTS: Dict[str, Any] = {
     # non-interactively. Delivered to devices via the pairing payload. The secret
     # is stored in the 0600 token file (NOT here); only the id lives in settings.
     "cf_service_client_id": "",
+    # A route whose hostname has no Cloudflare Access login in front of it, where
+    # nginx also serves the WebUI's /ota/ app-update install links (iOS's installer
+    # can't sign in). Empty = no install links.
+    "ota_route": "",
 }
 
 # The CF service-token SECRET is a credential — store it alongside the tunnel

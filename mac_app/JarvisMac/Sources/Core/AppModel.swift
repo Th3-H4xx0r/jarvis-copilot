@@ -42,6 +42,9 @@ final class AppModel {
     /// turn that asked had ended (the server sends it to this Mac alone), or
     /// Read aloud in the Agents tab.
     @ObservationIgnored var onSpeak: ((MacJob) -> Void)?
+    /// Time to ask about a newer Mac build: jc-client said hello (nil — the
+    /// server address is known now) or the server pushed `app_update` (its data).
+    @ObservationIgnored var onAppUpdate: (([String: Any]?) -> Void)?
     /// Jobs already read out: a feed sent again (a reconnect) doesn't repeat one.
     @ObservationIgnored private var spokenJobs: Set<String> = []
     @ObservationIgnored private var jobsPrune: Task<Void, Never>?
@@ -67,7 +70,7 @@ final class AppModel {
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["harness_jobs": 0]])
+                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0]])
                 self?.refreshRoster()
             }
         }
@@ -94,6 +97,7 @@ final class AppModel {
             pending = J.arr(msg["pending"]).compactMap(MacPending.init(json:))
             if let u = MacPlanUsage(json: ["rate_limits": msg["usage"] ?? [:]]) { usage = u }
             onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
+            onAppUpdate?(nil)
         case "moved":
             onServer = J.arr(msg["sessions"]).map(MacMovedSession.init(json:))
         case "sessions":
@@ -118,6 +122,8 @@ final class AppModel {
             case "harness_jobs":
                 apply(jobs: J.arr(data["jobs"]))
                 if let speak = data["speak"] as? [String: Any] { speakOnce(MacJob(json: speak)) }
+            case "app_update":
+                onAppUpdate?(data)
             default: break
             }
         default:

@@ -445,6 +445,10 @@ def check_auth(handler, parsed) -> bool:
     # Public paths don't require auth
     if parsed.path in PUBLIC_PATHS or parsed.path.startswith('/static/') or parsed.path.startswith('/session/static/'):
         return True
+    # App-update install links: iOS's installer fetches them with no cookie, so
+    # each one carries its own signed, expiring token (checked in api/app_updates.py).
+    if parsed.path.startswith('/ota/') and getattr(handler, 'command', 'GET') in ('GET', 'HEAD'):
+        return True
     # Check session cookie
     cookie_val = parse_cookie(handler)
     if cookie_val and verify_session(cookie_val):

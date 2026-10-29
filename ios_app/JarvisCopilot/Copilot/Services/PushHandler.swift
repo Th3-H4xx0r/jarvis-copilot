@@ -236,6 +236,11 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
         let content = notification.request.content
+        // An update banner while the app is open: the card itself shows instead.
+        if AppUpdateRules.isUpdatePush(content.userInfo) {
+            await MainActor.run { Task { await AppUpdateCenter.shared.check() } }
+            return []
+        }
         // New iMessage facts while the app is open: the Chat home re-reads its
         // cards now (it never polls). The banner still shows, as for any push.
         if IMessageFactsPush.isFactsPush(content.userInfo) {
@@ -257,6 +262,10 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        if AppUpdateRules.isUpdatePush(response.notification.request.content.userInfo) {
+            await MainActor.run { AppUpdateCenter.shared.openFromNotification() }
+            return
+        }
         let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
         let action = NotificationAction.decode(
             actionIdentifier: response.actionIdentifier,

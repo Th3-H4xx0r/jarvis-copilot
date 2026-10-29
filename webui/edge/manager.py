@@ -153,7 +153,7 @@ class EdgeManager:
             # reload nginx so Save actually takes effect — no manual Stop/Start.
             reloaded = False
             reload_error = ""
-            routing_changed = any(k in updates for k in ("domain", "routes", "nginx_listen_port"))
+            routing_changed = any(k in updates for k in ("domain", "routes", "nginx_listen_port", "ota_route"))
             if routing_changed and supervisor.proc_status("nginx").running:
                 try:
                     self._write_configs()

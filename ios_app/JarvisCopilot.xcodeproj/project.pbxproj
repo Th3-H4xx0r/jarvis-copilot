@@ -336,6 +336,7 @@
 		4381EAA07560C50D0F2D53B2 /* RingWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF5F74C647846E28AFC5ECB /* RingWorkoutAttributes.swift */; };
 		4398C4F63E084ACED4232ED1 /* WorkoutWearable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */; };
 		439C762EC683FC9A4E47F540 /* DashcamTagViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0DD739FDD6E939A19F6893 /* DashcamTagViews.swift */; };
+		43AA586C941D720E9B4AF3F0 /* AppUpdateCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C33400B9B49B66D1EB3A33 /* AppUpdateCenter.swift */; };
 		43DC344013DB784114E907B8 /* RouteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB51502D6B32282610806346 /* RouteStoreTests.swift */; };
 		440EC6A6C9849819AF0D6209 /* TrainingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695DF5E83265D57DABAD99BB /* TrainingStore.swift */; };
 		44100161EFA4BC399696C1C9 /* X5Manager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F639C80D373289F6AB6A8862 /* X5Manager.swift */; };
@@ -394,6 +395,7 @@
 		4FC85DF70EF781C307BA2465 /* GlassesMusicRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C588014B913F915E053E47 /* GlassesMusicRoute.swift */; };
 		4FDD75F5F15B6B2745FF1974 /* IslandDesignsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */; };
 		4FFA284655C8E6BA134AC088 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FF13324EF0D56A9B56834F /* PushService.swift */; };
+		50313944ED0E3382D2B41282 /* AppUpdateCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F888EA028DB146174D674117 /* AppUpdateCenterTests.swift */; };
 		50627471958EE7A9A3242D3C /* DashcamDrivesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A33935E7C9CB99535BE3966A /* DashcamDrivesView.swift */; };
 		506F49CC5B34EB11406096F2 /* ControlButtonsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */; };
 		507F130AF1E437EC1A24EA74 /* AgentsRecapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B08D32229C4B6076B7B1A84 /* AgentsRecapView.swift */; };
@@ -1378,6 +1380,7 @@
 		15EA1BB17E5186EDBF66B78D /* IntegrationsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsPage.swift; sourceTree = "<group>"; };
 		16998A65B0E5B2E052548EC4 /* BatteryUsageSummaryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryUsageSummaryTests.swift; sourceTree = "<group>"; };
 		17B862D13722CC32639DF633 /* MelkFrames.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MelkFrames.swift; sourceTree = "<group>"; };
+		17C33400B9B49B66D1EB3A33 /* AppUpdateCenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUpdateCenter.swift; sourceTree = "<group>"; };
 		17D81F3D77511AA70B32B057 /* ActionBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionBanner.swift; sourceTree = "<group>"; };
 		18882C61E749AD15922B366C /* MoreTone+Color.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MoreTone+Color.swift"; sourceTree = "<group>"; };
 		189234657EFA815A52334D62 /* WearableKeepAliveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKeepAliveTests.swift; sourceTree = "<group>"; };
@@ -2398,6 +2401,7 @@
 		F87639CBA234ADE09893580C /* DashcamPlayerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamPlayerView.swift; sourceTree = "<group>"; };
 		F87A0FD28CE2FA6E7FEDE3A1 /* WidgetRendererTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetRendererTests.swift; sourceTree = "<group>"; };
 		F880E381CB67D2E14F98AE7F /* JarvisDesignModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisDesignModel.swift; sourceTree = "<group>"; };
+		F888EA028DB146174D674117 /* AppUpdateCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUpdateCenterTests.swift; sourceTree = "<group>"; };
 		F88B98DE1E4C6CD188404C04 /* PhonePedometer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePedometer.swift; sourceTree = "<group>"; };
 		F8FF4E306DA24C8DC8DA2112 /* WearableControlTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlTests.swift; sourceTree = "<group>"; };
 		F9069F5A7073E90B79B3F3DA /* ToyotaAccountCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToyotaAccountCard.swift; sourceTree = "<group>"; };
@@ -2981,6 +2985,7 @@
 				76586135F8DA5B598023DC81 /* SmartKeepaliveTests.swift */,
 				2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */,
 				3615258119AB33C6105C323F /* ContextSnapshotTests.swift */,
+				F888EA028DB146174D674117 /* AppUpdateCenterTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4466,6 +4471,7 @@
 				759B24B05CBEB87E6E16FFCA /* ControlPushTokenUploader.swift */,
 				F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */,
 				367ACAC32A0651C8EC9B407A /* jc-silence.caf */,
+				17C33400B9B49B66D1EB3A33 /* AppUpdateCenter.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -5239,6 +5245,7 @@
 				E09F84D07AC0EF9AD7D11947 /* TalkHereTests.swift in Sources */,
 				2E1DCFDA332A6D5EDD90C937 /* IslandLiveProbeTests.swift in Sources */,
 				ECEDEEA043E2E99FC35200E7 /* PasteboardAttachmentsTests.swift in Sources */,
+				50313944ED0E3382D2B41282 /* AppUpdateCenterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6039,6 +6046,7 @@
 				1317E9058DBD338F7D13980B /* ComposerTextView.swift in Sources */,
 				2016303D4AD0C2816AC03B2C /* ChatFilePreview.swift in Sources */,
 				5B09A6943F64E1FFCB7A5E5C /* AttachmentViewer.swift in Sources */,
+				43AA586C941D720E9B4AF3F0 /* AppUpdateCenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

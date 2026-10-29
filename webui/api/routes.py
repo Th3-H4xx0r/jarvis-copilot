@@ -3561,6 +3561,13 @@ def _serve_manifest(handler) -> bool:
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
+    if parsed.path.startswith("/ota/") or parsed.path.startswith("/api/app-updates/"):
+        from api import app_updates
+        if parsed.path.startswith("/ota/"):
+            return app_updates.handle_ota(handler, parsed)
+        if app_updates.handle_get(handler, parsed):
+            return True
+
     if parsed.path.startswith("/api/edge/"):
         from api.edge import handle_edge_get
         if handle_edge_get(handler, parsed):
@@ -4992,6 +4999,13 @@ def handle_post(handler, parsed) -> bool:
         return handle_upload_extract(handler)
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
+
+    # App-update uploads are raw build files (tens of MB), streamed to disk before
+    # read_body would try to parse them as JSON.
+    if parsed.path.startswith("/api/app-updates/"):
+        from api import app_updates
+        if app_updates.handle_post(handler, parsed):
+            return True
 
     # Dashcam raw-body POSTs (16 MiB upload chunks, JPEG thumbnails) must be read
     # before read_body would try to parse them as JSON; other dashcam paths fall through.

@@ -4,6 +4,8 @@
 
 ### Added
 
+- **In-app updates** — a new iPhone or Mac build is pushed to the server (`ios_app/scripts/release.sh`, `mac_app/build-app.sh --package` + `scripts/publish-app-update.sh`) and the app pops up "Update available" with what's new, **Install now** and **Later**: live while it's open (bridge topic `app_update`), a banner on a closed iPhone. Install now on the iPhone is an `itms-services` install that works off Tailscale; the Mac app downloads, verifies and swaps itself and relaunches. The server keeps the current and previous build per platform (`--rollback`), every build carries a time-based build number so nothing is offered an older one, and the public `/ota/` links are signed, name one build and expire after 10 minutes (served on the edge's `ota_route`, a host with no Cloudflare Access login, since iOS's installer can't sign in).
+
 - **Files read natively** — an attached PDF goes to a Claude (Anthropic API) model as a native document, so it reads the text and sees the charts and pages in the same turn instead of digging through the file with tools; other providers keep reading it by path. A small text file (txt, md, csv, json, code; up to 200 KB) is put straight into the message for every model.
 
 - **Paste to attach** — pasting into the chat box attaches what's on the clipboard, like ChatGPT: a screenshot, "Copy image" from a website, or a file copied in Finder lands in the attachment tray. Copied text still pastes as text — when the clipboard has real text beside a picture (Notes, Word, Slack), the text wins (#1620). The iPhone app's chat does the same from long-press → Paste.
