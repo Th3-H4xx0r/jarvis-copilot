@@ -339,10 +339,17 @@ struct SettingsPage: View {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
         let build = info?["CFBundleVersion"] as? String ?? "1"
-        return Text("Version \(short) (\(build))")
-            .font(.system(size: 12))
-            .foregroundStyle(JcTheme.muted)
-            .frame(maxWidth: .infinity)
+        return VStack(spacing: 6) {
+            Text("Version \(short) (\(build))")
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.muted)
+            // Brings the update card back even after Later.
+            Button("Check for Updates") { AppUpdateCenter.shared.openFromNotification() }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(JcTheme.accent)
+                .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
