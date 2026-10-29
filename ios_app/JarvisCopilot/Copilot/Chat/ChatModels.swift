@@ -402,7 +402,8 @@ extension ChatMessage {
         if rawRole == "tool" { return nil }
 
         var blocks: [ChatBlock] = []
-        if let content = j["content"] as? String {
+        if var content = j["content"] as? String {
+            if rawRole == "user" { content = ChatFileRefs.stripped(content) }
             if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 blocks.append(.text(TextBlock(text: content)))
             }
@@ -444,9 +445,6 @@ extension ChatMessage {
             }
         }
 
-        let reasoning = j.string("thinking") ?? j.string("reasoning") ?? ""
-        if blocks.isEmpty && reasoning.isEmpty { return nil }
-
         var attachments: [MessageAttachment] = []
         for item in (j["attachments"] as? [Any] ?? []) {
             if let dict = item as? [String: Any], let name = dict.string("name") {
@@ -455,6 +453,10 @@ extension ChatMessage {
                 attachments.append(MessageAttachment(name: name))
             }
         }
+
+        let reasoning = j.string("thinking") ?? j.string("reasoning") ?? ""
+        // A message that was only a file still shows its chip.
+        if blocks.isEmpty && reasoning.isEmpty && attachments.isEmpty { return nil }
 
         self.init(role: ChatRole(rawValue: rawRole) ?? .assistant,
                   blocks: blocks,

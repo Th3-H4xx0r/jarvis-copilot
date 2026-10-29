@@ -505,7 +505,7 @@ final class ChatStore {
     private func streamTurn(sessionID id: String, text: String,
                             uploads: [[String: Any]], state: inout ChatStreamState) async throws {
         var events = chatAPI.sendMessage(
-            sessionID: id, text: text,
+            sessionID: id, text: ChatFileRefs.messageText(text, uploads: uploads),
             model: selectedModelID, provider: selectedProviderID,
             attachments: uploads.isEmpty ? nil : uploads,
             harnessID: harnessID ?? "")
@@ -955,7 +955,7 @@ extension ChatStore {
             // The other device's prompt is still in pending_user_message until its
             // turn commits, so without this the reply renders with no question
             // above it and two assistant bubbles end up side by side.
-            if let pending = detail.pendingUserMessage?
+            if let pending = detail.pendingUserMessage.map(ChatFileRefs.stripped)?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !pending.isEmpty,
                history.last(where: { $0.isUser })?.plainText != pending {
                 history.append(.user(pending))

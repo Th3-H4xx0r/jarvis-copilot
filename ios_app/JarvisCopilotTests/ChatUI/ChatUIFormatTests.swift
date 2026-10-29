@@ -42,16 +42,6 @@ final class ChatUIFormatTests: XCTestCase {
         XCTAssertEqual(ChatUIFormat.truncate("  spaced   out  ", limit: 20), "spaced out")
     }
 
-    // MARK: Attachment size labels
-
-    func testFileSizeLabels() {
-        XCTAssertEqual(ChatUIFormat.fileSize(0), "0 B")
-        XCTAssertEqual(ChatUIFormat.fileSize(940), "940 B")
-        XCTAssertEqual(ChatUIFormat.fileSize(2_048), "2 KB")
-        XCTAssertEqual(ChatUIFormat.fileSize(1_572_864), "1.5 MB")
-        XCTAssertEqual(ChatUIFormat.fileSize(104_857_600), "100.0 MB")
-    }
-
     // MARK: Session grouping
 
     private func session(_ id: String, _ title: String, daysAgo: Double? = nil,

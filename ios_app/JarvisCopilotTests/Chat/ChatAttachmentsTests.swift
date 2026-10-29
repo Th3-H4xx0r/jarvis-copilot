@@ -129,4 +129,38 @@ final class ChatAttachmentsTests: XCTestCase {
             XCTAssertFalse(PendingAttachment.looksLikeImage(name), name)
         }
     }
+
+    // MARK: Telling the model where a file is
+
+    private let pdf: [String: Any] = ["filename": "report.pdf", "path": "/att/s1/report.pdf", "is_image": false]
+    private let photo: [String: Any] = ["filename": "a.png", "path": "/att/s1/a.png", "is_image": true]
+
+    func testAFileUploadAddsItsPathForTheModelLikeTheWebClient() {
+        XCTAssertEqual(ChatFileRefs.messageText("What is this file", uploads: [pdf]),
+                       "What is this file\n\n[Attached files: /att/s1/report.pdf]")
+    }
+
+    func testImagesAloneLeaveTheTextAlone() {
+        XCTAssertEqual(ChatFileRefs.messageText("look", uploads: [photo]), "look")
+    }
+
+    func testAFileWithNoTextStillTellsTheModel() {
+        XCTAssertEqual(ChatFileRefs.messageText("", uploads: [photo, pdf]),
+                       "[Attached files: /att/s1/report.pdf]")
+    }
+
+    func testTheFileLineIsHiddenWhenTheMessageIsShown() {
+        XCTAssertEqual(ChatFileRefs.stripped("What is this file\n\n[Attached files: /att/s1/report.pdf]"),
+                       "What is this file")
+        XCTAssertEqual(ChatFileRefs.stripped("[Attached files: /att/s1/report.pdf]"), "")
+        XCTAssertEqual(ChatFileRefs.stripped("plain"), "plain")
+    }
+
+    func testAStoredFileOnlyMessageKeepsItsAttachmentChip() throws {
+        let message = try XCTUnwrap(ChatMessage(stored: [
+            "role": "user", "content": "[Attached files: /att/s1/report.pdf]",
+            "attachments": ["report.pdf"]]))
+        XCTAssertTrue(message.blocks.isEmpty)
+        XCTAssertEqual(message.attachments.map(\.name), ["report.pdf"])
+    }
 }

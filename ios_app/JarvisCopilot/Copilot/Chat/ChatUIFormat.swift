@@ -30,14 +30,6 @@ enum ChatUIFormat {
         guard squeezed.count > limit, limit > 1 else { return squeezed }
         return String(squeezed.prefix(limit - 1)) + "…"
     }
-
-    /// The size line on an attachment chip. Binary units, because that is what
-    /// `PendingAttachment.maxVideoBytes` (100 MB) counts in.
-    static func fileSize(_ bytes: Int) -> String {
-        if bytes < 1_024 { return "\(bytes) B" }
-        if bytes < 1_024 * 1_024 { return "\(Int((Double(bytes) / 1_024).rounded())) KB" }
-        return String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
-    }
 }
 
 /// One section of the sessions sheet. Pinned chats float to the top whatever

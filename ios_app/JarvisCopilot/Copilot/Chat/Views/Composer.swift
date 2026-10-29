@@ -91,78 +91,77 @@ struct AttachmentStrip: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
                     AttachmentChip(attachment: attachment) { onRemove(attachment) }
                 }
             }
         }
-        .frame(height: 38)
+        .frame(height: AttachmentChip.side)
     }
 }
 
-/// One pending attachment: its own thumbnail for an image, the poster frame (with
-/// a play badge) for a video, a type glyph for anything else — plus the name, the
-/// size, and an × to drop it.
+/// One pending attachment as a square tile, the way Claude shows them: the
+/// picture itself (a video's poster with a play badge), or for a plain file its
+/// glyph and type — no name, no size — with an × in the corner to drop it.
 struct AttachmentChip: View {
     let attachment: PendingAttachment
     let onRemove: () -> Void
+
+    static let side: CGFloat = 64
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 14, style: .continuous) }
 
     private var thumbnail: Image? {
         guard let data = attachment.thumbnail, let image = UIImage(data: data) else { return nil }
         return Image(uiImage: image)
     }
 
-    private var glyph: String {
-        if attachment.isVideo { return "film" }
-        if attachment.isImage { return "photo" }
-        return "doc"
-    }
-
     var body: some View {
-        HStack(spacing: 6) {
-            leading
-            VStack(alignment: .leading, spacing: 0) {
-                Text(attachment.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .frame(maxWidth: 130, alignment: .leading)
-                Text(ChatUIFormat.fileSize(attachment.size))
-                    .font(.system(size: 9))
-                    .foregroundStyle(JcTheme.muted)
+        tile
+            .frame(width: Self.side, height: Self.side)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                Button(action: onRemove) {
+                    JcIcon("xmark", size: 9, weight: .bold)
+                        .foregroundStyle(.black)
+                        .frame(width: 20, height: 20)
+                        .background(.white, in: Circle())
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(attachment.name)")
             }
-            Button(action: onRemove) {
-                JcIcon("xmark", size: 10, weight: .semibold)
-                    .foregroundStyle(JcTheme.muted)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(attachment.name)")
-        }
-        .padding(.leading, thumbnail == nil ? 10 : 4)
-        .padding(.trailing, 2)
-        .background(JcTheme.glassFill, in: Capsule())
-        .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(attachment.name)
     }
 
-    @ViewBuilder private var leading: some View {
+    @ViewBuilder private var tile: some View {
         if let thumbnail {
             ZStack {
-                thumbnail
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 30, height: 30)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                thumbnail.resizable().scaledToFill()
                 if attachment.isVideo {
-                    JcIcon("play.fill", size: 8)
+                    JcIcon("play.fill", size: 10)
                         .foregroundStyle(.white)
-                        .frame(width: 16, height: 16)
+                        .frame(width: 22, height: 22)
                         .background(Color.black.opacity(0.45), in: Circle())
                 }
             }
         } else {
-            JcIcon(glyph).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+            VStack(spacing: 4) {
+                JcIcon(attachment.isVideo ? "film" : "doc", size: 20)
+                    .foregroundStyle(JcTheme.muted)
+                let ext = (attachment.name as NSString).pathExtension.uppercased()
+                if !ext.isEmpty {
+                    Text(ext)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(JcTheme.glassFill)
         }
     }
 }

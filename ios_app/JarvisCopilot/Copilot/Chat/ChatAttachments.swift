@@ -102,3 +102,28 @@ func chatAttachmentFailureMessage(_ failed: [String]) -> String? {
     if failed.count == 1 { return "Couldn't upload \(failed[0]) — it was left out of this message." }
     return "Couldn't upload \(failed.count) attachments — they were left out of this message."
 }
+
+/// The server shows the model an uploaded *image* itself, but leaves every other
+/// file for the agent to open by path — and only the message text carries that
+/// path. Same line the web client adds (`messages.js`), so the server's own
+/// bookkeeping (it splits on this marker) treats both alike.
+enum ChatFileRefs {
+    private static let marker = "[Attached files: "
+
+    static func messageText(_ text: String, uploads: [[String: Any]]) -> String {
+        let paths = uploads.compactMap { upload -> String? in
+            guard upload["is_image"] as? Bool != true else { return nil }
+            return upload["path"] as? String ?? upload["filename"] as? String
+        }
+        guard !paths.isEmpty else { return text }
+        let line = marker + paths.joined(separator: ", ") + "]"
+        return text.isEmpty ? line : "\(text)\n\n\(line)"
+    }
+
+    /// The text as the user wrote it: the path line is for the model, not the bubble.
+    static func stripped(_ text: String) -> String {
+        if text.hasPrefix(marker) { return "" }
+        guard let range = text.range(of: "\n\n" + marker) else { return text }
+        return String(text[..<range.lowerBound])
+    }
+}
