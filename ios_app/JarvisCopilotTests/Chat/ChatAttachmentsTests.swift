@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import JarvisCopilot
 
@@ -91,8 +92,30 @@ final class ChatAttachmentsTests: XCTestCase {
         XCTAssertEqual(video.size, 9)
 
         let file = PendingAttachment(name: "n.pdf", data: bytes(1))
-        XCTAssertNil(file.thumbnail, "a plain file falls back to a chip in the UI")
+        XCTAssertNil(file.thumbnail, "a file nothing could draw falls back to its glyph")
         XCTAssertEqual(file.messageAttachment.name, "n.pdf")
+        XCTAssertEqual(file.messageAttachment.data, file.data, "a sent file opens in the viewer offline")
+
+        var previewed = PendingAttachment(name: "n.pdf", data: bytes(1))
+        previewed.previewData = bytes(3)
+        XCTAssertEqual(previewed.thumbnail, bytes(3), "a drawn first page wins over the glyph")
+        XCTAssertNil(video.messageAttachment.data, "a movie isn't kept in memory per message")
+    }
+
+    func testAPDFAndATextFileGetARealPreview() async throws {
+        let pdf = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 260)).pdfData { ctx in
+            ctx.beginPage()
+            ("Lab 3" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: nil)
+        }
+        let page = await ChatFilePreview.thumbnail(of: pdf, name: "lab.pdf")
+        XCTAssertNotNil(page.flatMap(UIImage.init(data:)), "a PDF previews with its first page")
+        let text = await ChatFilePreview.thumbnail(of: Data("hello\nworld".utf8), name: "notes.txt")
+        XCTAssertNotNil(text.flatMap(UIImage.init(data:)), "a text file previews with its first lines")
+    }
+
+    func testASentAttachmentIsFetchedBackByItsStoredName() {
+        XCTAssertEqual(ChatFilePreview.source(sessionID: "4d48", name: "PHYS_142 Lab.pdf"),
+                       "/api/file/raw?session_id=4d48&path=PHYS_142%20Lab.pdf")
     }
 
     func testAVideoOverAHundredMegabytesIsRejectedBeforeItIsRead() {

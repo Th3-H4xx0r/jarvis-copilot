@@ -148,6 +148,7 @@
 		1F74D0CFAC742C6BEA65A468 /* ChatAttachmentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EC0A1F1264D5B4FE16464F /* ChatAttachmentsTests.swift */; };
 		1FA6D3B18BFE6244CF90252F /* MemoryGraphStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F69B4B0886AD83587A0DA07 /* MemoryGraphStore.swift */; };
 		1FCB731E8A1E7B20F0FD5D82 /* GlassesTranslateWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE015A444EA73A915FDAB241 /* GlassesTranslateWireTests.swift */; };
+		2016303D4AD0C2816AC03B2C /* ChatFilePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D3612333A3CC0D360E9F04 /* ChatFilePreview.swift */; };
 		202CB7D0FDE90C5FF546927D /* WatchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C412DA32916AA322252F7 /* WatchViewModel.swift */; };
 		20321F8055AC19E205D75845 /* ModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D89067327C774329148C3B3 /* ModelSelectionTests.swift */; };
 		20549939B16322F08DE89AC8 /* X5RingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51EF7F153081587C4D1E1074 /* X5RingTests.swift */; };
@@ -449,6 +450,7 @@
 		5A96DE9047BE7B593EEAD618 /* InmoNavigationWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECE6408D7EC3F2BB2575D5A /* InmoNavigationWire.swift */; };
 		5ABC913CD6B867F81E0CB355 /* JarvisShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC12F5609914381F51043A4 /* JarvisShared.swift */; };
 		5AF706A76E897065903912EC /* BandMonitorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68561C35FBC7D57145C3162 /* BandMonitorSettings.swift */; };
+		5B09A6943F64E1FFCB7A5E5C /* AttachmentViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F19D564471AA482DE4C614 /* AttachmentViewer.swift */; };
 		5B1E7C0A9D3F4A2B8C6E1D07 /* BackgroundKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E5F17B2D4E6A9F0C8B21 /* BackgroundKeepalive.swift */; };
 		5B4860CC2B2A9F407C16A2DD /* HarnessChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D8E90823BB19C7D62C4729 /* HarnessChip.swift */; };
 		5B7D1AF12BB8AB5BB17CA63D /* WeSpeakerResNet34.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = 9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */; };
@@ -2167,6 +2169,7 @@
 		C41B5BF4138C691C3D494886 /* DoorAlarmCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmCard.swift; sourceTree = "<group>"; };
 		C41C5EDBC28E2E4F936EE5E0 /* DevicesFixtures.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesFixtures.swift; sourceTree = "<group>"; };
 		C42BB511F105B4A0866399D9 /* CarCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCard.swift; sourceTree = "<group>"; };
+		C4F19D564471AA482DE4C614 /* AttachmentViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AttachmentViewer.swift; sourceTree = "<group>"; };
 		C5320BD89E7050ECC1C16B40 /* WorkspacesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesPage.swift; sourceTree = "<group>"; };
 		C53594B4B0809B49BE3F0440 /* MemoryPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryPage.swift; sourceTree = "<group>"; };
 		C56842DEF1D899E094B3AC5A /* BackgroundKeepaliveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundKeepaliveTests.swift; sourceTree = "<group>"; };
@@ -2331,6 +2334,7 @@
 		E9508EF0BDFF0FB925516DA4 /* IMessageFactsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactsStore.swift; sourceTree = "<group>"; };
 		E96A33C9D808787F7E83495B /* RouteMap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteMap.swift; sourceTree = "<group>"; };
 		E9C33AC4137EA0D360D1D971 /* IslandPlanNotifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandPlanNotifier.swift; sourceTree = "<group>"; };
+		E9D3612333A3CC0D360E9F04 /* ChatFilePreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatFilePreview.swift; sourceTree = "<group>"; };
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
 		EAA65DDD4E0CD69C0D63873D /* CarCardTextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCardTextTests.swift; sourceTree = "<group>"; };
@@ -2531,6 +2535,7 @@
 				E62A2763B2AE775BDE6655BF /* Dashboard */,
 				21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */,
 				3C5ED7A98D8AA1D757A1BD24 /* PasteboardAttachments.swift */,
+				E9D3612333A3CC0D360E9F04 /* ChatFilePreview.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -4184,6 +4189,7 @@
 				14A5A1C84749861FC4570518 /* HarnessJobCard.swift */,
 				D6DECB8FC714762576F61B6E /* ChatEmbeds.swift */,
 				0F138C0B1C88275580727CF8 /* ComposerTextView.swift */,
+				C4F19D564471AA482DE4C614 /* AttachmentViewer.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -6031,6 +6037,8 @@
 				9C704D83013520394BB10B6D /* JarvisPulse.swift in Sources */,
 				A963F33A677C821AB5A9F408 /* PasteboardAttachments.swift in Sources */,
 				1317E9058DBD338F7D13980B /* ComposerTextView.swift in Sources */,
+				2016303D4AD0C2816AC03B2C /* ChatFilePreview.swift in Sources */,
+				5B09A6943F64E1FFCB7A5E5C /* AttachmentViewer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

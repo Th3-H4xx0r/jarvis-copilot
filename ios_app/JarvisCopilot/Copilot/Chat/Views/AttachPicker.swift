@@ -149,12 +149,14 @@ extension AttachmentSink {
                 ChatVideoPoster.firstFrame(of: data, extension: ext)
             }.value
         }
+        let preview = isVideo ? nil : await ChatFilePreview.thumbnail(of: data, name: name)
         addAttachment(PendingAttachment(
             name: name,
             data: data,
             isImage: !isVideo && PendingAttachment.looksLikeImage(name),
             isVideo: isVideo,
-            posterData: poster))
+            posterData: poster,
+            previewData: preview))
     }
 }
 

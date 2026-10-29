@@ -80,6 +80,7 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
         // Markdown links in a reply are model output; anything that is not
         // http/https/mailto has to be confirmed (security M5).
         .chatLinkGuard()
+        .environment(\.chatSessionID, store.sessionID)
     }
 
     // MARK: Transcript

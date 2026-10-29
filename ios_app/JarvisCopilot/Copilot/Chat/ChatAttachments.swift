@@ -12,19 +12,25 @@ struct PendingAttachment: Identifiable, Equatable, Sendable {
     /// model can look at the frame but not at the movie.
     var isVideo = false
     var posterData: Data?
+    /// A small drawn preview (``ChatFilePreview``): a PDF's first page, a text
+    /// file's opening lines, a downsized photo.
+    var previewData: Data?
 
     var size: Int { data.count }
 
-    /// Bytes to show in the composer chip and the sent bubble: an image previews
-    /// with itself, a video with its poster, and a plain file not at all.
+    /// Bytes to show in the composer tile and the sent bubble: the drawn preview,
+    /// else an image's own bytes or a video's poster; nil shows the file's glyph.
     var thumbnail: Data? {
+        if let previewData { return previewData }
         if isImage { return data }
         if isVideo { return posterData }
         return nil
     }
 
+    /// The sent bubble keeps the bytes so the viewer opens them without a
+    /// round trip — except a movie, too big to hold per message.
     var messageAttachment: MessageAttachment {
-        MessageAttachment(name: name, thumbnail: thumbnail)
+        MessageAttachment(name: name, thumbnail: thumbnail, data: isVideo ? nil : data)
     }
 
     static func looksLikeImage(_ name: String) -> Bool {

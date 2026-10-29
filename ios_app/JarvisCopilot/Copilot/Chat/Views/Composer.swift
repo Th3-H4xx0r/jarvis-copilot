@@ -107,6 +107,7 @@ struct AttachmentStrip: View {
 struct AttachmentChip: View {
     let attachment: PendingAttachment
     let onRemove: () -> Void
+    @State private var viewing: ViewedAttachment?
 
     static let side: CGFloat = 64
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 14, style: .continuous) }
@@ -117,10 +118,14 @@ struct AttachmentChip: View {
     }
 
     var body: some View {
-        tile
-            .frame(width: Self.side, height: Self.side)
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        Button { viewing = ViewedAttachment(name: attachment.name, data: attachment.data) } label: {
+            tile
+                .frame(width: Self.side, height: Self.side)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .attachmentViewer($viewing)
             .overlay(alignment: .topTrailing) {
                 Button(action: onRemove) {
                     JcIcon("xmark", size: 9, weight: .bold)

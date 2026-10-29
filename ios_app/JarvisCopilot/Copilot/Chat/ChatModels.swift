@@ -140,10 +140,11 @@ enum ChatBlock: Identifiable, Equatable, Sendable {
 struct MessageAttachment: Identifiable, Equatable, Sendable {
     var id = UUID()
     var name: String
-    /// Image/poster bytes for a just-sent attachment, so the bubble can show a
-    /// real preview this session. Nil after a history reload — the server stores
-    /// only the name, and the bubble falls back to a file chip.
+    /// Preview bytes for a just-sent attachment. Nil after a history reload — the
+    /// server stores only the name, so the bubble fetches the file back by it.
     var thumbnail: Data?
+    /// The file itself for a just-sent attachment, for the viewer.
+    var data: Data?
 }
 
 /// Per-turn status shown as a small line under the reply. The UI shows only three
