@@ -7,6 +7,8 @@ struct AppUpdateOffer: Equatable {
     let version: String
     let notes: String
     let installURL: URL
+    /// Bytes to download; 0 when the server didn't say.
+    var size: Int64 = 0
 
     /// The server's answer, or nil when it offers nothing newer than `installed`.
     static func decode(_ obj: [String: Any], installed: Int) -> AppUpdateOffer? {
@@ -16,7 +18,8 @@ struct AppUpdateOffer: Equatable {
         else { return nil }
         return AppUpdateOffer(build: build, version: obj["version"] as? String ?? "",
                               notes: (obj["notes"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                              installURL: url)
+                              installURL: url,
+                              size: (obj["size"] as? NSNumber)?.int64Value ?? 0)
     }
 }
 
@@ -187,71 +190,198 @@ struct AppUpdateCard: View {
     @ObservedObject var center: AppUpdateCenter
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea()
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.45).ignoresSafeArea()
                 .onTapGesture { center.later() }
             if let offer = center.offer {
-                card(offer)
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                AppUpdateSheet(offer: offer, installing: center.installing, error: center.error,
+                               onInstall: { Task { await center.install() } },
+                               onLater: { center.later() })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.spring(duration: 0.35, bounce: 0.15), value: center.offer)
+        .animation(.spring(duration: 0.4, bounce: 0.12), value: center.offer)
     }
+}
 
-    private func card(_ offer: AppUpdateOffer) -> some View {
+/// The card itself, like the system's App Store / AirPods sheets: the app's own icon,
+/// what's new as a list, one prominent action. Separate from `AppUpdateCard` so it
+/// can be drawn without a live center.
+struct AppUpdateSheet: View {
+    let offer: AppUpdateOffer
+    var installing = false
+    var error: String?
+    var onInstall: () -> Void = {}
+    var onLater: () -> Void = {}
+
+    private let shape = RoundedRectangle(cornerRadius: 34, style: .continuous)
+
+    var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: "arrow.down.app.fill")
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundStyle(JcTheme.accent)
-                .padding(.bottom, 10)
-            Text("Update available")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-            Text(offer.version.isEmpty ? "Build \(offer.build)" : "Version \(offer.version) · build \(offer.build)")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
-            if !offer.notes.isEmpty {
-                ScrollView {
-                    Text(offer.notes)
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 200)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 14)
-            }
-            if let error = center.error {
-                Text(error)
-                    .font(.footnote)
+            header
+            if !items.isEmpty { whatsNew.padding(.top, 22) }
+            if let error {
+                Label(error, systemImage: "exclamationmark.circle.fill")
+                    .font(.system(size: 13))
                     .foregroundStyle(JcTheme.danger)
-                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 12)
             }
-            VStack(spacing: 6) {
-                Button { Task { await center.install() } } label: {
-                    HStack(spacing: 8) {
-                        if center.installing { ProgressView() } else { Text("Install now") }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 30)
-                }
-                .buttonStyle(.jcGlass(full: true))
-                .disabled(center.installing)
-                Button("Later") { center.later() }
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
-                    .buttonStyle(.plain)
-            }
-            .padding(.top, 18)
+            actions.padding(.top, 20)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 20)
-        .frame(maxWidth: 420)
-        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
-            .strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 20)
+        .padding(.top, 26)
+        .padding(.bottom, 6)
+        .frame(maxWidth: 460)
+        .background {
+            // The app's black glass with the accent glowing in from the top, like the Voice tab.
+            ZStack {
+                JcTheme.bg
+                JcTheme.glassFill
+                RadialGradient(colors: [JcTheme.accent.opacity(0.28), .clear],
+                               center: .top, startRadius: 0, endRadius: 260)
+            }
+            .clipShape(shape)
+        }
+        .overlay(shape.strokeBorder(LinearGradient(
+            colors: [JcTheme.accent.opacity(0.55), JcTheme.glassBorder, JcTheme.glassBorder],
+            startPoint: .top, endPoint: .bottom), lineWidth: 1))
+        .shadow(color: JcTheme.accent.opacity(0.18), radius: 40, y: -6)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
         .accessibilityElement(children: .contain)
     }
+
+    private var header: some View {
+        VStack(spacing: 0) {
+            AppIconImage()
+                .frame(width: 72, height: 72)
+                .shadow(color: JcTheme.accent.opacity(0.55), radius: 22)
+            HStack(spacing: 7) {
+                Circle().fill(JcTheme.accent).frame(width: 6, height: 6)
+                Text("Update available")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.85))
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(.white.opacity(0.06), in: Capsule())
+            .padding(.top, 18)
+            Text(offer.version.isEmpty ? "Jarvis" : "Jarvis \(offer.version)")
+                .font(.system(size: 27, weight: .medium))
+                .tracking(-0.6)
+                .foregroundStyle(JcTheme.text)
+                .padding(.top, 12)
+            Text(subtitle)
+                .font(.system(size: 14))
+                .foregroundStyle(JcTheme.muted)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// "Build 263022206 · 67.6 MB" — the build as digits, never "263,022,206".
+    private var subtitle: String {
+        var parts = ["Build \(String(offer.build))"]
+        if offer.size > 0 {
+            parts.append(ByteCountFormatter.string(fromByteCount: offer.size, countStyle: .file))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The notes one line per item, with the "•" / "-" the publisher typed taken off.
+    private var items: [String] {
+        offer.notes.split(whereSeparator: \.isNewline).map {
+            var line = $0.trimmingCharacters(in: .whitespaces)
+            if let first = line.first, "•-*".contains(first) { line.removeFirst() }
+            return line.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+    }
+
+    private var whatsNew: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("WHAT\u{2019}S NEW")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.2)
+                .foregroundStyle(JcTheme.muted)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 11) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: "sparkle")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(JcTheme.accent)
+                            Text(item)
+                                .font(.system(size: 15))
+                                .foregroundStyle(JcTheme.text.opacity(0.88))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 180)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
+    }
+
+    private var actions: some View {
+        VStack(spacing: 2) {
+            Button(action: onInstall) {
+                ZStack {
+                    Label("Install Now", systemImage: "arrow.down.circle.fill")
+                        .opacity(installing ? 0 : 1)
+                    if installing { ProgressView().tint(.black) }
+                }
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .background(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
+                                           startPoint: .top, endPoint: .bottom), in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+                .shadow(color: JcTheme.accent.opacity(0.45), radius: 16, y: 4)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(installing)
+            Button("Not Now", action: onLater)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+        }
+    }
+}
+
+/// This app's own icon, read from its bundle; a plain glyph if the system won't hand it over.
+struct AppIconImage: View {
+    var body: some View {
+        Group {
+            if let icon = Self.icon {
+                Image(uiImage: icon).resizable().scaledToFill()
+            } else {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(JcTheme.accent)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 13.5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13.5, style: .continuous)
+            .strokeBorder(.white.opacity(0.1), lineWidth: 0.5))
+    }
+
+    static let icon: UIImage? = {
+        let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any]
+        let primary = icons?["CFBundlePrimaryIcon"] as? [String: Any]
+        if let name = primary?["CFBundleIconName"] as? String, let image = UIImage(named: name) { return image }
+        let files = primary?["CFBundleIconFiles"] as? [String] ?? []
+        return files.reversed().lazy.compactMap { UIImage(named: $0) }.first
+    }()
 }

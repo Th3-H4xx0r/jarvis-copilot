@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import JarvisCopilot
 
@@ -46,5 +47,33 @@ final class AppUpdateCenterTests: XCTestCase {
         // Later on an older offer doesn't hide a newer one.
         XCTAssertTrue(AppUpdateRules.shouldShow(offer, foreground: true, voiceActive: false, laterBuild: 5))
         XCTAssertFalse(AppUpdateRules.shouldShow(nil, foreground: true, voiceActive: false, laterBuild: nil))
+    }
+}
+
+/// The "Update available" sheet over a screen, to look at before it's installed.
+@MainActor
+final class AppUpdateSheetRenderTests: XCTestCase {
+    func testTheUpdateSheetRenders() throws {
+        let offer = AppUpdateOffer(build: 263022206, version: "1.0",
+                                   notes: "• Settings now shows the installed version at the bottom\n"
+                                        + "• Paste images and files straight into chat\n• PDFs read natively by Claude",
+                                   installURL: URL(string: "itms-services://x")!, size: 67_627_216)
+        let screen = ZStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(0..<14, id: \.self) { _ in
+                    Text("Neither app shows its version anywhere. A small, useful change is to show it.")
+                        .foregroundStyle(JcTheme.text)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            Color.black.opacity(0.45)
+            AppUpdateSheet(offer: offer)
+        }
+        try RenderHarness.write(screen, size: CGSize(width: 402, height: 874), name: "app-update-sheet")
+        try RenderHarness.write(ZStack(alignment: .bottom) {
+            Color.black
+            AppUpdateSheet(offer: offer, installing: true, error: "That link expired — try again.")
+        }, size: CGSize(width: 402, height: 600), name: "app-update-sheet-installing")
     }
 }
