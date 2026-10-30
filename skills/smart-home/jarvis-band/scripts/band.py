@@ -289,12 +289,17 @@ class Band:
         """Pulls from the band now: 0 = today only."""
         return self.invoke("band_sync", {"days": days})
 
-    def measure(self, type: str, wait: float = 150.0, poll: float = 5.0) -> dict[str, Any]:
+    def measure(self, type: str, wait: float = 150.0, poll: float = 5.0, mode: str | None = None) -> dict[str, Any]:
         """Spot reading: heart_rate, spo2, blood_pressure, temperature, stress, blood_glucose,
-        blood_component, body_composition or ecg. A reading longer than the phone's answer
-        (blood pressure ~55 s, ECG up to 2 min) comes back ``still_measuring``; this then
-        follows ``band_get_status`` until it ends, up to ``wait`` seconds."""
-        result = self.invoke("band_measure", {"type": type}, timeout=max(self.timeout, DEFAULT_TIMEOUT))
+        blood_component, body_composition or ecg. ``mode`` is ``general`` (the band's estimate)
+        or ``private`` (calibrated to his own reference readings); None = the one he last
+        picked. A reading longer than the phone's answer (blood pressure ~55 s, ECG up to
+        2 min) comes back ``still_measuring``; this then follows ``band_get_status`` until it
+        ends, up to ``wait`` seconds."""
+        params: dict[str, Any] = {"type": type}
+        if mode:
+            params["mode"] = mode
+        result = self.invoke("band_measure", params, timeout=max(self.timeout, DEFAULT_TIMEOUT))
         if not result.get("still_measuring"):
             return result
         started = (result.get("measurement") or {}).get("time")
@@ -455,6 +460,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("measure", help="take a spot reading now (the band must be worn)")
     p.add_argument("type", choices=MEASUREMENTS)
+    p.add_argument("--mode", choices=("general", "private"), help="default: the mode last picked on the phone")
 
     p = sub.add_parser("workout", help="start, pause, resume, end or read a workout on the phone's workout screen")
     p.add_argument("action", choices=WORKOUT_ACTIONS)
@@ -523,7 +529,7 @@ def _run(band: Band, args: argparse.Namespace) -> dict[str, Any]:
     if command == "sync":
         return band.sync(days=args.days)
     if command == "measure":
-        return band.measure(args.type)
+        return band.measure(args.type, mode=args.mode)
     if command == "workout":
         return band.workout(args.action, sport=args.sport)
     if command == "find":

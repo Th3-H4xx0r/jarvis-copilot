@@ -92,8 +92,10 @@ final class BandDevice: WearableDevice {
                     + ". Heart rate and SpO2 take 10-30 s, blood pressure about 55 s, ECG and body composition up to 2 min "
                     + "(a finger on the band's electrode). Answers the result (status done, failed, busy or not_worn, with "
                     + "failure saying why), or still_measuring with check_again_in_seconds: then band_get_status's "
-                    + "last_measurement has it.",
-                inputSchema: DeviceCapability.schema(["type": ["type": "string", "enum": BandMeasure.allCases.map(\.name)]],
+                    + "last_measurement has it. mode: general (the band's estimate) or private (calibrated to his own "
+                    + "cuff/meter/lab/device readings); omitted = the mode he last picked for that reading.",
+                inputSchema: DeviceCapability.schema(["type": ["type": "string", "enum": BandMeasure.allCases.map(\.name)],
+                                                      "mode": ["type": "string", "enum": BandMeasureMode.allCases.map(\.rawValue)]],
                                                      required: ["type"])),
             DeviceCapability(
                 name: "band_workout",
@@ -501,6 +503,7 @@ final class BandDevice: WearableDevice {
         guard let name = args["type"] as? String, let type = BandMeasure.allCases.first(where: { $0.name == name }) else {
             throw DeviceError.badArgument("'type' must be one of " + BandMeasure.allCases.map(\.name).joined(separator: ", "))
         }
+        let mode = (args["mode"] as? String).flatMap(BandMeasureMode.init(rawValue:))
         guard !(backend.workouts?.holdsLink(for: WearableKeepAlive.band) ?? false) else {
             throw DeviceError.badArgument("a workout is using the band's sensor — readings wait until it ends")
         }
@@ -511,7 +514,7 @@ final class BandDevice: WearableDevice {
             let started = Date()
             let outcome = MeasureOutcome()
             Task { @MainActor in
-                do { outcome.result = .success(try await self.session.measure(type)) } catch { outcome.result = .failure(error) }
+                do { outcome.result = .success(try await self.session.measure(type, mode: mode)) } catch { outcome.result = .failure(error) }
             }
             let wait = max(3, secondsLeft - 2)
             while outcome.result == nil, Date().timeIntervalSince(started) < wait {

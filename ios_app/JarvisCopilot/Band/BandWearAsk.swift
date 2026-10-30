@@ -164,9 +164,11 @@ extension BandMeasure: Identifiable {
 }
 
 extension View {
-    /// "Put the band on", as a bottom sheet on the band's page — the ring's sheet, with the band.
-    func bandWearSheet(_ ask: BandWearAsk) -> some View {
-        sheet(item: ask.sheet) { type in
+    /// "Put the band on", as a bottom sheet on the band's page — the ring's sheet, with the band —
+    /// for the readings `only` takes (the rest ask inside their measure sheet).
+    func bandWearSheet(_ ask: BandWearAsk, only: @escaping (BandMeasure) -> Bool = { _ in true }) -> some View {
+        sheet(item: Binding(get: { ask.sheet.wrappedValue.flatMap { only($0) ? $0 : nil } },
+                            set: { ask.sheet.wrappedValue = $0 })) { type in
             RingWearPrompt(metric: type.label, kind: .band) { ask.dismiss() }
                 .presentationDetents([.height(430)])
                 .presentationDragIndicator(.hidden)

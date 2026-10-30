@@ -103,6 +103,51 @@ final class BandCodecTests: XCTestCase {
         XCTAssertEqual(BandMeasure.spo2, .bloodOxygen)
     }
 
+    func testPrivateModeIsTheSDKsPrivateMeasurement() {
+        // sendPrivateBloodPressureData: 90 01 01; glucose and components flag calibration last.
+        XCTAssertEqual(BandRequest.measure(.bloodPressure, on: true, mode: .private), bytes("900101"))
+        XCTAssertEqual(BandRequest.measure(.bloodPressure, on: false, mode: .private), bytes("900001"))
+        XCTAssertEqual(BandRequest.measure(.bloodGlucose, on: true, mode: .private), bytes("89010101"))
+        XCTAssertEqual(BandRequest.measure(.bloodComponent, on: true, mode: .private), bytes("8a010101"))
+        // The rest have no band-side mode: Private is the phone's calibration.
+        XCTAssertEqual(BandRequest.measure(.heartRate, on: true, mode: .private), bytes("d001"))
+        XCTAssertEqual(BandRequest.measure(.bloodOxygen, on: true, mode: .private), bytes("800100"))
+    }
+
+    func testTheModeIsRememberedPerReading() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "band-mode-\(UUID().uuidString)"))
+        XCTAssertEqual(BandMeasureMode.saved(for: .bloodPressure, in: defaults), .general)
+        BandMeasureMode.save(.private, for: .bloodPressure, in: defaults)
+        BandMeasureMode.save(.private, for: .heartRate, in: defaults)
+        BandMeasureMode.save(.private, for: .ecg, in: defaults)
+        XCTAssertEqual(BandMeasureMode.saved(for: .bloodPressure, in: defaults), .private)
+        XCTAssertEqual(BandMeasureMode.saved(for: .heartRate, in: defaults), .private)
+        XCTAssertEqual(BandMeasureMode.saved(for: .bloodGlucose, in: defaults), .general)
+        XCTAssertEqual(BandMeasureMode.saved(for: .ecg, in: defaults), .general, "an ECG has no mode")
+        XCTAssertEqual(BandMeasure.allCases.filter(\.hasModes).count, BandMeasure.allCases.count - 1)
+    }
+
+    func testAPhoneCalibrationMovesPrivateReadingsByTheDifference() {
+        // The oximeter said 98 while the band said 95: +3 from then on, capped at 100.
+        let c = BandReferenceCalibration(reference: 98, band: 95, date: Date())
+        var r = BandReading(measure: .bloodOxygen, date: Date(), status: .done)
+        r.spo2 = 96
+        XCTAssertEqual(r.calibrated(by: c).spo2, 99)
+        r.spo2 = 99
+        XCTAssertEqual(r.calibrated(by: c).spo2, 100)
+        // Temperature is kept in °C whatever unit it was typed in.
+        var t = BandReading(measure: .temperature, date: Date(), status: .done)
+        t.temperatureC = 35.9
+        let thermometer = BandReferenceCalibration(reference: 36.6, band: 35.9, date: Date())
+        XCTAssertEqual(try XCTUnwrap(t.calibrated(by: thermometer).temperatureC), 36.6, accuracy: 0.001)
+        // A reading of another kind, or one with nothing in it, is left alone.
+        var hr = BandReading(measure: .heartRate, date: Date(), status: .done)
+        hr.heartRate = 70
+        XCTAssertEqual(hr.calibrated(by: BandReferenceCalibration(reference: 66, band: 70, date: Date())).heartRate, 66)
+        XCTAssertNil(BandReading(measure: .heartRate, date: Date(), status: .measuring)
+            .calibrated(by: c).heartRate)
+    }
+
     func testSportAndControlRequests() {
         // veepooSendSportControlDataManager setup mode 0 op 1 / op 4, then read mode 0.
         XCTAssertEqual(hex(BandRequest.sport(.start)), "da01000001000000000000000000000000000000")

@@ -11,6 +11,8 @@ struct RingMeasureList: View {
         let state: RingCardMeasure.State
         let last: (text: String, time: Date)?
         let control: RingCardMeasure?
+        /// A choice shown as a chip after the label (the band's General/Private).
+        var mode: ModeChoice?
 
         init(type: RingMeasurementType, state: RingCardMeasure.State, last: (text: String, time: Date)?,
              control: RingCardMeasure?) {
@@ -27,6 +29,14 @@ struct RingMeasureList: View {
             self.last = last
             self.control = control
         }
+    }
+
+    /// A small menu chip: the options, which one is picked, and what picking does. The second
+    /// option is the special one and wears the accent.
+    struct ModeChoice {
+        let options: [String]
+        let selected: Int
+        let select: (Int) -> Void
     }
 
     let items: [Item]
@@ -46,9 +56,12 @@ struct RingMeasureList: View {
                 RingMetricSymbol(name: item.icon, tint: item.tint, pulsing: isMeasuring(item))
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(item.label)
+                            .font(.body.weight(.medium))
+                            .lineLimit(1)
+                        if let mode = item.mode { modeChip(mode) }
+                    }
                     if case .measuring(let live) = item.state {
                         // "--" while the sensor warms up, then each number the
                         // ring sends rolls in, in the metric's colour.
@@ -72,6 +85,29 @@ struct RingMeasureList: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func modeChip(_ mode: ModeChoice) -> some View {
+        Menu {
+            ForEach(Array(mode.options.enumerated()), id: \.offset) { index, option in
+                Button { mode.select(index) } label: {
+                    if index == mode.selected { Label(option, systemImage: "checkmark") } else { Text(option) }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(mode.options[mode.selected])
+                    .font(.caption2.weight(.semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+            }
+            .foregroundStyle(mode.selected > 0 ? JcTheme.accent : JcTheme.muted)
+            .padding(.horizontal, 7)
+            .frame(height: 20)
+            .background(Capsule().fill(mode.selected > 0 ? JcTheme.accent.opacity(0.14) : Color.white.opacity(0.07)))
+            .fixedSize()
+        }
+        .accessibilityLabel("Mode: \(mode.options[mode.selected])")
     }
 
     private func isMeasuring(_ item: Item) -> Bool {

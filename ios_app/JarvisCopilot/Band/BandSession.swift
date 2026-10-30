@@ -61,6 +61,10 @@ final class BandSession: ObservableObject {
     @Published private(set) var isSetUp = false
     /// The measurement running now, if any.
     @Published private(set) var measuring: BandMeasure?
+    /// The running reading's mode.
+    @Published private(set) var measuringMode: BandMeasureMode = .general
+    /// The phone-side calibration a Private reading the band can't calibrate moves by.
+    private var measuringCalibration: BandReferenceCalibration?
     @Published private(set) var lastReading: BandReading?
     /// Heart rate from a spot check's live stream, nil when none.
     @Published private(set) var liveHeartRate: Int?
@@ -171,8 +175,13 @@ final class BandSession: ObservableObject {
     /// with a reason: quiet for a while, the electrode lead off too long, or past the deadline
     /// (`type.timeout`, or `seconds` when the caller has less). What it ended as comes back and
     /// stays as `lastReading`. Cancelled, it throws and puts the previous reading back.
-    func measure(_ type: BandMeasure, seconds: TimeInterval? = nil) async throws -> BandReading {
+    /// `mode` defaults to the one last picked for `type` (`BandMeasureMode.saved`).
+    func measure(_ type: BandMeasure, seconds: TimeInterval? = nil, mode: BandMeasureMode? = nil) async throws -> BandReading {
         guard measuring == nil else { throw BandError.refused("The band is already measuring.") }
+        let mode = mode ?? BandMeasureMode.saved(for: type)
+        measuringMode = mode
+        measuringCalibration = mode == .private ? BandReferenceCalibration.saved(for: type) : nil
+        defer { measuringCalibration = nil }
         measuring = type
         defer { measuring = nil }
         let before = lastReading
@@ -186,7 +195,7 @@ final class BandSession: ObservableObject {
             onEcgWave?(true)
         }
         defer { if type == .ecg { onEcgWave?(false) } }
-        let start = BandRequest.measure(type, on: true)
+        let start = BandRequest.measure(type, on: true, mode: mode)
         var run = BandMeasureRun(type, from: now(), seconds: seconds)
         // Every frame's reading from now on, in order — a poll would miss the parts of a result.
         // (`dropFirst`: the publisher replays the current one, maybe the last try's.)
@@ -197,7 +206,7 @@ final class BandSession: ObservableObject {
         // Whatever happens, the band is told to stop — a test left running drains it.
         defer {
             watch.cancel()
-            transport.send(BandRequest.measure(type, on: false))
+            transport.send(BandRequest.measure(type, on: false, mode: mode))
         }
         // The first reply comes back to the request; the rest of the stream is unsolicited.
         let first = try await transport.perform(start, accepts: BandOp.measurementReplies, timeout: 6)
@@ -207,7 +216,7 @@ final class BandSession: ObservableObject {
                 let rate = Int(frame[4]) | Int(frame[5]) << 8
                 if (100...1000).contains(rate) { ecgSampleRate = rate }
             }
-            if let r = BandDecode.measurement(frame, at: now()) { run.add(r, at: now()) }
+            if let r = BandDecode.measurement(frame, at: now()) { run.add(calibrated(r), at: now()) }
         }
         while !run.ended {
             // The wear sheet's "Not now": no half-finished reading is left showing.
@@ -224,6 +233,12 @@ final class BandSession: ObservableObject {
         lastReading = result
         onMeasured?(result)
         return result
+    }
+
+    /// A frame's reading as the running reading's mode has it.
+    private func calibrated(_ r: BandReading) -> BandReading {
+        guard let c = measuringCalibration, r.measure == measuring else { return r }
+        return r.calibrated(by: c)
     }
 
     // MARK: Control
@@ -502,6 +517,7 @@ final class BandSession: ObservableObject {
         if let reading = BandDecode.measurement(frame) {
             // A late frame (the stop's own reply) must not replace the reading that ended.
             guard measuring == reading.measure else { return }
+            let reading = calibrated(reading)
             lastReading = reading
             if reading.measure == .ecg, reading.part == nil, !reading.ended {
                 if let hr = reading.heartRate, (30...250).contains(hr) { ecgHeartRates.append(hr) }

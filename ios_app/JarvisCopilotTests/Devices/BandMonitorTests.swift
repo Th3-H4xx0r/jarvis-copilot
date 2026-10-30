@@ -10,7 +10,7 @@ final class BandMonitorTests: XCTestCase {
 
     func testTheCalibrationFramesAreTheSDKs() {
         XCTAssertEqual(hex(BandRequest.bloodPressureCalibration(.init(enabled: true, systolic: 121, diastolic: 79))),
-                       "9101794f00" + String(repeating: "00", count: 15))
+                       "9101794f01" + String(repeating: "00", count: 15))
         XCTAssertTrue(hex(BandRequest.readBloodPressureCalibration()).hasPrefix("9102"))
         let component = BandRequest.bloodComponentCalibration(.init(enabled: true, uricAcid: 350, cholesterol: 4.6,
                                                                     triglycerides: 1.2, hdl: 1.4, ldl: 2.7))

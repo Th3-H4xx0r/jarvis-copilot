@@ -112,19 +112,20 @@ enum BandRequest {
     // MARK: Measurements
 
     /// Start (`on`) or stop a spot reading — the WeChat SDK's bytes, which the Android SDK and
-    /// its demo agree with: blood pressure in the normal (not "private") mode, glucose and blood
-    /// components without calibration, ECG asking for its waveform (byte 3 = 1, as both demos
-    /// do). One difference: Android writes SpO₂ as `80 01 02` / `80 02 02`, the WeChat SDK
-    /// `80 01 00` / `80 02 00` — which the E910 prefers is not yet seen on the band.
-    static func measure(_ type: BandMeasure, on: Bool) -> [UInt8] {
+    /// its demo agree with: blood pressure, glucose and blood components carry the mode last
+    /// (`private` = against the calibration stored on the band, as G Band's Private: the SDK's
+    /// `sendPrivateBloodPressureData` is `90 01 01`), ECG asks for its waveform (byte 3 = 1, as
+    /// both demos do). One difference: Android writes SpO₂ as `80 01 02` / `80 02 02`, the WeChat
+    /// SDK `80 01 00` / `80 02 00` — which the E910 prefers is not yet seen on the band.
+    static func measure(_ type: BandMeasure, on: Bool, mode: BandMeasureMode = .general) -> [UInt8] {
         switch type {
         case .heartRate: return frame([BandOp.heartRate, on ? 1 : 0])
-        case .bloodPressure: return frame([BandOp.bloodPressure, on ? 1 : 0, 0x00])
+        case .bloodPressure: return frame([BandOp.bloodPressure, on ? 1 : 0, mode.byte])
         case .bloodOxygen: return frame([BandOp.bloodOxygen, on ? 1 : 2, 0x00])
         case .temperature: return frame([BandOp.temperature, 0x01, on ? 1 : 2])
         case .stress: return frame([BandOp.glucoseStress, 0x06, on ? 1 : 2])
-        case .bloodGlucose: return frame([BandOp.glucoseStress, 0x01, on ? 1 : 2, 0x00])
-        case .bloodComponent: return frame([BandOp.bloodComponent, 0x01, on ? 1 : 2, 0x00])
+        case .bloodGlucose: return frame([BandOp.glucoseStress, 0x01, on ? 1 : 2, mode.byte])
+        case .bloodComponent: return frame([BandOp.bloodComponent, 0x01, on ? 1 : 2, mode.byte])
         case .bodyComposition: return frame([BandOp.ecgBody, 0x04, on ? 1 : 2])
         case .ecg: return frame([BandOp.ecgBody, 0x01, on ? 1 : 2, 0x01, 0x00])
         }
@@ -245,9 +246,11 @@ enum BandRequest {
     /// `91 02`.
     static func readBloodPressureCalibration() -> [UInt8] { frame([BandOp.bloodPressureCalibration, 0x02]) }
 
-    /// `91 on sys dia 00`: measured against a cuff's reading, or not.
+    /// `91 on sys dia 01`: measured against a cuff's reading, or not. The last byte is the WeChat
+    /// SDK's (G Band's family) `sendBloodPressurePrivateData`, always 01 — the band reads it back
+    /// as the private reference being on.
     static func bloodPressureCalibration(_ c: BandBPCalibration) -> [UInt8] {
-        frame([BandOp.bloodPressureCalibration, c.enabled ? 1 : 0, byte(c.systolic), byte(c.diastolic), 0])
+        frame([BandOp.bloodPressureCalibration, c.enabled ? 1 : 0, byte(c.systolic), byte(c.diastolic), 1])
     }
 
     /// `8A 02 02`.

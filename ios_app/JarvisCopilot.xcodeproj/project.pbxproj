@@ -166,6 +166,7 @@
 		22A86E16D92ACC08AE32300A /* DashcamStillDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E922828942BDD63AF17EB38 /* DashcamStillDecoder.swift */; };
 		22C38938595CCDFABA2E9984 /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655BCCC67E4543F1C0AA7E01 /* LiveView.swift */; };
 		22E89C08B8BF96B93366F9DE /* PairPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED69956E5A404410D189DB90 /* PairPage.swift */; };
+		23055BA01BF08076F538F484 /* BandMeasureSheetRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E57C9A6EF017E315E27442 /* BandMeasureSheetRenderTests.swift */; };
 		2314F4CDCD02AD30802F3A55 /* NotificationActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01172EA46E63A9C64888D03F /* NotificationActionsTests.swift */; };
 		2362DC357F3498A223E88CE5 /* BandDeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB9846406F52B64E7BE07FBB /* BandDeviceView.swift */; };
 		238825A95C794F89F6364E7A /* RingStatsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96790BC8E23FE3AA4932DABA /* RingStatsSections.swift */; };
@@ -538,6 +539,7 @@
 		6CB995282E8453B31B97ABAF /* DashcamDriveDirect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5711CDFFB2EC2E128477173B /* DashcamDriveDirect.swift */; };
 		6CD456F77F1703F1ED233E0D /* DashcamFullscreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C9CC8B708217A4A53D93AD3 /* DashcamFullscreen.swift */; };
 		6D131CCE9A8A70DD6FA9AFAA /* IMessageFactsPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2553B5A7E02A96DDD88715C /* IMessageFactsPush.swift */; };
+		6D32EB087A138FA969C018F5 /* BandMeasureMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BBF48D441761023DA829478 /* BandMeasureMode.swift */; };
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
 		6E594F5F037AE6ACFC5C1B1F /* DashcamStillDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5A623E78E847229D46F71A /* DashcamStillDecoderTests.swift */; };
@@ -1078,6 +1080,7 @@
 		E11CFE8608F888394FA6CD86 /* RingHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A4465A83AFFBC8507DA38 /* RingHistoryStoreTests.swift */; };
 		E12B341F28C6D00B1B8A456F /* ProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 511AEFA506655EE9813D0062 /* ProfilesUITests.swift */; };
 		E16E7D8628C4588FB7AFE444 /* InmoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9ED9005DA1A4A017DA098 /* InmoGallery.swift */; };
+		E1BED137F8CAB4046FBD2651 /* BandMeasureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B03806339DC62C1BC69A10 /* BandMeasureSheet.swift */; };
 		E1FB19731B9061893FEA909E /* ColmiR12.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE0D7CD4CD48E51AD9157DE /* ColmiR12.swift */; };
 		E2363AA38B495EFA78DF0237 /* CodeMemoryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D393D8AEBF63040E8423BFA /* CodeMemoryModels.swift */; };
 		E2470F14331ACBCE6BDBBC5C /* SelfImprovementPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */; };
@@ -1277,6 +1280,7 @@
 
 /* Begin PBXFileReference section */
 		00AC8E0A9B453D8C5924421C /* AppRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		00E57C9A6EF017E315E27442 /* BandMeasureSheetRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureSheetRenderTests.swift; sourceTree = "<group>"; };
 		01172EA46E63A9C64888D03F /* NotificationActionsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationActionsTests.swift; sourceTree = "<group>"; };
 		012F7F41571ACDAAE72AA757 /* AppGroupIslandDesignCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppGroupIslandDesignCacheTests.swift; sourceTree = "<group>"; };
 		01DB1220478B0ABBC1553597 /* DashcamTSFixtures.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamTSFixtures.swift; sourceTree = "<group>"; };
@@ -1316,6 +1320,7 @@
 		0925E6941A22BD0711B0680B /* InmoMediaWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoMediaWire.swift; sourceTree = "<group>"; };
 		0985B21DFAA429C2AC487C63 /* CodeMemoryStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMemoryStore.swift; sourceTree = "<group>"; };
 		09A6D4A89AFA43BB8B0A8975 /* JarvisWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWidget.swift; path = JarvisWidget/JarvisWidget.swift; sourceTree = "<group>"; };
+		09B03806339DC62C1BC69A10 /* BandMeasureSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureSheet.swift; sourceTree = "<group>"; };
 		09B892DDF16C02A8C8730BEA /* AgentActivityViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityViews.swift; sourceTree = "<group>"; };
 		09DCE2A73AC7636FCB8673D5 /* RenderHarness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RenderHarness.swift; sourceTree = "<group>"; };
 		0A011D9942EB8599F29A2453 /* GlassesSubpages.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesSubpages.swift; sourceTree = "<group>"; };
@@ -1327,6 +1332,7 @@
 		0B41F649D854309CB84F046F /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		0B5A7079298755592C4A14CE /* SkillArgsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillArgsTests.swift; sourceTree = "<group>"; };
 		0BA6255BEA379704AED580E9 /* ProfilesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesAPI.swift; sourceTree = "<group>"; };
+		0BBF48D441761023DA829478 /* BandMeasureMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureMode.swift; sourceTree = "<group>"; };
 		0C4AA94350F1EC826D06AAF9 /* CarControlsScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarControlsScreen.swift; sourceTree = "<group>"; };
 		0C5FEFDBE3ED50E017F63336 /* X5Session.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Session.swift; sourceTree = "<group>"; };
 		0CD0DB753E80D1D809B1A3F7 /* CarLightsStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsStateTests.swift; sourceTree = "<group>"; };
@@ -4385,6 +4391,7 @@
 				39B90E3148926A3EF84DA78D /* RingBandNewSkillsTests.swift */,
 				CEEB4B66C6F2B120AB1EE622 /* DashcamEsp32NewSkillsTests.swift */,
 				9F56FECC4F87B729F2317485 /* CommandLiveStateTests.swift */,
+				00E57C9A6EF017E315E27442 /* BandMeasureSheetRenderTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -4618,6 +4625,8 @@
 				1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */,
 				C68561C35FBC7D57145C3162 /* BandMonitorSettings.swift */,
 				5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */,
+				0BBF48D441761023DA829478 /* BandMeasureMode.swift */,
+				09B03806339DC62C1BC69A10 /* BandMeasureSheet.swift */,
 			);
 			name = Band;
 			path = Band;
@@ -5246,6 +5255,7 @@
 				2E1DCFDA332A6D5EDD90C937 /* IslandLiveProbeTests.swift in Sources */,
 				ECEDEEA043E2E99FC35200E7 /* PasteboardAttachmentsTests.swift in Sources */,
 				50313944ED0E3382D2B41282 /* AppUpdateCenterTests.swift in Sources */,
+				23055BA01BF08076F538F484 /* BandMeasureSheetRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6047,6 +6057,8 @@
 				2016303D4AD0C2816AC03B2C /* ChatFilePreview.swift in Sources */,
 				5B09A6943F64E1FFCB7A5E5C /* AttachmentViewer.swift in Sources */,
 				43AA586C941D720E9B4AF3F0 /* AppUpdateCenter.swift in Sources */,
+				6D32EB087A138FA969C018F5 /* BandMeasureMode.swift in Sources */,
+				E1BED137F8CAB4046FBD2651 /* BandMeasureSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -65,6 +65,10 @@ struct BandDeviceView: View {
     @State private var findToken = 0
     /// "Put the band on" for this page's readings.
     @StateObject private var wearAsk: BandWearAsk
+    /// The measure sheet's reading.
+    @StateObject private var flow: BandMeasureFlow
+    /// Each reading's General/Private, as its row's chip shows it.
+    @State private var modes: [BandMeasure: BandMeasureMode] = [:]
     /// An ECG running now (its live screen), and the report of the one that just ended.
     @State private var ecgLive = false
     @State private var ecgReport: BandEcgReport?
@@ -74,7 +78,9 @@ struct BandDeviceView: View {
         self.band = band
         _session = ObservedObject(wrappedValue: manager.session)
         _sync = ObservedObject(wrappedValue: manager.sync)
-        _wearAsk = StateObject(wrappedValue: BandWearAsk(session: manager.session))
+        let ask = BandWearAsk(session: manager.session)
+        _wearAsk = StateObject(wrappedValue: ask)
+        _flow = StateObject(wrappedValue: BandMeasureFlow(session: manager.session, ask: ask))
     }
 
     private var ready: Bool { manager.state == .ready }
@@ -123,11 +129,18 @@ struct BandDeviceView: View {
             // Into the band's settings is not leaving: a reading keeps running.
             guard !showingSettings else { return }
             // Leaving the page is "Not now": no reading keeps asking for the band unseen.
+            flow.cancel()
             wearAsk.dismiss()
             manager.screenIsOpen = false
         }
         .navigationDestination(isPresented: $showingSettings) { BandSettingsView(manager: manager) }
-        .bandWearSheet(wearAsk)
+        // The measure sheet asks for the band itself; the ECG's live screen still uses this one.
+        .bandWearSheet(wearAsk, only: { $0 == .ecg })
+        .sheet(item: flow.sheet) { type in
+            BandMeasureSheetHost(type: type, flow: flow, ask: wearAsk)
+        }
+        // Private's line in the sheet says what the band is calibrated to.
+        .task(id: ready) { if ready { await session.refreshCalibrations() } }
         .fullScreenCover(isPresented: $ecgLive) {
             BandEcgLiveView(session: session) {
                 wearAsk.dismiss()
@@ -221,15 +234,29 @@ struct BandDeviceView: View {
         // A workout has the sensor; readings wait until it ends.
         let workout = WearablesHub.shared.ring.workout.holdsLink(for: WearableKeepAlive.band)
         return RingMeasureList(items: BandMeasure.allCases.map { type in
-            RingMeasureList.Item(
+            var item = RingMeasureList.Item(
                 label: type.label, icon: type.icon, tint: type.tint, state: wearAsk.state(of: type),
                 last: manager.store?.lastBandReading(type),
                 control: RingCardMeasure(
                     state: wearAsk.state(of: type),
                     enabled: ready && !workout && (session.measuring == nil || session.measuring == type),
                     start: { start(type) },
-                    stop: { wearAsk.dismiss() }))
+                    stop: { type == .ecg ? wearAsk.dismiss() : flow.cancel() }))
+            if type.hasModes {
+                let mode = modes[type] ?? BandMeasureMode.saved(for: type)
+                item.mode = RingMeasureList.ModeChoice(
+                    options: BandMeasureMode.allCases.map(\.label),
+                    selected: BandMeasureMode.allCases.firstIndex(of: mode) ?? 0,
+                    select: { index in
+                        let picked = BandMeasureMode.allCases[index]
+                        BandMeasureMode.save(picked, for: type)
+                        modes[type] = picked
+                    })
+            }
+            return item
         })
+        // The sheet's switch is the same setting.
+        .onChange(of: flow.mode) { _, mode in if let type = flow.type { modes[type] = mode } }
     }
 
     /// ECG and body composition read through the electrode: say so while one runs.
@@ -239,9 +266,10 @@ struct BandDeviceView: View {
         return off ? "Put a finger on the band's metal top and hold it there." : "Keep your finger on the band's metal top until the reading ends."
     }
 
-    /// A reading from the list. ECG gets its live screen, then its report.
+    /// A reading from the list, in its measure sheet. ECG gets its live screen, then its report.
     private func start(_ type: BandMeasure) {
-        if type == .ecg { ecgLive = true }
+        guard type == .ecg else { flow.start(type); return }
+        ecgLive = true
         run {
             do {
                 try await wearAsk.measure(type)
@@ -249,7 +277,6 @@ struct BandDeviceView: View {
                 ecgLive = false
                 throw error
             }
-            guard type == .ecg else { return }
             ecgLive = false
             if let id = manager.deviceID, let latest = BandEcgStore.reports(deviceID: id).first,
                Date().timeIntervalSince(latest.date) < 300 {
