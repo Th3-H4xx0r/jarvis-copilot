@@ -495,9 +495,7 @@ struct BandSettingsView: View {
                 ForEach(apps.keys.sorted(), id: \.self) { app in
                     RowDivider()
                     toggleRow(app.capitalized, on: apps[app] ?? false) { on in
-                        var next = apps
-                        next[app] = on
-                        invoke("band_set_alerts", ["apps": next.filter(\.value).map(\.key)])
+                        invoke("band_set_alerts", ["apps": [app: on]])
                     }
                 }
             } else {

@@ -423,17 +423,28 @@ struct BandAlertSwitches: Equatable, Codable {
         return out
     }
 
-    /// `json` merged onto `base` (the band's current switches): `calls`, `messages` and `apps`
-    /// ({name: Bool}). An app the band lacks stays off the wire; a wrong type fails.
+    /// `json` merged onto `base` (the band's current switches): `calls`, `messages` and `apps`,
+    /// either {name: Bool} for just those apps or [name] for exactly those on and every other app
+    /// off. An app the band lacks stays off the wire; a wrong type fails.
     init?(json: [String: Any], base: BandAlertSwitches) {
         var s = base
         if let raw = json["calls"] { guard let on = raw as? Bool else { return nil }; s.set("calls", on) }
         if let raw = json["messages"] { guard let on = raw as? Bool else { return nil }; s.set("sms", on) }
         if let raw = json["apps"] {
-            guard let apps = raw as? [String: Any] else { return nil }
-            for (name, value) in apps {
-                guard let on = value as? Bool else { return nil }
-                s.set(name.lowercased(), on)
+            if let apps = raw as? [String: Any] {
+                for (name, value) in apps {
+                    guard let on = value as? Bool else { return nil }
+                    s.set(name.lowercased(), on)
+                }
+            } else if let list = raw as? [Any] {
+                var names: Set<String> = []
+                for item in list {
+                    guard let name = item as? String else { return nil }
+                    names.insert(name.lowercased())
+                }
+                for app in Self.allApps where app != "calls" && app != "sms" { s.set(app, names.contains(app)) }
+            } else {
+                return nil
             }
         }
         self = s

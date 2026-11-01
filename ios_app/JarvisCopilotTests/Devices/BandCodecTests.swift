@@ -255,6 +255,14 @@ final class BandCodecTests: XCTestCase {
                        ["ad01010102020002020002010202020201000002", "ad01020102020001000000000000000000000010"])
         XCTAssertEqual(BandRequest.alerts(on), BandRequest.alertsFrames(on)[0])
         XCTAssertNil(BandAlertSwitches(json: ["apps": ["whatsapp": 1]], base: realAlerts))
+        // A list (what the tool schema and the settings page send) is exactly the apps left on.
+        let listed = BandAlertSwitches(json: ["messages": true, "apps": ["WhatsApp", "gmail", "telegram", "messenger"]],
+                                       base: realAlerts)
+        XCTAssertEqual(listed, on)
+        let none = BandAlertSwitches(json: ["apps": [String]()], base: realAlerts)!
+        XCTAssertTrue(BandAlertSwitches.allApps.filter { $0 != "calls" && $0 != "sms" }.allSatisfy { none.isOn($0) != true })
+        XCTAssertEqual(none.isOn("calls"), realAlerts.isOn("calls"))
+        XCTAssertNil(BandAlertSwitches(json: ["apps": [1]], base: realAlerts))
     }
 
     // MARK: Session replies (real frames)
