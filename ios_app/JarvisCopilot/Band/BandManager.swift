@@ -98,6 +98,7 @@ final class BandManager: NSObject, ObservableObject {
     private var setupTask: Task<Void, Never>?
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
+    private var periodicSync: Task<Void, Never>?
     private var wasConnectedBeforeBackground: DiscoveredRing?
     private var isBackgrounded = false
     static let lastPeripheralKey = "lastConnectedBandPeripheral"
@@ -116,6 +117,7 @@ final class BandManager: NSObject, ObservableObject {
             self.uploads.changed(keys, urgent: self.screenIsOpen || self.healthIsOpen)
         }
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
+        startPeriodicSync()
         session.onMeasured = { [weak self] reading in self?.record(reading) }
         // The ECG's waveform channel, on while one runs (as the SDK's setChannelNotify).
         session.onEcgWave = { [weak self] on in
@@ -303,6 +305,21 @@ final class BandManager: NSObject, ObservableObject {
                   !self.healthIsOpen, !self.holdsLinkForWorkout else { return }
             JcLog.devices.notice("band: idle after on-demand use; dropping the link")
             self.disconnect()
+        }
+    }
+
+    /// Syncs on the interval picked in the band's settings, whenever the link is already up and
+    /// idle: it never connects just to sync. Wakes when the next sync is due — and at least every
+    /// 15 minutes, so a new interval takes hold.
+    private func startPeriodicSync() {
+        periodicSync = Task { [weak self] in
+            while !Task.isCancelled {
+                let due = self?.sync.nextDue?.timeIntervalSinceNow ?? 15 * 60
+                try? await Task.sleep(for: .seconds(min(15 * 60, max(60, due))))
+                guard let self, !Task.isCancelled else { return }
+                guard self.state == .ready, self.sync.isStale, !self.isWorking, !self.holdsLinkForWorkout else { continue }
+                await self.sync.sync()
+            }
         }
     }
 

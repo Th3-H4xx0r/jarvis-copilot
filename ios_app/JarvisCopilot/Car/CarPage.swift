@@ -31,16 +31,26 @@ struct CarPage: View {
             }
             .padding(.vertical, 12)
         }
-        // Pulling down wakes the car for fresh status, like Toyota's app.
-        .refreshable { await toyota.refresh() }
         .onAppear { toyota.loadIfNeeded() }
         .task { await stage.load() }
-        // Outside .refreshable: a pull inside a sheet must not wake the car.
         .sheet(item: $sheet) { _ in ToyotaSignInSheet(store: toyota) }
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle(car.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // A button, not pull to refresh: the page opens with a zoom, and pulling down on it
+            // closes the page instead. Wakes the car for fresh status, like Toyota's app.
+            ToolbarItem(placement: .primaryAction) {
+                if toyota.refreshing {
+                    ProgressView().controlSize(.small).tint(JcTheme.accent)
+                        .accessibilityLabel("Syncing the car")
+                } else {
+                    WearableToolbarButton(title: "Sync", icon: "arrow.triangle.2.circlepath",
+                                          disabled: !toyota.isSignedIn) {
+                        Task { await toyota.refresh() }
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 WearableMoreMenu(onRename: { renaming = true })
             }

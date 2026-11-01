@@ -69,7 +69,7 @@ phone's message.
 
 | Skill | Arguments | What it does |
 |---|---|---|
-| `band_get_status` | — | `name`, `model`, `firmware_version`, `battery_percent`, `charging`, `connected`, `last_sync`, `last_measurement`, `today` — the R12's keys — plus `wear` when the band knows it. Works while the band is away. |
+| `band_get_status` | — | `name`, `model`, `firmware_version`, `battery_percent`, `charging`, `connected`, `last_sync`, `last_measurement`, `today` — the R12's keys — plus `wear` when the band knows it, `sync_percent` while a sync runs and `sync_interval_minutes` (0 = manual). Works while the band is away. |
 | `band_get_day` | `date`, `metrics`, `detail` | One day's `summary`; `detail: true` adds series, sleep stages and readings. Blood pressure is the `blood_pressure` metric (`blood_pressure_systolic`, `blood_pressure_diastolic` in the summary). |
 | `band_get_health_day` | `date` | One day in the Jarvis Health wire shape, `source: "band"`. |
 | `band_get_history` | `days` (1–30), `metrics` | Per-day summaries, today first. Never waits on the band. |

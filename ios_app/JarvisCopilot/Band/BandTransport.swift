@@ -55,6 +55,7 @@ final class BandTransport {
         let op: UInt8
         let accepts: Set<UInt8>
         let until: ([[UInt8]]) -> Bool
+        let each: (([UInt8]) -> Void)?
         var frames: [[UInt8]] = []
         let continuation: CheckedContinuation<[[UInt8]], Error>
         let deadline: Task<Void, Never>
@@ -72,8 +73,10 @@ final class BandTransport {
 
     /// Sends `request` and returns the frames that answered it. `accepts` are the opcodes that
     /// belong to the reply (the request's own by default); a reply of several frames ends when
-    /// `until` is true of the frames so far — by default after the first.
+    /// `until` is true of the frames so far — by default after the first. `each` sees every reply
+    /// frame as it comes (a long read's progress).
     func perform(_ request: [UInt8], accepts: Set<UInt8>? = nil, timeout: TimeInterval? = nil,
+                 each: (([UInt8]) -> Void)? = nil,
                  until: @escaping ([[UInt8]]) -> Bool = { !$0.isEmpty }) async throws -> [[UInt8]] {
         await acquire()
         defer { release() }
@@ -86,7 +89,8 @@ final class BandTransport {
                 guard !Task.isCancelled else { return }
                 self?.expire()
             }
-            waiting = Waiting(op: op, accepts: accepts ?? [op], until: until, continuation: continuation, deadline: deadline)
+            waiting = Waiting(op: op, accepts: accepts ?? [op], until: until, each: each,
+                              continuation: continuation, deadline: deadline)
             onTraffic?(true, request)
             link.send(request)
         }
@@ -105,6 +109,7 @@ final class BandTransport {
         onTraffic?(false, frame)
         if var current = waiting, current.accepts.contains(op) {
             current.frames.append(frame)
+            current.each?(frame)
             if current.until(current.frames) {
                 finish(current, with: .success(current.frames))
             } else {

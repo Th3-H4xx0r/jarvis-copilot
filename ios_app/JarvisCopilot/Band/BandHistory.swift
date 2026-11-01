@@ -155,6 +155,14 @@ extension BandDecode {
         return records.compactMap { dailyRecord($0, calendar: calendar, now: now) }
     }
 
+    /// How far a `DF` read is (0…1): each record's sub 0 carries its packet and the read's total.
+    static func dailyProgress(_ f: [UInt8]) -> Double? {
+        guard f.count >= 6, f[0] == BandOp.daily, !(f[1] == 0xFF && f[2] == 0xFF), f[3] == 0 else { return nil }
+        let total = le16(f, 4)
+        guard total > 0 else { return nil }
+        return min(1, Double(le16(f, 1)) / Double(total))
+    }
+
     /// `tag len value` runs; a later tag replaces an earlier one, as in the SDK.
     static func tlvs(_ p: [UInt8]) -> [UInt8: [UInt8]] {
         var out: [UInt8: [UInt8]] = [:]

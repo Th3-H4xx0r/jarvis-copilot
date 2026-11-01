@@ -20,6 +20,8 @@ final class ToyotaStore: ObservableObject {
     /// Why the car couldn't be read (the page still shows the account).
     @Published private(set) var problem: String?
     @Published private(set) var busy: ToyotaCommand?
+    /// A Sync under way (the page's button spins and waits).
+    @Published private(set) var refreshing = false
     @Published private(set) var outcome: Outcome?
     /// No sensor reports the hazards, so the page remembers turning them on — for 15 minutes.
     @Published private(set) var hazardsOnSince: Date?
@@ -67,8 +69,12 @@ final class ToyotaStore: ObservableObject {
         }
     }
 
-    /// Pull to refresh: wakes the car when signed in, then reads it again.
+    /// Sync: wakes the car when signed in, then reads it again. A second tap while one runs waits
+    /// for nothing — the car is asked once.
     func refresh() async {
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         var wakeProblem: String?
         if isSignedIn {
             do { try await api.refresh() } catch {

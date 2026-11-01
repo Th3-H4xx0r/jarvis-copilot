@@ -412,6 +412,8 @@ final class BandDevice: WearableDevice {
         if session.finding { out["finding"] = true }
         if let last = backend.sync.lastSync { out["last_sync"] = iso(last) }
         if backend.sync.isSyncing { out["syncing"] = true }
+        if let progress = backend.sync.progress { out["sync_percent"] = Int(progress * 100) }
+        out["sync_interval_minutes"] = Int(backend.sync.interval / 60)
         if let store = backend.store {
             out["today"] = RingDayJSON.summary(store.day(RingDates.dayKey(Date())).summary, metrics: nil)
         }

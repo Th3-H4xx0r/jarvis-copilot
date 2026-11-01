@@ -494,10 +494,13 @@ final class BandSession: ObservableObject {
 
     // MARK: History
 
-    /// One day's records, `day` 0 = today, 1 = yesterday, 2 = the day before.
-    func readDaily(day: Int) async throws -> [BandDailyRecord] {
+    /// One day's records, `day` 0 = today, 1 = yesterday, 2 = the day before. `progress` hears how
+    /// far the read is (0…1) as its packets arrive.
+    func readDaily(day: Int, progress: ((Double) -> Void)? = nil) async throws -> [BandDailyRecord] {
         let request = BandRequest.readDaily(day: day, package: 1)
-        let frames = try await transport.perform(request, accepts: BandOp.dailyReplies, timeout: 20) {
+        let frames = try await transport.perform(request, accepts: BandOp.dailyReplies, timeout: 20, each: { frame in
+            if let done = BandDecode.dailyProgress(frame) { progress?(done) }
+        }) {
             BandDecode.isComplete($0, for: request)
         }
         return BandDecode.daily(frames, day: day, calendar: calendar, now: now())

@@ -93,6 +93,7 @@ struct BandDeviceView: View {
                 hero
                 if session.finding { findingBar }
                 statusLine
+                if let progress = sync.progress { syncBar(progress) }
                 if let hint = electrodeHint {
                     Text(hint)
                         .font(.footnote)
@@ -207,14 +208,41 @@ struct BandDeviceView: View {
         .padding(.horizontal, 24)
     }
 
+    /// While the band's history comes in: how far, as G Band shows it.
+    private func syncBar(_ progress: Double) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Syncing the band", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Text(Self.percent(progress))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(JcTheme.accent)
+                    .contentTransition(.numericText())
+            }
+            ProgressView(value: progress)
+                .tint(JcTheme.accent)
+        }
+        .padding(14)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        .padding(.horizontal, 24)
+        .animation(.easeOut(duration: 0.25), value: progress)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    static func percent(_ progress: Double) -> String { "\(Int((progress * 100).rounded()))%" }
+
     private var statusLine: some View {
         HStack(spacing: 8) {
             Circle().fill(ready ? Color.green : Color.orange).frame(width: 7, height: 7)
             Text(manager.state.text)
             if let firmware = session.handshake?.firmware { Text("· \(firmware)") }
             if sync.isSyncing {
-                ProgressView().controlSize(.mini)
-                Text("Syncing…")
+                Text("· Syncing \(Self.percent(sync.progress ?? 0))")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
             } else if let last = sync.lastSync {
                 Text("· synced \(last, style: .relative) ago")
             }
@@ -366,6 +394,7 @@ struct BandDeviceView: View {
 struct BandSettingsView: View {
     @ObservedObject var manager: BandManager
     @ObservedObject private var session: BandSession
+    @ObservedObject private var sync: BandSync
     @Environment(\.dismiss) private var dismiss
     @State private var alarms: [BandAlarm] = []
     @State private var error: String?
@@ -380,6 +409,7 @@ struct BandSettingsView: View {
     init(manager: BandManager) {
         self.manager = manager
         _session = ObservedObject(wrappedValue: manager.session)
+        _sync = ObservedObject(wrappedValue: manager.sync)
     }
 
     private var device: BandDevice { BandDevice(backend: manager) }
@@ -395,6 +425,7 @@ struct BandSettingsView: View {
                 BandMonitorSettings(session: session, scheduler: manager.measureScheduler) { name, args in invoke(name, args) }
                 remindersCard
                 unitsCard
+                syncCard
                 connectionCard
                 logCard
                 CardGroup {
@@ -572,6 +603,39 @@ struct BandSettingsView: View {
         Task {
             await HealthUnitSync.sendIfChanged()
             do { try await session.setUnit(unit, metric: metric) } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    /// How often the band's history is read on its own (G Band's periodic sync).
+    private var syncCard: some View {
+        CardGroup("Sync", footer: sync.interval > 0
+                  ? "While the band is connected, its history is read again once this much time has passed. Sync on the band's page reads it now."
+                  : "The band's history is read only when you tap Sync on its page.") {
+            Row(minHeight: 50) {
+                HStack {
+                    Text("Periodic sync")
+                    Spacer()
+                    Picker("Periodic sync", selection: $sync.interval) {
+                        ForEach(BandSync.intervals, id: \.self) { Text(BandSync.label($0)).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(JcTheme.accent)
+                }
+            }
+            RowDivider()
+            Row(minHeight: 50) {
+                HStack {
+                    Text("Last sync")
+                    Spacer()
+                    if let progress = sync.progress {
+                        Text("Syncing \(BandDeviceView.percent(progress))").monospacedDigit().foregroundStyle(JcTheme.accent)
+                    } else if let last = sync.lastSync {
+                        Text("\(last, style: .relative) ago").foregroundStyle(.secondary)
+                    } else {
+                        Text("Never").foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 

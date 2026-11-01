@@ -5,24 +5,53 @@ import Foundation
 @MainActor
 final class BandSync: ObservableObject {
     @Published private(set) var isSyncing = false
+    /// How far the sync under way is, 0…1 (nil when none is) — the page shows it as a percentage.
+    @Published private(set) var progress: Double?
     @Published private(set) var lastSync: Date?
+    /// How often the band syncs on its own while it is connected; 0 = only when asked.
+    @Published var interval: TimeInterval {
+        didSet { defaults.set(interval, forKey: Self.intervalKey) }
+    }
     var onDaysChanged: ((Set<String>) -> Void)?
 
     private let session: BandSession
     private let store: () -> RingHistoryStore?
     private let defaults: UserDefaults
     static let lastSyncKey = "jc.band.lastSync"
-    /// How old a sync may be before connecting starts another.
-    static let staleAfter: TimeInterval = 30 * 60
+    static let intervalKey = "jc.band.syncInterval"
+    /// How old a sync may be before another starts, unless he picks otherwise.
+    static let defaultInterval: TimeInterval = 30 * 60
+    /// The choices in the band's settings (0 = manual).
+    static let intervals: [TimeInterval] = [15 * 60, 30 * 60, 60 * 60, 2 * 60 * 60, 4 * 60 * 60, 0]
 
     init(session: BandSession, store: @escaping () -> RingHistoryStore?, defaults: UserDefaults = .standard) {
         self.session = session
         self.store = store
         self.defaults = defaults
         lastSync = defaults.object(forKey: Self.lastSyncKey) as? Date
+        interval = defaults.object(forKey: Self.intervalKey) as? TimeInterval ?? Self.defaultInterval
     }
 
-    var isStale: Bool { lastSync.map { Date().timeIntervalSince($0) > Self.staleAfter } ?? true }
+    /// Whether the interval has passed since the last sync (never, when syncing is manual).
+    var isStale: Bool {
+        guard interval > 0 else { return false }
+        return lastSync.map { Date().timeIntervalSince($0) > interval } ?? true
+    }
+
+    /// When the next sync on the interval is due (nil when syncing is manual).
+    var nextDue: Date? {
+        guard interval > 0 else { return nil }
+        return lastSync.map { $0.addingTimeInterval(interval) } ?? Date()
+    }
+
+    static func label(_ interval: TimeInterval) -> String {
+        switch interval {
+        case 0: return "Manual"
+        case ..<3600: return "\(Int(interval / 60)) min"
+        case 3600: return "1 hour"
+        default: return "\(Int(interval / 3600)) hours"
+        }
+    }
 
     /// Whether the last sync got any answer from the band (`band_sync` reports `ok: false` if not).
     private(set) var lastReached = true
@@ -42,13 +71,23 @@ final class BandSync: ObservableObject {
     private func run(days: Int) async -> Set<String> {
         guard let store = store() else { return [] }
         isSyncing = true
-        defer { isSyncing = false }
+        progress = 0
+        defer {
+            isSyncing = false
+            progress = nil
+        }
         let calendar = session.calendar
         var changed: Set<String> = []
         var reached = false
-        for day in 0..<max(1, min(days, 3)) {
-            let records = try? await session.readDaily(day: day)
+        let count = max(1, min(days, 3))
+        for day in 0..<count {
+            // A day is its records (most of the wait, reported packet by packet), then its sleep.
+            let records = try? await session.readDaily(day: day) { [weak self] done in
+                self?.advance(to: (Double(day) + 0.85 * done) / Double(count))
+            }
+            advance(to: (Double(day) + 0.85) / Double(count))
             let sleep = try? await session.readSleep(day: day)
+            advance(to: Double(day + 1) / Double(count))
             if records != nil || sleep != nil { reached = true }
             guard !(records ?? []).isEmpty || !(sleep ?? []).isEmpty else { continue }
             let date = calendar.date(byAdding: .day, value: -day, to: session.now()) ?? session.now()
@@ -67,6 +106,12 @@ final class BandSync: ObservableObject {
         }
         if !changed.isEmpty { onDaysChanged?(changed) }
         return changed
+    }
+
+    /// Progress only moves forward: a read's packets can arrive out of step with its total.
+    private func advance(to done: Double) {
+        guard let current = progress else { return }
+        progress = max(current, min(1, done))
     }
 }
 

@@ -402,6 +402,28 @@ final class BandRuntimeTests: XCTestCase {
         XCTAssertNil(session.sedentary, "nothing is believed that the band refused")
     }
 
+    func testADailyReadSaysHowFarItIs() {
+        // Sub 0 of packet 3 of 12; a later sub, and the end marker, say nothing.
+        XCTAssertEqual(BandDecode.dailyProgress(BandFakeLink.bytes(Self.frame("df0300000c00"))), 0.25)
+        XCTAssertNil(BandDecode.dailyProgress(BandFakeLink.bytes(Self.frame("df0300010c00"))))
+        XCTAssertNil(BandDecode.dailyProgress(BandFakeLink.bytes(Self.frame("dfffff0100000000"))))
+        XCTAssertEqual(BandDecode.dailyProgress(BandFakeLink.bytes(Self.frame("df0e00000c00"))), 1, "never past the end")
+    }
+
+    func testTheSyncIntervalIsRememberedAndManualNeverGoesStale() {
+        let defaults = UserDefaults(suiteName: "BandSyncInterval-\(UUID().uuidString)")!
+        let sync = BandSync(session: session, store: { nil }, defaults: defaults)
+        XCTAssertEqual(sync.interval, BandSync.defaultInterval)
+        XCTAssertTrue(sync.isStale, "never synced")
+        sync.interval = 2 * 60 * 60
+        XCTAssertEqual(BandSync(session: session, store: { nil }, defaults: defaults).interval, 2 * 60 * 60)
+        sync.interval = 0
+        XCTAssertFalse(sync.isStale, "manual: only Sync reads the band")
+        XCTAssertNil(sync.nextDue)
+        XCTAssertNil(sync.progress, "no sync under way")
+        XCTAssertEqual(BandSync.intervals.map(BandSync.label), ["15 min", "30 min", "1 hour", "2 hours", "4 hours", "Manual"])
+    }
+
     func testASyncThatReachesNothingDoesNotCountAsSynced() async {
         let defaults = UserDefaults(suiteName: "BandSyncNothing-\(UUID().uuidString)")!
         let store = RingHistoryStore(directory: FileManager.default.temporaryDirectory
