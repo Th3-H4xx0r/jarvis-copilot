@@ -9,31 +9,68 @@ import SwiftUI
 /// per-model table. Every section renders only when its own data arrived — the
 /// four sub-fetches behind `InsightsStore` degrade independently, so a dead
 /// health endpoint hides one card instead of the screen.
+///
+/// A Usage | Costs control sits on top: Usage is everything above, Costs is
+/// `CostsView` (what each service costs). The period selector drives both.
 struct InsightsPage: View {
     @State private var store: InsightsStore
+    @State private var costs: CostsStore
+    /// Usage | Costs, remembered between visits.
+    @AppStorage(InsightsTab.storageKey) private var tabRaw = InsightsTab.usage.rawValue
 
     /// See `SettingsPage.init` — a view's `init` isn't main-actor-isolated, so
     /// the store can't be a default argument.
-    init(store: InsightsStore? = nil) {
+    init(store: InsightsStore? = nil, costs: CostsStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { InsightsStore() })
+        _costs = State(initialValue: costs ?? MainActor.assumeIsolated { CostsStore() })
     }
+
+    private var tab: InsightsTab { InsightsTab(rawValue: tabRaw) ?? .usage }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                QuotaCard().padding(.bottom, 22)
-                InsightsPeriodSelector(days: store.days) { store.setDays($0) }
+                InsightsSegmentedPill(options: InsightsTab.allCases.map { ($0, $0.label) },
+                                      selection: tab) { tabRaw = $0.rawValue }
                     .padding(.bottom, 16)
-                content
+                if tab == .usage {
+                    QuotaCard().padding(.bottom, 22)
+                }
+                InsightsPeriodSelector(days: store.days) { setDays($0) }
+                    .padding(.bottom, 16)
+                switch tab {
+                case .usage: content
+                case .costs: CostsView(store: costs)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .refreshable { await store.refresh() }
-        .loadErrorBanner(store.errorMessage, hasContent: !store.overview.isEmpty)
+        .refreshable {
+            switch tab {
+            case .usage: await store.refresh()
+            case .costs: await costs.refresh()
+            }
+        }
+        .loadErrorBanner(tab == .usage ? store.errorMessage : costs.errorMessage,
+                         hasContent: tab == .usage ? !store.overview.isEmpty : costs.hasContent)
         .jcScreen("Insights")
-        .task { if !store.hasLoaded { store.load() } }
+        .task(id: tab) { loadIfNeeded(tab) }
+    }
+
+    /// One period drives both tabs. The hidden tab's store only refetches if
+    /// it has loaded before.
+    private func setDays(_ days: Int) {
+        store.setDays(days)
+        costs.setDays(days)
+    }
+
+    private func loadIfNeeded(_ tab: InsightsTab) {
+        switch tab {
+        case .usage: if !store.hasLoaded && !store.isLoading { store.load() }
+        case .costs: if !costs.hasLoaded && !costs.isLoading { costs.load() }
+        }
     }
 
     @ViewBuilder
@@ -116,6 +153,20 @@ struct InsightsPage: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(title, trailing: trailing)
             body()
+        }
+    }
+}
+
+/// The Insights screen's two tabs.
+enum InsightsTab: String, CaseIterable, Hashable {
+    case usage, costs
+
+    static let storageKey = "insights.tab"
+
+    var label: String {
+        switch self {
+        case .usage: return "Usage"
+        case .costs: return "Costs"
         }
     }
 }

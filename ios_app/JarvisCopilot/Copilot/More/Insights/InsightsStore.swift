@@ -16,7 +16,8 @@ final class InsightsStore {
     private(set) var hasLoaded = false
     private(set) var errorMessage: String?
 
-    /// The selected window; changing it reloads.
+    /// The selected window; changing it reloads once the Usage tab has been
+    /// opened (Insights can open straight onto Costs).
     private(set) var days = 30
 
     init(api: InsightsAPI = InsightsAPI()) { self.api = api }
@@ -33,7 +34,9 @@ final class InsightsStore {
     func setDays(_ value: Int) {
         guard value != days else { return }
         days = value
-        load()
+        // Never opened: the tab's own first load picks the window up. Fetching
+        // here would run five requests for a tab nobody is looking at.
+        if hasLoaded || isLoading { load() }
     }
 
     func load() {
@@ -51,6 +54,11 @@ final class InsightsStore {
 
         let (loadedHealth, loadedWiki, sessionID) = await (health, wiki, session)
         let loadedMessages = await api.messages(sessionID: sessionID)
+
+        // Replaced by a newer load (a period tap): its result is the one to
+        // show. Writing this one would blank the overview with a "cancelled"
+        // error, or briefly show the previous window's numbers.
+        guard !Task.isCancelled, window == days else { return }
 
         do {
             let loadedOverview = try await overview

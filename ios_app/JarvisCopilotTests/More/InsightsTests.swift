@@ -331,6 +331,18 @@ final class InsightsTests: XCTestCase {
     }
 
     @MainActor
+    func testSetDaysBeforeTheTabOpenedDoesNotFetch() {
+        // Insights can open straight onto Costs; a period tap there mustn't run
+        // the Usage tab's five requests.
+        let (api, transport) = JarvisAPI.mocked()
+        let store = InsightsStore(api: InsightsAPI(api: api))
+        store.setDays(7)
+        XCTAssertEqual(store.days, 7)
+        XCTAssertFalse(store.isLoading)
+        XCTAssertTrue(transport.requests.isEmpty)
+    }
+
+    @MainActor
     func testStoreSurfacesAnOverviewFailureButKeepsSideSections() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/insights/messages", json: ["messages": []])
