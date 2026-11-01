@@ -60,6 +60,7 @@ struct BandDeviceView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var renaming = false
     @State private var showingSettings = false
+    @State private var showingBattery = false
     @State private var choosingWorkout = false
     @State private var actionError: String?
     @State private var findToken = 0
@@ -114,6 +115,7 @@ struct BandDeviceView: View {
                 }
                 measureCard
                 if let id = manager.deviceID { ecgReportsLink(id) }
+                batteryLink
                 workoutLink
                 settingsLink
             }
@@ -132,14 +134,15 @@ struct BandDeviceView: View {
             if manager.connected?.id != band.id || !manager.linkIsUp { manager.connect(band) }
         }
         .onDisappear {
-            // Into the band's settings is not leaving: a reading keeps running.
-            guard !showingSettings else { return }
+            // Into the band's settings or battery is not leaving: a reading keeps running.
+            guard !showingSettings, !showingBattery else { return }
             // Leaving the page is "Not now": no reading keeps asking for the band unseen.
             flow.cancel()
             wearAsk.dismiss()
             manager.screenIsOpen = false
         }
         .navigationDestination(isPresented: $showingSettings) { BandSettingsView(manager: manager) }
+        .navigationDestination(isPresented: $showingBattery) { BandBatteryView(manager: manager) }
         // The measure sheet asks for the band itself; the ECG's live screen still uses this one.
         .bandWearSheet(wearAsk, only: { $0 == .ecg })
         .sheet(item: flow.sheet) { type in
@@ -190,10 +193,14 @@ struct BandDeviceView: View {
                 .frame(height: 200)
                 .frame(maxWidth: .infinity)
             HStack(spacing: 7) {
-                MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
-                           label: session.battery?.charging == true ? "Charging" : "Battery",
-                           value: session.battery.map { "\($0.percent)%" } ?? "—",
-                           tint: batteryTint(session.battery?.percent ?? 100) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                Button { showingBattery = true } label: {
+                    MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
+                               label: session.battery?.charging == true ? "Charging" : "Battery",
+                               value: session.battery.map { "\($0.percent)%" } ?? "—",
+                               tint: batteryTint(session.battery?.percent ?? 100) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the band's battery history")
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.liveHeartRate ?? today?.heartRateLatest).map { "\($0) bpm" } ?? "—",
                            tint: Color(red: 1, green: 0.35, blue: 0.4))
@@ -312,6 +319,40 @@ struct BandDeviceView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("ECG reports").font(.body.weight(.medium))
                             Text("Rhythm, HRV, QTc and risk analysis for each ECG")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// The Battery page, with the level and how long it lasts on the way in.
+    private var batteryLink: some View {
+        let report = manager.battery.report()
+        var line = "Level curve, drain a day, charges and what uses it"
+        if let left = report.timeLeft {
+            line = "About \(BandBatteryReport.duration(left)) left"
+                + (report.perDay(since: report.now.addingTimeInterval(-7 * 86_400)).map { String(format: " · %.0f%% a day", $0) } ?? "")
+        } else if let charge = report.lastCharge {
+            line = "Charged to \(charge.to)% \(charge.end.formatted(.relative(presentation: .named)))"
+        }
+        return CardGroup {
+            Button { showingBattery = true } label: {
+                Row(minHeight: 56) {
+                    HStack(spacing: 12) {
+                        Image(systemName: session.battery?.charging == true ? "battery.100percent.bolt" : "battery.75percent")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(JcTheme.accent)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Battery").font(.body.weight(.medium))
+                            Text(line)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

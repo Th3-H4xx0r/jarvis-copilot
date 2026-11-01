@@ -1,3 +1,4 @@
+import Combine
 import CoreBluetooth
 import Foundation
 import UIKit
@@ -21,6 +22,8 @@ final class BandManager: NSObject, ObservableObject {
     let session = BandSession()
     /// The band's measuring, managed by the band or by the phone.
     let measureScheduler = BandMeasureScheduler()
+    /// The band's battery level over time and what it was doing (the Battery page).
+    let battery = BandBatteryLog()
     private(set) lazy var sync = BandSync(session: session, store: { [weak self] in self?.store })
     /// Changed days go to Jarvis Health at most every 30 minutes, at once while a screen shows them.
     private(set) lazy var uploads = DayUploadThrottle { [weak self] keys in
@@ -99,6 +102,9 @@ final class BandManager: NSObject, ObservableObject {
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
     private var periodicSync: Task<Void, Never>?
+    private var batteryWatch: Set<AnyCancellable> = []
+    private var batteryTicker: Task<Void, Never>?
+    private var lastBatteryRead = Date.distantPast
     private var wasConnectedBeforeBackground: DiscoveredRing?
     private var isBackgrounded = false
     static let lastPeripheralKey = "lastConnectedBandPeripheral"
@@ -118,6 +124,7 @@ final class BandManager: NSObject, ObservableObject {
         }
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
         startPeriodicSync()
+        watchBattery()
         session.onMeasured = { [weak self] reading in self?.record(reading) }
         // The ECG's waveform channel, on while one runs (as the SDK's setChannelNotify).
         session.onEcgWave = { [weak self] on in
@@ -343,6 +350,53 @@ final class BandManager: NSObject, ObservableObject {
             JcLog.devices.notice("band: periodic sync couldn't reach the band (try \(attempt) of 2)")
         }
         releaseIfIdle()
+    }
+
+    /// Feeds the battery log each level the band reports and what it's doing — linked, a reading,
+    /// a workout, its every-minute sensing, a sync, a find — and, while linked, reads the level
+    /// every 10 minutes.
+    private func watchBattery() {
+        let log = battery
+        session.$battery.compactMap { $0 }
+            .sink { [weak self] level in
+                self?.lastBatteryRead = Date()
+                log.record(percent: level.percent, charging: level.charging)
+            }
+            .store(in: &batteryWatch)
+        $state.map { $0 == .ready }.removeDuplicates()
+            .sink { log.set(.linked, $0) }
+            .store(in: &batteryWatch)
+        session.$measuring.removeDuplicates()
+            .sink { type in
+                log.set(.reading, false)
+                if let type { log.set(.reading, true, detail: type.name) }
+            }
+            .store(in: &batteryWatch)
+        // Unknown while unlinked: the band keeps sensing (or not) as it was told.
+        session.$settings.compactMap { $0?.isOn("auto_ppg") }.removeDuplicates()
+            .sink { log.set(.sensing, $0) }
+            .store(in: &batteryWatch)
+        session.$finding.removeDuplicates().filter { $0 }
+            .sink { _ in log.note(.find) }
+            .store(in: &batteryWatch)
+        sync.$isSyncing.removeDuplicates().dropFirst().filter { !$0 }
+            .sink { [weak self] _ in
+                log.note(.sync)
+                guard let self, self.isLinkReady else { return }
+                Task { await self.session.refreshBattery() }
+            }
+            .store(in: &batteryWatch)
+        batteryTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self else { return }
+                log.set(.workout, self.workoutRunning)
+                guard self.isLinkReady, !self.isWorking,
+                      Date().timeIntervalSince(self.lastBatteryRead) >= BandBatteryLog.readEvery else { continue }
+                self.lastBatteryRead = Date()
+                await self.session.refreshBattery()
+            }
+        }
     }
 
     private var isWorking: Bool {

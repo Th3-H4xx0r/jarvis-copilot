@@ -17,14 +17,18 @@ protocol BandBackend: AnyObject {
     func releaseIfIdle()
     /// Who measures and when (Monitoring → Measurements).
     var scheduler: BandMeasureScheduler? { get }
+    /// The band's battery over time (Battery page).
+    var batteryLog: BandBatteryLog? { get }
 }
 
 extension BandBackend {
     var scheduler: BandMeasureScheduler? { nil }
+    var batteryLog: BandBatteryLog? { nil }
 }
 
 extension BandManager: BandBackend {
     var scheduler: BandMeasureScheduler? { measureScheduler }
+    var batteryLog: BandBatteryLog? { battery }
     var isConnected: Bool { state == .ready }
     var connectionText: String { state.text }
     var displayName: String? { connected?.name }
@@ -64,8 +68,9 @@ final class BandDevice: WearableDevice {
         return [
             DeviceCapability(
                 name: "band_get_status",
-                description: "Smart band status: connection, battery (percent, charging), firmware, MAC, the functions it "
-                    + "supports, its settings, the last spot measurement, last sync and today's summary. Works with the band away.",
+                description: "Smart band status: connection, battery (percent, charging; drain a day, hours left, last charge "
+                    + "and what used it this week), firmware, MAC, the functions it supports, its settings, the last spot "
+                    + "measurement, last sync and today's summary. Works with the band away.",
                 inputSchema: DeviceCapability.schema()),
             DeviceCapability(
                 name: "band_get_day",
@@ -414,6 +419,7 @@ final class BandDevice: WearableDevice {
         if backend.sync.isSyncing { out["syncing"] = true }
         if let progress = backend.sync.progress { out["sync_percent"] = Int(progress * 100) }
         out["sync_interval_minutes"] = Int(backend.sync.interval / 60)
+        if let log = backend.batteryLog { out.merge(log.report().json) { a, _ in a } }
         if let store = backend.store {
             out["today"] = RingDayJSON.summary(store.day(RingDates.dayKey(Date())).summary, metrics: nil)
         }
