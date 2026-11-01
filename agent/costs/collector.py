@@ -640,6 +640,10 @@ def collect(service: Optional[str] = None, *, store: Optional[CostStore] = None,
                 if fetch(ctx):
                     store.mark_sync(sid, ok=True)
                     results[sid] = {"ok": True}
+                elif service:
+                    # Asked for by name (a connect) but its keys aren't all there: never
+                    # let that read as a successful sync.
+                    results[sid] = {"ok": False, "error": "Not connected yet: a key or ID is still missing."}
             except Exception as exc:
                 msg = str(exc)[:300] or exc.__class__.__name__
                 logger.info("costs: %s billing fetch failed: %s", sid, msg)

@@ -423,7 +423,7 @@ async function saveCostKeys(id, form) {
   const btn = form.querySelector('button[type=submit]');
   if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
   try {
-    const res = await api('/api/costs/connect', {method: 'POST', body: JSON.stringify({service: id, fields})});
+    const res = await api('/api/costs/connect', {method: 'POST', body: JSON.stringify({service: id, fields, days: _costsDays()})});
     const sync = res && res.sync;
     if (sync && sync.ok === false) showToast('Saved, but the sync failed: ' + sync.error, 6000, 'error');
     else if (res && res.pending) showToast('Saved. Syncing now; check back in a minute.', 4000);

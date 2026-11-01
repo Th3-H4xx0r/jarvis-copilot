@@ -2,7 +2,8 @@
 
 GET  /api/costs?days=N                 overview (agent.costs.report.overview)
 GET  /api/costs/service?id=X&days=N    one service's detail
-POST /api/costs/connect      {service, fields: {key: value}}   save billing-API keys → .env, refresh
+POST /api/costs/connect      {service, fields: {key: value}, days?}   save billing-API keys → .env,
+                             refresh; returns {pending, sync: {ok, error?}, detail (for days)}
 POST /api/costs/disconnect   {service}   remove the billing-only keys this page added (plan
                              price and history stay)
 POST /api/costs/subscription {service?, name?, amount_usd, interval, plan?, since?}
@@ -156,9 +157,13 @@ def _connect(handler, body: Dict[str, Any]) -> bool:
     # A scheduled run holding the collector means this sync can't start yet: say so
     # ("pending") rather than reporting a key nobody has checked as connected.
     result = _run_collect(sid, wait=25)
+    try:
+        days = min(max(int(body.get("days") or 30), 1), 365)
+    except (TypeError, ValueError):
+        days = 30
     j(handler, {"ok": True, "pending": bool(result.get("pending")),
                 "sync": (result.get("services") or {}).get(sid),
-                "detail": service_detail(sid, 30)})
+                "detail": service_detail(sid, days)})
     return True
 
 

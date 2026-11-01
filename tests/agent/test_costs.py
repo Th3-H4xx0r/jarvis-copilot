@@ -275,3 +275,9 @@ def test_plan_rows_without_a_config_are_cleared(home):
     store.upsert_daily("custom-gone", day_of(time.time()), "subscription", 1.0)
     collector.spread_subscriptions(store)
     assert store.daily_rows("2000-01-01", service="custom-gone") == []
+
+
+def test_a_named_sync_with_missing_keys_is_not_reported_as_success(home):
+    (home / ".env").write_text("BROWSERBASE_API_KEY=bb_live_x\n")  # project ID missing
+    res = collector.collect("browserbase", http_get=lambda *a, **k: {})
+    assert res["services"]["browserbase"]["ok"] is False
