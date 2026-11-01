@@ -7,6 +7,8 @@ final class BandSync: ObservableObject {
     @Published private(set) var isSyncing = false
     /// How far the sync under way is, 0…1 (nil when none is) — the page shows it as a percentage.
     @Published private(set) var progress: Double?
+    /// What the sync is reading now ("Activity · Yesterday").
+    @Published private(set) var stage: String?
     @Published private(set) var lastSync: Date?
     /// How often the band syncs on its own while it is connected; 0 = only when asked.
     @Published var interval: TimeInterval {
@@ -38,11 +40,19 @@ final class BandSync: ObservableObject {
         return lastSync.map { Date().timeIntervalSince($0) > interval } ?? true
     }
 
+    /// When the periodic sync last set out, reached or not: a band it gave up on is next tried
+    /// an interval later, not every minute.
+    private(set) var lastAttempt: Date?
+    func attempted() { lastAttempt = Date() }
+
     /// When the next sync on the interval is due (nil when syncing is manual).
     var nextDue: Date? {
         guard interval > 0 else { return nil }
-        return lastSync.map { $0.addingTimeInterval(interval) } ?? Date()
+        guard let since = [lastSync, lastAttempt].compactMap({ $0 }).max() else { return Date() }
+        return since.addingTimeInterval(interval)
     }
+
+    var isDue: Bool { nextDue.map { $0 <= Date() } ?? false }
 
     static func label(_ interval: TimeInterval) -> String {
         switch interval {
@@ -75,6 +85,7 @@ final class BandSync: ObservableObject {
         defer {
             isSyncing = false
             progress = nil
+            stage = nil
         }
         let calendar = session.calendar
         var changed: Set<String> = []
@@ -82,10 +93,13 @@ final class BandSync: ObservableObject {
         let count = max(1, min(days, 3))
         for day in 0..<count {
             // A day is its records (most of the wait, reported packet by packet), then its sleep.
+            let name = ["Today", "Yesterday"].indices.contains(day) ? ["Today", "Yesterday"][day] : "\(day) days ago"
+            stage = "Activity · \(name)"
             let records = try? await session.readDaily(day: day) { [weak self] done in
                 self?.advance(to: (Double(day) + 0.85 * done) / Double(count))
             }
             advance(to: (Double(day) + 0.85) / Double(count))
+            stage = "Sleep · \(name)"
             let sleep = try? await session.readSleep(day: day)
             advance(to: Double(day + 1) / Double(count))
             if records != nil || sleep != nil { reached = true }

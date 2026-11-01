@@ -308,19 +308,41 @@ final class BandManager: NSObject, ObservableObject {
         }
     }
 
-    /// Syncs on the interval picked in the band's settings, whenever the link is already up and
-    /// idle: it never connects just to sync. Wakes when the next sync is due — and at least every
-    /// 15 minutes, so a new interval takes hold.
+    /// Syncs on the interval picked in the band's settings: when one is due it connects to the
+    /// band (if it isn't already), syncs, and lets the link go again. A band it can't reach is
+    /// tried once more, then left until the next interval. Wakes when the next sync is due — and
+    /// at least every 15 minutes, so a new interval takes hold.
     private func startPeriodicSync() {
         periodicSync = Task { [weak self] in
             while !Task.isCancelled {
                 let due = self?.sync.nextDue?.timeIntervalSinceNow ?? 15 * 60
                 try? await Task.sleep(for: .seconds(min(15 * 60, max(60, due))))
                 guard let self, !Task.isCancelled else { return }
-                guard self.state == .ready, self.sync.isStale, !self.isWorking, !self.holdsLinkForWorkout else { continue }
-                await self.sync.sync()
+                guard self.sync.isDue, self.peripheral != nil || self.knownPeripheral() != nil,
+                      !self.isWorking, !self.holdsLinkForWorkout else { continue }
+                await self.periodicSyncNow()
             }
         }
+    }
+
+    /// One due sync: two tries at reaching the band, then it gives up until the next interval.
+    private func periodicSyncNow() async {
+        sync.attempted()
+        for attempt in 1...2 {
+            if attempt > 1 { try? await Task.sleep(for: .seconds(5)) }
+            guard !holdsLinkForWorkout else { return }
+            if await ensureConnected(timeout: 12) {
+                await waitForSetup(timeout: 10)
+                // Setup syncs by itself while a screen is open; otherwise it's done here.
+                if sync.isStale || !sync.lastReached { await sync.sync() }
+                if sync.lastReached && !sync.isStale {
+                    releaseIfIdle()
+                    return
+                }
+            }
+            JcLog.devices.notice("band: periodic sync couldn't reach the band (try \(attempt) of 2)")
+        }
+        releaseIfIdle()
     }
 
     private var isWorking: Bool {

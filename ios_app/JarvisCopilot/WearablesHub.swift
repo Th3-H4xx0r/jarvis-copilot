@@ -91,6 +91,23 @@ struct WearableToolbarButton: View {
     }
 }
 
+/// The sync glyph turning, in the accent: what a toolbar's Sync shows while it runs.
+struct JcSyncSpinner: View {
+    var size: CGFloat = 17
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
+                                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                .rotationEffect(.degrees((t * 240).truncatingRemainder(dividingBy: 360)))
+        }
+        .fixedSize()
+    }
+}
+
 struct WearableMoreMenu<Extra: View>: View {
     let onRename: () -> Void
     /// Device-specific items — a ring's "Find", say — above Rename.

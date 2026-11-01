@@ -42,8 +42,7 @@ struct CarPage: View {
             // closes the page instead. Wakes the car for fresh status, like Toyota's app.
             ToolbarItem(placement: .primaryAction) {
                 if toyota.refreshing {
-                    ProgressView().controlSize(.small).tint(JcTheme.accent)
-                        .accessibilityLabel("Syncing the car")
+                    JcSyncSpinner().accessibilityLabel("Syncing the car")
                 } else {
                     WearableToolbarButton(title: "Sync", icon: "arrow.triangle.2.circlepath",
                                           disabled: !toyota.isSignedIn) {

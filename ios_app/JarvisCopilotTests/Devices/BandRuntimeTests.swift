@@ -415,6 +415,10 @@ final class BandRuntimeTests: XCTestCase {
         let sync = BandSync(session: session, store: { nil }, defaults: defaults)
         XCTAssertEqual(sync.interval, BandSync.defaultInterval)
         XCTAssertTrue(sync.isStale, "never synced")
+        XCTAssertTrue(sync.isDue)
+        sync.attempted()   // the band couldn't be reached: left until the next interval
+        XCTAssertFalse(sync.isDue)
+        XCTAssertTrue(sync.isStale, "opening the page still syncs")
         sync.interval = 2 * 60 * 60
         XCTAssertEqual(BandSync(session: session, store: { nil }, defaults: defaults).interval, 2 * 60 * 60)
         sync.interval = 0

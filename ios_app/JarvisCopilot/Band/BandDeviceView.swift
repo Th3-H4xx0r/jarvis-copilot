@@ -93,7 +93,11 @@ struct BandDeviceView: View {
                 hero
                 if session.finding { findingBar }
                 statusLine
-                if let progress = sync.progress { syncBar(progress) }
+                if let progress = sync.progress {
+                    BandSyncCard(progress: progress, stage: sync.stage)
+                        .padding(.horizontal, 24)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 if let hint = electrodeHint {
                     Text(hint)
                         .font(.footnote)
@@ -114,6 +118,7 @@ struct BandDeviceView: View {
                 settingsLink
             }
             .padding(.bottom, 40)
+            .animation(.spring(duration: 0.4), value: sync.isSyncing)
         }
         .refreshable { _ = await sync.sync() }
         .navigationTitle(title)
@@ -157,8 +162,12 @@ struct BandDeviceView: View {
                           onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
         }
         .toolbar {
-            WearableToolbarButton(title: "Sync", icon: "arrow.triangle.2.circlepath", disabled: !ready || sync.isSyncing) {
-                Task { _ = await sync.sync() }
+            if sync.isSyncing {
+                JcSyncSpinner().accessibilityLabel("Syncing the band")
+            } else {
+                WearableToolbarButton(title: "Sync", icon: "arrow.triangle.2.circlepath", disabled: !ready) {
+                    Task { _ = await sync.sync() }
+                }
             }
             WearableMoreMenu(onRename: { renaming = true }, extra: {
                 if session.finding {
@@ -206,30 +215,6 @@ struct BandDeviceView: View {
                 .buttonStyle(.jcGlass(compact: true))
         }
         .padding(.horizontal, 24)
-    }
-
-    /// While the band's history comes in: how far, as G Band shows it.
-    private func syncBar(_ progress: Double) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Syncing the band", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.subheadline.weight(.medium))
-                Spacer()
-                Text(Self.percent(progress))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(JcTheme.accent)
-                    .contentTransition(.numericText())
-            }
-            ProgressView(value: progress)
-                .tint(JcTheme.accent)
-        }
-        .padding(14)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-        .padding(.horizontal, 24)
-        .animation(.easeOut(duration: 0.25), value: progress)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     static func percent(_ progress: Double) -> String { "\(Int((progress * 100).rounded()))%" }
@@ -609,7 +594,7 @@ struct BandSettingsView: View {
     /// How often the band's history is read on its own (G Band's periodic sync).
     private var syncCard: some View {
         CardGroup("Sync", footer: sync.interval > 0
-                  ? "While the band is connected, its history is read again once this much time has passed. Sync on the band's page reads it now."
+                  ? "When this much time has passed, Jarvis connects to the band and reads its history — tried twice, then left until the next time. Sync on the band's page reads it now."
                   : "The band's history is read only when you tap Sync on its page.") {
             Row(minHeight: 50) {
                 HStack {
@@ -680,5 +665,90 @@ struct BandSettingsView: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+}
+
+/// The band's sync while it runs, in the app's look: an accent ring filling round a turning sync
+/// glyph, what is being read, the percentage, and a bar with a light running along it.
+struct BandSyncCard: View {
+    let progress: Double
+    let stage: String?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.07), lineWidth: 4)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, progress))
+                        .stroke(AngularGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent, JcTheme.primaryBlueHi],
+                                                center: .center),
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Circle()
+                        .fill(RadialGradient(colors: [JcTheme.accent.opacity(0.26), JcTheme.accent.opacity(0.02)],
+                                             center: .center, startRadius: 2, endRadius: 22))
+                        .padding(7)
+                    JcSyncSpinner(size: 17)
+                }
+                .frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Syncing your band")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(JcTheme.text)
+                    Text(stage ?? "Connecting…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(JcTheme.muted)
+                        .contentTransition(.opacity)
+                }
+                Spacer(minLength: 8)
+                Text(BandDeviceView.percent(progress))
+                    .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
+                                                    startPoint: .top, endPoint: .bottom))
+                    .contentTransition(.numericText(value: progress))
+            }
+            BandSyncBar(progress: progress)
+        }
+        .padding(16)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+            .strokeBorder(LinearGradient(colors: [JcTheme.accent.opacity(0.45), JcTheme.glassBorder],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+        .animation(.easeOut(duration: 0.35), value: progress)
+        .animation(.easeInOut(duration: 0.25), value: stage)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Syncing your band, \(BandDeviceView.percent(progress))")
+    }
+}
+
+/// A slim accent bar; a soft light sweeps across the filled part while it fills.
+private struct BandSyncBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let filled = max(6, geo.size.width * progress)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.07))
+                Capsule()
+                    .fill(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: filled)
+                    .shadow(color: JcTheme.accent.opacity(0.55), radius: 6)
+                    .overlay(alignment: .leading) {
+                        TimelineView(.animation) { context in
+                            let t = context.date.timeIntervalSinceReferenceDate
+                            let phase = (t / 1.4).truncatingRemainder(dividingBy: 1)
+                            LinearGradient(colors: [.white.opacity(0), .white.opacity(0.45), .white.opacity(0)],
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 60)
+                                .offset(x: -60 + (filled + 60) * phase)
+                        }
+                        .frame(width: filled, alignment: .leading)
+                        .clipShape(Capsule())
+                    }
+            }
+        }
+        .frame(height: 6)
     }
 }
