@@ -4090,6 +4090,12 @@ def _synthesize_fish_audio(text: str, *, tts_cfg: dict) -> bytes:
     audio = r.content
     if not audio or len(audio) < 1000:
         raise _FishAudioError("Fish Audio returned an empty body", config_issue=False)
+    # Fish bills per UTF-8 byte of text; Insights → Costs counts them.
+    try:
+        from agent.costs import meter
+        meter.record("fish-audio", "bytes", len(text.encode("utf-8")), model=model)
+    except ImportError:
+        pass
     return audio
 
 

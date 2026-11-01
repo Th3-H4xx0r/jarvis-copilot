@@ -63,6 +63,9 @@ _HERMES_CORE_TOOLS = [
     # deliberately NOT in _LAZY_CORE_TOOLS: a chat asks about an overheard
     # conversation rarely, so the schema belongs in the deferred manifest.
     "live_transcript",
+    # What the user's models, APIs and subscriptions cost (Insights → Costs). Rarely
+    # asked, so like live_transcript it stays out of _LAZY_CORE_TOOLS.
+    "cost_insights",
     # Clarifying questions
     "clarify",
     # Code execution + delegation
@@ -267,6 +270,13 @@ TOOLSETS = {
             "and the recordings themselves."
         ),
         "tools": ["live_transcript"],
+        "includes": []
+    },
+
+    # Spend per service with history (tools/cost_insights_tool.py, agent/costs/).
+    "costs": {
+        "description": "What the user's AI models, APIs and subscriptions cost, with history.",
+        "tools": ["cost_insights"],
         "includes": []
     },
 

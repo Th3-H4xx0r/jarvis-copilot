@@ -979,12 +979,17 @@
     <div id="mainInsights" class="main-view">
       <div class="main-view-header">
         <div class="main-view-title" data-i18n="insights_title">Usage Analytics</div>
+        <div class="main-view-actions insights-tabs" role="tablist" aria-label="Insights view">
+          <button type="button" class="insights-tab active" data-tab="usage" role="tab" aria-selected="true" onclick="setInsightsTab('usage')">Usage</button>
+          <button type="button" class="insights-tab" data-tab="costs" role="tab" aria-selected="false" onclick="setInsightsTab('costs')">Costs</button>
+        </div>
       </div>
       <div class="main-view-content" id="insightsContent" style="padding:16px;overflow-y:auto">
         <div class="insights-card wiki-status-card" id="llmWikiStatusCard">
           <div style="color:var(--muted);font-size:12px" data-i18n="loading">Loading...</div>
         </div>
       </div>
+      <div class="main-view-content costs-content" id="costsContent" style="padding:16px;overflow-y:auto;display:none"></div>
     </div>
     <div id="mainLogs" class="main-view">
       <div class="main-view-header">
@@ -1589,6 +1594,7 @@
 <script src="static/harness_editor.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/cron_runs_on.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/costs.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/integrations.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/imessage_memory.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/agents_terminal.js?v=__WEBUI_VERSION__" defer></script>

@@ -3954,6 +3954,10 @@ def handle_get(handler, parsed) -> bool:
         from api.tool_keys import handle_tool_keys_get
         if handle_tool_keys_get(handler, parsed):
             return True
+    if parsed.path in ("/api/costs", "/api/costs/service"):
+        from api.costs_routes import handle_costs_get
+        if handle_costs_get(handler, parsed):
+            return True
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -5169,6 +5173,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/tool-keys":
         from api.tool_keys import handle_tool_keys_post
         if handle_tool_keys_post(handler, parsed, body):
+            return True
+    if parsed.path.startswith("/api/costs/"):
+        from api.costs_routes import handle_costs_post
+        if handle_costs_post(handler, parsed, body):
             return True
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe

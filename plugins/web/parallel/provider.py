@@ -229,6 +229,12 @@ class ParallelWebSearchProvider(WebSearchProvider):
         if resp.status_code != 200:
             logger.warning("Parallel search HTTP %s", resp.status_code)
             return {"success": False, "error": _http_error(resp.status_code)}
+        # A 200 is a billed search; Insights → Costs counts them (Parallel has no usage API).
+        try:
+            from agent.costs import meter
+            meter.record("parallel", "search", 1, mode=mode)
+        except ImportError:
+            pass
         try:
             results = resp.json().get("results") or []
         except Exception:  # noqa: BLE001

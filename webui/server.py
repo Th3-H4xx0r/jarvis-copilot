@@ -546,6 +546,13 @@ def main() -> None:
     except Exception as exc:
         print(f"[memory-map] could not start: {exc}", flush=True)
 
+    # Insights → Costs: price usage + read billing APIs every few hours (no model calls).
+    try:
+        from api.costs_routes import install as _install_costs
+        _install_costs()
+    except Exception as exc:
+        print(f"[costs] collector could not start: {exc}", flush=True)
+
     # Fold any per-wearable health space into the shared Jarvis Health one.
     # Idempotent and best-effort: the runner retries on its next tick.
     try:

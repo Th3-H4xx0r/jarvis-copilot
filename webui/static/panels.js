@@ -3193,6 +3193,9 @@ async function copyLogsAll() {
 
 // ── Insights panel ──
 async function loadInsights(animate) {
+  // The Costs tab (costs.js) shares the period picker and the refresh button.
+  if (typeof costsTabActive === 'function' && costsTabActive()) return loadCosts(animate);
+  if (typeof _syncInsightsTabs === 'function') _syncInsightsTabs();
   const box = $('insightsContent');
   const refreshBtn = $('insightsRefreshBtn');
   if (!box) return;

@@ -122,6 +122,11 @@ def _build_provider_env_blocklist() -> frozenset:
         "XAI_API_KEY",
         "HELICONE_API_KEY",
         "PARALLEL_API_KEY",
+        # Billing-only keys from Insights → Costs (org-admin scope).
+        "ANTHROPIC_ADMIN_KEY",
+        "OPENAI_ADMIN_KEY",
+        "OPENROUTER_MANAGEMENT_KEY",
+        "SONIOX_ORG_API_KEY",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
         "TELEGRAM_HOME_CHANNEL",
