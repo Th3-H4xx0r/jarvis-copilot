@@ -12,6 +12,7 @@ struct HarnessJobCard: View {
     var onAnswer: ((String) -> Void)?
 
     @State private var stopping = false
+    @State private var viewing: ChatImageViewerStart?
 
     var body: some View {
         if job.isRunning { running } else { ended }
@@ -20,6 +21,18 @@ struct HarnessJobCard: View {
     private var running: some View {
         VStack(alignment: .leading, spacing: 10) {
             runningHeader
+            if !job.images.isEmpty {
+                // The pictures the job has found so far; a tap opens them full screen.
+                HStack(spacing: 6) {
+                    ForEach(Array(job.images.enumerated()), id: \.offset) { i, image in
+                        ChatImageTile(image: image, fill: true, radius: 9) { viewing = ChatImageViewerStart(index: i) }
+                            .frame(width: 56, height: 56)
+                    }
+                }
+                .fullScreenCover(item: $viewing) { start in
+                    ChatImageViewer(images: job.images, start: start.index)
+                }
+            }
             if let approval = job.approval, let onAnswer {
                 HarnessJobApprovalRow(approval: approval, onAnswer: onAnswer)
             }

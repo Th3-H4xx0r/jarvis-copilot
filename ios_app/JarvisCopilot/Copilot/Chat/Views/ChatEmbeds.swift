@@ -94,7 +94,7 @@ struct ChatHTMLCard: View {
     }
 }
 
-/// The page full screen, the way ``ImageViewerPage`` shows a picture.
+/// The page full screen, the way ``ChatImageViewer`` shows a picture.
 private struct ChatHTMLFullScreen: View {
     let name: String
     let html: String

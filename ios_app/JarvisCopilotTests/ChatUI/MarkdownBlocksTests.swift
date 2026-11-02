@@ -157,16 +157,52 @@ final class MarkdownBlocksTests: XCTestCase {
                        [.paragraph("a"), .rule, .paragraph("b")])
     }
 
-    func testStandaloneImageBecomesAnImageBlock() {
+    func testStandaloneImageBecomesAGalleryOfOne() {
         let blocks = MarkdownBlocks.split("![a cat](data:image/png;base64,AAAA)")
-        XCTAssertEqual(blocks, [.image(alt: "a cat", source: "data:image/png;base64,AAAA")])
+        XCTAssertEqual(blocks, [.gallery([MarkdownImage(alt: "a cat", source: "data:image/png;base64,AAAA")])])
     }
 
-    func testInlineImageInsideProseStaysProse() {
-        // Only a line that is *just* an image becomes an image block; anything
-        // else keeps flowing as text so the sentence isn't torn apart.
-        XCTAssertEqual(MarkdownBlocks.split("see ![a](b.png) here"),
-                       [.paragraph("see ![a](b.png) here")])
+    /// An image inside a sentence goes right after it; the sentence stays whole.
+    func testLabelThenImageInParagraph() {
+        XCTAssertEqual(MarkdownBlocks.split("see ![a](/x/b.png) here"),
+                       [.paragraph("see  here"), .gallery([MarkdownImage(alt: "a", source: "/x/b.png")])])
+    }
+
+    /// The glasses reply: each bullet keeps its label and its picture under it.
+    func testListItemWithImageKeepsLabelAndImage() {
+        let blocks = MarkdownBlocks.split("- **Rokid:** light ![image](/api/media?path=a.jpg)\n- RayNeo: bulky")
+        XCTAssertEqual(blocks, [.list([
+            MarkdownListItem(marker: "•", depth: 0, text: "**Rokid:** light",
+                             images: [MarkdownImage(alt: "image", source: "/api/media?path=a.jpg")]),
+            MarkdownListItem(marker: "•", depth: 0, text: "RayNeo: bulky"),
+        ])])
+    }
+
+    func testNumberedListMarkersSurvive() {
+        let blocks = MarkdownBlocks.split("1. One ![a](/a.png)\n2. Two ![b](/b.png)")
+        guard case .list(let items) = blocks.first else { return XCTFail("\(blocks)") }
+        XCTAssertEqual(items.map(\.marker), ["1.", "2."])
+        XCTAssertEqual(items.map { $0.images.count }, [1, 1])
+    }
+
+    func testTwoImageLinesMergeIntoOneGallery() {
+        let blocks = MarkdownBlocks.split("Photos:\n\n![a](/a.png)\n\n![b](/b.png)\n\nEnd.")
+        XCTAssertEqual(blocks, [.paragraph("Photos:"),
+                                .gallery([MarkdownImage(alt: "a", source: "/a.png"),
+                                          MarkdownImage(alt: "b", source: "/b.png")]),
+                                .paragraph("End.")])
+    }
+
+    func testImageInCodeStaysCode() {
+        XCTAssertEqual(MarkdownBlocks.split("```\n![a](/a.png)\n```"),
+                       [.code(language: "", text: "![a](/a.png)", closed: true)])
+        XCTAssertEqual(MarkdownBlocks.split("use `![a](/a.png)` here"),
+                       [.paragraph("use `![a](/a.png)` here")])
+    }
+
+    func testAllImagesOfAReplyInOrder() {
+        let blocks = MarkdownBlocks.split("- x ![a](/a.png)\n\n![b](/b.png)")
+        XCTAssertEqual(MarkdownBlocks.images(in: blocks).map(\.source), ["/a.png", "/b.png"])
     }
 
     // MARK: Streaming stability

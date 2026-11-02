@@ -10,6 +10,32 @@ final class ChatMediaTests: XCTestCase {
 
     // MARK: rewrite
 
+    /// chat_image's show_with: a caption plus an absolute server path.
+    func testRewriteMapsLocalMarkdownImage() {
+        let out = ChatMedia.rewrite("![Rokid Glasses](/root/m/rokid-abc123_800x600.jpg)", base: base)
+        XCTAssertEqual(out, "![Rokid Glasses](https://jarvis.test/api/media?path=%2Froot%2Fm%2Frokid-abc123_800x600.jpg)")
+        XCTAssertEqual(ChatMedia.rewrite("![a](/api/media?path=x)", base: base), "![a](/api/media?path=x)")
+        XCTAssertEqual(ChatMedia.rewrite("![a](https://x/a.png)", base: base), "![a](https://x/a.png)")
+    }
+
+    func testHoldPartialHidesUnterminatedToken() {
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/wor"), "x ")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:https://cdn"), "x ")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:https://cdn.test/render/9f2c"), "x MEDIA:https://cdn.test/render/9f2c")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/a.jpg"), "x MEDIA:/root/a.jpg")
+        XCTAssertEqual(ChatMedia.holdPartial("see ![a](https://x/y"), "see ")
+        XCTAssertEqual(ChatMedia.holdPartial("see ![a"), "see ")
+        XCTAssertEqual(ChatMedia.holdPartial("end MEDI"), "end ")
+        XCTAssertEqual(ChatMedia.holdPartial("Wow!"), "Wow!")
+        XCTAssertEqual(ChatMedia.holdPartial("MEDICAL"), "MEDICAL")
+    }
+
+    func testAspectFromSizedFileName() {
+        XCTAssertEqual(ChatMedia.aspect(of: "https://j.test/api/media?path=%2Froot%2Fm%2Fa-1f2e3d_1200x600.png"), 2)
+        XCTAssertEqual(ChatMedia.aspect(of: "/root/m/a-1f2e3d_800x800.jpg"), 1)
+        XCTAssertNil(ChatMedia.aspect(of: "/root/workspace/lion.jpg"))
+    }
+
     func testTextWithoutMediaIsUntouched() {
         let text = "Here is a **bold** claim about media queries."
         XCTAssertEqual(ChatMedia.rewrite(text, base: base), text)
@@ -80,10 +106,10 @@ final class ChatMediaTests: XCTestCase {
     func testARewrittenRefRendersAsAnImageBlock() {
         let blocks = MarkdownBlocks.split(
             ChatMedia.rewrite("MEDIA:https://cdn.test/a.png", base: base))
-        guard case .image(_, let source)? = blocks.first else {
+        guard case .gallery(let images)? = blocks.first else {
             return XCTFail("expected an image block, got \(blocks)")
         }
-        XCTAssertEqual(source, "https://cdn.test/a.png")
+        XCTAssertEqual(images.map(\.source), ["https://cdn.test/a.png"])
     }
 
     // MARK: cache

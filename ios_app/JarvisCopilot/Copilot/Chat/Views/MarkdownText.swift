@@ -19,9 +19,11 @@ struct ChatMarkdownText: View {
     var embeds = false
 
     var body: some View {
+        let blocks = ChatMarkdownCache.blocks(for: rendered, embeds: embeds)
+        let images = MarkdownBlocks.images(in: blocks)
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(ChatMarkdownCache.blocks(for: rendered, embeds: embeds).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                view(for: block, images: images)
             }
         }
         .font(.body)
@@ -37,7 +39,7 @@ struct ChatMarkdownText: View {
         ChatMedia.rewrite(text, base: ChatMedia.apiBase())
     }
 
-    @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
+    @ViewBuilder private func view(for block: MarkdownBlock, images all: [MarkdownImage]) -> some View {
         switch block {
         case .heading(let level, let text):
             Text(chatInlineMarkdown(text))
@@ -62,9 +64,16 @@ struct ChatMarkdownText: View {
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 16, alignment: .trailing)
-                        Text(chatInlineMarkdown(item.text))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !item.text.isEmpty {
+                                Text(chatInlineMarkdown(item.text))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if !item.images.isEmpty {
+                                ChatImageGallery(images: item.images, all: all)
+                            }
+                        }
                     }
                     .padding(.leading, CGFloat(item.depth) * 14)
                 }
@@ -83,8 +92,8 @@ struct ChatMarkdownText: View {
         case .rule:
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1).padding(.vertical, 2)
 
-        case .image(let alt, let source):
-            ChatInlineImage(alt: alt, source: source)
+        case .gallery(let images):
+            ChatImageGallery(images: images, all: all)
 
         case .table(let table):
             ChatMarkdownTable(table: table)
@@ -156,104 +165,6 @@ struct ChatCodeBlock: View {
         .background(Color(jcHex: 0x111418), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(JcTheme.border, lineWidth: 1))
-    }
-}
-
-/// A markdown image on a line of its own, tappable into ``ImageViewerPage``.
-///
-/// Two sources, both of them the Flutter `imageBuilder`'s:
-///
-///  * a `data:` URL (what the on-device model emits) decodes synchronously;
-///  * an `http(s)` or root-relative URL is fetched through ``ChatImageCache`` —
-///    `/api/media` is cookie-gated, so `AsyncImage` would get a 401, and the
-///    cache is what stops a scrolled-away image refetching on every re-layout.
-///
-/// Anything that fails falls back to the same "🖼 image" chip the Flutter
-/// renderer shows, so a broken image never breaks the bubble's layout.
-struct ChatInlineImage: View {
-    let alt: String
-    let source: String
-    /// Injected by tests; the app takes the shared cache.
-    var cache: ChatImageCache?
-
-    @State private var remote: Image?
-    @State private var loading = false
-    @State private var failed = false
-    @State private var fullscreen = false
-
-    /// Whether this source has to come off the network.
-    private var isRemote: Bool {
-        let lower = source.lowercased()
-        return lower.hasPrefix("http://") || lower.hasPrefix("https://")
-            || lower.hasPrefix("/")
-    }
-
-    private var decoded: Image? {
-        guard source.hasPrefix("data:"), let comma = source.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(source[source.index(after: comma)...]),
-                              options: .ignoreUnknownCharacters)
-        else { return nil }
-        return Self.image(from: data)
-    }
-
-    static func image(from data: Data) -> Image? {
-        guard let image = UIImage(data: data) else { return nil }
-        return Image(uiImage: image)
-    }
-
-    var body: some View {
-        if let image = decoded ?? remote {
-            picture(image)
-        } else if isRemote && !failed {
-            placeholder.task(id: source) { await load() }
-        } else {
-            chip
-        }
-    }
-
-    private func picture(_ image: Image) -> some View {
-        Button { fullscreen = true } label: {
-            image.resizable().scaledToFit()
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .fullScreenCover(isPresented: $fullscreen) {
-            NavigationStack { ImageViewerPage(image: image) }
-        }
-    }
-
-    /// A fixed-height well while the bytes arrive, so the transcript doesn't jump
-    /// when the picture lands mid-stream.
-    private var placeholder: some View {
-        ProgressView()
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(JcTheme.surfaceAlt.opacity(0.4),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private var chip: some View {
-        Text(alt.isEmpty ? "🖼 image" : "🖼 \(alt)")
-            .font(.footnote)
-            .foregroundStyle(JcTheme.muted)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(JcTheme.surfaceAlt.opacity(0.5),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(JcTheme.border, lineWidth: 1))
-    }
-
-    private func load() async {
-        guard remote == nil, !loading else { return }
-        loading = true
-        defer { loading = false }
-        let store = cache ?? .shared
-        guard let data = await store.bytes(source), let image = Self.image(from: data) else {
-            failed = true
-            return
-        }
-        remote = image
     }
 }
 

@@ -40,6 +40,18 @@ final class HarnessJobFormatTests: XCTestCase {
                      "no session to answer on: nothing to draw")
     }
 
+    /// The newest pictures the job saved ride on its card (≤ 4, oldest first).
+    func testParsesTheJobsPictures() throws {
+        let parsed = try XCTUnwrap(HarnessJob(json: [
+            "id": "j1", "status": "running", "started_at": 1,
+            "images": [["src": "/root/m/a-1_800x600.jpg", "caption": "Rokid"], ["caption": "no src"],
+                       ["src": "/root/m/b-2_640x480.png"]],
+        ]))
+        XCTAssertEqual(parsed.images, [MarkdownImage(alt: "Rokid", source: "/api/media?path=%2Froot%2Fm%2Fa-1_800x600.jpg"),
+                                       MarkdownImage(alt: "", source: "/api/media?path=%2Froot%2Fm%2Fb-2_640x480.png")])
+        XCTAssertEqual(HarnessJob(json: ["id": "j2"])?.images, [])
+    }
+
     func testParsesAJobView() throws {
         let view = try XCTUnwrap(HarnessJobView(json: [
             "job": ["id": "j1", "label": "Long Running", "status": "done", "started_at": 1],

@@ -50,6 +50,8 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
     var workerSession: String = ""
     /// What the job is waiting on you for, while it waits.
     var approval: Approval?
+    /// The newest pictures the job saved (chat_image), as media sources.
+    var images: [MarkdownImage] = []
 
     /// One approval a running job is paused on (`job_card.approval` on the server).
     struct Approval: Equatable, Hashable, Sendable {
@@ -112,6 +114,10 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
                   stopping: json["stopping"] as? Bool ?? false,
                   workerSession: json["worker_session"] as? String ?? "",
                   approval: Approval(json: json["approval"] as? [String: Any]))
+        images = (json["images"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let src = row["src"] as? String, !src.isEmpty else { return nil }
+            return MarkdownImage(alt: row["caption"] as? String ?? "", source: ChatMedia.mediaSource(src))
+        }.suffix(4).map { $0 }
     }
 
     var isRunning: Bool { status == "running" }

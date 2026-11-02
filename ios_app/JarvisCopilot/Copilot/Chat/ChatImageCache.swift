@@ -42,6 +42,10 @@ enum ChatMedia {
     static func rewrite(_ input: String, base: String) -> String {
         // Cheap bail-out: the overwhelming majority of turns carry no media, and
         // this runs on every token of a streaming reply.
+        guard input.contains("MEDIA:") || input.contains("![") || input.hasSuffix("M")
+                || input.hasSuffix("ME") || input.hasSuffix("MED") || input.hasSuffix("MEDI")
+        else { return input }
+        let input = localImages(holdPartial(input), base: base)
         guard input.contains("MEDIA:") else { return input }
         guard let regex = try? NSRegularExpression(pattern: "MEDIA:([^\\s)\\]]+)") else {
             return input
@@ -60,6 +64,79 @@ enum ChatMedia {
         }
         out += text.substring(from: cursor)
         return out
+    }
+
+    /// A half-typed image token at the very end of a streaming reply waits
+    /// until it is whole, so a raw `MEDIA:/root/wor…` path never flashes. A
+    /// `MEDIA:` ref that already ends in an image extension counts as whole.
+    static func holdPartial(_ text: String) -> String {
+        let ns = text as NSString
+        guard let match = partialPattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length))
+        else { return text }
+        let token = ns.substring(with: match.range(at: 2))
+        if token.hasPrefix("MEDIA:") {
+            let ref = String(token.dropFirst(6))
+            let lower = ref.lowercased()
+            if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+                // A web address with a path past its host is whole enough to show
+                // (CDN images often have no extension); a bare host isn't.
+                if ref.components(separatedBy: "://").dropFirst().joined().contains("/") { return text }
+            } else {
+                let path = ref.split(separator: "?").first.map(String.init) ?? ""
+                if let dot = path.lastIndex(of: "."),
+                   imageExtensions.contains(path[path.index(after: dot)...].lowercased()) { return text }
+            }
+        }
+        return ns.substring(to: match.range(at: 2).location)
+    }
+
+    private static let partialPattern = try! NSRegularExpression(
+        pattern: #"(^|\s)(M(?:E(?:D(?:I(?:A(?::\S*)?)?)?)?)?|!\[[^\]\n]*(?:\]\([^)\s]*)?)$"#)
+
+    /// `![caption](/absolute/server/path)` — chat_image's show_with — through
+    /// the cookie-gated media endpoint, keeping the caption.
+    static func localImages(_ text: String, base: String) -> String {
+        guard text.contains("](/") else { return text }
+        let ns = text as NSString
+        var out = ""
+        var cursor = 0
+        for match in localImagePattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            let alt = ns.substring(with: match.range(at: 1))
+            let path = ns.substring(with: match.range(at: 2))
+            out += path.hasPrefix("/api/")
+                ? ns.substring(with: match.range)
+                : "![\(alt)](\(base)\(mediaSource(path)))"
+            cursor = match.range.location + match.range.length
+        }
+        return out + ns.substring(from: cursor)
+    }
+
+    private static let localImagePattern = try! NSRegularExpression(pattern: #"!\[([^\]\n]*)\]\((/[^)\s]+)\)"#)
+
+    /// Width ÷ height of a saved chat image, read off its name
+    /// (`…_<W>x<H>.<ext>`, agent/chat_media.py) so its tile holds the right
+    /// space before the bytes arrive. Nil when the name doesn't carry it.
+    static func aspect(of source: String) -> CGFloat? {
+        var path = source
+        if let range = source.range(of: "path=") {
+            let value = source[range.upperBound...].split(separator: "&").first.map(String.init) ?? ""
+            path = value.removingPercentEncoding ?? value
+        }
+        path = path.split(separator: "?").first.map(String.init) ?? path
+        let ns = path as NSString
+        guard let m = sizePattern.firstMatch(in: path, range: NSRange(location: 0, length: ns.length)),
+              let w = Double(ns.substring(with: m.range(at: 1))),
+              let h = Double(ns.substring(with: m.range(at: 2))), w > 0, h > 0 else { return nil }
+        return CGFloat(w / h)
+    }
+
+    private static let sizePattern = try! NSRegularExpression(pattern: #"_(\d+)x(\d+)\.[A-Za-z0-9]+$"#)
+
+    /// A `data:` image's bytes (nil for anything else).
+    static func inlineImageData(_ source: String) -> Data? {
+        guard source.hasPrefix("data:"), let comma = source.firstIndex(of: ",") else { return nil }
+        return Data(base64Encoded: String(source[source.index(after: comma)...]), options: .ignoreUnknownCharacters)
     }
 
     /// The API base the rewrite uses in production. Empty when unpaired, which
