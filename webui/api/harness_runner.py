@@ -121,6 +121,11 @@ def deliver_result(session_id, *, node, kind, text, ms, error=None, spoken=False
     ``spoken``: the device the user asked from reads it out (speak-back), so it
     is being heard and no push goes to the phone."""
     meta = {"kind": kind, "node": node.get("id"), "model": node.get("model"), "ms": int(ms or 0)}
+    try:
+        from agent.chat_media import localize_text
+        text = localize_text(text or "", session_id)
+    except Exception:
+        logger.warning("harness result image backstop failed", exc_info=True)
     if error:
         meta["error"] = str(error)[:300]
     message = {"role": "assistant", "content": text or "", "timestamp": _time.time(), "_meta": meta}
@@ -189,6 +194,7 @@ def job_card(job):
             "completed_at": job.get("completed_at"), "steps": int(job.get("steps") or 0),
             "activity": job.get("activity") or "", "stopping": bool(job.get("stop_requested")),
             "worker_session": job.get("worker_session") or "",
+            "images": job.get("images") or [],
             "approval": job.get("approval") if job.get("status", "running") == "running" else None}
 
 
@@ -647,6 +653,9 @@ def _watch_loop(q, session_id, job_id, stop, feed, _queue):
             return
         data = data if isinstance(data, dict) else {}
         new_steps, new_activity = steps, activity
+        if (event == "tool" and data.get("name") == "chat_image"
+                and data.get("event_type") == "tool.completed"):
+            _record_job_images(session_id, job_id)
         if event == "tool" and data.get("event_type") in (None, "tool.started"):
             new_steps, new_activity = steps + 1, tool_activity(data.get("name"))
             # The Agents tab lists the recent steps, each with what it was on.
@@ -660,6 +669,23 @@ def _watch_loop(q, session_id, job_id, stop, feed, _queue):
         if (new_steps, new_activity) != (steps, activity):
             steps, activity = new_steps, new_activity
             _record_job(session_id, job_id, steps=steps, activity=activity, trail=list(trail))
+
+
+JOB_IMAGES_MAX = 4
+
+
+def _record_job_images(session_id, job_id):
+    """The newest pictures this job's worker saved (chat_image), on its card."""
+    from agent import escalation
+    from agent.chat_media import images_since
+    job = escalation.get_job(job_id) if job_id else None
+    if not job or not job.get("worker_session"):
+        return
+    rows = images_since(job.get("session_id") or session_id, job["worker_session"],
+                        float(job.get("started_at") or 0))
+    images = [{"src": r["path"], "caption": r.get("caption") or ""} for r in rows][-JOB_IMAGES_MAX:]
+    if images and images != job.get("images"):
+        _record_job(session_id, job_id, images=images)
 
 
 def stop_job(session_id, job_id):

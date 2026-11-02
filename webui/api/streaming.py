@@ -758,6 +758,28 @@ def _extract_gateway_routing_metadata(agent, result, requested_model=None, reque
     return None
 
 
+def _localize_turn_images(messages: list, session_id: str) -> None:
+    """Save the web images / stray files this turn's replies show into the
+    chat's media folder and point the replies at the copies, so they never
+    break later. Walks back to the turn's user message; tool output and older
+    turns are left alone (agent/chat_media.py)."""
+    from agent.chat_media import localize_text
+    for msg in reversed(messages or []):
+        if not isinstance(msg, dict):
+            continue
+        if msg.get('role') == 'user':
+            break
+        content = msg.get('content')
+        if msg.get('role') != 'assistant' or not isinstance(content, str):
+            continue
+        if 'MEDIA:' not in content and '](' not in content:
+            continue
+        try:
+            msg['content'] = localize_text(content, session_id)
+        except Exception:
+            logger.warning("turn image backstop failed", exc_info=True)
+
+
 def _build_agent_thread_env(profile_runtime_env: dict | None, workspace: str, session_id: str, profile_home: str) -> dict:
     """Build thread-local agent env with per-run values overriding profile defaults.
 
@@ -4922,6 +4944,9 @@ def _run_agent_streaming(
                 # Must run BEFORE s.save() — otherwise the mutation lives only in
                 # memory until the next turn's save, and the last-turn thinking card
                 # is lost when the user reloads immediately after a response.
+                # Images this turn's reply shows are kept in the chat (backstop
+                # for web images the model linked without chat_image).
+                _localize_turn_images(s.messages, s.session_id)
                 if _reasoning_text and s.messages:
                     for _rm in reversed(s.messages):
                         if isinstance(_rm, dict) and _rm.get('role') == 'assistant':

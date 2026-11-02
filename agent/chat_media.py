@@ -234,7 +234,7 @@ def _wants_localizing(ref: str, folder: Path) -> bool:
     return not inside and p.is_file()
 
 
-def localize_text(text: str, session_id: str, *, fetch: Callable[..., bytes] = fetch_image,
+def localize_text(text: str, session_id: str, *, fetch: Callable[..., bytes] | None = None,
                   max_images: int = 8) -> str:
     """Save every web image / stray file a reply shows into the chat's folder
     and point the reply at the saved copy. Refs inside code fences, refs already
@@ -252,6 +252,7 @@ def localize_text(text: str, session_id: str, *, fetch: Callable[..., bytes] = f
     wanted = wanted[:max_images]
     if not wanted:
         return text
+    fetch = fetch or fetch_image
 
     def _one(ref: str) -> tuple[str, str | None]:
         try:

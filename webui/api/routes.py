@@ -7132,6 +7132,17 @@ def delete_chat_session(sid: str) -> None:
     if not sid or not all(c in '0123456789abcdefghijklmnopqrstuvwxyz_'
                           for c in sid):
         raise ValueError("invalid session_id")
+    # The chat's pictures (agent/chat_media.py) go too — unless a continuation
+    # of this chat still shows them.
+    try:
+        from api import models as _models
+        continued = any(str(row.get('parent_session_id') or '') == sid
+                        for row in (_models.all_sessions() or []) if isinstance(row, dict))
+        if not continued:
+            from agent.chat_media import delete_media
+            delete_media(sid)
+    except Exception:
+        logger.debug("Failed to clean chat media for deleted session %s", sid)
     with LOCK:
         SESSIONS.pop(sid, None)
     try:
