@@ -547,9 +547,11 @@ struct ChatMarkdownView: View {
     let text: String
 
     var body: some View {
+        let blocks = ChatMarkdown.blocks(text)
+        let pictures = ChatMarkdown.images(in: blocks)
         VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(ChatMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                view(for: block, pictures: pictures)
             }
         }
         .font(.system(size: ChatStyle.body))
@@ -558,7 +560,7 @@ struct ChatMarkdownView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func view(for block: ChatMarkdown.Block) -> some View {
+    @ViewBuilder private func view(for block: ChatMarkdown.Block, pictures: [ChatMarkdown.Picture]) -> some View {
         switch block {
         case .heading(let level, let text):
             Text(ChatMarkdown.inline(text))
@@ -575,8 +577,15 @@ struct ChatMarkdownView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(item.marker).monospacedDigit().foregroundStyle(ChatStyle.muted)
                             .frame(minWidth: 14, alignment: .trailing)
-                        Text(ChatMarkdown.inline(item.text)).textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            if !item.text.isEmpty {
+                                Text(ChatMarkdown.inline(item.text)).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if !item.images.isEmpty {
+                                ChatGalleryView(pictures: item.images, all: pictures)
+                            }
+                        }
                     }
                     .padding(.leading, CGFloat(item.depth) * 12)
                 }
@@ -590,8 +599,8 @@ struct ChatMarkdownView: View {
             .fixedSize(horizontal: false, vertical: true)
         case .rule:
             Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1).padding(.vertical, 2)
-        case .image(let alt, let source):
-            ChatImageView(alt: alt, source: source)
+        case .gallery(let images):
+            ChatGalleryView(pictures: images, all: pictures)
         case .htmlPage(let path):
             ChatHTMLCard(path: path)
         case .linkPreview(let url):
@@ -662,43 +671,108 @@ struct ChatCodeBlock: View {
 
 // MARK: - Images
 
-/// A picture in a reply: fetched (server paths through the island's API
-/// origin, which carries the session), fitted to the column, rounded; a click
-/// opens it full size.
+/// Pictures in a reply, the way ChatGPT and Claude show them: one fitted to
+/// the column, several as a 2-up grid of rounded tiles (an odd last one spans
+/// both columns). A click opens every picture of the reply in Preview, starting
+/// with the one clicked (arrows, zoom, Share, Save).
+struct ChatGalleryView: View {
+    let pictures: [ChatMarkdown.Picture]
+    /// Every picture of the reply, in order — what Preview pages through.
+    var all: [ChatMarkdown.Picture] = []
+
+    var body: some View {
+        if pictures.count == 1, let only = pictures.first {
+            ChatImageView(picture: only, fill: false) { open(only) }
+        } else {
+            Grid(horizontalSpacing: 5, verticalSpacing: 5) {
+                ForEach(rows.indices, id: \.self) { r in
+                    GridRow {
+                        ForEach(rows[r].indices, id: \.self) { c in
+                            let picture = rows[r][c]
+                            ChatImageView(picture: picture, fill: true) { open(picture) }
+                                .aspectRatio(rows[r].count == 1 ? 16 / 9 : 4 / 3, contentMode: .fit)
+                                .gridCellColumns(rows[r].count == 1 ? 2 : 1)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 420, alignment: .leading)
+        }
+    }
+
+    private var rows: [[ChatMarkdown.Picture]] {
+        stride(from: 0, to: pictures.count, by: 2).map { Array(pictures[$0..<min($0 + 2, pictures.count)]) }
+    }
+
+    private func open(_ picture: ChatMarkdown.Picture) {
+        let set = all.isEmpty ? pictures : all
+        ChatImageCache.shared.openAll(set.map(\.source), start: set.firstIndex(of: picture) ?? 0)
+    }
+}
+
+/// One picture: fetched (server paths through the island's API origin, which
+/// carries the session), rounded, holding its shape while it loads (a saved
+/// chat image's name carries its size), "Image unavailable · Retry" if it
+/// can't load — never a path.
 struct ChatImageView: View {
-    let alt: String
-    let source: String
+    let picture: ChatMarkdown.Picture
+    /// Fill (and crop to) a grid cell, or fit the picture's own shape.
+    var fill: Bool
+    var onOpen: () -> Void = {}
     @State private var loaded: NSImage?
     @State private var failed = false
+    @State private var attempt = 0
 
     static let maxHeight: CGFloat = 240
 
     var body: some View {
-        if let image = loaded ?? ChatImageCache.shared.cached(source) {
-            // As wide as the column allows, never taller than maxHeight, never upscaled.
-            let aspect = image.size.height > 0 ? image.size.width / image.size.height : 1
-            Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-                .frame(maxWidth: max(40, min(image.size.width, Self.maxHeight * aspect)), alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { ChatImageCache.shared.open(source) }
-                .help("Open full size")
+        content
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+            .help(picture.caption.isEmpty ? "Open full size" : picture.caption)
+            .accessibilityLabel(picture.caption.isEmpty ? "Image" : picture.caption)
+    }
+
+    @ViewBuilder private var content: some View {
+        if let image = loaded ?? ChatImageCache.shared.cached(picture.source) {
+            if fill {
+                Color.clear
+                    .overlay(Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fill))
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onOpen)
+            } else {
+                // As wide as the column allows, never taller than maxHeight, never upscaled.
+                let aspect = image.size.height > 0 ? image.size.width / image.size.height : 1
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: max(40, min(image.size.width, Self.maxHeight * aspect)), alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onOpen)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } else if failed {
-            Label(alt.isEmpty || alt == "image" ? "Image didn't load" : alt, systemImage: "photo")
-                .font(.system(size: 11.5)).foregroundStyle(ChatStyle.muted)
-                .padding(.horizontal, 9).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
-                .onTapGesture { ChatImageCache.shared.open(source) }
+            Button { failed = false; attempt += 1 } label: {
+                Label("Image unavailable · Retry", systemImage: "photo")
+                    .font(.system(size: 11.5)).foregroundStyle(ChatStyle.muted)
+                    .frame(maxWidth: fill ? .infinity : 240, minHeight: 60)
+            }
+            .buttonStyle(.plain)
+            .background(Color.white.opacity(0.05))
         } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.05))
-                .frame(maxWidth: 320).frame(height: 160)
-                .overlay(ProgressView().controlSize(.small))
-                .task(id: source) {
-                    loaded = await ChatImageCache.shared.image(source)
+            placeholder
+                .task(id: "\(picture.source)#\(attempt)") {
+                    loaded = await ChatImageCache.shared.image(picture.source)
                     failed = loaded == nil
                 }
+        }
+    }
+
+    @ViewBuilder private var placeholder: some View {
+        let shape = Color.white.opacity(0.05).overlay(ProgressView().controlSize(.small))
+        if fill {
+            shape
+        } else {
+            let aspect = ChatMedia.aspect(of: picture.source) ?? 4 / 3
+            shape.frame(width: min(320, Self.maxHeight * aspect), height: min(320, Self.maxHeight * aspect) / aspect)
         }
     }
 }
@@ -740,23 +814,31 @@ final class ChatImageCache {
         return image
     }
 
-    /// Full size: a web picture in the browser; one from Jarvis (or inline)
-    /// in Preview, from a temporary copy.
-    func open(_ source: String) {
-        let lower = source.lowercased()
-        if lower.hasPrefix("http://") || lower.hasPrefix("https://"), let url = URL(string: source) {
-            NSWorkspace.shared.open(url)
-            return
-        }
+    /// Every picture of a reply in Preview — one window, arrows between them,
+    /// zoom, Share, Save — starting with `start`. Temporary copies.
+    func openAll(_ sources: [String], start: Int) {
+        guard !sources.isEmpty else { return }
+        let first = min(max(start, 0), sources.count - 1)
+        let ordered = Array(sources[first...]) + Array(sources[..<first])
         Task {
-            guard let image = await image(source),
-                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-                  let png = rep.representation(using: .png, properties: [:]) else { return }
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("jarvis-chat-images", isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let file = dir.appendingPathComponent("image-\(abs(source.hashValue)).png")
-            guard (try? png.write(to: file)) != nil else { return }
-            NSWorkspace.shared.open(file)
+            var files: [URL] = []
+            for (i, source) in ordered.enumerated() {
+                guard let image = await image(source), let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]) else { continue }
+                let file = dir.appendingPathComponent("picture-\(i + 1)-\(abs(source.hashValue)).png")
+                if (try? png.write(to: file)) != nil { files.append(file) }
+            }
+            guard !files.isEmpty else { return }
+            if let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
+                _ = try? await NSWorkspace.shared.open(files, withApplicationAt: preview,
+                                                       configuration: NSWorkspace.OpenConfiguration())
+            } else {
+                files.forEach { NSWorkspace.shared.open($0) }
+            }
         }
     }
+
 }

@@ -260,8 +260,8 @@ final class ChatTests: XCTestCase {
         let reply = "Here's a lion.\nMEDIA:https://commons.wikimedia.org/wiki/Special:FilePath/Lion_male.jpg?width=1280\nMEDIA:/tmp/shot 1.png\nMEDIA:/tmp/report.pdf"
         let blocks = ChatMarkdown.blocks(reply)
         XCTAssertEqual(blocks.first, .paragraph("Here's a lion."))
-        XCTAssertTrue(blocks.contains(.image(alt: "image",
-                                             source: "https://commons.wikimedia.org/wiki/Special:FilePath/Lion_male.jpg?width=1280")))
+        XCTAssertTrue(ChatMarkdown.images(in: blocks).contains(.init(alt: "image",
+                      source: "https://commons.wikimedia.org/wiki/Special:FilePath/Lion_male.jpg?width=1280")))
         XCTAssertFalse(blocks.contains { if case .paragraph(let p) = $0 { return p.contains("MEDIA:") }; return false },
                        "no MEDIA: text left")
         XCTAssertEqual(ChatMedia.rewrite("MEDIA:/tmp/shot.png"), "![image](/api/media?path=%2Ftmp%2Fshot.png)")
@@ -285,9 +285,64 @@ final class ChatTests: XCTestCase {
             .quote("note"),
             .rule,
             .table(.init(header: ["a", "b"], rows: [["1", "2"]])),
-            .image(alt: "alt", source: "https://x/y.png"),
+            .gallery([.init(alt: "alt", source: "https://x/y.png")]),
             .code(language: "", text: "open fence"),
         ])
+    }
+
+    // MARK: pictures beside their text (2026-11-02)
+
+    func testListItemWithImageKeepsLabelAndImage() {
+        let blocks = ChatMarkdown.split("- **Rokid:** light ![image](/api/media?path=a.jpg)\n- RayNeo: bulky")
+        XCTAssertEqual(blocks, [.list([
+            .init(marker: "•", depth: 0, text: "**Rokid:** light", images: [.init(alt: "image", source: "/api/media?path=a.jpg")]),
+            .init(marker: "•", depth: 0, text: "RayNeo: bulky"),
+        ])])
+    }
+
+    func testLabelThenImageInParagraph() {
+        XCTAssertEqual(ChatMarkdown.split("see ![a](/x/b.png) here"),
+                       [.paragraph("see  here"), .gallery([.init(alt: "a", source: "/x/b.png")])])
+    }
+
+    func testTwoImageLinesMergeIntoOneGallery() {
+        XCTAssertEqual(ChatMarkdown.split("Photos:\n\n![a](/a.png)\n\n![b](/b.png)\n\nEnd."),
+                       [.paragraph("Photos:"),
+                        .gallery([.init(alt: "a", source: "/a.png"), .init(alt: "b", source: "/b.png")]),
+                        .paragraph("End.")])
+    }
+
+    func testImageInCodeStaysCode() {
+        XCTAssertEqual(ChatMarkdown.split("```\n![a](/a.png)\n```"), [.code(language: "", text: "![a](/a.png)")])
+        XCTAssertEqual(ChatMarkdown.split("use `![a](/a.png)` here"), [.paragraph("use `![a](/a.png)` here")])
+    }
+
+    func testNumberedListMarkersSurvive() {
+        guard case .list(let items)? = ChatMarkdown.split("1. One ![a](/a.png)\n2. Two ![b](/b.png)").first
+        else { return XCTFail() }
+        XCTAssertEqual(items.map(\.marker), ["1.", "2."])
+        XCTAssertEqual(items.map { $0.images.count }, [1, 1])
+    }
+
+    func testHoldPartialHidesUnterminatedToken() {
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/wor"), "x ")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/a.jpg"), "x MEDIA:/root/a.jpg")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:https://cdn"), "x ")
+        XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:https://cdn.test/render/9f2c"), "x MEDIA:https://cdn.test/render/9f2c")
+        XCTAssertEqual(ChatMedia.holdPartial("see ![a](https://x/y"), "see ")
+        XCTAssertEqual(ChatMedia.holdPartial("end MEDI"), "end ")
+        XCTAssertEqual(ChatMedia.holdPartial("Wow!"), "Wow!")
+    }
+
+    func testRewriteMapsLocalMarkdownImage() {
+        XCTAssertEqual(ChatMedia.rewrite("![Rokid Glasses](/root/m/rokid-abc123_800x600.jpg)"),
+                       "![Rokid Glasses](/api/media?path=%2Froot%2Fm%2Frokid-abc123_800x600.jpg)")
+        XCTAssertEqual(ChatMedia.rewrite("![a](/api/media?path=x)"), "![a](/api/media?path=x)")
+    }
+
+    func testAspectFromSizedFileName() {
+        XCTAssertEqual(ChatMedia.aspect(of: "/api/media?path=%2Froot%2Fm%2Fa-1f2e3d_1200x600.png"), 2)
+        XCTAssertNil(ChatMedia.aspect(of: "/root/workspace/lion.jpg"))
     }
 
     func testWindowContextReadsLikeASentence() {

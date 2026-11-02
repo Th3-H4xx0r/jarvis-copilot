@@ -12,6 +12,16 @@ enum ChatMarkdown {
         var marker: String
         var depth: Int
         var text: String
+        /// Pictures the item showed (`- Rokid: ![…](…)`), drawn under its text.
+        var images: [Picture] = []
+    }
+
+    /// One picture in a reply: its caption (the markdown alt) and where it lives.
+    struct Picture: Equatable, Hashable {
+        var alt: String
+        var source: String
+        /// The alt as a caption — the generic "image" a `MEDIA:` line gets isn't one.
+        var caption: String { alt == "image" ? "" : alt }
     }
 
     struct Table: Equatable {
@@ -26,8 +36,10 @@ enum ChatMarkdown {
         case list([ListItem])
         case quote(String)
         case rule
-        /// A line that is only `![alt](src)` — drawn as the picture.
-        case image(alt: String, source: String)
+        /// Pictures shown together (one full width, several 2-up): an image
+        /// anywhere in a line is lifted out of its text and lands right after
+        /// it; images with only blank lines between share one gallery.
+        case gallery([Picture])
         case table(Table)
         /// A page the agent saved on the server (an absolute `.html` path),
         /// shown live. Only made by `withEmbeds`.
@@ -175,6 +187,14 @@ enum ChatMarkdown {
             quote = []
         }
         func flushAll() { flushParagraph(); flushList(); flushQuote() }
+        func addGallery(_ pictures: [Picture]) {
+            guard !pictures.isEmpty else { return }
+            if case .gallery(let earlier)? = out.last {
+                out[out.count - 1] = .gallery(earlier + pictures)
+            } else {
+                out.append(.gallery(pictures))
+            }
+        }
 
         var index = 0
         while index < lines.count {
@@ -199,9 +219,30 @@ enum ChatMarkdown {
 
             if let h = heading(line) { flushAll(); out.append(.heading(level: h.level, text: h.text)); continue }
             if isRule(line) { flushAll(); out.append(.rule); continue }
-            if let image = standaloneImage(line) {
-                flushAll()
-                out.append(.image(alt: image.alt, source: image.source))
+            // Pictures leave their line: the text stays, the pictures go right
+            // after it (inside a list item: under it).
+            let lifted = line.hasPrefix("|") ? (text: raw, images: []) : liftImages(raw)
+            if !lifted.images.isEmpty {
+                let rest = lifted.text.trimmingCharacters(in: .whitespaces)
+                if var item = listItem(lifted.text) {
+                    flushParagraph(); flushQuote()
+                    item.images = lifted.images
+                    list.append(item)
+                } else if rest.hasPrefix(">") {
+                    flushParagraph(); flushList()
+                    let quoted = String(rest.dropFirst()).trimmingCharacters(in: .whitespaces)
+                    if !quoted.isEmpty { quote.append(quoted) }
+                    flushQuote()
+                    addGallery(lifted.images)
+                } else if rest.isEmpty {
+                    flushAll()
+                    addGallery(lifted.images)
+                } else {
+                    flushList(); flushQuote()
+                    paragraph.append(rest)
+                    flushParagraph()
+                    addGallery(lifted.images)
+                }
                 continue
             }
 
@@ -329,12 +370,38 @@ enum ChatMarkdown {
         }
     }
 
-    /// `![alt](source)` and nothing else on the line.
-    private static func standaloneImage(_ line: String) -> (alt: String, source: String)? {
-        guard line.hasPrefix("!["), line.hasSuffix(")"), let altEnd = line.range(of: "](") else { return nil }
-        let alt = String(line[line.index(line.startIndex, offsetBy: 2)..<altEnd.lowerBound])
-        let source = String(line[altEnd.upperBound..<line.index(before: line.endIndex)])
-        guard !source.isEmpty, !alt.contains("]") else { return nil }
-        return (alt, source)
+    /// The line with its `![alt](source)` pictures taken out (inline `code`
+    /// keeps them as written), and the pictures in order. The phone's
+    /// MarkdownBlocks.liftImages.
+    static func liftImages(_ line: String) -> (text: String, images: [Picture]) {
+        guard line.contains("![") else { return (line, []) }
+        var pictures: [Picture] = []
+        let rebuilt = line.components(separatedBy: "`").enumerated().map { index, part -> String in
+            guard index % 2 == 0, part.contains("![") else { return part }
+            let ns = part as NSString
+            var kept = ""
+            var cursor = 0
+            for match in imagePattern.matches(in: part, range: NSRange(location: 0, length: ns.length)) {
+                kept += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+                pictures.append(Picture(alt: ns.substring(with: match.range(at: 1)),
+                                        source: ns.substring(with: match.range(at: 2))))
+                cursor = match.range.location + match.range.length
+            }
+            return kept + ns.substring(from: cursor)
+        }
+        return pictures.isEmpty ? (line, []) : (rebuilt.joined(separator: "`"), pictures)
+    }
+
+    private static let imagePattern = try! NSRegularExpression(pattern: #"!\[([^\]\n]*)\]\(([^)\s]+)\)"#)
+
+    /// Every picture of a reply in reading order — what the viewer pages through.
+    static func images(in blocks: [Block]) -> [Picture] {
+        blocks.flatMap { block -> [Picture] in
+            switch block {
+            case .gallery(let pictures): return pictures
+            case .list(let items): return items.flatMap(\.images)
+            default: return []
+            }
+        }
     }
 }
