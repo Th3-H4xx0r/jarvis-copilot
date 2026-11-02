@@ -39,6 +39,8 @@ _HERMES_CORE_TOOLS = [
     "read_file", "write_file", "patch", "search_files",
     # Vision + image generation
     "vision_analyze", "image_generate",
+    # Showing an image in the chat (saved per chat, checked)
+    "chat_image",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation (headless server browser)
@@ -152,6 +154,12 @@ TOOLSETS = {
     "vision": {
         "description": "Image analysis and vision tools",
         "tools": ["vision_analyze"],
+        "includes": []
+    },
+
+    "chat_image": {
+        "description": "Show a saved, checked image in the chat",
+        "tools": ["chat_image"],
         "includes": []
     },
 
