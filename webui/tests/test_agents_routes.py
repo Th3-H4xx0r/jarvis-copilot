@@ -300,3 +300,17 @@ def test_a_quiet_week_sends_nothing(env):
     assert agent_hooks.maybe_send_recap(store, 1_791_158_400.0 + 14 * 3600,
                                         push=lambda *a: sent.append(a)) is False
     assert sent == []
+
+
+def test_sessions_fall_back_to_the_oauth_usage_snapshot(env):
+    store, tr, mgr, _ = env
+    from agent import coding_usage
+    coding_usage._cache = {"five_hour_pct": 31, "weekly_pct": 8, "five_hour_reset_at": 9e9,
+                           "weekly_reset_at": 9e9, "available": True, "fetched_at": 1.0}
+    try:
+        _, body = call("GET", "/agents/sessions", mgr=mgr)
+        _, usage = call("GET", "/agents/usage", mgr=mgr)
+    finally:
+        coding_usage._cache = None
+    assert body["usage"]["five_hour"]["used_percentage"] == 31
+    assert usage["claude"]["seven_day"]["used_percentage"] == 8

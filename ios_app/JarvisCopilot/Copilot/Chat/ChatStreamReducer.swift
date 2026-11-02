@@ -17,6 +17,10 @@ struct ChatStreamState: Equatable, Sendable {
     var clarify: ClarifyPrompt?
     /// A call or message waiting on his Send.
     var send: ChatSendRequest?
+    /// A command waiting on his Allow / Deny.
+    var command: ChatCommandApproval?
+    /// Counts approval asks, so the same command asked twice is two cards.
+    var approvalSeq = 0
 
     /// nil while the turn is still running.
     var outcome: Outcome?
@@ -54,7 +58,22 @@ enum ChatStreamReducer {
         // On the `?stream=1` fast path there is no separate `started` frame, but
         // servers put the turn's id on the early frames — and Stop needs it.
         if let streamID = object.string("stream_id"), !streamID.isEmpty { state.streamID = streamID }
+        // The turn moved on, so what it was paused on was answered (here, on
+        // the Agents tab, from the notification, or earlier in a replay).
+        var cleared = false
+        if state.command != nil || state.send != nil,
+           ["token", "delta", "text", "tool", "tool_start", "tool_call", "tool_complete", "tool_end",
+            "tool_result", "reasoning", "thinking"].contains(event.event) {
+            state.command = nil
+            state.send = nil
+            cleared = true
+        }
+        let changed = applyEvent(event, object: object, to: &state, now: now)
+        return changed || cleared
+    }
 
+    private static func applyEvent(_ event: SSEEvent, object: [String: Any],
+                                   to state: inout ChatStreamState, now: Date) -> Bool {
         switch event.event {
         case "started":
             state.streamID = object.string("stream_id") ?? state.streamID
@@ -134,9 +153,16 @@ enum ChatStreamReducer {
             return true
 
         case "approval":
-            // Only a call or message to someone is drawn here.
-            guard let send = ChatSendRequest(json: object), send != state.send else { return false }
-            state.send = send
+            // A call or message to someone: the send card.
+            if let send = ChatSendRequest(json: object) {
+                guard send != state.send else { return false }
+                state.send = send
+                return true
+            }
+            // A command the turn is paused on: Allow / Deny.
+            state.approvalSeq += 1
+            guard let command = ChatCommandApproval(json: object, seq: state.approvalSeq) else { return false }
+            state.command = command
             return true
 
         case "title":
@@ -152,6 +178,7 @@ enum ChatStreamReducer {
         case "cancel", "cancelled":
             state.outcome = .cancelled
             state.send = nil
+            state.command = nil
             return true
 
         case "done", "stream_end", "complete":
@@ -169,6 +196,7 @@ enum ChatStreamReducer {
             }
             state.outcome = .done
             state.send = nil
+            state.command = nil
             return true
 
         default:
@@ -183,6 +211,7 @@ enum ChatStreamReducer {
     static func finish(_ state: inout ChatStreamState, cancelled: Bool = false, now: Date = Date()) {
         state.message.streaming = false
         state.send = nil                 // the turn is over: nothing waits on his tap
+        state.command = nil
         state.message.closeOpenTools()
         state.message.dropEmptyTextBlocks()
 
@@ -201,6 +230,7 @@ enum ChatStreamReducer {
     static func fail(_ state: inout ChatStreamState, _ message: String) {
         state.message.streaming = false
         state.send = nil
+        state.command = nil
         state.message.isError = true
         state.message.closeOpenTools()
         state.message.dropEmptyTextBlocks()

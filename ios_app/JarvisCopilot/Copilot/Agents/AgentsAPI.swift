@@ -154,8 +154,11 @@ struct AgentsAPI {
 
     /// `POST /api/coding/agents/launch {cwd, where, agent, model?, permission_mode?, prompt?}`.
     func launch(cwd: String, where place: String, agent: String, model: String? = nil,
-                permissionMode: String? = nil, prompt: String? = nil) async throws {
+                permissionMode: String? = nil, prompt: String? = nil,
+                remoteControl: Bool = false) async throws {
         var body: [String: Any] = ["cwd": cwd, "where": place, "agent": agent]
+        // Claude Code's Remote Control (claude.ai/code, the Claude app); Codex has none.
+        if remoteControl && agent == "claude" { body["remote_control"] = true }
         if let model, !model.isEmpty { body["model"] = model }
         if let permissionMode, !permissionMode.isEmpty { body["permission_mode"] = permissionMode }
         if let prompt, !prompt.isEmpty { body["prompt"] = prompt }

@@ -141,3 +141,15 @@ def test_launch_gives_claude_the_users_path(tmp_path, monkeypatch):
 
     LocalRuntime(run=run, claude_bin="/x/claude").launch_bg(str(tmp_path), prompt="hi")
     assert seen["env"]["PATH"].startswith("/opt/homebrew/bin:/Users/p/.local/bin")
+
+
+def test_launch_with_remote_control_names_it_after_the_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    run = Rec(stdout="backgrounded · ab12cd34\n")
+    rt = LocalRuntime(run=run, claude_bin="/x/claude")
+    rt.launch_bg(str(tmp_path / "my app"), prompt="hi", remote_control=True)
+    argv = run.calls[-1]
+    assert "--remote-control=my-app" in argv and argv[-1] == "hi"
+    rt.launch_bg(str(tmp_path / "app"), prompt="hi")
+    assert not any(a.startswith("--remote-control") for a in run.calls[-1])

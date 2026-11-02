@@ -5508,15 +5508,33 @@ function _scrollAfterMessageRender(preserveScroll, scrollSnapshot){
   scrollToBottom();
 }
 
+// renderMessages() draws the page's chat. A Background job's view
+// (harness_job_view.js) reuses it for its own transcript:
+// renderMessages({into, messages, toolCalls}) draws that, read-only, into
+// `into` and leaves the page's chat, its caches, window and scroll alone.
+// Inside renderMessages, S and $ come from here so the one body reads either.
+function _renderMessagesScope(options){
+  const into=options&&options.into;
+  if(!into) return {S, $, view:false};
+  const spare=document.createElement('div');
+  return {
+    view:true,
+    S:{session:null, busy:false, activeStreamId:null,
+       messages:Array.isArray(options.messages)?options.messages:[],
+       toolCalls:Array.isArray(options.toolCalls)?options.toolCalls:[]},
+    $:id=>id==='msgInner'?into:spare,
+  };
+}
 function renderMessages(options){
+  const {S, $, view:_view}=_renderMessagesScope(options);
   const preserveScroll=!!(options&&options.preserveScroll);
   const scrollSnapshot=preserveScroll?_captureMessageScrollSnapshot():null;
   const inner=$('msgInner');
   const sid=S.session?S.session.session_id:null;
   const msgCount=S.messages.length;
-  if(sid!==_messageRenderWindowSid) _resetMessageRenderWindow(sid);
-  const renderWindowSize=_currentMessageRenderWindowSize();
-  const hasTransientTranscriptUi=!!(
+  if(!_view&&sid!==_messageRenderWindowSid) _resetMessageRenderWindow(sid);
+  const renderWindowSize=_view?Infinity:_currentMessageRenderWindowSize();
+  const hasTransientTranscriptUi=!_view&&!!(
     (window._compressionUi&&(!window._compressionUi.sessionId||window._compressionUi.sessionId===sid)) ||
     (window._handoffUi&&(!window._handoffUi.sessionId||window._handoffUi.sessionId===sid))
   );
@@ -5546,10 +5564,10 @@ function renderMessages(options){
     }
   }
 
-  const compressionState=_compressionStateForCurrentSession();
-  if(window._compressionUi && !compressionState) clearCompressionUi();
-  const handoffState=_handoffStateForCurrentSession();
-  if(window._handoffUi && !handoffState) window._handoffUi=null;
+  const compressionState=_view?null:_compressionStateForCurrentSession();
+  if(!_view && window._compressionUi && !compressionState) clearCompressionUi();
+  const handoffState=_view?null:_handoffStateForCurrentSession();
+  if(!_view && window._handoffUi && !handoffState) window._handoffUi=null;
   const sessionCompressionAnchor=(
     S.session && typeof S.session.compression_anchor_visible_idx==='number'
   ) ? S.session.compression_anchor_visible_idx : null;
@@ -5604,8 +5622,8 @@ function renderMessages(options){
   const hiddenBeforeCount=windowStart;
   const renderVisWithIdx=visWithIdx.slice(windowStart);
   const firstRenderedRawIdx=renderVisWithIdx.length?renderVisWithIdx[0].rawIdx:Infinity;
-  const hasServerOlder=!!(typeof _messagesTruncated!=='undefined' && _messagesTruncated && S.messages.length>0);
-  if(typeof _applySessionNavigationPrefs==='function') _applySessionNavigationPrefs();
+  const hasServerOlder=!_view&&!!(typeof _messagesTruncated!=='undefined' && _messagesTruncated && S.messages.length>0);
+  if(!_view&&typeof _applySessionNavigationPrefs==='function') _applySessionNavigationPrefs();
   if(hiddenBeforeCount>0 || hasServerOlder){
     const indicator=document.createElement('button');
     indicator.type='button';
@@ -5622,7 +5640,8 @@ function renderMessages(options){
     _wireMessageWindowLoadEarlierButton();
   }
   let lastUserRawIdx=-1;
-  for(let i=visWithIdx.length-1;i>=0;i--){
+  // A read-only view (`_view`) has no message to edit: no last user row.
+  for(let i=visWithIdx.length-1;!_view&&i>=0;i--){
     if(visWithIdx[i].m&&visWithIdx[i].m.role==='user'){
       lastUserRawIdx=visWithIdx[i].rawIdx;
       break;
@@ -5730,10 +5749,10 @@ function renderMessages(options){
     const statusHtml = (!isUser&&m._statusCard) ? _statusCardHtml(m._statusCard) : '';
     const isEditableUser=isUser&&rawIdx===lastUserRawIdx;
     const editBtn  = isEditableUser ? `<button class="msg-action-btn" title="${t('edit_message')}" onclick="editMessage(this)">${li('pencil',13)}</button>` : '';
-    const undoBtn  = isLastAssistant ? `<button class="msg-action-btn" title="${t('undo_exchange')}" onclick="undoLastExchange()">${li('undo',13)}</button>` : '';
-    const retryBtn = isLastAssistant ? `<button class="msg-action-btn" title="${t('regenerate')}" onclick="regenerateResponse(this)">${li('rotate-ccw',13)}</button>` : '';
+    const undoBtn  = (isLastAssistant&&!_view) ? `<button class="msg-action-btn" title="${t('undo_exchange')}" onclick="undoLastExchange()">${li('undo',13)}</button>` : '';
+    const retryBtn = (isLastAssistant&&!_view) ? `<button class="msg-action-btn" title="${t('regenerate')}" onclick="regenerateResponse(this)">${li('rotate-ccw',13)}</button>` : '';
     const copyBtn  = `<button class="msg-copy-btn msg-action-btn" title="${t('copy')}" onclick="copyMsg(this)">${li('copy',13)}</button>`;
-    const forkBtn  = `<button class="msg-action-btn" title="${t('fork_from_here')}" onclick="forkFromMessage(${rawIdx+1})">${li('git-branch',13)}</button>`;
+    const forkBtn  = _view ? '' : `<button class="msg-action-btn" title="${t('fork_from_here')}" onclick="forkFromMessage(${rawIdx+1})">${li('git-branch',13)}</button>`;
     const ttsBtn   = !isUser ? `<button class="msg-action-btn msg-tts-btn" title="${t('tts_listen')||'Listen'}" onclick="speakMessage(this)">${li('volume-2',13)}</button>` : '';
     const tsVal=m._ts||m.timestamp;
     // _formatInServerTz handles fractional-hour offsets (India +0530 etc.)
@@ -5742,7 +5761,7 @@ function renderMessages(options){
     const tsTitle=tsVal?(_fmtSv?_fmtSv(new Date(tsVal*1000),{}):new Date(tsVal*1000).toLocaleString()):'';
     const tsTime=_formatMessageFooterTimestamp(tsVal);
     const timeHtml = tsTime ? `<span class="msg-time" title="${esc(tsTitle)}">${tsTime}</span>` : '';
-    const questionJumpBtn = (!isUser&&!m._live&&isTurnFinalAssistant)
+    const questionJumpBtn = (!_view&&(!isUser&&!m._live&&isTurnFinalAssistant))
       ? _questionJumpButtonHtml(questionRawIdxByAssistantRawIdx.get(rawIdx))
       : '';
     const footHtml = `<div class="msg-foot">${timeHtml}<span class="msg-actions">${editBtn}${ttsBtn}${forkBtn}${copyBtn}${retryBtn}</span>${questionJumpBtn}</div>`;
@@ -5765,7 +5784,7 @@ function renderMessages(options){
       currentAssistantTurn=null;
       const row=document.createElement('div');
       row.className='msg-row';
-      row.id=_userMessageDomId(rawIdx);
+      if(!_view) row.id=_userMessageDomId(rawIdx);
       row.dataset.msgIdx=rawIdx;
       row.dataset.role='user';
       row.dataset.rawText=String(displayContent).trim();
@@ -5898,7 +5917,7 @@ function renderMessages(options){
     if(entry.rawIdx<firstRenderedRawIdx) continue;
     _insertCompressionLikeNodeByRawIdx(_handoffCardsNode(entry.state), entry.rawIdx);
   }
-  renderCompressionUi();
+  if(!_view) renderCompressionUi();
   // Insert settled tool call cards (history view only).
   // During live streaming, tool cards are rendered in #liveToolCards by the
   // tool SSE handler and never mixed into the message list until done fires.
@@ -6019,7 +6038,7 @@ function renderMessages(options){
         const toolCards=built.filter(el=>!_isStandaloneCard(el));
         let lastNode=insertAfterNode;
         if(toolCards.length){
-          const group=ensureActivityGroup(anchorParent,{collapsed:true,anchor:insertAfterNode,activityKey:`assistant:${aIdx}`});
+          const group=ensureActivityGroup(anchorParent,{collapsed:true,anchor:insertAfterNode,activityKey:_view?null:`assistant:${aIdx}`});
           const sourceMsg=S.messages[aIdx]||{};
           if(sourceMsg._turnDuration!==undefined) group.setAttribute('data-turn-duration', String(sourceMsg._turnDuration));
           const body=group&&group.querySelector('.tool-call-group-body');
@@ -6181,7 +6200,7 @@ function renderMessages(options){
   }
   // Agent harness: a Background job this reply started draws as a card under
   // it (live step, clock, Stop; one line once it ends) — harness_jobs.js.
-  if(window.HarnessJobs){
+  if(window.HarnessJobs&&!_view){
     for(const [mi,seg] of assistantSegments){
       const jobs=(S.messages[mi]||{})._meta&&S.messages[mi]._meta.jobs;
       if(!Array.isArray(jobs)||!jobs.length) continue;
@@ -6192,9 +6211,14 @@ function renderMessages(options){
   // Only force-scroll when not actively streaming — mid-stream re-renders
   // (tool completion, session switch) must not override the user's scroll position.
   // scrollIfPinned() respects _scrollPinned, so it's a no-op if user scrolled up.
-  _scrollAfterMessageRender(preserveScroll, scrollSnapshot);
+  if(!_view) _scrollAfterMessageRender(preserveScroll, scrollSnapshot);
   // Apply syntax highlighting after DOM is built
   requestAnimationFrame(()=>postProcessRenderedMessages(inner));
+  if(_view){
+    // Another transcript's view scrolls itself and is never cached.
+    if(typeof _applyMediaPlaybackPreferences==='function') _applyMediaPlaybackPreferences(inner);
+    return;
+  }
   // Refresh todo panel if it's currently open
   if(typeof loadTodos==='function' && document.getElementById('panelTodos') && document.getElementById('panelTodos').classList.contains('active')){
     loadTodos();

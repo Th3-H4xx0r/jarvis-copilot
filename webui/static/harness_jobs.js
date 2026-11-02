@@ -5,7 +5,11 @@
 // session events (sessions.js → HarnessJobs.apply) and a chat that opens with a
 // running card asks GET api/harnesses/jobs/<session> where things stand.
 // Card: {id, node, label, model, status: running|done|failed|stopped, started_at,
-//        completed_at, steps, activity}; "lost" = stored running, server lost it.
+//        completed_at, steps, activity, worker_session, approval}; "lost" = stored
+//        running, server lost it. `approval` ({session_id, approval_id, kind:
+//        command|send, command, description, can_always}) is set while the job
+//        waits on one: the card shows Allow / Deny. Clicking a card opens the
+//        job's own chat view (harness_job_view.js).
 // UMD: window.HarnessJobs in the page, require() under `node --test`.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./harness_format.js'));
@@ -77,23 +81,54 @@
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ICON = { done: '✓', failed: '✕', stopped: '■', lost: '!' };
 
+  // Answered approvals (approval ids): their buttons go at once, before the
+  // server's next word on the job confirms it.
+  const answered = new Set();
+
+  // The approval a card still asks for, if any.
+  function waitingOn(card) {
+    const ap = card && card.status === 'running' ? card.approval : null;
+    return ap && ap.approval_id && !answered.has(ap.approval_id) ? ap : null;
+  }
+
+  function approvalHtml(card, ap) {
+    const id = esc(card.id);
+    const send = ap.kind === 'send';
+    const what = ap.command || ap.description;
+    const btn = (choice, label, cls) =>
+      `<button type="button" class="harness-job-ask-btn${cls ? ' ' + cls : ''}" data-job-approve="${choice}" data-job-id="${id}">${label}</button>`;
+    return `<div class="harness-job-ask" role="group" aria-label="${send ? 'Confirm before sending' : 'Approval required'}">` +
+      (what ? `<div class="harness-job-ask-what">${esc(what)}</div>` : '') +
+      `<div class="harness-job-ask-btns">` +
+      (send
+        ? btn('deny', "Don't send", 'is-deny') + btn('once', 'Send', 'is-allow')
+        : btn('deny', 'Deny', 'is-deny') + (ap.can_always ? btn('always', 'Always') : '') + btn('once', 'Allow', 'is-allow')) +
+      `</div></div>`;
+  }
+
   function cardHtml(card, now) {
+    const ap = waitingOn(card);
+    if (card.approval && !ap && card.activity === 'Needs your approval') {
+      card = Object.assign({}, card, { activity: 'Working' });   // answered here, not yet confirmed
+    }
     const v = view(card, now);
     const id = esc(card.id);
+    const open = `data-job-open="${id}" aria-haspopup="dialog" title="See what this job is doing"`;
     if (v.state !== 'running') {
       return `<div class="harness-job harness-job-${esc(v.state)}" data-job-id="${id}">` +
         `<span class="harness-job-icon" aria-hidden="true">${ICON[v.state] || '•'}</span>` +
-        `<span class="harness-job-line">${esc(v.line)}</span></div>`;
+        `<button type="button" class="harness-job-line harness-job-open" ${open}>${esc(v.line)}</button></div>`;
     }
-    return `<div class="harness-job harness-job-running" data-job-id="${id}" data-started="${esc(card.started_at)}">` +
+    return `<div class="harness-job harness-job-running${ap ? ' harness-job-waiting' : ''}" data-job-id="${id}" data-started="${esc(card.started_at)}">` +
       `<span class="harness-job-dot" aria-hidden="true"></span>` +
-      `<div class="harness-job-main"><div class="harness-job-title"><b>${esc(v.title)}</b>` +
+      `<div class="harness-job-main"><div class="harness-job-title"><button type="button" class="harness-job-open" ${open}><b>${esc(v.title)}</b></button>` +
       (v.model ? ` <span class="harness-job-model">${esc(v.model)}</span>` : '') + `</div>` +
       `<div class="harness-job-detail">${esc(v.detail)}</div></div>` +
       `<span class="harness-job-clock">${esc(v.clock)}</span>` +
       (card.stopping
         ? `<button type="button" class="harness-job-stop" disabled>Stopping…</button>`
         : `<button type="button" class="harness-job-stop" data-job-stop="${id}" title="Stop this background job">Stop</button>`) +
+      (ap ? approvalHtml(card, ap) : '') +
       `</div>`;
   }
 
@@ -139,9 +174,11 @@
 
   // A live card from the server: remember it, redraw it where it is shown and
   // keep the stored copy on the message in step (a re-render shows the same).
+  const listeners = [];
   function apply(sid, card) {
     if (!card || !card.id) return;
     card = merge(live, card);
+    listeners.forEach(fn => { try { fn(sid, card); } catch (e) { console.warn('[harness jobs] listener', e); } });
     if (sid !== _sid()) return;
     const msgs = (typeof S !== 'undefined' && Array.isArray(S.messages)) ? S.messages : [];
     for (const m of msgs) {
@@ -151,11 +188,47 @@
       if (i >= 0) jobs[i] = Object.assign({}, card);
     }
     try { if (typeof _sessionHtmlCache !== 'undefined') _sessionHtmlCache.delete(sid); } catch (e) { /* not on this page */ }
+    redraw(card);
+  }
+
+  function redraw(card) {
     document.querySelectorAll(`.harness-job[data-job-id="${CSS.escape(card.id)}"]`).forEach(el => {
       el.outerHTML = cardHtml(card, nowSec());
     });
     _ensureTicker();
   }
+
+  // Hear every live card (the job view keeps its header and approval in step).
+  function onCard(fn) { if (typeof fn === 'function') listeners.push(fn); }
+
+  // The newest card known for a job: live, else the copy stored on the chat.
+  function cardFor(id) {
+    return live[id] || _storedCards([id])[0] || null;
+  }
+
+  // Answer an approval a job waits on (the same endpoint the chat's approval
+  // card uses). Its buttons go at once; a failure brings them back.
+  async function respond(approval, choice, jobId) {
+    const aid = approval && approval.approval_id;
+    if (!aid) return;
+    answered.add(aid);
+    const card = jobId && cardFor(jobId);
+    if (card) redraw(card);
+    try {
+      await api('api/approval/respond', {
+        method: 'POST',
+        body: JSON.stringify({ session_id: approval.session_id, choice, approval_id: aid }),
+      });
+    } catch (e) {
+      answered.delete(aid);
+      const now = jobId && cardFor(jobId);
+      if (now) redraw(now);
+      if (typeof showToast === 'function') showToast(e.message || 'Could not answer the approval');
+      throw e;
+    }
+  }
+
+  function isAnswered(approvalId) { return answered.has(approvalId); }
 
   // Ask the server where every card of a chat stands (a chat opened mid-job,
   // events missed while away or across a reconnect). Its answer covers every
@@ -212,10 +285,28 @@
 
   if (typeof document !== 'undefined') {
     document.addEventListener('click', ev => {
-      const btn = ev.target && ev.target.closest && ev.target.closest('[data-job-stop]');
-      if (btn) stop(_sid(), btn.dataset.jobStop, btn);
+      const t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      const btn = t.closest('[data-job-stop]');
+      if (btn) { stop(_sid(), btn.dataset.jobStop, btn); return; }
+      const ask = t.closest('[data-job-approve]');
+      if (ask) {
+        const card = cardFor(ask.dataset.jobId);
+        const ap = waitingOn(card);
+        if (ap) {
+          respond({ session_id: ap.session_id || card.worker_session, approval_id: ap.approval_id },
+            ask.dataset.jobApprove, card.id).catch(() => {});
+        }
+        return;
+      }
+      // Anywhere else on a card opens the job's own chat view.
+      if (t.closest('button:not([data-job-open]), a, input, select, textarea')) return;
+      const el = t.closest('.harness-job[data-job-id]');
+      const viewer = typeof self !== 'undefined' ? self.HarnessJobView : null;
+      if (el && viewer) viewer.open(_sid(), el.dataset.jobId);
     });
   }
 
-  return { clock, duration, resolve, view, merge, cardHtml, renderInto, refresh, apply, catchUp, stop };
+  return { clock, duration, resolve, view, merge, cardHtml, renderInto, refresh, apply, catchUp, stop,
+           onCard, cardFor, respond, isAnswered, waitingOn };
 });

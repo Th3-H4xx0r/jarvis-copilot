@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 from typing import Optional
 from jarviscopilot_cli.config import cfg_get
 
@@ -715,6 +716,29 @@ def unregister_gateway_notify(session_key: str) -> None:
         entry.event.set()
 
 
+# Called with (session_key, approval_data) when a gateway approval ends —
+# answered, timed out, or abandoned — so copies shown elsewhere (the Agents
+# tab, a Background job's card) can go too.
+_settled_listeners: list = []
+
+
+def add_settled_listener(fn) -> None:
+    """Register ``fn(session_key, approval_data)`` (idempotent)."""
+    with _lock:
+        if fn not in _settled_listeners:
+            _settled_listeners.append(fn)
+
+
+def _notify_settled(session_key: str, data: dict) -> None:
+    with _lock:
+        listeners = list(_settled_listeners)
+    for fn in listeners:
+        try:
+            fn(session_key, data)
+        except Exception:  # pragma: no cover - a listener must never break a turn
+            logger.debug("approval settled listener failed", exc_info=True)
+
+
 def resolve_gateway_approval(session_key: str, choice: str,
                              resolve_all: bool = False, approval_id: str = "") -> int:
     """Called by the gateway's /approve or /deny handler to unblock
@@ -731,6 +755,10 @@ def resolve_gateway_approval(session_key: str, choice: str,
         if not queue:
             return 0
         named = next((e for e in queue if approval_id and e.data.get("approval_id") == approval_id), None)
+        if approval_id and named is None and not resolve_all:
+            # A card for an approval that already ended (answered elsewhere,
+            # timed out): never let it release a different one.
+            return 0
         if resolve_all:
             targets = list(queue)
             queue.clear()
@@ -807,6 +835,7 @@ def ask_gateway(session_key: str, data: dict, timeout: float) -> Optional[str]:
         if touch_activity_if_due is not None:
             touch_activity_if_due(activity, "waiting for his answer on a card")
     drop()
+    _notify_settled(session_key, entry.data)
     return entry.result or "timeout"
 
 
@@ -1451,6 +1480,9 @@ def check_all_command_guards(command: str, env_type: str,
                 "pattern_key": primary_key,
                 "pattern_keys": all_keys,
                 "description": combined_desc,
+                # Names this ask, so an answer from any screen releases
+                # exactly it (not whichever is oldest).
+                "approval_id": uuid.uuid4().hex,
             }
             entry = _ApprovalEntry(approval_data)
             with _lock:
@@ -1532,6 +1564,7 @@ def check_all_command_guards(command: str, env_type: str,
                     queue.remove(entry)
                 if not queue:
                     _gateway_queues.pop(session_key, None)
+            _notify_settled(session_key, approval_data)
 
             choice = entry.result
             # Normalize outcome for the post hook. Unresolved (timeout) and

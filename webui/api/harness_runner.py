@@ -187,7 +187,190 @@ def job_card(job):
             "label": parent.get("node_label") or "Background", "model": job.get("model") or "",
             "status": job.get("status") or "running", "started_at": job.get("started_at"),
             "completed_at": job.get("completed_at"), "steps": int(job.get("steps") or 0),
-            "activity": job.get("activity") or "", "stopping": bool(job.get("stop_requested"))}
+            "activity": job.get("activity") or "", "stopping": bool(job.get("stop_requested")),
+            "worker_session": job.get("worker_session") or "",
+            "approval": job.get("approval") if job.get("status", "running") == "running" else None}
+
+
+def _approval_card(data):
+    """What a job card needs to answer one waiting approval."""
+    send = str(data.get("kind") or "") == "send"
+    return {"session_id": str(data.get("session_id") or ""),
+            "approval_id": str(data.get("approval_id") or ""),
+            "fingerprint": str(data.get("fingerprint") or ""),
+            "kind": "send" if send else "command",
+            "command": str(data.get("command") or "")[:2000],
+            "description": str(data.get("description") or "")[:400],
+            "can_always": (not send) and bool(data.get("pattern_keys") or data.get("pattern_key"))}
+
+
+def note_worker_approval(worker_sid, data):
+    """A Background job's hidden turn is waiting on an approval (``data``), or no
+    longer is (None): its card shows the Allow / Deny buttons, or drops them."""
+    from agent import escalation
+    for job in escalation.all_jobs():
+        if job.get("worker_session") != worker_sid or job.get("status", "running") != "running":
+            continue
+        if data:
+            _record_job(job.get("session_id") or "", job.get("job_id"),
+                        approval=_approval_card(data), activity="Needs your approval")
+        elif job.get("approval"):
+            _record_job(job.get("session_id") or "", job.get("job_id"), approval=None, activity="Working")
+
+
+# ── the job's own chat view ──────────────────────────────────────────────────
+# Every event of a Background job's hidden stream is kept (tokens merged) so a
+# client opening the job mid-run sees all of it, in /api/chat/stream's format;
+# at the end the transcript is saved next to the sessions.
+
+_FEED_EVENTS = {"token", "reasoning", "tool", "tool_complete", "tool_snippet", "approval",
+                "clarify", "interim_assistant", "compressing", "compressed", "done",
+                "stream_end", "apperror", "cancel"}
+_FEED_MAX = 20000
+_FEED_KEEP_S = 900
+_FEEDS: dict = {}
+_FEEDS_LOCK = threading.Lock()
+
+
+class _JobFeed:
+    """A Background job's events in /api/chat/stream's format. Text deltas
+    (token / reasoning) always merge into the last event, so a long job stays a
+    few hundred events; each reader keeps its own place inside that text."""
+
+    _MERGE = ("token", "reasoning")
+    _FINAL = ("done", "stream_end", "apperror", "cancel")
+
+    def __init__(self):
+        self.events = []
+        self.cond = threading.Condition()
+        self.closed = False
+        self.ended_at = None
+        self.version = 0
+
+    def add(self, event, data):
+        if event not in _FEED_EVENTS:
+            return
+        data = dict(data) if isinstance(data, dict) else {}
+        if event == "done":
+            data.pop("session", None)   # the worker's whole history: not what a viewer needs
+        with self.cond:
+            last = self.events[-1] if self.events else None
+            if event in self._MERGE and last is not None and last[0] == event:
+                last[1]["text"] = str(last[1].get("text") or "") + str(data.get("text") or "")
+            elif len(self.events) < _FEED_MAX or event in self._FINAL:
+                self.events.append((event, data))
+            else:
+                return
+            self.version += 1
+            self.cond.notify_all()
+
+    def close(self):
+        with self.cond:
+            self.closed = True
+            self.ended_at = _time.time()
+            self.version += 1
+            self.cond.notify_all()
+
+    def read(self, cursor=None, timeout=0):
+        """What a reader at ``cursor`` hasn't had yet (waiting up to ``timeout``
+        for something), its next cursor, and whether the job's stream has
+        ended. Start with ``cursor=None``."""
+        idx, off, seen = cursor or (0, 0, -1)
+        with self.cond:
+            if self.version == seen and not self.closed:
+                self.cond.wait(timeout)
+            out, n, i = [], len(self.events), idx
+            next_cursor = (n, 0, self.version)
+            while i < n:
+                event, data = self.events[i]
+                if event in self._MERGE:
+                    text = str(data.get("text") or "")
+                    piece = text[off if i == idx else 0:]
+                    if piece:
+                        out.append((event, {**data, "text": piece}))
+                    if i == n - 1:   # may still grow: keep our place in it
+                        next_cursor = (i, len(text), self.version)
+                elif not (i == idx and off):
+                    out.append((event, dict(data)))
+                i += 1
+            return out, next_cursor, self.closed
+
+
+def _open_feed(job_id):
+    feed = _JobFeed()
+    now = _time.time()
+    with _FEEDS_LOCK:
+        for jid in [k for k, f in _FEEDS.items() if f.ended_at and now - f.ended_at > _FEED_KEEP_S]:
+            _FEEDS.pop(jid, None)
+        _FEEDS[job_id] = feed
+    return feed
+
+
+def job_feed(job_id):
+    with _FEEDS_LOCK:
+        return _FEEDS.get(job_id)
+
+
+_SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def _transcript_dir():
+    from api.config import SESSION_DIR
+    return SESSION_DIR / "_harness_jobs"
+
+
+def _save_transcript(job_id, session_id, task, messages):
+    if not job_id or not _SAFE_JOB_ID.match(job_id):
+        return
+    import json as _json
+    d = _transcript_dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        clean = [m for m in _copy.deepcopy(messages or []) if isinstance(m, dict)]
+        body = {"job_id": job_id, "session_id": session_id, "task": task or "",
+                "messages": clean, "saved_at": _time.time()}
+        tmp = d / f".{job_id}.tmp"
+        tmp.write_text(_json.dumps(body, ensure_ascii=False, default=str), encoding="utf-8")
+        tmp.replace(d / f"{job_id}.json")
+        files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for old in files[:-300]:
+            old.unlink(missing_ok=True)
+    except Exception:
+        logger.warning("harness job transcript not saved", exc_info=True)
+
+
+def _load_transcript(job_id):
+    if not job_id or not _SAFE_JOB_ID.match(job_id):
+        return None
+    import json as _json
+    try:
+        return _json.loads((_transcript_dir() / f"{job_id}.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def job_view(session_id, job_id):
+    """What the job's chat view opens with: its card, the task it was handed,
+    the saved transcript (once it ended) and whether it is still running.
+    None when this chat has no such job."""
+    from agent import escalation
+    job = escalation.get_job(job_id)
+    if job is not None and (job.get("session_id") != session_id
+                            or (job.get("parent") or {}).get("kind") != "background"):
+        job = None
+    card = job_card(job) if job is not None else next(
+        (c for c in session_job_cards(session_id) if c.get("id") == job_id), None)
+    saved = _load_transcript(job_id)
+    if saved is not None and card is None and saved.get("session_id") != session_id:
+        saved = None   # someone else's job
+    if card is None and saved is None:
+        return None
+    feed = job_feed(job_id)
+    return {"job": card or {"id": job_id, "status": "done"},
+            "task": (saved or {}).get("task") or (_task_text(job) if job is not None else ""),
+            "messages": (saved or {}).get("messages") or [],
+            "running": bool(card and card.get("status") == "running"),
+            "live": bool(feed is not None and not feed.closed)}
 
 
 def _background_jobs(session_id):
@@ -436,16 +619,30 @@ def _finish_job(session_id, job_id, status, *, result="", error="", speak_device
 _FINAL_EVENTS = ("stream_end", "done", "cancel", "apperror")
 
 
-def _watch_progress(q, session_id, job_id, stop=None):
+def _watch_progress(q, session_id, job_id, stop=None, feed=None):
     """Follow a Background job's hidden stream: count tool calls and tell the
     devices what it is doing, only when that changes."""
     import queue as _queue
+    if feed is None and job_id:
+        feed = _open_feed(job_id)
+    try:
+        _watch_loop(q, session_id, job_id, stop, feed, _queue)
+    finally:
+        if feed is not None:
+            feed.close()
+
+
+def _watch_loop(q, session_id, job_id, stop, feed, _queue):
     steps, activity, trail = 0, "", []
-    while not (stop is not None and stop.is_set()):
+    while True:
         try:
             event, data = q.get(timeout=0.5)
         except _queue.Empty:
+            if stop is not None and stop.is_set():
+                return
             continue
+        if feed is not None:
+            feed.add(event, data)
         if event in _FINAL_EVENTS:
             return
         data = data if isinstance(data, dict) else {}
@@ -599,8 +796,9 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         if job_id:
             # The card's live step, and the stream its Stop button cancels.
             from agent import escalation
-            escalation.update_job(job_id, stream_id=stream_id)
-            threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
+            escalation.update_job(job_id, stream_id=stream_id, worker_session=wid)
+            threading.Thread(target=_watch_progress,
+                             args=(channel.subscribe(), session_id, job_id, watching, _open_feed(job_id)),
                              daemon=True, name=f"jc-harness-job-{job_id}").start()
         # The current turn's message isn't in parent.messages until the turn ends.
         pending = getattr(parent, "pending_user_message", None)
@@ -633,6 +831,20 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         return ""
     finally:
         watching.set()
+        if job_id and worker is not None:
+            # The job's chat view, after the job: the question it answered, then
+            # everything this run added (its own long prompt left out).
+            run = list((worker.messages or [])[seeded:])
+            if run and isinstance(run[0], dict) and run[0].get("role") == "user":
+                run = run[1:]
+            job_now = None
+            try:
+                from agent import escalation
+                job_now = escalation.get_job(job_id)
+            except Exception:
+                pass
+            _save_transcript(job_id, _job_session(job_id, session_id),
+                             _task_text(job_now) if job_now else summary, run)
         # The worker's row and stream channel go; its cached agent stays warm.
         # Compression may have given the worker a new id mid-job: that agent no
         # longer matches the worker id, so it goes too.

@@ -20,7 +20,7 @@ _PENDING: dict[str, dict] = {}   # request_id -> record
 
 
 def _reap_locked(now: float) -> None:
-    dead = [rid for rid, r in _PENDING.items() if now - r["created"] > _TTL]
+    dead = [rid for rid, r in _PENDING.items() if now - r["created"] > (r.get("ttl") or _TTL)]
     for rid in dead:
         _PENDING.pop(rid, None)
 
@@ -41,7 +41,8 @@ def create_request(*, tool: str, summary: str, session_id: str,
                    cwd: str, fingerprint: str | None = None,
                    device_id: str | None = None, kind: str = "permission",
                    questions: list | None = None, can_always: bool = False,
-                   agent: str = "claude", key: str = "", command: str = "") -> str:
+                   agent: str = "claude", key: str = "", command: str = "",
+                   ttl: float | None = None) -> str:
     """Register a pending request and return its id. A request carrying a
     ``fingerprint`` (held by a hook arbiter) is registered once: announcing
     the same one again returns the existing id."""
@@ -68,6 +69,7 @@ def create_request(*, tool: str, summary: str, session_id: str,
             "fingerprint": fingerprint, "device_id": device_id, "kind": kind,
             "questions": questions, "can_always": bool(can_always), "agent": agent,
             "key": key, "command": command,
+            "ttl": float(ttl) if ttl else None,
         }
     return rid
 

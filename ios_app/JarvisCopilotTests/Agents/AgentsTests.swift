@@ -87,6 +87,10 @@ final class AgentsTests: XCTestCase {
         XCTAssertEqual(u?.fiveHour?.percent, 42)
         XCTAssertEqual(u?.sevenDay?.percent, 100)  // clamped
         XCTAssertNil(AgentPlanUsage(json: [:]))
+        // The OAuth snapshot has no reset for a 5-hour window that hasn't started.
+        let fresh = AgentPlanUsage(json: ["five_hour": ["used_percentage": 0, "resets_at": NSNull()]])
+        XCTAssertEqual(fresh?.fiveHour?.percent, 0)
+        XCTAssertNil(fresh?.fiveHour?.resetsAt)
     }
 
     func testCodexLineShowsOnlyTheWindowsCodexReports() {
@@ -152,6 +156,18 @@ final class AgentsTests: XCTestCase {
         while store.requests.isEmpty && Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertEqual(store.requests.map(\.fingerprint), ["fp-r1"])
         XCTAssertEqual(transport.requests.count, 1)
+    }
+
+    func testLaunchAsksForRemoteControlOnlyForClaude() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/launch", json: ["ok": true])
+        let api = AgentsAPI(api: client)
+        try? await api.launch(cwd: "~/code/app", where: "server", agent: "claude", remoteControl: true)
+        XCTAssertEqual(transport.lastBody()["remote_control"] as? Bool, true)
+        try? await api.launch(cwd: "~/code/app", where: "server", agent: "codex", remoteControl: true)
+        XCTAssertNil(transport.lastBody()["remote_control"], "Codex has no Remote Control")
+        try? await api.launch(cwd: "~/code/app", where: "server", agent: "claude")
+        XCTAssertNil(transport.lastBody()["remote_control"])
     }
 
     func testDecidePostsTheVerdictAndDropsTheCard() async {

@@ -3805,6 +3805,192 @@ main.main.showing-harnesses > #mainHarnesses{display:flex;flex-direction:column;
 .harness-job-done .harness-job-icon { color: var(--success); }
 .harness-job-failed .harness-job-icon,
 .harness-job-lost .harness-job-icon { color: var(--error); }
+/* A card opens the job's own chat view (harness_job_view.js). */
+.harness-job { cursor: pointer; }
+.harness-job-running { flex-wrap: wrap; transition: border-color .15s, background-color .15s; }
+.harness-job-running:hover { border-color: var(--accent-bg-strong); border-left-color: var(--accent); }
+.harness-job-open {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.harness-job-line.harness-job-open { min-width: 0; }
+.harness-job:not(.harness-job-running):hover .harness-job-line { color: var(--text); }
+.harness-job-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Waiting on an approval: Allow / Deny right on the card. */
+.harness-job-ask {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+.harness-job-ask-what {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--pre-text);
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.harness-job-ask-btns { display: flex; gap: 6px; margin-left: auto; }
+.harness-job-ask-btn {
+  min-height: 30px;
+  padding: 5px 14px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, .06);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, transform .15s;
+}
+.harness-job-ask-btn:hover { transform: translateY(-1px); background: var(--hover-bg); }
+.harness-job-ask-btn.is-allow { background: var(--accent-bg-strong); border-color: var(--accent); color: var(--accent-text); }
+.harness-job-ask-btn.is-deny:hover { border-color: var(--error); color: var(--error); }
+.harness-job-ask-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .harness-job-ask-btns { flex: 1 0 100%; }
+  .harness-job-ask-btn { flex: 1 1 0; min-height: 36px; }
+}
+/* The job's chat view: the chat's own transcript in a sheet, read-only. */
+.harness-view-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.harness-view-overlay[hidden] { display: none; }
+.harness-view {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  height: min(86vh, 920px);
+  background: var(--bg, var(--surface));
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .45);
+  overflow: hidden;
+}
+.harness-view-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.harness-view-titles { flex: 1 1 auto; min-width: 0; }
+.harness-view-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.harness-view-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.harness-view-pill {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.harness-view-pill.is-running,
+.harness-view-pill.is-waiting { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text); }
+.harness-view-pill.is-done { color: var(--success); }
+.harness-view-pill.is-failed,
+.harness-view-pill.is-lost { color: var(--error); }
+.harness-view-sub {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.harness-view-stop {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, .06);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.harness-view-stop[hidden] { display: none; }
+.harness-view-stop:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+.harness-view-stop:disabled { opacity: .6; cursor: default; }
+.harness-view-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.harness-view-close:hover { background: var(--hover-bg); color: var(--text); }
+.harness-view-stop:focus-visible,
+.harness-view-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.harness-view-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.harness-view-inner { max-width: none; }
+.harness-view-note { padding: 16px 0; font-size: 13px; color: var(--muted); text-align: center; }
+.harness-view-approval { padding: 0 24px 20px; }
+.harness-view-approval:empty { display: none; }
+/* The chat's approval card, drawn in place instead of sliding up from the composer. */
+.approval-card.approval-card-inline { position: static; max-width: none; padding: 0; overflow: visible; }
+.approval-card.approval-card-inline .approval-inner { transform: none; opacity: 1; transition: none; padding-bottom: 16px; }
+@media (max-width: 640px) {
+  .harness-view-overlay { padding: 0; align-items: stretch; }
+  .harness-view { width: 100%; height: 100%; border: 0; border-radius: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .harness-view-head { padding-left: 14px; }
+  .harness-view-approval { padding: 0 10px 14px; }
+}
 /* Background / review replies: their own turn with a teal side edge. */
 .assistant-turn.harness-side .assistant-turn-blocks {
   border-left: 2px solid var(--info);

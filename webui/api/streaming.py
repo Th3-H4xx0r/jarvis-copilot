@@ -3480,6 +3480,13 @@ def _run_agent_streaming(
             )
             def _approval_notify_cb(approval_data):
                 put('approval', approval_data)
+                # Also an Agents request (buttons on Agents, the push for a
+                # Background job, the job card in the chat that started it).
+                try:
+                    from api import jarvis_approvals as _ja
+                    _ja.announce(session_id, approval_data)
+                except Exception:
+                    logger.debug("jarvis approval bridge failed", exc_info=True)
             # cards: this chat draws the send card (agent/send_confirm.py).
             _reg_notify(session_id, _approval_notify_cb, cards=True)
             _approval_registered = True
@@ -5352,6 +5359,11 @@ def _run_agent_streaming(
                     _unreg_notify(session_id)
                 except Exception:
                     logger.debug("Failed to unregister approval callback")
+                try:
+                    from api import jarvis_approvals as _ja
+                    _ja.clear(session_id)
+                except Exception:
+                    logger.debug("jarvis approval bridge not cleared", exc_info=True)
             if _clarify_registered and _unreg_clarify_notify is not None:
                 try:
                     _unreg_clarify_notify(session_id)
@@ -5797,6 +5809,15 @@ def cancel_stream(stream_id: str) -> bool:
                 _clear_clarify_pending(agent.session_id)
         except Exception:
             logger.debug("Failed to clear clarify prompt during cancel")
+        # And any approval it waits on: Stop means no — an Allow tapped after
+        # it must not run the command (a Background job's Stop lands here too).
+        try:
+            from tools.approval import resolve_gateway_approval as _resolve_approval
+
+            if agent and getattr(agent, "session_id", None):
+                _resolve_approval(agent.session_id, "deny", resolve_all=True)
+        except Exception:
+            logger.debug("Failed to deny waiting approvals during cancel")
 
         # Capture the queue while the stream still exists, but do not emit the
         # terminal cancel event until the session cleanup below confirms the turn

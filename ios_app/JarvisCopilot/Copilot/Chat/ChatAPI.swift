@@ -146,6 +146,20 @@ struct ChatAPI {
         return ((body["jobs"] as? [[String: Any]]) ?? []).compactMap(HarnessJob.init(json:))
     }
 
+    /// A Background job as a conversation (`/view`): its card, the question it
+    /// was handed, and the saved transcript once it ended.
+    func jobView(sessionID: String, jobID: String) async throws -> HarnessJobView {
+        let body = try await api.get("/api/harnesses/jobs/\(sessionID)/\(jobID)/view").object()
+        guard let view = HarnessJobView(json: body) else { throw APIError.badResponse("job view") }
+        return view
+    }
+
+    /// The job's own run (`/stream`), in `/api/chat/stream`'s event format:
+    /// everything so far, then live until it ends.
+    func jobStream(sessionID: String, jobID: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        api.streamSSE("/api/harnesses/jobs/\(sessionID)/\(jobID)/stream", query: [:])
+    }
+
     /// Stop a running Background job (its card's Stop button).
     func stopJob(sessionID: String, jobID: String) async throws {
         _ = try await api.post("/api/harnesses/jobs/\(sessionID)/\(jobID)/stop", json: [String: Any]())

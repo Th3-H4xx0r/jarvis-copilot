@@ -414,6 +414,7 @@
 		51951845319EC77D2FE4FEB5 /* TrainingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */; };
 		51FB8ABF7AFBF6DBA11EA7D0 /* CarHealthScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5E9E6A5C82AFC8CAC3CD8F /* CarHealthScreen.swift */; };
 		51FD53949E1CF39AE6E5F881 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D76A517B3307E494EEF348 /* WidgetSync.swift */; };
+		520517F90001E591844373AA /* ChatApprovalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14920E4028E5FD68F9F5C1CA /* ChatApprovalViews.swift */; };
 		522144DCA398F8A82F3D537B /* VoiceBackendFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D675E0FFE07AB3C4A95C95 /* VoiceBackendFixTests.swift */; };
 		52443A250BD00F2674EC8CAD /* CodeMemoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA6DBFD8DDF3ED5E5D3C647D /* CodeMemoryPage.swift */; };
 		52540595D9A983ACA3C4BA7E /* VoiceKaraoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81976A30CF7430EFBDBF1967 /* VoiceKaraoke.swift */; };
@@ -478,6 +479,7 @@
 		5EEE51CB407DD2E09584391A /* BackgroundLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */; };
 		5EF53A822CE4BC8B55A6D562 /* VoiceStoreTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F449B9A02840155A5FAD6C5 /* VoiceStoreTransportTests.swift */; };
 		5EFC091E4C4DA705428A6EE6 /* MemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0C0B3D8AECE1A1E1024D8 /* MemoryTests.swift */; };
+		5F8803305BC7B71D220F0BE2 /* ApprovalRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8396711110235D97A2F5E4D2 /* ApprovalRenderTests.swift */; };
 		5FEC7BFE31420A3DA3BD793F /* WorkoutConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */; };
 		603EF4AC08F9CAFE8E2A4D25 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9DAD51596AFCC23AF0E322 /* ChatStore.swift */; };
 		6066F7484C79A135DA8DAB5B /* VsitooS1Pro.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107519C636566C4A6917FCD3 /* VsitooS1Pro.swift */; };
@@ -1388,6 +1390,7 @@
 		146EE21C044A20976CE8A332 /* InmoProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoProtocolTests.swift; sourceTree = "<group>"; };
 		147D758171AF421660BBF6DD /* HealthRingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRingTests.swift; sourceTree = "<group>"; };
 		148FC917440AA35E2ED13B4E /* ServerLogsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsAPI.swift; sourceTree = "<group>"; };
+		14920E4028E5FD68F9F5C1CA /* ChatApprovalViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatApprovalViews.swift; sourceTree = "<group>"; };
 		14A5A1C84749861FC4570518 /* HarnessJobCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessJobCard.swift; sourceTree = "<group>"; };
 		14AE0F62C79D41B95694B4E1 /* GlassesAudioLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesAudioLink.swift; sourceTree = "<group>"; };
 		14B28F720B2069CA6D8DD306 /* TaskHandleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaskHandleTests.swift; sourceTree = "<group>"; };
@@ -1869,6 +1872,7 @@
 		83547EEF6AC9B210B3E7D813 /* PairStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairStore.swift; sourceTree = "<group>"; };
 		83932DC6F3E44032B3655D15 /* WearablesDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesDevice.swift; sourceTree = "<group>"; };
 		839501072D2A279527117F51 /* BandSceneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandSceneView.swift; sourceTree = "<group>"; };
+		8396711110235D97A2F5E4D2 /* ApprovalRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApprovalRenderTests.swift; sourceTree = "<group>"; };
 		83C429F206CC9CEAC921AA8F /* RingLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingLog.swift; sourceTree = "<group>"; };
 		83CF0665ECB98CF8EBC50223 /* CarPresence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPresence.swift; sourceTree = "<group>"; };
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
@@ -4164,6 +4168,7 @@
 				81AC40B9491E22F76D6C1880 /* MarkdownBlocksTests.swift */,
 				761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */,
 				5543E00864B127432DB9F6F1 /* ChatMarkdownCacheTests.swift */,
+				8396711110235D97A2F5E4D2 /* ApprovalRenderTests.swift */,
 			);
 			path = ChatUI;
 			sourceTree = "<group>";
@@ -4245,6 +4250,7 @@
 				D6DECB8FC714762576F61B6E /* ChatEmbeds.swift */,
 				0F138C0B1C88275580727CF8 /* ComposerTextView.swift */,
 				C4F19D564471AA482DE4C614 /* AttachmentViewer.swift */,
+				14920E4028E5FD68F9F5C1CA /* ChatApprovalViews.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -5307,6 +5313,7 @@
 				05821370D4F0EF43BB021E83 /* BandBatteryTests.swift in Sources */,
 				329CDC1CF746BEDF300590CB /* CostsTests.swift in Sources */,
 				302296ECE5218518A25EAA04 /* CostsRenderTests.swift in Sources */,
+				5F8803305BC7B71D220F0BE2 /* ApprovalRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6120,6 +6127,7 @@
 				CF07011509A8A37640D08B6B /* CostsModels.swift in Sources */,
 				4FDBA39736699B854A29207B /* CostsStore.swift in Sources */,
 				81C2ABAE763A7A3E0C53385A /* CostsView.swift in Sources */,
+				520517F90001E591844373AA /* ChatApprovalViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

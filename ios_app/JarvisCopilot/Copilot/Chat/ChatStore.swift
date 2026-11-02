@@ -80,6 +80,14 @@ final class ChatStore {
     var pendingClarify: ClarifyPrompt?
     /// A call or message the turn is paused on: the card with Send / Cancel.
     var pendingSend: ChatSendRequest?
+    /// A command the turn is paused on: the bar with Allow / Deny.
+    var pendingCommand: ChatCommandApproval?
+    /// The Background job this store shows, when it is a job's view rather
+    /// than a chat (`openJob`): no session, no composer.
+    var jobInView: HarnessJob?
+    /// Whose approvals this conversation answers when it is not ``sessionID``
+    /// (a job view answers on the job's worker session).
+    @ObservationIgnored var approvalSessionOverride: String?
 
     // MARK: Composer
 
@@ -106,6 +114,7 @@ final class ChatStore {
     @ObservationIgnored private var turnStartedAt = Date()
     @ObservationIgnored private var lastPublishedClarify: ClarifyPrompt?
     @ObservationIgnored private var lastPublishedSend: ChatSendRequest?
+    @ObservationIgnored private var lastPublishedCommand: ChatCommandApproval?
     /// Consecutive failed background list refreshes. A quiet poll that has been
     /// failing for a while is not "quiet", it is broken (silent-failures M20).
     @ObservationIgnored private var quietListFailures = 0
@@ -313,6 +322,7 @@ final class ChatStore {
         setMessages([])
         pendingClarify = nil
         pendingSend = nil
+        pendingCommand = nil
         historyLoading = true
         sessionTitle = sessions.first { $0.id == id }?.displayTitle ?? "Chat"
         do {
@@ -361,8 +371,8 @@ final class ChatStore {
     }
 
     /// The card's Stop button. The job's own `harness_job` event redraws it.
-    func stopJob(_ jobID: String) async {
-        guard let id = sessionID else { return }
+    func stopJob(_ jobID: String, in chat: String? = nil) async {
+        guard let id = chat ?? sessionID else { return }
         do {
             try await chatAPI.stopJob(sessionID: id, jobID: jobID)
         } catch {
@@ -382,6 +392,7 @@ final class ChatStore {
         error = nil
         pendingClarify = nil
         pendingSend = nil
+        pendingCommand = nil
     }
 
     private func ensureSession() async throws -> String {
@@ -410,6 +421,8 @@ final class ChatStore {
         error = nil
         attachError = nil
         pendingAttachments = []
+        pendingSend = nil
+        pendingCommand = nil
 
         appendMessage(.user(trimmed, attachments: attachments.map(\.messageAttachment)))
         let live = ChatMessage.assistant(streaming: true)
@@ -418,6 +431,7 @@ final class ChatStore {
         liveStreamID = nil
         lastPublishedClarify = nil
         lastPublishedSend = nil
+        lastPublishedCommand = nil
         turnStartedAt = clock.now
         streaming = true
 
@@ -445,7 +459,7 @@ final class ChatStore {
     func respondClarify(_ answer: String) async {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard let id = sessionID, !id.isEmpty else { pendingClarify = nil; return }
+        guard let id = approvalSessionOverride ?? sessionID, !id.isEmpty else { pendingClarify = nil; return }
         let asked = pendingClarify
         pendingClarify = nil
         do {
@@ -462,7 +476,8 @@ final class ChatStore {
 
     /// Send (or Cancel) the call or message the turn is paused on; the turn then goes on.
     func respondSend(yes: Bool) async {
-        guard let asked = pendingSend, let id = sessionID, !id.isEmpty else { pendingSend = nil; return }
+        guard let asked = pendingSend, let id = approvalSessionOverride ?? sessionID, !id.isEmpty
+        else { pendingSend = nil; return }
         pendingSend = nil
         do {
             try await chatAPI.respondApproval(sessionID: id, choice: yes ? "once" : "deny", approvalID: asked.approvalID)
@@ -472,6 +487,143 @@ final class ChatStore {
             lastPublishedSend = asked
             error = "Couldn't send your answer: \(apiErrorMessage(failure))"
         }
+    }
+
+    /// Allow ("once"), Always ("always") or Deny ("deny") the command the turn is
+    /// paused on; the turn then goes on (or is told no).
+    func respondCommand(choice: String) async {
+        guard let asked = pendingCommand else { return }
+        let id = asked.sessionID ?? approvalSessionOverride ?? sessionID ?? ""
+        guard !id.isEmpty else { pendingCommand = nil; return }
+        pendingCommand = nil
+        do {
+            try await chatAPI.respondApproval(sessionID: id, choice: choice, approvalID: asked.approvalID)
+        } catch let failure {
+            // Still paused on the server: put the bar back — unless the turn has
+            // moved on to another ask meanwhile (then the answer did land).
+            if pendingCommand == nil, lastPublishedCommand == asked {
+                pendingCommand = asked
+            }
+            error = "Couldn't send your answer: \(apiErrorMessage(failure))"
+        }
+    }
+
+    /// A job card's Allow / Deny: answers the job's hidden turn. The card drops
+    /// its buttons at once; the job's own `harness_job` event confirms.
+    func respondJobApproval(_ job: HarnessJob, choice: String) async {
+        guard let approval = job.approval else { return }
+        var answered = job
+        answered.approval = nil
+        answered.activity = choice == "deny" ? "Told no" : "Working"
+        liveJobs[job.id] = answered
+        do {
+            try await chatAPI.respondApproval(sessionID: approval.sessionID, choice: choice,
+                                              approvalID: approval.approvalID)
+        } catch let failure {
+            if liveJobs[job.id] == answered { liveJobs[job.id] = job }
+            error = "Couldn't answer the job: \(apiErrorMessage(failure))"
+        }
+    }
+
+    // MARK: Job view
+
+    /// Show a Background job as a conversation: the question it was handed, then
+    /// everything it did — the saved transcript once it ended, streamed live
+    /// while it runs. A store doing this is the job's alone: no session (nothing
+    /// else refreshes it), no composer.
+    func openJob(chatSessionID: String, jobID: String) async {
+        cancelLocally()
+        sessionID = nil
+        error = nil
+        pendingClarify = nil
+        pendingSend = nil
+        pendingCommand = nil
+        historyLoading = true
+        let view: HarnessJobView
+        do {
+            view = try await chatAPI.jobView(sessionID: chatSessionID, jobID: jobID)
+        } catch let failure {
+            historyLoading = false
+            error = "Couldn't open the job: \(apiErrorMessage(failure))"
+            return
+        }
+        historyLoading = false
+        showJob(view)
+        guard view.messages.isEmpty, view.running || view.live else { return }
+        await followJob(chatSessionID: chatSessionID, jobID: jobID)
+    }
+
+    private func showJob(_ view: HarnessJobView) {
+        jobInView = view.job
+        approvalSessionOverride = view.job.workerSession.isEmpty ? nil : view.job.workerSession
+        var history: [ChatMessage] = []
+        if !view.task.isEmpty { history.append(.user(view.task)) }
+        history += ChatHistory.hydrate(view.messages)
+        setMessages(history)
+    }
+
+    /// Follow a running job's own stream. It replays from the start, so a drop
+    /// (network change, the app backgrounded) just starts the live reply over;
+    /// once the job ends the saved transcript replaces it.
+    private func followJob(chatSessionID: String, jobID: String) async {
+        var drops = 0
+        while !Task.isCancelled {
+            let outcome = await followOnce(chatSessionID: chatSessionID, jobID: jobID)
+            if outcome == .cancelled || Task.isCancelled { return }
+            // Ended or dropped: the server says which.
+            var view: HarnessJobView?
+            for attempt in 0..<4 {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+                guard !Task.isCancelled else { return }
+                view = try? await chatAPI.jobView(sessionID: chatSessionID, jobID: jobID)
+                if let view, !view.messages.isEmpty { showJob(view); return }
+                if let view, view.running { break }   // still going: follow again
+            }
+            guard let view, view.running else {
+                if let view { jobInView = view.job }
+                return
+            }
+            drops += 1
+            if drops > 20 { error = "Lost the job's live view."; return }
+            try? await Task.sleep(for: .seconds(drops > 3 ? 3 : 1))
+            guard !Task.isCancelled else { return }
+            showJob(view)   // the replay rebuilds the reply from the start
+        }
+    }
+
+    private enum FollowOutcome { case ended, cancelled }
+
+    private func followOnce(chatSessionID: String, jobID: String) async -> FollowOutcome {
+        let live = ChatMessage.assistant(streaming: true)
+        appendMessage(live)
+        liveMessageID = live.id
+        liveStreamID = nil
+        lastPublishedSend = nil
+        lastPublishedCommand = nil
+        pendingSend = nil
+        pendingCommand = nil
+        pendingClarify = nil
+        lastPublishedClarify = nil
+        // The job's clock, not the moment the sheet opened.
+        turnStartedAt = jobInView.map { Date(timeIntervalSince1970: $0.startedAt) } ?? clock.now
+        streaming = true
+        var state = ChatStreamState(message: live, startedAt: turnStartedAt)
+        do {
+            for try await event in chatAPI.jobStream(sessionID: chatSessionID, jobID: jobID) {
+                guard liveMessageID == live.id else { break }
+                let changed = ChatStreamReducer.apply(event, to: &state, now: clock.now)
+                if changed { publish(state) }
+                if state.outcome != nil { break }
+            }
+            finishTurn(&state)
+        } catch is CancellationError {
+            cancelLocally()
+            return .cancelled
+        } catch {
+            // A dropped stream: the caller asks the server whether it's over.
+            finishTurn(&state)
+        }
+        return .ended
     }
 
     private func runTurn(text: String, attachments: [PendingAttachment],
@@ -614,6 +766,9 @@ final class ChatStore {
         defer { turnHandle.cancel() }
         guard streaming else { return }
         streaming = false
+        // Nothing waits on his tap any more.
+        pendingSend = nil
+        pendingCommand = nil
         guard let id = liveMessageID, let index = messages.firstIndex(where: { $0.id == id }) else {
             liveMessageID = nil
             liveStreamID = nil
@@ -757,6 +912,10 @@ final class ChatStore {
         if state.send != lastPublishedSend {
             lastPublishedSend = state.send
             pendingSend = state.send
+        }
+        if state.command != lastPublishedCommand {
+            lastPublishedCommand = state.command
+            pendingCommand = state.command
         }
     }
 

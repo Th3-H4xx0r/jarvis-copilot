@@ -6,6 +6,10 @@ import SwiftUI
 struct HarnessJobCard: View {
     let job: HarnessJob
     var onStop: (() -> Void)?
+    /// Tap the card: the job as a conversation. Nil where it can't be opened.
+    var onOpen: (() -> Void)?
+    /// Allow / Always / Deny the approval the job waits on ("once"/"always"/"deny").
+    var onAnswer: ((String) -> Void)?
 
     @State private var stopping = false
 
@@ -14,13 +18,32 @@ struct HarnessJobCard: View {
     }
 
     private var running: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            runningHeader
+            if let approval = job.approval, let onAnswer {
+                HarnessJobApprovalRow(approval: approval, onAnswer: onAnswer)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(JcTheme.accent).frame(width: 2)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(job.approval != nil ? JcTheme.accent.opacity(0.45) : .white.opacity(0.06),
+                          lineWidth: job.approval != nil ? 1 : 0.5))
+    }
+
+    private var runningHeader: some View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 PulsingJobDot()
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(job.label).fontWeight(.semibold).foregroundStyle(JcTheme.text)
-                        if !job.model.isEmpty {
+                        if !job.model.isEmpty, job.approval == nil {
                             Text(HarnessFormat.shortModel(job.model)).foregroundStyle(JcTheme.muted)
                         }
                     }
@@ -34,9 +57,11 @@ struct HarnessJobCard: View {
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(JcTheme.muted)
                 }
+                if onOpen != nil { openChevron }
             }
             // The text reads as one element; Stop stays its own button.
             .accessibilityElement(children: .combine)
+            .modifier(OpensJob(onOpen: onOpen, label: job.label))
             if let onStop {
                 Button(stopping || job.stopping ? "Stopping…" : "Stop") {
                     stopping = true
@@ -54,15 +79,12 @@ struct HarnessJobCard: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .leading) {
-            Rectangle().fill(JcTheme.accent).frame(width: 2)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(.white.opacity(0.06), lineWidth: 0.5))
+    }
+
+    private var openChevron: some View {
+        JcIcon("chevron.right", size: 10, weight: .semibold)
+            .foregroundStyle(JcTheme.muted.opacity(0.7))
+            .accessibilityHidden(true)
     }
 
     private var ended: some View {
@@ -75,7 +97,9 @@ struct HarnessJobCard: View {
                 .font(.footnote)
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(1)
+            if onOpen != nil { openChevron }
         }
+        .modifier(OpensJob(onOpen: onOpen, label: job.label))
     }
 
     private var icon: String {
@@ -111,5 +135,24 @@ private struct PulsingJobDot: View {
                 withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { on = true }
             }
             .accessibilityHidden(true)
+    }
+}
+
+/// The part of a job card that opens the job: a tap, and a button to VoiceOver.
+private struct OpensJob: ViewModifier {
+    let onOpen: (() -> Void)?
+    let label: String
+
+    func body(content: Content) -> some View {
+        if let onOpen {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onOpen)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Opens what \(label) is doing")
+                .accessibilityAction(named: "Open") { onOpen() }
+        } else {
+            content
+        }
     }
 }

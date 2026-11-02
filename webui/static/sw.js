@@ -29,6 +29,7 @@ const SHELL_ASSETS = [
   './static/harness.js' + VQ,
   './static/harness_format.js' + VQ,
   './static/harness_jobs.js' + VQ,
+  './static/harness_job_view.js' + VQ,
   './static/harness_graph.js' + VQ,
   './static/cron_runs_on.js' + VQ,
   './static/harness_editor.js' + VQ,

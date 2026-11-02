@@ -298,15 +298,20 @@ struct AgentSessionDetail: Equatable {
 
 struct AgentPlanWindow: Equatable {
     let usedPercent: Double
-    let resetsAt: Date
+    /// Nil when none was given: Anthropic's usage API has no reset time for a
+    /// 5-hour window that hasn't started yet.
+    let resetsAt: Date?
     /// 0 once the window has reset, else the reported use (clamped to 100).
-    var percent: Int { resetsAt <= Date() ? 0 : Int(min(100, max(0, usedPercent)).rounded()) }
+    var percent: Int {
+        if let resetsAt, resetsAt <= Date() { return 0 }
+        return Int(min(100, max(0, usedPercent)).rounded())
+    }
 
     init?(json: Any?) {
-        guard let j = json as? [String: Any], let used = CodingJSON.double(j["used_percentage"]),
-              let reset = CodingJSON.double(j["resets_at"]), reset > 0 else { return nil }
+        guard let j = json as? [String: Any], let used = CodingJSON.double(j["used_percentage"]) else { return nil }
         usedPercent = used
-        resetsAt = Date(timeIntervalSince1970: reset)
+        let reset = CodingJSON.double(j["resets_at"]) ?? 0
+        resetsAt = reset > 0 ? Date(timeIntervalSince1970: reset) : nil
     }
 }
 

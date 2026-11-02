@@ -31,6 +31,8 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     /// Made once, on first use (not on every init of this view).
     @State private var recalls: ChatRecallStore?
     @State private var openRecall: MemoryRecall?
+    /// The Background job opened from its card, with the chat it belongs to.
+    @State private var openJob: OpenedJob?
     /// Off for a conversation that isn't a chat with Jarvis's memory (the
     /// integration setup sheet): no fetch, no chips.
     private var memoryChips = true
@@ -70,6 +72,12 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     Task { await store.respondSend(yes: yes) }
                 }
             }
+            if let command = store.pendingCommand {
+                ChatCommandApprovalBar(request: command) { choice in
+                    Task { await store.respondCommand(choice: choice) }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             footer
             if showsComposer {
                 ChatComposer(store: store, placeholder: placeholder, draft: $draft,
@@ -104,13 +112,20 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                     row: row,
                                     isFirst: index == 0,
                                     onCopy: { UIPasteboard.general.string = row.message.plainText },
-                                    onRetryOnServer: row.message.onDevice
+                                    onRetryOnServer: row.message.onDevice && store.jobInView == nil
                                         ? { Task { await store.retryOnServer(row.message) } } : nil,
                                     // A submitted form becomes the user's next message,
                                     // so the turn after it reads the answers normally.
-                                    onFormSubmit: { reply in Task { await store.send(reply) } },
+                                    // (A job's view has no chat to send them to.)
+                                    onFormSubmit: store.jobInView == nil
+                                        ? { reply in Task { await store.send(reply) } } : nil,
                                     jobs: (row.message.meta?.jobs ?? []).map(store.job),
-                                    onStopJob: { id in Task { await store.stopJob(id) } })
+                                    onStopJob: { id in Task { await store.stopJob(id) } },
+                                    // A job's own view can't open jobs (it has no chat).
+                                    onOpenJob: store.sessionID.map { chat in { job in openJob = OpenedJob(chat: chat, job: job) } },
+                                    onAnswerJob: { job, choice in
+                                        Task { await store.respondJobApproval(job, choice: choice) }
+                                    })
                                 if let recall = chips[row.id] {
                                     MemoryUsedChip(recall: recall) { openRecall = recall }
                                         .padding(.horizontal, 24)
@@ -143,6 +158,9 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     Task { await recalls.turnFinished(rows: store.rows, sessionID: store.sessionID) }
                 }
                 .sheet(item: $openRecall) { recall in MemoryRecallMapSheet(recall: recall) }
+                .sheet(item: $openJob) { opened in
+                    HarnessJobSheet(chatSessionID: opened.chat, job: opened.job, parent: store)
+                }
                 // A tick, not the transcript: `onChange(of: store.messages)` compares
                 // every message in the thread on every streamed token
                 // (swift-correctness H9).
@@ -274,4 +292,12 @@ extension ChatConversationView where Empty == EmptyView, Footer == EmptyView {
         self.init(store: store, placeholder: placeholder, showsComposer: true,
                   emptyState: { _ in EmptyView() }, footer: EmptyView())
     }
+}
+
+/// A job card tapped open: the job and the chat it belongs to, pinned at the
+/// tap so another chat opening meanwhile can't change what the sheet shows.
+struct OpenedJob: Identifiable {
+    let chat: String
+    let job: HarnessJob
+    var id: String { "\(chat)|\(job.id)" }
 }

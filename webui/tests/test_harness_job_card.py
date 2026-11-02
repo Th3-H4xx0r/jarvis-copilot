@@ -64,7 +64,8 @@ def test_job_card_from_a_registry_entry():
     assert card == {"id": "j1", "node": "bg", "label": "Long Running",
                     "model": "@anthropic-api:claude-sonnet-5-5", "status": "running",
                     "started_at": 100.0, "completed_at": None, "steps": 6,
-                    "activity": "Searching the web", "stopping": False}
+                    "activity": "Searching the web", "stopping": False,
+                    "worker_session": "", "approval": None}
 
 
 def test_job_card_without_node_info_still_reads():

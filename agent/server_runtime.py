@@ -9,6 +9,9 @@ keeps running after the attach goes away. Facts this rests on (spike,
 
 * ``--bg`` refuses a folder that isn't trusted, so ``ensure_trusted`` marks
   it in ``~/.claude.json`` first.
+* ``--bg --remote-control=<name>`` works (2026-11-02, 2.1.316): the job's
+  state.json gets a ``bridgeSessionId`` and ``respawnFlags: [--remote-control]``,
+  and the session shows in claude.ai/code and the Claude app.
 * ``--bg --resume <id>`` on a conversation that started interactively keeps
   the same id, even with flags. On one that STARTED as ``--bg``, any flag
   makes a copy under a new id, so those resume with no flags (``bg_origin``).
@@ -32,6 +35,14 @@ _PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto", "bypassPermission
 _SCRUB = ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "ANTHROPIC_AUTH_TOKEN",
           "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
           "CLAUDE_CODE_ENTRYPOINT", "CLAUDECODE")
+
+
+def remote_control_name(cwd: str) -> str:
+    """The name a Remote Control session shows in claude.ai/code: the folder's
+    name, kept to letters, digits, ``.``, ``_`` and ``-``."""
+    base = os.path.basename(os.path.normpath(os.path.expanduser(str(cwd or "")))) or ""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-.")[:48]
+    return name or "jarvis"
 
 
 class DeliveryError(Exception):
@@ -191,7 +202,8 @@ class ClaudeRuntime:
     # ── lifecycle ────────────────────────────────────────────────────────
     def start(self, cwd: str, *, prompt: Optional[str] = None, model: Optional[str] = None,
               permission_mode: Optional[str] = None, resume_session_id: Optional[str] = None,
-              bg_origin: bool = False, mcp_config: Optional[str] = None) -> str:
+              bg_origin: bool = False, mcp_config: Optional[str] = None,
+              remote_control: bool = False) -> str:
         argv = [self._bin, "--bg"]
         env = _env()
         if not (resume_session_id and bg_origin):
@@ -205,6 +217,9 @@ class ClaudeRuntime:
                 argv += ["--mcp-config", mcp_config, "--strict-mcp-config"]
             if self._hook_settings:
                 argv += ["--settings", self._hook_settings]
+            if remote_control:
+                # "=": the name is optional, so a bare flag would take the prompt as it
+                argv.append("--remote-control=" + remote_control_name(cwd))
         if resume_session_id:
             argv += ["--resume", resume_session_id]
         if prompt and not (resume_session_id and bg_origin):

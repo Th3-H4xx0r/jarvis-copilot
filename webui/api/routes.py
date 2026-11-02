@@ -3606,6 +3606,17 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, store_for_request())
         return j(handler, payload, status=status)
 
+    _job_m = _RE_HARNESS_JOB_VIEW.match(parsed.path)
+    if _job_m:
+        sid, job_id, what = _job_m.groups()
+        if what == "stream":
+            return _handle_harness_job_stream(handler, sid, job_id)
+        from api.harness_runner import job_view
+        view = job_view(sid, job_id)
+        if view is None:
+            return j(handler, {"error": "no such job in this chat"}, status=404)
+        return j(handler, view)
+
     if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
         from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
         from api.harness_store import store_for_request as harness_store
@@ -7952,6 +7963,54 @@ def _session_events_snapshot(session_id: str) -> dict:
     return snap
 
 
+_RE_HARNESS_JOB_VIEW = re.compile(
+    r"^/api/harnesses/jobs/([A-Za-z0-9_~-]+)/([A-Za-z0-9_-]+)/(view|stream)$")
+
+
+def _handle_harness_job_stream(handler, session_id, job_id):
+    """SSE: a Background job's own run, in /api/chat/stream's event format —
+    everything so far, then live until it ends. A job that already ended (or
+    is unknown) gets a bare ``stream_end``: its view comes from /view."""
+    from api.harness_runner import job_feed, job_view
+    if job_view(session_id, job_id) is None:
+        return j(handler, {"error": "no such job in this chat"}, status=404)
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('X-Accel-Buffering', 'no')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+    try:
+        feed = job_feed(job_id)
+        # A job queued behind the worker's previous one has no feed yet: wait
+        # for it to start rather than telling the viewer it is over.
+        while feed is None:
+            view = job_view(session_id, job_id)
+            if view is None or not view.get("running"):
+                _sse(handler, 'stream_end', {'job_id': job_id})
+                return True
+            handler.wfile.write(b': keepalive\n\n')
+            handler.wfile.flush()
+            time.sleep(1.0)
+            feed = job_feed(job_id)
+        cursor = None
+        while True:
+            events, cursor, closed = feed.read(cursor, _SSE_HEARTBEAT_INTERVAL_SECONDS)
+            for event, data in events:
+                _sse(handler, event, data)
+                if event == 'stream_end':
+                    return True
+            if closed and not events:
+                _sse(handler, 'stream_end', {'job_id': job_id})
+                return True
+            if not events:
+                handler.wfile.write(b': keepalive\n\n')
+                handler.wfile.flush()
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
+    return True
+
+
 def _handle_session_events_sse(handler, parsed):
     """SSE: what changed on this session, for every device that has it open.
 
@@ -10458,7 +10517,14 @@ def _handle_approval_respond(handler, body):
     if choice not in ("once", "session", "always", "deny"):
         return bad(handler, f"Invalid choice: {choice}")
     approval_id = body.get("approval_id", "")
+    respond_approval(sid, choice, approval_id)
+    return j(handler, {"ok": True, "choice": choice})
 
+
+def respond_approval(sid: str, choice: str, approval_id: str = "") -> int:
+    """Answer a session's waiting approval (a chat card, a Background job's
+    card, the Agents tab or a push button all land here). Returns how many
+    waiting agent threads it released."""
     # Pop the targeted entry from the pending queue by approval_id.
     # Falls back to popping the first entry for backward-compat with old clients.
     pending = None
@@ -10505,8 +10571,14 @@ def _handle_approval_respond(handler, body):
     # Unblock the agent thread waiting in the gateway approval queue.
     # This is the primary signal when streaming is active — the agent
     # thread is parked in entry.event.wait() and needs to be woken up.
-    resolve_gateway_approval(sid, choice, resolve_all=False, approval_id=approval_id)
-    return j(handler, {"ok": True, "choice": choice})
+    released = resolve_gateway_approval(sid, choice, resolve_all=False, approval_id=approval_id)
+    # Its copies elsewhere (the Agents tab's request, a job card's buttons) go too.
+    try:
+        from api import jarvis_approvals
+        jarvis_approvals.answered(sid, approval_id)
+    except Exception:
+        logger.debug("jarvis approval copies not settled", exc_info=True)
+    return released
 
 
 def _handle_clarify_respond(handler, body):

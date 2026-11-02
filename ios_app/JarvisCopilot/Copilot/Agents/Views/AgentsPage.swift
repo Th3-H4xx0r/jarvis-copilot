@@ -367,11 +367,11 @@ struct AgentUsageStrip: View {
 
     /// "5-hour limit resets 3:40 PM", or the week's when that's all there is.
     static func resetLine(_ u: AgentPlanUsage, now: Date = Date()) -> String {
-        if let w = u.fiveHour, w.resetsAt > now {
-            return "5-hour limit resets \(w.resetsAt.formatted(date: .omitted, time: .shortened))"
+        if let r = u.fiveHour?.resetsAt, r > now {
+            return "5-hour limit resets \(r.formatted(date: .omitted, time: .shortened))"
         }
-        if let w = u.sevenDay, w.resetsAt > now {
-            return "Weekly limit resets \(w.resetsAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
+        if let r = u.sevenDay?.resetsAt, r > now {
+            return "Weekly limit resets \(r.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
         }
         return "Plan limits"
     }

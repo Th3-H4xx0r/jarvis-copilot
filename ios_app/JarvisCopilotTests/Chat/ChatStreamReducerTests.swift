@@ -180,7 +180,7 @@ final class ChatStreamReducerTests: XCTestCase {
     }
 
     /// A call or message the turn is paused on (agent/send_confirm.py): the card's person,
-    /// photo and words; other approvals aren't drawn; it goes when the turn ends.
+    /// photo and words; a command approval is its own bar; it goes when the turn ends.
     func testASendApprovalPausesTheTurnOnACard() throws {
         let photo = Data([0xFF, 0xD8, 0xFF]).base64EncodedString()
         XCTAssertTrue(apply("approval", ["pending": [
@@ -200,12 +200,52 @@ final class ChatStreamReducerTests: XCTestCase {
         XCTAssertNil(state.send, "a finished turn waits on nothing")
 
         state = ChatStreamState(startedAt: t0)
-        XCTAssertFalse(apply("approval", ["command": "rm -rf /tmp/x", "description": "recursive delete"]))
-        XCTAssertNil(state.send)
+        XCTAssertTrue(apply("approval", ["command": "rm -rf /tmp/x", "description": "recursive delete"]))
+        XCTAssertNil(state.send, "a command is not a send card")
+        XCTAssertEqual(state.command?.command, "rm -rf /tmp/x")
         XCTAssertTrue(apply("approval", ["kind": "send", "approval_id": "a2",
                                          "send": ["kind": "call", "to": "+15550100"]]))
         XCTAssertEqual(state.send?.card.title, "+15550100", "no contact: the number")
         XCTAssertEqual(state.send?.card.actionTitle, "Call")
+    }
+
+    /// A dangerous command the turn is paused on (tools/approval.py): Allow / Deny,
+    /// Always only when the gate named a pattern; it goes once the turn moves on.
+    func testACommandApprovalPausesTheTurnOnABar() throws {
+        XCTAssertTrue(apply("approval", ["command": "rm -rf /root/build", "description": "recursive delete",
+                                         "pattern_key": "rm_rf", "pattern_keys": ["rm_rf"]]))
+        let first = try XCTUnwrap(state.command)
+        XCTAssertEqual(first.description, "recursive delete")
+        XCTAssertTrue(first.canAlways)
+        XCTAssertNil(state.outcome, "the turn is paused, not finished")
+        // Answered (anywhere): the run goes on and the bar goes.
+        XCTAssertTrue(apply("tool_complete", ["name": "terminal"]))
+        XCTAssertNil(state.command)
+        // The same command asked again is a new ask, not a repeat to ignore.
+        XCTAssertTrue(apply("approval", ["command": "rm -rf /root/build"]))
+        let second = try XCTUnwrap(state.command)
+        XCTAssertNotEqual(first.id, second.id)
+        XCTAssertFalse(second.canAlways, "no pattern: no Always")
+        _ = apply("done")
+        XCTAssertNil(state.command, "a finished turn waits on nothing")
+    }
+
+    func testAnApprovalWithNoCommandIsNotDrawn() {
+        XCTAssertFalse(apply("approval", ["description": "something"]))
+        XCTAssertNil(state.command)
+    }
+
+    func testAFailedTurnDropsAWaitingCommand() {
+        _ = apply("approval", ["command": "sudo reboot", "approval_id": "a9"])
+        XCTAssertEqual(state.command?.approvalID, "a9")
+        _ = apply("apperror", ["message": "boom"])
+        XCTAssertNil(state.command)
+    }
+
+    func testCancelDropsAWaitingCommand() {
+        _ = apply("approval", ["command": "sudo reboot"])
+        _ = apply("cancel")
+        XCTAssertNil(state.command)
     }
 
     func testClarifyAcceptsAPlainChoicesKeyAndIgnoresAnEmptyQuestion() {

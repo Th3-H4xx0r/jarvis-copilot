@@ -322,3 +322,20 @@ def test_a_menu_the_mac_already_sees_is_never_typed_into():
                        "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
     assert link.vscode.sent == [] and q.items == [("s1", "then lint")]
     assert _events(up, "agent_delivery")[-1]["state"] == "queued"
+
+
+def test_launch_frame_passes_remote_control_to_the_runtime():
+    link, _, _ = _link()
+    link.roster = FakeRoster([])
+    seen = []
+
+    class Runtime:
+        def launch_bg(self, cwd, **kw):
+            seen.append((cwd, kw))
+            return "ab12cd34"
+
+    link.runtime = Runtime()
+    link.handle_frame({"type": "agent_launch", "cwd": "~/code/app", "agent": "claude",
+                       "prompt": "hi", "remote_control": True})
+    link.handle_frame({"type": "agent_launch", "cwd": "~/code/app", "agent": "claude"})
+    assert [kw["remote_control"] for _, kw in seen] == [True, False]

@@ -180,7 +180,8 @@ class AgentsLink:
             self.runtime.launch_bg(str(frame.get("cwd") or ""), agent=str(frame.get("agent") or "claude"),
                                    model=frame.get("model"),
                                    permission_mode=frame.get("permission_mode"),
-                                   prompt=frame.get("prompt"))
+                                   prompt=frame.get("prompt"),
+                                   remote_control=frame.get("remote_control") is True)
             self.roster.trigger("launch")
         elif t == "agent_stop_local":
             run = frame.get("run") or {}

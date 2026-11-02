@@ -158,3 +158,44 @@ def test_fetch_oauth_usage_non_oauth_is_definitively_unavailable(monkeypatch):
     monkeypatch.setattr(aa, "resolve_anthropic_token", lambda: "sk-ant-apikey")
     monkeypatch.setattr(aa, "_is_oauth_token", lambda t: False)
     assert coding_usage._fetch_oauth_usage() == {}
+
+
+# ── agents_claude_usage: the Agents tab's Claude rings ───────────────────────
+
+def _oauth_snap(fetched_at=500.0, five=40, week=12, five_reset=9e9, week_reset=9e9):
+    return {"five_hour_pct": five, "weekly_pct": week, "five_hour_reset_at": five_reset,
+            "weekly_reset_at": week_reset, "available": True, "fetched_at": fetched_at}
+
+
+def test_agents_usage_falls_back_to_oauth_when_no_statusline():
+    coding_usage._cache = _oauth_snap()
+    u = coding_usage.agents_claude_usage(None, now=600.0)
+    assert u["five_hour"] == {"used_percentage": 40, "resets_at": 9e9}
+    assert u["seven_day"] == {"used_percentage": 12, "resets_at": 9e9}
+
+
+def test_agents_usage_prefers_newer_statusline():
+    coding_usage._cache = _oauth_snap(fetched_at=500.0)
+    tracked = {"five_hour": {"used_percentage": 55, "resets_at": 9e9}, "seven_day": None,
+               "updated_at": 550.0}
+    assert coding_usage.agents_claude_usage(tracked, now=600.0) is tracked
+
+
+def test_agents_usage_oauth_replaces_stale_statusline_and_keeps_plan():
+    coding_usage._cache = _oauth_snap(fetched_at=500.0)
+    tracked = {"five_hour": {"used_percentage": 5, "resets_at": 1.0}, "updated_at": 100.0,
+               "plan": "max"}
+    u = coding_usage.agents_claude_usage(tracked, now=600.0)
+    assert u["five_hour"]["used_percentage"] == 40 and u["plan"] == "max"
+
+
+def test_agents_usage_unstarted_window_has_no_reset_and_missing_pct_is_dropped():
+    coding_usage._cache = _oauth_snap(five=0, five_reset=None, week=None)
+    u = coding_usage.agents_claude_usage(None, now=600.0)
+    assert u["five_hour"] == {"used_percentage": 0, "resets_at": None}
+    assert u["seven_day"] is None
+
+
+def test_agents_usage_none_without_either_source():
+    assert coding_usage.agents_claude_usage(None, now=600.0) is None
+    assert coding_usage.agents_claude_usage({"source": "d1"}, now=600.0) is None

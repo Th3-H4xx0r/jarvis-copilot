@@ -253,10 +253,11 @@ final class AgentsStore {
 
     /// Start a new session. Nil on success, else why not.
     func launch(cwd: String, where place: String, agent: String, model: String?,
-                permissionMode: String?, prompt: String?) async -> String? {
+                permissionMode: String?, prompt: String?, remoteControl: Bool = false) async -> String? {
         do {
             try await api.launch(cwd: cwd, where: place, agent: agent, model: model,
-                                 permissionMode: permissionMode, prompt: prompt)
+                                 permissionMode: permissionMode, prompt: prompt,
+                                 remoteControl: remoteControl)
             await refresh()
             return nil
         } catch {

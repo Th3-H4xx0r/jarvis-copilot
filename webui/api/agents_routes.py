@@ -44,6 +44,15 @@ def _remote_instructions() -> bool:
         return False
 
 
+def _claude_usage(tr, manager):
+    """The tracker's status-line numbers, or the OAuth snapshot Settings shows."""
+    try:
+        from agent.coding_usage import agents_claude_usage
+        return agents_claude_usage(tr.usage() if tr else None, getattr(manager, "store", None))
+    except Exception:  # noqa: BLE001
+        return tr.usage() if tr else None
+
+
 def _pending():
     try:
         from api import coding_permission
@@ -57,7 +66,7 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
     tr = _tracker()
     if p == "/agents/sessions" and method == "GET":
         return _ok({"sessions": tr.sessions() if tr else [],
-                    "usage": tr.usage() if tr else None,
+                    "usage": _claude_usage(tr, manager),
                     "usage_codex": tr.usage("codex") if tr else None,
                     "pending": _pending()})
     if p == "/agents/session" and method == "GET":
@@ -67,7 +76,7 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
             return _err(404, "no such agent session")
         return _ok({"session": session})
     if p == "/agents/usage" and method == "GET":
-        return _ok({"claude": tr.usage() if tr else None, "codex": tr.usage("codex") if tr else None})
+        return _ok({"claude": _claude_usage(tr, manager), "codex": tr.usage("codex") if tr else None})
     if p == "/agents/instruction" and method == "POST":
         return _instruction(tr, body)
     if p == "/agents/decide" and method == "POST":

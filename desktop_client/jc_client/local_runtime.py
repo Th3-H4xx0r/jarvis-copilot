@@ -2,6 +2,8 @@
 
 * New sessions from the phone start as Claude background sessions
   (``claude --bg``): nothing pops up on the Mac, and ``claude attach`` opens one.
+  With Remote Control on they also get ``--remote-control=<folder>``, so they
+  show in claude.ai/code and the Claude app.
 * Reopening a conversation (Continue on Mac, Resume) runs ``claude --resume``
   / ``codex resume`` in the terminal app it came from: VS Code through the
   Jarvis Terminal Bridge extension (in the same terminal when the stale
@@ -69,6 +71,14 @@ def _session_env() -> dict:
     return env
 
 
+def remote_control_name(cwd: str) -> str:
+    """The name a Remote Control session shows in claude.ai/code: the folder's
+    name, kept to letters, digits, ``.``, ``_`` and ``-``."""
+    base = os.path.basename(os.path.normpath(os.path.expanduser(str(cwd or "")))) or ""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-.")[:48]
+    return name or "jarvis"
+
+
 def _looks_like_model(name) -> bool:
     n = str(name or "").strip().lower()
     return n in ("opus", "sonnet", "haiku") or n.startswith("claude-")
@@ -114,7 +124,7 @@ class LocalRuntime:
 
     def launch_bg(self, cwd: str, *, agent: str = "claude", model: Optional[str] = None,
                   permission_mode: Optional[str] = None, prompt: Optional[str] = None,
-                  terminal: Optional[dict] = None) -> str:
+                  terminal: Optional[dict] = None, remote_control: bool = False) -> str:
         cwd = os.path.expanduser(cwd)
         os.makedirs(cwd, exist_ok=True)
         if agent == "codex":
@@ -127,6 +137,9 @@ class LocalRuntime:
             argv += ["--model", str(model)]
         if permission_mode in _PERMISSION_MODES:
             argv += ["--permission-mode", permission_mode]
+        if remote_control:
+            # "=": the name is optional, so a bare flag would take the prompt as it
+            argv.append("--remote-control=" + remote_control_name(cwd))
         if prompt:
             argv.append(prompt)
         # Never a pipe: `claude --bg` leaves a daemon holding its stdout.

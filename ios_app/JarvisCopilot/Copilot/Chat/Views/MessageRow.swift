@@ -17,6 +17,10 @@ struct ChatMessageRow: View {
     /// Background jobs this reply started, as the store sees them now.
     var jobs: [HarnessJob] = []
     var onStopJob: ((String) -> Void)?
+    /// Tap a job card: open the job as a conversation.
+    var onOpenJob: ((HarnessJob) -> Void)?
+    /// A job card's Allow / Always / Deny.
+    var onAnswerJob: ((HarnessJob, String) -> Void)?
 
     var body: some View {
         content.padding(.top, isFirst ? 0 : (row.continuesSpeaker ? 6 : 26))
@@ -29,7 +33,8 @@ struct ChatMessageRow: View {
             ChatAssistantTurnCard(message: row.message, onCopy: onCopy,
                                   onRetryOnServer: onRetryOnServer,
                                   onFormSubmit: onFormSubmit,
-                                  jobs: jobs, onStopJob: onStopJob)
+                                  jobs: jobs, onStopJob: onStopJob,
+                                  onOpenJob: onOpenJob, onAnswerJob: onAnswerJob)
         }
     }
 }

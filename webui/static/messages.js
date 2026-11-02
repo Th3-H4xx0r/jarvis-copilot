@@ -2506,12 +2506,16 @@ function showApprovalForSession(sid, pending, pendingCount) {
   showApprovalCard(pending, pendingCount);
 }
 
+function _approvalText(pending) {
+  const keys = pending.pattern_keys || (pending.pattern_key ? [pending.pattern_key] : []);
+  return {desc: (pending.description || "") + (keys.length ? " [" + keys.join(", ") + "]" : ""),
+          cmd: pending.command || ""};
+}
+
 function showApprovalCard(pending, pendingCount) {
   const sid = _rememberApprovalPending(pending, pendingCount);
   if (!_approvalPromptBelongsToActiveSession(sid)) return;
-  const keys = pending.pattern_keys || (pending.pattern_key ? [pending.pattern_key] : []);
-  const desc = (pending.description || "") + (keys.length ? " [" + keys.join(", ") + "]" : "");
-  const cmd = pending.command || "";
+  const {desc, cmd} = _approvalText(pending);
   const sig = JSON.stringify({desc, cmd, sid: pending._session_id || (S.session && S.session.session_id) || null});
   const card = $("approvalCard");
   const sameApproval = card.classList.contains("visible") && _approvalSignature === sig;
@@ -2552,13 +2556,14 @@ const _APPROVAL_BUTTONS = ["approvalBtnOnce","approvalBtnSession","approvalBtnAl
 // A call or message Jarvis is about to make (agent/send_confirm.py): the person as his
 // iPhone's contacts know them (photo or initials), the words, and Send (Call) / Cancel,
 // answered like any approval: Send = "once", Cancel = "deny". Returns whether it is one.
-function _renderApprovalSend(send) {
-  const card = $("approvalCard");
+// `ref` looks a part up by its id: the page's card by default, or a copy's (buildApprovalCardCopy).
+function _renderApprovalSend(send, ref = $) {
+  const card = ref("approvalCard");
   card.classList.toggle("is-send", !!send);
   if (!send) return false;
   const name = String(send.name || "").trim();
   const to = String(send.to || "");
-  const avatar = $("approvalSendAvatar");
+  const avatar = ref("approvalSendAvatar");
   avatar.textContent = "";
   if (/^data:image\/[a-z]+;base64,/i.test(send.photo || "")) {
     const img = document.createElement("img");
@@ -2573,11 +2578,63 @@ function _renderApprovalSend(send) {
   const via = String(send.via || "");
   const what = {call: via === "FaceTime" ? "FaceTime" : "Call", text: "Text", email: "Email",
                 message: via ? via.charAt(0).toUpperCase() + via.slice(1) : "Message"}[send.kind] || "Message";
-  $("approvalSendName").textContent = name || to;
-  $("approvalSendSub").textContent = to ? what + " · " + to : what;
-  $("approvalSendMsg").textContent = [send.subject, send.text].filter(Boolean).join("\n");
-  $("approvalSendGo").textContent = send.kind === "call" ? "Call" : "Send";
+  ref("approvalSendName").textContent = name || to;
+  ref("approvalSendSub").textContent = to ? what + " · " + to : what;
+  ref("approvalSendMsg").textContent = [send.subject, send.text].filter(Boolean).join("\n");
+  ref("approvalSendGo").textContent = send.kind === "call" ? "Call" : "Send";
   return true;
+}
+
+// The same approval card drawn inside another view — a Background job's chat
+// view (harness_job_view.js): a copy of #approvalCard filled the same way, its
+// buttons calling opts.onChoice("once"|"always"|"deny") (a promise) instead of
+// answering the page's chat. Only Allow once / Always (opts.canAlways) / Deny.
+function buildApprovalCardCopy(pending, opts = {}) {
+  const tpl = $("approvalCard");
+  if (!tpl || !pending) return null;
+  const card = tpl.cloneNode(true);
+  [card, ...card.querySelectorAll("[id]")].forEach(el => {
+    el.dataset.approvalRef = el.id;
+    el.removeAttribute("id");
+  });
+  card.querySelectorAll("[onclick]").forEach(el => el.removeAttribute("onclick"));
+  card.querySelectorAll(".approval-kbd").forEach(el => el.remove());
+  card.removeAttribute("aria-labelledby");
+  card.removeAttribute("aria-describedby");
+  card.setAttribute("role", "group");
+  card.setAttribute("aria-label", "Approval required");
+  card.classList.add("approval-card-inline", "visible");
+  const ref = id => card.dataset.approvalRef === id ? card : card.querySelector(`[data-approval-ref="${id}"]`);
+  const {desc, cmd} = _approvalText(pending);
+  ref("approvalDesc").textContent = desc;
+  ref("approvalCmd").textContent = cmd;
+  ref("approvalCounter").style.display = "none";
+  const send = pending.kind === "send" ? pending.send : null;
+  _renderApprovalSend(send, ref);
+  ref("approvalBtnSession").style.display = "none";
+  ref("approvalSkipAll").style.display = "none";
+  if (!opts.canAlways || pending.kind === "send") ref("approvalBtnAlways").style.display = "none";
+  if (pending.kind === "send" && !send) {
+    // A send waiting with no details to draw: the plain card, worded for it.
+    ref("approvalBtnOnce").querySelector(".approval-btn-label").textContent = "Send";
+    ref("approvalBtnDeny").querySelector(".approval-btn-label").textContent = "Don't send";
+  }
+  card.querySelectorAll(".approval-btn [data-i18n]").forEach(el => el.removeAttribute("data-i18n"));
+  const choices = {approvalBtnOnce: "once", approvalBtnAlways: "always", approvalBtnDeny: "deny",
+                   approvalSendGo: "once", approvalSendCancel: "deny"};
+  const buttons = Object.keys(choices).map(ref).filter(Boolean);
+  buttons.forEach(btn => btn.addEventListener("click", async ev => {
+    ev.stopPropagation();
+    buttons.forEach(b => { b.disabled = true; });
+    btn.classList.add("loading");
+    try {
+      await (opts.onChoice && opts.onChoice(choices[btn.dataset.approvalRef]));
+    } catch (e) {
+      buttons.forEach(b => { b.disabled = false; });
+      btn.classList.remove("loading");
+    }
+  }));
+  return card;
 }
 
 async function respondApproval(choice) {

@@ -233,6 +233,44 @@ def get_usage(store=None, *, now: float | None = None) -> dict | None:
         return None
 
 
+def _plan_window(pct, reset_at) -> dict | None:
+    """One window in the Agents tab's shape (Claude Code's ``rate_limits``)."""
+    if pct is None or pct < 0:
+        return None
+    return {"used_percentage": pct, "resets_at": float(reset_at) if reset_at else None}
+
+
+def agents_claude_usage(tracked: dict | None, store=None, *,
+                        now: float | None = None) -> dict | None:
+    """Claude plan usage for the Agents tab (iPhone + web + Mac island).
+
+    ``tracked`` is what a Claude Code statusLine relay reported (the tracker's
+    ``usage()``: ``{five_hour: {used_percentage, resets_at}, seven_day, ...}``).
+    That only exists while some session's status line relays ``rate_limits``,
+    so it is often missing; the OAuth snapshot this module keeps fresh every
+    60 s (the numbers Settings shows) fills in, in the same shape. The newer
+    of the two wins. A window's ``resets_at`` is None when Anthropic gave none
+    (an unstarted 5-hour window). Never raises."""
+    try:
+        oauth = get_usage(store, now=now)
+    except Exception:  # noqa: BLE001
+        oauth = None
+    has_tracked = bool(tracked and (tracked.get("five_hour") or tracked.get("seven_day")))
+    if not oauth:
+        return tracked if has_tracked else None
+    fetched = float(oauth.get("fetched_at") or 0)
+    if has_tracked and float(tracked.get("updated_at") or 0) >= fetched:
+        return tracked
+    five = _plan_window(oauth.get("five_hour_pct"), oauth.get("five_hour_reset_at"))
+    week = _plan_window(oauth.get("weekly_pct"), oauth.get("weekly_reset_at"))
+    if five is None and week is None:
+        return tracked if has_tracked else None
+    out = {"five_hour": five, "seven_day": week, "source": "oauth", "updated_at": fetched}
+    if tracked and tracked.get("plan"):
+        out["plan"] = tracked["plan"]
+    return out
+
+
 def start_refresher(store, *, interval: float = 60.0):
     """Start the background usage poller on a daemon thread.
 

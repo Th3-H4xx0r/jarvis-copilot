@@ -46,9 +46,46 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
     var activity: String
     /// Stop was pressed; the job is winding down.
     var stopping: Bool
+    /// The hidden session the job runs on (its approvals are answered there).
+    var workerSession: String = ""
+    /// What the job is waiting on you for, while it waits.
+    var approval: Approval?
+
+    /// One approval a running job is paused on (`job_card.approval` on the server).
+    struct Approval: Equatable, Hashable, Sendable {
+        var sessionID: String
+        var approvalID: String
+        var kind: String        // "command" | "send"
+        var command: String
+        var description: String
+        var canAlways: Bool
+
+        init?(json: [String: Any]?) {
+            guard let json, let sid = json["session_id"] as? String, !sid.isEmpty else { return nil }
+            sessionID = sid
+            approvalID = json["approval_id"] as? String ?? ""
+            kind = json["kind"] as? String ?? "command"
+            command = json["command"] as? String ?? ""
+            description = json["description"] as? String ?? ""
+            canAlways = json["can_always"] as? Bool ?? false
+        }
+
+        init(sessionID: String, approvalID: String = "", kind: String = "command", command: String,
+             description: String = "", canAlways: Bool = false) {
+            self.sessionID = sessionID
+            self.approvalID = approvalID
+            self.kind = kind
+            self.command = command
+            self.description = description
+            self.canAlways = canAlways
+        }
+
+        var isSend: Bool { kind == "send" }
+    }
 
     init(id: String, label: String, model: String = "", status: String = "running", startedAt: Double,
-         completedAt: Double? = nil, steps: Int = 0, activity: String = "", stopping: Bool = false) {
+         completedAt: Double? = nil, steps: Int = 0, activity: String = "", stopping: Bool = false,
+         workerSession: String = "", approval: Approval? = nil) {
         self.id = id
         self.label = label
         self.model = model
@@ -58,6 +95,8 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
         self.steps = steps
         self.activity = activity
         self.stopping = stopping
+        self.workerSession = workerSession
+        self.approval = approval
     }
 
     init?(json: [String: Any]?) {
@@ -70,7 +109,9 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
                   completedAt: (json["completed_at"] as? NSNumber)?.doubleValue,
                   steps: (json["steps"] as? NSNumber)?.intValue ?? 0,
                   activity: json["activity"] as? String ?? "",
-                  stopping: json["stopping"] as? Bool ?? false)
+                  stopping: json["stopping"] as? Bool ?? false,
+                  workerSession: json["worker_session"] as? String ?? "",
+                  approval: Approval(json: json["approval"] as? [String: Any]))
     }
 
     var isRunning: Bool { status == "running" }
@@ -194,5 +235,26 @@ enum HarnessJobFormat {
         case "stopped": return "\(job.label) · stopped after \(ran)"
         default: return "\(job.label) · stopped when the server restarted"
         }
+    }
+}
+
+/// A Background job opened as a conversation (`/api/harnesses/jobs/<chat>/<job>/view`).
+struct HarnessJobView {
+    var job: HarnessJob
+    /// The question it was handed (drawn as the user's message).
+    var task: String
+    /// Its saved transcript in the server's message format; empty while it runs.
+    var messages: [[String: Any]]
+    var running: Bool
+    /// The server still has its live feed (`/stream` replays it).
+    var live: Bool
+
+    init?(json: [String: Any]) {
+        guard let job = HarnessJob(json: json["job"] as? [String: Any]) else { return nil }
+        self.job = job
+        task = json["task"] as? String ?? ""
+        messages = json["messages"] as? [[String: Any]] ?? []
+        running = json["running"] as? Bool ?? false
+        live = json["live"] as? Bool ?? false
     }
 }

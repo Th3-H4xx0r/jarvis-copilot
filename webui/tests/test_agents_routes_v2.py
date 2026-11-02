@@ -561,3 +561,31 @@ def test_server_sessions_are_watched_between_hooks(tmp_path, monkeypatch):
     pushed.clear()
     tick()
     assert core.conv.get("claude|z")["state"] == "idle" and pushed
+
+
+def test_launch_with_remote_control_reaches_both_runtimes(env):
+    call("POST", "/agents/launch", {"where": "server", "cwd": str(env["tmp"] / "app"),
+                                    "remote_control": True})
+    assert env["core"].claude.started[-1][1]["remote_control"] is True
+    call("POST", "/agents/launch", {"where": "server", "cwd": str(env["tmp"] / "app")})
+    assert env["core"].claude.started[-1][1]["remote_control"] is False
+    env["core"].on_hello("d1", {})
+    env["frames"].clear()
+    call("POST", "/agents/launch", {"where": "d1", "cwd": "~/code/app", "remote_control": True})
+    call("POST", "/agents/launch", {"where": "d1", "cwd": "~/code/app", "agent": "codex",
+                                    "remote_control": True})
+    rc = [f["remote_control"] for _, f in env["frames"] if f["type"] == "agent_launch"]
+    assert rc == [True, False]   # Codex has no Remote Control
+
+
+def test_list_shows_claude_usage_from_the_oauth_snapshot(env):
+    """No status line relays rate_limits: the rings use what Settings shows."""
+    from agent import coding_usage
+    coding_usage._cache = {"five_hour_pct": 31, "weekly_pct": 8, "five_hour_reset_at": 9e9,
+                           "weekly_reset_at": 9e9, "available": True, "fetched_at": 1.0}
+    try:
+        _, body = call("GET", "/agents/list")
+    finally:
+        coding_usage._cache = None
+    assert body["usage"]["five_hour"] == {"used_percentage": 31, "resets_at": 9e9}
+    assert body["usage"]["seven_day"]["used_percentage"] == 8

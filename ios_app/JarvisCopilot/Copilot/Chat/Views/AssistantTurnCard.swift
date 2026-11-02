@@ -17,6 +17,10 @@ struct ChatAssistantTurnCard: View {
     var jobs: [HarnessJob] = []
     /// A job card's Stop button. Nil where a turn is being read only.
     var onStopJob: ((String) -> Void)?
+    /// Tap a job card: the job as a conversation.
+    var onOpenJob: ((HarnessJob) -> Void)?
+    /// A job card's Allow / Always / Deny.
+    var onAnswerJob: ((HarnessJob, String) -> Void)?
 
     private var tools: [ToolInvocation] { message.tools }
     /// A proposed integration isn't a tool result to skim — it's a card the user
@@ -73,7 +77,9 @@ struct ChatAssistantTurnCard: View {
             if !jobs.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(jobs) { job in
-                        HarnessJobCard(job: job, onStop: onStopJob.map { stop in { stop(job.id) } })
+                        HarnessJobCard(job: job, onStop: onStopJob.map { stop in { stop(job.id) } },
+                                       onOpen: onOpenJob.map { open in { open(job) } },
+                                       onAnswer: onAnswerJob.map { answer in { choice in answer(job, choice) } })
                     }
                 }
             }

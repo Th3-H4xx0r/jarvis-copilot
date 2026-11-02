@@ -290,7 +290,8 @@ def on_agent_pending(device_id, data) -> None:
         fingerprint=str(data["fingerprint"]), device_id=device_id or None, kind=kind,
         questions=data.get("questions") if kind == "ask" else None,
         can_always=bool(data.get("can_always")), agent=str(data.get("agent") or "claude"),
-        key=_server_key(device_id, data), command=str(data.get("command") or ""))
+        key=_server_key(device_id, data), command=str(data.get("command") or ""),
+        ttl=data.get("ttl") if isinstance(data.get("ttl"), (int, float)) else None)
     agent_key = _server_key(device_id, data)
     who = _AGENT_NAMES.get(str(data.get("agent") or "claude"), "Claude")
     project = _project(cwd)
@@ -300,7 +301,16 @@ def on_agent_pending(device_id, data) -> None:
         title, body, category = f"{who} has a question", f"{project}: {first}".strip(": "), "AGENT_QUESTION"
     else:
         title, body, category = f"{who} needs approval", f"{project}: {data.get('summary') or ''}", "PERMISSION_APPROVAL"
+    if data.get("title"):
+        title = str(data["title"])
+    if not cwd:
+        body = str(data.get("summary") or body)
     body = body[:240]
+    if data.get("quiet"):
+        # The caller already shows this prompt where it was asked (a chat
+        # card): the Agents request is enough, no banner.
+        _agent_la_tick()
+        return
     push = {"type": "coding_permission", "request_id": rid, "kind": kind,
             "agent_key": agent_key,
             "fingerprint": data["fingerprint"], "session_id": data.get("session_id") or "",
@@ -419,6 +429,10 @@ def broadcast_config(settings: dict) -> None:
 def _route_decision(record, decision, message, answers) -> bool:
     fingerprint = record.get("fingerprint")
     device_id = record.get("device_id")
+    from api import jarvis_approvals
+    if jarvis_approvals.owns(fingerprint):
+        # One of Jarvis's own turns (chat or Background job) is waiting.
+        return jarvis_approvals.decide(fingerprint, decision)
     if str(fingerprint or "").startswith("codex:"):
         # A Codex session running on the server (codex app-server) asked.
         from api.agents_core import core

@@ -21,6 +21,37 @@ final class HarnessJobFormatTests: XCTestCase {
         XCTAssertEqual(HarnessMeta(json: ["model": "@x:y"])?.jobs, [])
     }
 
+    /// A job waiting on an approval carries it (and its worker session) on the card.
+    func testParsesAWaitingApproval() throws {
+        let parsed = try XCTUnwrap(HarnessJob(json: [
+            "id": "j1", "label": "Long Running", "status": "running", "started_at": 1000,
+            "activity": "Needs your approval", "worker_session": "chat1~bg",
+            "approval": ["session_id": "chat1~bg", "approval_id": "", "kind": "command",
+                         "command": "rm -rf /root/x", "description": "recursive delete", "can_always": true],
+        ]))
+        XCTAssertEqual(parsed.workerSession, "chat1~bg")
+        let approval = try XCTUnwrap(parsed.approval)
+        XCTAssertEqual(approval.sessionID, "chat1~bg")
+        XCTAssertEqual(approval.command, "rm -rf /root/x")
+        XCTAssertTrue(approval.canAlways)
+        XCTAssertFalse(approval.isSend)
+        XCTAssertNil(HarnessJob(json: ["id": "j2", "approval": NSNull()])?.approval)
+        XCTAssertNil(HarnessJob(json: ["id": "j3", "approval": ["command": "x"]])?.approval,
+                     "no session to answer on: nothing to draw")
+    }
+
+    func testParsesAJobView() throws {
+        let view = try XCTUnwrap(HarnessJobView(json: [
+            "job": ["id": "j1", "label": "Long Running", "status": "done", "started_at": 1],
+            "task": "Research reactors", "messages": [["role": "assistant", "content": "Done."]],
+            "running": false, "live": false,
+        ]))
+        XCTAssertEqual(view.task, "Research reactors")
+        XCTAssertEqual(view.messages.count, 1)
+        XCTAssertFalse(view.running)
+        XCTAssertNil(HarnessJobView(json: ["task": "x"]), "no card: not a view")
+    }
+
     func testClockAndDuration() {
         XCTAssertEqual(HarnessJobFormat.clock(0), "0:00")
         XCTAssertEqual(HarnessJobFormat.clock(252), "4:12")

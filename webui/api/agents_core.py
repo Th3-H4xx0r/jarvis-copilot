@@ -68,6 +68,17 @@ class _NoCodex:
     send = stop = start
 
 
+def _claude_usage(tr, store):
+    """Claude plan usage for the Agents list: the status-line relay's numbers,
+    or the OAuth snapshot Settings shows (agent/coding_usage.py)."""
+    tracked = tr.usage() if tr is not None else None
+    try:
+        from agent.coding_usage import agents_claude_usage
+        return agents_claude_usage(tracked, store)
+    except Exception:  # noqa: BLE001
+        return tracked
+
+
 def _server_hook_settings():
     """The hooks file every server session starts with (agent/server_hooks.py)."""
     try:
@@ -431,7 +442,7 @@ class AgentsCore:
                  "agent": (by.get(k) or {}).get("agent") or "claude"}
                 for k in card["sessions"]])
         return {"card": card, "needs_you": needs, "projects": projects,
-                "usage": tr.usage() if tr is not None else None,
+                "usage": _claude_usage(tr, self.store),
                 "usage_codex": tr.usage("codex") if tr is not None else None, "ts": now}
 
     def messages(self, ckey: str, *, after: int = 0, before: Optional[int] = None,
@@ -512,6 +523,8 @@ class AgentsCore:
         where = str(body.get("where") or "server")
         agent = str(body.get("agent") or "claude")
         cwd = str(body.get("cwd") or "").strip()
+        # Claude Code's Remote Control (claude.ai/code, the Claude app). Codex has none.
+        rc = body.get("remote_control") is True and agent != "codex"
         if not cwd:
             return {"ok": False, "reason": "no_cwd", "error": "Pick a folder."}
         if where == "server":
@@ -525,7 +538,8 @@ class AgentsCore:
                 else:
                     self.claude.ensure_trusted(cwd)
                     self.claude.start(cwd, prompt=body.get("prompt"), model=body.get("model"),
-                                      permission_mode=body.get("permission_mode"))
+                                      permission_mode=body.get("permission_mode"),
+                                      remote_control=rc)
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "reason": "start_failed", "error": str(exc)}
             self.server_roster()
@@ -535,7 +549,8 @@ class AgentsCore:
             return {"ok": False, "reason": "mac_offline", "error": "The Mac is asleep or offline."}
         sent = self._send_frame(where, {
             "type": "agent_launch", "cwd": cwd, "agent": agent, "model": body.get("model"),
-            "permission_mode": body.get("permission_mode"), "prompt": body.get("prompt")})
+            "permission_mode": body.get("permission_mode"), "prompt": body.get("prompt"),
+            "remote_control": rc})
         return {"ok": True} if sent else {"ok": False, "reason": "mac_offline",
                                           "error": "The Mac is asleep or offline."}
 

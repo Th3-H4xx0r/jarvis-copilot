@@ -243,3 +243,21 @@ def test_job_for_finds_the_servers_job_for_a_session(home):
     assert rt.job_for("aaaaaaaa-0000") is None
     assert rt.job_session("6f309e8b") == "6f309e8b-64f2-4fee"
     assert rt.job_session("ffffffff") is None
+
+
+def test_remote_control_names_the_session_after_its_folder(home):
+    """`--remote-control [name]` takes an optional value: the "=" form keeps the
+    prompt from being read as the name (bg + rc checked live, 2.1.316)."""
+    run = Run(stdout="backgrounded · 1a2b3c4d\n")
+    ClaudeRuntime(run=run).start("/srv/my app!", prompt="hi", remote_control=True)
+    argv = run.calls[-1][0]
+    assert "--remote-control=my-app" in argv and argv[-1] == "hi"
+    ClaudeRuntime(run=run).start("/srv/app", prompt="hi")
+    assert not any(a.startswith("--remote-control") for a in run.calls[-1][0])
+
+
+def test_remote_control_name_is_safe():
+    from agent.server_runtime import remote_control_name
+    assert remote_control_name("/Users/p/code/jarvis-copilot/") == "jarvis-copilot"
+    assert remote_control_name("/") == "jarvis"
+    assert remote_control_name("/x/--evil") == "evil"

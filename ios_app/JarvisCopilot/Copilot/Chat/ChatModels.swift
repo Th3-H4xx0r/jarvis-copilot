@@ -202,6 +202,46 @@ struct ClarifyPrompt: Identifiable, Equatable, Sendable {
     var id: String { question }
 }
 
+/// A command the turn is paused on (tools/approval.py's dangerous-command gate):
+/// the server's `approval` that is not a send card. Allow answers "once",
+/// Always "always" (this kind of command stops asking), Deny "deny".
+struct ChatCommandApproval: Equatable, Hashable, Sendable, Identifiable {
+    /// Which ask this is: the same command can be asked again, and each ask
+    /// is its own card.
+    var seq: Int
+    var approvalID: String
+    var command: String
+    var description: String
+    var canAlways: Bool
+    /// The session whose turn is waiting (a Background job's worker), when it
+    /// is not the chat on screen.
+    var sessionID: String?
+
+    var id: String { "\(seq):\(approvalID):\(command)" }
+
+    init(seq: Int, approvalID: String = "", command: String, description: String = "",
+         canAlways: Bool = false, sessionID: String? = nil) {
+        self.seq = seq
+        self.approvalID = approvalID
+        self.command = command
+        self.description = description
+        self.canAlways = canAlways
+        self.sessionID = sessionID
+    }
+
+    init?(json: [String: Any], seq: Int) {
+        let pending = json["pending"] as? [String: Any] ?? json
+        guard (pending["kind"] as? String) != "send" else { return nil }
+        let command = (pending["command"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        let keys = pending["pattern_keys"] as? [Any] ?? []
+        let key = pending["pattern_key"] as? String ?? ""
+        self.init(seq: seq, approvalID: pending["approval_id"] as? String ?? "", command: command,
+                  description: pending["description"] as? String ?? "",
+                  canAlways: !keys.isEmpty || !key.isEmpty)
+    }
+}
+
 /// A call or message Jarvis is about to make, paused for his tap (agent/send_confirm.py):
 /// the server's `approval` of kind "send", with the person as his contacts know them.
 /// Send answers it "once" and the tool runs; Cancel answers "deny" and nothing goes.
@@ -404,7 +444,11 @@ extension ChatMessage {
 
         var blocks: [ChatBlock] = []
         if var content = j["content"] as? String {
+            #if !JC_MAC_VOICE
+            // (ChatFileRefs is the phone's attachments layer; the Mac voice
+            // library shows no chat history.)
             if rawRole == "user" { content = ChatFileRefs.stripped(content) }
+            #endif
             if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 blocks.append(.text(TextBlock(text: content)))
             }
