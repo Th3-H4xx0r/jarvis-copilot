@@ -484,3 +484,49 @@ def test_the_call_and_text_card_is_never_a_model_tool(monkeypatch):
     ])
     names = {t["name"] for t in device_skill_tools.get_device_tools()}
     assert "device_open_app" in names and "device_confirm_card" not in names
+
+
+# ── device pictures reach the chat (per-chat media folder + show_with) ──────
+
+def _real_png_b64(w=400, h=300):
+    import base64
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), (30, 90, 160)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_materialized_device_image_lands_in_chat_folder_with_show_with(monkeypatch, tmp_path):
+    from agent import chat_media
+    monkeypatch.setenv("HERMES_SESSION_ID", "chat9")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "webui")
+    handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _real_png_b64(), "mime": "image/png"})
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    out = json.loads(handler({}))
+    assert Path(out["image_path"]).parent == chat_media.media_dir("chat9")
+    assert out["show_with"] == f"![recent photo]({out['image_path']})"
+
+
+def test_multimodal_envelope_carries_show_with(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_SESSION_ID", "chat9")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "webui")
+    envelope = {"_multimodal": True,
+                "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,xx"}}],
+                "text_summary": "Image attached natively."}
+    handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _real_png_b64(), "mime": "image/png"},
+                              described=envelope)
+    out = handler({})
+    texts = " ".join(c.get("text", "") for c in out["content"] if c.get("type") == "text")
+    assert "To show this picture in the chat" in texts
+    assert out["meta"]["show_with"] in texts
+
+
+def test_device_image_without_a_chat_keeps_the_cache_and_media_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _real_png_b64(), "mime": "image/png"})
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    out = json.loads(handler({}))
+    assert Path(out["image_path"]).parent == tmp_path
+    assert out["show_with"] == f"MEDIA:{out['image_path']}"

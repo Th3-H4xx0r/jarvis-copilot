@@ -589,6 +589,40 @@ def screenshot(
     return result
 
 
+_SHARE_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
+
+@skill(
+    "share_image",
+    "Send an image file from this computer into the chat (e.g. a screenshot you "
+    "saved). `path` is the file. Returns {img_b64, format, width, height}.",
+    {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    },
+)
+def share_image(path: str) -> dict:
+    p = os.path.expanduser(str(path or "").strip())
+    if not p or not os.path.isfile(p):
+        return {"error": f"no such file: {path}"}
+    size = os.path.getsize(p)
+    if size > _SHARE_IMAGE_MAX_BYTES:
+        return {"error": "image is larger than 15 MB"}
+    with open(p, "rb") as fh:
+        data = fh.read()
+    try:
+        from PIL import Image  # type: ignore
+        with Image.open(io.BytesIO(data)) as im:
+            fmt = (im.format or "").lower()
+            width, height = im.size
+    except Exception:
+        return {"error": "not an image file"}
+    fmt = {"jpg": "jpeg"}.get(fmt, fmt)
+    return {"img_b64": base64.b64encode(data).decode("ascii"), "format": fmt,
+            "width": width, "height": height}
+
+
 def _grab_screen(region: dict | None):
     """Return (PIL.Image, source_label). On macOS we capture directly via
     the Quartz CGWindowList API — instant, no subprocess, no PNG round

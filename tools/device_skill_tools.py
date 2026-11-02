@@ -197,6 +197,32 @@ def _std_image_keys(d: dict) -> dict:
     return out
 
 
+def _save_to_chat(data: bytes, skill_name: str) -> Optional[Path]:
+    """Keep a device picture in the chat it was taken for (never pruned), or
+    None when there is no chat or the bytes aren't a showable image."""
+    try:
+        from agent.chat_media import ImageRejected, save_image_bytes
+        from gateway.session_context import get_session_env
+    except Exception:
+        return None
+    session_id = get_session_env("HERMES_SESSION_ID", "")
+    if not session_id:
+        return None
+    try:
+        return save_image_bytes(data, session_id, name_hint=skill_name,
+                                source=f"device:{skill_name}", worker_session=session_id).path
+    except (ImageRejected, ValueError, OSError):
+        return None
+
+
+def _show_with(path: Path, skill_name: str) -> str:
+    """The line a reply puts in the chat to show this picture."""
+    from gateway.session_context import get_session_env
+    if get_session_env("HERMES_SESSION_PLATFORM", "") == "webui":
+        return f"![{skill_name.replace('_', ' ')}]({path})"
+    return f"MEDIA:{path}"
+
+
 def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     """If `result` carries an image (`base64` + image `mime`), swap the blob for
     an `image_path` and a `description` the model can actually use.
@@ -228,12 +254,16 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
         return {**rest, wrapper_key: materialized}
     out = {k: v for k, v in inner.items() if k != "base64"}
     try:
-        _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         data = base64.b64decode(b64, validate=False)
-        name = f"jc-device-{skill_name}-{int(time.time() * 1000)}{_IMAGE_EXT.get(mime, '.img')}"
-        path = _IMAGE_DIR / name
-        path.write_bytes(data)
+        path = _save_to_chat(data, skill_name)
+        if path is None:
+            _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+            name = f"jc-device-{skill_name}-{int(time.time() * 1000)}{_IMAGE_EXT.get(mime, '.img')}"
+            path = _IMAGE_DIR / name
+            path.write_bytes(data)
+            _prune_images()
         out["image_path"] = str(path)
+        out["show_with"] = _show_with(path, skill_name)
         # How to actually deliver this file. The model was emitting its own
         # `MEDIA:` line into an email body (where it arrived as literal text);
         # naming the exact string, and where it works, keeps that honest.
@@ -242,7 +272,6 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
                             "pass send_message with the `send_with` string on its own line in "
                             "the message — it is delivered as a real attachment, not as text.")
         out["bytes"] = len(data)
-        _prune_images()
     except Exception as exc:
         out["error"] = f"could not save image: {exc}"
         return out
@@ -267,10 +296,14 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
         envelope = dict(seen)
         facts = ", ".join(f"{k}: {v}" for k, v in out.items()
                           if k in ("taken_at", "index", "library_count", "width", "height"))
+        content = list(envelope.get("content") or [])
         if facts:
-            content = list(envelope.get("content") or [])
             content.insert(0, {"type": "text", "text": f"Photo from the user's device ({facts})."})
-            envelope["content"] = content
+        # The pixels alone leave the model no way to put the picture in the
+        # chat ("I can't get it into this chat"), so name the exact line.
+        content.append({"type": "text", "text": "To show this picture in the chat, put this on "
+                                                f"its own line: {out['show_with']}"})
+        envelope["content"] = content
         envelope["meta"] = {**(envelope.get("meta") or {}),
                             **{k: v for k, v in out.items() if k != "error"}}
         return envelope
