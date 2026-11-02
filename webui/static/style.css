@@ -1050,8 +1050,38 @@
   .msg-files{display:flex;flex-wrap:wrap;gap:6px;padding-left:30px;margin-bottom:10px;}
   .msg-file-badge{display:flex;align-items:center;gap:5px;background:var(--accent-bg);border:1px solid var(--accent-bg-strong);border-radius:6px;padding:4px 9px;font-size:12px;color:var(--accent-text);}
   /* MEDIA: inline image rendering (feat #450) */
-  .msg-media-img{display:inline-block;width:120px;height:90px;border-radius:6px;margin:3px 4px 3px 0;cursor:zoom-in;object-fit:cover;border:1px solid var(--border);vertical-align:bottom;transition:opacity .15s;}
-  .msg-media-img:hover{opacity:.85;}
+  /* Chat images: a picture inside text (a table cell, a heading) stays modest;
+     pictures a reply shows sit in a .chat-gallery right under their text —
+     one full width, several as a 2-up grid (chat_images.js, renderMd). */
+  .msg-media-img{display:inline-block;max-width:min(100%,320px);max-height:240px;border-radius:10px;margin:3px 4px 3px 0;cursor:zoom-in;object-fit:cover;border:1px solid var(--border);vertical-align:bottom;background:var(--surface-subtle,rgba(255,255,255,.04));transition:opacity .15s;}
+  .msg-media-img:hover{opacity:.9;}
+  .chat-gallery{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0 12px;max-width:560px;}
+  .chat-gallery[data-n="1"]{grid-template-columns:1fr;max-width:480px;}
+  .chat-gallery .msg-media-img,.chat-gallery .chat-img-failed{display:block;width:100%;height:auto;max-width:none;max-height:none;margin:0;aspect-ratio:4/3;object-fit:cover;border-radius:14px;}
+  .chat-gallery[data-n="1"] .msg-media-img{width:auto;max-width:100%;max-height:60vh;object-fit:contain;}
+  .chat-gallery[data-n="1"] .msg-media-img[style*="aspect-ratio"]{width:100%;height:auto;}
+  .chat-gallery:not([data-n="1"]) .msg-media-img{aspect-ratio:4/3 !important;}
+  .chat-gallery:not([data-n="1"])>:last-child:nth-child(odd){grid-column:1/-1;aspect-ratio:16/9 !important;}
+  li .chat-gallery{margin:8px 0 6px;}
+  .msg-media-img:not(.is-loaded){animation:chat-img-shimmer 1.4s ease-in-out infinite;}
+  @keyframes chat-img-shimmer{0%,100%{opacity:.55}50%{opacity:.9}}
+  .chat-img-failed{display:flex;align-items:center;justify-content:center;min-height:90px;padding:12px;border:1px dashed var(--border2,var(--border));border-radius:14px;background:var(--surface-subtle,rgba(255,255,255,.04));color:var(--muted);font:inherit;font-size:13px;cursor:pointer;}
+  .chat-img-failed:hover{color:var(--text);border-color:var(--accent);}
+  .harness-job-thumbs{display:flex;gap:6px;margin-top:8px;}
+  .harness-job-thumbs .msg-media-img{width:56px;height:56px;max-height:none;margin:0;border-radius:10px;}
+  .chat-viewer{flex-direction:column;}
+  .chat-viewer-fig{margin:0;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:92vw;}
+  .chat-viewer-fig img{max-width:92vw;max-height:80vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 48px rgba(0,0,0,.6);cursor:default;}
+  .chat-viewer-fig figcaption{color:#eee;font-size:14px;text-align:center;max-width:70ch;}
+  .chat-viewer-bar{position:absolute;top:14px;right:16px;left:16px;display:flex;align-items:center;justify-content:flex-end;gap:8px;color:#ddd;font-size:13px;}
+  .chat-viewer-count{margin-right:auto;}
+  .chat-viewer-bar .img-lightbox-close{position:static;}
+  .chat-viewer-btn{width:36px;height:36px;border:none;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;text-decoration:none;cursor:pointer;}
+  .chat-viewer-btn:hover{background:rgba(255,255,255,.22);}
+  .chat-viewer-nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border:none;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:28px;line-height:1;cursor:pointer;}
+  .chat-viewer-nav:hover{background:rgba(255,255,255,.22);}
+  .chat-viewer-nav.prev{left:16px;}
+  .chat-viewer-nav.next{right:16px;}
   .img-lightbox{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:lb-in .15s ease;}
   @keyframes lb-in{from{opacity:0}to{opacity:1}}
   .img-lightbox img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 48px rgba(0,0,0,.6);cursor:default;}

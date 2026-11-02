@@ -204,3 +204,15 @@ test('errors and cancels end the feed with a line like the chat\'s', () => {
   assert.equal(g.ended, true);
   assert.equal(g.toolCalls[0].done, true);
 });
+
+test('a running card shows the newest pictures the job found', () => {
+  const html = J.cardHtml(card({ steps: 4, activity: 'Showing an image', images: [
+    { src: '/root/.jarviscopilot/webui/media/s1/rokid-abc123_800x600.jpg', caption: 'Rokid <b>' },
+    { src: '/root/.jarviscopilot/webui/media/s1/g2-def456_640x480.png', caption: '' },
+  ] }), 1010);
+  assert.match(html, /class="harness-job-thumbs"/);
+  assert.match(html, /src="api\/media\?path=%2Froot%2F.jarviscopilot%2Fwebui%2Fmedia%2Fs1%2Frokid-abc123_800x600\.jpg"/);
+  assert.match(html, /data-caption="Rokid &lt;b&gt;"/);
+  assert.equal((html.match(/<img /g) || []).length, 2);
+  assert.doesNotMatch(J.cardHtml(card({ steps: 1 }), 1010), /harness-job-thumbs/);
+});

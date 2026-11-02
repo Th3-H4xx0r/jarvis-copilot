@@ -106,6 +106,16 @@
       `</div></div>`;
   }
 
+  // The newest pictures the job saved (chat_image), under its live step; a tap
+  // opens them full screen (chat_images.js).
+  function thumbsHtml(card) {
+    const imgs = (Array.isArray(card.images) ? card.images : []).filter(i => i && i.src).slice(-4);
+    if (!imgs.length) return '';
+    return `<div class="harness-job-thumbs">` + imgs.map(i =>
+      `<img class="msg-media-img" src="api/media?path=${encodeURIComponent(i.src)}" alt="${esc(i.caption || 'image')}"` +
+      `${i.caption ? ` data-caption="${esc(i.caption)}"` : ''} loading="lazy">`).join('') + `</div>`;
+  }
+
   function cardHtml(card, now) {
     const ap = waitingOn(card);
     if (card.approval && !ap && card.activity === 'Needs your approval') {
@@ -123,7 +133,7 @@
       `<span class="harness-job-dot" aria-hidden="true"></span>` +
       `<div class="harness-job-main"><div class="harness-job-title"><button type="button" class="harness-job-open" ${open}><b>${esc(v.title)}</b></button>` +
       (v.model ? ` <span class="harness-job-model">${esc(v.model)}</span>` : '') + `</div>` +
-      `<div class="harness-job-detail">${esc(v.detail)}</div></div>` +
+      `<div class="harness-job-detail">${esc(v.detail)}</div>${thumbsHtml(card)}</div>` +
       `<span class="harness-job-clock">${esc(v.clock)}</span>` +
       (card.stopping
         ? `<button type="button" class="harness-job-stop" disabled>Stopping…</button>`

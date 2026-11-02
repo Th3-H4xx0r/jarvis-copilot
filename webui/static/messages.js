@@ -1510,9 +1510,12 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       const parsed=_parseStreamState();
       _renderLiveThinking(parsed);
       if(assistantBody){
-        const displayText = segmentStart===0
+        const _rawDisplay = segmentStart===0
           ? parsed.displayText                          // first segment: uses think-tag stripping
           : _stripXmlToolCalls(assistantText.slice(segmentStart));
+        // Image tokens (and a half-typed one) stay out of the live text; the
+        // pictures are drawn in place when the reply is done (chat_images.js).
+        const displayText = window.ChatImages ? window.ChatImages.forStreaming(_rawDisplay) : _rawDisplay;
         if(_shouldUseStreamFade()){
           const caughtUp=_renderStreamingFadeMarkdown(displayText);
           if(!caughtUp&&!_streamFinalized){
@@ -1533,9 +1536,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
             // Fallback: smd not loaded yet, reconnect session, or smd unavailable — use renderMd
             // for every live segment. Without this, the first segment inserts raw
             // parsed.displayText and users see unformatted markdown until done.
-            const fallbackText = segmentStart===0
-              ? parsed.displayText
-              : _stripXmlToolCalls(assistantText.slice(segmentStart));
+            const fallbackText = displayText;
             assistantBody.innerHTML = renderMd ? renderMd(fallbackText) : esc(fallbackText);
           }
         }

@@ -96,12 +96,14 @@ class TestMediaCSS(unittest.TestCase):
         self.assertIn(".msg-media-img", self.CSS)
 
     def test_msg_media_img_max_width(self):
-        # PR #1135: resting thumbnail is 120x90px (fixed size); no max-width needed.
-        # Lightbox shows full-size. Check width is set instead.
+        # Chat images are real pictures now (2026-11-02), not 120x90 thumbnails:
+        # a lone image is capped, and a reply's images sit in a .chat-gallery.
         idx = self.CSS.find(".msg-media-img{")
         self.assertGreater(idx, 0)
         rule = self.CSS[idx:idx+200]
-        self.assertIn("width:120px", rule, "Thumbnail must have fixed 120px width")
+        self.assertIn("max-width:", rule)
+        self.assertNotIn("width:120px", rule)
+        self.assertIn(".chat-gallery{", self.CSS)
 
     def test_msg_media_img_full_class_defined(self):
         # PR #1135: .msg-media-img--full removed; lightbox replaces inline zoom.

@@ -520,7 +520,9 @@ document.addEventListener('click', e => {
   if(!e.target || !e.target.closest) return;
   // Chat/message images (assistant-rendered): raster (.msg-media-img) and
   // inline SVG (.msg-media-svg) — tap to open the fullscreen lightbox.
-  let img = e.target.closest('.msg-media-img, .msg-media-svg');
+  let img = e.target.closest('.msg-media-img');
+  if(img && window.ChatImages){ window.ChatImages.openFrom(img); return; }
+  img = e.target.closest('.msg-media-img, .msg-media-svg');
   if(img){ _openImgLightbox(img.src, img.alt); return; }
   // Composer attach-tray image thumbnails — click any pasted/dropped image
   // chip to lightbox-zoom it before sending. Excludes audio/video chips,
@@ -2543,10 +2545,49 @@ function renderMd(raw){
   // generated images) and replace them with inline <img> or download links.
   // Stashed so the path/URL is never processed as markdown.
   const media_stash=[];
-  s=s.replace(/MEDIA:([^\s\)\]]+)/g,(_,raw_ref)=>{
-    media_stash.push(raw_ref);
+  const media_alt=[];
+  const _stashMedia=(ref,alt)=>{
+    media_stash.push(ref);
+    media_alt.push(alt||'');
     return '\x00D'+(media_stash.length-1)+'\x00';
-  });
+  };
+  // Chat images: MEDIA:<ref> and ![alt](<ref>) where <ref> is a web URL, an
+  // absolute server path or an api/media URL — all stashed alike so a reply's
+  // pictures can be laid out together (see the gallery pass below). Fenced
+  // code and inline `code` keep them as written.
+  {
+    let _inFence=false;
+    s=s.split('\n').map(line=>{
+      if(/^\s*(```|~~~)/.test(line)){_inFence=!_inFence;return line;}
+      if(_inFence) return line;
+      return line.split(/(`[^`]*`)/).map((part,pi)=>pi%2?part:part
+        .replace(/!\[([^\]\n]*)\]\(((?:https?:\/\/|\/(?!\/)|api\/media\?)[^)\s]+)\)/g,(_,alt,ref)=>_stashMedia(ref,alt))
+        .replace(/MEDIA:([^\s\)\]]+)/g,(_,raw_ref)=>_stashMedia(raw_ref,''))
+      ).join('');
+    }).join('\n');
+  }
+  // Which stashed refs are pictures (they go in galleries; PDFs, audio etc. don't).
+  const _galleryRef=i=>{
+    let ref=String(media_stash[i]||'');
+    const q=ref.indexOf('path=');
+    if(/^\/?api\/media\?/.test(ref)&&q>=0){try{ref=decodeURIComponent(ref.slice(q+5).split('&')[0]);}catch(_){}}
+    const clean=ref.split('?')[0];
+    if(/\.svg$/i.test(clean)) return false;
+    if(/\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|mp4|mov|m4v|webm|ogv|avi|mkv|pdf|html?|csv|patch|diff|excalidraw)$/i.test(clean)) return false;
+    if(/^https?:\/\//i.test(ref)) return true;
+    return /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(clean);
+  };
+  const _GS='\x00GS\x00', _GE='\x00GE\x00';
+  // Pull a block's pictures out of its text: {rest, gal} — gal is the gallery
+  // marker run that goes right after the text.
+  const _liftImages=txt=>{
+    const imgs=[];
+    const rest=String(txt).replace(/\x00D(\d+)\x00/g,(m,i)=>{
+      if(_galleryRef(+i)){imgs.push(m);return '';}
+      return m;
+    });
+    return {rest, gal: imgs.length?_GS+imgs.join('')+_GE:''};
+  };
   // ── End MEDIA stash ─────────────────────────────────────────────────────────
   // Pre-pass: decode HTML entities first so markdown processing works correctly.
   // This prevents double-escaping when LLM outputs entities like &lt; &gt; &amp;
@@ -2729,13 +2770,14 @@ function renderMd(raw){
     let html='<ul>';
     for(const l of lines){
       const indent=/^ {2,}/.test(l);
-      const text=l.replace(/^ {0,4}[-*+] /,'');
+      const _lifted=_liftImages(l.replace(/^ {0,4}[-*+] /,''));
+      const text=_lifted.rest.replace(/\s+$/,'');
       let _ih;
       if(/^\[x\] /i.test(text)) _ih='<span class="task-done">✅</span> '+inlineMd(text.slice(4));
       else if(/^\[ \] /.test(text)) _ih='<span class="task-todo">☐</span> '+inlineMd(text.slice(4));
       else _ih=inlineMd(text);
-      if(indent) html+=`<li style="margin-left:16px">${_ih}</li>`;
-      else html+=`<li>${_ih}</li>`;
+      if(indent) html+=`<li style="margin-left:16px">${_ih}${_lifted.gal}</li>`;
+      else html+=`<li>${_ih}${_lifted.gal}</li>`;
     }
     return html+'</ul>';
   });
@@ -2749,9 +2791,10 @@ function renderMd(raw){
     for(const l of lines){
       const numMatch=l.match(/^\s*(\d+)\. /);
       const num=numMatch?parseInt(numMatch[1],10):null;
-      const text=l.replace(/^ {0,4}\d+\. /,'');
+      const _lifted=_liftImages(l.replace(/^ {0,4}\d+\. /,''));
+      const text=_lifted.rest.replace(/\s+$/,'');
       const valAttr=num!==null?` value="${num}"`:'';
-      html+=`<li${valAttr}>${inlineMd(text)}</li>`;
+      html+=`<li${valAttr}>${inlineMd(text)}${_lifted.gal}</li>`;
     }
     return html+'</ol>';
   });
@@ -2925,11 +2968,33 @@ function renderMd(raw){
     return '\x00E'+(_pre_stash.length-1)+'\x00';
   });
   const parts=s.split(/\n{2,}/);
-  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]|^\x00K/.test(p))return p;return `<p>${p.replace(/\n/g,'<br>')}</p>`;}).join('\n');
+  // A paragraph's pictures go right after its text, as a gallery.
+  s=parts.map(p=>{p=p.trim();if(!p)return '';if(/^<(h[1-6]|ul|ol|table|pre|hr|blockquote)|^\x00[EQ]|^\x00K/.test(p))return p;const _lifted=_liftImages(p);if(!_lifted.gal)return `<p>${p.replace(/\n/g,'<br>')}</p>`;
+    const rest=_lifted.rest.split('\n').filter(x=>x.trim()).join('\n');
+    return (rest?`<p>${rest.replace(/\n/g,'<br>')}</p>`:'')+_lifted.gal;
+  }).join('\n');
+  // Pictures in a row (only blank lines between) are one gallery.
+  s=s.replace(/\x00GE\x00\s*\x00GS\x00/g,'');
+  s=s.replace(/\x00GS\x00([\s\S]*?)\x00GE\x00/g,(_,inner)=>`<div class="chat-gallery" data-n="${(inner.match(/\x00D\d+\x00/g)||[]).length}">${inner}</div>`);
   s=s.replace(/\x00E(\d+)\x00/g,(_,i)=>_pre_stash[+i]);
   // ── Restore MEDIA stash → inline images or download links ─────────────────
   s=s.replace(/\x00D(\d+)\x00/g,(_,i)=>{
-    const ref=media_stash[+i];
+    let ref=media_stash[+i];
+    const _cap=media_alt[+i]||'';
+    // A saved chat image's name carries its size (…_<W>x<H>.<ext>).
+    const _imgExtra=src=>{
+      let path=String(src||'');
+      const q=path.indexOf('path=');
+      if(q>=0){try{path=decodeURIComponent(path.slice(q+5).split('&')[0]);}catch(_){}}
+      const m=path.split('?')[0].match(/_(\d+)x(\d+)\.[A-Za-z0-9]+$/);
+      const aspect=m&&+m[1]>0&&+m[2]>0?` style="aspect-ratio:${+m[1]}/${+m[2]}"`:'';
+      return (_cap?` data-caption="${esc(_cap)}"`:'')+aspect;
+    };
+    // An api/media URL is already served; keep it relative to this page.
+    if(/^\/?api\/media\?/.test(ref)){
+      const src=ref.replace(/^\//,'');
+      return `<img class="msg-media-img" src="${esc(src)}" alt="${esc(_cap||'image')}" loading="lazy"${_imgExtra(src)}>`;
+    }
     // Keep this logic self-contained: some tests extract renderMd() alone and
     // execute it in node, without the top-level helper functions from ui.js.
     const mediaKindForName=(name='')=>{
@@ -2971,7 +3036,7 @@ function renderMd(raw){
       if(mediaKind==='audio'||mediaKind==='video') return mediaPlayerHtml(mediaKind,src,urlPath.split('/').pop()||mediaKind);
       // Render all https:// URLs as <img> — extensionless CDN paths like fal.media still work (#853)
       if(_IMAGE_EXTS.test(urlPath) || /^https?:\/\//i.test(src)){
-        return `<img class="msg-media-img" src="${esc(src)}" alt="image" loading="lazy">`;
+        return `<img class="msg-media-img" src="${esc(src)}" alt="${esc(_cap||'image')}" loading="lazy"${_imgExtra(src)}>`;
       }
       return `<a href="${esc(src)}" target="_blank" rel="noopener">${esc(src)}</a>`;
     }
@@ -2979,7 +3044,7 @@ function renderMd(raw){
     const apiUrl='api/media?path='+encodeURIComponent(ref);
     const localKind=mediaKindForName(ref);
     if(localKind==='image'){
-      return `<img class="msg-media-img" src="${esc(apiUrl)}" alt="${esc(ref.split('/').pop())}" loading="lazy">`;
+      return `<img class="msg-media-img" src="${esc(apiUrl)}" alt="${esc(_cap||ref.split('/').pop())}" loading="lazy"${_imgExtra(ref)}>`;
     }
     // SVG → inline image (no download, render directly)
     if(_SVG_EXTS.test(ref)){
@@ -3758,6 +3823,9 @@ function _stripForTTS(text){
   // Strip headings
   text=text.replace(/^#{1,6}\s+/gm,'');
   // Strip links, keep text
+  // Pictures aren't read out: drop markdown images and image MEDIA: refs.
+  text=text.replace(/!\[[^\]]*\]\([^)]+\)/g,'');
+  text=text.replace(/MEDIA:\S+\.(png|jpe?g|gif|webp|bmp|avif)\b/gi,'');
   text=text.replace(/\[([^\]]+)\]\([^)]+\)/g,'$1');
   // Replace MEDIA: paths with a simple label
   text=text.replace(/MEDIA:[^\s]+/g,'a file');
