@@ -838,6 +838,9 @@ MEDIA_DELIVERY_SAFE_ROOTS = (
     _HERMES_HOME / "video_cache",
     _HERMES_HOME / "document_cache",
     _HERMES_HOME / "browser_screenshots",
+    # Per-chat images (agent/chat_media.py): what chat_image saved for a chat
+    # can also be sent on to Telegram / email.
+    _HERMES_HOME / "webui" / "media",
     # Consolidated cache/* layout — image_gen writes generated images to
     # cache/images unconditionally, which the legacy-aware IMAGE_CACHE_DIR may
     # NOT resolve to when a legacy image_cache/ dir exists. Allowlist both so a
