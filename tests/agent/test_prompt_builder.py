@@ -829,10 +829,20 @@ class TestPromptBuilderConstants:
 
     def test_platform_hints_webui(self):
         hint = PLATFORM_HINTS["webui"]
-        assert "WebUI" in hint
         assert "MEDIA:" in hint
         assert "Markdown" in hint
         assert "absolute" in hint
+
+    def test_webui_hint_tells_model_to_interleave_images(self):
+        hint = PLATFORM_HINTS["webui"]
+        assert "chat_image" in hint
+        assert "directly after" in hint
+        assert "Never list images" in hint
+        assert "file paths" in hint
+        assert "Do not use Markdown image syntax" not in hint
+
+    def test_webui_hint_is_short(self):
+        assert len(PLATFORM_HINTS["webui"].split()) <= 110
 
 
 # =========================================================================

@@ -624,16 +624,13 @@ PLATFORM_HINTS = {
         "brief and natural."
     ),
     "webui": (
-        "You are in the JarvisCopilot WebUI, a browser-based chat interface. "
-        "Full Markdown rendering is supported — headings, bold, italic, code "
-        "blocks, tables, math (LaTeX), and Mermaid diagrams all render natively. "
-        "To display local or remote media/files inline, include "
-        "MEDIA:/absolute/path/to/file or MEDIA:https://... in your response. "
-        "Local file paths must be absolute. Images, audio (with playback speed "
-        "controls), video, PDFs, HTML, CSV, diffs/patches, and Excalidraw files "
-        "render as rich previews. Do not use Markdown image syntax like "
-        "![alt](/path) for local files; local paths are not served that way. "
-        "Use MEDIA:/absolute/path instead."
+        "You are in the JarvisCopilot chat (web, iPhone and Mac apps). Full "
+        "Markdown renders, including tables, math (LaTeX) and Mermaid. To show an "
+        "image, call chat_image and put its show_with line on its own, directly "
+        "after the paragraph or bullet it illustrates; several images in a row "
+        "become a grid. Never list images at the end, and never mention file "
+        "paths, folders or where images are saved. For other files (audio, video, "
+        "PDF, HTML, CSV, diffs), put MEDIA:/absolute/path on its own line."
     ),
 }
 
