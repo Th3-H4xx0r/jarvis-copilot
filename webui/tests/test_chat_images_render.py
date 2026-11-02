@@ -109,3 +109,22 @@ def test_media_in_code_fence_stays_literal(render):
 def test_pdf_media_is_not_a_gallery_tile(render):
     html = render("Report: MEDIA:/root/r.pdf")
     assert "chat-gallery" not in html and "pdf-preview-load" in html
+
+
+# The prompt asks for show_with on its own line right after the bullet.
+@pytest.mark.parametrize("md", [
+    "1. Rokid\n   ![R](/root/m/r-abc123_800x600.jpg)\n2. XREAL",
+    "1. Rokid\n![R](/root/m/r-abc123_800x600.jpg)\n2. XREAL",
+    "1. Rokid\n\n![R](/root/m/r-abc123_800x600.jpg)\n\n2. XREAL",
+])
+def test_image_line_after_a_bullet_belongs_to_it(render, md):
+    html = render(md)
+    assert re.search(r'<li value="1">Rokid\s*<div class="chat-gallery" data-n="1"><img', html), html
+    assert '<li value="2">XREAL</li>' in html
+
+
+def test_image_after_a_paragraph_is_not_pulled_into_a_list(render):
+    html = render("- a\n- b\n\nPhotos:\n\n![x](/root/x.jpg)")
+    flat = html.replace("\n", "")
+    assert "<li>b</li></ul>" in flat
+    assert re.search(r'Photos:(</p>)?<div class="chat-gallery"', flat), html

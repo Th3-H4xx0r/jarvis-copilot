@@ -113,7 +113,12 @@ struct ChatImageTile: View {
         }
     }
 
+    @State private var loadedSource = ""
+
     private func load() async {
+        // A reused tile whose picture changed (a streamed ref completing) must
+        // not keep showing the old one.
+        if loadedSource != image.source { loaded = nil; failed = false; loadedSource = image.source }
         guard loaded == nil else { return }
         let data: Data?
         if let inline = ChatMedia.inlineImageData(image.source) {

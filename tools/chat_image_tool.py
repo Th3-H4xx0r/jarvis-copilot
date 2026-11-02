@@ -13,6 +13,7 @@ import json
 import logging
 from pathlib import Path
 
+from agent import chat_media
 from agent.chat_media import ImageRejected, fetch_image, save_image_bytes
 from gateway.session_context import get_session_env
 
@@ -92,6 +93,10 @@ def chat_image_tool(args: dict) -> str:
             p = Path(source).expanduser()
             if not p.is_absolute() or not p.is_file():
                 return json.dumps({"ok": False, "error": "no such file on the server"})
+            if p.suffix.lower() not in chat_media._LOCAL_IMAGE_EXTS:
+                return json.dumps({"ok": False, "error": "not an image file"})
+            if p.stat().st_size > chat_media.MAX_BYTES:
+                return json.dumps({"ok": False, "error": "image is larger than 15 MB"})
             data = p.read_bytes()
             hint = caption or p.stem
         saved = save_image_bytes(data, session_id, name_hint=hint, caption=caption,

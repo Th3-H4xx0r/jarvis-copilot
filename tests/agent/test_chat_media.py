@@ -126,3 +126,49 @@ def test_delete_media_removes_folder():
     cm.save_image_bytes(_img(300, 300), "gone")
     cm.delete_media("gone")
     assert not cm.media_dir("gone").exists()
+
+
+# ── review fixes ────────────────────────────────────────────────────────────
+
+def test_localize_never_reads_big_or_non_image_files(tmp_path, monkeypatch):
+    big = tmp_path / "clip.png"
+    big.write_bytes(_img(400, 300))
+    video = tmp_path / "talk.mp4"
+    video.write_bytes(b"\x00" * 1000)
+    reads = []
+    real = cm.Path.read_bytes
+    monkeypatch.setattr(cm.Path, "read_bytes", lambda self: reads.append(self.name) or real(self))
+    monkeypatch.setattr(cm, "MAX_BYTES", 100)
+    text = f"MEDIA:{big}\nMEDIA:{video}"
+    assert cm.localize_text(text, "s", fetch=lambda *a, **k: b"") == text
+    assert reads == []
+
+
+def test_localize_gives_up_on_slow_downloads(monkeypatch):
+    import threading
+    gate = threading.Event()
+
+    def slow(url, timeout=8.0):
+        gate.wait(5)
+        return _img(300, 300)
+
+    t0 = time.monotonic()
+    text = "MEDIA:https://slow/a.jpg"
+    out = cm.localize_text(text, "s", fetch=slow, deadline=0.3)
+    gate.set()
+    assert out == text
+    assert time.monotonic() - t0 < 2
+
+
+def test_fetch_image_refuses_a_redirect_to_a_private_address(monkeypatch):
+    import httpx
+
+    def handler(request):
+        if request.url.host == "public.example":
+            return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data"})
+        return httpx.Response(200, content=_img(300, 300))
+
+    monkeypatch.setattr(cm, "_transport", lambda: httpx.MockTransport(handler))
+    monkeypatch.setattr("tools.url_safety.is_safe_url", lambda url: "169.254" not in url)
+    with pytest.raises(cm.ImageRejected):
+        cm.fetch_image("https://public.example/a.jpg")

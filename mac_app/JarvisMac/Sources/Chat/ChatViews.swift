@@ -722,6 +722,7 @@ struct ChatImageView: View {
     @State private var loaded: NSImage?
     @State private var failed = false
     @State private var attempt = 0
+    @State private var loadedSource = ""
 
     static let maxHeight: CGFloat = 240
 
@@ -731,10 +732,18 @@ struct ChatImageView: View {
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
             .help(picture.caption.isEmpty ? "Open full size" : picture.caption)
             .accessibilityLabel(picture.caption.isEmpty ? "Image" : picture.caption)
+            .task(id: "\(picture.source)#\(attempt)") {
+                let source = picture.source
+                if loadedSource == source, loaded != nil { return }
+                failed = false
+                loaded = await ChatImageCache.shared.image(source)
+                loadedSource = source
+                failed = loaded == nil
+            }
     }
 
     @ViewBuilder private var content: some View {
-        if let image = loaded ?? ChatImageCache.shared.cached(picture.source) {
+        if let image = (loadedSource == picture.source ? loaded : nil) ?? ChatImageCache.shared.cached(picture.source) {
             if fill {
                 Color.clear
                     .overlay(Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fill))
@@ -759,10 +768,6 @@ struct ChatImageView: View {
             .background(Color.white.opacity(0.05))
         } else {
             placeholder
-                .task(id: "\(picture.source)#\(attempt)") {
-                    loaded = await ChatImageCache.shared.image(picture.source)
-                    failed = loaded == nil
-                }
         }
     }
 

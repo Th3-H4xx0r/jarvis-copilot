@@ -200,6 +200,25 @@ final class MarkdownBlocksTests: XCTestCase {
                        [.paragraph("use `![a](/a.png)` here")])
     }
 
+    /// show_with on its own line right after a bullet (indented, flush or after
+    /// a blank line) belongs to that bullet.
+    func testImageLineAfterABulletBelongsToIt() {
+        for md in ["1. Rokid\n   ![R](/r.jpg)\n2. XREAL", "1. Rokid\n![R](/r.jpg)\n2. XREAL",
+                   "1. Rokid\n\n![R](/r.jpg)\n\n2. XREAL"] {
+            let blocks = MarkdownBlocks.split(md)
+            let items = blocks.flatMap { block -> [MarkdownListItem] in
+                if case .list(let items) = block { return items }
+                return []
+            }
+            XCTAssertEqual(items.map(\.marker), ["1.", "2."], md)
+            XCTAssertEqual(items.first?.images, [MarkdownImage(alt: "R", source: "/r.jpg")], md)
+            XCTAssertFalse(blocks.contains { if case .gallery = $0 { return true }; return false }, md)
+        }
+        // After a paragraph that follows the list, it is the paragraph's.
+        XCTAssertEqual(MarkdownBlocks.split("- a\n\nPhotos:\n\n![x](/x.jpg)").last,
+                       .gallery([MarkdownImage(alt: "x", source: "/x.jpg")]))
+    }
+
     func testAllImagesOfAReplyInOrder() {
         let blocks = MarkdownBlocks.split("- x ![a](/a.png)\n\n![b](/b.png)")
         XCTAssertEqual(MarkdownBlocks.images(in: blocks).map(\.source), ["/a.png", "/b.png"])

@@ -38,6 +38,8 @@ _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 
 # `MEDIA:<ref>` and `![alt](<ref>)` — the two ways a reply shows an image.
+_LOCAL_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".tif", ".tiff",
+                     ".heic", ".heif"}
 _MEDIA_RE = re.compile(r"MEDIA:([^\s)\]]+)")
 _MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
@@ -153,27 +155,51 @@ def save_image_bytes(data: bytes, session_id: str, *, name_hint: str = "image",
     return SavedImage(path=path, width=w, height=h, mime=mime)
 
 
+def _transport():
+    """The HTTP transport (a seam for tests); None = httpx's default."""
+    return None
+
+
 def fetch_image(url: str, timeout: float = 8.0) -> bytes:
-    """Download one web image (public addresses only), at most 15 MB."""
+    """Download one web image (public addresses only, every redirect hop
+    re-checked), at most 15 MB and about ``2 × timeout`` seconds in all."""
     import httpx
+    from tools.url_safety import is_safe_url
     from tools.vision_tools import _validate_image_url
 
     if not _validate_image_url(url):
         raise ImageRejected("not a public http(s) image address")
+
+    def _redirect_guard(response):
+        # A public URL that 302s to 169.254.169.254 / localhost must not be followed.
+        # (httpx sets response.next_request only AFTER the hooks run, so the
+        # target is resolved from Location here.)
+        location = response.headers.get("location") if response.is_redirect else None
+        if location and not is_safe_url(str(response.url.join(location))):
+            raise ImageRejected("the address redirects to a private network")
+
+    started = time.monotonic()
     try:
-        with httpx.stream("GET", url, follow_redirects=True, timeout=timeout,
-                          headers={"User-Agent": _UA, "Accept": "image/*,*/*;q=0.5"}) as resp:
-            if resp.status_code >= 400:
-                raise ImageRejected(f"the site answered {resp.status_code}")
-            chunks, total = [], 0
-            for chunk in resp.iter_bytes():
-                total += len(chunk)
-                if total > MAX_BYTES:
-                    raise ImageRejected("image is larger than 15 MB")
-                chunks.append(chunk)
+        with httpx.Client(follow_redirects=True, timeout=timeout, transport=_transport(),
+                          event_hooks={"response": [_redirect_guard]}) as client:
+            with client.stream("GET", url, headers={"User-Agent": _UA,
+                                                    "Accept": "image/*,*/*;q=0.5"}) as resp:
+                if resp.status_code >= 400:
+                    raise ImageRejected(f"the site answered {resp.status_code}")
+                chunks, total = [], 0
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > MAX_BYTES:
+                        raise ImageRejected("image is larger than 15 MB")
+                    if time.monotonic() - started > 2 * timeout:
+                        raise ImageRejected("the download was too slow")
+                    chunks.append(chunk)
     except ImageRejected:
         raise
     except Exception as exc:
+        cause = exc.__cause__ or exc.__context__
+        if isinstance(cause, ImageRejected):
+            raise cause from None
         raise ImageRejected(f"download failed: {exc.__class__.__name__}") from None
     return b"".join(chunks)
 
@@ -229,16 +255,20 @@ def _wants_localizing(ref: str, folder: Path) -> bool:
     try:
         p = Path(ref).resolve()
         inside = p.is_relative_to(folder.resolve())
+        # Only real image files of a sane size are ever read (never a video,
+        # /proc/kcore or a 2 GB file the reply happened to name).
+        return (not inside and p.suffix.lower() in _LOCAL_IMAGE_EXTS and p.is_file()
+                and p.stat().st_size <= MAX_BYTES)
     except OSError:
         return False
-    return not inside and p.is_file()
 
 
 def localize_text(text: str, session_id: str, *, fetch: Callable[..., bytes] | None = None,
-                  max_images: int = 8) -> str:
+                  max_images: int = 8, deadline: float = 6.0) -> str:
     """Save every web image / stray file a reply shows into the chat's folder
     and point the reply at the saved copy. Refs inside code fences, refs already
-    in the folder, and refs that fail stay as written."""
+    in the folder, and refs that fail — or don't finish within ``deadline``
+    seconds in all, so the end of a turn is never held up — stay as written."""
     if not text or ("MEDIA:" not in text and "](" not in text):
         return text
     try:
@@ -268,8 +298,17 @@ def localize_text(text: str, session_id: str, *, fetch: Callable[..., bytes] | N
             logger.info("chat image backstop skipped %s: %s", ref[:120], exc)
             return ref, None
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        mapping = {ref: new for ref, new in pool.map(_one, wanted) if new}
+    from concurrent.futures import wait
+    pool = ThreadPoolExecutor(max_workers=4)
+    futures = [pool.submit(_one, ref) for ref in wanted]
+    done, _late = wait(futures, timeout=deadline)
+    # Late downloads keep running on their own threads; nobody waits for them.
+    pool.shutdown(wait=False, cancel_futures=True)
+    mapping = {}
+    for fut in done:
+        ref, new = fut.result()
+        if new:
+            mapping[ref] = new
     if not mapping:
         return text
 

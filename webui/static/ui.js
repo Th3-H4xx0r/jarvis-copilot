@@ -2577,6 +2577,32 @@ function renderMd(raw){
     if(/^https?:\/\//i.test(ref)) return true;
     return /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(clean);
   };
+  // A picture on its own line right after a bullet (indented or not, blank
+  // lines allowed) belongs to that bullet: join it onto the item's line so it
+  // is drawn under the item instead of splitting the list.
+  {
+    const _isItem=l=>/^\s{0,6}(?:[-*+]|\d+\.)\s+\S/.test(l);
+    const _imgOnly=l=>{
+      const t=l.trim();
+      if(!/^(?:\x00D\d+\x00\s*)+$/.test(t)) return false;
+      return (t.match(/\x00D(\d+)\x00/g)||[]).every(tok=>_galleryRef(+tok.slice(2,-1)));
+    };
+    const out=[];
+    let item=-1, inFence=false;
+    for(const line of s.split('\n')){
+      if(/^\s*(```|~~~)/.test(line)){inFence=!inFence;item=-1;out.push(line);continue;}
+      if(inFence){out.push(line);continue;}
+      if(item>=0&&_imgOnly(line)){
+        while(out.length-1>item&&!out[out.length-1].trim()) out.pop();
+        out[item]+=' '+line.trim();
+        continue;
+      }
+      if(_isItem(line)) item=out.length;
+      else if(line.trim()) item=-1;
+      out.push(line);
+    }
+    s=out.join('\n');
+  }
   const _GS='\x00GS\x00', _GE='\x00GE\x00';
   // Pull a block's pictures out of its text: {rest, gal} — gal is the gallery
   // marker run that goes right after the text.

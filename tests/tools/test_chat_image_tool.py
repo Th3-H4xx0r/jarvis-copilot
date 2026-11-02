@@ -111,3 +111,18 @@ def test_tool_registered_in_core_toolset():
     import toolsets
     assert "chat_image" in toolsets._HERMES_CORE_TOOLS
     assert "chat_image" in toolsets.TOOLSETS
+
+
+def test_server_path_too_big_or_not_an_image_is_not_read(chat, monkeypatch, tmp_path):
+    from pathlib import Path
+    reads = []
+    real = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda self: reads.append(self.name) or real(self))
+    video = tmp_path / "talk.mp4"
+    video.write_bytes(b"\0" * 100)
+    big = tmp_path / "big.png"
+    big.write_bytes(_img())
+    monkeypatch.setattr(cm, "MAX_BYTES", 10)
+    assert _run(source=str(video))["ok"] is False
+    assert _run(source=str(big))["ok"] is False
+    assert reads == []

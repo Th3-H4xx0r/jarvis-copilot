@@ -324,6 +324,21 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(items.map { $0.images.count }, [1, 1])
     }
 
+    func testImageLineAfterABulletBelongsToIt() {
+        for md in ["1. Rokid\n   ![R](/r.jpg)\n2. XREAL", "1. Rokid\n![R](/r.jpg)\n2. XREAL",
+                   "1. Rokid\n\n![R](/r.jpg)\n\n2. XREAL"] {
+            let blocks = ChatMarkdown.split(md)
+            let items = blocks.flatMap { block -> [ChatMarkdown.ListItem] in
+                if case .list(let items) = block { return items }
+                return []
+            }
+            XCTAssertEqual(items.map(\.marker), ["1.", "2."], md)
+            XCTAssertEqual(items.first?.images, [.init(alt: "R", source: "/r.jpg")], md)
+        }
+        XCTAssertEqual(ChatMarkdown.split("- a\n\nPhotos:\n\n![x](/x.jpg)").last,
+                       .gallery([.init(alt: "x", source: "/x.jpg")]))
+    }
+
     func testHoldPartialHidesUnterminatedToken() {
         XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/wor"), "x ")
         XCTAssertEqual(ChatMedia.holdPartial("x MEDIA:/root/a.jpg"), "x MEDIA:/root/a.jpg")

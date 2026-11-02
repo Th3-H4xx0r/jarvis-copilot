@@ -154,6 +154,14 @@ enum MarkdownBlocks {
                     if !quoted.isEmpty { quote.append(quoted) }
                     flushQuote()
                     addGallery(lifted.images)
+                } else if rest.isEmpty, !list.isEmpty {
+                    // A picture on its own line right after a bullet is that bullet's.
+                    list[list.count - 1].images += lifted.images
+                } else if rest.isEmpty, paragraph.isEmpty, quote.isEmpty,
+                          case .list(var items)? = out.last, !items.isEmpty {
+                    // …also when a blank line came between them.
+                    items[items.count - 1].images += lifted.images
+                    out[out.count - 1] = .list(items)
                 } else if rest.isEmpty {
                     flushAll()
                     addGallery(lifted.images)

@@ -84,11 +84,17 @@ enum ChatMedia {
             } else {
                 let path = ref.split(separator: "?").first.map(String.init) ?? ""
                 if let dot = path.lastIndex(of: "."),
-                   imageExtensions.contains(path[path.index(after: dot)...].lowercased()) { return text }
+                   wholeExtensions.contains(path[path.index(after: dot)...].lowercased()) { return text }
             }
         }
         return ns.substring(to: match.range(at: 2).location)
     }
+
+    /// File endings that mark a `MEDIA:` path as finished (anything shorter —
+    /// `.jp` mid-stream — is still being typed).
+    private static let wholeExtensions: Set<String> = imageExtensions.union(
+        ["pdf", "html", "htm", "csv", "txt", "md", "json", "mp3", "m4a", "wav", "aac", "ogg", "opus",
+         "flac", "mp4", "mov", "m4v", "webm", "zip", "docx", "xlsx", "pptx", "diff", "patch", "svg"])
 
     private static let partialPattern = try! NSRegularExpression(
         pattern: #"(^|\s)(M(?:E(?:D(?:I(?:A(?::\S*)?)?)?)?)?|!\[[^\]\n]*(?:\]\([^)\s]*)?)$"#)
