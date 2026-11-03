@@ -339,3 +339,33 @@ def test_a_blocked_prompt_is_not_activity(sockdir):
         assert forwarded == [] and hooked == [] and eng.sessions() == []
     finally:
         hs.close()
+
+
+def test_asking_him_a_question_needs_no_permission_of_its_own(sockdir):
+    """Claude's PermissionRequest for AskUserQuestion is allowed on the spot: he
+    only ever sees the question itself (the --ask hook), never a "may Claude ask
+    you?" card first — on the Mac, the iPhone or the web."""
+    class Arb:
+        calls = []
+
+        def submit(self, *a):
+            self.calls.append(a)
+
+        def observe(self, payload, key):
+            pass
+    eng = agent_engine.Engine()
+    forwarded = []
+    hs = HookServer(os.path.join(sockdir, "h.sock"), eng, forward=forwarded.append, arbiter=Arb())
+    hs.start()
+    try:
+        reply = send(hs.path, frame("permission", {"hook_event_name": "PermissionRequest",
+                                                   "session_id": "s", "cwd": "/w",
+                                                   "tool_name": "AskUserQuestion",
+                                                   "tool_input": {"questions": [{"question": "Which?"}]}}),
+                     wait=True)
+        assert reply == {"decision": "allow"}
+        assert Arb.calls == []                                   # no approval card anywhere
+        assert not [f for f in forwarded if f["data"].get("kind") == "permission"]
+        assert all(s["state"] != "approval" for s in eng.sessions())
+    finally:
+        hs.close()

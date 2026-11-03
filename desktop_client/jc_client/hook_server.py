@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 _READ_TIMEOUT = 5.0
 _MAX_LINE = 1024 * 1024
 _BLOCKING_KINDS = ("permission", "ask")
+# Tools whose PermissionRequest is allowed on the spot. Asking him a question is
+# always allowed: he answers the question itself (the --ask hook), never a
+# "may Claude ask you?" card first.
+_ALWAYS_ALLOWED = frozenset({"AskUserQuestion"})
 
 
 class HookServer:
@@ -162,6 +166,9 @@ class HookServer:
             kind = str(frame.get("kind") or "event")
             agent = str(frame.get("agent") or "claude")
             payload = frame["payload"]
+            if kind == "permission" and payload.get("tool_name") in _ALWAYS_ALLOWED:
+                self._reply(conn, {"decision": "allow"})
+                return
             if kind in _BLOCKING_KINDS and not payload.get("tool_use_id"):
                 # Claude's PermissionRequest carries no tool_use_id, so two
                 # identical asks (parallel subagents, the same command twice)
