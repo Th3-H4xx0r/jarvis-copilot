@@ -213,10 +213,23 @@ function _renderOnboardingModelField(){
   return `<label class="onboarding-field"><span>${t('onboarding_model_label')}</span><select id="onboardingModelSelect" onchange="ONBOARDING.form.model=this.value">${options}</select></label><p class="onboarding-copy">${t('onboarding_workspace_help')}</p>`;
 }
 
+// Line icons for the OAuth cards (were emoji). stroke = currentColor.
+const _OB_ICONS={
+  key:'<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="M17 6l3 3"/><path d="M15 8l2 2"/>',
+  alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  ok:'<circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16 9.5"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+  stop:'<circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  fail:'<circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/>',
+};
+function _obIcon(name){
+  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_OB_ICONS[name]||''}</svg>`;
+}
+
 function _renderOnboardingProviderOAuthField(provider){
   if(!provider||provider.oauth_provider!=='anthropic')return '';
   return `<div class="onboarding-oauth-card onboarding-oauth-pending" style="margin-top:12px">
-    <div class="onboarding-oauth-icon">🔑</div>
+    <div class="onboarding-oauth-icon">${_obIcon('key')}</div>
     <div style="flex:1">
       <strong>Use Claude Code OAuth instead</strong>
       <p style="margin-top:6px;color:var(--muted);font-size:13px"><strong>Claude Code subscription credentials are not the same as an Anthropic API key.</strong> Use this path only when you want JarvisCopilot to use Claude Code credentials already available on the server, or start a short polling flow while you complete <code>claude setup-token</code> on the host.</p>
@@ -307,7 +320,7 @@ function _renderOnboardingBody(){
         _setOnboardingNotice(t('onboarding_notice_setup_required'),'warn');
         body.innerHTML=`
           <div class="onboarding-oauth-card onboarding-oauth-pending">
-            <div class="onboarding-oauth-icon">⚠</div>
+            <div class="onboarding-oauth-icon">${_obIcon('alert')}</div>
             <div style="flex:1">
               <strong>${t('onboarding_oauth_provider_not_ready_title')}</strong>
               <p>${codexOauthPendingBody}</p>
@@ -602,7 +615,7 @@ function _renderCodexOAuthTerminal(status,message){
   const flowDiv=$('codexOAuthFlow');
   if(!flowDiv)return;
   const ok=status==='success';
-  const icon=ok?'✅':status==='expired'?'⌛':status==='cancelled'?'⏹':'❌';
+  const icon=_obIcon(ok?'ok':status==='expired'?'clock':status==='cancelled'?'stop':'fail');
   const title=ok?t('oauth_codex_success'):(status==='expired'?t('oauth_codex_expired'):(status==='cancelled'?'OAuth login cancelled':t('oauth_codex_error')));
   flowDiv.innerHTML=`
     <div class="onboarding-oauth-card ${ok?'onboarding-oauth-ready':''}" ${ok?'':'style="border-color:var(--error,#e55)"'}>
@@ -712,7 +725,7 @@ function _renderAnthropicOAuthTerminal(status,message){
   const flowDiv=$('anthropicOAuthFlow');
   if(!flowDiv)return;
   const ok=status==='success';
-  const icon=ok?'✅':status==='expired'?'⌛':status==='cancelled'?'⏹':'❌';
+  const icon=_obIcon(ok?'ok':status==='expired'?'clock':status==='cancelled'?'stop':'fail');
   const title=ok?'Claude Code OAuth linked':(status==='expired'?'Claude Code polling expired':(status==='cancelled'?'Claude Code OAuth cancelled':'Claude Code OAuth failed'));
   flowDiv.style.display='block';
   flowDiv.innerHTML=`
