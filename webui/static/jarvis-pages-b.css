@@ -231,3 +231,281 @@
   :root[data-skin="jarvis"] #mainInsights .insights-tabs{margin:0 auto;}
   :root[data-skin="jarvis"] #mainInsights .insights-tab{min-width:96px;padding:7px 18px;}
 }
+
+/* ============================================================================
+   Memory (My Notes / User Profile) — the phone's Memory page
+   ============================================================================ */
+/* Sidebar: the two sections as phone rows; the selected one reads like the phone's segmented pick. */
+:root[data-skin="jarvis"] #memoryPanel{padding:8px 12px;display:flex;flex-direction:column;gap:2px;}
+:root[data-skin="jarvis"] #memoryPanel .side-menu-item{
+  min-height:40px;padding:8px 12px;gap:10px;border-radius:var(--jc-r-control);
+  font-size:14px;font-weight:500;color:var(--jc-text-2);transition:background-color .15s var(--jc-ease),color .15s var(--jc-ease);
+}
+:root[data-skin="jarvis"] #memoryPanel .side-menu-item svg{width:18px;height:18px;stroke-width:1.6;color:var(--jc-muted);opacity:1;}
+:root[data-skin="jarvis"] #memoryPanel .side-menu-item:hover{background:var(--jc-surface);color:var(--jc-text);}
+:root[data-skin="jarvis"] #memoryPanel .side-menu-item.active{background:var(--jc-surface-2);color:var(--jc-text);}
+:root[data-skin="jarvis"] #memoryPanel .side-menu-item.active svg{color:var(--jc-accent);}
+
+/* Main: "Last edited" line, then the note in one card (monospace like the phone's editor). */
+:root[data-skin="jarvis"] #memoryDetailBody .main-view-content{padding:24px 32px 40px;max-width:820px;}
+:root[data-skin="jarvis"] #mainMemory .memory-detail-mtime{font-size:12px;color:var(--jc-muted);opacity:1;margin:0 0 10px 4px;}
+:root[data-skin="jarvis"] #mainMemory .memory-content{
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);
+  padding:18px 20px;font-size:14px;line-height:1.6;color:var(--jc-text);
+}
+:root[data-skin="jarvis"] #mainMemory .memory-content > :first-child{margin-top:0;}
+:root[data-skin="jarvis"] #mainMemory .memory-content > :last-child{margin-bottom:0;}
+:root[data-skin="jarvis"] #mainMemory .memory-content :is(h1,h2,h3,h4){font-weight:600;letter-spacing:0;border-bottom:0;padding-bottom:0;margin:18px 0 8px;}
+:root[data-skin="jarvis"] #mainMemory .memory-content h1{font-size:20px;}
+:root[data-skin="jarvis"] #mainMemory .memory-content h2{font-size:17px;}
+:root[data-skin="jarvis"] #mainMemory .memory-content :is(h3,h4){font-size:15px;}
+:root[data-skin="jarvis"] #mainMemory .memory-detail-mtime::before{content:"Last edited ";}
+:root[data-skin="jarvis"] #mainMemory .memory-content hr{border:0;border-top:1px solid var(--jc-hair);margin:14px 0;}
+/* Empty section: the phone's empty state — muted line icon, short title, one muted line. */
+:root[data-skin="jarvis"] #mainMemory .memory-empty{
+  display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;
+  padding:72px 16px;font-size:15px;font-weight:500;font-style:normal;color:var(--jc-text-2);
+}
+:root[data-skin="jarvis"] #mainMemory .memory-empty::before{
+  content:"";width:36px;height:36px;background:var(--jc-muted);opacity:.7;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E") center/contain no-repeat;
+          mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+:root[data-skin="jarvis"] #mainMemory .memory-empty::after{content:"Use the pencil to write one";font-size:13px;font-weight:400;color:var(--jc-muted);}
+/* Edit mode. */
+:root[data-skin="jarvis"] #mainMemory .detail-form-row > label{font-size:12px;color:var(--jc-muted);letter-spacing:0;margin-left:4px;}
+:root[data-skin="jarvis"] #mainMemory #memEditContent{
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);
+  padding:16px 18px;font-size:13.5px;line-height:1.6;color:var(--jc-text);min-height:420px;
+}
+:root[data-skin="jarvis"] #mainMemory #memEditContent:focus{border-color:rgba(62,199,199,0.55);outline:none;}
+@media (max-width:640px){
+  :root[data-skin="jarvis"] #memoryDetailBody .main-view-content{padding:12px 16px 32px;}
+  :root[data-skin="jarvis"] #mainMemory .memory-content{padding:16px;}
+}
+
+/* ============================================================================
+   Code memory + Long-term memory share the .cm-header page header
+   ============================================================================ */
+:root[data-skin="jarvis"] :is(#mainCodememory,#mainJmemory) > .cm-header{
+  min-height:60px;padding:12px 24px;border-bottom:1px solid var(--jc-hair);background:transparent;gap:16px;
+}
+:root[data-skin="jarvis"] :is(#mainCodememory,#mainJmemory) .cm-header-title{font-size:20px;font-weight:600;letter-spacing:-.2px;color:var(--jc-text);gap:10px;}
+:root[data-skin="jarvis"] :is(#mainCodememory,#mainJmemory) .cm-header-title svg{width:18px;height:18px;color:var(--jc-muted);}
+
+/* ============================================================================
+   Long-term memory (jarvis_memory.js + memory_map.js). Most markup carries
+   inline styles, hence the !important overrides. Node colours stay: they
+   are content (one colour per kind of thing on the map).
+   ============================================================================ */
+:root[data-skin="jarvis"] #jmemBody{padding:20px 24px 40px !important;}
+/* Status chips: dark capsules, muted label + value. */
+:root[data-skin="jarvis"] #jmemStatus{gap:8px !important;margin-bottom:16px !important;}
+:root[data-skin="jarvis"] #jmemStatus > span{
+  background:var(--jc-surface) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-pill) !important;
+  font-size:12px !important;padding:5px 12px !important;color:var(--jc-muted) !important;
+}
+:root[data-skin="jarvis"] #jmemStatus > span b{color:var(--jc-text) !important;font-weight:500;}
+:root[data-skin="jarvis"] #jmemStatus > span[style*="danger"]{color:var(--jc-danger) !important;}
+:root[data-skin="jarvis"] #jmemStatus > span[style*="danger"] b{color:var(--jc-danger) !important;}
+/* Map | List: the phone's segmented pill. */
+:root[data-skin="jarvis"] #jmemBody [role="tablist"][aria-label="Memory view"]{
+  background:var(--jc-pill) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-pill) !important;
+  padding:3px !important;margin-bottom:16px !important;overflow:visible !important;
+}
+:root[data-skin="jarvis"] :is(#jmemViewMap,#jmemViewList){
+  border:0 !important;border-radius:var(--jc-r-pill) !important;padding:6px 18px !important;min-width:76px;
+  font-size:13px !important;font-weight:500 !important;background:transparent !important;color:var(--jc-muted) !important;
+  transition:background-color .15s var(--jc-ease),color .15s var(--jc-ease);
+}
+:root[data-skin="jarvis"] :is(#jmemViewMap,#jmemViewList)[aria-selected="true"]{background:#2A2A30 !important;color:var(--jc-text) !important;}
+
+/* Map filters: kind toggles as dark capsules (dot keeps the kind's colour), selects as compact fields. */
+:root[data-skin="jarvis"] #jmapFilters{gap:8px !important;margin-bottom:12px !important;}
+:root[data-skin="jarvis"] #jmapFilters .jmap-type{
+  font-size:13px !important;font-weight:500;padding:6px 12px !important;gap:8px !important;
+  border:1px solid var(--jc-hair) !important;background:transparent !important;color:var(--jc-muted) !important;
+  transition:background-color .15s var(--jc-ease),color .15s var(--jc-ease);
+}
+:root[data-skin="jarvis"] #jmapFilters .jmap-type[aria-pressed="true"]{background:var(--jc-surface-2) !important;color:var(--jc-text) !important;}
+:root[data-skin="jarvis"] :is(#jmapFilters select,#jmemNs,#jmemModelSel){
+  width:auto !important;height:34px;padding:0 30px 0 12px !important;border-radius:var(--jc-r-control) !important;
+  border:1px solid var(--jc-hair) !important;background-color:var(--jc-surface-2) !important;color:var(--jc-text) !important;font-size:13px !important;
+}
+:root[data-skin="jarvis"] #jmapBanner{background:var(--jc-surface-2) !important;border-color:var(--jc-hair) !important;border-radius:12px !important;font-size:13px !important;padding:8px 12px !important;}
+/* The map canvas sits in one card; zoom controls are round header-style buttons. */
+:root[data-skin="jarvis"] #jmapStage{border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;background:var(--jc-surface) !important;}
+:root[data-skin="jarvis"] #jmapStatus{font-size:14px !important;color:var(--jc-muted) !important;top:30% !important;padding:0 24px;}
+:root[data-skin="jarvis"] #jmapCount{font-size:12px !important;left:14px !important;bottom:14px !important;}
+:root[data-skin="jarvis"] #jmapStage .jmap-zoom{
+  min-width:34px !important;width:auto !important;height:34px;padding:0 10px !important;border-radius:var(--jc-r-pill) !important;
+  border:1px solid var(--jc-hair) !important;background:var(--jc-pill) !important;color:var(--jc-text) !important;
+  font-size:14px !important;font-weight:500;
+}
+:root[data-skin="jarvis"] #jmapStage .jmap-zoom:hover{background:var(--jc-surface-2) !important;}
+:root[data-skin="jarvis"] #jmapStage > div[style*="right:8px"]{right:12px !important;bottom:12px !important;gap:6px !important;}
+/* Node side panel. */
+:root[data-skin="jarvis"] #jmapSide{border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;background:var(--jc-surface) !important;padding:16px !important;}
+:root[data-skin="jarvis"] #jmapSide [style*="font-weight:600;font-size:15px"]{font-size:17px !important;}
+:root[data-skin="jarvis"] #jmapSide [style*="text-transform:uppercase"]{font-size:11px !important;font-weight:500;letter-spacing:.04em !important;}
+:root[data-skin="jarvis"] #jmapSide #jmapClose{
+  width:30px;height:30px;border-radius:var(--jc-r-pill) !important;background:var(--jc-surface-2) !important;
+  border:1px solid var(--jc-hair) !important;display:inline-flex;align-items:center;justify-content:center;
+}
+:root[data-skin="jarvis"] #jmapSide :is(#jmapPin,#jmapExpand,#jmapFixBtn,#jmapSave,.jmap-merge-go,.jmap-merge-cancel,#jmapClearHl){
+  background:var(--jc-surface-2) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-control) !important;
+  color:var(--jc-text) !important;font-size:13px !important;font-weight:500;padding:6px 12px !important;
+}
+:root[data-skin="jarvis"] #jmapSide #jmapPin[aria-pressed="true"]{color:var(--jc-accent) !important;}
+:root[data-skin="jarvis"] #jmapSide .jmap-mem{background:var(--jc-surface-2) !important;border-color:var(--jc-hair) !important;border-radius:12px !important;padding:10px 12px !important;}
+:root[data-skin="jarvis"] #jmapSide .jmap-unlink{color:var(--jc-muted) !important;}
+:root[data-skin="jarvis"] #jmapSide input{background:var(--jc-surface-2) !important;border-color:var(--jc-hair) !important;border-radius:var(--jc-r-control) !important;font-size:14px !important;padding:8px 10px !important;}
+:root[data-skin="jarvis"] #jmapSide .jmap-merge-pick{border-radius:8px !important;}
+
+/* List view: a single readable column of phone cards. */
+:root[data-skin="jarvis"] #jmemListView{max-width:860px;}
+:root[data-skin="jarvis"] #jmemListView [style*="text-transform:uppercase"]{font-size:11px !important;font-weight:500;letter-spacing:.04em !important;color:var(--jc-muted) !important;}
+:root[data-skin="jarvis"] #jmemModel{gap:8px 10px !important;margin-bottom:16px !important;}
+:root[data-skin="jarvis"] #jmemModel > span:first-child{font-size:13px !important;color:var(--jc-text-2) !important;}
+:root[data-skin="jarvis"] #jmemModel > span:last-child{flex-basis:100%;font-size:12px !important;}
+:root[data-skin="jarvis"] #jmemCleanup > div,
+:root[data-skin="jarvis"] #jmemListView .jmem-item,
+:root[data-skin="jarvis"] #jmemReflect > div[style*="border:1px"],
+:root[data-skin="jarvis"] #jmemLogs{
+  background:var(--jc-surface) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;
+}
+:root[data-skin="jarvis"] #jmemCleanup > div{padding:16px 18px !important;}
+:root[data-skin="jarvis"] #jmemCleanup b{font-size:15px !important;font-weight:600;}
+:root[data-skin="jarvis"] #jmemCleanup [style*="font-size:12px;color:var(--muted)"]{font-size:13px !important;line-height:1.5;}
+:root[data-skin="jarvis"] #jmemCleanup button,
+:root[data-skin="jarvis"] #jmemReflRefresh,
+:root[data-skin="jarvis"] #jmemListView .jmem-del-no{
+  background:var(--jc-surface-2) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-control) !important;
+  color:var(--jc-text) !important;font-size:12px !important;font-weight:500;padding:5px 12px !important;
+}
+:root[data-skin="jarvis"] #jmemCleanupGo{background:var(--jc-accent) !important;color:var(--jc-accent-ink) !important;border:0 !important;font-weight:600 !important;}
+:root[data-skin="jarvis"] #jmemListView .jmem-del-yes{background:var(--jc-surface-2) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-control) !important;color:var(--jc-danger) !important;padding:5px 12px !important;}
+:root[data-skin="jarvis"] #jmemReflect > div[style*="border:1px"]{padding:12px 14px !important;margin-bottom:8px !important;}
+:root[data-skin="jarvis"] #jmemReflect > div[style*="border:1px"] span[style*="border:1px"]{border-radius:var(--jc-r-pill) !important;padding:1px 8px !important;font-size:11px !important;background:var(--jc-surface-2);border-color:var(--jc-hair) !important;}
+:root[data-skin="jarvis"] #jmemRecalls > div[style*="border:1px"]{border-color:var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;background:var(--jc-surface);}
+:root[data-skin="jarvis"] #jmemRecalls .jmem-recall-row{padding:12px 14px !important;border-bottom-color:var(--jc-hair) !important;transition:background-color .15s var(--jc-ease);}
+:root[data-skin="jarvis"] #jmemRecalls .jmem-recall-row:hover{background:var(--jc-surface-2) !important;}
+:root[data-skin="jarvis"] #jmemRecalls .jmem-recall-row:last-child{border-bottom:0 !important;}
+:root[data-skin="jarvis"] #jmemQ{
+  height:40px;padding:0 14px !important;border-radius:var(--jc-r-control) !important;border:1px solid var(--jc-hair) !important;
+  background:var(--jc-surface-2) !important;color:var(--jc-text) !important;font-size:15px !important;
+}
+:root[data-skin="jarvis"] :is(#jmemQ,#jmemNs,#jmemModelSel,#jmapFilters select):focus{border-color:rgba(62,199,199,0.55) !important;outline:none;}
+:root[data-skin="jarvis"] #jmemListView .jmem-item{padding:14px 16px !important;margin-bottom:10px !important;font-size:14px;line-height:1.5;}
+:root[data-skin="jarvis"] #jmemListView .jmem-item .jmem-del{color:var(--jc-danger) !important;font-size:12px !important;font-weight:500;}
+:root[data-skin="jarvis"] #jmemListView .jmem-item span[style*="font-size:11px"]{font-size:12px !important;}
+:root[data-skin="jarvis"] #jmemLogs{padding:12px 14px !important;}
+:root[data-skin="jarvis"] #jmemLogs > div:not([style*="monospace"]){font-size:13px !important;}
+
+@media (max-width:640px){
+  :root[data-skin="jarvis"] :is(#mainCodememory,#mainJmemory) > .cm-header{padding:10px 16px;min-height:52px;}
+  :root[data-skin="jarvis"] :is(#mainCodememory,#mainJmemory) .cm-header-title{font-size:17px;}
+  :root[data-skin="jarvis"] #jmemBody{padding:12px 16px 32px !important;}
+  :root[data-skin="jarvis"] #jmemBody [role="tablist"][aria-label="Memory view"]{display:flex !important;width:100%;}
+  :root[data-skin="jarvis"] :is(#jmemViewMap,#jmemViewList){flex:1;}
+  :root[data-skin="jarvis"] #jmapStage{height:calc(100dvh - 380px) !important;}
+}
+
+/* ============================================================================
+   Code memory — the phone's Code memory page (stat tiles, project rows,
+   entry cards with a small type capsule)
+   ============================================================================ */
+:root[data-skin="jarvis"] #mainCodememory .cm-header-title svg{color:var(--jc-muted);}
+:root[data-skin="jarvis"] #mainCodememory .cm-stats{gap:8px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-stat{
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:12px;padding:6px 14px;min-width:84px;
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-stat-num{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;}
+:root[data-skin="jarvis"] #mainCodememory .cm-stat-text .cm-stat-num{font-size:13px;font-weight:500;}
+:root[data-skin="jarvis"] #mainCodememory .cm-stat-label{font-size:12px;text-transform:none;letter-spacing:0;color:var(--jc-muted);}
+/* Project list (left column): phone rows. */
+:root[data-skin="jarvis"] #mainCodememory .cm-projects{width:300px;flex-basis:300px;border-right-color:var(--jc-hair);padding:12px;gap:2px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj{padding:12px 14px;border-radius:12px;border:0;gap:3px;transition:background-color .15s var(--jc-ease);}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj:hover{background:var(--jc-surface);}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj.active{background:var(--jc-surface-2);box-shadow:inset 0 0 0 1px var(--jc-hair);}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj-name{font-size:15px;font-weight:500;}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj.active .cm-proj-name{color:var(--jc-text);}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj-sub{font-size:12px;opacity:1;color:var(--jc-muted);}
+:root[data-skin="jarvis"] #mainCodememory .cm-proj-meta{font-size:12px;color:var(--jc-muted);}
+:root[data-skin="jarvis"] #mainCodememory .cm-projects-empty{font-size:13px;color:var(--jc-muted);padding:40px 16px;}
+/* Detail. */
+:root[data-skin="jarvis"] #mainCodememory .cm-detail-head{padding:20px 28px;border-bottom-color:var(--jc-hair);background:var(--jc-bg);-webkit-backdrop-filter:none;backdrop-filter:none;}
+:root[data-skin="jarvis"] #mainCodememory .cm-detail-name{font-size:22px;font-weight:600;letter-spacing:-.2px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-detail-slug{font-size:12px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-del-proj{
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-danger);
+  border-radius:var(--jc-r-control);font-size:13px;font-weight:500;padding:7px 12px;
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-del-proj:hover{background:#24242C;border-color:var(--jc-hair-strong);color:var(--jc-danger);}
+:root[data-skin="jarvis"] #mainCodememory .cm-detail-body{padding:20px 28px 40px;max-width:900px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-section{margin-bottom:28px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-section-head{margin-bottom:10px;gap:8px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-section-title{font-size:11px;font-weight:500;letter-spacing:.04em;color:var(--jc-muted);}
+:root[data-skin="jarvis"] #mainCodememory .cm-section-count{font-size:11px;background:var(--jc-surface-2);border-color:var(--jc-hair);padding:1px 8px;font-variant-numeric:tabular-nums;}
+:root[data-skin="jarvis"] #mainCodememory .cm-search{
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:var(--jc-r-control);
+  font-size:13px;height:34px;padding:0 12px;width:240px;
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-search:focus{border-color:rgba(62,199,199,0.55);}
+:root[data-skin="jarvis"] #mainCodememory .cm-entry{
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);padding:14px 16px;margin-bottom:10px;
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-entry:hover{border-color:var(--jc-hair-strong);}
+:root[data-skin="jarvis"] #mainCodememory .cm-entry-top{margin-bottom:8px;gap:8px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-content{font-size:14px;line-height:1.55;}
+:root[data-skin="jarvis"] #mainCodememory .cm-ts{font-size:12px;}
+/* Type capsules: sentence case, dark; colour only where it means something. */
+:root[data-skin="jarvis"] #mainCodememory .cm-type{
+  font-size:11px;font-weight:500;text-transform:capitalize;letter-spacing:0;padding:2px 9px;
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text-2);
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-type-bug{color:var(--jc-danger);}
+:root[data-skin="jarvis"] #mainCodememory .cm-type-fix{color:var(--jc-ok);}
+:root[data-skin="jarvis"] #mainCodememory .cm-type-gotcha{color:var(--jc-warn);}
+:root[data-skin="jarvis"] #mainCodememory .cm-type-handoff{color:var(--jc-accent);}
+:root[data-skin="jarvis"] #mainCodememory :is(.cm-type-note,.cm-type-decision,.cm-type-repo_structure,.cm-type-claude,.cm-type-jarviscopilot){color:var(--jc-text-2);}
+:root[data-skin="jarvis"] #mainCodememory .cm-act{border-radius:8px;padding:5px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-act:hover{color:var(--jc-text);background:var(--jc-surface-2);}
+:root[data-skin="jarvis"] #mainCodememory .cm-del:hover{color:var(--jc-danger);background:var(--jc-surface-2);}
+:root[data-skin="jarvis"] #mainCodememory .cm-edit-area{background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:12px;font-size:14px;padding:10px 12px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-edit-area:focus{border-color:rgba(62,199,199,0.55);}
+:root[data-skin="jarvis"] #mainCodememory :is(.cm-edit-save,.cm-edit-cancel){border-radius:var(--jc-r-control);font-size:13px;font-weight:500;padding:6px 14px;}
+:root[data-skin="jarvis"] #mainCodememory .cm-edit-cancel{background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text);}
+:root[data-skin="jarvis"] #mainCodememory .cm-edit-save{background:var(--jc-accent);border:0;color:var(--jc-accent-ink);font-weight:600;}
+:root[data-skin="jarvis"] #mainCodememory .cm-edit-save:hover{background:var(--jc-accent);opacity:.88;}
+/* Empty states: no dashed boxes. */
+:root[data-skin="jarvis"] #mainCodememory .cm-empty{
+  background:transparent;border:0;padding:56px 16px;font-size:15px;font-weight:500;color:var(--jc-text-2);
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+:root[data-skin="jarvis"] #mainCodememory .cm-section .cm-empty{padding:20px 16px;font-size:13px;font-weight:400;color:var(--jc-muted);background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);}
+:root[data-skin="jarvis"] #mainCodememory .cm-detail-body > .cm-empty:only-child::before{
+  content:"";width:36px;height:36px;background:var(--jc-muted);opacity:.7;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5' rx='9' ry='3'/%3E%3Cpath d='M3 5v14a9 3 0 0 0 18 0V5'/%3E%3Cpath d='M3 12a9 3 0 0 0 18 0'/%3E%3C/svg%3E") center/contain no-repeat;
+          mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='12' cy='5' rx='9' ry='3'/%3E%3Cpath d='M3 5v14a9 3 0 0 0 18 0V5'/%3E%3Cpath d='M3 12a9 3 0 0 0 18 0'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+@media (max-width:640px){
+  :root[data-skin="jarvis"] #mainCodememory .cm-stats{width:100%;display:grid;grid-template-columns:repeat(3,1fr);}
+  :root[data-skin="jarvis"] #mainCodememory .cm-stat-text{display:none;}
+  /* The phone header already names the page. */
+  :root[data-skin="jarvis"] #mainCodememory .cm-header-title{display:none;}
+  :root[data-skin="jarvis"] #mainCodememory > .cm-header{border-bottom:0;padding-bottom:4px;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-body{flex-direction:column;overflow-y:auto;}
+  /* Projects become a sideways row of cards above the selected project. */
+  :root[data-skin="jarvis"] #mainCodememory .cm-projects{
+    width:auto;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--jc-hair);
+    flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:12px 16px;gap:8px;scroll-snap-type:x proximity;
+  }
+  :root[data-skin="jarvis"] #mainCodememory .cm-proj{flex:0 0 220px;background:var(--jc-surface);box-shadow:inset 0 0 0 1px var(--jc-hair);scroll-snap-align:start;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-projects-empty{flex:1;padding:24px 8px;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-detail{overflow:visible;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-detail-head{position:static;flex-wrap:wrap;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-detail-head{padding:16px;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-detail-body{padding:16px 16px 32px;}
+  :root[data-skin="jarvis"] #mainCodememory .cm-search{width:auto;flex:1;max-width:none;}
+}
