@@ -40,24 +40,24 @@ struct CarCard: View {
                         .padding(.top, 6)
                         .allowsHitTesting(false)
                 } else {
-                    JcIcon("car", size: 34, weight: .light).foregroundStyle(.secondary).padding(.trailing, 34)
+                    JcIcon("car", size: 34, weight: .light).foregroundStyle(JcTheme.muted).padding(.trailing, 34)
                 }
             }
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if inCar {
                         MetricPill(icon: "car", label: "Status", value: "In the car", tint: JcTheme.success)
                     } else {
-                        MetricPill(icon: "car", label: "Status", value: "Away", tint: .secondary)
+                        MetricPill(icon: "car", label: "Status", value: "Away", tint: JcTheme.muted)
                     }
                     if pendingUploads > 0 {
                         MetricPill(icon: "arrow.up.circle", label: "Uploads", value: "\(pendingUploads)", tint: JcTheme.amber)
@@ -69,8 +69,8 @@ struct CarCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSeen, visible: !inCar)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }

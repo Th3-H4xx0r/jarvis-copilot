@@ -20,9 +20,9 @@ struct InmoTraceView: View {
         List {
             Section {
                 Label("Imported official-app traces", systemImage: "tray.and.arrow.down")
-                    .font(.headline)
+                    .font(JcText.body.weight(.semibold))
                 Text("Record INMO with Apple's Mac tools, then import the originals here. Jarvis does not intercept another app's traffic.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
                 NavigationLink("How to record INMO traffic") { InmoTraceGuideView() }
             }
             Section("Sessions") {
@@ -53,27 +53,27 @@ struct InmoTraceView: View {
                         Label("Import trace files", systemImage: "doc.badge.plus")
                     }.disabled(busy)
                     Text("PCAP, PCAPNG, PacketLogger, Bluetooth snoop or helper capture.json. 256 MiB per session. Source is your label, not verified app attribution. Raw files may contain private phone traffic.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(JcTheme.muted)
                 }
                 Section("Imported statistics") {
                     LabeledContent("Files", value: "\(session.attachments.count)")
                     LabeledContent("Original bytes", value: ByteCountFormatter.string(fromByteCount: Int64(session.totalBytes), countStyle: .file))
                     LabeledContent("Session created", value: session.createdAt.formatted())
                     Text("These are trace-file statistics, not live glasses telemetry. No imported file means no observed packets.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(JcTheme.muted)
                 }
                 Section("Trace files") {
                     if session.attachments.isEmpty {
-                        Text("No traces imported yet.").foregroundStyle(.secondary)
+                        Text("No traces imported yet").foregroundStyle(JcTheme.muted)
                     }
                     ForEach(session.attachments) { attachment in
                         NavigationLink { InmoTraceDetailView(attachment: attachment) } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(attachment.originalName).lineLimit(2)
                                 Text("\(attachment.summary.format) · \(attachment.byteCount.formatted()) bytes")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption).foregroundStyle(JcTheme.muted)
                                 Text(attachment.summary.packetCount.map { "\($0.formatted()) container records" } ?? "External analysis required")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption).foregroundStyle(JcTheme.muted)
                             }
                         }
                     }
@@ -89,11 +89,11 @@ struct InmoTraceView: View {
                         }
                     }.disabled(busy || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Text("Notes record when you typed them. Include the actual action time to correlate it with the capture.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(JcTheme.muted)
                     ForEach(session.notes) { item in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.text).textSelection(.enabled)
-                            Text("Noted \(item.recordedAt.formatted())").font(.caption).foregroundStyle(.secondary)
+                            Text("Noted \(item.recordedAt.formatted())").font(.caption).foregroundStyle(JcTheme.muted)
                         }
                     }
                 }
@@ -104,7 +104,7 @@ struct InmoTraceView: View {
                     if let exportURL {
                         ShareLink(item: exportURL) { Label("Share evidence ZIP", systemImage: "square.and.arrow.up") }
                         Text("Snapshot ready. Includes unchanged originals, hashes, summaries and notes.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(JcTheme.muted)
                     }
                     Button("Delete this session", role: .destructive) { confirmDelete = true }.disabled(busy)
                 }
@@ -112,13 +112,14 @@ struct InmoTraceView: View {
             if busy { Section { ProgressView("Processing trace files…") } }
             if let failure {
                 Section("Could not complete operation") {
-                    Text(failure).foregroundStyle(.red).textSelection(.enabled)
+                    Text(failure).foregroundStyle(JcTheme.danger).textSelection(.enabled)
                     Button("Dismiss") { self.failure = nil }
                 }
             }
         }
-        .navigationTitle("INMO traces")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .tint(JcTheme.accent)
+        .jcPageChrome("INMO traces")
         .task { run { try await reload() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
@@ -176,7 +177,7 @@ struct InmoTraceDetailView: View {
                 if !attachment.summary.linkTypes.isEmpty {
                     LabeledContent("Link types", value: attachment.summary.linkTypes.map(String.init).joined(separator: ", "))
                 }
-                Text(attachment.summary.notice).font(.caption).foregroundStyle(.secondary)
+                Text(attachment.summary.notice).font(.caption).foregroundStyle(JcTheme.muted)
             }
             Section("SHA-256 · unchanged original") {
                 Text(attachment.sha256).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
@@ -185,13 +186,14 @@ struct InmoTraceDetailView: View {
                 ForEach(attachment.summary.previews) { packet in
                     DisclosureGroup(packet.id == 0 ? "File prefix" : "Record \(packet.id) · \(packet.byteCount) bytes") {
                         Text(packet.hex).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        if packet.byteCount > 128 { Text("First 128 bytes; full bytes are preserved in the export.").font(.caption) }
+                        if packet.byteCount > 128 { Text("First 128 bytes; full bytes are preserved in the export").font(.caption) }
                     }
                 }
             }
         }
-        .navigationTitle(attachment.originalName)
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .tint(JcTheme.accent)
+        .jcPageChrome(attachment.originalName)
     }
 }
 
@@ -218,7 +220,8 @@ struct InmoTraceGuideView: View {
                 Text("Raw captures may contain messages, media, account details and unrelated phone traffic. Review what you share. Files remain local until you export; import does not upload them to Jarvis.")
             }
         }
-        .navigationTitle("Record INMO traffic")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .tint(JcTheme.accent)
+        .jcPageChrome("Record INMO traffic")
     }
 }

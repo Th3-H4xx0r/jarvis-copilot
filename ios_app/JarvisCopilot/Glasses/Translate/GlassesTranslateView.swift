@@ -20,98 +20,132 @@ struct GlassesTranslateView: View {
     ]
 
     var body: some View {
-        List {
-            if translator.phase == .idle || translator.phase == .starting { setup } else { live }
+        ScrollView {
+            VStack(spacing: 22) {
+                if translator.phase == .idle || translator.phase == .starting { setup } else { live }
+            }
+            .padding(.vertical, 16)
         }
-        .navigationTitle("Live translation")
+        .tint(JcTheme.accent)
+        .jcPageChrome("Live translation")
         .modifier(LanguageDownload(active: $downloading, source: source, target: target, note: $downloadNote))
     }
 
-    @ViewBuilder private var setup: some View {
-        Section {
-            Picker("They speak", selection: $source) { ForEach(Self.languages, id: \.code) { Text($0.name).tag($0.code) } }
-            Picker("Show me", selection: $target) { ForEach(Self.languages, id: \.code) { Text($0.name).tag($0.code) } }
-            Button("Swap languages", jcIcon: "arrow.left.arrow.right") { (source, target) = (target, source) }
-        } header: { Text("Languages") }
-        Section {
-            Picker("Translator", selection: $engine) {
-                ForEach(GlassesTranslateEngine.allCases) { Text($0.label).tag($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            Text(GlassesTranslateEngine(rawValue: engine)?.detail ?? "").font(.caption).foregroundStyle(JcTheme.muted)
-            if engine == GlassesTranslateEngine.onDevice.rawValue {
-                Button(downloading ? "Downloading…" : "Download languages for on-device", jcIcon: "arrow.down.circle") {
-                    downloadNote = nil; downloading = true
-                }
-                .disabled(downloading)
-                if let downloadNote { Text(downloadNote).font(.caption).foregroundStyle(JcTheme.muted) }
-            }
-        } header: { Text("Translator") }
-        Section {
-            Toggle("Lens shows only the translation", isOn: $onlyTranslation)
-            Toggle("Start from the glasses", isOn: $fromGlasses)
-        }
-        Section {
-            Button {
-                Task { await translator.start() }
-            } label: {
-                HStack {
-                    Spacer()
-                    if translator.phase == .starting { ProgressView() }
-                    Label(translator.phase == .starting ? "Starting…" : "Start live translation", jcIcon: "globe")
-                        .font(.body.weight(.semibold))
-                    Spacer()
-                }
-                .padding(.vertical, 6)
-            }
-            .buttonStyle(.jcGlass)
-            .disabled(translator.phase != .idle || source == target)
-            .listRowBackground(Color.clear)
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                if let problem = translator.problem { Text(problem).foregroundStyle(.red) }
-                Text("The glasses' microphone hears the person in front of you; each line and its translation show on the lens. Sessions are saved with your AI notes.")
+    private func languageRow(_ title: String, _ selection: Binding<String>) -> some View {
+        Row {
+            HStack {
+                Text(title).foregroundStyle(JcTheme.text)
+                Spacer()
+                Picker(title, selection: selection) { ForEach(Self.languages, id: \.code) { Text($0.name).tag($0.code) } }
+                    .labelsHidden()
+                    .tint(JcTheme.muted)
             }
         }
     }
 
-    @ViewBuilder private var live: some View {
-        Section {
-            HStack {
-                Circle().fill(translator.paused ? Color.orange : Color.red).frame(width: 10, height: 10)
-                Text(translator.paused ? "Paused on the glasses" :
-                        "\(GlassesTranslator.name(source)) → \(GlassesTranslator.name(target)) · \(translator.engineInUse.label)")
-                    .font(.subheadline.weight(.medium)).foregroundStyle(JcTheme.muted)
+    @ViewBuilder private var setup: some View {
+        CardGroup("Languages") {
+            languageRow("They speak", $source)
+            RowDivider()
+            languageRow("Show me", $target)
+            RowDivider()
+            Row {
+                Button("Swap languages", jcIcon: "arrow.left.arrow.right") { (source, target) = (target, source) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(JcTheme.accent)
             }
-            if let problem = translator.problem { Text(problem).font(.caption).foregroundStyle(.red) }
         }
-        Section {
-            ForEach(translator.lines.reversed()) { line in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(line.translation.isEmpty ? "…" : line.translation)
-                        .font(.body.weight(.semibold)).foregroundStyle(JcTheme.text)
-                    Text(line.original).font(.subheadline).foregroundStyle(JcTheme.muted)
+        CardGroup("Translator") {
+            Row {
+                VStack(alignment: .leading, spacing: 8) {
+                    JcSegmented(items: GlassesTranslateEngine.allCases,
+                                selection: Binding(get: { GlassesTranslateEngine(rawValue: engine) ?? .onDevice },
+                                                   set: { engine = $0.rawValue }),
+                                label: { $0.label })
+                    Text(GlassesTranslateEngine(rawValue: engine)?.detail ?? "").font(JcText.small).foregroundStyle(JcTheme.muted)
                 }
-                .padding(.vertical, 2)
+            }
+            if engine == GlassesTranslateEngine.onDevice.rawValue {
+                RowDivider()
+                Row {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button(downloading ? "Downloading…" : "Download languages for on-device", jcIcon: "arrow.down.circle") {
+                            downloadNote = nil; downloading = true
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(JcTheme.accent)
+                        .disabled(downloading)
+                        if let downloadNote { Text(downloadNote).font(JcText.small).foregroundStyle(JcTheme.muted) }
+                    }
+                }
+            }
+        }
+        CardGroup(footer: "The glasses' microphone hears the person in front of you; each line and its translation show on the lens. Sessions are saved with your AI notes.") {
+            Row { Toggle("Lens shows only the translation", isOn: $onlyTranslation) }
+            RowDivider()
+            Row { Toggle("Start from the glasses", isOn: $fromGlasses) }
+        }
+        VStack(spacing: 10) {
+            if let problem = translator.problem {
+                Text(problem).font(JcText.small).foregroundStyle(JcTheme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button {
+                Task { await translator.start() }
+            } label: {
+                HStack(spacing: 8) {
+                    if translator.phase == .starting { ProgressView().controlSize(.small) }
+                    Label(translator.phase == .starting ? "Starting…" : "Start live translation", jcIcon: "globe")
+                }
+            }
+            .buttonStyle(.jcGlass(full: true))
+            .disabled(translator.phase != .idle || source == target)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder private var live: some View {
+        CardGroup {
+            Row {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle().fill(translator.paused ? JcTheme.amber : JcTheme.danger).frame(width: 8, height: 8)
+                        Text(translator.paused ? "Paused on the glasses" :
+                                "\(GlassesTranslator.name(source)) → \(GlassesTranslator.name(target)) · \(translator.engineInUse.label)")
+                            .font(JcText.body.weight(.medium)).foregroundStyle(JcTheme.muted)
+                    }
+                    if let problem = translator.problem { Text(problem).font(JcText.small).foregroundStyle(JcTheme.danger) }
+                }
+            }
+        }
+        CardGroup("Newest first") {
+            let lines = Array(translator.lines.reversed())
+            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                if index > 0 { RowDivider() }
+                Row {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(line.translation.isEmpty ? "…" : line.translation)
+                            .font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.text)
+                        Text(line.original).font(JcText.body).foregroundStyle(JcTheme.muted)
+                    }
+                }
             }
             if !translator.hearing.isEmpty {
-                Text(translator.hearing).italic().foregroundStyle(JcTheme.muted)
+                if !lines.isEmpty { RowDivider() }
+                Row { Text(translator.hearing).italic().foregroundStyle(JcTheme.muted) }
             }
             if translator.lines.isEmpty && translator.hearing.isEmpty {
-                Text("Listening…").foregroundStyle(JcTheme.muted)
+                CardEmptyBlock("Listening…", symbol: "waveform")
             }
-        } header: { Text("Newest first") }
-        Section {
-            Button {
-                Task { await translator.stop() }
-            } label: {
-                HStack { Spacer(); Text(translator.phase == .stopping ? "Stopping…" : "Stop").font(.headline); Spacer() }
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.jcGlass(tint: .red))
-            .disabled(translator.phase != .running)
-            .listRowBackground(Color.clear)
         }
+        Button {
+            Task { await translator.stop() }
+        } label: {
+            Text(translator.phase == .stopping ? "Stopping…" : "Stop")
+        }
+        .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
+        .disabled(translator.phase != .running)
+        .padding(.horizontal, 20)
     }
 }
 

@@ -12,7 +12,7 @@ struct ScaleDeviceView: View {
     private let blue = JcTheme.accent
     /// A weighing in progress: the soft accent, apart from the connected cyan.
     private let measuring = JcTheme.blue
-    private let green = Color(red: 0.29, green: 0.82, blue: 0.49)
+    private let green = JcTheme.success
 
     private var observation: ScaleObservation? { manager.latestObservation }
     private var connected: Bool { manager.connected?.id == scale.id && manager.state == .ready }
@@ -43,12 +43,11 @@ struct ScaleDeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
+        .jcPageChrome(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
         .wearableRename(isPresented: $renaming,
                         current: WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name)) {
             WearableNames.shared.rename(WearableKeepAlive.scale, to: $0)
         }
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -114,35 +113,34 @@ struct ScaleDeviceView: View {
         HStack {
             HStack(spacing: 8) {
                 JcIcon(connected ? "bluetooth" : "bluetooth.slash")
-                    .foregroundStyle(connected ? blue : .secondary)
+                    .foregroundStyle(connected ? blue : JcTheme.muted)
                 Text(connectionText)
             }
             Spacer()
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(JcTheme.muted)
     }
 
     @ViewBuilder private var measurementReadout: some View {
         if let observation {
             HStack(alignment: .lastTextBaseline, spacing: 8) {
                 Text(String(format: "%.1f", unit.value(fromKg: observation.weightKg)))
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .font(.system(size: 48, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                Text(unit.label).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                Text(unit.label).font(JcText.title).foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 20).padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(phaseTint.opacity(0.28)))
-            .shadow(color: phaseTint.opacity(0.18), radius: 18)
+            .background(JcTheme.surface.opacity(0.85), in: Capsule())
+            .overlay(Capsule().strokeBorder(JcTheme.border))
             .transition(.scale(scale: 0.9).combined(with: .opacity))
         } else {
             VStack(spacing: 2) {
                 Text(connected ? "Step on" : "Scale offline")
                     .font(.system(.title2, design: .rounded).weight(.semibold))
                 Text(connected ? "Bare feet give full body composition" : "Reconnect to start a measurement")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 18).padding(.vertical, 11)
             .background(.ultraThinMaterial, in: Capsule())
@@ -153,7 +151,7 @@ struct ScaleDeviceView: View {
 
     private var composition: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Label("Body composition", jcIcon: "figure.stand").font(.headline)
+            Label("Body composition", jcIcon: "figure.stand").font(JcText.body.weight(.semibold))
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(BodyMetric.allCases.filter { $0 != .weight && metrics[$0] != nil }) { metric in
@@ -170,7 +168,7 @@ struct ScaleDeviceView: View {
         let recent = Array(readings.prefix(12).reversed())
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Weight trend", jcIcon: "chart.line.uptrend.xyaxis").font(.headline)
+                Label("Weight trend", jcIcon: "chart.line.uptrend.xyaxis").font(JcText.body.weight(.semibold))
                 Spacer()
                 if let deltaText { Text(deltaText).font(.caption.weight(.semibold)).foregroundStyle(deltaTint) }
             }
@@ -179,16 +177,16 @@ struct ScaleDeviceView: View {
                 ScaleTrendChart(readings: recent, unit: unit, tint: blue)
                     .frame(height: 170)
             } else {
-                Text("Your trend appears after two stable measurements.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                Text("Your trend appears after two stable measurements")
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
                     .frame(maxWidth: .infinity, minHeight: 74)
             }
         }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.06)))
-        .padding(.horizontal, 16)
+        .padding(JcUnified.cardPadding)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
+        .padding(.horizontal, JcUnified.pageInset)
     }
 
     // MARK: - History and settings
@@ -196,9 +194,9 @@ struct ScaleDeviceView: View {
     private var recentHistory: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Recent measurements", jcIcon: "clock.arrow.circlepath").font(.headline)
+                Label("Recent measurements", jcIcon: "clock.arrow.circlepath").font(JcText.body.weight(.semibold))
                 Spacer()
-                Text("\(readings.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("\(readings.count)").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 16)
 
@@ -206,7 +204,7 @@ struct ScaleDeviceView: View {
                 ContentUnavailableView {
                     Label("No measurements yet", jcIcon: "scalemass")
                 } description: {
-                    Text("Stable readings will be saved automatically.")
+                    Text("Stable readings will be saved automatically")
                 }
                     .frame(maxWidth: .infinity).padding(.vertical, 12)
             } else {
@@ -223,11 +221,11 @@ struct ScaleDeviceView: View {
                                     Text(reading.date.formatted(date: .abbreviated, time: .shortened))
                                     if let fat = reading.metrics[.bodyFat] {
                                         Text("\(BodyMetric.bodyFat.format(fat, unit: unit)) body fat")
-                                            .font(.caption).foregroundStyle(.secondary)
+                                            .font(.caption).foregroundStyle(JcTheme.muted)
                                     }
                                 }
                                 Spacer()
-                                Text(unit.format(kg: reading.weightKg)).font(.headline.monospacedDigit())
+                                Text(unit.format(kg: reading.weightKg)).font(JcText.body.weight(.semibold).monospacedDigit())
                             }
                         }
                     }
@@ -245,7 +243,7 @@ struct ScaleDeviceView: View {
                         Spacer()
                         JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -264,7 +262,7 @@ struct ScaleDeviceView: View {
     private var phaseTint: Color {
         if observation?.isStable == true { return green }
         if observation != nil { return measuring }
-        return connected ? blue : .secondary
+        return connected ? blue : JcTheme.muted
     }
     private var signalTint: Color {
         switch scale.rssi { case 0: return blue; case (-68)...: return green; case (-82)..<(-68): return .orange; default: return .red }
@@ -277,8 +275,8 @@ struct ScaleDeviceView: View {
         return sign + unit.format(kg: abs(delta))
     }
     private var deltaTint: Color {
-        guard readings.count >= 2 else { return .secondary }
-        return readings[0].weightKg > readings[1].weightKg ? .orange : green
+        guard readings.count >= 2 else { return JcTheme.muted }
+        return readings[0].weightKg > readings[1].weightKg ? JcTheme.amber : green
     }
 }
 
@@ -307,8 +305,7 @@ private struct ScaleSettingsView: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Settings")
         .sheet(isPresented: $showingProfile) {
             ScaleProfileEditor(history: history)
         }
@@ -357,16 +354,16 @@ private struct ScaleSettingsView: View {
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(profile?.athleteMode == true ? "Athlete mode" : "Standard")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                             if let profile {
                                 Text("\(profile.age) yrs · \(Int(profile.heightCm)) cm")
                                     .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(JcTheme.muted.opacity(0.7))
                             }
                         }
                         JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
             }
@@ -401,14 +398,14 @@ private struct ScaleMetricCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 JcIcon(metric.icon)
-                    .font(.system(size: 13, weight: .bold)).foregroundStyle(metric.tint)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(metric.tint)
                     .frame(width: 30, height: 30).background(metric.tint.opacity(0.15), in: Circle())
                 Spacer()
                 Circle().fill(metric.tint.opacity(0.65)).frame(width: 6, height: 6)
             }
             Text(metric.format(value, unit: unit))
                 .font(.system(.title3, design: .rounded).weight(.semibold)).monospacedDigit()
-            Text(metric.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(metric.title).font(.caption).foregroundStyle(JcTheme.muted).lineLimit(1)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -470,7 +467,7 @@ private struct ScaleTrendChart: View {
             if let selectedReading {
                 RuleMark(x: .value("Selected date", selectedReading.date))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    .foregroundStyle(.secondary.opacity(0.55))
+                    .foregroundStyle(JcTheme.muted.opacity(0.55))
 
                 PointMark(x: .value("Selected date", selectedReading.date),
                           y: .value("Selected weight",
@@ -485,15 +482,15 @@ private struct ScaleTrendChart: View {
                             Text(selectedReading.date.formatted(date: .abbreviated,
                                                                 time: .shortened))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
-                        .background(.regularMaterial,
+                        .background(JcTheme.surfaceAlt,
                                     in: RoundedRectangle(cornerRadius: 10,
                                                          style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08)))
+                            .strokeBorder(JcTheme.border, lineWidth: 1))
                     }
             }
         }
@@ -502,7 +499,7 @@ private struct ScaleTrendChart: View {
             AxisMarks(values: .automatic(desiredCount: 3)) { _ in
                 AxisTick().foregroundStyle(.secondary.opacity(0.28))
                 AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
         }
         .chartYAxis {
@@ -542,13 +539,13 @@ private struct ScaleProfileEditor: View {
                         Spacer()
                         TextField("Height", value: $draft.heightCm,
                                   format: .number.precision(.fractionLength(0...1)))
-                        Text("cm").foregroundStyle(.secondary)
+                        Text("cm").foregroundStyle(JcTheme.muted)
                     }
                     Toggle("Athlete mode", isOn: $draft.athleteMode)
                 }
                 Section {
                     Text("Your profile is used to estimate body-composition metrics from the ESF551's impedance reading.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(JcTheme.muted)
                 }
             }
             .navigationTitle("Profile")

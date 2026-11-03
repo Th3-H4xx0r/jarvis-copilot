@@ -42,7 +42,7 @@ struct GlassesSubpage<Content: View>: View {
                 .padding(.bottom, 36)
         }
         .tint(JcTheme.accent)
-        .jcScreen(title)
+        .jcPageChrome(title)
     }
 }
 
@@ -120,7 +120,7 @@ struct GlassesChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            JcIcon(symbol).font(.caption2.weight(.bold)).foregroundStyle(tint)
+            JcIcon(symbol).font(.caption2.weight(.semibold)).foregroundStyle(tint)
             Text(text).font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
         }
         .padding(.horizontal, 12)

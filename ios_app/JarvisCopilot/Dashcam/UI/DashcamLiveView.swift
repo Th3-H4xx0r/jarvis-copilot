@@ -306,9 +306,9 @@ struct DashcamLiveView: View {
             if model.status == .playing {
                 HStack(spacing: 6) {
                     Circle().fill(JcTheme.danger).frame(width: 8, height: 8)
-                    Text("LIVE").font(.caption.weight(.bold)).tracking(1)
+                    Text("Live").font(.caption.weight(.semibold))
                     if model.source?.canSwitch == true {
-                        Text("· \(model.lensName)").font(.caption).foregroundStyle(.secondary)
+                        Text("· \(model.lensName)").font(.caption).foregroundStyle(JcTheme.muted)
                     }
                 }
                 .padding(.horizontal, 10)
@@ -349,7 +349,7 @@ struct DashcamLiveView: View {
         case .failed(let message):
             VStack(spacing: 12) {
                 JcIcon("wifi.exclamationmark", size: 28).foregroundStyle(JcTheme.muted)
-                Text("No live picture").font(.headline).foregroundStyle(JcTheme.text)
+                Text("No live picture").font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.text)
                 Text(message)
                     .font(.callout)
                     .foregroundStyle(JcTheme.muted)

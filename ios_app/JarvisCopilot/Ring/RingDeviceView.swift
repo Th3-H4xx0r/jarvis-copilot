@@ -42,7 +42,7 @@ struct RingDeviceView: View {
                 if let actionError {
                     Text(actionError)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -60,11 +60,10 @@ struct RingDeviceView: View {
         .refreshable {
             await sync.sync(days: 0)
         }
-        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name))
+        .jcPageChrome(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name))
         .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name)) {
             WearableNames.shared.rename(WearableKeepAlive.ring, to: $0)
         }
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             // A result from an earlier visit is history, not a reading.
             session.clearFinishedMeasurement()
@@ -117,10 +116,10 @@ struct RingDeviceView: View {
                             Text("Start a workout").font(.body.weight(.medium))
                             Text("Heart rate every second, steps and distance")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -149,10 +148,10 @@ struct RingDeviceView: View {
                                 .font(.body.weight(.medium))
                             Text("In the Health tab, from every linked wearable")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
             }
@@ -172,10 +171,10 @@ struct RingDeviceView: View {
                 MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
                            label: session.battery?.charging == true ? "Charging" : "Battery",
                            value: session.battery.map { "\($0.percent)%" } ?? "—",
-                           tint: batteryTint(session.battery?.percent ?? 100) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                           tint: batteryTint(session.battery?.percent ?? 100) ?? JcTheme.success)
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.liveHeartRate.map { Int($0.value) } ?? today?.heartRateLatest).map { "\($0) bpm" } ?? "—",
-                           tint: Color(red: 1, green: 0.35, blue: 0.4))
+                           tint: JcTheme.muted)
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: (session.liveActivity?.steps ?? today?.steps).map { "\($0)" } ?? "—",
                            tint: JcTheme.accent)
@@ -185,7 +184,7 @@ struct RingDeviceView: View {
 
     private var statusLine: some View {
         HStack(spacing: 8) {
-            Circle().fill(ready ? Color.green : Color.orange).frame(width: 7, height: 7)
+            Circle().fill(ready ? JcTheme.success : JcTheme.amber).frame(width: 7, height: 7)
             Text(manager.state.text)
             if sync.isSyncing {
                 ProgressView().controlSize(.mini)
@@ -196,7 +195,7 @@ struct RingDeviceView: View {
             Spacer()
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(JcTheme.muted)
         .padding(.horizontal, 24)
     }
 
@@ -269,7 +268,7 @@ struct RingDeviceView: View {
                         Spacer()
                         JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -302,17 +301,17 @@ struct RingCard: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name.isEmpty ? "Smart ring" : ring.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text("Colmi R12 smart ring")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if connected {
                         MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: JcTheme.success)
                     } else if ring.rssi == 0 {
                         // Remembered from iOS's own link, not answering: not a signal reading.
                         DisconnectedPill()
@@ -323,7 +322,7 @@ struct RingCard: View {
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
                                    value: "\(battery.percent)%",
-                                   tint: batteryTint(battery.percent) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: batteryTint(battery.percent) ?? JcTheme.success)
                     }
                 }
             }
@@ -332,9 +331,9 @@ struct RingCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSeen, visible: !connected && ring.rssi == 0)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
@@ -367,14 +366,14 @@ extension RingMeasurementType {
 
     var tint: Color {
         switch self {
-        case .heartRate: return Color(red: 1, green: 0.35, blue: 0.4)
-        case .bloodPressure: return .pink
+        case .heartRate: return JcTheme.danger
+        case .bloodPressure: return JcTheme.accentAlt
         case .spo2: return JcTheme.accent
-        case .healthCheck: return .mint
+        case .healthCheck: return JcTheme.speakers[5]   // lime
         case .stress: return JcTheme.amber
-        case .bloodSugar: return .teal
+        case .bloodSugar: return JcTheme.speakers[3]   // sky
         case .hrv: return JcTheme.blue
-        case .temperature: return .orange
+        case .temperature: return JcTheme.speakers[4]   // peach
         }
     }
 }

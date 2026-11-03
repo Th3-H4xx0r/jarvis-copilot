@@ -34,19 +34,19 @@ struct GlassesCard: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(InmoGo3.name)
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text("INMO GO3 smart glasses")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if status == .offline, lastSeen == nil {
-                        MetricPill(icon: "link", label: "Status", value: "Not paired yet", tint: .secondary)
+                        MetricPill(icon: "link", label: "Status", value: "Not paired yet", tint: JcTheme.muted)
                     } else {
                         MetricPill(icon: status.symbol, label: "Status", value: status.title,
-                                   tint: status == .offline || status == .audioOnly ? .secondary : status.tint)
+                                   tint: status == .offline || status == .audioOnly ? JcTheme.muted : status.tint)
                     }
                     if status == .connected, let battery = session.status.battery {
                         MetricPill(icon: Self.batterySymbol(battery), label: "Battery", value: "\(battery)%",
@@ -63,9 +63,9 @@ struct GlassesCard: View {
         .frame(maxWidth: .infinity)
         // Audio on the route means "now", not "last seen".
         .lastSeenCorner(lastSeen, visible: status == .offline)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     static func batterySymbol(_ percent: Int) -> String {
@@ -117,10 +117,8 @@ struct InmoGo3View: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 36)
         }
-        .background(JcTheme.bg.ignoresSafeArea())
         .tint(JcTheme.accent)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(name)
         .toolbar {
             WearableToolbarButton(title: "Refresh", icon: "arrow.clockwise") { link.refresh() }
             WearableMoreMenu(onRename: { renaming = true }, extra: {
@@ -151,10 +149,6 @@ struct InmoGo3View: View {
             GlassesSceneView(spin: true, entrance: true, lit: status.lit, cameraDistance: 3.4)
                 .frame(height: 220)
                 .frame(maxWidth: .infinity)
-            Text(name)
-                .font(.title.weight(.bold))
-                .foregroundStyle(JcTheme.text)
-                .lineLimit(1)
             HStack(spacing: 8) {
                 GlassesChip(text: statusText, symbol: status.symbol, tint: status.tint)
                 if ready, let battery = session.status.battery {

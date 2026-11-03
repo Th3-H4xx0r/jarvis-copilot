@@ -108,21 +108,21 @@ struct WorkoutPicker: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
                     Image(systemName: sport.symbol)
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(JcTheme.accent)
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(JcTheme.text)
                         .frame(width: 34, height: 32, alignment: .leading)
                     Spacer()
                     if sport.outdoor { gpsBadge }
                 }
                 Text(sport.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(JcText.body.weight(.semibold))
+                    .foregroundStyle(JcTheme.text)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: 104)
-            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
                 .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -131,8 +131,8 @@ struct WorkoutPicker: View {
 
     private var gpsBadge: some View {
         Text("GPS")
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(JcTheme.muted)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Color.primary.opacity(0.08), in: Capsule())
     }
@@ -175,7 +175,7 @@ struct WorkoutLiveView: View {
             case .starting:
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("Starting on your ring…").foregroundStyle(.secondary)
+                    Text("Starting on your ring…").foregroundStyle(JcTheme.muted)
                 }
             case .running, .paused, .ending:
                 if let strength = workout.strength {
@@ -213,10 +213,10 @@ struct WorkoutLiveView: View {
     private func countdown(_ n: Int) -> some View {
         VStack(spacing: 18) {
             Text(workout.sport?.name ?? "Workout")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(JcText.title)
+                .foregroundStyle(JcTheme.muted)
             Text("\(n)")
-                .font(.system(size: 140, weight: .bold, design: .rounded))
+                .font(.system(size: 140, weight: .semibold, design: .rounded))
                 .foregroundStyle(JcTheme.accent)
                 .contentTransition(.numericText(countsDown: true))
                 .animation(.snappy, value: n)
@@ -231,10 +231,10 @@ struct WorkoutLiveView: View {
             HStack(spacing: 10) {
                 Image(systemName: workout.sport?.symbol ?? "figure.mixed.cardio")
                     .foregroundStyle(JcTheme.accent)
-                Text(workout.sport?.name ?? "Workout").font(.headline)
+                Text(workout.sport?.name ?? "Workout").font(JcText.body.weight(.semibold))
                 if workout.phase == .paused {
-                    Text("PAUSED")
-                        .font(.system(size: 11, weight: .bold))
+                    Text("Paused")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(JcTheme.amber.opacity(0.15), in: Capsule())
@@ -252,9 +252,9 @@ struct WorkoutLiveView: View {
                 let shown = workout.elapsed(at: context.date)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Self.clock(shown))
-                        .font(.system(size: 76, weight: .bold, design: .rounded))
+                        .font(.system(size: 76, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                        .foregroundStyle(workout.phase == .paused ? JcTheme.muted : JcTheme.text)
                         .contentTransition(.numericText())
                         .animation(.snappy(duration: 0.2), value: shown)
                     if running, since > 5 {
@@ -342,15 +342,15 @@ struct WorkoutLiveView: View {
                 RingMetricSymbol(name: "heart.fill", tint: RingMeasurementType.heartRate.tint,
                                  pulsing: workout.phase == .running && tick?.heartRate != nil, size: 22)
                 Text(tick?.heartRate.map(String.init) ?? "--")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .animation(.snappy(duration: 0.25), value: tick?.heartRate)
-                Text("bpm").font(.headline).foregroundStyle(.secondary)
+                Text("bpm").font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.muted)
                 Spacer()
                 if let zone = workout.zone {
                     Text("Zone \(zone)")
-                        .font(.headline)
+                        .font(JcText.body.weight(.semibold))
                         .foregroundStyle(Self.zoneTint(zone))
                 }
             }
@@ -370,13 +370,13 @@ struct WorkoutLiveView: View {
         VStack(alignment: .leading, spacing: 4) {
             Label(label, systemImage: symbol)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                if let unit { Text(unit).font(.subheadline).foregroundStyle(.secondary) }
+                if let unit { Text(unit).font(.subheadline).foregroundStyle(JcTheme.muted) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -387,12 +387,12 @@ struct WorkoutLiveView: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(tint)
                     .frame(width: 84, height: 84)
                     .background(tint.opacity(0.16), in: Circle())
                     .overlay(Circle().strokeBorder(tint.opacity(0.35), lineWidth: 1))
-                Text(label).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Text(label).font(.subheadline.weight(.semibold)).foregroundStyle(JcTheme.muted)
             }
         }
         .buttonStyle(.plain)
@@ -405,12 +405,12 @@ struct WorkoutLiveView: View {
                 .font(.system(size: 48, weight: .semibold))
                 .foregroundStyle(JcTheme.amber)
             Text(why)
-                .font(.headline)
+                .font(JcText.body.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
             HStack(spacing: 14) {
                 Button("Close") { workout.close(save: false) }
-                    .buttonStyle(.jcGlass(tint: .secondary))
+                    .buttonStyle(.jcGlass(tint: JcTheme.muted))
                 if let sport = workout.sport {
                     Button("Try again") {
                         // The same workout again: the route it was following too.
@@ -467,14 +467,14 @@ struct WorkoutSummaryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(workout.sportName, systemImage: RingSport.withID(workout.sport).symbol)
-                        .font(.headline)
+                        .font(JcText.body.weight(.semibold))
                         .foregroundStyle(JcTheme.accent)
                     Text(WorkoutLiveView.clock(workout.activeSeconds))
-                        .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .font(.system(size: 56, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                     Text("\(workout.start.formatted(date: .abbreviated, time: .shortened)) – \(workout.end.formatted(date: .omitted, time: .shortened))")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                 }
                 .padding(.horizontal, 24)
                 // Room under the sheet's grabber; a pushed page has its bar.
@@ -524,7 +524,7 @@ struct WorkoutSummaryView: View {
                     HStack(spacing: 14) {
                         if let onDiscard {
                             Button("Discard", action: onDiscard)
-                                .buttonStyle(.jcGlass(tint: .secondary))
+                                .buttonStyle(.jcGlass(tint: JcTheme.muted))
                         }
                         if let onSave {
                             Button("Save to Health", action: onSave)
@@ -538,7 +538,7 @@ struct WorkoutSummaryView: View {
         }
         .toolbar { if fromHistory { options } }
         .alert("Delete this workout?", isPresented: $confirmingDelete) {
-            Button("Delete Workout", role: .destructive) {
+            Button("Delete workout", role: .destructive) {
                 WorkoutEditing.delete(workout)
                 dismiss()
             }
@@ -550,7 +550,7 @@ struct WorkoutSummaryView: View {
 
     private func item(_ label: String, _ value: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.caption).foregroundStyle(JcTheme.muted)
             Text(value ?? "—")
                 .font(.system(.body, design: .rounded).weight(.semibold))
                 .monospacedDigit()
@@ -562,10 +562,10 @@ struct WorkoutSummaryView: View {
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button(role: .destructive) { confirmingDelete = true } label: {
-                    Label("Delete Workout", systemImage: "trash")
+                    Label("Delete workout", systemImage: "trash")
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
             }
             .accessibilityLabel("Workout options")
         }
@@ -620,11 +620,11 @@ struct WorkoutInProgressCard: View {
                                 } else {
                                     Text(workout.phase == .paused ? "\(sport.name) · Paused" : sport.name)
                                     .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(JcTheme.amber) : AnyShapeStyle(.secondary))
+                                    .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(JcTheme.amber) : AnyShapeStyle(JcTheme.muted))
                                 }
                                 TimelineView(.periodic(from: .now, by: 1)) { context in
                                     Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
-                                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                                        .font(.system(size: 30, weight: .semibold, design: .rounded))
                                         .monospacedDigit()
                                         .contentTransition(.numericText())
                                 }
@@ -637,12 +637,12 @@ struct WorkoutInProgressCard: View {
                                 }
                                 let meters = workout.gpsDistance ?? workout.tick.map { Double($0.distanceMeters) }
                                 if let meters, meters > 0 {
-                                    Text(String(format: "%.2f km", meters / 1000)).foregroundStyle(.secondary)
+                                    Text(String(format: "%.2f km", meters / 1000)).foregroundStyle(JcTheme.muted)
                                 }
                             }
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .monospacedDigit()
-                            JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                         .contentShape(Rectangle())
                     }
@@ -661,7 +661,7 @@ private struct StrengthNameLine: View {
     var body: some View {
         Text(session.log.name)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(JcTheme.muted)
             .lineLimit(1)
     }
 }
@@ -688,9 +688,9 @@ struct HealthWorkoutsCard: View {
                     HStack(spacing: 12) {
                         Image(systemName: "figure.run")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted.opacity(0.7))
                             .frame(width: 30)
-                        Text("No workouts").foregroundStyle(.secondary)
+                        Text("No workouts").foregroundStyle(JcTheme.muted)
                         Spacer(minLength: 8)
                         if let onStart {
                             Button("Start", action: onStart)
@@ -708,13 +708,11 @@ struct HealthWorkoutsCard: View {
                         StrengthWorkoutDetail(workout: workout)
                     } else if workout.route != nil {
                         RouteDetailView(workout: workout, fromHistory: true)
-                            .navigationTitle(workout.sportName)
-                            .navigationBarTitleDisplayMode(.inline)
+                            .jcPageChrome(workout.sportName)
                     } else {
                         WorkoutSummaryView(workout: workout, fromHistory: true)
                             .background(JcTheme.bg)
-                            .navigationTitle(workout.sportName)
-                            .navigationBarTitleDisplayMode(.inline)
+                            .jcPageChrome(workout.sportName)
                     }
                 } label: {
                     Row(minHeight: 58) {
@@ -735,7 +733,7 @@ struct HealthWorkoutsCard: View {
                                      : workout.start.formatted(date: .omitted, time: .shortened))
                                     .lineLimit(1)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(JcTheme.muted)
                             }
                             Spacer(minLength: 8)
                             VStack(alignment: .trailing, spacing: 2) {
@@ -744,9 +742,9 @@ struct HealthWorkoutsCard: View {
                                     .monospacedDigit()
                                 Text(Self.detail(workout))
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(JcTheme.muted)
                             }
-                            JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                         .contentShape(Rectangle())
                     }
@@ -825,7 +823,7 @@ struct WorkoutTrace: View {
         .chartYAxis {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
-                AxisValueLabel().foregroundStyle(Color.secondary)
+                AxisValueLabel().foregroundStyle(JcTheme.muted)
             }
         }
         .chartOverlay { proxy in

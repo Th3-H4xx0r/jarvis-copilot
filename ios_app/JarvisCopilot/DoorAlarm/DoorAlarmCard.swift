@@ -25,9 +25,9 @@ struct DoorAlarmCard: View {
     private var alarm: DoorAlarmInfo? { state?.alarm }
 
     private var stateTint: Color {
-        guard let alarm else { return .secondary }
+        guard let alarm else { return JcTheme.muted }
         if alarm.isAlerting { return JcTheme.danger }
-        return alarm.isArmed ? JcTheme.accent : .secondary
+        return alarm.isArmed ? JcTheme.accent : JcTheme.muted
     }
 
     private var subtitle: String {
@@ -51,11 +51,11 @@ struct DoorAlarmCard: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
@@ -70,10 +70,10 @@ struct DoorAlarmCard: View {
         }
         .frame(height: 190)
         .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .strokeBorder(alarm?.isAlerting == true ? JcTheme.danger.opacity(0.7) : .white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(alarm?.isAlerting == true ? JcTheme.danger.opacity(0.7) : JcTheme.border, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(alarm?.title ?? "not loaded")")
     }

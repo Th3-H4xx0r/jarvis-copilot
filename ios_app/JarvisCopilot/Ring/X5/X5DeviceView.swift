@@ -38,7 +38,7 @@ struct X5DeviceView: View {
                 if let actionError {
                     Text(actionError)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -55,8 +55,7 @@ struct X5DeviceView: View {
             .padding(.bottom, 40)
         }
         .refreshable { _ = await sync.sync() }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
         .wearableRename(isPresented: $renaming, current: title) {
             WearableNames.shared.rename(WearableKeepAlive.x5ring, to: $0)
         }
@@ -107,10 +106,10 @@ struct X5DeviceView: View {
                             Text("Start a workout").font(.body.weight(.medium))
                             Text("Heart rate every second, steps and distance")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -136,11 +135,11 @@ struct X5DeviceView: View {
                 MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
                            label: session.battery?.charging == true ? "Charging" : "Battery",
                            value: session.battery.map { "\($0.percent)%" } ?? "—",
-                           tint: batteryTint(session.battery?.percent ?? 100) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                           tint: batteryTint(session.battery?.percent ?? 100) ?? JcTheme.success)
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.live.flatMap { $0.heartRate > 0 ? $0.heartRate : nil } ?? today?.heartRateLatest)
                                .map { "\($0) bpm" } ?? "—",
-                           tint: Color(red: 1, green: 0.35, blue: 0.4))
+                           tint: JcTheme.muted)
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: (session.live?.steps ?? today?.steps).map { "\($0)" } ?? "—",
                            tint: JcTheme.accent)
@@ -150,7 +149,7 @@ struct X5DeviceView: View {
 
     private var statusLine: some View {
         HStack(spacing: 8) {
-            Circle().fill(ready ? Color.green : Color.orange).frame(width: 7, height: 7)
+            Circle().fill(ready ? JcTheme.success : JcTheme.amber).frame(width: 7, height: 7)
             Text(manager.state.text)
             if sync.isSyncing {
                 ProgressView().controlSize(.mini)
@@ -161,7 +160,7 @@ struct X5DeviceView: View {
             Spacer()
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(JcTheme.muted)
         .padding(.horizontal, 24)
     }
 
@@ -263,10 +262,10 @@ struct X5DeviceView: View {
                             Text("Body Battery, sleep and more").font(.body.weight(.medium))
                             Text(HealthRing.current == .x5 ? "Jarvis Health uses this ring" : "In the Health tab")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
             }
@@ -281,7 +280,7 @@ struct X5DeviceView: View {
                     HStack {
                         Text("Settings & diagnostics")
                         Spacer()
-                        JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -313,17 +312,17 @@ struct X5Card: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.name(WearableKeepAlive.x5ring, fallback: ring.name.isEmpty ? "X5 ring" : ring.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text(X5Ring.model)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if connected {
                         MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: JcTheme.success)
                     } else if ring.rssi == 0 {
                         DisconnectedPill()
                     } else {
@@ -333,7 +332,7 @@ struct X5Card: View {
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
                                    value: "\(battery.percent)%",
-                                   tint: batteryTint(battery.percent) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: batteryTint(battery.percent) ?? JcTheme.success)
                     }
                 }
             }
@@ -342,8 +341,8 @@ struct X5Card: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSeen, visible: !connected && ring.rssi == 0)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }

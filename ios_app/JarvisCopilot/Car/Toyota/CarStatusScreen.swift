@@ -23,12 +23,12 @@ struct CarStatusScreen: View {
                 .frame(height: 420)
                 if let updated = car?.tires?.updatedAt {
                     Text("Tyres updated \(updated, format: .relative(presentation: .named))")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(JcTheme.muted)
                 }
                 CardGroup {
                     let rows = statusRows
                     if rows.isEmpty {
-                        Row { Text(store.account?.blockedReason ?? "Nothing reported yet.").foregroundStyle(.secondary) }
+                        Row { Text(store.account?.blockedReason ?? "Nothing reported yet.").foregroundStyle(JcTheme.muted) }
                     }
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                         if index > 0 { Divider().padding(.leading, 60) }
@@ -39,8 +39,7 @@ struct CarStatusScreen: View {
             .padding(.bottom, 24)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Status")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Status")
     }
 
     @ViewBuilder
@@ -70,7 +69,7 @@ struct CarStatusScreen: View {
         ]
         ForEach(spots.filter { open.contains($0.0) }, id: \.0) { name, at in
             Text("Open")
-                .font(.caption2.weight(.bold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(.black)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -88,7 +87,7 @@ struct CarStatusScreen: View {
         guard let car else { return [] }
         var rows: [Line] = []
         if let tires = car.tires {
-            rows.append(Line(icon: "tirepressure", title: "Tyre Pressure",
+            rows.append(Line(icon: "tirepressure", title: "Tyre pressure",
                              value: tires.warnings.isEmpty ? "Good" : "Check " + tires.warnings.joined(separator: ", ").lowercased(),
                              ok: tires.warnings.isEmpty))
         }
@@ -134,7 +133,7 @@ struct TirePressureLabel: View {
                 .monospacedDigit()
             Text(warned ? "\(unit) · low" : unit)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(warned ? JcTheme.amber : .secondary)
+                .foregroundStyle(warned ? JcTheme.amber : JcTheme.muted)
         }
         .foregroundStyle(warned ? JcTheme.amber : Color.primary)
         .frame(width: 84, alignment: alignLeft ? .leading : .trailing)
@@ -166,8 +165,8 @@ struct ToyotaStatusRow: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.body.weight(.semibold))
-                    Text(value).font(.subheadline).foregroundStyle(ok ? Color.secondary : JcTheme.amber)
-                    if let note { Text(note).font(.caption).foregroundStyle(.tertiary) }
+                    Text(value).font(.subheadline).foregroundStyle(ok ? JcTheme.muted : JcTheme.amber)
+                    if let note { Text(note).font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7)) }
                 }
                 Spacer(minLength: 0)
             }

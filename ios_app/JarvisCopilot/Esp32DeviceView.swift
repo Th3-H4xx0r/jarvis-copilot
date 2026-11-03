@@ -20,8 +20,8 @@ struct Esp32DeviceView: View {
     /// While a script owns the pins, manual controls step aside.
     private var scriptRunning: Bool { manager.script?.state == .running }
     private var blue: Color { JcTheme.accent }
-    private var green: Color { Color(red: 0.29, green: 0.82, blue: 0.49) }
-    private var red: Color { Color(red: 1.0, green: 0.31, blue: 0.27) }
+    private var green: Color { JcTheme.success }
+    private var red: Color { JcTheme.danger }
 
     /// The stable ID once the handshake has run; the card's ID before that. The manager's info is
     /// only this board's while the manager is connected to THIS board — another board's ID here
@@ -45,11 +45,10 @@ struct Esp32DeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
+        .jcPageChrome(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
         .wearableRename(isPresented: $renaming, current: WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name)) {
             WearableNames.shared.renameEsp32(id: board.stableID, to: $0)
         }
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             preference = Esp32Manager.linkPreference(for: deviceID)
             if manager.connected?.id != board.id { manager.connect(board) }
@@ -90,11 +89,11 @@ struct Esp32DeviceView: View {
 
             Text(manager.state.text)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
 
             HStack(spacing: 7) {
                 if let link = manager.activeLink {
-                    MetricPill(icon: link.icon, label: "Link", value: link.label, tint: ready ? green : .orange)
+                    MetricPill(icon: link.icon, label: "Link", value: link.label, tint: ready ? green : JcTheme.amber)
                 }
                 if let info = manager.info {
                     MetricPill(icon: "number", label: "Firmware", value: info.firmwareString, tint: blue)
@@ -114,12 +113,12 @@ struct Esp32DeviceView: View {
 
     private func errorBanner(_ text: String) -> some View {
         HStack(spacing: 10) {
-            JcIcon("exclamationmark.triangle.fill").foregroundStyle(.orange)
+            JcIcon("exclamationmark.triangle.fill").foregroundStyle(JcTheme.amber)
             Text(text).font(.footnote)
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(JcTheme.amber.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 16)
     }
 
@@ -174,7 +173,7 @@ struct Esp32DeviceView: View {
                             JcIcon("sparkles").foregroundStyle(JcTheme.accent)
                             Text("Program with Jarvis")
                             Spacer()
-                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                         .contentShape(Rectangle())
                     }
@@ -196,10 +195,10 @@ struct Esp32DeviceView: View {
                 Row(minHeight: 64) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(needsReset ? "Paired to another phone" : "Reset ownership")
-                            .font(.headline)
+                            .font(JcText.body.weight(.semibold))
                         Text(resetNote ?? "Hold the board's BOOT button, then tap Reset.")
                             .font(.footnote)
-                            .foregroundStyle(resetNote == nil ? .secondary : .primary)
+                            .foregroundStyle(resetNote == nil ? JcTheme.muted : JcTheme.text)
                         Button {
                             Task {
                                 resetting = true
@@ -229,11 +228,11 @@ struct Esp32DeviceView: View {
                             showReflash.toggle()
                         }
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         if showReflash {
                             Text("Plug the board in over USB and run ios_app/firmware/flash.sh. A fresh flash also clears ownership.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                     }
                     .padding(.vertical, 6)
@@ -242,7 +241,7 @@ struct Esp32DeviceView: View {
         } else {
             Button("Reset ownership…") { showMaintenance = true }
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.horizontal, 20)
         }
@@ -262,7 +261,7 @@ struct Esp32DeviceView: View {
                             .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(s.name.isEmpty ? "Script" : s.name).font(.headline)
+                                Text(s.name.isEmpty ? "Script" : s.name).font(JcText.body.weight(.semibold))
                                 Spacer()
                                 Text(s.state.label)
                                     .font(.caption.weight(.semibold))
@@ -271,12 +270,12 @@ struct Esp32DeviceView: View {
                                     .background(scriptTint(s.state).opacity(0.14), in: Capsule())
                             }
                             if let info = manager.scriptInfo, info.name == s.name, !info.summary.isEmpty {
-                                Text(info.summary).font(.subheadline).foregroundStyle(.secondary)
+                                Text(info.summary).font(.subheadline).foregroundStyle(JcTheme.muted)
                                 Text(info.installedAt.formatted(.relative(presentation: .named)))
-                                    .font(.caption).foregroundStyle(.tertiary)
+                                    .font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                             }
                             if !s.error.isEmpty {
-                                Text(s.error).font(.caption).foregroundStyle(.red)
+                                Text(s.error).font(.caption).foregroundStyle(JcTheme.danger)
                             }
                         }
                     }
@@ -300,8 +299,8 @@ struct Esp32DeviceView: View {
             } else {
                 Row {
                     HStack(spacing: 12) {
-                        JcIcon("scroll").foregroundStyle(.secondary)
-                        Text("No script").foregroundStyle(.secondary)
+                        JcIcon("scroll").foregroundStyle(JcTheme.muted)
+                        Text("No script").foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -346,7 +345,7 @@ struct Esp32DeviceView: View {
                     }
                 }
                 RowDivider()
-                DetailRow(icon: "wifi", tint: manager.wifi?.state == .connected ? green : .secondary,
+                DetailRow(icon: "wifi", tint: manager.wifi?.state == .connected ? green : JcTheme.muted,
                           title: "Wi‑Fi", value: wifiValue, detail: manager.wifi?.state == .connected ? manager.wifi?.ip : nil)
                 RowDivider()
                 Row {
@@ -356,7 +355,7 @@ struct Esp32DeviceView: View {
                         HStack {
                             Text(manager.wifi?.state == .off ? "Set up network" : "Change network")
                             Spacer()
-                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                         .contentShape(Rectangle())
                     }
@@ -402,7 +401,7 @@ struct Esp32DeviceView: View {
                                 Text(linking ? "Linking…" : (manager.cloud?.state == .off ? "Link directly" : "Retry link"))
                                 Spacer()
                                 if linking { ProgressView().controlSize(.small) }
-                                else { JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
+                                else { JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7)) }
                             }
                             .contentShape(Rectangle())
                         }
@@ -443,7 +442,7 @@ struct Esp32DeviceView: View {
         case .connected:        return green
         case .connecting, .paired: return blue
         case .failed, .expired: return red
-        case .off:              return .secondary
+        case .off:              return JcTheme.muted
         }
     }
 
@@ -483,7 +482,7 @@ struct Esp32DeviceView: View {
                 RowDivider()
             }
             if manager.pins.isEmpty {
-                Row { Text("Waiting for the board…").foregroundStyle(.secondary) }
+                Row { Text("Waiting for the board…").foregroundStyle(JcTheme.muted) }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 8)], spacing: 8) {
                     ForEach(manager.pins) { pin in
@@ -504,13 +503,13 @@ struct Esp32DeviceView: View {
     private var consoleCard: some View {
         CardGroup("Console") {
             if manager.scriptLog.isEmpty {
-                Row { Text("No output yet").foregroundStyle(.secondary) }
+                Row { Text("No output yet").foregroundStyle(JcTheme.muted) }
             } else {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(Array(manager.scriptLog.suffix(12).enumerated()), id: \.offset) { _, line in
                         Text(line)
                             .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(line.hasPrefix("error") ? .red : line.hasPrefix("→") || line.hasPrefix("←") || line.hasPrefix("—") ? .secondary : .primary)
+                            .foregroundStyle(line.hasPrefix("error") ? JcTheme.danger : line.hasPrefix("→") || line.hasPrefix("←") || line.hasPrefix("—") ? JcTheme.muted : JcTheme.text)
                             .lineLimit(2)
                             .textSelection(.enabled)
                     }
@@ -551,7 +550,7 @@ struct Esp32DeviceView: View {
                     HStack {
                         Text(relay.state.label)
                         Spacer()
-                        Text("\(relay.forwarded) sent").foregroundStyle(.secondary)
+                        Text("\(relay.forwarded) sent").foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -588,7 +587,7 @@ private struct Esp32PinTile: View {
     private var tint: Color {
         if pin.capabilities.contains(.led) { return JcTheme.accent }
         if !canOutput { return .orange }
-        return Color(red: 0.29, green: 0.82, blue: 0.49)
+        return JcTheme.success
     }
 
     private var modeText: String {
@@ -607,19 +606,18 @@ private struct Esp32PinTile: View {
             VStack(spacing: 5) {
                 HStack(spacing: 3) {
                     Text("\(pin.gpio)")
-                        .font(.system(.title3, design: .rounded).weight(.bold))
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
                         .monospacedDigit()
                     if pin.capabilities.contains(.strapping) {
-                        Text("⚠︎").font(.caption2).foregroundStyle(.secondary)
+                        JcIcon("exclamationmark.triangle", size: 10).foregroundStyle(JcTheme.muted)
                     }
                 }
                 Circle()
-                    .fill(isHigh ? tint : Color.secondary.opacity(0.25))
+                    .fill(isHigh ? tint : JcTheme.muted.opacity(0.25))
                     .frame(width: 12, height: 12)
-                    .shadow(color: isHigh ? tint.opacity(0.7) : .clear, radius: 5)
                 Text(modeText)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -702,7 +700,7 @@ private struct Esp32WifiSheet: View {
                         HStack(spacing: 10) {
                             if scanning { ProgressView() }
                             Text(scanning ? "Scanning from the board…" : "No networks found")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                     }
                     ForEach(networks) { n in
@@ -714,8 +712,8 @@ private struct Esp32WifiSheet: View {
                                 }
                                 Spacer()
                                 if joining == n.ssid { ProgressView().controlSize(.small) }
-                                if n.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(.secondary) }
-                                JcIcon(n.rssi >= -75 ? "wifi" : "wifi.exclamationmark").foregroundStyle(.secondary)
+                                if n.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(JcTheme.muted) }
+                                JcIcon(n.rssi >= -75 ? "wifi" : "wifi.exclamationmark").foregroundStyle(JcTheme.muted)
                             }
                             .contentShape(Rectangle())
                         }
@@ -732,7 +730,7 @@ private struct Esp32WifiSheet: View {
                     Text("2.4 GHz only — the ESP32 has no 5 GHz radio. The password is sent over the encrypted Bluetooth link and stored on the board.")
                 }
                 if let error {
-                    Section { Text(error).foregroundStyle(.red) }
+                    Section { Text(error).foregroundStyle(JcTheme.danger) }
                 }
                 if let w = manager.wifi, w.state != .off {
                     Section("Current") {
@@ -822,23 +820,23 @@ struct Esp32Card: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
                     .frame(maxWidth: 190, alignment: .leading)
                 Text("ESP32 DevKit V1")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if let activeLink {
                         MetricPill(icon: activeLink.icon, label: "Connected", value: activeLink.label,
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: JcTheme.success)
                     } else if board.isOnWifi {
                         // Visible on the network, not linked: neutral, so green on a
                         // card always means connected (as the Chat dashboard counts it).
-                        MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi", tint: .secondary)
+                        MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi", tint: JcTheme.muted)
                         if board.record == nil && board.peripheral == nil {
-                            Text("needs Bluetooth setup").font(.caption2).foregroundStyle(.secondary)
+                            Text("needs Bluetooth setup").font(.caption2).foregroundStyle(JcTheme.muted)
                         }
                     } else if board.rssi == 0 {
                         // Remembered, but neither advertising nor answering on the LAN. Saying
@@ -850,7 +848,7 @@ struct Esp32Card: View {
                                    value: "\(board.rssi) dBm", tint: signalTint)
                     }
                     if board.isOnWifi && board.rssi != 0 && activeLink == nil {
-                        JcIcon("wifi").font(.caption).foregroundStyle(.secondary)
+                        JcIcon("wifi").font(.caption).foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -859,16 +857,16 @@ struct Esp32Card: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .lastSeenCorner(lastSeen, visible: activeLink == nil && !board.isOnWifi && board.rssi == 0)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private var signalTint: Color {
         switch board.rssi {
-        case (-68)...:      return Color(red: 0.29, green: 0.82, blue: 0.49)
+        case (-68)...:      return JcTheme.success
         case (-82)..<(-68): return .orange
-        default:            return Color(red: 1.0, green: 0.31, blue: 0.27)
+        default:            return JcTheme.danger
         }
     }
 }
@@ -877,7 +875,7 @@ struct Esp32Card: View {
 /// beneath that wraps — long status text never collides with the title.
 private struct DetailRow: View {
     let icon: String
-    var tint: Color = .secondary
+    var tint: Color = JcTheme.muted
     let title: String
     let value: String
     var detail: String? = nil
@@ -893,14 +891,14 @@ private struct DetailRow: View {
                     Text(title)
                     Spacer(minLength: 12)
                     Text(value)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
                 if let detail, !detail.isEmpty {
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JcTheme.muted.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.leading, 32)
                 }

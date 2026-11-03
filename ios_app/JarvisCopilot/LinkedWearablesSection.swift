@@ -17,7 +17,7 @@ struct LinkedWearablesSection: View {
                 .padding(.horizontal, 4)
             if children.isEmpty {
                 CardEmptyBlock(symbol: "link", text: "Nothing linked to \(hostName) yet.")
-                    .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+                    .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
             }
             ForEach(children, id: \.kind) { child in
                 child.card(namespace: namespace)
@@ -68,7 +68,7 @@ private struct LinkWearableSheet: View {
                                     JcIcon(candidate.symbol, size: 20).foregroundStyle(JcTheme.accent)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(candidate.title).font(.body.weight(.semibold))
-                                        Text(candidate.linkStatus.text).font(.caption).foregroundStyle(.secondary)
+                                        Text(candidate.linkStatus.text).font(.caption).foregroundStyle(JcTheme.muted)
                                     }
                                     Spacer()
                                     JcIcon("plus", size: 15).foregroundStyle(JcTheme.accent)

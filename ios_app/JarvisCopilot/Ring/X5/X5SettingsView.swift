@@ -27,7 +27,7 @@ struct X5SettingsView: View {
                 if let error {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -41,8 +41,7 @@ struct X5SettingsView: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("X5 settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("X5 settings")
         .alert("Power the X5 off?", isPresented: $confirmPowerOff) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
             Button("Cancel", role: .cancel) {}
@@ -142,14 +141,14 @@ struct X5SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(label(type)).font(.subheadline)
                             if let window = schedule.window, schedule.on {
-                                Text(window).font(.caption).foregroundStyle(.secondary)
+                                Text(window).font(.caption).foregroundStyle(JcTheme.muted)
                             }
                         }
                         Spacer(minLength: 8)
                         Text(session.monitoring[type] == nil ? "—" : schedule.value)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .padding(.vertical, 12)
                     .contentShape(Rectangle())
@@ -220,11 +219,11 @@ struct X5SettingsView: View {
                         HStack {
                             Text(entry.title).font(.caption.weight(.medium))
                             Spacer()
-                            Text(entry.date, style: .time).font(.caption2).foregroundStyle(.tertiary)
+                            Text(entry.date, style: .time).font(.caption2).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
-                        if !entry.detail.isEmpty { Text(entry.detail).font(.caption2).foregroundStyle(.secondary) }
+                        if !entry.detail.isEmpty { Text(entry.detail).font(.caption2).foregroundStyle(JcTheme.muted) }
                         if showRawBytes, entry.frame.cmd != 0 {
-                            Text(entry.hex).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                            Text(entry.hex).font(.caption2.monospaced()).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

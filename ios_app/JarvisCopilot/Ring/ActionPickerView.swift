@@ -60,8 +60,7 @@ struct RingActionPicker: View {
             .padding(.bottom, 30)
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search actions")
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
         .onAppear(perform: load)
         .task { boards = await ServerDevices.load() }
     }
@@ -84,7 +83,7 @@ struct RingActionPicker: View {
                         Text("Runs on").foregroundStyle(JcTheme.text)
                         Spacer()
                         Text(AgentPick(agent).label).foregroundStyle(JcTheme.muted).lineLimit(1)
-                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
                 .contentShape(Rectangle())
@@ -165,7 +164,7 @@ struct RingActionPicker: View {
             if row.matches(current) {
                 JcIcon("checkmark").font(.caption).foregroundStyle(JcAccent.color)
             } else if chevron {
-                JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
             }
         }
         .padding(.horizontal, 16)
@@ -217,23 +216,29 @@ struct CatalogueValueEditor: View {
     @State private var value = ""
 
     var body: some View {
-        Form {
-            if let note = option.note { Section { Text(note).font(.footnote) } }
-            if let parameter = option.parameter {
-                Section(parameter.title) {
-                    TextField(parameter.placeholder, text: $value).autocorrectionDisabled()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if let note = option.note {
+                    Text(note).font(JcText.body).foregroundStyle(JcTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 18)
                 }
-                Section {
+                if let parameter = option.parameter {
+                    SectionHeader(parameter.title)
+                    TextField(parameter.placeholder, text: $value).autocorrectionDisabled().jcFieldStyle()
                     Button("Save") {
                         onSave(.skill(id: option.id, arguments: [parameter.key: value]))
                         dismiss()
                     }
+                    .buttonStyle(.jcGlass(full: true))
                     .disabled(value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .padding(.top, 22)
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
         }
-        .navigationTitle(option.label)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(option.label)
         .onAppear {
             if case .skill(let id, let arguments) = current, id == option.id, let key = option.parameter?.key {
                 value = arguments[key] ?? ""
@@ -265,23 +270,33 @@ struct SecureActionEditor: View {
     }
 
     var body: some View {
-        Form {
-            if allowsSkip {
-                skipSection
-            } else {
-                Section { Text("Asks for Face ID each time: a notification asks — tap it.").font(.footnote) }
-            }
-            if let error { Section { Text(error).foregroundStyle(JcTheme.danger) } }
-            Section {
+        ScrollView {
+            VStack(spacing: 22) {
+                if allowsSkip {
+                    skipSection
+                } else {
+                    Text("Asks for Face ID each time: a notification asks — tap it")
+                        .font(JcText.body).foregroundStyle(JcTheme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                }
+                if let error {
+                    Text(error).font(JcText.small).foregroundStyle(JcTheme.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                }
                 Button("Save") {
                     onSave(saved(skip: allowsSkip && skip))
                     dismiss()
                 }
+                .buttonStyle(.jcGlass(full: true))
                 .disabled(working)
+                .padding(.horizontal, 20)
             }
+            .padding(.vertical, 16)
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .tint(JcTheme.accent)
+        .jcPageChrome(title)
         .onAppear {
             switch (action, current) {
             case (.door(let command, _), .door(let other, let was)) where command == other: skip = was
@@ -292,14 +307,14 @@ struct SecureActionEditor: View {
     }
 
     private var skipSection: some View {
-        Section {
-            Toggle(skipLabel, isOn: Binding(get: { skip }, set: { turn($0) }))
-                .disabled(working)
-        } footer: {
-            Text(skip
-                 ? "Pressing this button in Control Center runs it straight away — anyone holding your "
-                   + "iPhone could. On a widget, the ring, a Shortcut, Siri or Jarvis it still asks for Face ID."
-                 : "Asks for Face ID each time. From Control Center or a widget, a notification asks — tap it.")
+        CardGroup(footer: skip
+                  ? "Pressing this button in Control Center runs it straight away — anyone holding your "
+                    + "iPhone could. On a widget, the ring, a Shortcut, Siri or Jarvis it still asks for Face ID."
+                  : "Asks for Face ID each time. From Control Center or a widget, a notification asks — tap it.") {
+            Row {
+                Toggle(skipLabel, isOn: Binding(get: { skip }, set: { turn($0) }))
+                    .disabled(working)
+            }
         }
     }
 
@@ -409,35 +424,48 @@ struct AgentChoicePage: View {
     private var store: HarnessStore { HarnessStore.shared }
 
     var body: some View {
-        List {
-            Section {
-                if forWidget { option(.buttonsOwn, "Each button's own", "Every button runs what it was set to") }
-                option(.sameAsDefault, store.sameAsDefaultTitle, "Settings → Default sets it")
-            }
-            Section("Harnesses") {
-                ForEach(store.harnesses.filter { $0.id != "single" }) { harness in
-                    option(.harness(harness.id), harness.title, nil)
+        ScrollView {
+            VStack(spacing: 22) {
+                CardGroup {
+                    if forWidget {
+                        option(.buttonsOwn, "Each button's own", "Every button runs what it was set to")
+                        RowDivider()
+                    }
+                    option(.sameAsDefault, store.sameAsDefaultTitle, "Settings → Default sets it")
                 }
-            }
-            Section {
-                Button {
-                    pickingModel = true
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Single model…").foregroundStyle(JcTheme.text)
-                            if case .model(let id, _) = pick {
-                                Text(id).font(.caption).foregroundStyle(JcTheme.muted)
-                            }
+                let harnesses = store.harnesses.filter { $0.id != "single" }
+                if !harnesses.isEmpty {
+                    CardGroup("Harnesses") {
+                        ForEach(Array(harnesses.enumerated()), id: \.element.id) { index, harness in
+                            if index > 0 { RowDivider() }
+                            option(.harness(harness.id), harness.title, nil)
                         }
-                        Spacer()
-                        if case .model = pick { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
                     }
                 }
+                CardGroup {
+                    Button {
+                        pickingModel = true
+                    } label: {
+                        Row {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Single model…").font(JcText.body).foregroundStyle(JcTheme.text)
+                                    if case .model(let id, _) = pick {
+                                        Text(id).font(JcText.small).foregroundStyle(JcTheme.muted)
+                                    }
+                                }
+                                Spacer()
+                                if case .model = pick { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.vertical, 16)
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
         .task { await store.refresh() }
         .sheet(isPresented: $pickingModel, onDismiss: { if pickedModel { dismiss() } }) {
             CatalogModelPickerSheet(title: "Model", catalog: catalog,
@@ -459,14 +487,18 @@ struct AgentChoicePage: View {
             onPick(value)
             dismiss()
         } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name).foregroundStyle(JcTheme.text)
-                    if let note { Text(note).font(.caption).foregroundStyle(JcTheme.muted) }
+            Row {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).font(JcText.body).foregroundStyle(JcTheme.text)
+                        if let note { Text(note).font(JcText.small).foregroundStyle(JcTheme.muted) }
+                    }
+                    Spacer()
+                    if pick == value { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
                 }
-                Spacer()
-                if pick == value { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }

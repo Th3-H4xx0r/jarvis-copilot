@@ -58,14 +58,14 @@ struct RingSettingsView: View {
                 if let error {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let note {
                     Text(note)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -101,8 +101,7 @@ struct RingSettingsView: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("Ring settings")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Ring settings")
         .onAppear {
             loadDrafts()
             // Applies a choice made while the ring was away, without waiting for a reconnect.
@@ -411,7 +410,7 @@ struct RingSettingsView: View {
                             }
                         }
                         Spacer()
-                        Text(calibrationText).font(.caption).foregroundStyle(.secondary)
+                        Text(calibrationText).font(.caption).foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -464,11 +463,11 @@ struct RingSettingsView: View {
                         Spacer()
                         switch session.probe.works(feature) {
                         case true?:
-                            JcIcon("checkmark.circle.fill").foregroundStyle(.green)
+                            JcIcon("checkmark.circle.fill").foregroundStyle(JcTheme.success)
                         case false?:
-                            JcIcon("minus.circle").foregroundStyle(.secondary)
+                            JcIcon("minus.circle").foregroundStyle(JcTheme.muted)
                         case nil:
-                            Text("—").font(.caption).foregroundStyle(.tertiary)
+                            Text("—").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                     }
                 }
@@ -514,7 +513,7 @@ struct RingSettingsView: View {
                     ? "—" : "\(session.livePPG.count) · latest \(session.livePPG.suffix(6).map(String.init).joined(separator: " "))")
             if session.measurement?.isActive == true {
                 RowDivider()
-                Row { Text("Measuring now").font(.caption).foregroundStyle(.green) }
+                Row { Text("Measuring now").font(.caption).foregroundStyle(JcTheme.success) }
             }
         }
     }
@@ -549,7 +548,7 @@ struct RingSettingsView: View {
                         Text("\(flags[index].group) · \(flags[index].name)").font(.subheadline)
                         Spacer()
                         JcIcon(flags[index].on ? "checkmark.circle.fill" : "minus.circle")
-                            .foregroundStyle(flags[index].on ? Color.green : Color.secondary)
+                            .foregroundStyle(flags[index].on ? JcTheme.success : JcTheme.muted)
                     }
                 }
             }
@@ -563,7 +562,7 @@ struct RingSettingsView: View {
     private func hexRow(_ title: String, _ bytes: [UInt8]) -> some View {
         Row(minHeight: 56) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.caption).foregroundStyle(JcTheme.muted)
                 Text(Data(bytes).hexString).font(.caption.monospaced()).textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -631,14 +630,14 @@ struct RingSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.title).font(.subheadline)
                             if !entry.detail.isEmpty {
-                                Text(entry.detail).font(.caption).foregroundStyle(.secondary)
+                                Text(entry.detail).font(.caption).foregroundStyle(JcTheme.muted)
                             }
                             Text(entry.date.formatted(date: .omitted, time: .standard)
                                  + (entry.frame.channel == .bigData ? " · large data" : ""))
                                 .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(JcTheme.muted.opacity(0.7))
                             if showRaw, entry.frame.cmd != 0 {
-                                Text(entry.hex).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                                Text(entry.hex).font(.caption2.monospaced()).foregroundStyle(JcTheme.muted.opacity(0.7))
                             }
                         }
                         Spacer(minLength: 0)
@@ -650,7 +649,7 @@ struct RingSettingsView: View {
         private func tint(_ entry: RingLogEntry) -> Color {
             if entry.frame.isError { return .red }
             if entry.frame.cmd == 0 { return JcTheme.accent }
-            return entry.frame.outbound ? .orange : .green
+            return entry.frame.outbound ? JcTheme.amber : JcTheme.success
         }
     }
 

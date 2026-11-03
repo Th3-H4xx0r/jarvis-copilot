@@ -50,21 +50,21 @@ struct RingGoalRing: View {
             VStack(spacing: 0) {
                 if remaining == 0 {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(tint)
                     Text("Goal")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                 } else {
                     Text((revealed ? remaining : goal).formatted())
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .contentTransition(.numericText(value: Double(revealed ? remaining : goal)))
                     Text("to go")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                 }
             }
             .padding(.horizontal, 8)

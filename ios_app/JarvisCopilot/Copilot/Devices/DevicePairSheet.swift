@@ -34,7 +34,7 @@ struct DevicePairSheet: View {
                     }
                 } else {
                     Text(code)
-                        .font(.system(size: 34, weight: .bold, design: .monospaced))
+                        .font(.system(size: 34, weight: .semibold, design: .monospaced))
                         .kerning(6)
                         .foregroundStyle(JcTheme.text)
                         .frame(maxWidth: .infinity)

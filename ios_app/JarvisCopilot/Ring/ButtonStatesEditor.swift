@@ -61,8 +61,7 @@ struct ButtonStatesEditor: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("My own states")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("My own states")
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") {
@@ -107,7 +106,7 @@ struct ButtonStatesEditor: View {
                         Text("Icon")
                         Spacer()
                         Image(systemName: rule.wrappedValue.symbol).foregroundStyle(JcAccent.color)
-                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
                 .contentShape(Rectangle())
@@ -122,8 +121,8 @@ struct ButtonStatesEditor: View {
                         Text("Does")
                         Spacer()
                         Text(rule.wrappedValue.action.isSet ? rule.wrappedValue.action.summary : "Choose")
-                            .foregroundStyle(.secondary).lineLimit(1)
-                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted).lineLimit(1)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                 }
                 .contentShape(Rectangle())
@@ -145,8 +144,8 @@ struct ButtonStatesEditor: View {
                     Text(title)
                     Spacer()
                     Text(key.map { WidgetDataCatalog.entry($0)?.label ?? $0 } ?? "None")
-                        .foregroundStyle(.secondary).lineLimit(1)
-                    JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        .foregroundStyle(JcTheme.muted).lineLimit(1)
+                    JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                 }
             }
             .contentShape(Rectangle())
@@ -202,36 +201,54 @@ struct LiveValuePicker: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                Button("None") {
-                    onPick(nil)
-                    dismiss()
-                }
-            }
-            ForEach(Array(Set(entries.map(\.area))).sorted(), id: \.self) { area in
-                Section(area.capitalized) {
-                    ForEach(entries.filter { $0.area == area }) { entry in
-                        Button {
-                            onPick(entry.key)
-                            dismiss()
-                        } label: {
+        ScrollView {
+            VStack(spacing: 22) {
+                CardGroup {
+                    Button {
+                        onPick(nil)
+                        dismiss()
+                    } label: {
+                        Row {
                             HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.label).foregroundStyle(JcTheme.text)
-                                    Text(entry.key).font(.caption).foregroundStyle(JcTheme.muted)
-                                }
+                                Text("None").font(JcText.body).foregroundStyle(JcTheme.text)
                                 Spacer()
-                                if entry.key == selected { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
+                                if selected == nil { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
                             }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(Array(Set(entries.map(\.area))).sorted(), id: \.self) { area in
+                    let inArea = entries.filter { $0.area == area }
+                    CardGroup(area.prefix(1).uppercased() + area.dropFirst()) {
+                        ForEach(Array(inArea.enumerated()), id: \.element.id) { index, entry in
+                            if index > 0 { RowDivider() }
+                            Button {
+                                onPick(entry.key)
+                                dismiss()
+                            } label: {
+                                Row {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.label).font(JcText.body).foregroundStyle(JcTheme.text)
+                                            Text(entry.key).font(JcText.small).foregroundStyle(JcTheme.muted)
+                                        }
+                                        Spacer()
+                                        if entry.key == selected { JcIcon("checkmark").foregroundStyle(JcAccent.color) }
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
+            .padding(.vertical, 16)
         }
         .searchable(text: $query, prompt: "Search live values")
-        .navigationTitle("Live value")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Live value")
     }
 }
 
@@ -276,7 +293,7 @@ struct StateIconsEditor: View {
                                     if symbols[state.id] != nil {
                                         Text("Changed").font(.caption).foregroundStyle(JcTheme.muted)
                                     }
-                                    JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                    JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                                 }
                             }
                             .contentShape(Rectangle())
@@ -295,7 +312,6 @@ struct StateIconsEditor: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("State icons")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("State icons")
     }
 }

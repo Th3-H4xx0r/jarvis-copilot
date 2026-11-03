@@ -29,13 +29,13 @@ struct GlassesNotesView: View {
                 Toggle("Start from the glasses", isOn: $fromGlasses)
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    if let problem = recorder.problem { Text(problem).foregroundStyle(.red) }
+                    if let problem = recorder.problem { Text(problem).foregroundStyle(JcTheme.danger) }
                     Text("The glasses' microphone is transcribed on this phone, the sentence you're saying shows on the lens, and glasses photos land in the note. Jarvis writes the title and summary.")
                 }
             }
             Section {
                 if store.notes.isEmpty {
-                    Text("No notes yet.").foregroundStyle(JcTheme.muted)
+                    Text("No notes yet").foregroundStyle(JcTheme.muted)
                 }
                 ForEach(store.notes) { note in
                     NavigationLink { GlassesNoteDetailView(noteID: note.id) } label: { row(note) }
@@ -43,7 +43,9 @@ struct GlassesNotesView: View {
                 }
             } header: { Text("Notes") }
         }
-        .navigationTitle("AI Notes")
+        .scrollContentBackground(.hidden)
+        .tint(JcTheme.accent)
+        .jcPageChrome("AI Notes")
         .fullScreenCover(isPresented: .constant(recorder.phase == .recording || recorder.phase == .saving)) {
             GlassesNoteRecordingView()
         }
@@ -77,7 +79,7 @@ struct GlassesNoteRecordingView: View {
     var body: some View {
         VStack(spacing: 16) {
             HStack {
-                Circle().fill(Color.red).frame(width: 10, height: 10)
+                Circle().fill(JcTheme.danger).frame(width: 10, height: 10)
                 Text(recorder.phase == .saving ? "Saving…" : "Recording from the glasses")
                     .font(.subheadline.weight(.medium)).foregroundStyle(JcTheme.muted)
                 Spacer()
@@ -113,17 +115,17 @@ struct GlassesNoteRecordingView: View {
             }
             HStack(spacing: 12) {
                 Button("Discard", jcIcon: "trash", action: { recorder.discard() })
-                    .buttonStyle(.jcGlass(tint: .red, compact: true))
+                    .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                     .disabled(recorder.phase != .recording)
                 Button {
                     Task { await recorder.save() }
                 } label: {
-                    HStack { Spacer(); Text("Save").font(.headline); Spacer() }.padding(.vertical, 6)
+                    HStack { Spacer(); Text("Save").font(JcText.body.weight(.semibold)); Spacer() }.padding(.vertical, 6)
                 }
                 .buttonStyle(.jcGlass)
                 .disabled(recorder.phase != .recording)
             }
-            Text("Take photos with the glasses button — they show up in the note.")
+            Text("Take photos with the glasses button — they show up in the note")
                 .font(.caption).foregroundStyle(JcTheme.muted)
         }
         .padding(20)
@@ -155,7 +157,7 @@ struct GlassesNoteDetailView: View {
                         .buttonStyle(.jcGlass(compact: true))
                         .disabled(working != nil)
                     }
-                    Text("Transcript").font(.headline).foregroundStyle(JcTheme.text)
+                    Text("Transcript").font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.text)
                     if note.segments.isEmpty && note.photos.isEmpty {
                         Text(note.text.isEmpty ? "Nothing was heard." : note.text).foregroundStyle(JcTheme.text)
                     }
@@ -192,22 +194,22 @@ struct GlassesNoteDetailView: View {
                     Menu {
                         ShareLink(item: GlassesNoteFormat.shareText(note)) { Label("Share", jcIcon: "square.and.arrow.up") }
                         Button("Delete", jcIcon: "trash", role: .destructive) { store.delete(noteID); dismiss() }
-                    } label: { JcIcon("ellipsis.circle") }
+                    } label: { JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text) }
                 }
             }
         } else {
-            Text("This note was deleted.").foregroundStyle(JcTheme.muted)
+            Text("This note was deleted").foregroundStyle(JcTheme.muted)
         }
     }
 
     @ViewBuilder private func summary(_ note: GlassesNote) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Jarvis summary", jcIcon: "sparkles").font(.headline).foregroundStyle(JcTheme.accent)
+            Label("Jarvis summary", jcIcon: "sparkles").font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.accent)
             if let summary = note.summary {
                 Text((try? AttributedString(markdown: summary, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(summary))
                     .foregroundStyle(JcTheme.text)
             } else if note.text.isEmpty {
-                Text("Nothing to summarise.").foregroundStyle(JcTheme.muted)
+                Text("Nothing to summarise").foregroundStyle(JcTheme.muted)
             } else {
                 Button(working == "summary" ? "Jarvis is writing…" : "Summarise with Jarvis", jcIcon: "sparkles") {
                     run("summary") { await GlassesNoteFinisher.summarize(noteID: noteID, store: store) }

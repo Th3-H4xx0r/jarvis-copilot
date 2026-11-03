@@ -17,7 +17,7 @@ struct CarLocationScreen: View {
                     VStack(spacing: 10) {
                         if let at = location.at {
                             Text("Parked \(at, format: .relative(presentation: .named))")
-                                .font(.subheadline).foregroundStyle(.secondary)
+                                .font(.subheadline).foregroundStyle(JcTheme.muted)
                         }
                         Button {
                             directions(to: location)
@@ -32,12 +32,11 @@ struct CarLocationScreen: View {
                 }
             } else {
                 ContentUnavailableView("No location yet", systemImage: "mappin.slash",
-                                       description: Text("Toyota hasn't reported where the car is parked."))
+                                       description: Text("Toyota hasn't reported where the car is parked"))
             }
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Location")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Location")
     }
 
     private func directions(to location: ToyotaCar.Location) {

@@ -71,7 +71,7 @@ struct DashcamDrivesView: View {
                 Text(DashcamDriveStats.title(d))
                     .font(.subheadline.weight(.semibold))
                 Text(DashcamDriveStats.detail(d))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(JcTheme.muted)
             }
             Spacer(minLength: 0)
             JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted)
@@ -106,12 +106,11 @@ struct DashcamDriveDetailView: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(detail?.drive.start.formatted(date: .abbreviated, time: .shortened) ?? "Drive")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(detail?.drive.start.formatted(date: .abbreviated, time: .shortened) ?? "Drive")
         .toolbar {
             if let gpxURL {
                 ToolbarItem(placement: .primaryAction) {
-                    ShareLink(item: gpxURL) { JcIcon("square.and.arrow.up", size: 17).foregroundStyle(JcTheme.accent) }
+                    ShareLink(item: gpxURL) { JcIcon("square.and.arrow.up", size: 17, weight: .semibold).foregroundStyle(JcTheme.text) }
                 }
             }
         }
@@ -162,9 +161,9 @@ struct DashcamDriveDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if let t = scrubT, let p = nearest(d, t) {
                         Text("\(DashcamSpeed.text(p.speed)) mph at \(Date(timeIntervalSince1970: t).formatted(date: .omitted, time: .standard))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            .font(.caption.monospacedDigit()).foregroundStyle(JcTheme.muted)
                     } else {
-                        Text("Drag across the chart to follow the drive").font(.caption).foregroundStyle(.secondary)
+                        Text("Drag across the chart to follow the drive").font(.caption).foregroundStyle(JcTheme.muted)
                     }
                     Chart {
                         ForEach(samples.indices, id: \.self) { i in
@@ -215,7 +214,7 @@ struct DashcamDriveDetailView: View {
             RowDivider()
             Row {
                 HStack {
-                    Stepper("Above \(Int(aboveMph)) mph", value: $aboveMph, in: 25...100, step: 5).foregroundStyle(.secondary)
+                    Stepper("Above \(Int(aboveMph)) mph", value: $aboveMph, in: 25...100, step: 5).foregroundStyle(JcTheme.muted)
                     Text(DashcamSpeed.duration(above)).font(.callout.monospacedDigit())
                 }
             }
@@ -223,7 +222,7 @@ struct DashcamDriveDetailView: View {
     }
 
     private func statRow(_ title: String, _ value: String) -> some View {
-        Row { HStack { Text(title).foregroundStyle(.secondary); Spacer(); Text(value).font(.callout.monospacedDigit()) } }
+        Row { HStack { Text(title).foregroundStyle(JcTheme.muted); Spacer(); Text(value).font(.callout.monospacedDigit()) } }
     }
 
     private func clips(_ d: DashcamDriveDetail) -> some View {

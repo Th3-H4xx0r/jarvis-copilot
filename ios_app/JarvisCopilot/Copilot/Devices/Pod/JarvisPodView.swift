@@ -17,9 +17,9 @@ struct JarvisPodCard: View {
             }
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
-                Text(pod.name).font(.title3.weight(.semibold)).lineLimit(1)
+                Text(pod.name).font(JcText.title).lineLimit(1)
                 Text(pod.bridgeConnected ? "Home: \(status?.homeTitle ?? "Orb")" : "Jarvis Pod")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if pod.bridgeConnected {
@@ -38,9 +38,9 @@ struct JarvisPodCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(pod.lastSeen, visible: !pod.bridgeConnected)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
@@ -116,9 +116,7 @@ struct JarvisPodView: View {
             .padding(.bottom, 28)
         }
         .refreshable { await reload() }
-        .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(pod?.name ?? "Jarvis Pod")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -127,7 +125,7 @@ struct JarvisPodView: View {
                     if refreshing {
                         ProgressView().tint(JcTheme.accent)
                     } else {
-                        JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent)
+                        JcIcon("arrow.clockwise", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
                     }
                 }
                 .accessibilityLabel("Refresh")
@@ -139,7 +137,7 @@ struct JarvisPodView: View {
                     Button("Set up again", jcIcon: "qrcode") { showSetupHelp = true }
                     Button("Revoke", jcIcon: "xmark.octagon", role: .destructive) { confirmRevoke = true }
                 } label: {
-                    JcIcon("ellipsis").foregroundStyle(JcTheme.accent)
+                    JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
                 }
             }
         }
@@ -194,9 +192,6 @@ struct JarvisPodView: View {
             VoiceOrb(state: online ? .idle : .error, amplitude: 0, size: 168, animating: false)
                 .frame(height: 168)
                 .opacity(online ? 1 : 0.55)
-            Text(pod?.name ?? "Jarvis Pod")
-                .font(.title.weight(.bold))
-                .foregroundStyle(JcTheme.text)
             HStack(spacing: 8) {
                 chip(online ? "Connected" : offlineText, symbol: online ? "circle.fill" : "moon.zzz.fill",
                      tint: online ? JcTheme.accent : JcTheme.muted)
@@ -214,7 +209,7 @@ struct JarvisPodView: View {
 
     private func chip(_ text: String, symbol: String, tint: Color) -> some View {
         HStack(spacing: 6) {
-            JcIcon(symbol).font(.caption2.weight(.bold)).foregroundStyle(tint)
+            JcIcon(symbol).font(.caption2.weight(.semibold)).foregroundStyle(tint)
             Text(text).font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
         }
         .padding(.horizontal, 12)
@@ -280,11 +275,10 @@ struct JarvisPodView: View {
                 .frame(width: 92, height: 92)
                 .clipShape(Circle())
                 .overlay(Circle().strokeBorder(selected ? JcTheme.accent : Color.white.opacity(0.1), lineWidth: selected ? 2.5 : 1))
-                .shadow(color: selected ? JcTheme.accent.opacity(0.35) : .clear, radius: 12)
                 .overlay(alignment: .topTrailing) {
                     if !home.builtin {
                         Button { pendingDelete = home } label: {
-                            JcIcon("xmark", size: 10, weight: .bold)
+                            JcIcon("xmark", size: 10, weight: .semibold)
                                 .foregroundStyle(JcTheme.text)
                                 .frame(width: 24, height: 24)
                                 .jcLiquidGlass(in: Circle())
@@ -364,7 +358,7 @@ struct JarvisPodView: View {
             header("Recordings", trailing: all.isEmpty ? nil : "\(all.count)")
             if all.isEmpty {
                 GlassCard {
-                    Text("Everything you say to the pod is kept here for 30 days.")
+                    Text("Everything you say to the pod is kept here for 30 days")
                         .font(.subheadline).foregroundStyle(JcTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -409,7 +403,7 @@ struct JarvisPodView: View {
                         ProgressView().tint(JcTheme.accent)
                     } else {
                         JcIcon(playing ? "pause.fill" : "play.fill")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(JcTheme.accent)
                     }
                 }
@@ -446,7 +440,7 @@ struct JarvisPodView: View {
 
     private func header(_ title: String, trailing: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.headline).foregroundStyle(JcTheme.text)
+            Text(title).font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.text)
             Spacer()
             if let trailing { Text(trailing).font(.caption).foregroundStyle(JcTheme.muted) }
         }

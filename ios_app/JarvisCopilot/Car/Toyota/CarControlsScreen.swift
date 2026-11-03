@@ -19,10 +19,10 @@ struct CarControlsScreen: View {
                     .frame(height: 320)
                 Text(nudged ? "Hold the button to activate" : "Tap and hold to activate")
                     .font(.footnote)
-                    .foregroundStyle(nudged ? JcTheme.amber : .secondary)
+                    .foregroundStyle(nudged ? JcTheme.amber : JcTheme.muted)
                     .animation(.easeInOut(duration: 0.2), value: nudged)
                 if let reason = store.account?.blockedReason {
-                    Label(reason, systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary)
+                    Label(reason, systemImage: "info.circle").font(.footnote).foregroundStyle(JcTheme.muted)
                 }
                 Grid(horizontalSpacing: 6, verticalSpacing: 10) {
                     ForEach(0..<3, id: \.self) { row in
@@ -38,8 +38,7 @@ struct CarControlsScreen: View {
             .padding(.bottom, 24)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Controls")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Controls")
     }
 
     private func button(_ command: ToyotaCommand) -> some View {
@@ -67,7 +66,7 @@ struct ToyotaRoundFace: View {
     let title: String
     let caption: String
     var tint: Color = .white
-    var captionColor: Color = .secondary
+    var captionColor: Color = JcTheme.muted
     var busy = false
     /// 0…1: the hold's progress ring.
     var ring: CGFloat = 0
@@ -153,8 +152,8 @@ struct ToyotaRoundButton: View {
     }
 
     private var captionColor: Color {
-        guard let outcome else { return .secondary }
-        if outcome.muted { return .secondary }
+        guard let outcome else { return JcTheme.muted }
+        if outcome.muted { return JcTheme.muted }
         if outcome.pending { return JcTheme.amber }
         return outcome.ok ? JcTheme.success : JcTheme.danger
     }

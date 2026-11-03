@@ -78,7 +78,7 @@ struct BandBatteryView: View {
         .onChange(of: span) { _, _ in load() }
         // `$samples` fires before the new sample is in: read it on the next turn.
         .onReceive(log.$samples.dropFirst().receive(on: DispatchQueue.main)) { _ in load() }
-        .jcScreen("Battery")
+        .jcPageChrome("Battery")
     }
 
     private func load() {
@@ -262,7 +262,7 @@ struct BandBatteryHeadline: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(percent.map { "\($0)%" } ?? "—")
-                                .font(.system(size: 44, weight: .bold, design: .rounded).monospacedDigit())
+                                .font(.system(size: 44, weight: .semibold, design: .rounded).monospacedDigit())
                                 .foregroundStyle(JcTheme.text)
                                 .contentTransition(.numericText())
                             if charging {
@@ -306,8 +306,8 @@ struct BandBatteryHeadline: View {
 
     private func figure(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+            Text(title)
+                .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -338,7 +338,6 @@ struct BandBatteryGauge: View {
                 .trim(from: 0, to: CGFloat(percent ?? 0) / 100)
                 .stroke(tint, style: StrokeStyle(lineWidth: 7, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: tint.opacity(0.5), radius: 6)
                 .animation(.spring(duration: 0.8), value: percent)
             JcIcon(charging ? "bolt.fill" : "applewatch")
                 .font(.system(size: 20, weight: .semibold))
@@ -379,7 +378,7 @@ struct BandBatteryCurve: View {
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 if samples.count < 2 {
-                    Text("The curve fills in as the level changes.")
+                    Text("The curve fills in as the level changes")
                         .font(JcText.small).foregroundStyle(JcTheme.muted)
                         .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
                 } else {
@@ -435,15 +434,15 @@ struct BandBatteryCurve: View {
         .chartYAxis {
             AxisMarks(position: .trailing, values: [0, 50, 100]) { value in
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.08))
-                AxisValueLabel { if let v = value.as(Int.self) { Text("\(v)%") } }.foregroundStyle(Color.secondary)
+                AxisValueLabel { if let v = value.as(Int.self) { Text("\(v)%") } }.foregroundStyle(JcTheme.muted)
             }
         }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                 if domain.upperBound.timeIntervalSince(domain.lowerBound) <= 86_400 {
-                    AxisValueLabel(format: .dateTime.hour()).foregroundStyle(Color.secondary)
+                    AxisValueLabel(format: .dateTime.hour()).foregroundStyle(JcTheme.muted)
                 } else {
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).day()).foregroundStyle(Color.secondary)
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day()).foregroundStyle(JcTheme.muted)
                 }
             }
         }
@@ -495,18 +494,18 @@ struct BandBatteryDays: View {
                     AxisMarks(position: .trailing) { value in
                         AxisGridLine().foregroundStyle(Color.primary.opacity(0.08))
                         AxisValueLabel { if let v = value.as(Double.self) { Text("\(Int(v))%") } }
-                            .foregroundStyle(Color.secondary)
+                            .foregroundStyle(JcTheme.muted)
                     }
                 }
                 .chartXAxis {
                     AxisMarks(values: .stride(by: .day, count: days.count > 7 ? 7 : 1)) { _ in
                         AxisValueLabel(format: days.count > 7 ? .dateTime.month(.abbreviated).day() : .dateTime.weekday(.narrow))
-                            .foregroundStyle(Color.secondary)
+                            .foregroundStyle(JcTheme.muted)
                     }
                 }
                 .frame(height: 130)
                 .sensoryFeedback(.selection, trigger: picked?.id)
-                Text("A paler bar is a day the band was followed for under 12 hours.")
+                Text("A paler bar is a day the band was followed for under 12 hours")
                     .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
             }

@@ -76,7 +76,7 @@ struct X5MonitoringEditor: View {
                 if let error {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -109,8 +109,7 @@ struct X5MonitoringEditor: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button(saving ? "Saving…" : "Save", action: save)
@@ -133,7 +132,7 @@ struct X5MonitoringEditor: View {
                     Text(Calendar.current.veryShortWeekdaySymbols[day])
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 36)
-                        .foregroundStyle(on ? Color.black : Color.secondary)
+                        .foregroundStyle(on ? Color.black : JcTheme.muted)
                         .background(on ? JcAccent.color : Color.white.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)

@@ -31,7 +31,7 @@ struct HealthScoreCard: View {
                     Row {
                         Text(scores.analysis)
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(JcTheme.text)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 6)
                     }
@@ -41,7 +41,7 @@ struct HealthScoreCard: View {
                     HStack {
                         Text(error ?? updatedText)
                             .font(.caption)
-                            .foregroundStyle(error == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange))
+                            .foregroundStyle(error == nil ? AnyShapeStyle(JcTheme.muted.opacity(0.7)) : AnyShapeStyle(JcTheme.amber))
                             .lineLimit(2)
                         Spacer(minLength: 12)
                         refreshButton
@@ -52,10 +52,10 @@ struct HealthScoreCard: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(isRefreshing ? "Scoring this day…" : "No score for this day yet")
-                                .foregroundStyle(.secondary)
-                            Text("The server scores each day from the ring's readings.")
+                                .foregroundStyle(JcTheme.muted)
+                            Text("The server scores each day from the ring's readings")
                                 .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                         Spacer(minLength: 12)
                         refreshButton
@@ -77,7 +77,7 @@ struct HealthScoreCard: View {
                     .monospacedDigit()
                 Text(scores.health.band)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
             Spacer(minLength: 0)
         }
@@ -101,15 +101,15 @@ struct HealthScoreCard: View {
         HStack(alignment: .top, spacing: 12) {
             ForEach(scores.parts, id: \.name) { part in
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(part.name.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                    Text(part.name)
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                     Text(part.score.value.map(String.init) ?? "—")
-                        .font(.title3.weight(.semibold))
+                        .font(JcText.title)
                         .monospacedDigit()
-                        .foregroundStyle(part.score.value == nil ? Color.secondary : tint(part.score))
+                        .foregroundStyle(part.score.value == nil ? JcTheme.muted : tint(part.score))
                         .accessibilityLabel(part.score.value == nil
                                             ? "\(part.name), building baseline"
                                             : "\(part.name) \(part.score.value!)")
@@ -124,12 +124,10 @@ struct HealthScoreCard: View {
             if isRefreshing {
                 ProgressView().controlSize(.small)
             } else {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .semibold))
+                JcIcon("arrow.clockwise", size: 13, weight: .semibold)
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.jcGlass(compact: true))
         .disabled(isRefreshing)
         .accessibilityLabel("Score this day again")
         // A run that lands on the same numbers still has to feel like it ran.
@@ -154,7 +152,7 @@ struct HealthScoreCard: View {
         case "Good": return JcTheme.accentAlt
         case "Fair": return JcTheme.amber
         case "Low": return .orange
-        default: return .secondary
+        default: return JcTheme.muted
         }
     }
 }

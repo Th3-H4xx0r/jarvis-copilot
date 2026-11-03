@@ -61,12 +61,11 @@ struct DashcamPage: View {
         .onAppear { onScreen = true }
         .onChange(of: readsStatus, initial: true) { _, on in sync.watchStatus(on, by: "page") }
         .onDisappear { onScreen = false; sync.watchStatus(false, by: "page") }
-        .navigationTitle(DashcamSetupStore.load()?.displayName ?? "Dashcam")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(DashcamSetupStore.load()?.displayName ?? "Dashcam")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink { DashcamDestinationsView() } label: {
-                    JcIcon("externaldrive.badge.icloud", size: 18).foregroundStyle(JcTheme.accent)
+                    JcIcon("externaldrive.badge.icloud", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
                 }
                 .accessibilityLabel("Destinations")
             }
@@ -82,7 +81,7 @@ struct DashcamPage: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(wifi.onCamera ? sync.phase.label : "Away from the camera")
                             .font(.body.weight(.semibold))
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        Text(subtitle).font(.caption).foregroundStyle(JcTheme.muted)
                     }
                     Spacer()
                     if !wifi.onCamera {
@@ -171,7 +170,7 @@ struct DashcamPage: View {
                 Spacer()
                 Text(ByteCountFormatter.string(fromByteCount: done, countStyle: .file) + " / "
                      + ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .font(.caption.monospacedDigit()).foregroundStyle(JcTheme.muted)
             }
             ProgressView(value: total > 0 ? Double(done) / Double(total) : 0).tint(JcTheme.accent)
         }

@@ -17,7 +17,7 @@ struct ToyotaAccountCard: View {
             }
         }
         .alert("Sign out of Toyota?", isPresented: $confirmSignOut) {
-            Button("Sign Out", role: .destructive) {
+            Button("Sign out", role: .destructive) {
                 error = nil
                 Task {
                     do { try await store.signOut() } catch { self.error = apiErrorMessage(error) }
@@ -36,7 +36,7 @@ struct ToyotaAccountCard: View {
                 // The first load failed (not paired, server down): say so, and let him try again.
                 Row {
                     HStack {
-                        Text(problem).font(.subheadline).foregroundStyle(.secondary)
+                        Text(problem).font(.subheadline).foregroundStyle(JcTheme.muted)
                         Spacer()
                         Button("Retry") { Task { await store.load() } }
                             .buttonStyle(.jcGlass(compact: true))
@@ -53,7 +53,7 @@ struct ToyotaAccountCard: View {
                         Text("Signed in").font(.caption).foregroundStyle(JcTheme.success)
                     }
                     Spacer()
-                    Button("Sign Out", role: .destructive) { confirmSignOut = true }
+                    Button("Sign out", role: .destructive) { confirmSignOut = true }
                         .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                 }
             }
@@ -71,7 +71,7 @@ struct ToyotaAccountCard: View {
         case .some:
             Row {
                 Text(store.account?.blockedReason ?? "Toyota isn't available.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
             }
         }
     }
@@ -102,7 +102,7 @@ struct ToyotaSignInSheet: View {
                          ? "Sign in with the email and password you use in the Toyota app."
                          : "Toyota sent a verification code to your email or phone.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 20)
                     CardGroup { fields }
@@ -127,7 +127,7 @@ struct ToyotaSignInSheet: View {
                             error = nil
                         }
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .disabled(working)
                     }
                 }

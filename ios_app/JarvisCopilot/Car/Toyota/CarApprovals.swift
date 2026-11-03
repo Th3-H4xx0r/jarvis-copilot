@@ -196,11 +196,11 @@ private struct ApprovalSheet: View {
 
             VStack(spacing: 6) {
                 Text("\(title)?")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .multilineTextAlignment(.center)
                 Text("\(approval.source) asked · \(asked)")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
             .padding(.top, 40)
 
@@ -219,9 +219,9 @@ private struct ApprovalSheet: View {
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
         // The app's card: black, its glass fill and border.
-        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
             .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -258,7 +258,7 @@ private struct ApprovalSheet: View {
                 .frame(height: 4)
                 Text(String(format: "%d:%02d", Int(left) / 60, Int(left) % 60))
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Time left")
@@ -288,7 +288,7 @@ private struct ApprovalSheet: View {
 
             Button("Deny") { Task { await center.deny(approval) } }
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
@@ -304,7 +304,7 @@ private struct ApprovalSheet: View {
                 .symbolEffect(.bounce, value: answer)
                 .transition(.scale.combined(with: .opacity))
             Text(answer.text)
-                .font(.headline)
+                .font(JcText.body.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(answer.ok ? Color.primary : JcTheme.danger)
         }

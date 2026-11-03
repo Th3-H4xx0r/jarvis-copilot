@@ -68,7 +68,7 @@ struct RingStatsSections: View {
                     RingSeries(intervalMinutes: series.intervalMinutes,
                                values: series.values.map { $0 > 0 ? unit.value($0) : 0 })
                 }
-                series("Temperature", unit: unit.label, color: .orange, values: converted,
+                series("Temperature", unit: unit.label, color: RingMeasurementType.temperature.tint, values: converted,
                        extra: day.instantTemperature.map { RingTimedValue(minute: $0.minute, value: unit.value($0.value)) },
                        measuring: .temperature, metric: .temperature,
                        stats: [("Latest", summary.temperatureLatest.map(unit.format)),
@@ -163,7 +163,7 @@ struct RingStatsSections: View {
                         }
                         if let selected { RingScrubRule(x: selected) }
                     }
-                    .chartForegroundStyleScale(["Awake": Color.orange, "REM": JcTheme.accentAlt,
+                    .chartForegroundStyleScale(["Awake": JcTheme.amber, "REM": JcTheme.accentAlt,
                                                 "Light": JcTheme.accent, "Deep": JcTheme.primaryBlue])
                     .chartLegend(.hidden)
                     .chartXSelection(value: selection)
@@ -204,12 +204,12 @@ struct RingStatsSections: View {
             Chart {
                 ForEach(line, id: \.minute) { reading in
                     LineMark(x: .value("Hour", Double(reading.minute) / 60), y: .value("bpm", reading.value))
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(JcTheme.danger)
                         .interpolationMethod(.catmullRom)
                 }
                 ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("bpm", point.value))
-                        .foregroundStyle(Color.pink)
+                        .foregroundStyle(JcTheme.accentAlt)
                 }
                 if let resting {
                     RuleMark(y: .value("Resting", resting))
@@ -261,7 +261,7 @@ struct RingStatsSections: View {
                     RuleMark(x: .value("Hour", Double(range.hour) + 0.5),
                              yStart: .value("Low", range.low), yEnd: .value("High", range.high))
                         .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .foregroundStyle(Color.cyan.opacity(0.8))
+                        .foregroundStyle(JcTheme.accent.opacity(0.8))
                 }
                 ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("%", point.value))
@@ -417,7 +417,7 @@ struct RingStatsSections: View {
         case "Excellent": return JcTheme.accentAlt
         case "Good": return JcTheme.accent
         case "Fair": return JcTheme.amber
-        default: return .orange
+        default: return JcTheme.danger
         }
     }
 
@@ -446,7 +446,7 @@ struct RingStatsSections: View {
     }
 
     private func empty(_ text: String) -> some View {
-        Row { Text(text).font(.subheadline).foregroundStyle(.secondary) }
+        Row { Text(text).font(.subheadline).foregroundStyle(JcTheme.muted) }
     }
 
     private func timed(_ series: RingSeries?) -> [RingTimedValue] {

@@ -13,7 +13,7 @@ struct BandMonitorSettings: View {
     let invoke: (String, [String: Any]) -> Void
 
     private enum Item: Hashable {
-        case toggle(title: String, icon: String, tint: Color, name: String, metric: String)
+        case toggle(title: String, icon: String, name: String, metric: String)
         case heartAlarm, oxygen, bpCalibration, glucoseCalibration, componentCalibration
     }
 
@@ -28,39 +28,39 @@ struct BandMonitorSettings: View {
     private var phoneManaged: Bool { scheduler.plan.control == .phone }
 
     private var groups: [Group] {
-        func toggle(_ title: String, _ icon: String, _ tint: Color, _ name: String, _ metric: String) -> Item? {
+        func toggle(_ title: String, _ icon: String, _ name: String, _ metric: String) -> Item? {
             // Managed by the phone, the band's own measuring switches are the phone's and not shown.
             if phoneManaged, (BandMeasurePlan.autoSwitches + BandMeasurePlan.sensingSwitches).contains(name) { return nil }
-            return has(name) ? .toggle(title: title, icon: icon, tint: tint, name: name, metric: metric) : nil
+            return has(name) ? .toggle(title: title, icon: icon, name: name, metric: metric) : nil
         }
         let all: [Group] = [
             Group(title: "Heart health", items: [
-                toggle("Heart rate monitor", "heart.fill", .pink, "auto_heart_rate", "heart_rate"),
-                toggle("HRV monitor", "waveform.path.ecg", .red, "auto_hrv", "hrv"),
+                toggle("Heart rate monitor", "heart.fill", "auto_heart_rate", "heart_rate"),
+                toggle("HRV monitor", "waveform.path.ecg", "auto_hrv", "hrv"),
                 // The SDK's VPSettingAutomaticPPGTest: pulse rate, and precise sleep goes with it.
-                toggle("Pulse rate & precise sleep", "waveform", .pink, "auto_ppg", "ppg"),
+                toggle("Pulse rate & precise sleep", "waveform", "auto_ppg", "ppg"),
                 session.supports("heart_rate_alarm") ? .heartAlarm : nil,
             ].compactMap { $0 }),
             Group(title: "Blood pressure", items: [
-                toggle("Blood pressure monitor", "heart.text.square.fill", .orange, "auto_blood_pressure", "blood_pressure"),
+                toggle("Blood pressure monitor", "heart.text.square.fill", "auto_blood_pressure", "blood_pressure"),
                 session.calibratesBloodPressure ? .bpCalibration : nil,
             ].compactMap { $0 }),
             Group(title: "Blood oxygen", items: [
                 session.supports("spo2") && !phoneManaged ? .oxygen : nil,
-                toggle("Low blood oxygen alert", "exclamationmark.triangle.fill", JcTheme.blue, "low_spo2_alert", "low_spo2_alert"),
+                toggle("Low blood oxygen alert", "exclamationmark.triangle.fill", "low_spo2_alert", "low_spo2_alert"),
             ].compactMap { $0 }),
             Group(title: "Blood glucose", items: [
-                toggle("Blood glucose monitor", "drop.fill", .orange, "auto_blood_glucose", "blood_glucose"),
+                toggle("Blood glucose monitor", "drop.fill", "auto_blood_glucose", "blood_glucose"),
                 session.glucoseCalibrationKind != .none ? .glucoseCalibration : nil,
             ].compactMap { $0 }),
             Group(title: "Blood components", items: [
-                toggle("Blood components monitor", "testtube.2", .red, "auto_blood_component", "blood_component"),
+                toggle("Blood components monitor", "testtube.2", "auto_blood_component", "blood_component"),
                 session.calibratesBloodComponents ? .componentCalibration : nil,
             ].compactMap { $0 }),
             Group(title: "Body", items: [
-                toggle("Temperature monitor", "thermometer.medium", .orange, "auto_temperature", "temperature"),
-                toggle("Stress monitor", "brain.head.profile", .purple, "auto_stress", "stress"),
-                toggle("MET monitor", "flame.fill", .orange, "met", "met"),
+                toggle("Temperature monitor", "thermometer.medium", "auto_temperature", "temperature"),
+                toggle("Stress monitor", "brain.head.profile", "auto_stress", "stress"),
+                toggle("MET monitor", "flame.fill", "met", "met"),
             ].compactMap { $0 }),
         ]
         return all.filter { !$0.items.isEmpty }
@@ -119,11 +119,11 @@ struct BandMonitorSettings: View {
             if phoneManaged {
                 ForEach(BandMeasurePlan.types.filter { session.supports($0.name) }, id: \.self) { type in
                     RowDivider()
-                    intervalRow(BandMonitorLabel(title: type.label, icon: type.icon, tint: type.tint), type.name)
+                    intervalRow(BandMonitorLabel(title: type.label, icon: type.icon), type.name)
                 }
                 if session.settings?.isOn("auto_hrv") != nil {
                     RowDivider()
-                    intervalRow(BandMonitorLabel(title: "HRV", icon: "waveform.path.ecg", tint: .red), BandMeasurePlan.hrv)
+                    intervalRow(BandMonitorLabel(title: "HRV", icon: "waveform.path.ecg"), BandMeasurePlan.hrv)
                 }
                 RowDivider()
                 nightRows
@@ -150,20 +150,20 @@ struct BandMonitorSettings: View {
         let plan = scheduler.plan
         Toggle(isOn: Binding(get: { plan.nightTracking },
                              set: { scheduler.setNight(tracking: $0, start: plan.nightStart, end: plan.nightEnd) })) {
-            BandMonitorLabel(title: "Sleep tracking", icon: "bed.double.fill", tint: .indigo)
+            BandMonitorLabel(title: "Sleep tracking", icon: "bed.double.fill")
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 52)
         if plan.nightTracking {
             RowDivider()
             HStack {
-                Text("Overnight").foregroundStyle(.secondary)
+                Text("Overnight").foregroundStyle(JcTheme.muted)
                 Spacer()
                 DatePicker("From", selection: Binding(get: { BandTimeOfDay.date(plan.nightStart) }, set: {
                     scheduler.setNight(tracking: true, start: BandTimeOfDay.minute($0), end: plan.nightEnd)
                 }), displayedComponents: .hourAndMinute)
                     .labelsHidden()
-                Text("to").foregroundStyle(.secondary)
+                Text("to").foregroundStyle(JcTheme.muted)
                 DatePicker("To", selection: Binding(get: { BandTimeOfDay.date(plan.nightEnd) }, set: {
                     scheduler.setNight(tracking: true, start: plan.nightStart, end: BandTimeOfDay.minute($0))
                 }), displayedComponents: .hourAndMinute)
@@ -176,32 +176,32 @@ struct BandMonitorSettings: View {
 
     @ViewBuilder private func row(_ item: Item) -> some View {
         switch item {
-        case let .toggle(title, icon, tint, name, metric):
+        case let .toggle(title, icon, name, metric):
             Toggle(isOn: Binding(get: { session.settings?.isOn(name) ?? false },
                                  set: { invoke("band_set_monitoring", ["metric": metric, "enabled": $0]) })) {
-                BandMonitorLabel(title: title, icon: icon, tint: tint)
+                BandMonitorLabel(title: title, icon: icon)
             }
             .padding(.horizontal, 16)
             .frame(minHeight: 52)
         case .heartAlarm:
-            link(BandMonitorLabel(title: "High heart rate alert", icon: "bolt.heart.fill", tint: .red),
+            link(BandMonitorLabel(title: "High heart rate alert", icon: "bolt.heart.fill"),
                  value: session.heartRateAlarm.map { $0.enabled ? "\($0.high) bpm" : "Off" } ?? "—") {
                 BandHeartAlarmEditor(session: session)
             }
         case .oxygen:
             BandOxygenRow(session: session, invoke: invoke)
         case .bpCalibration:
-            link(BandMonitorLabel(title: "Blood pressure calibration", icon: "plus.circle", tint: .orange),
+            link(BandMonitorLabel(title: "Blood pressure calibration", icon: "plus.circle"),
                  value: session.bpCalibration.map { $0.enabled ? "\($0.systolic)/\($0.diastolic)" : "Off" } ?? "—") {
                 BandBPCalibrationEditor(session: session)
             }
         case .glucoseCalibration:
-            link(BandMonitorLabel(title: "Blood glucose calibration", icon: "drop.triangle", tint: .orange),
+            link(BandMonitorLabel(title: "Blood glucose calibration", icon: "drop.triangle"),
                  value: session.glucoseCalibration.map { $0.enabled ? "On" : "Off" } ?? "—") {
                 BandGlucoseCalibrationEditor(session: session)
             }
         case .componentCalibration:
-            link(BandMonitorLabel(title: "Blood components calibration", icon: "testtube.2", tint: .red),
+            link(BandMonitorLabel(title: "Blood components calibration", icon: "testtube.2"),
                  value: session.componentCalibration.map { $0.enabled ? "On" : "Off" } ?? "—") {
                 BandComponentCalibrationEditor(session: session)
             }
@@ -215,8 +215,8 @@ struct BandMonitorSettings: View {
                 HStack {
                     label
                     Spacer()
-                    Text(value).foregroundStyle(.secondary).monospacedDigit()
-                    JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    Text(value).foregroundStyle(JcTheme.muted).monospacedDigit()
+                    JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                 }
                 .contentShape(Rectangle())
             }
@@ -225,18 +225,17 @@ struct BandMonitorSettings: View {
     }
 }
 
+/// A settings row's name with its glyph, in the text colours: metric colours belong to the data.
 struct BandMonitorLabel: View {
     let title: String
     let icon: String
-    let tint: Color
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(tint)
+            JcIcon(icon, size: 16)
+                .foregroundStyle(JcTheme.muted)
                 .frame(width: 26)
-            Text(title)
+            Text(title).foregroundStyle(JcTheme.text)
         }
     }
 }
@@ -253,18 +252,18 @@ private struct BandOxygenRow: View {
     var body: some View {
         VStack(spacing: 0) {
             Toggle(isOn: Binding(get: { schedule.enabled }, set: { send(enabled: $0) })) {
-                BandMonitorLabel(title: "Blood oxygen monitor", icon: "drop.circle.fill", tint: JcTheme.blue)
+                BandMonitorLabel(title: "Blood oxygen monitor", icon: "drop.circle.fill")
             }
             .padding(.horizontal, 16)
             .frame(minHeight: 52)
             if schedule.enabled {
                 RowDivider()
                 HStack {
-                    Text("Overnight").foregroundStyle(.secondary)
+                    Text("Overnight").foregroundStyle(JcTheme.muted)
                     Spacer()
                     DatePicker("From", selection: time(\.startHour, \.startMinute), displayedComponents: .hourAndMinute)
                         .labelsHidden()
-                    Text("to").foregroundStyle(.secondary)
+                    Text("to").foregroundStyle(JcTheme.muted)
                     DatePicker("To", selection: time(\.endHour, \.endMinute), displayedComponents: .hourAndMinute)
                         .labelsHidden()
                 }
@@ -321,10 +320,10 @@ private struct BandSettingEditor<Content: View>: View {
         ScrollView {
             VStack(spacing: 22) {
                 content
-                Text(footer).font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 24)
+                Text(footer).font(.footnote).foregroundStyle(JcTheme.muted).padding(.horizontal, 24)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let error {
-                    Text(error).font(.footnote).foregroundStyle(.orange).padding(.horizontal, 24)
+                    Text(error).font(.footnote).foregroundStyle(JcTheme.amber).padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button {
@@ -342,19 +341,17 @@ private struct BandSettingEditor<Content: View>: View {
                 } label: {
                     HStack {
                         if saving { ProgressView().controlSize(.small) }
-                        Text("Save to band").font(.headline)
+                        Text("Save to band")
                     }
-                    .frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(JcTheme.accent)
+                .buttonStyle(.jcGlass(full: true))
                 .disabled(saving)
                 .padding(.horizontal, 20)
             }
             .padding(.vertical, 12)
         }
         .scrollDismissesKeyboard(.interactively)
-        .jcScreen(title)
+        .jcPageChrome(title)
     }
 }
 
@@ -374,7 +371,7 @@ private struct BandNumberRow: View {
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(maxWidth: 110)
-                Text(unit).foregroundStyle(.secondary)
+                Text(unit).foregroundStyle(JcTheme.muted)
             }
         }
     }
@@ -386,7 +383,7 @@ private func stepperRow(_ title: String, _ value: Binding<Int>, _ range: ClosedR
         HStack {
             Text(title)
             Spacer()
-            Text("\(value.wrappedValue) \(unit)").monospacedDigit().foregroundStyle(.secondary)
+            Text("\(value.wrappedValue) \(unit)").monospacedDigit().foregroundStyle(JcTheme.muted)
         }
     }
     .padding(.horizontal, 16)

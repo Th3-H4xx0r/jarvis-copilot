@@ -41,20 +41,20 @@ struct DashcamCard: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(setup?.displayName ?? "Dashcam")
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text(setup == nil ? "Add your dashcam" : "Dashcam · \(setup?.ssid ?? "")")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if setup == nil {
-                        MetricPill(icon: "plus.circle", label: "Status", value: "Not set up", tint: .secondary)
+                        MetricPill(icon: "plus.circle", label: "Status", value: "Not set up", tint: JcTheme.muted)
                     } else if onCamera {
                         MetricPill(icon: "wifi", label: "Status", value: phase.label, tint: JcTheme.success)
                     } else {
-                        MetricPill(icon: "wifi.slash", label: "Status", value: "Away", tint: .secondary)
+                        MetricPill(icon: "wifi.slash", label: "Status", value: "Away", tint: JcTheme.muted)
                     }
                     if pendingUploads > 0 {
                         MetricPill(icon: "arrow.up.circle", label: "Uploads", value: "\(pendingUploads)", tint: JcTheme.amber)
@@ -66,8 +66,8 @@ struct DashcamCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSync, visible: setup != nil && !onCamera)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }

@@ -20,14 +20,14 @@ struct CarToyotaHome: View {
         VStack(spacing: 16) {
             Text(statusText)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
             CarStageView(stage: stage, at: .hero, turnable: true, lit: presence.inCar)
                 .frame(height: 230)
             range
             if let reason = store.account?.blockedReason ?? store.problem {
                 Label(reason, systemImage: "info.circle")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.horizontal, 24)
                     .multilineTextAlignment(.center)
             }
@@ -50,7 +50,7 @@ struct CarToyotaHome: View {
                 Text(store.car?.rangeMi.map { "\(Int($0))" } ?? "—")
                     .font(.system(size: 46, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                Text("mi").font(.title3.weight(.medium)).foregroundStyle(.secondary)
+                Text("mi").font(.title3.weight(.medium)).foregroundStyle(JcTheme.muted)
             }
             if let fuel = store.car?.fuelPct {
                 FuelBar(fraction: fuel / 100)
@@ -58,7 +58,7 @@ struct CarToyotaHome: View {
             }
             Text(detailLine)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
         }
         .accessibilityElement(children: .combine)
     }
@@ -98,11 +98,11 @@ struct CarToyotaHome: View {
                         .frame(width: 34, height: 34)
                         .background(JcTheme.accent.opacity(0.14), in: Circle())
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                        Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(title).font(.body.weight(.semibold)).foregroundStyle(JcTheme.text)
+                        Text(detail).font(.caption).foregroundStyle(JcTheme.muted).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    JcIcon("chevron.right", size: 13).foregroundStyle(.tertiary)
+                    JcIcon("chevron.right", size: 13).foregroundStyle(JcTheme.muted.opacity(0.7))
                 }
             }
             .contentShape(Rectangle())
@@ -167,7 +167,7 @@ struct CarQuickActions: View {
             }
             Text(nudged ? "Hold the button to activate" : "Tap and hold to activate")
                 .font(.caption)
-                .foregroundStyle(nudged ? JcTheme.amber : Color.secondary.opacity(0.7))
+                .foregroundStyle(nudged ? JcTheme.amber : JcTheme.muted.opacity(0.7))
                 .animation(.easeInOut(duration: 0.2), value: nudged)
         }
     }

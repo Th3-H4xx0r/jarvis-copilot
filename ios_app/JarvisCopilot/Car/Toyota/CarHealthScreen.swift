@@ -9,7 +9,7 @@ struct CarHealthScreen: View {
             CardGroup(footer: "From the car's last report to Toyota.") {
                 let items = car?.health ?? []
                 if items.isEmpty {
-                    Row { Text("Nothing reported yet.").foregroundStyle(.secondary) }
+                    Row { Text("Nothing reported yet").foregroundStyle(JcTheme.muted) }
                 }
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider().padding(.leading, 60) }
@@ -19,8 +19,7 @@ struct CarHealthScreen: View {
             .padding(.vertical, 16)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Health")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Health")
     }
 
     private func icon(for item: ToyotaCar.HealthItem) -> String {

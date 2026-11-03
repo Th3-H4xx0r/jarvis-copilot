@@ -40,12 +40,12 @@ struct RingWearPrompt: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(kind.title)
-                .font(.title3.weight(.semibold))
+                .font(JcText.title)
                 .padding(.top, 22)
 
             Text(kind.message(metric))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 36)
@@ -59,8 +59,8 @@ struct RingWearPrompt: View {
             // the margin, so adding another one left it floating mid-sheet.
             Button(action: onDismiss) {
                 Text("Not now")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(JcText.body.weight(.semibold))
+                    .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
                     .jcLiquidGlass(in: Capsule(), tint: .clear)

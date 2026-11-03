@@ -133,7 +133,7 @@ struct PodChatPicker: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .jcScreen("Pod chat")
+        .jcPageChrome("Pod chat")
         .task { await choice.load() }
     }
 
@@ -197,7 +197,7 @@ struct PodHarnessPicker: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .jcScreen("Pod harness")
+        .jcPageChrome("Pod harness")
         .task { await choice.load() }
     }
 

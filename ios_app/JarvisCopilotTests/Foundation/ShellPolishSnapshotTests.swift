@@ -258,9 +258,11 @@ final class ShellPolishSnapshotTests: XCTestCase {
 
     // MARK: 2 — the Wearables half has no chrome of its own
 
-    /// `ScanView` embedded must not bring a second navigation bar, and the one bar
-    /// the Devices tab does show has to be ABOVE the segmented picker — a bar
-    /// underneath it is the stacked chrome row the user photographed.
+    /// `ScanView` embedded must not bring a second navigation bar. The Server |
+    /// Wearables control is the app's one in-page filter (`JcSegmented`, the grey
+    /// capsule) riding at the top of the scroll under the "Devices" large title — not
+    /// a UIKit segmented control pinned between two bars, which was the stacked
+    /// chrome row the user photographed.
     func testWearablesHalfHasNoSecondChromeRow() {
         let router = AppRouter()
         router.selectedTab = .devices
@@ -273,16 +275,14 @@ final class ShellPolishSnapshotTests: XCTestCase {
             .filter { polishIsVisible($0) }
         XCTAssertEqual(bars.count, 1,
                        "the Devices tab shows \(bars.count) navigation bars — a second one under "
-                       + "the picker is `ScanView`'s own chrome")
+                       + "the control is `ScanView`'s own chrome")
+        XCTAssertEqual(bars.first?.topItem?.title, "Devices")
 
-        let pickers = polishAllViews(harness.window)
+        let systemPickers = polishAllViews(harness.window)
             .compactMap { $0 as? UISegmentedControl }
             .filter { polishIsVisible($0) }
-        XCTAssertEqual(pickers.count, 1, "the Server/Wearables picker should be on screen")
-
-        guard let bar = bars.first, let picker = pickers.first else { return }
-        XCTAssertLessThanOrEqual(polishFrame(bar).maxY, polishFrame(picker).minY + 0.5,
-                                 "the navigation bar is drawn UNDER the segmented picker")
+        XCTAssertTrue(systemPickers.isEmpty,
+                      "the Server/Wearables control is the app's grey capsule, not a system picker")
     }
 
     // MARK: 3 — the legacy bridge screen wears the port's chrome

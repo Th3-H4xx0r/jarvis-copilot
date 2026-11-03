@@ -71,7 +71,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             .padding(16)
             RowDivider()
             if let emptyText {
-                Row { Text(emptyText).font(.subheadline).foregroundStyle(.secondary) }
+                Row { Text(emptyText).font(.subheadline).foregroundStyle(JcTheme.muted) }
             } else {
                 chart(selection, $selection)
                     .padding(14)
@@ -110,11 +110,14 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     if let symbol {
-                        RingMetricSymbol(name: symbol.name, tint: symbol.tint, pulsing: isMeasuring, size: 13)
+                        // Chrome in the text colours; the metric's colour only while its
+                        // number is live (the ring measuring it). Its chart keeps the colour.
+                        RingMetricSymbol(name: symbol.name, tint: isMeasuring ? symbol.tint : JcTheme.muted,
+                                         pulsing: isMeasuring, size: 13)
                     }
                     Text(shown.label)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(JcTheme.muted))
                         .lineLimit(1)
                 }
                 // The same rolling digits whether a finger is scrubbing or the
@@ -122,9 +125,9 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 // Until the card is first seen every digit sits at zero; then
                 // they roll up to the value, like an odometer.
                 Text(revealed ? shown.value : shown.value.odometerZero)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(shown.placeholder ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                    .foregroundStyle(shown.placeholder ? AnyShapeStyle(JcTheme.muted.opacity(0.7)) : AnyShapeStyle(JcTheme.text))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
@@ -146,10 +149,10 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(badge.label)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                     Text(revealed ? badge.value : badge.value.odometerZero)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .font(.system(size: 24, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(badge.tint)
                         .lineLimit(1)
@@ -158,7 +161,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                     if let caption = badge.caption {
                         Text(caption)
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                             .lineLimit(1)
                     }
                 }
@@ -177,7 +180,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(shownDetails[index].label)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                     Text(revealed ? shownDetails[index].value ?? "—" : (shownDetails[index].value ?? "—").odometerZero)
                         .font(.system(.subheadline, design: .rounded).weight(.semibold))
@@ -199,7 +202,7 @@ struct ShowAllLink: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Text("Show all")
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(JcTheme.accent)
@@ -226,7 +229,7 @@ struct ShowAllRow: View {
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JcTheme.muted.opacity(0.7))
                 }
                 .contentShape(Rectangle())
             }

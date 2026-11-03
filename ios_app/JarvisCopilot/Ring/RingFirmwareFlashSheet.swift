@@ -58,7 +58,7 @@ struct RingFirmwareFlashSheet: View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .stroke(Color.secondary.opacity(0.18), lineWidth: 14)
+                    .stroke(JcTheme.muted.opacity(0.18), lineWidth: 14)
                 Circle()
                     .trim(from: 0, to: CGFloat(gaugeFraction))
                     .stroke(gaugeColor, style: StrokeStyle(lineWidth: 14, lineCap: .round))
@@ -67,16 +67,16 @@ struct RingFirmwareFlashSheet: View {
                 VStack(spacing: 2) {
                     switch flasher.phase {
                     case .succeeded:
-                        JcIcon("checkmark", size: 44, weight: .semibold).foregroundStyle(.green)
+                        JcIcon("checkmark", size: 44, weight: .semibold).foregroundStyle(JcTheme.success)
                     case .verifying:
                         ProgressView().controlSize(.large)
                     case .failed:
-                        JcIcon("xmark", size: 44, weight: .semibold).foregroundStyle(.red)
+                        JcIcon("xmark", size: 44, weight: .semibold).foregroundStyle(JcTheme.danger)
                     default:
                         Text("\(Int(flasher.fraction * 100))%")
                             .font(.system(size: 40, weight: .semibold, design: .rounded)).monospacedDigit()
                         Text("\(flasher.sent) / \(flasher.total)")
-                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            .font(.caption).foregroundStyle(JcTheme.muted).monospacedDigit()
                     }
                 }
             }
@@ -101,17 +101,17 @@ struct RingFirmwareFlashSheet: View {
 
     private var lockedNotice: some View {
         HStack(alignment: .top, spacing: 10) {
-            JcIcon("lock.fill").foregroundStyle(.orange)
+            JcIcon("lock.fill").foregroundStyle(JcTheme.amber)
             VStack(alignment: .leading, spacing: 3) {
                 Text("This cannot be cancelled").font(.subheadline.weight(.semibold))
                 Text("Keep the ring close to the phone and leave this screen open until it finishes. "
                      + "The ring keeps its current firmware until the whole image is verified.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(JcTheme.muted)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(JcTheme.amber.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var gaugeFraction: Double {
@@ -152,8 +152,8 @@ struct RingFirmwareFlashSheet: View {
 
     private func stat(_ label: String, _ value: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.headline.monospacedDigit())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(JcText.body.weight(.semibold).monospacedDigit())
+            Text(label).font(.caption2).foregroundStyle(JcTheme.muted)
         }
     }
 
@@ -178,7 +178,7 @@ struct RingFirmwareFlashSheet: View {
 
     private func detail(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(JcTheme.muted)
             Spacer(minLength: 16)
             Text(value).font(.callout.monospacedDigit()).multilineTextAlignment(.trailing)
         }
@@ -190,14 +190,14 @@ struct RingFirmwareFlashSheet: View {
 
     private var logCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Flash log").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+            Text("Flash log").font(.caption).foregroundStyle(JcTheme.muted).padding(.horizontal, 4)
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(flasher.lines) { line in
                             HStack(alignment: .top, spacing: 8) {
                                 Text(line.time, format: .dateTime.hour().minute().second())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(JcTheme.muted)
                                 Text(line.text)
                             }
                             .font(.caption2.monospaced())

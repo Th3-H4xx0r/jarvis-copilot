@@ -22,15 +22,14 @@ struct InmoGalleryView: View {
                 }
                 if gallery.entries.isEmpty {
                     Text("No photos or videos from the glasses yet. Refresh with the glasses connected.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(JcTheme.muted)
                 }
             }
             .padding(16)
         }
         .background(JcTheme.bg)
         .tint(JcTheme.accent)
-        .navigationTitle("Glasses gallery")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Glasses gallery")
         .refreshable { await gallery.refresh() }
     }
 
@@ -58,7 +57,7 @@ struct InmoGallerySaveBar: View {
                 Text("Saving \(min(run.done + 1, run.total)) of \(run.total)…").font(.subheadline.weight(.semibold))
                 ProgressView(value: min(1, (Double(run.done) + (run.current == nil ? 0 : transfer.progress)) / Double(max(run.total, 1))))
                     .tint(JcTheme.accent)
-                Text(transfer.statusText + " Keep Jarvis open while saving.").font(.caption).foregroundStyle(.secondary)
+                Text(transfer.statusText + " Keep Jarvis open while saving.").font(.caption).foregroundStyle(JcTheme.muted)
                 Button(role: .cancel) { gallery.cancel() } label: { Label("Cancel", systemImage: "xmark") }
                     .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
             } else {
@@ -71,7 +70,7 @@ struct InmoGallerySaveBar: View {
                 .disabled(count == 0 || transfer.busy)
             }
             if let message = gallery.message, gallery.run == nil {
-                Text(message).font(.caption).foregroundStyle(.secondary)
+                Text(message).font(.caption).foregroundStyle(JcTheme.muted)
             }
         }
     }

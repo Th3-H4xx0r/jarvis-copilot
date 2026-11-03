@@ -168,11 +168,11 @@ private struct DoorApprovalSheet: View {
                 .padding(.top, 8)
             VStack(spacing: 6) {
                 Text("\(title)?")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .multilineTextAlignment(.center)
                 Text("\(approval.source) asked · \(approval.ageSeconds < 5 ? "just now" : "\(approval.ageSeconds) s ago")")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                 // Anyone at the door can talk to the Pod: say so where the decision is made.
                 Text("Only approve if you asked Jarvis yourself.")
                     .font(.footnote.weight(.semibold))
@@ -183,7 +183,7 @@ private struct DoorApprovalSheet: View {
                 let left = max(0, approval.deadline.timeIntervalSince(context.date))
                 Text(String(format: "Answer within %d:%02d", Int(left) / 60, Int(left) % 60))
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
             .padding(.top, 10)
             Group {
@@ -192,7 +192,7 @@ private struct DoorApprovalSheet: View {
                         Image(systemName: answer.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .font(.system(size: 52, weight: .semibold))
                             .foregroundStyle(answer.ok ? JcTheme.success : JcTheme.danger)
-                        Text(answer.text).font(.headline).multilineTextAlignment(.center)
+                        Text(answer.text).font(JcText.body.weight(.semibold)).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity, minHeight: 108)
                 } else {
@@ -214,7 +214,7 @@ private struct DoorApprovalSheet: View {
                         .disabled(center.working)
                         Button("Deny") { Task { await center.deny(approval) } }
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .contentShape(Rectangle())
                             .buttonStyle(.plain)
@@ -227,9 +227,9 @@ private struct DoorApprovalSheet: View {
         .padding(.horizontal, 22)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
-        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
             .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)

@@ -40,8 +40,7 @@ struct DashcamDestinationsView: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Destinations")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Destinations")
         .task { await load() }
         .refreshable { await load() }
         .alert("Remove \(confirmRemove?.name ?? "this destination")?",
@@ -61,7 +60,7 @@ struct DashcamDestinationsView: View {
             JcIcon(Self.symbol(d.type), size: 20).foregroundStyle(JcTheme.accent)
             VStack(alignment: .leading, spacing: 3) {
                 Text(d.name).font(.subheadline.weight(.semibold))
-                Text("\(d.type.uppercased()) · \(d.path.isEmpty ? "/" : d.path)").font(.caption).foregroundStyle(.secondary)
+                Text("\(d.type.uppercased()) · \(d.path.isEmpty ? "/" : d.path)").font(.caption).foregroundStyle(JcTheme.muted)
                 if let r = results[d.id] ?? (d.signInExpired ? Self.expiredNote : d.error) {
                     Text(r).font(.caption).foregroundStyle(r == "Works" ? JcTheme.success : JcTheme.amber)
                 }
@@ -246,7 +245,7 @@ struct DashcamAddDestinationView: View {
     private func field(_ title: String, text: Binding<String>, placeholder: String) -> some View {
         Row {
             HStack {
-                Text(title).foregroundStyle(.secondary)
+                Text(title).foregroundStyle(JcTheme.muted)
                 TextField(placeholder, text: text).multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }

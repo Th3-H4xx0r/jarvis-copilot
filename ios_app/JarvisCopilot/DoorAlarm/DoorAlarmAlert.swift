@@ -101,7 +101,7 @@ struct DoorCountdown: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(Self.text(alarm, at: context.date))
-                .font(.system(size: size, weight: .bold, design: .rounded).monospacedDigit())
+                .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(alarm.state == "arming" ? JcTheme.accent : JcTheme.danger)
                 .contentTransition(.numericText(countsDown: true))
                 .animation(.snappy, value: Self.text(alarm, at: context.date))
@@ -138,18 +138,18 @@ struct DoorAlarmAlertCard: View {
                 .frame(height: 150)
                 .allowsHitTesting(false)
             Text(alarm.state == "triggered" ? "Alarm going off" : "Door opened")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .padding(.top, 4)
             Text(alarm.contactName ?? "A door")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+                .font(JcText.body.weight(.semibold))
+                .foregroundStyle(JcTheme.muted)
                 .padding(.top, 2)
             DoorCountdown(alarm: alarm, size: alarm.state == "triggered" ? 64 : 104)
                 .padding(.top, 6)
             Text(alarm.state == "triggered" ? (alarm.sirenOn ? "Siren on" : "Siren stopped — still armed")
                                             : "seconds to disarm")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
             VStack(spacing: 8) {
                 Button { Task { await store.disarm() } } label: {
                     HStack(spacing: 10) {
@@ -171,7 +171,7 @@ struct DoorAlarmAlertCard: View {
                 }
                 Button("Hide") { center.hide() }
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
                     .buttonStyle(.plain)
@@ -181,9 +181,9 @@ struct DoorAlarmAlertCard: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
-        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
             .strokeBorder(JcTheme.danger.opacity(0.6), lineWidth: 1.5))
         .padding(.horizontal, 14)
         .accessibilityElement(children: .contain)

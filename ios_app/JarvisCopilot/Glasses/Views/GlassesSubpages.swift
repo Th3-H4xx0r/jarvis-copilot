@@ -149,8 +149,8 @@ struct GlassesControlsPage: View {
     private var trackpad: some View {
         GeometryReader { geometry in
             ZStack {
-                RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous).fill(JcTheme.glassFill)
-                RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous).strokeBorder(JcTheme.glassBorder)
+                RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).fill(JcTheme.glassFill)
+                RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.glassBorder)
                 Canvas { context, size in
                     for x in stride(from: 14.0, to: size.width, by: 18) {
                         for y in stride(from: 14.0, to: size.height, by: 18) {
@@ -650,9 +650,9 @@ struct GlassesSetupPage: View {
                 ZStack {
                     Circle().fill(done ? JcTheme.success.opacity(0.18) : JcTheme.accent.opacity(0.14))
                     if done {
-                        JcIcon("checkmark", size: 13, weight: .bold).foregroundStyle(JcTheme.success)
+                        JcIcon("checkmark", size: 13, weight: .semibold).foregroundStyle(JcTheme.success)
                     } else {
-                        Text("\(number)").font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(JcTheme.accent)
+                        Text("\(number)").font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(JcTheme.accent)
                     }
                 }
                 .frame(width: 40, height: 40)

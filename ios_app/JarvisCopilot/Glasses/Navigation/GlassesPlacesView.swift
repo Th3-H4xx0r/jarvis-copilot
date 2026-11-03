@@ -74,12 +74,14 @@ struct GlassesPlacesView: View {
                 }
             } header: { Text("On the glasses") } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    if let startError { Text(startError).foregroundStyle(.red) }
+                    if let startError { Text(startError).foregroundStyle(JcTheme.danger) }
                     Text("Tap the walk or bike button to start directions on the glasses now. Or open Navigation on the glasses and pick a place, or ask Jarvis: “take me to …”.")
                 }
             }
         }
-        .navigationTitle("Navigation")
+        .scrollContentBackground(.hidden)
+        .tint(JcTheme.accent)
+        .jcPageChrome("Navigation")
         .alert(picked?.name ?? "Save place", isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } })) {
             ForEach(GlassesPlace.Kind.allCases, id: \.self) { kind in
                 Button("Save as \(kind == .other ? "a place" : kind.rawValue.capitalized)") { save(kind) }
@@ -115,12 +117,9 @@ struct GlassesPlacesView: View {
                 starting = nil
             }
         } label: {
-            JcIcon(walking ? "figure.walk" : "bicycle")
-                .font(.body.weight(.semibold))
-                .frame(width: 36, height: 32)
+            JcIcon(walking ? "figure.walk" : "bicycle", size: 15)
         }
-        .buttonStyle(.bordered)
-        .tint(JcTheme.accent)
+        .buttonStyle(.jcGlass(compact: true))
         .accessibilityLabel(walking ? "Walk to \(place.name)" : "Bike to \(place.name)")
         .disabled(starting != nil)
     }

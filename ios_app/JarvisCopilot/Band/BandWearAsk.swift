@@ -135,14 +135,14 @@ extension BandMeasure: Identifiable {
 
     var tint: Color {
         switch self {
-        case .heartRate: return Color(red: 1, green: 0.35, blue: 0.4)
-        case .bloodPressure: return .pink
+        case .heartRate: return JcTheme.danger
+        case .bloodPressure: return JcTheme.accentAlt
         case .bloodOxygen: return JcTheme.accent
-        case .temperature: return .orange
+        case .temperature: return JcTheme.speakers[4]   // peach
         case .stress: return JcTheme.amber
-        case .bloodGlucose: return .teal
-        case .bloodComponent: return .purple
-        case .bodyComposition: return .mint
+        case .bloodGlucose: return JcTheme.speakers[3]   // sky
+        case .bloodComponent: return JcTheme.speakers[2]   // violet
+        case .bodyComposition: return JcTheme.speakers[5]   // lime
         case .ecg: return JcTheme.blue
         }
     }

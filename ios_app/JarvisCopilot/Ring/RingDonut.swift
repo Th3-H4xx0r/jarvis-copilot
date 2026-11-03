@@ -43,7 +43,7 @@ struct RingDonut: View {
                             if !slice.detail.isEmpty {
                                 Text(slice.detail)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(JcTheme.muted)
                                     .frame(width: 46, alignment: .trailing)
                             }
                         }

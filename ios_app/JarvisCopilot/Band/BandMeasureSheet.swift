@@ -176,7 +176,7 @@ struct BandMeasureSheet: View {
     private var header: some View {
         VStack(spacing: 14) {
             Text(type.label)
-                .font(.title3.weight(.semibold))
+                .font(JcText.title)
                 .padding(.top, 22)
             if type.hasModes {
                 BandModeSwitch(mode: Binding(get: { flow.mode }, set: { flow.setMode($0) }))
@@ -191,7 +191,7 @@ struct BandMeasureSheet: View {
         HStack(spacing: 6) {
             Image(systemName: flow.mode == .private ? (calibrated ? "checkmark.seal.fill" : "exclamationmark.circle") : "person.3.fill")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(flow.mode == .private ? (calibrated ? JcTheme.accent : .orange) : JcTheme.muted)
+                .foregroundStyle(flow.mode == .private ? (calibrated ? JcTheme.accent : JcTheme.amber) : JcTheme.muted)
             Text(calibrationText)
                 .font(.footnote)
                 .foregroundStyle(JcTheme.muted)
@@ -275,8 +275,7 @@ struct BandMeasureSheet: View {
             if let progress {
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(AngularGradient(colors: [type.tint.opacity(0.55), type.tint, JcTheme.accent], center: .center),
-                            style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                    .stroke(type.tint, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .frame(width: 132, height: 132)
                     .animation(.easeOut(duration: 0.6), value: progress)
@@ -285,11 +284,10 @@ struct BandMeasureSheet: View {
                     .frame(width: 132, height: 132)
             }
             Circle()
-                .fill(RadialGradient(colors: [type.tint.opacity(0.28), type.tint.opacity(0.04)],
-                                     center: .center, startRadius: 4, endRadius: 58))
+                .fill(type.tint.opacity(0.10))
                 .frame(width: 104, height: 104)
             Image(systemName: symbol)
-                .font(.system(size: 38, weight: .semibold))
+                .font(.system(size: 36, weight: .regular))
                 .foregroundStyle(symbolTint)
                 .symbolEffect(.pulse, isActive: flow.running)
                 .contentTransition(.symbolEffect(.replace))
@@ -306,7 +304,7 @@ struct BandMeasureSheet: View {
 
     private var symbolTint: Color {
         if flow.result != nil { return JcTheme.accent }
-        if flow.failure != nil { return .orange }
+        if flow.failure != nil { return JcTheme.amber }
         return type.tint
     }
 
@@ -316,7 +314,7 @@ struct BandMeasureSheet: View {
         VStack(spacing: 6) {
             if let r = flow.result ?? live, let big = r.bigValue {
                 Text(big.value)
-                    .font(.system(size: 60, weight: .bold, design: .rounded))
+                    .font(.system(size: 56, weight: .semibold))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .animation(.snappy(duration: 0.3), value: big.value)
@@ -327,7 +325,7 @@ struct BandMeasureSheet: View {
                     .foregroundStyle(JcTheme.muted)
             } else if let failure = flow.failure {
                 Text("No reading")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .font(.system(size: 30, weight: .medium))
                 Text(failure)
                     .font(.subheadline)
                     .foregroundStyle(JcTheme.muted)
@@ -342,8 +340,8 @@ struct BandMeasureSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Ready")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                Text("Measure when you're set.")
+                    .font(.system(size: 30, weight: .medium))
+                Text("Measure when you're set")
                     .font(.subheadline)
                     .foregroundStyle(JcTheme.muted)
             }
@@ -362,10 +360,10 @@ struct BandMeasureSheet: View {
 
     private var hint: String {
         switch type {
-        case .bloodPressure: return "Sit still with your arm relaxed at heart level."
-        case .ecg, .bodyComposition: return "Keep a finger on the band's metal top."
-        case .bloodGlucose, .bloodComponent: return "Keep still — this takes about a minute."
-        default: return "Keep still and breathe normally."
+        case .bloodPressure: return "Sit still with your arm relaxed at heart level"
+        case .ecg, .bodyComposition: return "Keep a finger on the band's metal top"
+        case .bloodGlucose, .bloodComponent: return "Keep still — this takes about a minute"
+        default: return "Keep still and breathe normally"
         }
     }
 
@@ -374,14 +372,14 @@ struct BandMeasureSheet: View {
     @ViewBuilder private var buttons: some View {
         VStack(spacing: 10) {
             if flow.failure != nil || (!flow.running && flow.result == nil) {
-                primary(flow.failure != nil ? "Try Again" : "Measure", icon: "play.fill") { flow.begin() }
+                primary(flow.failure != nil ? "Try again" : "Measure", icon: "play.fill") { flow.begin() }
             } else if flow.result != nil {
-                primary("Measure Again", icon: "arrow.clockwise") { flow.begin() }
+                primary("Measure again", icon: "arrow.clockwise") { flow.begin() }
             }
             Button { flow.cancel() } label: {
                 Text(flow.running ? "Cancel" : "Done")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(JcText.body.weight(.semibold))
+                    .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
                     .jcLiquidGlass(in: Capsule(), tint: .clear)
@@ -393,15 +391,11 @@ struct BandMeasureSheet: View {
     private func primary(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.headline)
-                .foregroundStyle(.black)
+                .font(JcText.body.weight(.semibold))
+                .foregroundStyle(JcTheme.accent)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .background {
-                    Capsule()
-                        .fill(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .shadow(color: JcTheme.accent.opacity(0.35), radius: 14, y: 4)
-                }
+                .jcLiquidGlass(in: Capsule())
         }
         .buttonStyle(.plain)
     }
@@ -441,7 +435,7 @@ struct BandMeasureSheet: View {
                 stepButton("minus") { reference -= step }
                 VStack(spacing: 2) {
                     Text(referenceText)
-                        .font(.system(size: 60, weight: .bold, design: .rounded))
+                        .font(.system(size: 56, weight: .semibold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
                         .animation(.snappy(duration: 0.2), value: reference)
@@ -464,22 +458,22 @@ struct BandMeasureSheet: View {
                     flow.removeCalibration()
                     calibrating = false
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.orange)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(JcTheme.amber)
                 .buttonStyle(.plain)
                 .padding(.top, 12)
             }
             Spacer(minLength: 8)
             VStack(spacing: 10) {
-                primary("Save Calibration", icon: "checkmark.seal.fill") {
+                primary("Save calibration", icon: "checkmark.seal.fill") {
                     let typed = type == .temperature && TemperatureUnit.current == .fahrenheit ? (reference - 32) * 5 / 9 : reference
                     flow.calibrate(reference: typed)
                     calibrating = false
                 }
                 Button { calibrating = false } label: {
                     Text("Cancel")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                        .font(JcText.body.weight(.semibold))
+                        .foregroundStyle(JcTheme.text)
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                         .jcLiquidGlass(in: Capsule(), tint: .clear)
@@ -492,8 +486,8 @@ struct BandMeasureSheet: View {
     private func stepButton(_ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.primary)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(JcTheme.text)
                 .frame(width: 50, height: 50)
                 .jcLiquidGlass(in: Circle(), tint: .clear)
         }
@@ -549,15 +543,15 @@ struct BandModeSwitch: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: m == .general ? "person.3.fill" : "lock.fill")
-                            .font(.system(size: 10, weight: .bold))
-                        Text(m.label).font(.subheadline.weight(.semibold))
+                            .font(.system(size: 10, weight: .medium))
+                        Text(m.label).font(.system(size: 13, weight: .medium))
                     }
-                    .foregroundStyle(mode == m ? Color.black : JcTheme.muted)
-                    .frame(width: 112, height: 36)
+                    .foregroundStyle(mode == m ? JcTheme.text : JcTheme.muted)
+                    .frame(width: 112, height: 34)
                     .background {
                         if mode == m {
                             Capsule()
-                                .fill(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent], startPoint: .leading, endPoint: .trailing))
+                                .fill(.white.opacity(0.10))
                                 .matchedGeometryEffect(id: "pill", in: pill)
                         }
                     }
@@ -567,9 +561,8 @@ struct BandModeSwitch: View {
                 .accessibilityAddTraits(mode == m ? .isSelected : [])
             }
         }
-        .padding(4)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
-        .overlay(Capsule().stroke(JcTheme.glassBorder, lineWidth: 1))
+        .padding(3)
+        .background(.white.opacity(0.045), in: Capsule())
     }
 }
 
@@ -602,8 +595,7 @@ private struct BandMeasureSpinner: View {
             let t = context.date.timeIntervalSinceReferenceDate
             Circle()
                 .trim(from: 0, to: 0.28)
-                .stroke(AngularGradient(colors: [tint.opacity(0), tint], center: .center, startAngle: .zero, endAngle: .degrees(100)),
-                        style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                 .rotationEffect(.degrees((t * 220).truncatingRemainder(dividingBy: 360)))
         }
     }
@@ -615,7 +607,7 @@ private struct BandMeasuringTitle: View {
         TimelineView(.periodic(from: .now, by: 0.45)) { context in
             let dots = Int(context.date.timeIntervalSinceReferenceDate / 0.45) % 4
             Text("Measuring" + String(repeating: ".", count: dots))
-                .font(.system(size: 34, weight: .semibold, design: .rounded))
+                .font(.system(size: 30, weight: .medium))
                 // The dots grow without moving the word.
                 .frame(width: 230, alignment: .leading)
                 .padding(.leading, 34)

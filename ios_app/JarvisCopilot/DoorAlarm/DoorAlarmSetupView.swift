@@ -25,14 +25,13 @@ struct DoorAlarmSetupView: View {
                 hubPicker
                 proxyPicker
                 if let message {
-                    Text(message).font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 24)
+                    Text(message).font(.footnote).foregroundStyle(JcTheme.muted).padding(.horizontal, 24)
                 }
             }
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Door alarm setup")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Door alarm setup")
         .task {
             await store.load()
             region = store.state?.setup.region ?? "us"
@@ -91,7 +90,7 @@ struct DoorAlarmSetupView: View {
                                     Text(device.name)
                                     Text([device.product, device.category, device.online ? "online" : "offline"]
                                         .filter { !$0.isEmpty }.joined(separator: " · "))
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(.caption).foregroundStyle(JcTheme.muted)
                                 }
                                 Spacer()
                                 if busy == device.id { ProgressView() }
@@ -128,7 +127,7 @@ struct DoorAlarmSetupView: View {
                 .disabled(busy != nil || store.state?.setup.hub != true)
             }
             if boards.isEmpty {
-                Row { Text("No ESP32 board connected").foregroundStyle(.secondary) }
+                Row { Text("No ESP32 board connected").foregroundStyle(JcTheme.muted) }
             }
             if currentBoard != nil {
                 RowDivider()

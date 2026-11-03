@@ -23,7 +23,7 @@ struct RingFirmwareSection: View {
         CardGroup("Firmware") {
             Row {
                 HStack {
-                    Text("On the ring").foregroundStyle(.secondary)
+                    Text("On the ring").foregroundStyle(JcTheme.muted)
                     Spacer()
                     Text(currentVersion ?? "—").font(.callout.monospacedDigit())
                 }
@@ -31,7 +31,7 @@ struct RingFirmwareSection: View {
             RowDivider()
             Row {
                 HStack {
-                    Text("Image").foregroundStyle(.secondary)
+                    Text("Image").foregroundStyle(JcTheme.muted)
                     Spacer()
                     Menu {
                         ForEach(images) { image in
@@ -53,19 +53,19 @@ struct RingFirmwareSection: View {
                 Row {
                     HStack(alignment: .top) {
                         JcIcon(image.preflight == nil ? "checkmark.seal.fill" : "xmark.octagon.fill")
-                            .foregroundStyle(image.preflight == nil ? .green : .red)
+                            .foregroundStyle(image.preflight == nil ? JcTheme.success : JcTheme.danger)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(image.preflight?.reason ?? "Pre-flight OK — the ring's own receiver checks all pass")
                                 .font(.caption)
                             Text("\(image.bytes.count) bytes · \(image.pockets) pockets · crc16 \(String(format: "0x%04X", image.crc16))")
-                                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                                .font(.caption2).foregroundStyle(JcTheme.muted).monospacedDigit()
                         }
                     }
                 }
             }
             if let importError {
                 RowDivider()
-                Row { Text(importError).font(.caption).foregroundStyle(.orange) }
+                Row { Text(importError).font(.caption).foregroundStyle(JcTheme.amber) }
             }
             RowDivider()
             Row {
@@ -88,7 +88,7 @@ struct RingFirmwareSection: View {
                 RowDivider()
                 Row {
                     HStack {
-                        Text(lastResultText).font(.caption).foregroundStyle(.secondary)
+                        Text(lastResultText).font(.caption).foregroundStyle(JcTheme.muted)
                         Spacer()
                         Button("Details") { showSheet = true }.font(.caption)
                     }
@@ -150,10 +150,10 @@ struct RingFirmwareSection: View {
                 Text("Verifying…").font(.caption)
             }
         case .succeeded:
-            Label("Flashed", jcIcon: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+            Label("Flashed", jcIcon: "checkmark.circle.fill").font(.caption).foregroundStyle(JcTheme.success)
         case .failed(let why):
             Label(why == "cancelled" ? "Cancelled" : "Failed", jcIcon: "xmark.circle.fill")
-                .font(.caption).foregroundStyle(.red)
+                .font(.caption).foregroundStyle(JcTheme.danger)
         }
     }
 

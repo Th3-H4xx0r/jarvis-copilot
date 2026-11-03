@@ -35,8 +35,7 @@ struct CarPage: View {
         .task { await stage.load() }
         .sheet(item: $sheet) { _ in ToyotaSignInSheet(store: toyota) }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(car.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(car.name)
         .toolbar {
             // A button, not pull to refresh: the page opens with a zoom, and pulling down on it
             // closes the page instead. Wakes the car for fresh status, like Toyota's app.

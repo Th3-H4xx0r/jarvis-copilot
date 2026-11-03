@@ -35,7 +35,7 @@ struct HealthSettingsSection: View {
             Row {
                 Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
 
             if HealthRing.bothPaired() {
@@ -89,7 +89,7 @@ struct HealthSettingsSection: View {
                                     get: { settings.rules[rule.key]?.threshold ?? 0 },
                                     set: { value in write(["rules": [rule.key: ["threshold": value]]]) }),
                                         in: rule.range, step: rule.step) {
-                                    Text(thresholdText(rule, settings)).font(.caption).foregroundStyle(.secondary)
+                                    Text(thresholdText(rule, settings)).font(.caption).foregroundStyle(JcTheme.muted)
                                 }
                             }
                         }
@@ -103,14 +103,14 @@ struct HealthSettingsSection: View {
                         Spacer()
                         Text("\(settings.quietHours.start) – \(settings.quietHours.end)")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                     }
                 }
                 RowDivider()
                 Row {
                     Text("An alert inside quiet hours waits for the morning instead of waking you.")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JcTheme.muted.opacity(0.7))
                 }
             }
 
@@ -127,19 +127,18 @@ struct HealthSettingsSection: View {
             }
             if let runMessage {
                 RowDivider()
-                Row { Text(runMessage).font(.caption).foregroundStyle(.secondary) }
+                Row { Text(runMessage).font(.caption).foregroundStyle(JcTheme.muted) }
             }
             if let error = health.lastError {
                 RowDivider()
-                Row { Text(error).font(.caption).foregroundStyle(.orange) }
+                Row { Text(error).font(.caption).foregroundStyle(JcTheme.amber) }
             }
     }
 
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .kerning(0.6)
+        Text(text)
+            .font(JcText.small)
+            .foregroundStyle(JcTheme.muted)
     }
 
     /// Models the app already offers for chat; the analysis uses the same list.

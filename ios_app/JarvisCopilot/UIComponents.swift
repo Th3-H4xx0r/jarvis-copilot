@@ -3,10 +3,10 @@ import SwiftUI
 /// A grouped section, sized and spaced like an inset-grouped list rather than a dense
 /// stack: rows carry their own height and padding, separators are inset from the left.
 ///
-/// The header, the glass, the radius and the 16pt page margin are the Insights
-/// screen's — `SectionHeader` over a card, which is the one register the whole
-/// app uses now. Anything built from `CardGroup` inherits it; a screen that
-/// hand-rolls its own header is the thing to fix, not this.
+/// Built from the app's one set of page pieces (`JcUnified.swift`): a
+/// `JcSectionLabel` over a `JcCard`, at the page inset. Anything built from
+/// `CardGroup` inherits it; a screen that hand-rolls its own header is the thing
+/// to fix, not this.
 struct CardGroup<Content: View>: View {
     let title: String?
     var footer: String?
@@ -20,24 +20,22 @@ struct CardGroup<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let title { SectionHeader(title) }
-            VStack(spacing: 0) { content }
-                .background(JcTheme.glassFill,
-                            in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
-                    .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            // `first`: the screen's own stack spacing already sits above the group.
+            if let title { JcSectionLabel(title, first: true) }
+            // Rows bring their own insets and run their separators to the edge.
+            // The accent is the on-state: a switch in a card is teal, as in Settings.
+            JcCard(padding: 0) { content }
+                .tint(JcTheme.accent)
             if let footer {
                 Text(footer)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
                     .padding(.top, 8)
             }
         }
-        // A touch wider than the 16pt the rest of the app uses: these cards are
-        // dense, and the extra margin is what stops them reading as a slab.
-        .padding(.horizontal, 20)
+        .padding(.horizontal, JcUnified.pageInset)
     }
 }
 
@@ -156,7 +154,7 @@ struct ActionButton: View {
                     .jcLiquidGlass(in: Circle(), tint: isOn ? tint.opacity(0.6) : .clear)
                 Text(title)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -167,7 +165,7 @@ struct ActionButton: View {
     }
 }
 
-/// A compact metric pill: tinted glyph, label above value. Used where a reading has to
+/// A compact metric pill: glyph, label above value. Used where a reading has to
 /// sit over the 3D scene rather than in a row.
 struct MetricPill: View {
     let icon: String
@@ -175,18 +173,21 @@ struct MetricPill: View {
     let value: String
     var tint: Color
 
+    /// A status colour (amber, danger) still shows on the glyph; anything else is chrome and
+    /// drawn in the text colours — metric colours belong to the data, not the pill.
+    private var glyph: Color { tint == JcTheme.amber || tint == JcTheme.danger ? tint : JcTheme.muted }
+
     var body: some View {
         HStack(spacing: 9) {
-            JcIcon(icon)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(tint)
+            JcIcon(icon, size: 13)
+                .foregroundStyle(glyph)
                 .frame(width: 26, height: 26)
-                .background(tint.opacity(0.16), in: Circle())
+                .background(Color.white.opacity(0.08), in: Circle())
 
             VStack(alignment: .leading, spacing: -1) {
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                 Text(value)
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .monospacedDigit()
@@ -209,7 +210,7 @@ struct MetricPill: View {
 struct DisconnectedPill: View {
     var body: some View {
         MetricPill(icon: "antenna.radiowaves.left.and.right.slash", label: "Status",
-                   value: "Disconnected", tint: .secondary)
+                   value: "Disconnected", tint: JcTheme.muted)
     }
 
     /// "last seen 22h ago", or nil when we have never had it in hand. Within the
@@ -231,7 +232,7 @@ extension View {
             if visible, let note = DisconnectedPill.lastSeenNote(date) {
                 Text(note)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(JcTheme.muted.opacity(0.7))
                     .lineLimit(1)
                     .padding(.trailing, 18)
                     .padding(.bottom, 14)
@@ -247,15 +248,15 @@ extension View {
 func temperatureTint(_ celsius: Int) -> Color? {
     switch celsius {
     case ..<45:   return nil                                   // unremarkable
-    case 45..<55: return .orange
-    default:      return Color(red: 1.0, green: 0.31, blue: 0.27)
+    case 45..<55: return JcTheme.amber
+    default:      return JcTheme.danger
     }
 }
 
 func batteryTint(_ percent: Int) -> Color? {
     switch percent {
-    case ..<15:   return Color(red: 1.0, green: 0.31, blue: 0.27)
-    case 15..<35: return .orange
+    case ..<15:   return JcTheme.danger
+    case 15..<35: return JcTheme.amber
     default:      return nil
     }
 }

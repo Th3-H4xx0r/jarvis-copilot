@@ -77,7 +77,7 @@ struct WearableControlTile: View {
 
     @ViewBuilder private var detail: some View {
         if !control.enabled {
-            Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+            Text("Unavailable").font(.caption).foregroundStyle(JcTheme.muted)
         } else {
             enabledDetail
         }
@@ -86,13 +86,13 @@ struct WearableControlTile: View {
     @ViewBuilder private var enabledDetail: some View {
         switch control.kind {
         case .toggle(let on):
-            Text(on ? "On" : "Off").font(.caption).foregroundStyle(.secondary)
+            Text(on ? "On" : "Off").font(.caption).foregroundStyle(JcTheme.muted)
         case .button:
-            Text("Tap to run").font(.caption).foregroundStyle(.secondary)
+            Text("Tap to run").font(.caption).foregroundStyle(JcTheme.muted)
         case .level(let value, let range, let step, let unit):
             VStack(alignment: .leading, spacing: 2) {
                 Text(WearableControl.format(draft ?? value) + (unit.map { " \($0)" } ?? ""))
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .font(.caption.monospacedDigit()).foregroundStyle(JcTheme.muted)
                 Slider(value: Binding(get: { draft ?? value }, set: { draft = $0 }), in: range, step: step > 0 ? step : 1) { editing in
                     if !editing, let draft { run(.level(draft)) }
                 }

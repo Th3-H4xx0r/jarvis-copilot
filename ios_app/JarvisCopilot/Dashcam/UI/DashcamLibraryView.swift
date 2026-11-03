@@ -77,7 +77,7 @@ struct DashcamClipRow: View {
                     Text(clip.start.formatted(date: .omitted, time: .shortened)).font(.subheadline.weight(.semibold))
                     kindBadge
                     if clip.lens != .front {
-                        Text(clip.lens.rawValue.capitalized).font(.caption2).foregroundStyle(.secondary)
+                        Text(clip.lens.rawValue.capitalized).font(.caption2).foregroundStyle(JcTheme.muted)
                     }
                 }
                 let status = DashcamClipStatus.of(clip, uploadingID: uploadingID)
@@ -89,7 +89,7 @@ struct DashcamClipRow: View {
                     place("icloud", places.cloud, "In the cloud")
                     Text(status.label).font(.caption).foregroundStyle(status.tint).lineLimit(1)
                     if clip.kind != .photo && clip.durationS > 0 {
-                        Text("· \(DashcamSpeed.duration(clip.durationS))").font(.caption).foregroundStyle(.secondary)
+                        Text("· \(DashcamSpeed.duration(clip.durationS))").font(.caption).foregroundStyle(JcTheme.muted)
                     }
                 }
                 DashcamClipTransferLine(clip: clip)
@@ -467,14 +467,16 @@ struct DashcamDeletingPopup: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.easeOut(duration: 0.25), value: done)
                 Text(total > 0 ? "\(Int(Double(done) / Double(total) * 100))%" : "")
-                    .font(.headline.monospacedDigit())
+                    .font(JcText.body.weight(.semibold).monospacedDigit())
             }
             .frame(width: 84, height: 84)
             Text("Deleting \(min(done + 1, total)) of \(total)").font(.callout)
             Button("Cancel", role: .cancel, action: cancel).buttonStyle(.jcGlass(compact: true))
         }
         .padding(28)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(JcTheme.surface, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

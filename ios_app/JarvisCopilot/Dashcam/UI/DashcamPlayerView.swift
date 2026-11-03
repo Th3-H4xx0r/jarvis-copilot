@@ -325,12 +325,12 @@ struct DashcamPlayerView: View {
                         .aspectRatio(16 / 9, contentMode: .fit).overlay { ProgressView() }.padding(.horizontal, 16)
                 }
                 if let p = sharing.progress {
-                    Text("Getting the clip ready… \(Int(p * 100))%").font(.caption).foregroundStyle(.secondary)
+                    Text("Getting the clip ready… \(Int(p * 100))%").font(.caption).foregroundStyle(JcTheme.muted)
                 } else if let note = sharing.note {
                     Text(note).font(.caption.weight(.semibold)).foregroundStyle(JcTheme.accent)
                         .multilineTextAlignment(.center).padding(.horizontal, 20)
                 } else if !model.source.isEmpty {
-                    Text(model.source).font(.caption).foregroundStyle(.secondary)
+                    Text(model.source).font(.caption).foregroundStyle(JcTheme.muted)
                 }
                 if let pending = model.clip.cardDelete {
                     Label(DashcamClipStatus.pendingLine(pending), systemImage: "trash")
@@ -348,8 +348,7 @@ struct DashcamPlayerView: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(model.clip.start.formatted(date: .abbreviated, time: .shortened))
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(model.clip.start.formatted(date: .abbreviated, time: .shortened))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { DashcamShareButton(flow: sharing, models: shared) }
         }
@@ -381,11 +380,11 @@ struct DashcamPlayerView: View {
             if model.clip.kind != .photo, let fix = model.current {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text(DashcamSpeed.text(fix.speed)).font(.system(size: 30, weight: .bold, design: .rounded).monospacedDigit())
+                        Text(DashcamSpeed.text(fix.speed)).font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
                         Text("mph").font(.caption.weight(.semibold))
                     }
                     if let dir = DashcamSpeed.compass(fix.heading) {
-                        Text(dir).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(dir).font(.caption.weight(.semibold)).foregroundStyle(JcTheme.muted)
                     }
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
@@ -399,7 +398,7 @@ struct DashcamPlayerView: View {
         .overlay(alignment: .bottomTrailing) {
             if model.hasPreview, model.player != nil {
                 Button(model.hd ? "HD on" : "HD") { model.setHD(!model.hd) }
-                    .font(.caption.weight(.bold))
+                    .font(.caption.weight(.semibold))
                     .buttonStyle(.jcGlass(tint: model.hd ? JcTheme.accent : JcTheme.muted, compact: true))
                     .padding(10)
                     .padding(.bottom, 44)               // above the player's own controls
@@ -451,7 +450,7 @@ struct DashcamPlayerView: View {
     private func row(_ title: String, _ value: String) -> some View {
         Row {
             HStack {
-                Text(title).foregroundStyle(.secondary)
+                Text(title).foregroundStyle(JcTheme.muted)
                 Spacer()
                 Text(value).multilineTextAlignment(.trailing).lineLimit(2).font(.callout)
             }

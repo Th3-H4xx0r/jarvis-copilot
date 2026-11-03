@@ -62,17 +62,24 @@ struct InmoAdvancedControlsView: View {
     @State private var result: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Additional device controls").font(.subheadline.bold())
-            TextField("Name on glasses", text: $name)
-            Button("Set Device Name") { run("glasses_device_setting", ["setting": "name", "value": name]) }.disabled(name.isEmpty)
-            Picker("System language", selection: $language) { ForEach(InmoAdvancedControls.languages, id: \.self) { Text($0).tag($0) } }
-            Button("Set Language") { run("glasses_device_setting", ["setting": "language", "value": language]) }
-            Button("Sync Phone Time") { run("glasses_device_setting", ["setting": "sync_time"]) }
-            Text("Time synchronization follows the vendor's whole-hour timezone offset; fractional-hour zones lose their minutes.").font(.caption).foregroundStyle(.secondary)
-            HStack { ForEach(["go", "menu", "long_home", "double_tap"], id: \.self) { key in
-                Button(key.replacingOccurrences(of: "_", with: " ").capitalized) { run("glasses_remote_key", ["key": key]) }
+            Text("Additional device controls").font(JcText.body.weight(.medium)).foregroundStyle(JcTheme.text)
+            HStack(spacing: 8) {
+                TextField("Name on glasses", text: $name).jcFieldStyle()
+                Button("Set") { run("glasses_device_setting", ["setting": "name", "value": name]) }.disabled(name.isEmpty)
+            }
+            HStack(spacing: 8) {
+                Picker("System language", selection: $language) { ForEach(InmoAdvancedControls.languages, id: \.self) { Text($0).tag($0) } }
+                    .tint(JcTheme.text)
+                Spacer()
+                Button("Set language") { run("glasses_device_setting", ["setting": "language", "value": language]) }
+            }
+            Button("Sync phone time") { run("glasses_device_setting", ["setting": "sync_time"]) }
+            Text("Time synchronization follows the vendor's whole-hour timezone offset; fractional-hour zones lose their minutes.").font(JcText.small).foregroundStyle(JcTheme.muted)
+            JcWrap(spacing: 8) { ForEach(["go", "menu", "long_home", "double_tap"], id: \.self) { key in
+                let words = key.replacingOccurrences(of: "_", with: " ")
+                Button(words.prefix(1).uppercased() + words.dropFirst()) { run("glasses_remote_key", ["key": key]) }
             } }
-            if let result { Text(result).font(.caption).foregroundStyle(.secondary) }
+            if let result { Text(result).font(.caption).foregroundStyle(JcTheme.muted) }
         }.disabled(!device.experimentalEnabled || !device.isConnected)
     }
     private func run(_ skill: String, _ args: [String: Any]) {

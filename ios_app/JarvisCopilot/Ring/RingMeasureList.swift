@@ -53,7 +53,9 @@ struct RingMeasureList: View {
     private func row(_ item: Item) -> some View {
         Row(minHeight: 58) {
             HStack(spacing: 12) {
-                RingMetricSymbol(name: item.icon, tint: item.tint, pulsing: isMeasuring(item))
+                // The metric's colour only while its number is coming in; at rest the glyph is chrome.
+                RingMetricSymbol(name: item.icon, tint: isMeasuring(item) ? item.tint : JcTheme.muted,
+                                 pulsing: isMeasuring(item))
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
@@ -68,14 +70,14 @@ struct RingMeasureList: View {
                         Text(live ?? "--")
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.tint))
+                            .foregroundStyle(live == nil ? AnyShapeStyle(JcTheme.muted.opacity(0.7)) : AnyShapeStyle(item.tint))
                             .contentTransition(.numericText())
                             .animation(.snappy(duration: 0.25), value: live)
                             .geometryGroup()
                     } else {
                         Text(subtitle(item))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                             .lineLimit(1)
                     }
                 }
@@ -99,7 +101,7 @@ struct RingMeasureList: View {
                 Text(mode.options[mode.selected])
                     .font(.caption2.weight(.semibold))
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.system(size: 7, weight: .semibold))
             }
             .foregroundStyle(mode.selected > 0 ? JcTheme.accent : JcTheme.muted)
             .padding(.horizontal, 7)

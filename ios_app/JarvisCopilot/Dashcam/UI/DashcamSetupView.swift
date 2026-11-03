@@ -33,7 +33,7 @@ struct DashcamSetupView: View {
                     JcIcon("video.fill", size: 44, weight: .light).foregroundStyle(JcTheme.accent)
                     Text("Add your dashcam").font(.title2.weight(.semibold))
                     Text("Turn the camera on (start the car). Jarvis finds it on its Wi‑Fi, then joins it on its own whenever the camera is on.")
-                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .font(.subheadline).foregroundStyle(JcTheme.muted).multilineTextAlignment(.center)
                 }
                 .padding(.top, 12)
                 .padding(.horizontal, 24)
@@ -50,8 +50,7 @@ struct DashcamSetupView: View {
             .padding(.bottom, 30)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Dashcam")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Dashcam")
         // Only while the app is in the foreground: the keepalive keeps it running in the background, where a
         // setup screen left open probed the network every 3 s.
         .task(id: scenePhase == .active) { if scenePhase == .active { await watch() } }
@@ -70,7 +69,7 @@ struct DashcamSetupView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Found \(Self.name(d.info))").font(.body.weight(.semibold))
                             Text(d.ssid.map { "on “\($0)”" } ?? d.family.rawValue.capitalized + " camera")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(JcTheme.muted)
                         }
                         Spacer()
                         Button(d.family.supported ? "Use it" : "Not supported") {
@@ -83,7 +82,7 @@ struct DashcamSetupView: View {
                     HStack(spacing: 12) {
                         ProgressView()
                         Text(currentSSID.map { "Checking “\($0)” for a dashcam…" } ?? "Looking for a dashcam…")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.callout).foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -162,9 +161,9 @@ struct DashcamSetupView: View {
                         } label: {
                             HStack {
                                 Text(ssid.isEmpty ? "Choose the camera's Wi‑Fi" : ssid)
-                                    .foregroundStyle(ssid.isEmpty ? .secondary : .primary)
+                                    .foregroundStyle(ssid.isEmpty ? JcTheme.muted : JcTheme.text)
                                 Spacer()
-                                JcIcon("chevron.up.chevron.down", size: 13).foregroundStyle(.secondary)
+                                JcIcon("chevron.up.chevron.down", size: 13).foregroundStyle(JcTheme.muted)
                             }
                         }
                         .tint(JcTheme.accent)

@@ -38,8 +38,7 @@ struct CarClimateScreen: View {
             panel
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Climate")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Climate")
     }
 
     @ViewBuilder private var panel: some View {
@@ -72,11 +71,11 @@ struct CarClimateScreen: View {
                 } else {
                     Text(saved ? "Saved — used at the next remote start" : "Used when you remote start the car")
                         .font(.caption)
-                        .foregroundStyle(saved ? JcTheme.success : .secondary)
+                        .foregroundStyle(saved ? JcTheme.success : JcTheme.muted)
                 }
             } else {
                 Text(store.account?.blockedReason ?? "Your car doesn't report remote-start climate settings.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted).multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal, 18)
@@ -101,7 +100,7 @@ struct CarClimateScreen: View {
                     .contentTransition(.numericText(value: temp))
                 Text(c.unit.contains("C") ? "Cabin · Celsius" : "Cabin · Fahrenheit")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
             .lineLimit(1)
             .fixedSize()
@@ -124,7 +123,7 @@ struct CarClimateScreen: View {
                 JcIcon(symbol, size: 20)
                 Text(title).font(.caption.weight(.semibold))
             }
-            .foregroundStyle(on ? tint : Color.secondary)
+            .foregroundStyle(on ? tint : JcTheme.muted)
             .frame(maxWidth: .infinity, minHeight: 64)
             .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous),
                            tint: on ? tint.opacity(0.25) : .clear)
@@ -138,7 +137,7 @@ struct CarClimateScreen: View {
     private func stepButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             JcIcon(symbol, size: 18)
-                .foregroundStyle(enabled ? Color.white : Color.secondary)
+                .foregroundStyle(enabled ? Color.white : JcTheme.muted)
                 .frame(width: 44, height: 44)
                 .jcLiquidGlass(in: Circle())
         }
@@ -184,7 +183,7 @@ struct CarClimateScreen: View {
     }
 }
 
-/// The windscreen's (or rear window's) defrost on the cabin view: a warm glow when on.
+/// The windscreen's (or rear window's) defrost on the cabin view: amber when on.
 struct DefrostSpot: View {
     let on: Bool
     let front: Bool
@@ -193,13 +192,7 @@ struct DefrostSpot: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                if on {
-                    Capsule()
-                        .fill(RadialGradient(colors: [JcTheme.amber.opacity(0.55), JcTheme.amber.opacity(0)],
-                                             center: .center, startRadius: 4, endRadius: 70))
-                        .frame(width: 150, height: 54)
-                        .blur(radius: 6)
-                }
+
                 JcIcon(front ? "windshield.front.and.heat.waves" : "windshield.rear.and.heat.waves", size: 18)
                     .foregroundStyle(on ? JcTheme.amber : Color.white.opacity(0.7))
                     .frame(width: 40, height: 40)

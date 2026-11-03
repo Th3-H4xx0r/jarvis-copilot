@@ -36,7 +36,7 @@ struct DashcamSettingsView: View {
         }
         .task(id: wifi.onCamera) { if wifi.onCamera { await loadSettings() } }
         .alert("Format the SD card?", isPresented: $confirmFormat) {
-            Button("Format", role: .destructive) { Task { await run("dashcam_format_sd", ["confirm": true], done: "SD card formatted.") } }
+            Button("Format", role: .destructive) { Task { await run("dashcam_format_sd", ["confirm": true], done: "SD card formatted") } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Every clip on the card is erased, including locked events that haven't been uploaded.") }
         .alert("Forget this dashcam?", isPresented: $confirmForget) {
@@ -153,7 +153,7 @@ struct DashcamSettingsView: View {
         CardGroup("SD card & clock") {
             Row {
                 HStack {
-                    Text("Free").foregroundStyle(.secondary)
+                    Text("Free").foregroundStyle(JcTheme.muted)
                     Spacer()
                     if let sd = sync.sd, let free = sd.freeBytes, let total = sd.totalBytes {
                         Text(String(format: "%.1f of %.1f GB", Double(free) / 1e9, Double(total) / 1e9))
@@ -163,7 +163,7 @@ struct DashcamSettingsView: View {
                 }
             }
             RowDivider()
-            Row { Button("Sync the camera's clock now") { Task { await sync.syncNow(); note = "Clock set from the phone." } } }
+            Row { Button("Sync the camera's clock now") { Task { await sync.syncNow(); note = "Clock set from the phone" } } }
             RowDivider()
             Row { Button("Format the SD card…", role: .destructive) { confirmFormat = true } }
         }

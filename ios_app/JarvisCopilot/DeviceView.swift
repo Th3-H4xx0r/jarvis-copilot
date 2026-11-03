@@ -52,11 +52,10 @@ struct DeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name))
+        .jcPageChrome(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name))
         .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name)) {
             WearableNames.shared.rename(WearableKeepAlive.bottle, to: $0)
         }
-        .navigationBarTitleDisplayMode(.inline)
         // Connect when this is a different bottle — OR the same bottle whose link
         // is down (dropped while we were away, or a connect that failed). The old
         // "different bottle only" test left the screen sitting on a dead link.
@@ -210,7 +209,7 @@ struct DeviceView: View {
                     .monospacedDigit()
                 Text(joinedMidCycle ? "since opened" : "elapsed")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 11)
@@ -295,7 +294,7 @@ struct DeviceView: View {
                         Spacer()
                         JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }

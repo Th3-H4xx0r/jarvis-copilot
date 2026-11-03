@@ -141,10 +141,10 @@ struct PodSetupView: View {
     }
 
     private var subline: String {
-        if flow.finished { return "Paired with Jarvis and online." }
+        if flow.finished { return "Paired with Jarvis and online" }
         if let step = flow.failedStep, case .failed(let message) = flow.statuses[step] { return message }
-        if flow.statuses[.wifi] == .active { return "The pod joins this network to reach Jarvis." }
-        return "Keep the pod close to your phone."
+        if flow.statuses[.wifi] == .active { return "The pod joins this network to reach Jarvis" }
+        return "Keep the pod close to your phone"
     }
 
     private var hero: some View {
@@ -154,7 +154,7 @@ struct PodSetupView: View {
                 .padding(.top, 4)
             VStack(spacing: 6) {
                 Text(headline)
-                    .font(.title2.weight(.bold))
+                    .font(.title2.weight(.semibold))
                     .foregroundStyle(JcTheme.text)
                     .multilineTextAlignment(.center)
                 Text(subline)
@@ -171,7 +171,7 @@ struct PodSetupView: View {
     private var tips: some View {
         GlassCard(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Try it").font(.headline).foregroundStyle(JcTheme.text)
+                Text("Try it").font(JcText.body.weight(.semibold)).foregroundStyle(JcTheme.text)
                 tip("waveform", "Say \u{201C}Jarvis\u{201D}, or tap the pod, and ask anything.")
                 tip("sparkles.rectangle.stack", "\u{201C}Show me today's NVIDIA chart\u{201D} puts it on the screen.")
                 tip("house", "\u{201C}Make me a home page with the weather\u{201D} designs its home screen.")
@@ -242,18 +242,18 @@ struct PodSetupView: View {
             switch status {
             case .pending:
                 Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 1.5)
-                Text("\(step.rawValue + 1)").font(.caption.weight(.bold)).foregroundStyle(JcTheme.muted)
+                Text("\(step.rawValue + 1)").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.muted)
             case .active:
                 Circle().fill(JcTheme.accent.opacity(0.14))
                 Circle().strokeBorder(JcTheme.accent, lineWidth: 1.5)
                 ProgressView().controlSize(.mini).tint(JcTheme.accent)
             case .done:
                 Circle().fill(JcTheme.accent)
-                JcIcon("checkmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.bg)
+                JcIcon("checkmark").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.bg)
             case .failed:
                 Circle().fill(JcTheme.danger.opacity(0.18))
                 Circle().strokeBorder(JcTheme.danger, lineWidth: 1.5)
-                JcIcon("exclamationmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.danger)
+                JcIcon("exclamationmark").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.danger)
             }
         }
         .frame(width: 26, height: 26)
@@ -280,7 +280,7 @@ struct PodSetupView: View {
                         Text(network.ssid).foregroundStyle(JcTheme.text).lineLimit(1)
                         Spacer()
                         if network.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(JcTheme.muted) }
-                        if selected { JcIcon("checkmark").font(.footnote.weight(.bold)).foregroundStyle(JcTheme.accent) }
+                        if selected { JcIcon("checkmark").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.accent) }
                     }
                     .padding(.vertical, 11)
                     .padding(.horizontal, 12)

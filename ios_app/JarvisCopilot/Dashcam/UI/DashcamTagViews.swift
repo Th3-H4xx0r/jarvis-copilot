@@ -11,7 +11,7 @@ struct DashcamTagChip: View {
         Text(name)
             .font(small ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
             .lineLimit(1)
-            .foregroundStyle(on ? JcTheme.accent : .secondary)
+            .foregroundStyle(on ? JcTheme.accent : JcTheme.muted)
             .padding(.horizontal, small ? 7 : 12)
             .padding(.vertical, small ? 2 : 7)
             .background(Capsule().fill(on ? JcTheme.accent.opacity(0.18) : Color.white.opacity(0.06)))
@@ -38,7 +38,7 @@ struct DashcamClipTags: View {
         HStack(spacing: 4) {
             ForEach(tags.prefix(shown), id: \.self) { DashcamTagChip(name: store.name($0), small: true).fixedSize() }
             if tags.count > shown {
-                Text("+\(tags.count - shown)").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).fixedSize()
+                Text("+\(tags.count - shown)").font(.caption2.weight(.semibold)).foregroundStyle(JcTheme.muted).fixedSize()
             }
         }
     }

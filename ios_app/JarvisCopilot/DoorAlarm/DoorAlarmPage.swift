@@ -58,8 +58,7 @@ struct DoorAlarmPage: View {
             await DoorAlarmDevice.shared.prepareAlarmSound()
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(DoorAlarmDevice.shared.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(DoorAlarmDevice.shared.name)
         .toolbar {
             ToolbarItem(placement: .primaryAction) { WearableMoreMenu(onRename: { renaming = true }) }
         }
@@ -87,21 +86,21 @@ struct DoorAlarmPage: View {
             DoorHubView(state: DoorHubView.Look(alarm), compact: false)
                 .frame(height: 210)
                 .allowsHitTesting(false)
-            Text(alarm?.title ?? "Door Alarm")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(alarm?.isAlerting == true ? JcTheme.danger : .primary)
+            Text(alarm?.title ?? "Door alarm")
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .foregroundStyle(alarm?.isAlerting == true ? JcTheme.danger : JcTheme.text)
             if let alarm, alarm.state == "arming" || alarm.state == "entry" {
                 DoorCountdown(alarm: alarm, size: 88)
                 Text(alarm.state == "entry" ? "\(alarm.contactName ?? "A door") opened — seconds to disarm"
                                             : "seconds until armed away")
-                    .font(.headline)
-                    .foregroundStyle(alarm.state == "entry" ? JcTheme.danger : .secondary)
+                    .font(JcText.body.weight(.semibold))
+                    .foregroundStyle(alarm.state == "entry" ? JcTheme.danger : JcTheme.muted)
             } else if let alarm, alarm.state == "triggered" {
                 Text("\(alarm.contactName ?? "A door") opened\(alarm.sirenOn ? " — siren on" : "")")
-                    .font(.headline)
+                    .font(JcText.body.weight(.semibold))
                     .foregroundStyle(JcTheme.danger)
             } else if let problem = store.problem {
-                Text(problem).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(problem).font(.footnote).foregroundStyle(JcTheme.muted).multilineTextAlignment(.center)
             }
         }
         .padding(.horizontal, 20)
@@ -179,7 +178,7 @@ struct DoorAlarmPage: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 52)
             }
-            .buttonStyle(.jcGlass(tint: .secondary, full: true))
+            .buttonStyle(.jcGlass(tint: JcTheme.muted, full: true))
             .disabled(store.busy != nil)
         }
     }
@@ -198,7 +197,7 @@ struct DoorAlarmPage: View {
             }
             .frame(maxWidth: .infinity, minHeight: 52)
         }
-        .buttonStyle(.jcGlass(tint: on ? JcTheme.accent : .secondary, full: true))
+        .buttonStyle(.jcGlass(tint: on ? JcTheme.accent : JcTheme.muted, full: true))
         .disabled(store.busy != nil || store.state?.alarm.isAlerting == true)
     }
 
@@ -213,16 +212,16 @@ struct DoorAlarmPage: View {
                     Row {
                         HStack {
                             Image(systemName: contact.open == true ? "door.left.hand.open" : "door.left.hand.closed")
-                                .foregroundStyle(contact.open == true ? JcTheme.amber : .secondary)
+                                .foregroundStyle(contact.open == true ? JcTheme.amber : JcTheme.muted)
                                 .frame(width: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(contact.name)
-                                Text(Self.doorLine(contact)).font(.caption).foregroundStyle(.secondary)
+                                Text(Self.doorLine(contact)).font(.caption).foregroundStyle(JcTheme.muted)
                             }
                             Spacer()
                             if contact.instant { tag("Instant") }
                             if !contact.activeHome { tag("Away only") }
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                     }
                 }
@@ -250,7 +249,7 @@ struct DoorAlarmPage: View {
     private var history: some View {
         CardGroup("History") {
             if store.events.isEmpty {
-                Row { Text("Nothing yet").foregroundStyle(.secondary) }
+                Row { Text("Nothing yet").foregroundStyle(JcTheme.muted) }
             }
             ForEach(Array(store.events.prefix(12).enumerated()), id: \.element.id) { index, event in
                 if index > 0 { RowDivider() }
@@ -289,7 +288,7 @@ struct DoorAlarmPage: View {
                             Text(point.name)
                             Spacer()
                             Text(point.shown + (point.unit.isEmpty || point.display != nil ? "" : " \(point.unit)"))
-                                .foregroundStyle(.secondary).monospacedDigit()
+                                .foregroundStyle(JcTheme.muted).monospacedDigit()
                         }
                     }
                 }
@@ -348,10 +347,10 @@ struct DoorEventRow: View {
     private var icon: (String, Color) {
         switch event.kind {
         case "door": return (event.open == false ? "door.left.hand.closed" : "door.left.hand.open",
-                             event.open == false ? .secondary : JcTheme.amber)
+                             event.open == false ? JcTheme.muted : JcTheme.amber)
         case "alarm": return ("lock.shield", JcTheme.accent)
         case "health": return ("exclamationmark.triangle", JcTheme.amber)
-        default: return ("circle.fill", .secondary)
+        default: return ("circle.fill", JcTheme.muted)
         }
     }
 
@@ -363,7 +362,7 @@ struct DoorEventRow: View {
                     Text(event.text).font(.subheadline)
                     Text(event.time.formatted(date: .abbreviated, time: .shortened)
                          + (event.source.map { " · \($0)" } ?? ""))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(JcTheme.muted)
                 }
             }
         }
@@ -385,8 +384,7 @@ struct DoorHistoryView: View {
         }
         .refreshable { await store.loadHistory() }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("History")
     }
 }
 
@@ -436,7 +434,7 @@ struct DoorPointControl: View {
             }
             .fixedSize()
         default:
-            Text(point.shown).foregroundStyle(.secondary).lineLimit(1)
+            Text(point.shown).foregroundStyle(JcTheme.muted).lineLimit(1)
         }
     }
 }
@@ -464,7 +462,7 @@ struct DoorAlarmSettingsCard: View {
                     Text(title)
                     Spacer()
                     Text(value >= 60 && value % 60 == 0 ? "\(value / 60) min" : "\(value) s")
-                        .foregroundStyle(.secondary).monospacedDigit()
+                        .foregroundStyle(JcTheme.muted).monospacedDigit()
                 }
             }
         }
@@ -514,7 +512,7 @@ struct DoorLinksCard: View {
                 }
                 Text(title)
                 Spacer()
-                Text(value).foregroundStyle(.secondary).lineLimit(1)
+                Text(value).foregroundStyle(JcTheme.muted).lineLimit(1)
             }
         }
     }
@@ -533,21 +531,29 @@ struct DoorContactEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section { TextField("Name", text: $name) }
-                Section(footer: Text("Instant: no entry delay for this door. Away only: Armed Home ignores it.")) {
-                    Toggle("Instant alarm", isOn: $instant)
-                    Toggle("Watched at home", isOn: $activeHome)
-                    Toggle("Notify when disarmed", isOn: $notify)
+            ScrollView {
+                VStack(spacing: 22) {
+                    TextField("Name", text: $name)
+                        .jcFieldStyle()
+                        .padding(.horizontal, 20)
+                    CardGroup(footer: "Instant: no entry delay for this door. Away only: Armed Home ignores it.") {
+                        Row { Toggle("Instant alarm", isOn: $instant) }
+                        RowDivider()
+                        Row { Toggle("Watched at home", isOn: $activeHome) }
+                        RowDivider()
+                        Row { Toggle("Notify when disarmed", isOn: $notify) }
+                    }
+                    CardGroup("When it opens", footer: "Jarvis runs this every time the door opens, armed or not.") {
+                        Row {
+                            TextField("e.g. Turn on the hall light", text: $prompt, axis: .vertical)
+                                .textFieldStyle(.plain)
+                        }
+                    }
                 }
-                Section(header: Text("When it opens"), footer: Text("Jarvis runs this every time the door opens, armed or not.")) {
-                    TextField("e.g. Turn on the hall light", text: $prompt, axis: .vertical)
-                }
+                .padding(.vertical, 16)
             }
-            .scrollContentBackground(.hidden)
-            .background(JcTheme.bg)
-            .navigationTitle(contact.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .tint(JcTheme.accent)
+            .jcScreen(contact.name)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

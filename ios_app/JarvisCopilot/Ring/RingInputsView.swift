@@ -51,11 +51,11 @@ struct RingInputsSection: View {
             RowDivider()
             Row {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(store.wantedMode.detail).font(.caption).foregroundStyle(.secondary)
+                    Text(store.wantedMode.detail).font(.caption).foregroundStyle(JcTheme.muted)
                     if ready, ringMode != store.wantedMode {
                         Text("The ring is still on \"\(ringMode.label)\".")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(JcTheme.amber)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -72,17 +72,17 @@ struct RingInputsSection: View {
                                 if let seen = seenLabel(input) {
                                     Text(seen)
                                         .font(.caption2)
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(JcTheme.success)
                                 }
                             }
                             Text(store.action(for: input).summary)
                                 .font(.caption)
-                                .foregroundStyle(store.action(for: input).isSet ? AnyShapeStyle(.secondary)
-                                                                                : AnyShapeStyle(.tertiary))
+                                .foregroundStyle(store.action(for: input).isSet ? AnyShapeStyle(JcTheme.muted)
+                                                                                : AnyShapeStyle(JcTheme.muted.opacity(0.7)))
                                 .lineLimit(2)
                         }
                         Spacer(minLength: 0)
-                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .padding(.vertical, 10)
                     .contentShape(Rectangle())
@@ -110,19 +110,19 @@ struct RingInputsSection: View {
                         Text("How long a single tap waits before running. Leave about a "
                              + "second between taps.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                         if let gap = lastPressGap {
                             // The measured gap is the thing to set the window above. Tap twice and
                             // read it, rather than guessing.
                             Text(String(format: "Last two presses: %.1fs apart%@", gap,
                                         gap > store.pressWindow ? " — over the window" : ""))
                                 .font(.caption.weight(.medium))
-                                .foregroundStyle(gap > store.pressWindow ? AnyShapeStyle(Color.orange)
-                                                                         : AnyShapeStyle(.secondary))
+                                .foregroundStyle(gap > store.pressWindow ? AnyShapeStyle(JcTheme.amber)
+                                                                         : AnyShapeStyle(JcTheme.muted))
                         } else {
-                            Text("Tap twice to measure your own timing.")
+                            Text("Tap twice to measure your own timing")
                                 .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(JcTheme.muted.opacity(0.7))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -133,12 +133,12 @@ struct RingInputsSection: View {
                 Row {
                     HStack(spacing: 8) {
                         JcIcon(shakeArmed ? "checkmark.circle.fill" : "exclamationmark.circle")
-                            .foregroundStyle(shakeArmed ? Color.green : Color.orange)
+                            .foregroundStyle(shakeArmed ? JcTheme.success : JcTheme.amber)
                         Text(shakeArmed
                              ? "Armed. Shake firmly; three seconds between shakes."
                              : "Not armed — the ring refuses this on the charger, or with gestures off.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(JcTheme.muted)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -159,8 +159,8 @@ struct RingInputsSection: View {
                                 in: 1...10)
                         Text(sensitivityNote)
                             .font(.caption2)
-                            .foregroundStyle(sensitivity == wantedSensitivity ? AnyShapeStyle(.secondary)
-                                                                              : AnyShapeStyle(Color.orange))
+                            .foregroundStyle(sensitivity == wantedSensitivity ? AnyShapeStyle(JcTheme.muted)
+                                                                              : AnyShapeStyle(JcTheme.amber))
                     }
                 }
                 .disabled(!ready)
@@ -184,11 +184,11 @@ struct RingInputsSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("What the ring is sending")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                 if gestureFeed.isEmpty {
                     Text("Nothing yet. Tap the ring.")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JcTheme.muted.opacity(0.7))
                 } else {
                     ForEach(gestureFeed.prefix(6)) { event in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -197,10 +197,10 @@ struct RingInputsSection: View {
                                 .foregroundStyle(tint(event.kind))
                                 .frame(width: 14)
                             Text(event.title).font(.caption.weight(.medium))
-                            Text(event.detail).font(.caption2).foregroundStyle(.secondary)
+                            Text(event.detail).font(.caption2).foregroundStyle(JcTheme.muted)
                             Spacer(minLength: 4)
                             Text(event.date, style: .relative)
-                                .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                .font(.caption2).foregroundStyle(JcTheme.muted.opacity(0.7)).lineLimit(1)
                         }
                     }
                 }
@@ -213,9 +213,9 @@ struct RingInputsSection: View {
         switch kind {
         case .press: return JcTheme.accent
         case .shake: return JcTheme.accentAlt
-        case .resolved: return .green
-        case .ignored: return .orange
-        case .ran: return .teal
+        case .resolved: return JcTheme.success
+        case .ignored: return JcTheme.amber
+        case .ran: return JcTheme.blue
         }
     }
 
@@ -279,6 +279,12 @@ enum WearableQuickActions {
 /// Uses the exact parameter schema advertised to chat; saves stable target identity. `onServer`:
 /// a board the server holds (the Pod, an ESP32 on Wi-Fi), run through the server.
 struct RingWearableActionEditor: View {
+    /// "set_led" → "Set led": sentence case, as every other title.
+    static func title(_ name: String) -> String {
+        let words = name.replacingOccurrences(of: "_", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+
     let current: RingAction
     let onSave: (RingAction) -> Void
     let deviceID: String
@@ -290,20 +296,32 @@ struct RingWearableActionEditor: View {
     @State private var error: String?
 
     var body: some View {
-        Form {
-            Section(model) {
-                Text(capability.description)
-                Text("Device \(deviceID)").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Action values") {
-                ForEach(SkillArgsForm.fields(from: capability.inputSchema)) { field in
-                    SkillArgFieldView(field: field, text: Binding(
-                        get: { values[field.key] ?? "" },
-                        set: { values[field.key] = $0; error = nil }))
+        ScrollView {
+            VStack(spacing: 22) {
+                CardGroup(model) {
+                    Row {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(capability.description).font(JcText.body).foregroundStyle(JcTheme.text)
+                            Text("Device \(deviceID)").font(JcText.small).foregroundStyle(JcTheme.muted)
+                        }
+                    }
                 }
-            }
-            if let error { Section { Text(error).foregroundStyle(.red) } }
-            Section {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader("Action values")
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(SkillArgsForm.fields(from: capability.inputSchema)) { field in
+                            SkillArgFieldView(field: field, text: Binding(
+                                get: { values[field.key] ?? "" },
+                                set: { values[field.key] = $0; error = nil }))
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                if let error {
+                    Text(error).font(JcText.small).foregroundStyle(JcTheme.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+                }
                 Button("Save") {
                     do {
                         _ = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
@@ -312,10 +330,12 @@ struct RingWearableActionEditor: View {
                         dismiss()
                     } catch { self.error = error.localizedDescription }
                 }
+                .buttonStyle(.jcGlass(full: true))
+                .padding(.horizontal, 20)
             }
+            .padding(.vertical, 16)
         }
-        .navigationTitle(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(Self.title(capability.name))
         .onAppear {
             if case .wearable(let target, let skill, let stored) = current, !onServer,
                target == deviceID, skill == capability.name { values = stored }

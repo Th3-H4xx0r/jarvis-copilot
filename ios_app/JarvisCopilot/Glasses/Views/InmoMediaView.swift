@@ -30,7 +30,7 @@ struct InmoMediaView: View {
             }
             GlassCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(summary).font(.footnote).foregroundStyle(.secondary)
+                    Text(summary).font(.footnote).foregroundStyle(JcTheme.muted)
                     if !gallery.entries.isEmpty {
                         LazyVGrid(columns: columns, spacing: 6) {
                             ForEach(gallery.entries.prefix(shown)) { InmoGalleryTile(entry: $0, gallery: gallery) }
@@ -69,7 +69,7 @@ struct InmoMediaView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.name).font(.caption).lineLimit(2)
                         Text(ByteCountFormatter.string(fromByteCount: Int64(item.size), countStyle: .file))
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).foregroundStyle(JcTheme.muted)
                     }
                     Spacer()
                     Button { run { _ = try await media.download(id: item.id) } } label: {

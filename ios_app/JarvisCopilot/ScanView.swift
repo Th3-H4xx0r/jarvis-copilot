@@ -16,11 +16,17 @@ struct ScanView: View {
     /// device_id of the card whose "Try to connect" is in flight.
     @State private var connecting: String?
     @Namespace private var cardNamespace
+    /// The Devices page's Server | Wearables control, at the top of the scroll.
+    private let header: AnyView?
 
+    init(header: AnyView? = nil) {
+        self.header = header
+    }
+
+    /// The Devices tab's NavigationStack carries the bar and its actions (settings,
+    /// Rescan) in the page's one action pill.
     var body: some View {
-        // The Devices tab's NavigationStack carries the bar (so `.toolbar` lands
-        // there) and its aurora shows through.
-        scroller.toolbar { scanToolbar }
+        scroller
     }
 
     private var scroller: some View {
@@ -30,6 +36,7 @@ struct ScanView: View {
         let absent = absentDevices(from: entries)
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                header
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && bandManager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
@@ -46,23 +53,6 @@ struct ScanView: View {
             .padding(.vertical, 12)
         }
         .onTabVisibilityChange(.devices) { JarvisPodStore.shared.setVisible($0) }
-    }
-
-    @ToolbarContentBuilder private var scanToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .automatic) {
-            NavigationLink {
-                BridgeSettingsView()
-            } label: {
-                JcIcon("gearshape", size: 18).foregroundStyle(JcTheme.accent)
-            }
-            Button {
-                WearablesHub.shared.rescanAll()
-            } label: {
-                JcIcon("arrow.clockwise", size: 18).foregroundStyle(JcTheme.accent)
-            }
-            .accessibilityLabel("Rescan")
-                .disabled(!manager.bluetoothReady)
-        }
     }
 
     // MARK: Device list
@@ -216,20 +206,20 @@ struct ScanView: View {
             VStack(spacing: 18) {
                 ScanRadar()
                 Text("Looking for devices…")
-                    .foregroundStyle(.secondary)
-                Text("Boards already on Wi‑Fi appear here too.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .foregroundStyle(JcTheme.muted)
+                Text("Boards already on Wi‑Fi appear here too")
+                    .font(JcText.small).foregroundStyle(JcTheme.muted.opacity(0.7))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 50)
         } else {
             VStack(spacing: 14) {
                 JcIcon("antenna.radiowaves.left.and.right.slash", size: 40, weight: .light)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(JcTheme.amber)
                 Text("Turn on Bluetooth")
-                    .font(.headline)
+                    .font(JcText.body.weight(.semibold))
                 Text("Jarvis devices are found and set up over Bluetooth. Boards already on Wi‑Fi still show up here.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 30)
                 if let url = URL(string: "App-Prefs:root=Bluetooth") {
@@ -248,15 +238,15 @@ struct ScanView: View {
             HStack(spacing: 10) {
                 ScanRadar(size: 36)
                 Text("Searching for Bluetooth devices…")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
                 Spacer()
             }
             .padding(.horizontal, 8)
         } else {
             HStack(spacing: 10) {
-                JcIcon("antenna.radiowaves.left.and.right.slash").foregroundStyle(.orange)
+                JcIcon("antenna.radiowaves.left.and.right.slash").foregroundStyle(JcTheme.amber)
                 Text("Turn on Bluetooth to find more devices")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted)
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -276,8 +266,13 @@ struct ScanView: View {
                 ringManager.strictNameMatch = enabled
             }
         ))
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .tint(JcTheme.accent)
+        .foregroundStyle(JcTheme.text)
+        .padding(.horizontal, JcUnified.cardPadding)
+        .padding(.vertical, 12)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
@@ -338,17 +333,17 @@ private struct ScaleCard: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(2)
                     .minimumScaleFactor(0.76)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: 190, alignment: .leading)
                 Text("Etekcity body scale")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
+                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
                 Spacer()
                 if connected {
                     MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                               tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                               tint: JcTheme.success)
                 } else if scale.rssi == 0 {
                     // Remembered, not advertising: say so rather than "Known", which read as a link.
                     DisconnectedPill()
@@ -363,17 +358,17 @@ private struct ScaleCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .lastSeenCorner(lastSeen, visible: !connected && scale.rssi == 0)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private var signalTint: Color {
         switch scale.rssi {
         case 0: return JcTheme.accent
-        case (-68)...: return Color(red: 0.29, green: 0.82, blue: 0.49)
+        case (-68)...: return JcTheme.success
         case (-82)..<(-68): return .orange
-        default: return Color(red: 1.0, green: 0.31, blue: 0.27)
+        default: return JcTheme.danger
         }
     }
 }
@@ -405,14 +400,14 @@ private struct BottleCard: View {
                 HStack {
                     Spacer()
                     JcIcon("antenna.radiowaves.left.and.right", size: 34, weight: .light)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .padding(.trailing, 34)
                 }
             }
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name.isEmpty ? "Unnamed" : bottle.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
                     .frame(maxWidth: 190, alignment: .leading)
@@ -422,7 +417,7 @@ private struct BottleCard: View {
                 HStack(spacing: 8) {
                     if connected {
                         MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: JcTheme.success)
                     } else if bottle.rssi == 0 {
                         // Remembered, not advertising. Its 0 read as "0 dBm" with full
                         // green bars — a link it didn't have.
@@ -441,18 +436,18 @@ private struct BottleCard: View {
         .frame(height: Self.cardHeight)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSeen, visible: !connected && bottle.rssi == 0)
-        .background(Color.white.opacity(0.07),
-                    in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill,
+                    in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private var signalTint: Color {
         switch bottle.rssi {
-        case (-68)...:      return Color(red: 0.29, green: 0.82, blue: 0.49)
+        case (-68)...:      return JcTheme.success
         case (-82)..<(-68): return .orange
-        default:            return Color(red: 1.0, green: 0.31, blue: 0.27)
+        default:            return JcTheme.danger
         }
     }
 }
@@ -474,7 +469,7 @@ private struct SignalBars: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(1...4, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(i <= level ? JcTheme.accent : Color.secondary.opacity(0.25))
+                    .fill(i <= level ? JcTheme.accent : JcTheme.muted.opacity(0.25))
                     .frame(width: 3, height: CGFloat(i) * 2.5 + 3)
             }
         }
@@ -519,32 +514,27 @@ private struct AbsentDeviceCard: View {
     var body: some View {
         HStack(spacing: 14) {
             JcIcon("antenna.radiowaves.left.and.right.slash", size: 26, weight: .light)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(JcTheme.muted)
                 .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.name)
-                    .font(.headline)
+                    .font(JcText.body.weight(.semibold))
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
             }
 
             Spacer(minLength: 8)
 
-            if busy {
-                ProgressView()
-            } else {
-                Button("Connect", action: connect)
-                    .buttonStyle(.jcGlass(compact: true))
-            }
+            JcSmallAction("Connect", busy: busy, action: connect)
         }
-        .padding(14)
+        .padding(JcUnified.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private var subtitle: String {

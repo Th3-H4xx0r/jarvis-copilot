@@ -82,8 +82,9 @@ struct WearableToolbarButton: View {
 
     var body: some View {
         Button(action: action) {
-            JcIcon(icon, size: 17)
-                .foregroundStyle(JcTheme.accent)
+            // The page's action pill: glyphs in the text colour, like `JcPageButton`.
+            JcIcon(icon, size: 17, weight: .semibold)
+                .foregroundStyle(JcTheme.text)
                 .fixedSize()            // or the bar stretches it to its own height
         }
         .disabled(disabled)
@@ -100,8 +101,7 @@ struct JcSyncSpinner: View {
             let t = context.date.timeIntervalSinceReferenceDate
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
-                                                startPoint: .topLeading, endPoint: .bottomTrailing))
+                .foregroundStyle(JcTheme.accent)
                 .rotationEffect(.degrees((t * 240).truncatingRemainder(dividingBy: 360)))
         }
         .fixedSize()
@@ -123,7 +123,7 @@ struct WearableMoreMenu<Extra: View>: View {
             extra
             Button("Rename", jcIcon: "pencil", action: onRename)
         } label: {
-            JcIcon("ellipsis").foregroundStyle(JcTheme.accent)
+            JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
         }
         .accessibilityLabel("More")
     }

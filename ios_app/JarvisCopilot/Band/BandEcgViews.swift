@@ -4,7 +4,7 @@ import SwiftUI
 // heart rate, QTc, HRV, progress), each reading's report (rhythm, strip with playback, a Value
 // tab of figures against their ranges, an Analysis tab of risk scores), and the list of them.
 
-private let ecgRed = Color(red: 0.93, green: 0.27, blue: 0.24)
+private let ecgRed = JcTheme.danger
 
 /// ECG paper: 1 mm squares under 5 mm ones, the trace drawn over them. `seconds` of trace fill
 /// the width (25 mm/s: a 5 mm square is 0.2 s).
@@ -47,7 +47,7 @@ struct BandEcgStrip: View {
             context.stroke(line, with: .color(ink), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
             if showsSeconds {
                 for s in 0...Int(seconds) {
-                    context.draw(Text("\(Int(Double(first) / Double(rate)) + s)s").font(.caption2).foregroundStyle(.secondary),
+                    context.draw(Text("\(Int(Double(first) / Double(rate)) + s)s").font(.caption2).foregroundStyle(JcTheme.muted),
                                  at: CGPoint(x: CGFloat(s) * perSecond + 10, y: size.height - 8))
                 }
             }
@@ -267,11 +267,11 @@ struct BandEcgLiveView: View {
             Color.black.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Button(action: close) { Image(systemName: "xmark").font(.title3.weight(.semibold)) }
+                    Button(action: close) { Image(systemName: "xmark").font(JcText.title) }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Stop the ECG")
                     Spacer()
-                    Text("ECG").font(.headline)
+                    Text("ECG").font(JcText.body.weight(.semibold))
                     Spacer()
                     Color.clear.frame(width: 24, height: 24)
                 }
@@ -279,20 +279,20 @@ struct BandEcgLiveView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(heartRate.map(String.init) ?? "--")
-                            .font(.system(size: 76, weight: .bold, design: .rounded))
+                            .font(.system(size: 76, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .contentTransition(.numericText())
                         VStack(alignment: .leading, spacing: 0) {
                             Image(systemName: "heart.fill").foregroundStyle(ecgRed)
                                 .symbolEffect(.pulse, options: .repeating)
-                            Text("bpm").font(.title3.weight(.semibold))
+                            Text("bpm").font(JcText.title)
                         }
                     }
                     HStack(spacing: 24) {
                         Text("QTc \(qtc.map(String.init) ?? "--")")
                         Text("HRV \(hrv.map(String.init) ?? "--")")
                     }
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .monospacedDigit()
                 }
                 .padding(.horizontal, 24)
@@ -306,8 +306,8 @@ struct BandEcgLiveView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
                 Text("25 mm/s · \(session.ecgSampleRate) Hz")
-                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 24)
-                Text(hint).font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 24)
+                    .font(.footnote).foregroundStyle(JcTheme.muted).padding(.horizontal, 24)
+                Text(hint).font(.subheadline).foregroundStyle(JcTheme.muted).padding(.horizontal, 24)
                 Spacer()
                 HStack {
                     Spacer()
@@ -317,7 +317,7 @@ struct BandEcgLiveView: View {
                             .stroke(ecgRed, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                             .rotationEffect(.degrees(-90))
                             .animation(.snappy, value: progress)
-                        Text("\(progress)%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Text("\(progress)%").font(.caption.monospacedDigit()).foregroundStyle(JcTheme.muted)
                     }
                     .frame(width: 70, height: 70)
                     Spacer()
@@ -365,7 +365,7 @@ struct BandEcgReportView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(report.rhythm).font(.headline).padding(.horizontal, 20)
+                Text(report.rhythm).font(JcText.body.weight(.semibold)).padding(.horizontal, 20)
                 strip
                 Picker("", selection: $tab) {
                     Text("Value").tag(0)
@@ -375,7 +375,7 @@ struct BandEcgReportView: View {
                 .padding(.horizontal, 20)
                 if tab == 0 { valueTab } else { analysisTab }
                 Text("A wrist-band ECG is a wellness estimate, not a medical diagnosis. If you feel unwell, see a doctor.")
-                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 24)
+                    .font(.footnote).foregroundStyle(JcTheme.muted).padding(.horizontal, 24)
             }
             .padding(.vertical, 12)
         }
@@ -389,7 +389,7 @@ struct BandEcgReportView: View {
             if report.samples.isEmpty {
                 BandEcgStrip(trace: [], rate: max(1, report.sampleRate), seconds: 3)
                     .frame(height: 180)
-                Text("No waveform was kept for this reading.").font(.caption).foregroundStyle(.secondary)
+                Text("No waveform was kept for this reading").font(.caption).foregroundStyle(JcTheme.muted)
             } else {
                 Group {
                     if playing || playhead > 0 {
@@ -485,7 +485,7 @@ struct BandEcgReportView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("QRS direction")
-                                Text("Upward, downward").font(.caption).foregroundStyle(.secondary)
+                                Text("Upward, downward").font(.caption).foregroundStyle(JcTheme.muted)
                             }
                             Spacer()
                             Text(d.qrsDirection)
@@ -500,8 +500,8 @@ struct BandEcgReportView: View {
 
     private func figure(_ value: String?, _ label: String) -> some View {
         VStack(spacing: 2) {
-            Text(value ?? "—").font(.headline.monospacedDigit())
-            Text(label).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(value ?? "—").font(JcText.body.weight(.semibold).monospacedDigit())
+            Text(label).font(.caption).foregroundStyle(JcTheme.muted).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }
@@ -515,7 +515,7 @@ struct BandEcgReportView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
-                    Text(range).font(.caption).foregroundStyle(.secondary)
+                    Text(range).font(.caption).foregroundStyle(JcTheme.muted)
                 }
                 Spacer()
                 Text(String(format: format, value)).monospacedDigit()
@@ -561,8 +561,8 @@ struct BandEcgReportView: View {
                 CardGroup(footer: "Risks, the stress and fatigue indexes and the arrhythmia check come from the band's analysis, which it sends only when a reading reaches 100%. Keep a finger on the band and stay on this screen for the whole minute.") {
                     Row {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(stoppedTitle).font(.headline)
-                            Text(stoppedDetail).font(.subheadline).foregroundStyle(.secondary)
+                            Text(stoppedTitle).font(JcText.body.weight(.semibold))
+                            Text(stoppedDetail).font(.subheadline).foregroundStyle(JcTheme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(.vertical, 6)
@@ -639,7 +639,7 @@ struct BandEcgReportView: View {
     private func riskCard(_ risk: Risk) -> some View {
         CardGroup(risk.title) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("\(risk.score)").font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
+                Text("\(risk.score)").font(.system(size: 40, weight: .semibold, design: .rounded)).monospacedDigit()
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.white.opacity(0.08))
@@ -651,16 +651,16 @@ struct BandEcgReportView: View {
                 HStack {
                     Text("0"); Spacer(); Text("Reference"); Spacer(); Text("50"); Spacer(); Text("100")
                 }
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2).foregroundStyle(JcTheme.muted)
                 Text(risk.text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
-                Text(risk.basis).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(risk.basis).font(.caption).foregroundStyle(JcTheme.muted).fixedSize(horizontal: false, vertical: true)
             }
             .padding(16)
         }
     }
 
     private func gradeColor(_ grade: Int) -> Color {
-        grade >= 3 ? .orange : grade == 2 ? JcTheme.amber : JcTheme.success
+        grade >= 3 ? JcTheme.danger : grade == 2 ? JcTheme.amber : JcTheme.success
     }
 }
 
@@ -696,7 +696,7 @@ struct BandEcgRadar: View {
             context.fill(shape, with: .color(ecgRed.opacity(0.35)))
             context.stroke(shape, with: .color(ecgRed), lineWidth: 2)
             for (i, v) in values.enumerated() {
-                context.draw(Text(v.0).font(.caption2).foregroundStyle(.secondary), at: point(i, radius + 20))
+                context.draw(Text(v.0).font(.caption2).foregroundStyle(JcTheme.muted), at: point(i, radius + 20))
             }
         }
         .accessibilityLabel(values.map { "\($0.0) \($0.1)" }.joined(separator: ", "))
@@ -714,7 +714,7 @@ struct BandEcgHistoryView: View {
         ScrollView {
             if reports.isEmpty {
                 Text("No ECG readings yet. Take one from the band's page: rest your arm and hold a finger on its metal top.")
-                    .font(.subheadline).foregroundStyle(.secondary).padding(24)
+                    .font(.subheadline).foregroundStyle(JcTheme.muted).padding(24)
             } else {
                 CardGroup {
                     ForEach(Array(reports.enumerated()), id: \.offset) { index, report in
@@ -725,11 +725,11 @@ struct BandEcgHistoryView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(report.diagnosis?.rhythm ?? "ECG").font(.body.weight(.medium))
                                         Text(report.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
-                                            .font(.caption).foregroundStyle(.secondary)
+                                            .font(.caption).foregroundStyle(JcTheme.muted)
                                     }
                                     Spacer()
                                     if let hr = report.averageHeartRate { Text("\(hr) bpm").monospacedDigit() }
-                                    JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                                    JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                                 }
                                 .contentShape(Rectangle())
                             }
@@ -740,8 +740,7 @@ struct BandEcgHistoryView: View {
                 .padding(.top, 8)
             }
         }
-        .navigationTitle("ECG reports")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("ECG reports")
         .onAppear { reports = BandEcgStore.reports(deviceID: deviceID) }
     }
 }

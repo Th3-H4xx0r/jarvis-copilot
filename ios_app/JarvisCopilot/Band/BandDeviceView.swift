@@ -20,17 +20,17 @@ struct BandCard: View {
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(WearableNames.shared.name(WearableKeepAlive.band, fallback: band.name.isEmpty ? BandDevice.fallbackName : band.name))
-                    .font(.title3.weight(.semibold))
+                    .font(JcText.title)
                     .lineLimit(1)
                 Text(BandDevice.model)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if connected {
                         MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                                   tint: JcTheme.success)
                     } else {
                         DisconnectedPill()
                     }
@@ -45,9 +45,9 @@ struct BandCard: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .lastSeenCorner(lastSeen, visible: !connected && band.rssi == 0)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
@@ -102,14 +102,14 @@ struct BandDeviceView: View {
                 if let hint = electrodeHint {
                     Text(hint)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(JcTheme.muted)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let actionError {
                     Text(actionError)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -123,8 +123,7 @@ struct BandDeviceView: View {
             .animation(.spring(duration: 0.4), value: sync.isSyncing)
         }
         .refreshable { _ = await sync.sync() }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
         .wearableRename(isPresented: $renaming, current: title) {
             WearableNames.shared.rename(WearableKeepAlive.band, to: $0)
         }
@@ -197,13 +196,13 @@ struct BandDeviceView: View {
                     MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
                                label: session.battery?.charging == true ? "Charging" : "Battery",
                                value: session.battery.map { "\($0.percent)%" } ?? "—",
-                               tint: batteryTint(session.battery?.percent ?? 100) ?? Color(red: 0.29, green: 0.82, blue: 0.49))
+                               tint: batteryTint(session.battery?.percent ?? 100) ?? JcTheme.success)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens the band's battery history")
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.liveHeartRate ?? today?.heartRateLatest).map { "\($0) bpm" } ?? "—",
-                           tint: Color(red: 1, green: 0.35, blue: 0.4))
+                           tint: JcTheme.muted)
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: today?.steps.map { "\($0)" } ?? "—", tint: JcTheme.accent)
             }
@@ -228,7 +227,7 @@ struct BandDeviceView: View {
 
     private var statusLine: some View {
         HStack(spacing: 8) {
-            Circle().fill(ready ? Color.green : Color.orange).frame(width: 7, height: 7)
+            Circle().fill(ready ? JcTheme.success : JcTheme.amber).frame(width: 7, height: 7)
             Text(manager.state.text)
             if let firmware = session.handshake?.firmware { Text("· \(firmware)") }
             if sync.isSyncing {
@@ -241,7 +240,7 @@ struct BandDeviceView: View {
             Spacer()
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(JcTheme.muted)
         .padding(.horizontal, 24)
     }
 
@@ -320,10 +319,10 @@ struct BandDeviceView: View {
                             Text("ECG reports").font(.body.weight(.medium))
                             Text("Rhythm, HRV, QTc and risk analysis for each ECG")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -354,10 +353,10 @@ struct BandDeviceView: View {
                             Text("Battery").font(.body.weight(.medium))
                             Text(line)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -379,10 +378,10 @@ struct BandDeviceView: View {
                             Text("Start a workout").font(.body.weight(.medium))
                             Text("Heart rate, steps, distance and calories from the band")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(JcTheme.muted)
                         }
                         Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -398,7 +397,7 @@ struct BandDeviceView: View {
                     HStack {
                         Text("Band settings")
                         Spacer()
-                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
                     }
                     .contentShape(Rectangle())
                 }
@@ -444,7 +443,7 @@ struct BandSettingsView: View {
         ScrollView {
             VStack(spacing: 22) {
                 if let error {
-                    Text(error).font(.footnote).foregroundStyle(.orange).padding(.horizontal, 24)
+                    Text(error).font(.footnote).foregroundStyle(JcTheme.amber).padding(.horizontal, 24)
                 }
                 alertsCard
                 alarmsCard
@@ -456,7 +455,7 @@ struct BandSettingsView: View {
                 logCard
                 CardGroup {
                     Button(role: .destructive) { confirmForget = true } label: {
-                        Row(minHeight: 50) { Text("Forget this band").foregroundStyle(.red) }
+                        Row(minHeight: 50) { Text("Forget this band").foregroundStyle(JcTheme.danger) }
                     }
                     .buttonStyle(.plain)
                 }
@@ -464,7 +463,7 @@ struct BandSettingsView: View {
             .padding(.top, 8)
             .padding(.bottom, 40)
         }
-        .jcScreen("Band settings")
+        .jcPageChrome("Band settings")
         .task {
             guard manager.state == .ready else { return }
             await session.refreshReminders()
@@ -499,7 +498,7 @@ struct BandSettingsView: View {
                     }
                 }
             } else {
-                Row(minHeight: 50) { Text("Connect the band to see its alerts").foregroundStyle(.secondary) }
+                Row(minHeight: 50) { Text("Connect the band to see its alerts").foregroundStyle(JcTheme.muted) }
             }
         }
     }
@@ -509,7 +508,7 @@ struct BandSettingsView: View {
     private var alarmsCard: some View {
         CardGroup("Alarms", footer: "Silent vibration alarms on the band.") {
             if alarms.isEmpty {
-                Row(minHeight: 50) { Text("No alarms").foregroundStyle(.secondary) }
+                Row(minHeight: 50) { Text("No alarms").foregroundStyle(JcTheme.muted) }
             }
             ForEach(Array(alarms.enumerated()), id: \.offset) { index, alarm in
                 if index > 0 { RowDivider() }
@@ -518,7 +517,7 @@ struct BandSettingsView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(json["time"] as? String ?? "—").monospacedDigit()
-                            Text(((json["days"] as? [String]) ?? []).joined(separator: " ")).font(.caption).foregroundStyle(.secondary)
+                            Text(((json["days"] as? [String]) ?? []).joined(separator: " ")).font(.caption).foregroundStyle(JcTheme.muted)
                         }
                         Spacer()
                         Button("Delete") {
@@ -654,9 +653,9 @@ struct BandSettingsView: View {
                     if let progress = sync.progress {
                         Text("Syncing \(BandDeviceView.percent(progress))").monospacedDigit().foregroundStyle(JcTheme.accent)
                     } else if let last = sync.lastSync {
-                        Text("\(last, style: .relative) ago").foregroundStyle(.secondary)
+                        Text("\(last, style: .relative) ago").foregroundStyle(JcTheme.muted)
                     } else {
-                        Text("Never").foregroundStyle(.secondary)
+                        Text("Never").foregroundStyle(JcTheme.muted)
                     }
                 }
             }
@@ -677,7 +676,7 @@ struct BandSettingsView: View {
             ForEach(session.log.prefix(12)) { entry in
                 Text("\(entry.outgoing ? "→" : "←") \(entry.hex)")
                     .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
@@ -707,8 +706,8 @@ struct BandSettingsView: View {
     }
 }
 
-/// The band's sync while it runs, in the app's look: an accent ring filling round a turning sync
-/// glyph, what is being read, the percentage, and a bar with a light running along it.
+/// The band's sync while it runs: an accent ring filling round a turning sync
+/// glyph, what is being read, the percentage, and a bar.
 struct BandSyncCard: View {
     let progress: Double
     let stage: String?
@@ -720,14 +719,8 @@ struct BandSyncCard: View {
                     Circle().stroke(Color.white.opacity(0.07), lineWidth: 4)
                     Circle()
                         .trim(from: 0, to: max(0.02, progress))
-                        .stroke(AngularGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent, JcTheme.primaryBlueHi],
-                                                center: .center),
-                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .stroke(JcTheme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Circle()
-                        .fill(RadialGradient(colors: [JcTheme.accent.opacity(0.26), JcTheme.accent.opacity(0.02)],
-                                             center: .center, startRadius: 2, endRadius: 22))
-                        .padding(7)
                     JcSyncSpinner(size: 17)
                 }
                 .frame(width: 48, height: 48)
@@ -742,18 +735,16 @@ struct BandSyncCard: View {
                 }
                 Spacer(minLength: 8)
                 Text(BandDeviceView.percent(progress))
-                    .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
-                                                    startPoint: .top, endPoint: .bottom))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(JcTheme.text)
                     .contentTransition(.numericText(value: progress))
             }
             BandSyncBar(progress: progress)
         }
         .padding(16)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
-            .strokeBorder(LinearGradient(colors: [JcTheme.accent.opacity(0.45), JcTheme.glassBorder],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .animation(.easeOut(duration: 0.35), value: progress)
         .animation(.easeInOut(duration: 0.25), value: stage)
         .accessibilityElement(children: .ignore)
@@ -761,7 +752,7 @@ struct BandSyncCard: View {
     }
 }
 
-/// A slim accent bar; a soft light sweeps across the filled part while it fills.
+/// A slim accent bar.
 private struct BandSyncBar: View {
     let progress: Double
 
@@ -771,21 +762,8 @@ private struct BandSyncBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.07))
                 Capsule()
-                    .fill(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent], startPoint: .leading, endPoint: .trailing))
+                    .fill(JcTheme.accent)
                     .frame(width: filled)
-                    .shadow(color: JcTheme.accent.opacity(0.55), radius: 6)
-                    .overlay(alignment: .leading) {
-                        TimelineView(.animation) { context in
-                            let t = context.date.timeIntervalSinceReferenceDate
-                            let phase = (t / 1.4).truncatingRemainder(dividingBy: 1)
-                            LinearGradient(colors: [.white.opacity(0), .white.opacity(0.45), .white.opacity(0)],
-                                           startPoint: .leading, endPoint: .trailing)
-                                .frame(width: 60)
-                                .offset(x: -60 + (filled + 60) * phase)
-                        }
-                        .frame(width: filled, alignment: .leading)
-                        .clipShape(Capsule())
-                    }
             }
         }
         .frame(height: 6)

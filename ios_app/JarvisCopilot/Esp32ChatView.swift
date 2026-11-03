@@ -57,8 +57,7 @@ struct Esp32ChatView: View {
             composer
         }
         .background(Color.black.opacity(0.001))  // makes the whole area tappable for keyboard dismissal
-        .navigationTitle(board.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(board.name)
         .toolbar {
             ToolbarItem(placement: .principal) { titleView }
             ToolbarItem(placement: .topBarTrailing) { modelMenu }
@@ -72,7 +71,7 @@ struct Esp32ChatView: View {
                     Button(role: .destructive) {
                         chat.newConversation()
                     } label: { Label("New conversation", jcIcon: "square.and.pencil") }
-                } label: { JcIcon("ellipsis.circle").foregroundStyle(JcTheme.accent) }
+                } label: { JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text) }
             }
         }
         .onAppear {
@@ -89,8 +88,8 @@ struct Esp32ChatView: View {
 
     private var titleView: some View {
         VStack(spacing: 1) {
-            Text("Program with Jarvis").font(.headline)
-            Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+            Text("Program with Jarvis").font(JcText.body.weight(.semibold))
+            Text(subtitle).font(.caption2).foregroundStyle(JcTheme.muted)
         }
     }
 
@@ -141,12 +140,12 @@ struct Esp32ChatView: View {
 
     private func banner(_ text: String, icon: String) -> some View {
         HStack(spacing: 10) {
-            JcIcon(icon).foregroundStyle(.orange)
+            JcIcon(icon).foregroundStyle(JcTheme.amber)
             Text(text).font(.footnote)
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.orange.opacity(0.12))
+        .background(JcTheme.amber.opacity(0.12))
     }
 
     // MARK: Transcript
@@ -166,8 +165,8 @@ struct Esp32ChatView: View {
                     }
                     if let error {
                         HStack(spacing: 8) {
-                            JcIcon("exclamationmark.circle").foregroundStyle(.red)
-                            Text(error).font(.footnote).foregroundStyle(.red)
+                            JcIcon("exclamationmark.circle").foregroundStyle(JcTheme.danger)
+                            Text(error).font(.footnote).foregroundStyle(JcTheme.danger)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -189,10 +188,10 @@ struct Esp32ChatView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 JcIcon("sparkles").font(.title3).foregroundStyle(JcTheme.accent)
-                Text("Tell Jarvis what this board should do.").font(.headline)
+                Text("Tell Jarvis what this board should do").font(JcText.body.weight(.semibold))
             }
             Text("Jarvis writes a small script, installs it on the board, and it keeps running there — with or without the phone.")
-                .font(.subheadline).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(JcTheme.muted)
             VStack(alignment: .leading, spacing: 8) {
                 suggestion("Blink the onboard LED twice every 5 seconds.")
                 suggestion("Act as a door sensor: reed switch on GPIO 4 to ground. Notify me when it opens.")
@@ -212,7 +211,7 @@ struct Esp32ChatView: View {
             HStack {
                 Text(text).font(.footnote).multilineTextAlignment(.leading)
                 Spacer(minLength: 6)
-                JcIcon("arrow.up.left").font(.caption2).foregroundStyle(.tertiary)
+                JcIcon("arrow.up.left").font(.caption2).foregroundStyle(JcTheme.muted.opacity(0.7))
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -245,9 +244,9 @@ struct Esp32ChatView: View {
                         HStack(spacing: 8) {
                             ThinkingDots()
                             if m.reasoning {
-                                Text("Thinking…").font(.footnote).foregroundStyle(.secondary)
+                                Text("Thinking…").font(.footnote).foregroundStyle(JcTheme.muted)
                             } else if let last = m.tools.last, !last.done {
-                                Text("Running \(last.name)…").font(.footnote).foregroundStyle(.secondary)
+                                Text("Running \(last.name)…").font(.footnote).foregroundStyle(JcTheme.muted)
                             }
                         }
                         .padding(.vertical, 2)
@@ -278,7 +277,7 @@ struct Esp32ChatView: View {
         if let t = st.totalMs { parts.append(seconds(t)) }
         return Text(parts.joined(separator: "  ·  "))
             .font(.system(size: 10.5, weight: .medium, design: .rounded))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(JcTheme.muted.opacity(0.7))
             .monospacedDigit()
     }
 
@@ -306,7 +305,7 @@ struct Esp32ChatView: View {
                             .font(.system(.footnote, design: .monospaced).weight(.medium))
                         let detail = t.done && !t.snippet.isEmpty ? t.snippet : t.preview
                         if !detail.isEmpty {
-                            Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            Text(detail).font(.caption2).foregroundStyle(JcTheme.muted).lineLimit(2)
                         }
                     }
                 }
@@ -338,7 +337,7 @@ struct Esp32ChatView: View {
                     Label("Board console", jcIcon: "terminal").font(.footnote.weight(.semibold))
                     if let s = manager.script {
                         Text("· \(s.name.isEmpty ? s.state.label : "\(s.name) · \(s.state.label)")")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.footnote).foregroundStyle(JcTheme.muted)
                     }
                     Spacer()
                     Button {
@@ -356,10 +355,10 @@ struct Esp32ChatView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
-                            if manager.scriptLog.isEmpty { Text("No output yet.").foregroundStyle(.tertiary) }
+                            if manager.scriptLog.isEmpty { Text("No output yet").foregroundStyle(JcTheme.muted.opacity(0.7)) }
                             ForEach(Array(manager.scriptLog.enumerated()), id: \.offset) { _, line in
                                 Text(line)
-                                    .foregroundStyle(line.hasPrefix("error") ? .red : line.hasPrefix("→") || line.hasPrefix("←") || line.hasPrefix("—") ? .secondary : .primary)
+                                    .foregroundStyle(line.hasPrefix("error") ? JcTheme.danger : line.hasPrefix("→") || line.hasPrefix("←") || line.hasPrefix("—") ? JcTheme.muted : JcTheme.text)
                                     .textSelection(.enabled)
                                     .contextMenu {
                                         Button { UIPasteboard.general.string = line } label: { Label("Copy line", jcIcon: "doc.on.doc") }
@@ -397,7 +396,7 @@ struct Esp32ChatView: View {
                 if sending { cancel() } else { send() }
             } label: {
                 JcIcon(sending ? "stop.fill" : "arrow.up")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(sending ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
                     .frame(width: 30, height: 30)
                     .jcLiquidGlass(in: Circle())
