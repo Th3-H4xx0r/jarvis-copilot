@@ -103,7 +103,9 @@ class PowerService:
         origin = self._origin()
         if not origin:
             raise OSError("not paired")
-        with urllib.request.urlopen(origin + path, timeout=timeout) as resp:
+        # Cloudflare refuses Python's default User-Agent (error 1010).
+        req = urllib.request.Request(origin + path, headers={"User-Agent": "jc-client/0.1"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8") or "{}")
 
     def _checkin(self) -> dict:

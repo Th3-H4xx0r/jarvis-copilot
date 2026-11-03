@@ -127,3 +127,27 @@ def test_askpass_must_be_a_child_of_sudo_and_the_command_comes_from_sudo():
 def test_long_sudo_commands_say_what_was_cut():
     text = sudo_context("sudo " + "x" * 3000, "")
     assert text.endswith("more characters not shown]") and len(text) < 2100
+
+
+def test_server_calls_send_a_user_agent_cloudflare_accepts(monkeypatch):
+    seen = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"wake": false}'
+
+    def fake_urlopen(req, timeout=0):
+        seen["ua"] = req.get_header("User-agent")
+        seen["url"] = req.full_url
+        return Resp()
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    svc = PowerService(lambda f: None, lambda m: None, lambda: [], lambda: "http://127.0.0.1:1",
+                       procs=FakeProcs())
+    assert svc._checkin() == {"wake": False}
+    assert seen == {"ua": "jc-client/0.1", "url": "http://127.0.0.1:1/api/coding/agents/mac/checkin"}
