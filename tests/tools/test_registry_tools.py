@@ -105,14 +105,16 @@ def test_every_tool_is_registered_in_one_toolset():
     import toolsets
     from tools.registry import registry as tool_registry
 
-    names = ["registry_catalog", "registry_get", "registry_put",
-             "registry_append", "registry_query", "registry_describe",
-             "integration_plan_propose", "integration_ready", "integration_create"]
-    for name in names:
+    import tools.registry_tools  # noqa: F401  (registers them)
+
+    listed = set(toolsets.TOOLSETS["registry"]["tools"])
+    for name in listed:
         entry = tool_registry.get_entry(name)
         assert entry is not None, f"{name} is not registered"
         assert entry.toolset == "registry"
-    assert set(toolsets.TOOLSETS["registry"]["tools"]) == set(names)
+    # Everything registered into the toolset is listed in it, or no agent sees it.
+    registered = set(tool_registry.get_tool_names_for_toolset("registry"))
+    assert registered <= listed, registered - listed
 
 
 def test_ready_refuses_to_declare_an_integration_that_does_not_exist(reg, monkeypatch):

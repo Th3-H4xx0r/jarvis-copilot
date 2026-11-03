@@ -22,6 +22,10 @@ GENERAL_ID = "general"
 # The one-time workspace migration's own bookkeeping. It is not data the
 # integration keeps, so neither a run nor the page is told about it.
 BOOKKEEPING_KEYS = {"imported_files"}
+# The integration's own UI (jarvis_registry.ui). Not data: the page draws it rather
+# than listing it, and the agent edits it with the integration_ui_* tools.
+UI_KEY = "ui"
+HIDDEN_KEYS = BOOKKEEPING_KEYS | {UI_KEY}
 GENERAL_NAME = "General"
 GENERAL_DESCRIPTION = "Schedules and notes that don't belong to a larger integration."
 
@@ -84,10 +88,12 @@ def summary(space_id: str) -> dict:
 
     space = shared().open(space_id)
     schedules = schedules_for(space_id)
+    documents = space.documents()
     return {
         **space.info(),
         "collections": space.collections(),
-        "documents": [d for d in space.documents() if d["key"] not in BOOKKEEPING_KEYS],
+        "documents": [d for d in documents if d["key"] not in HIDDEN_KEYS],
+        "has_ui": any(d["key"] == UI_KEY for d in documents),
         "skills": skills_for(space_id),
         "schedules": [_schedule_row(job) for job in schedules],
         "schedule_count": len(schedules),
@@ -128,13 +134,15 @@ def overview() -> list[dict]:
                 for job in schedules if job.get("last_run_at") or job.get("last_run")]
         space = reg.open(row["id"])
         collections = space.collections()
+        documents = space.documents()
         out.append({
             **row,
             "schedule_count": len(schedules),
             "enabled_schedule_count": len(enabled),
             "skill_count": len(skills_by_space.get(row["id"], [])),
             "collection_count": len(collections),
-            "document_count": len(space.documents()),
+            "document_count": len([d for d in documents if d["key"] not in HIDDEN_KEYS]),
+            "has_ui": any(d["key"] == UI_KEY for d in documents),
             "record_count": sum(int(c.get("count") or 0) for c in collections),
             "last_run": max(runs) if runs else None,
         })
@@ -194,12 +202,16 @@ def context_block(space_id: str, max_items: int = 20) -> str:
         for c in collections:
             described = f" — {c['description']}" if c.get("description") else ""
             lines.append(f"  - {c['name']} ({c['count']} records){described}")
-    documents = [d for d in space.documents() if d["key"] not in BOOKKEEPING_KEYS][:max_items]
+    all_documents = space.documents()
+    documents = [d for d in all_documents if d["key"] not in HIDDEN_KEYS][:max_items]
     if documents:
         lines.append("Documents (registry_get / registry_put):")
         for d in documents:
             described = f" — {d['description']}" if d.get("description") else ""
             lines.append(f"  - {d['key']}{described}")
+    if any(d["key"] == UI_KEY for d in all_documents):
+        lines.append("It has its own UI (a card and/or page in the app); read and change "
+                     "it with integration_ui_get / integration_ui_set.")
     skills = skills_for(space_id)
     if skills:
         lines.append("Skills that belong to this integration: "

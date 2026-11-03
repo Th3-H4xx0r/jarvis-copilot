@@ -503,6 +503,9 @@ class Session:
         # only on the object is dropped the first time the session is reloaded —
         # and the next save() then strips it from disk for good.
         self.integration_setup = bool(integration_setup)
+        # Set when the sheet was opened to edit one integration's UI (mode "ui"); read
+        # from kwargs for the same reason as above — it has to survive a reload.
+        self.integration_ui_space = kwargs.get('integration_ui_space') or None
         self.composer_draft = composer_draft if isinstance(composer_draft, dict) else {}
         self._metadata_message_count = None
 

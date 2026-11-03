@@ -133,3 +133,69 @@ def test_the_directive_says_an_integration_has_to_actually_run():
     # Watching something means a schedule, not a skill describing the watching.
     assert "that means a SCHEDULE" in directive
     assert "instructions nobody is following" in directive
+
+
+# ── the UI step and editing a UI later ──────────────────────────────────────
+def test_the_directive_builds_a_ui_after_the_rest():
+    scoped = FakeSession()
+    scoped.integration_setup = True
+    directive = setup.directive_for(scoped)
+    assert "integration-ui" in directive and "skill_view" in directive
+    assert "integration_ui_set" in directive
+    # The UI step comes before the sheet is closed.
+    assert directive.index("integration_ui_set") < directive.rindex("integration_ready")
+
+
+def test_edit_ui_mode_is_scoped_to_one_integration(monkeypatch):
+    made: dict = {}
+    monkeypatch.setattr("api.models.new_session",
+                        lambda profile=None: made.setdefault("s", FakeSession(profile)))
+
+    out = setup.start("", profile=None, space="shop", mode="ui")
+    session = made["s"]
+    assert out["session_id"] == "abc123"
+    assert session.integration_setup is True
+    assert session.integration_ui_space == "shop"
+    assert "skills" in session.enabled_toolsets and "registry" in session.enabled_toolsets
+
+    directive = setup.directive_for(session)
+    assert '"shop"' in directive
+    assert "integration_ui_get" in directive and "integration_ui_set" in directive
+    assert "ONE new Jarvis integration" not in directive
+
+
+def test_edit_ui_over_http(monkeypatch, sent, tmp_path):
+    import jarvis_registry.store as store
+    from jarvis_registry import Registry
+
+    reg = Registry(tmp_path / "registry.db")
+    reg.space("shop", name="Shopping")
+    monkeypatch.setattr(store, "shared", lambda: reg)
+    made: dict = {}
+    monkeypatch.setattr("api.models.new_session",
+                        lambda profile=None: made.setdefault("s", FakeSession(profile)))
+    assert setup.handle_post(object(), urlparse("/api/integrations/setup/start"),
+                             {"space": "shop", "mode": "ui"}) is True
+    assert sent["status"] == 201
+    assert made["s"].integration_ui_space == "shop"
+    assert made["s"].title == "Editing the Shopping UI"
+
+    assert setup.handle_post(object(), urlparse("/api/integrations/setup/start"),
+                             {"space": "nope", "mode": "ui"}) is True
+    assert sent["status"] == 404
+
+
+def test_ui_mode_needs_a_space(monkeypatch, sent):
+    monkeypatch.setattr("api.models.new_session", lambda profile=None: FakeSession(profile))
+    assert setup.handle_post(object(), urlparse("/api/integrations/setup/start"),
+                             {"mode": "ui"}) is True
+    assert sent["status"] == 400
+
+
+def test_a_reloaded_edit_ui_session_keeps_its_space():
+    from api.models import Session
+
+    reloaded = Session(**{"session_id": "x", "integration_setup": True,
+                          "integration_ui_space": "shop"})
+    assert reloaded.integration_ui_space == "shop"
+    assert '"shop"' in setup.directive_for(reloaded)

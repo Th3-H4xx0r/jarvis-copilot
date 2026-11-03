@@ -105,6 +105,9 @@ _PUT = {
 
 def _h_put(args=None, **_kw) -> str:
     args = args or {}
+    if str(args.get("key") or "").strip() == "ui":
+        return _fail("'ui' is the integration's own UI; change it with integration_ui_set, "
+                     "which checks it before storing it")
     try:
         space = _reg().open(str(args.get("space") or ""))
         space.put(str(args.get("key") or ""), args.get("body"), description=args.get("description"))
@@ -351,7 +354,156 @@ def _h_create(args=None, **_kw) -> str:
 
 # general is the catch-all for schedules that belong nowhere; photon is the iMessage
 # setup endpoint. Neither is a new integration.
-_RESERVED_IDS = {"general", "photon", "plans"}
+_RESERVED_IDS = {"general", "photon", "plans", "ui"}
+
+
+# ── an integration's own UI ──────────────────────────────────────────────────
+_STATE_PREVIEW_CHARS = 4000
+
+_UI_GET = {
+    "name": "integration_ui_get",
+    "description": (
+        "Read an integration's own UI — the card on the Integrations tab, the page at "
+        "the top of its screen, and the scripts they run (with their code) — or null "
+        "when it has none. Read it before changing it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"space": {"type": "string", "description": "The integration's space id"}},
+        "required": ["space"],
+    },
+}
+
+
+def _h_ui_get(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        from jarvis_registry import ui
+
+        space_id = str(args.get("space") or "").strip()
+        return _ok(space=space_id, ui=ui.get_ui(space_id))
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+_UI_SET = {
+    "name": "integration_ui_set",
+    "description": (
+        "Store an integration's own UI: a compact `card` for the Integrations tab and/or "
+        "a full `page`, both layout trees of the integration-ui skill's elements, plus "
+        "the Python `scripts` they run (`load` builds the state the trees bind to; every "
+        "action a control names needs a script). Send the WHOLE UI each time — a card, "
+        "page or script you leave out is removed. It is checked first (errors come back "
+        "one per line), then stored and `load` is run so you can see the state it built. "
+        "Read the integration-ui skill before writing one."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string", "description": "The integration's space id"},
+            "card": {"type": "object", "description": "Root node of the card"},
+            "page": {"type": "object", "description": "Root node of the page"},
+            "scripts": {
+                "type": "object",
+                "description": ('{"load": {"code": "<python>"}, "add_item": {"code": "...", '
+                                '"confirm"?: "Add it?", "label"?: "Add item"}}'),
+            },
+            "prompt": {"type": "string",
+                       "description": "What the person asked for, kept for later edits"},
+        },
+        "required": ["space", "scripts"],
+    },
+}
+
+
+def _h_ui_set(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        from jarvis_registry import ui
+
+        space_id = str(args.get("space") or "").strip()
+        scripts = args.get("scripts")
+        if isinstance(scripts, dict):
+            # A bare string is the code; saves a level of nesting for the model.
+            scripts = {name: ({"code": body} if isinstance(body, str) else body)
+                       for name, body in scripts.items()}
+        presentations = {key: args[key] for key in ("card", "page") if args.get(key) is not None}
+        doc = {"schema": ui.SCHEMA, "presentations": presentations, "scripts": scripts}
+        if str(args.get("prompt") or "").strip():
+            doc["prompt"] = str(args["prompt"]).strip()
+        _reg().open(space_id)
+        errors, warnings = ui.validate_ui(doc)
+        if errors:
+            return json.dumps({"ok": False, "errors": errors, "warnings": warnings,
+                               "error": "the UI was not stored:\n" + "\n".join(errors)},
+                              ensure_ascii=False)
+        stored = ui.save_ui(space_id, doc)
+        loaded = ui.load_state(space_id)
+    except Exception as exc:
+        errors = getattr(exc, "errors", None)
+        if errors:
+            return json.dumps({"ok": False, "errors": errors,
+                               "error": "the UI was not stored:\n" + "\n".join(errors)})
+        return _fail(str(exc))
+    return _ok(space=space_id, version=stored["version"],
+               state_preview=_preview(loaded["state"]), load_error=loaded["error"],
+               warnings=warnings,
+               note=("Stored, but load failed — fix the load script and set it again."
+                     if loaded["error"] else
+                     "Stored. Check the state has what the trees bind to; try an action "
+                     "with integration_ui_test if it is safe to run."))
+
+
+def _preview(state):
+    text = json.dumps(state, ensure_ascii=False, default=str)
+    if len(text) <= _STATE_PREVIEW_CHARS:
+        return state
+    return text[:_STATE_PREVIEW_CHARS] + f"… ({len(text)} characters in all)"
+
+
+_UI_TEST = {
+    "name": "integration_ui_test",
+    "description": (
+        "Run an integration UI's `load` script (no `action`) or one action script, the "
+        "same way a tap in the app does, and see the state, toast or error. An action "
+        "runs FOR REAL against the real data — adding, deleting, sending — so only test "
+        "actions that are safe to run, or undo what they did."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string", "description": "The integration's space id"},
+            "action": {"type": "string", "description": "A script name; omit to run load"},
+            "event": {
+                "type": "object",
+                "description": ('What the app would send: {"control"?, "value"?, '
+                                '"inputs"?: {"<id>": value}, "row"?: {...}}'),
+            },
+        },
+        "required": ["space"],
+    },
+}
+
+
+def _h_ui_test(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        from jarvis_registry import ui
+
+        space_id = str(args.get("space") or "").strip()
+        if ui.get_ui(space_id) is None:
+            return _fail(f"{space_id!r} has no UI yet; store one with integration_ui_set")
+        action = str(args.get("action") or "").strip()
+        if not action or action == "load":
+            out = ui.load_state(space_id)
+            return json.dumps({"ok": out["error"] is None, "version": out["version"],
+                               "state": _preview(out["state"]), "error": out["error"]},
+                              ensure_ascii=False, default=str)
+        out = ui.run_action(space_id, action, args.get("event") or {})
+        return json.dumps({**out, "state": _preview(out.get("state") or {})},
+                          ensure_ascii=False, default=str)
+    except Exception as exc:
+        return _fail(str(exc))
 
 
 _READY = {
@@ -438,6 +590,13 @@ registry.register(name="integration_create", toolset="registry",
 
 registry.register(name="integration_ready", toolset="registry",
                   schema=_READY, handler=_h_ready, emoji="✅")
+
+registry.register(name="integration_ui_get", toolset="registry",
+                  schema=_UI_GET, handler=_h_ui_get, emoji="🖼️")
+registry.register(name="integration_ui_set", toolset="registry",
+                  schema=_UI_SET, handler=_h_ui_set, emoji="🎨")
+registry.register(name="integration_ui_test", toolset="registry",
+                  schema=_UI_TEST, handler=_h_ui_test, emoji="🧪")
 
 registry.register(name="integration_plan_propose", toolset="registry",
                   schema=_PLAN, handler=_h_plan, emoji="🧩")

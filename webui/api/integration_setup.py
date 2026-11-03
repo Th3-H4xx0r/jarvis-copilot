@@ -11,6 +11,8 @@ end — the user watches it being built. When the agent is finished it calls
 and offer Close instead.
 
     POST /api/integrations/setup/start   -> {session_id}
+         {name?, profile?}                    set a new integration up
+         {space, mode: "ui", profile?}        change that integration's UI only
     GET  /api/integrations/setup/<sid>   -> what has been built so far
 """
 from __future__ import annotations
@@ -57,6 +59,14 @@ to watch, track, monitor or tell them about something, that means a SCHEDULE —
 skill describing the work is instructions nobody is following, and a settings \
 document is not a tracker. Write the skill if it helps you do the work well, then \
 create the schedule that actually does it.
+  - Once its data, schedules and skills exist, give it its own UI: a compact card on \
+the Integrations tab and a page at the top of its screen. First read the \
+`integration-ui` skill with `skill_view` (and its references/elements.md). Then ask \
+ONCE — a `form_ask` is fine — what they would like to see and do on the card and on \
+the page, or whether they would rather skip a UI. If they skip, move on. Otherwise \
+build it from that skill's elements with a `load` script and one script per action, \
+store it with `integration_ui_set`, and check that load works (the state it returns \
+has what the card and page bind to). Fix and set it again until it does.
   - When everything is in place, call `integration_ready` with the space id you got \
 from `integration_create` and a one-line summary. It will refuse an integration \
 that has neither a schedule nor a skill, because that one does not work yet. Never \
@@ -64,7 +74,32 @@ call it for "general".
 """
 
 
-def start(name: str = "", profile: Optional[str] = None) -> dict:
+UI_DIRECTIVE = """\
+You are changing the UI of ONE existing Jarvis integration, space id "{space}", with \
+the user, in a dedicated sheet in the app. This is the only thing this conversation \
+is for: change only this integration's UI — its card on the Integrations tab and its \
+page. Do not create integrations, schedules or skills, and do not change other data \
+unless an action script you write needs to.
+
+How to do it:
+  - Read the `integration-ui` skill with `skill_view` (and its references/elements.md) \
+before you design anything.
+  - Call `integration_ui_get` with space "{space}" FIRST to see the UI as it is now \
+(it may have none yet) and the `prompt` it was built from. `registry_catalog` with \
+space "{space}" shows the data it can show.
+  - Ask only what you genuinely need; one short question, or a `form_ask` for several.
+  - Build the change and store it with `integration_ui_set`, sending the WHOLE UI \
+(card, page and every script) — anything left out is removed. Keep `prompt` up to \
+date: what they asked for originally plus what they just changed. Check the load \
+state it returns; if load failed, fix it and set it again.
+  - When it is stored and loads, finish with a one- or two-line summary of what \
+changed. Do not call `integration_ready`; this integration is already set up.
+  - Keep your messages short. This is a sheet, not a chat.
+"""
+
+
+def start(name: str = "", profile: Optional[str] = None, space: str = "",
+          mode: str = "") -> dict:
     """A session pinned to this job. Returns what the sheet needs to talk to it.
 
     The profile comes from the client that opened the sheet, like every other
@@ -77,7 +112,12 @@ def start(name: str = "", profile: Optional[str] = None) -> dict:
     session = new_session(profile=profile or None)
     session.enabled_toolsets = list(SETUP_TOOLSETS)
     session.integration_setup = True
-    session.title = f"Setting up {name}" if name else "New integration"
+    if mode == "ui":
+        # Editing an existing integration's UI: same sheet, a narrower job.
+        session.integration_ui_space = space
+        session.title = f"Editing the {name or space} UI"
+    else:
+        session.title = f"Setting up {name}" if name else "New integration"
     # Deliberately not saved: new_session() keeps a session in memory until its
     # first message precisely so an abandoned one leaves nothing behind, and the
     # + button is easy to tap and change your mind about.
@@ -86,7 +126,12 @@ def start(name: str = "", profile: Optional[str] = None) -> dict:
 
 def directive_for(session) -> str:
     """The system directive for a setup session, or "" for an ordinary one."""
-    return DIRECTIVE if getattr(session, "integration_setup", False) else ""
+    if not getattr(session, "integration_setup", False):
+        return ""
+    space = str(getattr(session, "integration_ui_space", "") or "").strip()
+    if space:
+        return UI_DIRECTIVE.format(space=space)
+    return DIRECTIVE
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
@@ -96,7 +141,28 @@ def handle_post(handler, parsed, body) -> bool:
     if parsed.path != "/api/integrations/setup/start":
         return False
     try:
-        body = body or {}
+        body = body if isinstance(body, dict) else {}
+        mode = str(body.get("mode") or "").strip()
+        space = str(body.get("space") or "").strip().lower()
+        if mode and mode != "ui":
+            j(handler, {"error": "mode must be 'ui' or absent"}, status=400)
+            return True
+        if mode == "ui":
+            if not space:
+                j(handler, {"error": "space is required to edit an integration's UI"},
+                  status=400)
+                return True
+            from jarvis_registry.store import shared
+
+            name = ""
+            try:
+                name = str(shared().open(space).info().get("name") or "")
+            except Exception:
+                j(handler, {"error": f"no integration named {space!r}"}, status=404)
+                return True
+            j(handler, start(name, profile=str(body.get("profile") or "").strip() or None,
+                             space=space, mode="ui"), status=201)
+            return True
         j(handler, start(str(body.get("name") or "").strip(),
                          profile=str(body.get("profile") or "").strip() or None), status=201)
     except Exception as exc:

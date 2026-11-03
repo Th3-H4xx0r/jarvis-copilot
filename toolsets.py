@@ -79,6 +79,7 @@ _HERMES_CORE_TOOLS = [
     "registry_catalog", "registry_get", "registry_put",
     "registry_append", "registry_query", "registry_describe",
     "integration_plan_propose", "integration_ready", "integration_create",
+    "integration_ui_get", "integration_ui_set", "integration_ui_test",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
@@ -300,6 +301,7 @@ TOOLSETS = {
             "registry_catalog", "registry_get", "registry_put",
             "registry_append", "registry_query", "registry_describe",
             "integration_plan_propose", "integration_ready", "integration_create",
+            "integration_ui_get", "integration_ui_set", "integration_ui_test",
         ],
         "includes": []
     },

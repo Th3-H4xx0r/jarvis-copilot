@@ -3774,8 +3774,10 @@ def handle_get(handler, parsed) -> bool:
         if _imessage_memory_get(handler, parsed):
             return True
 
-    if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
-        # The Integrations page (web + phone): what exists, what it holds, what it runs.
+    if (parsed.path in ("/api/integrations", "/api/integration-cards")
+            or parsed.path.startswith("/api/integrations/")):
+        # The Integrations page (web + phone): what exists, what it holds, what it runs,
+        # and each integration's own card (/api/integration-cards).
         from api.integrations_routes import handle_get as _integrations_get
         from api.profiles import cron_profile_context
 

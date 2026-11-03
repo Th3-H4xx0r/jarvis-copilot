@@ -15,6 +15,13 @@ integration now.
     DELETE /api/integrations/<id>/documents/<key>      drop one document
     DELETE /api/integrations/<id>/skills/<name>?mode=unlink|file
     DELETE /api/integrations/<id>                remove it, or the parts named in the body
+
+An integration's own UI (``jarvis_registry.ui``):
+
+    GET    /api/integrations/<id>/ui             {space, version, definition, state, error}
+    POST   /api/integrations/<id>/ui/action      run one action script {action, control,
+                                                 value, inputs, row, version}
+    GET    /api/integration-cards                every active integration's card + state
 """
 from __future__ import annotations
 
@@ -28,6 +35,8 @@ _MAX_RECORDS = 200
 # /api/integrations/photon is the iMessage provider's setup endpoint and predates the
 # registry. It is not a space, so it falls through to the handler that owns it.
 _NOT_OURS = {"photon"}
+# Not available as a new integration's id: "ui" would read as the UI routes.
+_RESERVED_IDS = _NOT_OURS | {"ui"}
 
 
 def _registry():
@@ -49,6 +58,15 @@ def handle_get(handler, parsed) -> bool:
     path = parsed.path
     from api.integration_plans import handle_get as _plans_get
     if _plans_get(handler, parsed):
+        return True
+
+    if path == "/api/integration-cards":
+        try:
+            from jarvis_registry import ui
+
+            j(handler, {"cards": ui.cards()})
+        except Exception as exc:
+            return _error(handler, exc)
         return True
 
     if path == "/api/integrations":
@@ -74,6 +92,8 @@ def handle_get(handler, parsed) -> bool:
         if tail == "":
             j(handler, _integrations().summary(space_id))
             return True
+        if tail == "ui":
+            return _get_ui(handler, space_id)
         if tail.startswith("documents/"):
             key = urllib.parse.unquote(tail[len("documents/"):])
             space = _registry().open(space_id)
@@ -124,7 +144,7 @@ def handle_post(handler, parsed, body) -> bool:
                 j(handler, {"error": "name is required"}, status=400)
                 return True
             space_id = slug(str((body or {}).get("id") or "").strip() or name)
-            if space_id in _NOT_OURS:
+            if space_id in _RESERVED_IDS:
                 j(handler, {"error": f"{space_id!r} is not available as an integration id"},
                   status=400)
                 return True
@@ -143,6 +163,9 @@ def handle_post(handler, parsed, body) -> bool:
     space_id, _, tail = rest.partition("/")
     if space_id in _NOT_OURS:
         return False
+
+    if tail == "ui/action":
+        return _post_ui_action(handler, space_id, body)
 
     if tail == "status":
         try:
@@ -322,6 +345,53 @@ def _delete_space(handler, space_id: str, body) -> bool:
         removed["deleted"] = True
 
     j(handler, {"ok": True, **removed})
+    return True
+
+
+# ── the integration's own UI ─────────────────────────────────────────────────
+def _get_ui(handler, space_id: str) -> bool:
+    """The definition (code removed) and the state its load script builds now."""
+    from api.helpers import j
+    from jarvis_registry import ui
+
+    try:
+        doc = ui.get_ui(space_id)                # 404s for an unknown space
+    except Exception as exc:
+        return _error(handler, exc)
+    if doc is None:
+        j(handler, {"space": space_id, "version": None, "definition": None,
+                    "state": {}, "error": None})
+        return True
+    loaded = ui.load_state(space_id)
+    j(handler, {"space": space_id, "version": doc.get("version"),
+                "definition": ui.public_definition(doc),
+                "state": loaded["state"], "error": loaded["error"]})
+    return True
+
+
+def _post_ui_action(handler, space_id: str, body) -> bool:
+    """Run one action script. A failing script is ``ok: false`` with its error, not a 500."""
+    from api.helpers import j
+    from jarvis_registry import ui
+
+    body = body if isinstance(body, dict) else {}
+    try:
+        _registry().open(space_id)               # 404s for an unknown space
+    except Exception as exc:
+        return _error(handler, exc)
+    action = str(body.get("action") or "").strip()
+    if not action:
+        j(handler, {"ok": False, "version": None, "state": {}, "toast": None,
+                    "error": "action is required"}, status=400)
+        return True
+    try:
+        out = ui.run_action(space_id, action, body)
+    except Exception as exc:                     # run_action does not raise; belt and braces
+        logger.warning("integration ui action failed", exc_info=True)
+        out = {"ok": False, "state": {}, "toast": None, "error": str(exc), "version": None}
+    j(handler, {"ok": bool(out.get("ok")), "version": out.get("version"),
+                "state": out.get("state") or {}, "toast": out.get("toast"),
+                "error": out.get("error")})
     return True
 
 
