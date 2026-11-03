@@ -130,7 +130,10 @@ struct IslandRootView: View {
             .onTapGesture { controller.openVoice(listen: true) }     // the orb: talk to Jarvis
             .help("Talk to Jarvis")
             Spacer().frame(width: ui.geometry.width)
-            Group {
+            // A ZStack, not a Group: a Group hands its frame to its children, so
+            // with nothing to show the right ear vanished, the row shrank by an
+            // ear and, centred, slid the orb under the notch.
+            ZStack {
                 if model.waitingCount > 0 {
                     Text("\(model.waitingCount)")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
