@@ -272,25 +272,31 @@ struct JcSegmented<T: Hashable & Identifiable>: View {
     @Binding var selection: T
     let label: (T) -> String
     var symbol: ((T) -> String)? = nil
-    /// Scroll sideways rather than share the width. `nil`: when there are more than four.
+    /// `false`: always share the width. Otherwise the bar spans the full width and
+    /// scrolls sideways only when its labels don't fit.
     var scrolls: Bool? = nil
 
-    private var scrolling: Bool { scrolls ?? (items.count > 4) }
-
     var body: some View {
-        if scrolling {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    track(fill: false)
-                }
-                .clipShape(Capsule())
-                .onAppear { proxy.scrollTo(selection.id, anchor: .center) }
-                .onChange(of: selection) { _, new in
-                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(new.id, anchor: .center) }
-                }
-            }
-        } else {
+        if scrolls == false {
             track(fill: true)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                track(fill: true)
+                scrollingTrack
+            }
+        }
+    }
+
+    private var scrollingTrack: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                track(fill: false)
+            }
+            .clipShape(Capsule())
+            .onAppear { proxy.scrollTo(selection.id, anchor: .center) }
+            .onChange(of: selection) { _, new in
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(new.id, anchor: .center) }
+            }
         }
     }
 
