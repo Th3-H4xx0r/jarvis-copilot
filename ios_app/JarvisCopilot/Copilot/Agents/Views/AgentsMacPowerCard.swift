@@ -136,6 +136,15 @@ struct AgentsMacPowerCard: View {
                              hint: "Lets the Mac go to sleep now")
                 actionButton(.unlock, title: "Unlock", symbol: "lock.open.fill",
                              hint: "Asks the Mac to unlock its screen")
+                MacShareScreenButton {
+                    HStack(spacing: 7) {
+                        Image(systemName: "rectangle.on.rectangle").font(.subheadline.weight(.semibold))
+                        Text("Screen").lineLimit(1)
+                    }
+                }
+                .buttonStyle(MacActionButtonStyle(prominent: false))
+                .accessibilityLabel("Share screen")
+                .accessibilityHint("Watch and control the Mac's screen live")
             } else {
                 actionButton(.wake, title: "Wake Mac", symbol: "power", prominent: true,
                              hint: "Asks the Mac to wake up. It can take up to 15 minutes from deep sleep")

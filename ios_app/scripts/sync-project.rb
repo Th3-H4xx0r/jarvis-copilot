@@ -152,6 +152,10 @@ begin
   SWIFT_PACKAGES = [
     { url: 'https://github.com/FluidInference/FluidAudio.git', version: '0.16.1', product: 'FluidAudio' },
     { url: 'https://github.com/spotify/ios-sdk.git', version: '5.0.1', product: 'SpotifyiOS' },
+    # WebRTC — Google's libwebrtc as a binary framework: the live Mac screen share
+    # (video + the input data channel) in chat and full screen (2026-11-03). The Mac
+    # app pins the same version.
+    { url: 'https://github.com/stasel/WebRTC', version: '156.0.0', product: 'WebRTC' },
   ].freeze
 
   def ensure_packages(project, target, packages)

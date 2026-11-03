@@ -35,10 +35,23 @@ struct ChatAssistantTurnCard: View {
     /// A form the agent drew; the user fills it in and their answers come back as
     /// their next message.
     private var formIDs: [String] { tools.compactMap(ChatForm.formID(in:)) }
+    /// Browser tasks: one live card per browser session the turn used (engine,
+    /// live view, take over, replay) — the session's tool calls fold into it.
+    private var browserSessions: [String] {
+        var seen = Set<String>()
+        return tools.compactMap(BrowserSessionCard.sessionID(in:)).filter { seen.insert($0).inserted }
+    }
+    /// Mac computer tasks: the Mac's screen live while it runs.
+    private var macShares: [String] {
+        var seen = Set<String>()
+        return tools.compactMap(MacScreenCard.shareID(in:)).filter { seen.insert($0).inserted }
+    }
     private var plainTools: [ToolInvocation] {
         tools.filter {
             IntegrationPlanCard.planID(in: $0) == nil
                 && ChatForm.formID(in: $0) == nil
+                && BrowserSessionCard.sessionID(in: $0) == nil
+                && MacScreenCard.shareID(in: $0) == nil
                 && SetupCard(toolName: $0.name, args: $0.args) == nil
         }
     }
@@ -107,6 +120,12 @@ struct ChatAssistantTurnCard: View {
             }
 
             ForEach(planIDs, id: \.self) { IntegrationPlanCard(planID: $0) }
+
+            ForEach(macShares, id: \.self) { MacScreenCard(shareID: $0) }
+
+            ForEach(browserSessions, id: \.self) { id in
+                BrowserSessionCard(sessionID: id) { text in onFormSubmit?(text) }
+            }
 
             ForEach(formIDs, id: \.self) { formID in
                 ChatFormCard(formID: formID) { reply in onFormSubmit?(reply) }

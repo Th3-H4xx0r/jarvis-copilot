@@ -1,5 +1,5 @@
 {
-  "originHash" : "e5adf541c6ba1f578029632cb1cc4c4dea5e8ba475954b16d696eb17e41c3e11",
+  "originHash" : "1c2dd0c4168d19df93627c39aa8829a4fa9e4e454a65f91639bc8e894b5ad660",
   "pins" : [
     {
       "identity" : "fluidaudio",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "731037f6cc2be2ec01562f6597c1d0aa3fe6fd05",
         "version" : "6.0.1"
+      }
+    },
+    {
+      "identity" : "ios-sdk",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/spotify/ios-sdk.git",
+      "state" : {
+        "revision" : "0b3e54771738ad5e64f22c8e5e19ca76d6becc6c",
+        "version" : "5.0.1"
       }
     },
     {
@@ -80,6 +89,15 @@
       "state" : {
         "revision" : "8a83416cc00ab07a5de9991e6ad817a9b8588d20",
         "version" : "0.1.15"
+      }
+    },
+    {
+      "identity" : "webrtc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stasel/WebRTC",
+      "state" : {
+        "revision" : "3cc466ea040e5dcd1344697bf211dc4c079d1a0c",
+        "version" : "156.0.0"
       }
     }
   ],
