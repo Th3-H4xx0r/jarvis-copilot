@@ -84,8 +84,15 @@ def run_task(goal, steps, task_id, app=None) -> tuple:
     if err:
         return None, err
     b = bound(task_id) or Binding(None, None)
-    result = _loop.run(goal, clean_steps(steps), config_for(b.node, b.own_ref), device=device, device_name=name,
-                       should_stop=b.should_stop, app=str(app or "").strip() or None)
+    from agent.computer import screen
+    share = screen.start(goal, task_id)  # the chat's live view; ending it makes the Mac upload the replay
+    try:
+        result = _loop.run(goal, clean_steps(steps), config_for(b.node, b.own_ref), device=device, device_name=name,
+                           should_stop=b.should_stop, app=str(app or "").strip() or None)
+    finally:
+        screen.end(share)
+    if share:
+        result.share = share
     return result, None
 
 
@@ -93,13 +100,23 @@ def tool_result(result: _loop.Result):
     """The tool result: the summary, plus the final screenshot as an image envelope —
     the agent turns it into image parts or a text summary for its own model."""
     text = result.summary()
+    from agent.computer import screen
+    card = screen.card(getattr(result, "share", "") or None)
+    if card:
+        # The chat draws the live view / replay from this; kept in the text too, the
+        # one part of an image result that is stored with the chat.
+        text += "\n" + json.dumps({"card": card})
     from agent.computer.decide import data_url
     url = data_url(result.look or {})
     if url:
-        return {"_multimodal": True, "text_summary": text,
-                "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": url}}]}
-    return json.dumps({"ok": result.status == "done", "status": result.status, "summary": text},
-                      ensure_ascii=False)
+        out = {"card": card} if card else {}
+        out.update({"_multimodal": True, "text_summary": text,
+                    "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": url}}]})
+        return out
+    payload = {"ok": result.status == "done", "status": result.status, "summary": text}
+    if card:
+        payload["card"] = card
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:

@@ -56,6 +56,7 @@ class Result:
     steps: list = field(default_factory=list)
     device_name: str = ""
     values: dict = field(default_factory=dict)  # read off the screen by "read" steps
+    share: str = ""  # the Mac screen share that showed (and recorded) this task
 
     def summary(self) -> str:
         head = {"done": "Done on the Mac.", "stuck": "Stopped on the Mac (stuck).",
