@@ -110,8 +110,7 @@ final class ScreenShareSession {
         switch J.s(msg["type"]) {
         case "offer":
             peers.removeValue(forKey: viewer)?.close()
-            let peer = ScreenPeer(viewer: viewer, iceServers: iceServers, track: pipeline.track,
-                                  injector: pipeline.injector)
+            let peer = ScreenPeer(viewer: viewer, iceServers: iceServers, pipeline: pipeline)
             peer.send = { [weak self] body in self?.post(body, viewer: viewer) }
             peer.onState = { [weak self, weak peer] in
                 guard let self, let peer else { return }
@@ -239,6 +238,8 @@ final class ScreenPeer: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDeleg
     private var pc: RTCPeerConnection?
     private let track: RTCVideoTrack
     private let injector: InputInjector
+    /// The Command Center (t = "cc" on the input channel).
+    private var controls: MacControls?
     private let lock = NSLock()
     private var remoteSet = false
     private var pending: [RTCIceCandidate] = []
@@ -252,11 +253,12 @@ final class ScreenPeer: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDeleg
 
     private static let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
 
-    init(viewer: String, iceServers: [RTCIceServer], track: RTCVideoTrack, injector: InputInjector) {
+    init(viewer: String, iceServers: [RTCIceServer], pipeline: FramePipeline) {
         self.viewer = viewer
-        self.track = track
-        self.injector = injector
+        self.track = pipeline.track
+        self.injector = pipeline.injector
         super.init()
+        controls = MacControls(pipeline: pipeline) { [weak self] obj in self?.reply(obj) }
         let config = RTCConfiguration()
         config.iceServers = iceServers
         config.sdpSemantics = .unifiedPlan
@@ -354,15 +356,31 @@ final class ScreenPeer: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDeleg
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
         guard dataChannel.label == "input" else { return }
         dataChannel.delegate = self
+        lock.lock()
         channel = dataChannel
+        lock.unlock()
     }
 
     // MARK: RTCDataChannelDelegate
 
     func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
 
+    /// A message to this viewer on the input channel (once it's open).
+    private func reply(_ obj: [String: Any]) {
+        lock.lock()
+        let channel = channel
+        lock.unlock()
+        guard let channel, channel.readyState == .open,
+              let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+        channel.sendData(RTCDataBuffer(data: data, isBinary: false))
+    }
+
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         guard let obj = (try? JSONSerialization.jsonObject(with: buffer.data)) as? [String: Any] else { return }
+        if J.s(obj["t"]) == "cc" {
+            controls?.handle(obj)
+            return
+        }
         if let problem = injector.handle(obj) {
             // Tell the viewer once why its clicks do nothing (it may show it or ignore it).
             let reply = (try? JSONSerialization.data(withJSONObject: ["t": "error", "error": problem])) ?? Data()

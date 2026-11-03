@@ -18,8 +18,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -31,19 +29,23 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, and drafts emails in Mail.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Jarvis records the other side of a call when you ask it to take notes.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Jarvis turns your Mac's Bluetooth on or off when you ask from your iPhone.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Jarvis. Notch island after coucou (github.com/Louis-CFM/coucou, MIT).</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Jarvis listens for "Hey Jarvis", takes dictation and records the calls you ask it to.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Jarvis turns your voice into text on this Mac for the wake word and dictation.</string>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, and drafts emails in Mail.</string>
-	<key>NSAudioCaptureUsageDescription</key>
-	<string>Jarvis records the other side of a call when you ask it to take notes.</string>
 </dict>
 </plist>

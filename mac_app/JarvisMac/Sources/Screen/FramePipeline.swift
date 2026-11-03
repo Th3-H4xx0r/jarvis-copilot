@@ -5,7 +5,7 @@ import QuartzCore
 import ScreenCaptureKit
 import WebRTC
 
-/// The main display, captured with ScreenCaptureKit (≤1080p, ≤30 fps, NV12) and
+/// A display (the main one first; the viewer can switch), captured with ScreenCaptureKit (≤1080p, ≤30 fps, NV12) and
 /// fed to one WebRTC video track (shared by every viewer of the share) and, for
 /// task shares, an H.264 recording. Everything after `start` runs on `queue`.
 final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
@@ -16,7 +16,11 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     static let repeatEvery: TimeInterval = 0.5
 
     let track: RTCVideoTrack
-    private(set) var injector = InputInjector(bounds: CGDisplayBounds(CGMainDisplayID()))
+    /// One injector for the whole share (each viewer's peer holds it): a display
+    /// switch moves its bounds, never replaces it.
+    let injector = InputInjector(bounds: CGDisplayBounds(CGMainDisplayID()))
+    /// The display being shared.
+    private(set) var displayID: CGDirectDisplayID = CGMainDisplayID()
     private let source: RTCVideoSource
     private let rtcCapturer: RTCVideoCapturer
     private let queue = DispatchQueue(label: "jarvis.screen.capture", qos: .userInteractive)
@@ -48,19 +52,16 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         return CGSize(width: even(pixels.width), height: even(pixels.height))
     }
 
-    func start() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let mainID = CGMainDisplayID()
-        guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else {
-            throw NSError(domain: "Jarvis", code: 1, userInfo: [NSLocalizedDescriptionKey: "no display to share"])
+    /// The frame size for a display: its pixels, fitted to 1920×1080.
+    static func outputSize(display id: CGDirectDisplayID) -> CGSize {
+        // CGDisplayPixels* are points on some setups: the mode's pixels win.
+        if let mode = CGDisplayCopyDisplayMode(id) {
+            return outputSize(pixels: CGSize(width: mode.pixelWidth, height: mode.pixelHeight))
         }
-        injector = InputInjector(bounds: CGDisplayBounds(display.displayID))
-        let pixels = CGSize(width: CGDisplayPixelsWide(display.displayID), height: CGDisplayPixelsHigh(display.displayID))
-        var size = Self.outputSize(pixels: pixels)
-        // CGDisplayPixels* are points on some setups: never go below the frame's own size.
-        if let mode = CGDisplayCopyDisplayMode(display.displayID) {
-            size = Self.outputSize(pixels: CGSize(width: mode.pixelWidth, height: mode.pixelHeight))
-        }
+        return outputSize(pixels: CGSize(width: CGDisplayPixelsWide(id), height: CGDisplayPixelsHigh(id)))
+    }
+
+    private func configuration(_ size: CGSize) -> SCStreamConfiguration {
         let cfg = SCStreamConfiguration()
         cfg.width = Int(size.width)
         cfg.height = Int(size.height)
@@ -68,6 +69,19 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         cfg.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         cfg.showsCursor = true
         cfg.queueDepth = 6
+        return cfg
+    }
+
+    func start() async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let mainID = CGMainDisplayID()
+        guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else {
+            throw NSError(domain: "Jarvis", code: 1, userInfo: [NSLocalizedDescriptionKey: "no display to share"])
+        }
+        displayID = display.displayID
+        injector.setBounds(CGDisplayBounds(display.displayID))
+        let size = Self.outputSize(display: display.displayID)
+        let cfg = configuration(size)
         source.adaptOutputFormat(toWidth: Int32(size.width), height: Int32(size.height), fps: Self.fps)
         if record {
             recorder = try? ScreenRecorder(shareID: shareID, size: size)
@@ -82,6 +96,32 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         timer.setEventHandler { [weak self] in self?.repeatLast() }
         timer.resume()
         self.timer = timer
+    }
+
+    /// Shares another display, live: the same track (every viewer keeps its
+    /// connection), the new display's size, clicks moved over with it. A task's
+    /// replay stops at the switch when the size changes (its file is kept).
+    func switchDisplay(to id: CGDirectDisplayID) async throws {
+        guard let stream else { throw Self.error("The share isn't capturing.") }
+        guard id != displayID else { return }
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first(where: { $0.displayID == id }) else {
+            throw Self.error("That display isn't connected any more.")
+        }
+        let size = Self.outputSize(display: id)
+        try await stream.updateContentFilter(SCContentFilter(display: display, excludingWindows: []))
+        try await stream.updateConfiguration(configuration(size))
+        displayID = id
+        injector.setBounds(CGDisplayBounds(id))
+        source.adaptOutputFormat(toWidth: Int32(size.width), height: Int32(size.height), fps: Self.fps)
+        queue.async { [weak self] in
+            self?.lastFrame = nil
+            self?.recorder?.sizeChanged(to: size)
+        }
+    }
+
+    private static func error(_ text: String) -> NSError {
+        NSError(domain: "Jarvis", code: 3, userInfo: [NSLocalizedDescriptionKey: text])
     }
 
     func stop() async {
@@ -169,8 +209,10 @@ final class ScreenRecorder {
     private var last: CMTime = .zero
     private var frames = 0
     private var full = false
+    private let size: CGSize
 
     init(shareID: String, size: CGSize) throws {
+        self.size = size
         url = FileManager.default.temporaryDirectory.appendingPathComponent("jarvis-screen-\(shareID).mp4")
         try? FileManager.default.removeItem(at: url)
         writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -192,6 +234,11 @@ final class ScreenRecorder {
         }
         writer.add(input)
         writer.shouldOptimizeForNetworkUse = true  // moov first: the replay starts playing at once
+    }
+
+    /// The shared display changed: frames of another size can't go in this file.
+    func sizeChanged(to newSize: CGSize) {
+        if newSize != size { full = true }
     }
 
     func append(_ pixels: CVPixelBuffer, at time: CMTime) {

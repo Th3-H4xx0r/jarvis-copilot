@@ -18,7 +18,8 @@ import Foundation
 ///
 /// Posting events needs Accessibility (the same grant dictation and push to talk use).
 final class InputInjector: @unchecked Sendable {
-    private let bounds: CGRect
+    /// The shared display (global, top-left origin); changes when the viewer switches displays.
+    private var bounds: CGRect
     private let lock = NSLock()
     private var held: CGMouseButton?
     private var lastPoint: CGPoint
@@ -30,6 +31,15 @@ final class InputInjector: @unchecked Sendable {
     init(bounds: CGRect) {
         self.bounds = bounds
         lastPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+    }
+
+    /// Another display is shared now: clicks land on it from the next event.
+    func setBounds(_ b: CGRect) {
+        lock.lock()
+        defer { lock.unlock() }
+        bounds = b
+        lastPoint = CGPoint(x: b.midX, y: b.midY)
+        lastDown = nil
     }
 
     /// Point on the display (global, top-left origin — what CGEvent takes).
