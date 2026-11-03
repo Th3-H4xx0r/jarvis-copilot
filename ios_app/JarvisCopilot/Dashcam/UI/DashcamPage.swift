@@ -28,10 +28,7 @@ struct DashcamPage: View {
             VStack(spacing: 16) {
                 header
                 if wifi.onCamera { DashcamControlsCard(live: $live) }
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: Tab.allCases, selection: $tab, label: \.rawValue)
                 .padding(.horizontal, 20)
                 switch tab {
                 case .library: DashcamLibraryView()

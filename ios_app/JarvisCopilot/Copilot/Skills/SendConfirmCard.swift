@@ -157,49 +157,47 @@ struct ChatSendBar: View {
 
     var body: some View {
         let card = request.card
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ContactAvatar(card: card, size: 46)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                    Text(card.subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            if !card.message.isEmpty {
-                Text(card.message)
-                    .font(.subheadline)
-                    .lineLimit(5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            }
-            HStack(spacing: 10) {
-                Button { onAnswer(false) } label: {
-                    Text("Cancel").frame(maxWidth: .infinity, minHeight: 24)
-                }
-                .buttonStyle(.jcGlass(tint: .secondary, full: true))
-                Button { onAnswer(true) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: card.actionSymbol)
-                        Text(card.actionTitle)
+        JcCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    ContactAvatar(card: card, size: 46)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(card.title)
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                        Text(card.subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 24)
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+                if !card.message.isEmpty {
+                    Text(card.message)
+                        .font(.subheadline)
+                        .lineLimit(5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                }
+                HStack(spacing: 10) {
+                    Button { onAnswer(false) } label: {
+                        Text("Cancel").frame(maxWidth: .infinity, minHeight: 24)
+                    }
+                    .buttonStyle(.jcGlass(tint: .secondary, full: true))
+                    Button { onAnswer(true) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: card.actionSymbol)
+                            Text(card.actionTitle)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                    }
+                    .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+                }
             }
         }
-        .padding(14)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .accessibilityElement(children: .contain)

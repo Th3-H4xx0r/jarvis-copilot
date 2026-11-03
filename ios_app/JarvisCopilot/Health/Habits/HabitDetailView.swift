@@ -68,10 +68,7 @@ struct HabitDetailView: View {
         let start = HabitMath.start(habit, relapses)
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Picker("Range", selection: $range) {
-                    ForEach(HealthRange.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: HealthRange.allCases, selection: $range, label: \.rawValue)
                 .padding(.horizontal, 20)
 
                 headline(buckets: buckets, period: period)

@@ -19,126 +19,159 @@ struct HealthSettingsSection: View {
     var body: some View {
         Group {
             if embedded {
-                Row { sectionLabel("Analysis") }
-                rows
-                    .tint(JcTheme.accent)
+                // Inside the wearable's card: the two groups under their own labels.
+                VStack(alignment: .leading, spacing: 0) {
+                    JcSectionLabel("Analysis", first: true).padding(.horizontal, JcUnified.cardPadding)
+                    analysisRows
+                    if let settings {
+                        JcRowSeparator(inset: 0)
+                        JcSectionLabel("Alerts", first: true).padding(.horizontal, JcUnified.cardPadding)
+                        alertRows(settings)
+                        JcRowSeparator()
+                        quietNote
+                            .padding(.horizontal, JcUnified.cardPadding)
+                            .padding(.vertical, 12)
+                    }
+                }
+                .tint(JcTheme.accent)
             } else {
-                CardGroup("Health analysis") { rows }
+                VStack(alignment: .leading, spacing: 0) {
+                    JcSectionLabel("Analysis", first: true)
+                    JcCard(padding: 0) { analysisRows }
+                    if let settings {
+                        JcSectionLabel("Alerts")
+                        JcCard(padding: 0) { alertRows(settings) }
+                        quietNote
+                            .padding(.horizontal, 4)
+                            .padding(.top, 8)
+                    }
+                }
+                .tint(JcTheme.accent)
+                .padding(.horizontal, JcUnified.pageInset)
             }
         }
         .disabled(working)
         .task { await health.refreshSettings() }
     }
 
-    /// How the server analyses: its schedule, model and alerts.
-    @ViewBuilder private var rows: some View {
-            Row {
-                Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-            }
+    /// How the server analyses: which ring, its schedule and model, and a run now.
+    @ViewBuilder private var analysisRows: some View {
+        Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
+            .font(.system(size: 12))
+            .foregroundStyle(JcTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 12)
+        JcRowSeparator()
 
-            if HealthRing.bothPaired() {
-                RowDivider()
-                Row {
-                    Picker("Ring for Jarvis Health", selection: Binding(
-                        get: { healthRing },
-                        set: { ring in
-                            healthRing = ring
-                            HealthRing.choose(ring)
-                        })) {
-                        ForEach(HealthRing.allCases.filter { WearableIdentity.remembered($0.kind) != nil }) { Text($0.label).tag($0) }
+        if HealthRing.bothPaired() {
+            JcRow(title: "Ring for Jarvis Health") {
+                Picker("Ring for Jarvis Health", selection: Binding(
+                    get: { healthRing },
+                    set: { ring in
+                        healthRing = ring
+                        HealthRing.choose(ring)
+                    })) {
+                    ForEach(HealthRing.allCases.filter { WearableIdentity.remembered($0.kind) != nil }) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .lineLimit(1)
+                .layoutPriority(1)
+            }
+        }
+
+        if let settings {
+            JcRow(title: "How often") {
+                Picker("How often", selection: Binding(
+                    get: { settings.frequency },
+                    set: { value in write(["frequency": value]) })) {
+                    ForEach(HealthSettings.frequencies, id: \.self) { option in
+                        Text(option.capitalized).tag(option)
                     }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .lineLimit(1)
+                .layoutPriority(1)
             }
-
-            if let settings {
-                RowDivider()
-                Row {
-                    Picker("How often", selection: Binding(
-                        get: { settings.frequency },
-                        set: { value in write(["frequency": value]) })) {
-                        ForEach(HealthSettings.frequencies, id: \.self) { option in
-                            Text(option.capitalized).tag(option)
-                        }
+            JcRow(title: "Model") {
+                Picker("Model", selection: Binding(
+                    get: { settings.model },
+                    set: { value in write(["model": value]) })) {
+                    Text("Chat model").tag("")
+                    ForEach(modelChoices, id: \.self) { model in
+                        Text(model).tag(model)
                     }
                 }
-                RowDivider()
-                Row {
-                    Picker("Model", selection: Binding(
-                        get: { settings.model },
-                        set: { value in write(["model": value]) })) {
-                        Text("Chat model").tag("")
-                        ForEach(modelChoices, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }
-                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .lineLimit(1)
+                .layoutPriority(1)
+            }
+        }
 
-                RowDivider()
-                Row { sectionLabel("Alerts") }
-                ForEach(HealthSettings.ruleOrder, id: \.key) { rule in
-                    RowDivider()
-                    Row {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Toggle(rule.label, isOn: Binding(
-                                get: { settings.rules[rule.key]?.enabled ?? true },
-                                set: { on in write(["rules": [rule.key: ["enabled": on]]]) }))
-                            if settings.rules[rule.key]?.enabled ?? true {
-                                Stepper(value: Binding(
-                                    get: { settings.rules[rule.key]?.threshold ?? 0 },
-                                    set: { value in write(["rules": [rule.key: ["threshold": value]]]) }),
-                                        in: rule.range, step: rule.step) {
-                                    Text(thresholdText(rule, settings)).font(.caption).foregroundStyle(JcTheme.muted)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                RowDivider()
-                Row {
-                    HStack {
-                        Text("Quiet hours").font(.subheadline)
-                        Spacer()
-                        Text("\(settings.quietHours.start) – \(settings.quietHours.end)")
-                            .font(.subheadline)
-                            .foregroundStyle(JcTheme.muted)
-                    }
-                }
-                RowDivider()
-                Row {
-                    Text("An alert inside quiet hours waits for the morning instead of waking you.")
-                        .font(.caption)
-                        .foregroundStyle(JcTheme.muted.opacity(0.7))
-                }
-            }
-
-            RowDivider()
-            Row {
-                HStack {
-                    Button("Run now") { runNow() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(JcTheme.accent)
-                    Spacer()
-                    if working { ProgressView().controlSize(.mini) }
-                }
-                .font(.subheadline)
-            }
-            if let runMessage {
-                RowDivider()
-                Row { Text(runMessage).font(.caption).foregroundStyle(JcTheme.muted) }
-            }
-            if let error = health.lastError {
-                RowDivider()
-                Row { Text(error).font(.caption).foregroundStyle(JcTheme.amber) }
-            }
+        HStack {
+            Button("Run now") { runNow() }
+                .buttonStyle(.plain)
+                .foregroundStyle(JcTheme.accent)
+            Spacer()
+            if working { ProgressView().controlSize(.mini) }
+        }
+        .font(.system(size: 15, weight: .medium))
+        .padding(.horizontal, JcUnified.cardPadding)
+        .frame(minHeight: 48)
+        if let runMessage {
+            JcRowSeparator()
+            note(runMessage, color: JcTheme.muted)
+        }
+        if let error = health.lastError {
+            JcRowSeparator()
+            note(error, color: JcTheme.amber)
+        }
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(JcText.small)
+    /// The alert thresholds and the quiet hours they respect.
+    @ViewBuilder private func alertRows(_ settings: HealthSettings) -> some View {
+        ForEach(HealthSettings.ruleOrder, id: \.key) { rule in
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: Binding(
+                    get: { settings.rules[rule.key]?.enabled ?? true },
+                    set: { on in write(["rules": [rule.key: ["enabled": on]]]) })) {
+                    Text(rule.label)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(JcTheme.text)
+                }
+                if settings.rules[rule.key]?.enabled ?? true {
+                    Stepper(value: Binding(
+                        get: { settings.rules[rule.key]?.threshold ?? 0 },
+                        set: { value in write(["rules": [rule.key: ["threshold": value]]]) }),
+                            in: rule.range, step: rule.step) {
+                        Text(thresholdText(rule, settings)).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                    }
+                }
+            }
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 12)
+            .frame(minHeight: 52)
+            JcRowSeparator()
+        }
+        JcRow(title: "Quiet hours", value: "\(settings.quietHours.start) – \(settings.quietHours.end)", last: true)
+    }
+
+    private var quietNote: some View {
+        Text("An alert inside quiet hours waits for the morning instead of waking you.")
+            .font(.system(size: 12))
             .foregroundStyle(JcTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func note(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(color)
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 10)
     }
 
     /// Models the app already offers for chat; the analysis uses the same list.

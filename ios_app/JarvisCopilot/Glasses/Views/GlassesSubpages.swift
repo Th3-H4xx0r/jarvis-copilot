@@ -440,10 +440,9 @@ struct GlassesAboutPage: View {
 
     private var batteryChart: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("Battery history", selection: $batteryWindow) {
-                Text("This session").tag("Current session"); Text("24 hours").tag("24 hours")
-            }
-            .pickerStyle(.segmented)
+            JcSegmentedPicker([("Current session", "This session"), ("24 hours", "24 hours")],
+                              selection: $batteryWindow)
+                .accessibilityLabel("Battery history")
             let lastConnection = device.history.samples.last?.connection
             let points = device.history.samples.filter {
                 batteryWindow == "Current session" ? $0.connection == lastConnection : Date().timeIntervalSince($0.date) <= 24 * 3600

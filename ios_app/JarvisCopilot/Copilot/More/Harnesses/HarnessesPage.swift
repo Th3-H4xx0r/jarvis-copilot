@@ -8,43 +8,50 @@ struct HarnessesPage: View {
     private var store: HarnessStore { HarnessStore.shared }
 
     var body: some View {
-        List {
-            Section {
-                Picker("Default", selection: Binding(
-                    get: { store.defaultID },
-                    set: { id in Task { await store.assign(id, to: "default") } })) {
-                    ForEach(store.harnesses) { Text($0.title).tag($0.id) }
+        ScrollView {
+            JcPageColumn {
+                JcSectionLabel("Defaults", first: true)
+                JcCard(padding: 0) {
+                    JcRow(title: "Default") {
+                        Picker("Default", selection: Binding(
+                            get: { store.defaultID },
+                            set: { id in Task { await store.assign(id, to: "default") } })) {
+                            ForEach(store.harnesses) { Text($0.title).tag($0.id) }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .tint(JcTheme.muted)
+                    }
+                    overrideRow("Voice", .voice)
+                    overrideRow("Chat", .chat, last: true)
                 }
-                overridePicker("Voice", .voice)
-                overridePicker("Chat", .chat)
-            } header: {
-                Text("Defaults")
-            } footer: {
-                Text("New chats, your devices, Telegram/iMessage and schedules use the Default; "
-                   + "Voice and Chat can use their own. A chat can still switch from its header.")
-            }
+                footer("New chats, your devices, Telegram/iMessage and schedules use the Default; "
+                       + "Voice and Chat can use their own. A chat can still switch from its header.")
 
-            Section("Harnesses") {
-                ForEach(store.harnesses) { harness in
-                    Button { editing = harness } label: { row(harness) }
-                        .swipeActions {
-                            if !harness.isBuiltin {
-                                Button("Delete", role: .destructive) {
-                                    Task { await store.delete(harness.id) }
+                JcSectionLabel("Harnesses")
+                JcCard(padding: 0) {
+                    ForEach(store.harnesses) { harness in
+                        row(harness, last: harness.id == store.harnesses.last?.id)
+                            .contextMenu {
+                                Button("Duplicate", systemImage: "plus.square.on.square") {
+                                    editing = copy(of: harness)
+                                }
+                                if !harness.isBuiltin {
+                                    Button("Delete", systemImage: "trash", role: .destructive) {
+                                        Task { await store.delete(harness.id) }
+                                    }
                                 }
                             }
-                            Button("Duplicate") { editing = copy(of: harness) }
-                                .tint(JcTheme.accent)
-                        }
+                    }
+                }
+
+                if let message = store.errorMessage {
+                    footer(message)
                 }
             }
-
-            if let message = store.errorMessage {
-                Section { Text(message).font(JcText.small).foregroundStyle(JcTheme.muted) }
-            }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
         .jcPageChrome("Harnesses")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -58,24 +65,41 @@ struct HarnessesPage: View {
         .refreshable { await store.refresh() }
     }
 
-    private func row(_ harness: AgentHarness) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(harness.title).foregroundStyle(JcTheme.text)
-                let uses = [store.defaultID == harness.id ? "Default" : nil,
-                            store.overrides["voice"] == harness.id ? "Voice" : nil,
-                            store.overrides["chat"] == harness.id ? "Chat" : nil].compactMap { $0 }
-                if harness.isBuiltin || !uses.isEmpty {
-                    Text(((harness.isBuiltin ? ["Built-in"] : []) + uses).joined(separator: " · "))
-                        .font(JcText.small)
-                        .foregroundStyle(JcTheme.muted)
+    /// A muted line under a card (the footer the old grouped list had).
+    private func footer(_ text: String) -> some View {
+        Text(text)
+            .font(JcText.small)
+            .foregroundStyle(JcTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+            .padding(.top, 8)
+    }
+
+    private func row(_ harness: AgentHarness, last: Bool) -> some View {
+        let uses = [store.defaultID == harness.id ? "Default" : nil,
+                    store.overrides["voice"] == harness.id ? "Voice" : nil,
+                    store.overrides["chat"] == harness.id ? "Chat" : nil].compactMap { $0 }
+        let subtitle = ((harness.isBuiltin ? ["Built-in"] : []) + uses).joined(separator: " · ")
+        return JcRow(title: harness.title, subtitle: subtitle.isEmpty ? nil : subtitle,
+                     last: last, action: { editing = harness }) {
+            HStack(spacing: 10) {
+                if !(harness.problems ?? []).isEmpty {
+                    JcIcon("exclamationmark.triangle").foregroundStyle(JcTheme.amber)
                 }
+                HarnessMiniDiagram(harness: harness)
+                JcRowChevron()
             }
-            if !(harness.problems ?? []).isEmpty {
-                JcIcon("exclamationmark.triangle").foregroundStyle(JcTheme.amber)
-            }
-            Spacer()
-            HarnessMiniDiagram(harness: harness)
+        }
+    }
+
+    private func overrideRow(_ title: String, _ surface: VoiceSurface, last: Bool = false) -> some View {
+        JcRow(title: title, last: last) {
+            overridePicker(title, surface)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .lineLimit(1)
+                .layoutPriority(1)
+                .tint(JcTheme.muted)
         }
     }
 

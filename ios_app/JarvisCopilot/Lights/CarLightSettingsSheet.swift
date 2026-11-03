@@ -34,10 +34,7 @@ struct CarLightSettingsSheet: View {
             ScrollView {
                 VStack(spacing: 18) {
                     header
-                    Picker("", selection: $tab) {
-                        ForEach(tabs) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: tabs, selection: $tab, label: \.rawValue)
                     .padding(.horizontal, 20)
                     Group {
                         switch tab {

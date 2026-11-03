@@ -337,10 +337,8 @@ struct AgentEditCard: View {
     }
     static let previewLines = 40
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        JcCard(padding: 0) {
             Button {
                 if !open, edit.lines.isEmpty, let i = edit.detailIndex { loadDetails(i) }
                 withAnimation(.snappy(duration: 0.24)) { open.toggle() }
@@ -407,9 +405,6 @@ struct AgentEditCard: View {
                 }
             }
         }
-        .background(JcTheme.glassFill, in: shape)
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
         .padding(.horizontal, 16)
     }
 }

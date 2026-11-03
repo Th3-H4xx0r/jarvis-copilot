@@ -19,7 +19,7 @@ struct Esp32DeviceView: View {
     @State private var resetNote: String?
     /// While a script owns the pins, manual controls step aside.
     private var scriptRunning: Bool { manager.script?.state == .running }
-    private var blue: Color { JcTheme.accent }
+    private var accent: Color { JcTheme.accent }
     private var green: Color { JcTheme.success }
     private var red: Color { JcTheme.danger }
 
@@ -80,9 +80,9 @@ struct Esp32DeviceView: View {
     private var hero: some View {
         VStack(spacing: 16) {
             ZStack {
-                Circle().fill(blue.opacity(0.12)).frame(width: 120, height: 120)
+                Circle().fill(accent.opacity(0.12)).frame(width: 120, height: 120)
                 JcIcon("cpu", size: 54, weight: .light)
-                    .foregroundStyle(blue)
+                    .foregroundStyle(accent)
                     .symbolEffect(.pulse, isActive: manager.state == .connecting || manager.state == .discovering)
             }
             .padding(.top, 8)
@@ -96,8 +96,8 @@ struct Esp32DeviceView: View {
                     MetricPill(icon: link.icon, label: "Link", value: link.label, tint: ready ? green : JcTheme.amber)
                 }
                 if let info = manager.info {
-                    MetricPill(icon: "number", label: "Firmware", value: info.firmwareString, tint: blue)
-                    MetricPill(icon: "clock", label: "Up", value: uptimeText(info.uptimeSeconds), tint: blue)
+                    MetricPill(icon: "number", label: "Firmware", value: info.firmwareString, tint: JcTheme.muted)
+                    MetricPill(icon: "clock", label: "Up", value: uptimeText(info.uptimeSeconds), tint: JcTheme.muted)
                 }
             }
         }
@@ -129,7 +129,7 @@ struct Esp32DeviceView: View {
             ActionButton(title: manager.ledOn ? "LED on" : "LED off",
                          icon: "lightbulb.fill",
                          isOn: manager.ledOn,
-                         tint: blue) {
+                         tint: accent) {
                 let target = !manager.ledOn
                 manager.perform { try await manager.setLED(target) }
             }
@@ -312,8 +312,8 @@ struct Esp32DeviceView: View {
         switch state {
         case .running:  return green
         case .error:    return red
-        case .finished: return blue
-        default:        return .orange
+        case .finished: return accent
+        default:        return JcTheme.amber
         }
     }
 
@@ -336,11 +336,8 @@ struct Esp32DeviceView: View {
                     HStack {
                         Text("Prefer")
                         Spacer(minLength: 12)
-                        Picker("Prefer", selection: $preference) {
-                            ForEach(Esp32LinkPreference.allCases) { Text($0.label).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        JcSegmented(items: Esp32LinkPreference.allCases, selection: $preference, label: \.label)
+                            .accessibilityLabel("Prefer")
                         .frame(width: 220)
                     }
                 }
@@ -440,7 +437,7 @@ struct Esp32DeviceView: View {
     private var cloudTint: Color {
         switch manager.cloud?.state ?? .off {
         case .connected:        return green
-        case .connecting, .paired: return blue
+        case .connecting, .paired: return accent
         case .failed, .expired: return red
         case .off:              return JcTheme.muted
         }
@@ -708,7 +705,7 @@ private struct Esp32WifiSheet: View {
                             HStack {
                                 Text(n.ssid)
                                 if n.ssid == manager.wifi?.ssid {
-                                    JcIcon("checkmark").foregroundStyle(.tint)
+                                    JcIcon("checkmark").foregroundStyle(JcTheme.accent)
                                 }
                                 Spacer()
                                 if joining == n.ssid { ProgressView().controlSize(.small) }
@@ -807,14 +804,14 @@ struct Esp32Card: View {
     /// When the board was last in range, for the offline pill.
     var lastSeen: Date? = nil
 
-    private var blue: Color { JcTheme.accent }
+    private var accent: Color { JcTheme.accent }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
                 JcIcon("cpu", size: 64, weight: .ultraLight)
-                    .foregroundStyle(blue.opacity(0.7))
+                    .foregroundStyle(accent.opacity(0.7))
                     .padding(.trailing, 34)
             }
 

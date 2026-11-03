@@ -263,13 +263,10 @@ struct DeviceView: View {
                 HStack {
                     Text("UV intensity")
                     Spacer(minLength: 12)
-                    Picker("UV intensity", selection: Binding(
+                    JcSegmented(items: UVIntensity.allCases, selection: Binding(
                         get: { s?.uvIntensity ?? .normal },
-                        set: { manager.send(.uvIntensity($0)) })) {
-                            ForEach(UVIntensity.allCases) { Text($0.label).tag($0) }
-                        }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                        set: { manager.send(.uvIntensity($0)) }), label: \.label)
+                    .accessibilityLabel("UV intensity")
                     .frame(width: 160)
                 }
             }

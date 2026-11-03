@@ -290,7 +290,7 @@ private struct LaunchTile<Icon: View>: View {
         self.icon = icon
     }
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 18, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous) }
 
     var body: some View {
         Button(action: action) {

@@ -41,10 +41,7 @@ struct BandBatteryView: View {
             VStack(alignment: .leading, spacing: 26) {
                 if let figures, figures.report.samples.count >= 2 {
                     BandBatteryHeadline(report: figures.report, live: session.battery)
-                    Picker("Range", selection: $span) {
-                        ForEach(Span.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: Span.allCases, selection: $span, label: \.rawValue)
                     BandBatteryCurve(report: figures.report, domain: figures.since...figures.report.now)
                     BandBatteryDays(days: figures.days, average: figures.perDay)
                     uses(figures)

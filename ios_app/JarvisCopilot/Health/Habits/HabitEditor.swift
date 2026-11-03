@@ -78,10 +78,8 @@ struct HabitEditor: View {
                     }
                     CardGroup("Relapse limit", footer: "The most you allow yourself. Days or months over it show in amber.") {
                         Row {
-                            Picker("Limit", selection: $limitKind.animation(.snappy)) {
-                                ForEach(LimitKind.allCases) { Text($0.rawValue).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
+                            JcSegmented(items: LimitKind.allCases, selection: $limitKind.animation(.snappy),
+                                        label: \.rawValue)
                         }
                         if limitKind != .none {
                             RowDivider()

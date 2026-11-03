@@ -45,10 +45,7 @@ struct CarLightsArrangeView: View {
                                  selected: selected, onTap: tap, onPan: pan)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Text(note ?? tool.hint).font(.caption).foregroundStyle(.secondary)
-                Picker("", selection: $tool) {
-                    ForEach(Tool.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: Tool.allCases, selection: $tool, label: \.rawValue)
                 .padding(.horizontal, 20)
                 if let lamp = selectedLamp {
                     HStack(spacing: 10) {

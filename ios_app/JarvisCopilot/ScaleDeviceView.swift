@@ -9,9 +9,9 @@ struct ScaleDeviceView: View {
     @State private var showingSettings = false
     @State private var renaming = false
 
-    private let blue = JcTheme.accent
-    /// A weighing in progress: the soft accent, apart from the connected cyan.
-    private let measuring = JcTheme.blue
+    /// The one UI accent: connected, and a weighing in progress.
+    private let accent = JcTheme.accent
+    private let measuring = JcTheme.accent
     private let green = JcTheme.success
 
     private var observation: ScaleObservation? { manager.latestObservation }
@@ -103,7 +103,7 @@ struct ScaleDeviceView: View {
                            value: scale.rssi == 0 ? "Known" : "\(scale.rssi) dBm",
                            tint: signalTint)
                 MetricPill(icon: "person.fill", label: "Profile",
-                           value: profile?.name ?? "Me", tint: blue)
+                           value: profile?.name ?? "Me", tint: JcTheme.muted)
             }
             .padding(.horizontal, 12)
         }
@@ -113,7 +113,7 @@ struct ScaleDeviceView: View {
         HStack {
             HStack(spacing: 8) {
                 JcIcon(connected ? "bluetooth" : "bluetooth.slash")
-                    .foregroundStyle(connected ? blue : JcTheme.muted)
+                    .foregroundStyle(connected ? accent : JcTheme.muted)
                 Text(connectionText)
             }
             Spacer()
@@ -174,7 +174,7 @@ struct ScaleDeviceView: View {
             }
 
             if recent.count > 1 {
-                ScaleTrendChart(readings: recent, unit: unit, tint: blue)
+                ScaleTrendChart(readings: recent, unit: unit, tint: accent)
                     .frame(height: 170)
             } else {
                 Text("Your trend appears after two stable measurements")
@@ -213,10 +213,7 @@ struct ScaleDeviceView: View {
                         if index > 0 { RowDivider() }
                         Row(minHeight: 58) {
                             HStack {
-                                ZStack {
-                                    Circle().fill(blue.opacity(0.14)).frame(width: 34, height: 34)
-                                    JcIcon("scalemass.fill").font(.caption).foregroundStyle(blue)
-                                }
+                                JcIconSquare(symbol: "scalemass.fill")
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(reading.date.formatted(date: .abbreviated, time: .shortened))
                                     if let fat = reading.metrics[.bodyFat] {
@@ -262,10 +259,10 @@ struct ScaleDeviceView: View {
     private var phaseTint: Color {
         if observation?.isStable == true { return green }
         if observation != nil { return measuring }
-        return connected ? blue : JcTheme.muted
+        return connected ? accent : JcTheme.muted
     }
     private var signalTint: Color {
-        switch scale.rssi { case 0: return blue; case (-68)...: return green; case (-82)..<(-68): return .orange; default: return .red }
+        switch scale.rssi { case 0: return JcTheme.muted; case (-68)...: return green; case (-82)..<(-68): return JcTheme.amber; default: return JcTheme.danger }
     }
     private var deltaText: String? {
         guard readings.count >= 2 else { return nil }
@@ -337,11 +334,8 @@ private struct ScaleSettingsView: View {
                 HStack {
                     Label("Display unit", jcIcon: "ruler")
                     Spacer(minLength: 12)
-                    Picker("Display unit", selection: $unit) {
-                        ForEach(WeightUnit.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    JcSegmented(items: WeightUnit.allCases, selection: $unit, label: \.label)
+                        .accessibilityLabel("Display unit")
                     .frame(width: 164)
                 }
             }

@@ -69,11 +69,8 @@ struct DeviceDetailsView: View {
                 HStack {
                     Text("Temperature")
                     Spacer(minLength: 12)
-                    Picker("Temperature", selection: $tempUnit) {
-                        ForEach(TemperatureUnit.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    JcSegmented(items: TemperatureUnit.allCases, selection: $tempUnit, label: \.label)
+                        .accessibilityLabel("Temperature")
                     .frame(width: 130)
                 }
             }

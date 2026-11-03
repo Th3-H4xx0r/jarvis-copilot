@@ -612,10 +612,8 @@ struct BandSettingsView: View {
             HStack {
                 Text(title)
                 Spacer()
-                Picker(title, selection: selection) {
-                    ForEach(options) { Text($0[keyPath: label]).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: options, selection: selection, label: { $0[keyPath: label] })
+                    .accessibilityLabel(title)
                 .frame(maxWidth: 170)
             }
         }

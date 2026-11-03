@@ -35,7 +35,7 @@ struct WidgetEditor: View {
                 if let message {
                     Text(message)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

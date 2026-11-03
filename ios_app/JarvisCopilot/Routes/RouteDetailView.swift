@@ -233,11 +233,9 @@ struct RouteDetailView: View {
             .padding(.top, onSave == nil ? 4 : 40)
 
             if colourings.count > 1 {
-                Picker("Colour the route by", selection: $colouring) {
-                    ForEach(colourings) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
+                JcSegmented(items: colourings, selection: $colouring, label: \.title)
+                    .accessibilityLabel("Colour the route by")
+                    .padding(.horizontal, 16)
                 if colouring != .plain { RouteLegend(colouring: colouring).padding(.horizontal, 20) }
             }
         }
@@ -292,10 +290,8 @@ struct RouteDetailView: View {
         return CardGroup("Profile") {
             VStack(alignment: .leading, spacing: 12) {
                 if kinds.count > 1 {
-                    Picker("Profile", selection: $profile) {
-                        ForEach(kinds) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: kinds, selection: $profile, label: \.title)
+                        .accessibilityLabel("Profile")
                 }
                 readout
                 if points.count >= 2 {
@@ -524,10 +520,8 @@ struct RouteFullMap: View {
         .safeAreaInset(edge: .bottom) {
             if colourings.count > 1 {
                 VStack(spacing: 10) {
-                    Picker("Colour the route by", selection: $colouring) {
-                        ForEach(colourings) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: colourings, selection: $colouring, label: \.title)
+                        .accessibilityLabel("Colour the route by")
                     if colouring != .plain { RouteLegend(colouring: colouring) }
                 }
                 .padding(14)

@@ -257,13 +257,11 @@ struct WebBrowserSettingsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Browser engine")
             GlassGroup {
-                Picker("Engine", selection: Binding(
+                JcSegmentedPicker([("lightpanda", "Lightpanda first"), ("chrome", "Chrome only")],
+                                  selection: Binding(
                     get: { store.settings.engine },
-                    set: { value in Task { await store.setEngine(value) } })) {
-                    Text("Lightpanda first").tag("lightpanda")
-                    Text("Chrome only").tag("chrome")
-                }
-                .pickerStyle(.segmented)
+                    set: { value in Task { await store.setEngine(value) } }))
+                .accessibilityLabel("Engine")
                 .padding(14)
             }
             if store.loaded {

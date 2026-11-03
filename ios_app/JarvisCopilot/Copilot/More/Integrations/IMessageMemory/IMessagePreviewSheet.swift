@@ -89,10 +89,7 @@ struct IMessagePreviewSheet: View {
     }
 
     private var tabPicker: some View {
-        Picker("Show", selection: $tab) {
-            ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
+        JcSegmented(items: Tab.allCases, selection: $tab, label: \.rawValue)
         .padding(.horizontal, 16)
     }
 

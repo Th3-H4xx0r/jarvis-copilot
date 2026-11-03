@@ -442,10 +442,8 @@ struct HealthUnitCard: View {
                 HStack {
                     Text("Unit")
                     Spacer()
-                    Picker("Unit", selection: selection) {
-                        ForEach(options) { Text($0[keyPath: label]).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: options, selection: selection, label: { $0[keyPath: label] })
+                        .accessibilityLabel("Unit")
                     .frame(maxWidth: 170)
                 }
             }

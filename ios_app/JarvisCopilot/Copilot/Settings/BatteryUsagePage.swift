@@ -29,10 +29,7 @@ struct BatteryUsagePage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                Picker("Range", selection: $span) {
-                    ForEach(Span.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: Span.allCases, selection: $span, label: \.rawValue)
 
                 let summary = self.summary
                 if summary.hours.isEmpty {

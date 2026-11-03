@@ -125,15 +125,13 @@ struct AgentRecapCard: View {
     }
 
     private func tile(_ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value).font(.system(size: 22, weight: .semibold, design: .rounded))
-                .foregroundStyle(JcTheme.text).lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.system(size: 12)).foregroundStyle(JcTheme.muted).lineLimit(1)
+        JcCard {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(value).font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .foregroundStyle(JcTheme.text).lineLimit(1).minimumScaleFactor(0.6)
+                Text(label).font(.system(size: 12)).foregroundStyle(JcTheme.muted).lineLimit(1)
+            }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private func highlight(_ icon: String, _ label: String, _ value: String) -> some View {

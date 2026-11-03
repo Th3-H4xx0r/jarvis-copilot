@@ -34,10 +34,7 @@ struct HealthHistoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Picker("Range", selection: $range) {
-                    ForEach(metric.ranges) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                JcSegmented(items: metric.ranges, selection: $range, label: \.rawValue)
                 .padding(.horizontal, 20)
 
                 if range == .day {

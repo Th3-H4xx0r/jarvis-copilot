@@ -87,12 +87,9 @@ struct WidgetBlockInspector: View {
                 if isChart {
                     CardGroup("Chart") {
                         Row {
-                            Picker("Style", selection: optionalString($block.chartStyle)) {
-                                Text("Line").tag("line")
-                                Text("Bars").tag("bar")
-                                Text("Area").tag("area")
-                            }
-                            .pickerStyle(.segmented)
+                            JcSegmentedPicker([("line", "Line"), ("bar", "Bars"), ("area", "Area")],
+                                              selection: optionalString($block.chartStyle))
+                                .accessibilityLabel("Style")
                         }
                     }
                 }

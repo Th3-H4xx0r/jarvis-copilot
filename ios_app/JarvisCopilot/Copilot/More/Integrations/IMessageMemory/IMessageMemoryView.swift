@@ -387,11 +387,7 @@ struct IMessageMemoryView: View {
             RowDivider()
             Row {
                 VStack(alignment: .leading, spacing: 10) {
-                    Picker("Chats", selection: $allTicked) {
-                        Text("All ticked").tag(true)
-                        Text("Choose").tag(false)
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmentedPicker([(true, "All ticked"), (false, "Choose")], selection: $allTicked)
                     if !allTicked {
                         Button {
                             if chosen.isEmpty { chosen = Set(card.chats.filter(\.effective).map(\.guid)) }

@@ -308,10 +308,9 @@ struct DashcamPlayerView: View {
         ScrollView {
             VStack(spacing: 14) {
                 if partner(of: model.clip) != nil {
-                    Picker("Lens", selection: Binding(get: { mode }, set: { mode = $0; choose($0) })) {
-                        ForEach(LensMode.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    JcSegmented(items: LensMode.allCases,
+                                selection: Binding(get: { mode }, set: { mode = $0; choose($0) }),
+                                label: \.rawValue)
                     .padding(.horizontal, 20)
                 }
                 media

@@ -367,11 +367,7 @@ struct BandEcgReportView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text(report.rhythm).font(JcText.body.weight(.semibold)).padding(.horizontal, 20)
                 strip
-                Picker("", selection: $tab) {
-                    Text("Value").tag(0)
-                    Text("Analysis").tag(1)
-                }
-                .pickerStyle(.segmented)
+                JcSegmentedPicker([(0, "Value"), (1, "Analysis")], selection: $tab)
                 .padding(.horizontal, 20)
                 if tab == 0 { valueTab } else { analysisTab }
                 Text("A wrist-band ECG is a wellness estimate, not a medical diagnosis. If you feel unwell, see a doctor.")

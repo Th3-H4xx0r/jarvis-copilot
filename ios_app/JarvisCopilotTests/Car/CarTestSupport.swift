@@ -43,8 +43,19 @@ final class ControlRecorder {
     var received: [WearableControlValue] = []
 
     func control(_ id: String, _ kind: WearableControl.Kind, enabled: Bool = true) -> WearableControl {
-        WearableControl(id: id, title: id.capitalized, symbol: "power", kind: kind, enabled: enabled) { [weak self] value in
+        WearableControl(id: id, title: Self.title(id), symbol: "power", kind: kind, enabled: enabled) { [weak self] value in
             self?.received.append(value)
+        }
+    }
+
+    /// The readable name a real control shows ("lights.power" → "Lights", as the car lights
+    /// name theirs), never the raw id the renders used to show ("Lights.Power").
+    static func title(_ id: String) -> String {
+        let name = id.split(separator: ".").last.map(String.init) ?? id
+        switch name {
+        case "power": return "Lights"
+        case "color": return "Colour"
+        default: return name.prefix(1).uppercased() + name.dropFirst()
         }
     }
 }

@@ -168,8 +168,8 @@ struct DashcamAddDestinationView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                Picker("Type", selection: $kind) { ForEach(Kind.allCases) { Text($0.label).tag($0) } }
-                    .pickerStyle(.segmented).padding(.horizontal, 20)
+                JcSegmented(items: Kind.allCases, selection: $kind, label: \.label)
+                    .padding(.horizontal, 20)
                 CardGroup {
                     field("Name", text: $name, placeholder: kind.label)
                     RowDivider()

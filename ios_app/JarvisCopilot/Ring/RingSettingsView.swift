@@ -270,11 +270,8 @@ struct RingSettingsView: View {
     private var profileSection: some View {
         CardGroup("Profile", footer: "The ring uses these for calories and distance.") {
             Row {
-                Picker("Sex", selection: $profile.female) {
-                    Text("Male").tag(false)
-                    Text("Female").tag(true)
-                }
-                .pickerStyle(.segmented)
+                JcSegmentedPicker([(false, "Male"), (true, "Female")], selection: $profile.female)
+                    .accessibilityLabel("Sex")
             }
             RowDivider()
             Row { Stepper("Age \(profile.age)", value: $profile.age, in: 10...100) }
@@ -323,7 +320,7 @@ struct RingSettingsView: View {
                     Row {
                         // The app's unit changes at once; the ring's copy follows
                         // when it answers, and the server keeps it for the analysis.
-                        Picker("Temperature unit", selection: Binding(
+                        JcSegmentedPicker([(true, "°C"), (false, "°F")], selection: Binding(
                             get: { temperatureUnit == .celsius },
                             set: { celsius in
                                 temperatureUnit = celsius ? .celsius : .fahrenheit
@@ -331,11 +328,8 @@ struct RingSettingsView: View {
                                     _ = await health.updateSettings(["temperature_unit": celsius ? "celsius" : "fahrenheit"])
                                     return await session.saveTemperatureUnit(celsius: celsius)
                                 }
-                            })) {
-                            Text("°C").tag(true)
-                            Text("°F").tag(false)
-                        }
-                        .pickerStyle(.segmented)
+                            }))
+                        .accessibilityLabel("Temperature unit")
                     }
                     RowDivider()
                 }
