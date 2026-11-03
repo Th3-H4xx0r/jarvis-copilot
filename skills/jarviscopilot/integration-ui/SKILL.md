@@ -78,6 +78,9 @@ u.reply(toast=f"Added {name}")      # no state: load runs again
 **Design for the app.** It is a dark app with one accent colour, large-title pages and
 small labels over cards. Follow it:
 
+- **The app frames the card for you:** it already sits in a card with the integration's
+  icon and name on top. So the card tree has no title of its own and no `section`; its
+  root is a `vstack` (or a `grid`/`hstack`).
 - **Card = a glance plus one or two quick actions.** One headline number or status, at
   most three short rows, and a button or two. 10–25 nodes; nothing that scrolls.
 - **Page = sections of cards.** Top-level `section`s with short titles ("Today", "Add",

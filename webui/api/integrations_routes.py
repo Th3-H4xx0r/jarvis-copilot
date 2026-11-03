@@ -39,6 +39,16 @@ _NOT_OURS = {"photon"}
 _RESERVED_IDS = _NOT_OURS | {"ui"}
 
 
+def is_ui_path(path: str) -> bool:
+    """The routes that run an integration's UI scripts (and nothing in cron.jobs)."""
+    if path == "/api/integration-cards":
+        return True
+    if not path.startswith("/api/integrations/"):
+        return False
+    tail = path[len("/api/integrations/"):].strip("/").partition("/")[2]
+    return tail in ("ui", "ui/action")
+
+
 def _registry():
     from jarvis_registry.store import shared
 
@@ -320,7 +330,11 @@ def _delete_space(handler, space_id: str, body) -> bool:
     space = reg.open(space_id)
     if want("data"):
         collections = [c["name"] for c in space.collections()]
-        documents = [d["key"] for d in space.documents()]
+        # The UI is how the integration looks, not data it keeps: clearing its data
+        # (with the space kept) leaves the UI, as the count the phone showed did.
+        from jarvis_registry.ui import UI_KEY
+
+        documents = [d["key"] for d in space.documents() if d["key"] != UI_KEY]
         for name in collections:
             space.delete_collection(name)
         for key in documents:

@@ -312,3 +312,29 @@ def test_cards_only_for_active_integrations_with_a_card(reg):
     assert by_id["shop"]["card"]["type"] == "vstack"
     assert by_id["shop"]["confirms"] == {"add_item": "Add it?"}
     assert by_id["broken"]["error"]
+
+
+def test_an_action_named_like_a_stdlib_module_does_not_hijack_load(reg):
+    # `json` / `random` as action names used to shadow the stdlib for every script
+    # in the space (the script folder sat first on sys.path).
+    reg.space("shop", name="Shop")
+    doc = good_doc()
+    doc["scripts"]["json"] = {"code": "raise SystemExit('json ran')"}
+    doc["scripts"]["random"] = {"code": "raise SystemExit('random ran')"}
+    ui.save_ui("shop", doc)
+    assert ui.run_action("shop", "json")["error"]       # create both files on disk
+    assert ui.run_action("shop", "random")["error"]
+    out = ui.load_state("shop")
+    assert out["error"] is None
+    assert out["state"] == {"items": [], "count": 0}
+
+
+def test_runaway_output_is_capped(reg, monkeypatch):
+    monkeypatch.setattr(ui, "MAX_OUTPUT_BYTES", 10_000)
+    reg.space("shop", name="Shop")
+    doc = good_doc()
+    doc["scripts"]["spam"] = {"code": "import sys\nwhile True:\n    sys.stdout.write('x' * 4096)\n"}
+    ui.save_ui("shop", doc)
+    out = ui.run_action("shop", "spam", timeout=20)
+    assert out["ok"] is False
+    assert "printed more than" in out["error"]

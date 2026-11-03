@@ -722,7 +722,9 @@ def _run_script(space_id: str, name: str, code: str, payload: dict,
     folder = _script_dir(space_id)
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{name}.py"
+        # Never `<name>.py`: a script called `random` or `json` would shadow the
+        # stdlib module for every other script (PYTHONSAFEPATH below closes that too).
+        path = folder / f"script_{name}.py"
         tmp = folder / f".{name}.{os.getpid()}.{threading.get_ident()}.tmp"
         tmp.write_text(code, encoding="utf-8")
         os.replace(tmp, path)
@@ -738,6 +740,8 @@ def _run_script(space_id: str, name: str, code: str, payload: dict,
     except Exception:
         pass
     env.setdefault("PYTHONIOENCODING", "utf-8")
+    # The script's own folder is not put first on sys.path.
+    env["PYTHONSAFEPATH"] = "1"
 
     try:
         proc = subprocess.Popen(
@@ -746,18 +750,15 @@ def _run_script(space_id: str, name: str, code: str, payload: dict,
             start_new_session=(os.name == "posix"))
     except OSError as exc:
         return {"error": f"could not start the {name} script: {exc}"}
-    try:
-        out, err = proc.communicate(json.dumps(payload, default=str).encode("utf-8"),
-                                    timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill(proc)
-        try:
-            _out, err = proc.communicate(timeout=5)
-        except Exception:
-            err = b""
+    out, err, over, timed_out = _collect(proc, json.dumps(payload, default=str).encode("utf-8"),
+                                         timeout)
+    if timed_out:
         tail = _tail(err.decode("utf-8", "replace"))
         return {"error": f"the {name} script took longer than {timeout:g} s"
                          + (f": {tail}" if tail else "")}
+    if over:
+        return {"error": f"the {name} script printed more than "
+                         f"{MAX_OUTPUT_BYTES // (1024 * 1024)} MB"}
 
     stderr = _tail(err.decode("utf-8", "replace"))
     if proc.returncode != 0:
@@ -786,6 +787,61 @@ def _run_script(space_id: str, name: str, code: str, payload: dict,
         except ValueError:
             return {"error": f"the {name} script's state has NaN or Infinity in it"}
     return result
+
+
+def _collect(proc: subprocess.Popen, stdin: bytes, timeout: float) -> tuple[bytes, bytes, bool, bool]:
+    """Feed stdin, read stdout up to MAX_OUTPUT_BYTES (killing a runaway printer) and
+    the last STDERR_TAIL*4 bytes of stderr. Returns (out, err, over_cap, timed_out)."""
+    out = bytearray()
+    err = bytearray()
+    over = threading.Event()
+
+    def read_out() -> None:
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                return
+            if len(out) + len(chunk) > MAX_OUTPUT_BYTES:
+                over.set()
+                _kill(proc)
+                return
+            out.extend(chunk)
+
+    def read_err() -> None:
+        while True:
+            chunk = proc.stderr.read(65536)
+            if not chunk:
+                return
+            err.extend(chunk)
+            if len(err) > STDERR_TAIL * 4:
+                del err[:len(err) - STDERR_TAIL * 4]
+
+    readers = [threading.Thread(target=read_out, daemon=True),
+               threading.Thread(target=read_err, daemon=True)]
+    for t in readers:
+        t.start()
+    try:
+        proc.stdin.write(stdin)
+    except (BrokenPipeError, OSError):
+        pass
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill(proc)
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    for t in readers:
+        t.join(timeout=5)
+    return bytes(out), bytes(err), over.is_set(), timed_out
 
 
 def _kill(proc: subprocess.Popen) -> None:
@@ -845,6 +901,15 @@ def _load(space_id: str, doc: dict, timeout: float) -> dict:
     return {"state": result["state"], "error": None, "version": version}
 
 
+_space_locks: dict[str, threading.Lock] = {}
+_space_locks_guard = threading.Lock()
+
+
+def _space_lock(space_id: str) -> threading.Lock:
+    with _space_locks_guard:
+        return _space_locks.setdefault(space_id, threading.Lock())
+
+
 def run_action(space_id: str, action: str, event: Optional[dict] = None,
                timeout: float = ACTION_TIMEOUT) -> dict:
     """Run one action script. Returns ``{"ok", "state", "toast", "error", "version"}``."""
@@ -869,10 +934,13 @@ def run_action(space_id: str, action: str, event: Optional[dict] = None,
 
     payload = {"event": _event(action, event), "state": _cached(space_id),
                "integration": space_id}
-    try:
-        result = _run_script(space_id, action, script["code"], payload, timeout)
-    except Exception as exc:
-        result = {"error": f"the {action} script could not run: {exc}"}
+    # One action at a time per integration: scripts read, change and rewrite the
+    # same document, so two quick taps must not interleave.
+    with _space_lock(space_id):
+        try:
+            result = _run_script(space_id, action, script["code"], payload, timeout)
+        except Exception as exc:
+            result = {"error": f"the {action} script could not run: {exc}"}
     toast = _text(result.get("toast"))
     error = _text(result.get("error"))
     state = result.get("state")
@@ -918,7 +986,8 @@ def cards(budget: float = CARDS_BUDGET) -> list[dict]:
     futures = [pool.submit(_load, row["id"], doc, min(budget, LOAD_TIMEOUT))
                for row, doc in wanted]
     wait(futures, timeout=budget + 2)
-    pool.shutdown(wait=False)
+    # Loads still queued past the budget never start once the reply has gone.
+    pool.shutdown(wait=False, cancel_futures=True)
 
     out = []
     for (row, doc), future in zip(wanted, futures):

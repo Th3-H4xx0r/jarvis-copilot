@@ -3778,14 +3778,21 @@ def handle_get(handler, parsed) -> bool:
             or parsed.path.startswith("/api/integrations/")):
         # The Integrations page (web + phone): what exists, what it holds, what it runs,
         # and each integration's own card (/api/integration-cards).
-        from api.integrations_routes import handle_get as _integrations_get
+        from api.integrations_routes import handle_get as _integrations_get, is_ui_path
         from api.profiles import cron_profile_context
 
-        # Wrapped like every other cron entry point: these read and write
-        # jobs.json through cron.jobs, which resolves the profile at call time.
-        with cron_profile_context():
+        # An integration's UI runs its scripts (up to tens of seconds) and never
+        # touches cron.jobs: outside the process-wide cron lock, or every other
+        # integrations/crons request on every device waits behind it.
+        if is_ui_path(parsed.path):
             if _integrations_get(handler, parsed):
                 return True
+        else:
+            # Wrapped like every other cron entry point: these read and write
+            # jobs.json through cron.jobs, which resolves the profile at call time.
+            with cron_profile_context():
+                if _integrations_get(handler, parsed):
+                    return True
 
     if parsed.path in ("/api/devices/pod/recordings", "/api/devices/pod/recordings/audio"):
         # The Jarvis Pod's saved voice turns (list / WAV), for the phone's pod page.
@@ -6702,14 +6709,19 @@ def handle_post(handler, parsed) -> bool:
             return True
 
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
-        from api.integrations_routes import handle_post as _integrations_post
+        from api.integrations_routes import handle_post as _integrations_post, is_ui_path
         from api.profiles import cron_profile_context
 
-        # Wrapped like every other cron entry point: these read and write
-        # jobs.json through cron.jobs, which resolves the profile at call time.
-        with cron_profile_context():
+        if is_ui_path(parsed.path):
+            # A UI action runs a script; see the GET side for why it skips the cron lock.
             if _integrations_post(handler, parsed, body):
                 return True
+        else:
+            # Wrapped like every other cron entry point: these read and write
+            # jobs.json through cron.jobs, which resolves the profile at call time.
+            with cron_profile_context():
+                if _integrations_post(handler, parsed, body):
+                    return True
 
     # ── Invoke a device-exposed skill ──
     # POST /api/devices/skills/invoke
