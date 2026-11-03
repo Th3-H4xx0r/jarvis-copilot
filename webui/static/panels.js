@@ -1364,7 +1364,7 @@ function _kanbanCard(task, status){
     <div class="kanban-card-topline"><span class="kanban-card-id">${esc(task.id || '')}</span>${priority ? `<span class="kanban-badge priority">P${priority}</span>` : ''}${task.tenant ? `<span class="kanban-badge tenant">${esc(task.tenant)}</span>` : ''}</div>
     <div class="kanban-card-title">${esc(_kanbanTaskTitle(task))}</div>
     ${body ? `<div class="kanban-card-body">${_kanbanRenderMarkdown(body)}</div>` : ''}
-    <div class="kanban-card-meta">${assignee}${comments ? `<span class="kanban-card-metric">💬 ${comments}</span>` : ''}${linkTotal ? `<span class="kanban-card-metric">↔ ${linkTotal}</span>` : ''}${age ? `<span class="kanban-card-age">${esc(age)}</span>` : ''}</div>
+    <div class="kanban-card-meta">${assignee}${comments ? `<span class="kanban-card-metric" title="Comments">${li('message-square', 12)}${comments}</span>` : ''}${linkTotal ? `<span class="kanban-card-metric" title="Links">${li('git-branch', 12)}${linkTotal}</span>` : ''}${age ? `<span class="kanban-card-age">${esc(age)}</span>` : ''}</div>
     ${_kanbanCardQuickActions(task)}
   </article>`;
 }
