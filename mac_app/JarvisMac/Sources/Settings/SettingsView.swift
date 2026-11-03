@@ -8,9 +8,11 @@ import SwiftUI
 enum SettingsWindow {
     private static var window: NSWindow?
 
-    static func show(model: AppModel) {
+    /// `tab`: "general", "agents", "mac-power", "voice", "flow" or "shortcuts".
+    static func show(model: AppModel, tab: String? = nil) {
+        if let tab { SettingsNav.shared.tab = tab }
         if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
                              styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "Jarvis Settings"
             w.isReleasedWhenClosed = false
@@ -23,20 +25,30 @@ enum SettingsWindow {
     }
 }
 
+/// Which Settings tab shows (a jarvismac://settings/<tab> link can pick it).
+@MainActor
+@Observable
+final class SettingsNav {
+    static let shared = SettingsNav()
+    var tab = "general"
+}
+
 struct SettingsView: View {
     let model: AppModel
+    @Bindable private var nav = SettingsNav.shared
 
     var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            AgentsSettings(model: model).tabItem { Label("Agents", systemImage: "terminal") }
-            MacPowerSettings(model: model).tabItem { Label("Mac power", systemImage: "bolt") }
-            VoiceSettings().tabItem { Label("Voice", systemImage: "waveform") }
-            FlowSettings().tabItem { Label("Flow", systemImage: "text.bubble") }
-            ShortcutsSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
+        TabView(selection: $nav.tab) {
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            AgentsSettings(model: model).tabItem { Label("Agents", systemImage: "terminal") }.tag("agents")
+            MacPowerSettings(model: model).tabItem { Label("Mac power", systemImage: "bolt") }.tag("mac-power")
+            VoiceSettings().tabItem { Label("Voice", systemImage: "waveform") }.tag("voice")
+            FlowSettings().tabItem { Label("Flow", systemImage: "text.bubble") }.tag("flow")
+            ShortcutsSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag("shortcuts")
         }
         .padding(20)
-        .frame(width: 560, height: 520)
+        // wide enough for all six tabs: narrower, macOS tucks the last ones behind »
+        .frame(width: 720, height: 560)
     }
 }
 

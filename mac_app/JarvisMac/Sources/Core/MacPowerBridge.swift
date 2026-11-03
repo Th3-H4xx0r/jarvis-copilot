@@ -43,4 +43,13 @@ extension AppDelegate {
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         MacPowerBridge.didReceive(userInfo)
     }
+
+    /// jarvismac://settings[/<tab>] opens Jarvis Settings (e.g. /mac-power); the app
+    /// has no menu bar icon, so this is the direct way in.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "jarvismac" && url.host == "settings" {
+            let tab = url.pathComponents.dropFirst().first
+            SettingsWindow.show(model: AppModel.shared, tab: tab)
+        }
+    }
 }
