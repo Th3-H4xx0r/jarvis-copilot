@@ -135,7 +135,7 @@ def test_a_failing_action_says_why(reg, sent):
     assert sent["status"] == 400
 
 
-def test_cards_skip_paused_and_cardless_and_carry_errors(reg, sent):
+def test_cards_keep_paused_skip_cardless_and_carry_errors(reg, sent):
     reg.space("shop", name="Shopping", icon="cart")
     ui.save_ui("shop", doc())
     reg.space("paused", name="Paused")
@@ -151,7 +151,7 @@ def test_cards_skip_paused_and_cardless_and_carry_errors(reg, sent):
 
     assert get("/api/integration-cards") is True
     cards = {c["id"]: c for c in sent["body"]["cards"]}
-    assert set(cards) == {"shop", "broken"}
+    assert set(cards) == {"shop", "broken", "paused"}
     shop = cards["shop"]
     assert shop == {"id": "shop", "name": "Shopping", "icon": "cart", "version": 1,
                     "card": doc()["presentations"]["card"],

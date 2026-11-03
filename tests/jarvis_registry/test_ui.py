@@ -284,7 +284,7 @@ def test_fail_helper_reports_its_message(reg):
                    "error": "Type a name first", "version": 1}
 
 
-def test_cards_only_for_active_integrations_with_a_card(reg):
+def test_cards_for_live_integrations_with_a_card(reg):
     reg.space("shop", name="Shopping", icon="cart")
     ui.save_ui("shop", good_doc())
 
@@ -304,9 +304,13 @@ def test_cards_only_for_active_integrations_with_a_card(reg):
 
     reg.space("plain", name="Plain")
 
+    reg.space("gone", name="Archived")
+    ui.save_ui("gone", good_doc())
+    reg.set_status("gone", "archived")
+
     cards = ui.cards()
     by_id = {c["id"]: c for c in cards}
-    assert set(by_id) == {"shop", "broken"}
+    assert set(by_id) == {"shop", "broken", "paused"}
     assert by_id["shop"]["state"]["count"] == 0 and by_id["shop"]["error"] is None
     assert by_id["shop"]["icon"] == "cart" and by_id["shop"]["name"] == "Shopping"
     assert by_id["shop"]["card"]["type"] == "vstack"

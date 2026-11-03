@@ -967,7 +967,9 @@ def cards(budget: float = CARDS_BUDGET) -> list[dict]:
     reg = _registry()
     wanted: list[tuple[dict, dict]] = []
     for row in reg.spaces():
-        if row.get("status") != "active":
+        # A paused integration keeps its card (it can say so and offer Resume);
+        # an archived one is gone from the tab.
+        if row.get("status") not in ("active", "paused"):
             continue
         try:
             doc = get_ui(row["id"])
