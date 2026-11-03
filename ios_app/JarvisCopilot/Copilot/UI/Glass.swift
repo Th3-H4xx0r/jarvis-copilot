@@ -265,37 +265,65 @@ struct JcEmptyState: View {
     }
 }
 
-/// Segmented control in the Voice register: one translucent track, the
-/// selected segment lifted with a soft white fill rather than an accent tint.
+/// The one in-page filter: the grey segmented capsule (Devices' Server | Wearables).
+/// A dark track, the chosen segment a lighter grey capsule, every label in the
+/// primary text colour — the accent is not used for selection here. With many
+/// items (Health's days) it scrolls sideways instead of squeezing.
 struct JcSegmented<T: Hashable & Identifiable>: View {
     let items: [T]
     @Binding var selection: T
     let label: (T) -> String
     var symbol: ((T) -> String)? = nil
+    /// Scroll sideways rather than share the width. `nil`: when there are more than four.
+    var scrolls: Bool? = nil
+
+    private var scrolling: Bool { scrolls ?? (items.count > 4) }
 
     var body: some View {
+        if scrolling {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    track(fill: false)
+                }
+                .clipShape(Capsule())
+                .onAppear { proxy.scrollTo(selection.id, anchor: .center) }
+                .onChange(of: selection) { _, new in
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(new.id, anchor: .center) }
+                }
+            }
+        } else {
+            track(fill: true)
+        }
+    }
+
+    private func track(fill: Bool) -> some View {
         HStack(spacing: 2) {
             ForEach(items) { item in
                 let selected = item == selection
                 Button { selection = item } label: {
                     HStack(spacing: 6) {
-                        if let symbol { JcIcon(symbol(item)).font(.system(size: 12.5)) }
-                        Text(label(item)).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        if let symbol { JcIcon(symbol(item), size: 12.5) }
+                        Text(label(item))
+                            .font(.system(size: 14, weight: selected ? .semibold : .medium))
+                            .lineLimit(1)
                     }
-                    .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .foregroundStyle(selected ? JcTheme.text : JcTheme.text.opacity(0.78))
+                    .frame(maxWidth: fill ? .infinity : nil)
+                    .padding(.horizontal, fill ? 10 : 16)
+                    .padding(.vertical, 7)
                     .background {
-                        if selected { Capsule().fill(.white.opacity(0.10)) }
+                        if selected { Capsule().fill(Color(white: 0.30)) }
                     }
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .id(item.id)
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .animation(.easeInOut(duration: 0.18), value: selected)
             }
         }
         .padding(3)
-        .background(.white.opacity(0.045), in: Capsule())
+        .background(Color(white: 0.11), in: Capsule())
     }
 }
 

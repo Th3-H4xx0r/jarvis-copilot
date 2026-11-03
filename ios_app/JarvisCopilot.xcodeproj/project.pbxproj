@@ -858,6 +858,7 @@
 		B00E1EC3B64FBA5A11D33ADA /* DashcamModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67EB054531689897A7EDDCC8 /* DashcamModels.swift */; };
 		B0209E955CF01B7D1994DEC6 /* RingHand.bin in Resources */ = {isa = PBXBuildFile; fileRef = 92D3CD2A60E7E33865C04CFF /* RingHand.bin */; };
 		B079336A1EA7B57B8EAD0866 /* OutdoorWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90955E444C718E5493C81D0D /* OutdoorWorkoutTests.swift */; };
+		B117A25A21128DD7555608F1 /* JcUnified.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51B9B9ECE349E04BA2068FA /* JcUnified.swift */; };
 		B13550069E805888DEB90DB6 /* RingFirmwareUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A934815D6CF5D882A1864B41 /* RingFirmwareUpdateTests.swift */; };
 		B1A48C98CB91A20B50E943A9 /* GlassesTranslateWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2C1F4FE59B3E43C5DA5EE /* GlassesTranslateWire.swift */; };
 		B1B785257FD986B2B83B352A /* WatchReplyContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03B77A548BAE82FDD698C5E /* WatchReplyContractTests.swift */; };
@@ -2278,6 +2279,7 @@
 		D423EA754D6A22D606D52198 /* MediaSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSkills.swift; sourceTree = "<group>"; };
 		D47DA26B598740E34C2CB21A /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
 		D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelPickerSheet.swift; sourceTree = "<group>"; };
+		D51B9B9ECE349E04BA2068FA /* JcUnified.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcUnified.swift; sourceTree = "<group>"; };
 		D529970991DA150147C03D34 /* HabitHoldButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HabitHoldButton.swift; sourceTree = "<group>"; };
 		D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGoogleSignIn.swift; sourceTree = "<group>"; };
 		D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachineTests.swift; sourceTree = "<group>"; };
@@ -2902,6 +2904,7 @@
 				0DB8484F4BE66341F040395B /* TabVisibility.swift */,
 				8D91A09459A1EF560956AB28 /* CenteredMessage.swift */,
 				34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */,
+				D51B9B9ECE349E04BA2068FA /* JcUnified.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -6128,6 +6131,7 @@
 				81C2ABAE763A7A3E0C53385A /* CostsView.swift in Sources */,
 				520517F90001E591844373AA /* ChatApprovalViews.swift in Sources */,
 				378E0AA95FCE23CC17CF0F25 /* ChatImageGallery.swift in Sources */,
+				B117A25A21128DD7555608F1 /* JcUnified.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
