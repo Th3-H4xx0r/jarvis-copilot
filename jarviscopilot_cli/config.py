@@ -2584,6 +2584,13 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
+    "CLOUDFLARE_TURN_KEY": {
+        "description": "Cloudflare Realtime TURN key as KEY_ID:API_TOKEN — relays the live Mac screen share so phone/web reach it anywhere",
+        "prompt": "Cloudflare TURN key (KEY_ID:API_TOKEN)",
+        "url": "https://dash.cloudflare.com/?to=/:account/calls",
+        "password": True,
+        "category": "tool",
+    },
     "BROWSER_USE_API_KEY": {
         "description": "Browser Use API key for cloud browser (optional — local browser works without this)",
         "prompt": "Browser Use API key",
@@ -5344,6 +5351,7 @@ def show_config():
         ("BROWSERBASE_API_KEY", "Browserbase"),
         ("BROWSER_USE_API_KEY", "Browser Use"),
         ("STEEL_API_KEY", "Steel"),
+        ("CLOUDFLARE_TURN_KEY", "Cloudflare TURN"),
         ("FAL_KEY", "FAL"),
     ]
     
@@ -5536,7 +5544,7 @@ def set_config_value(key: str, value: str):
         'EXA_API_KEY', 'PARALLEL_API_KEY', 'FIRECRAWL_API_KEY', 'FIRECRAWL_API_URL',
         'FIRECRAWL_GATEWAY_URL', 'TOOL_GATEWAY_DOMAIN', 'TOOL_GATEWAY_SCHEME',
         'TOOL_GATEWAY_USER_TOKEN', 'TAVILY_API_KEY',
-        'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'BROWSER_USE_API_KEY', 'STEEL_API_KEY',
+        'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'BROWSER_USE_API_KEY', 'STEEL_API_KEY', 'CLOUDFLARE_TURN_KEY',
         'FAL_KEY', 'TELEGRAM_BOT_TOKEN', 'DISCORD_BOT_TOKEN',
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
         'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',

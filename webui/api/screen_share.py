@@ -149,7 +149,77 @@ def turn_credentials(secret: str, *, now: Optional[float] = None, ttl: int = TUR
     return username, base64.b64encode(digest).decode("ascii")
 
 
+# ── Cloudflare TURN (the relay when phone/web and Mac can't reach each other) ──
+#
+# The server is reachable only through the Cloudflare tunnel, which carries HTTP but not
+# TURN's UDP/TCP, so the relay is Cloudflare's managed TURN: the server mints short-lived
+# credentials from a TURN key (Settings → Providers → Tool keys, KEY_ID:API_TOKEN).
+CLOUDFLARE_STUN = "stun:stun.cloudflare.com:3478"
+_CF_TTL = 12 * 3600
+_cf_lock = threading.Lock()
+_cf_cache: dict = {"key": "", "servers": None, "until": 0.0, "failed_until": 0.0}
+
+
+def _cloudflare_key() -> tuple:
+    raw = (os.environ.get("CLOUDFLARE_TURN_KEY") or "").strip()
+    if not raw:
+        try:
+            from api.providers import _get_hermes_home, _load_env_file
+            raw = str(_load_env_file(_get_hermes_home() / ".env").get("CLOUDFLARE_TURN_KEY") or "").strip()
+        except Exception:
+            raw = ""
+    key_id, _, token = raw.partition(":")
+    return (key_id.strip(), token.strip()) if key_id.strip() and token.strip() else ("", "")
+
+
+def _cloudflare_servers(now: float) -> Optional[list]:
+    """Cloudflare's ICE servers (STUN + TURN with fresh credentials), cached for half
+    their lifetime; None when no key is set or Cloudflare can't be reached."""
+    key_id, token = _cloudflare_key()
+    if not key_id:
+        return None
+    with _cf_lock:
+        if _cf_cache["key"] == key_id and _cf_cache["servers"] and now < _cf_cache["until"]:
+            return _cf_cache["servers"]
+        if _cf_cache["key"] == key_id and now < _cf_cache["failed_until"]:
+            return None
+        try:
+            import httpx
+
+            resp = httpx.post(
+                f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate-ice-servers",
+                headers={"Authorization": f"Bearer {token}"}, json={"ttl": _CF_TTL}, timeout=8)
+            resp.raise_for_status()
+            raw = resp.json().get("iceServers")
+            items = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
+            servers = []
+            for item in items:
+                urls = item.get("urls") if isinstance(item, dict) else None
+                urls = [urls] if isinstance(urls, str) else [str(u) for u in (urls or [])]
+                # Port 53 is blocked in browsers and only stalls ICE.
+                urls = [u for u in urls if not re.search(r":53(\?|$)", u)]
+                if not urls:
+                    continue
+                entry = {"urls": urls}
+                if item.get("username"):
+                    entry["username"] = item["username"]
+                    entry["credential"] = item.get("credential", "")
+                servers.append(entry)
+            if not servers:
+                raise ValueError("Cloudflare returned no ICE servers")
+            _cf_cache.update(key=key_id, servers=servers, until=now + _CF_TTL / 2, failed_until=0.0)
+            return servers
+        except Exception as exc:
+            logger.warning("Cloudflare TURN credentials failed: %s", exc)
+            _cf_cache.update(key=key_id, servers=None, until=0.0, failed_until=now + 60)
+            return None
+
+
 def ice_servers(*, now: Optional[float] = None) -> list:
+    cloudflare = _cloudflare_servers(now if now is not None else _now())
+    if cloudflare:
+        has_stun = any(any(str(u).startswith("stun:") for u in s.get("urls", [])) for s in cloudflare)
+        return ([] if has_stun else [{"urls": [CLOUDFLARE_STUN]}]) + cloudflare
     sec = _section()
     host = str(sec.get("turn_host") or "").strip()
     try:

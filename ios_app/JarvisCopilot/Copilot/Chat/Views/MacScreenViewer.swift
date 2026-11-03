@@ -308,7 +308,9 @@ struct MacScreenCard: View {
             }
         }
         .task { await session.start() }
-        .onDisappear { Task { await session.stop() } }
+        // Covering the card with its own full screen also "disappears" it; only a
+        // card that really leaves (scrolled away, chat closed) hangs up.
+        .onDisappear { if !fullScreen { Task { await session.stop() } } }
         .fullScreenCover(isPresented: $fullScreen) {
             MacScreenControlView(session: session, closesShare: false)
         }

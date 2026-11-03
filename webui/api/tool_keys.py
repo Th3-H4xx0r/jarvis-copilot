@@ -47,6 +47,15 @@ TOOL_KEYS: Dict[str, Dict[str, str]] = {
         "url": "https://app.steel.dev",
         "browser_provider": "steel",
     },
+    "cloudflare_turn": {
+        "display_name": "Cloudflare TURN",
+        "env": "CLOUDFLARE_TURN_KEY",
+        "purpose": "Mac screen sharing",
+        "hint": "Lets your phone and the web reach your Mac's live screen from anywhere, relayed through "
+                "Cloudflare (no Tailscale, no router changes). Free up to 1,000 GB a month. In the Cloudflare "
+                "dashboard open Realtime → TURN, create a key, and paste it here as  KEY_ID:API_TOKEN.",
+        "url": "https://dash.cloudflare.com/?to=/:account/calls",
+    },
 }
 
 
@@ -182,7 +191,8 @@ def _tools() -> List[Dict[str, Any]]:
             "url": spec["url"],
             "has_key": has_key,
             "in_use": has_key and (
-                (bool(spec.get("search_backend")) and search_backend == spec["search_backend"])
+                (not spec.get("search_backend") and not spec.get("browser_provider"))
+                or (bool(spec.get("search_backend")) and search_backend == spec["search_backend"])
                 or (bool(spec.get("browser_provider"))
                     and cloud_provider in (spec["browser_provider"], ""))),
         })

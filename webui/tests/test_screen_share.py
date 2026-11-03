@@ -258,3 +258,59 @@ def test_the_router_hands_screen_paths_to_the_share_module():
     assert 'parsed.path.startswith("/api/screen/")' in src
     # The POST hook sits before the router reads a JSON body (the replay is raw MP4).
     assert src.index("screen_share.handle_post") < src.index('diag.stage("read_body")')
+
+
+# ── Cloudflare TURN ──────────────────────────────────────────────────────────
+
+class _FakeResp:
+    def __init__(self, body):
+        self._body = body
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._body
+
+
+def test_cloudflare_turn_mints_servers_drops_port_53_and_caches(monkeypatch):
+    import httpx
+    from api import screen_share as ss
+
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append((url, headers, json))
+        return _FakeResp({"iceServers": [
+            {"urls": ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"]},
+            {"urls": ["turn:turn.cloudflare.com:3478?transport=udp", "turn:turn.cloudflare.com:53?transport=udp",
+                      "turns:turn.cloudflare.com:443?transport=tcp"],
+             "username": "u1", "credential": "c1"}]})
+
+    monkeypatch.setenv("CLOUDFLARE_TURN_KEY", "abc123:tok456")
+    monkeypatch.setattr(httpx, "post", fake_post)
+    ss._cf_cache.update(key="", servers=None, until=0.0, failed_until=0.0)
+    servers = ss.ice_servers(now=1000.0)
+    assert calls[0][0].endswith("/turn/keys/abc123/credentials/generate-ice-servers")
+    assert calls[0][1]["Authorization"] == "Bearer tok456"
+    urls = [u for s in servers for u in s["urls"]]
+    assert not any(":53" in u for u in urls)
+    turn = next(s for s in servers if s.get("username"))
+    assert turn["credential"] == "c1"
+    ss.ice_servers(now=1001.0)
+    assert len(calls) == 1, "cached until half the ttl"
+
+
+def test_cloudflare_failure_falls_back_to_stun(monkeypatch):
+    import httpx
+    from api import screen_share as ss
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setenv("CLOUDFLARE_TURN_KEY", "abc123:tok456")
+    monkeypatch.setattr(httpx, "post", boom)
+    ss._cf_cache.update(key="", servers=None, until=0.0, failed_until=0.0)
+    servers = ss.ice_servers(now=5000.0)
+    assert servers and all(not s.get("username") or "turn:" in s["urls"][0] for s in servers)
+    assert any(u.startswith("stun:") for s in servers for u in s["urls"])
