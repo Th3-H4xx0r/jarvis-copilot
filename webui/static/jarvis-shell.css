@@ -1,3 +1,124 @@
 /* JARVIS skin — Phone shell: bottom tab bar, More sheet, phone header, phone composer, desktop nav regroup.
    Matches the iPhone app. Scoped to :root[data-skin="jarvis"]; uses the --jc-* tokens
    from jarvis.css. See docs/superpowers/specs/2026-11-03-web-phone-ui-design.md. */
+
+/* ── More: every other page as tiles (popover on desktop, sheet on phones) ── */
+.jc-more[hidden],.jc-tabbar{display:none;}
+:root[data-skin="jarvis"] .jc-more{position:fixed;inset:0;z-index:1200;}
+:root[data-skin="jarvis"] .jc-more-scrim{position:absolute;inset:0;background:rgba(0,0,0,0.45);}
+:root[data-skin="jarvis"] .jc-more-card{
+  position:absolute;left:60px;top:56px;width:372px;max-height:calc(100vh - 80px);overflow:auto;
+  padding:16px;background:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:20px;
+  box-shadow:0 20px 56px rgba(0,0,0,0.6);
+}
+:root[data-skin="jarvis"] .jc-more-title{font-size:17px;font-weight:600;color:var(--jc-text);text-align:center;margin:0 0 12px;}
+:root[data-skin="jarvis"] .jc-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+:root[data-skin="jarvis"] .jc-more-tile{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  min-height:84px;padding:12px 6px;border-radius:16px;border:1px solid var(--jc-hair);
+  background:#0E0E13;color:var(--jc-text);font:inherit;font-size:12px;cursor:pointer;
+  transition:background-color .15s ease,border-color .15s ease;
+}
+:root[data-skin="jarvis"] .jc-more-tile:hover{background:var(--jc-surface-2);}
+:root[data-skin="jarvis"] .jc-more-tile.active{border-color:rgba(62,199,199,0.45);background:var(--jc-surface-2);}
+:root[data-skin="jarvis"] .jc-more-icon{color:var(--jc-accent);display:flex;}
+:root[data-skin="jarvis"] .jc-more-icon svg{width:20px;height:20px;}
+:root[data-skin="jarvis"] .jc-more-label{text-align:center;line-height:1.25;}
+
+/* ── Desktop: the rail keeps the phone's tabs, then More, then Settings ── */
+@media (min-width:768px){
+  :root[data-skin="jarvis"] .rail .nav-tab[data-panel]:not([data-panel="chat"]):not([data-panel="voice"]):not([data-panel="agents"]):not([data-panel="devices"]):not([data-panel="settings"]){display:none;}
+  :root[data-skin="jarvis"] .rail{gap:4px;padding:12px 0;}
+  /* Same order as the phone's tabs: Chat · Voice · Agents · Devices · More, Settings last. */
+  :root[data-skin="jarvis"] .rail > *{order:10;}
+  :root[data-skin="jarvis"] .rail > #btnRailNewChat{order:0;}
+  :root[data-skin="jarvis"] .rail > [data-panel="chat"]{order:1;}
+  :root[data-skin="jarvis"] .rail > [data-panel="voice"]{order:2;}
+  :root[data-skin="jarvis"] .rail > [data-panel="agents"]{order:3;}
+  :root[data-skin="jarvis"] .rail > [data-panel="devices"]{order:4;}
+  :root[data-skin="jarvis"] .rail > .jc-rail-more{order:5;}
+  :root[data-skin="jarvis"] .rail > [data-panel="settings"]{order:30;}
+  :root[data-skin="jarvis"] .rail-btn{width:40px;height:40px;border-radius:12px;color:var(--jc-muted);}
+  :root[data-skin="jarvis"] .rail-btn:hover{background:var(--jc-surface-2);color:var(--jc-text);}
+  :root[data-skin="jarvis"] .rail-btn.active{background:var(--jc-surface-2);color:var(--jc-accent);}
+  :root[data-skin="jarvis"] .rail-btn.active::before{display:none;}
+}
+
+/* ── Phones: the iPhone app's shell ──────────────────────────────────── */
+@media (max-width:767px){
+  /* Floating tab bar: Chat · Voice · Agents · Devices · More */
+  :root[data-skin="jarvis"] .jc-tabbar{
+    display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:900;
+    left:12px;right:12px;bottom:calc(8px + env(safe-area-inset-bottom,0px));height:64px;padding:6px;
+    background:var(--jc-pill);border:1px solid var(--jc-hair);border-radius:32px;
+    box-shadow:0 8px 28px rgba(0,0,0,0.55);
+  }
+  :root[data-skin="jarvis"] .jc-tab{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    border:0;border-radius:26px;background:transparent;color:var(--jc-muted);font:inherit;font-size:10px;
+    cursor:pointer;transition:background-color .15s ease,color .15s ease;-webkit-tap-highlight-color:transparent;
+  }
+  :root[data-skin="jarvis"] .jc-tab svg{width:20px;height:20px;}
+  :root[data-skin="jarvis"] .jc-tab.active{background:rgba(255,255,255,0.08);color:var(--jc-accent);}
+  /* Everything ends above the tab bar. */
+  :root[data-skin="jarvis"] body.jc-shell .settings-main{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px));}
+  :root[data-skin="jarvis"] body.jc-shell .main{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));}
+  /* The drawer is the chat list only (the tabs replace its icon strip). */
+  :root[data-skin="jarvis"] body.jc-shell .sidebar-nav{display:none;}
+
+  /* More as a bottom sheet, under the tab bar like the app */
+  :root[data-skin="jarvis"] .jc-more{z-index:880;}
+  :root[data-skin="jarvis"] .jc-more-card{
+    left:0;right:0;top:auto;bottom:0;width:auto;max-height:80vh;border-radius:24px 24px 0 0;
+    padding:20px 16px calc(96px + env(safe-area-inset-bottom,0px));
+  }
+
+  /* Header: ◫ · title (left) · [model pill | new chat] */
+  :root[data-skin="jarvis"] .app-titlebar{height:60px;padding:0 12px;gap:10px;}
+  :root[data-skin="jarvis"] .app-titlebar-hamburger{
+    width:40px;height:40px;border-radius:20px;background:var(--jc-pill);border:1px solid var(--jc-hair);color:var(--jc-text);
+  }
+  :root[data-skin="jarvis"] .app-titlebar-inner{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:0;}
+  :root[data-skin="jarvis"] .app-titlebar-title{font-size:17px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  :root[data-skin="jarvis"] .app-titlebar-sub{font-size:12px;}
+  :root[data-skin="jarvis"] .app-titlebar .jc-header-pill{
+    display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 12px 0 14px;margin:0;
+    border:1px solid var(--jc-hair) !important;border-right:0 !important;border-radius:20px 0 0 20px !important;
+    background:var(--jc-pill) !important;color:var(--jc-text) !important;font-size:14px;font-weight:500;
+    width:auto !important;min-width:0 !important;max-width:160px;flex-shrink:1;
+  }
+  :root[data-skin="jarvis"] .app-titlebar .jc-header-pill .composer-model-label{display:inline !important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  :root[data-skin="jarvis"] .app-titlebar .jc-header-pill .composer-model-icon{color:var(--jc-accent);display:inline-flex;}
+  :root[data-skin="jarvis"] .app-titlebar .jc-header-pill + #btnTitlebarNewChat{
+    width:44px;height:40px;border-radius:0 20px 20px 0;margin-left:0;
+    background:var(--jc-pill);border:1px solid var(--jc-hair);border-left:1px solid var(--jc-hair);color:var(--jc-accent);
+  }
+
+  /* Composer: one capsule — + · Message Jarvis · send (settings behind the sliders) */
+  :root[data-skin="jarvis"] .composer-wrap{padding:0 12px;}
+  :root.dark[data-skin="jarvis"] .composer-box{
+    display:flex;flex-direction:row;flex-wrap:nowrap;align-items:flex-end;gap:4px;padding:6px;border-radius:28px;min-height:56px;
+    background:var(--jc-surface);border:1px solid var(--jc-hair);
+  }
+  :root[data-skin="jarvis"] .composer-box .composer-footer,
+  :root[data-skin="jarvis"] .composer-box .composer-left,
+  :root[data-skin="jarvis"] .composer-box .composer-right{display:contents;}
+  :root[data-skin="jarvis"] .composer-box #btnAttach{order:1;}
+  :root[data-skin="jarvis"] .composer-box #msg{order:2;flex:1;min-width:0;font-size:16px;padding:10px 6px;align-self:center;}
+  :root[data-skin="jarvis"] .composer-box #composerMobileConfigBtn{order:3;}
+  :root[data-skin="jarvis"] .composer-box #btnSend{order:4;}
+  :root[data-skin="jarvis"] .composer-box :is(#btnMic,#btnVoiceMode,.composer-divider,#yoloPill,#profileChipWrap,.composer-ws-wrap,.composer-model-wrap,#providerQuotaChip,#composerReasoningWrap,#composerToolsetsWrap,#composerStatus,#ctxIndicatorWrap,#bgBadge){display:none !important;}
+  :root[data-skin="jarvis"] .composer-box #btnAttach,
+  :root[data-skin="jarvis"] .composer-box #composerMobileConfigBtn{
+    width:40px;height:40px;border-radius:20px;color:var(--jc-text-2);flex-shrink:0;
+  }
+  :root[data-skin="jarvis"] .composer-box #btnAttach svg{display:none;}
+  :root[data-skin="jarvis"] .composer-box #btnAttach::before{
+    content:"";width:20px;height:20px;background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E") center/contain no-repeat;
+            mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E") center/contain no-repeat;
+  }
+  :root[data-skin="jarvis"] .composer-box #btnSend{width:40px;height:40px;border-radius:20px;flex-shrink:0;}
+  /* The settings popover opens above the field. */
+  :root[data-skin="jarvis"] .composer-box #composerMobileConfigPanel{bottom:calc(100% + 8px);}
+}
