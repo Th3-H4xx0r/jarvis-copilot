@@ -28,10 +28,25 @@
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   // ── one WebRTC connection per share on this page ─────────────────────────
+  // A Viewer outlives its peer connections: when ICE fails (or stays
+  // disconnected) it says bye for the old one and offers again under a fresh
+  // viewer id, backing off; cards and the full-screen view keep listening to
+  // the same object. After a few failed tries its state is 'failed' (it keeps
+  // retrying slowly). `share` is the last share record a card or the full
+  // screen fetched (mac_online drives "Open Jarvis on your Mac").
+  const DROP_GRACE_MS = 5000;     // 'disconnected' this long → start over
+  const ICE_TIMEOUT_MS = 20000;   // answered but never connected → start over
+  const FAILED_AFTER = 3;         // tries before the state says 'failed'
+
+  function newViewerId() { return 'web-' + Math.random().toString(36).slice(2, 10); }
+
+  /** Reconnect delay after `n` failed tries: 1 s, 2 s, 4 s … 30 s. */
+  function backoff(n) { return Math.min(30000, 1000 * Math.pow(2, Math.max(0, n - 1))); }
+
   class Viewer {
     constructor(shareId) {
       this.id = shareId;
-      this.viewer = 'web-' + Math.random().toString(36).slice(2, 10);
+      this.viewer = newViewerId();
       this.after = 0;
       this.closed = false;
       this.stream = null;
@@ -39,17 +54,34 @@
       this.listeners = new Set();
       this.dc = null;
       this.pc = null;
+      this.share = null;
+      this.error = '';
+      this.tries = 0;          // failed connection attempts in a row
+      this.gen = 0;            // which peer connection is current
+      this.pending = [];       // remote candidates waiting for the answer
+      this.outbox = Promise.resolve();
+      this.timers = [];
     }
     on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
     emit() { for (const fn of this.listeners) { try { fn(this); } catch (_) { /* a card went away */ } } }
     setState(s) { if (this.state !== s) { this.state = s; this.emit(); } }
+    setShare(share) { if (share) { this.share = share; this.emit(); } }
+    later(fn, ms) { const t = setTimeout(fn, ms); this.timers.push(t); return t; }
+    clearTimers() { for (const t of this.timers) clearTimeout(t); this.timers = []; }
 
-    async start() {
+    start() { return this.connect(); }
+
+    async connect() {
+      const gen = ++this.gen;
+      this.clearTimers();
+      this.viewer = newViewerId();
+      this.pending = [];
       let ice = [];
       try { ice = (await getJSON('/api/screen/ice')).ice_servers || []; } catch (_) { /* STUN-less still works on a LAN */ }
-      if (this.closed) return;
+      if (this.closed || gen !== this.gen) return;
       const pc = new RTCPeerConnection({ iceServers: ice });
       this.pc = pc;
+      const current = () => !this.closed && gen === this.gen;
       pc.addTransceiver('video', { direction: 'recvonly' });
       this.dc = pc.createDataChannel('input', { ordered: true });
       this.dc.onmessage = (e) => {
@@ -59,39 +91,91 @@
         } catch (_) { /* not ours */ }
       };
       pc.ontrack = (e) => {
+        if (!current()) return;
         this.stream = (e.streams && e.streams[0]) || new MediaStream([e.track]);
         this.emit();
       };
       pc.onicecandidate = (e) => {
-        if (!e.candidate || this.closed) return;
+        if (!e.candidate || !current()) return;
         const c = e.candidate;
         this.signal({ type: 'candidate', candidate: { candidate: c.candidate, sdpMid: c.sdpMid,
           sdpMLineIndex: c.sdpMLineIndex } });
       };
-      pc.onconnectionstatechange = () => {
-        const s = pc.connectionState;
-        if (s === 'connected') this.setState('live');
-        else if (s === 'failed') this.setState('failed');
-        else if (s === 'disconnected') this.setState('connecting');
+      let dropTimer = null;
+      const watch = () => {
+        if (!current()) return;
+        const s = pc.connectionState || pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') {
+          clearTimeout(dropTimer);
+          this.tries = 0;
+          this.error = this.error && /couldn.t connect/i.test(this.error) ? '' : this.error;
+          this.setState('live');
+        } else if (s === 'failed') {
+          this.retry('failed');
+        } else if (s === 'disconnected') {
+          if (this.state === 'live') this.setState('connecting');
+          clearTimeout(dropTimer);
+          dropTimer = this.later(() => {
+            if (current() && ['disconnected', 'failed'].includes(pc.connectionState || pc.iceConnectionState)) {
+              this.retry('disconnected');
+            }
+          }, DROP_GRACE_MS);
+        }
       };
+      pc.onconnectionstatechange = watch;
+      // Some browsers report ICE failure before (or instead of) connectionState.
+      pc.oniceconnectionstatechange = () => { if (current() && pc.iceConnectionState === 'failed') this.retry('ice'); };
       const offer = await pc.createOffer();
+      if (!current()) return;
       await pc.setLocalDescription(offer);
+      // Everything for this viewer id comes after the offer, so after the newest
+      // seq seen so far; an older generation's loop stops once its poll returns.
+      const from = this.after;
       await this.signal({ type: 'offer', sdp: offer.sdp });
-      this.poll();
+      this.poll(gen, this.viewer, from);
     }
 
-    signal(msg) {
-      return postJSON(`/api/screen/shares/${this.id}/signal`,
-        Object.assign({ from: 'viewer', viewer: this.viewer }, msg)).catch(() => null);
+    /** This peer connection is dead: say bye for it and offer again after a pause. */
+    retry(why) {
+      if (this.closed) return;
+      const old = this.pc, oldId = this.viewer;
+      this.gen += 1;               // the old connection's callbacks go quiet
+      this.clearTimers();
+      this.pc = null;
+      this.dc = null;
+      try { if (old) old.close(); } catch (_) { /* already closed */ }
+      this.signal({ type: 'bye' }, oldId);
+      this.tries += 1;
+      if (this.tries >= FAILED_AFTER) {
+        this.error = 'Couldn’t connect to your Mac — retrying.';
+        this.setState('failed');
+      } else {
+        this.setState('connecting');
+      }
+      const gen = this.gen;
+      this.later(() => {
+        if (this.closed || gen !== this.gen) return;
+        this.connect().catch((e) => { this.error = String((e && e.message) || e); this.retry('error'); });
+      }, backoff(this.tries));
+      return why;
     }
 
-    async poll() {
+    /** Signals go out one at a time, in order (offer before its candidates). */
+    signal(msg, as) {
+      const body = Object.assign({ from: 'viewer', viewer: as || this.viewer }, msg);
+      const p = this.outbox.then(() => postJSON(`/api/screen/shares/${this.id}/signal`, body)).catch(() => null);
+      this.outbox = p;
+      return p;
+    }
+
+    /** The long poll of one peer connection (`gen`, polling as `viewerId`). */
+    async poll(gen, viewerId, after) {
       let failures = 0;
-      while (!this.closed) {
+      while (!this.closed && gen === this.gen) {
         let r;
         try {
-          r = await getJSON(`/api/screen/shares/${this.id}/signal?for=viewer&after=${this.after}` +
-                            `&viewer=${encodeURIComponent(this.viewer)}&wait=25`);
+          r = await getJSON(`/api/screen/shares/${this.id}/signal?for=viewer&after=${after}` +
+                            `&viewer=${encodeURIComponent(viewerId)}&wait=25`);
           failures = 0;
         } catch (e) {
           if (e && (e.status === 404 || e.status === 410)) { this.end(); return; }
@@ -99,22 +183,36 @@
           await sleep(Math.min(5000, 800 * failures));
           continue;
         }
+        if (r && r.status === 'ended') { this.end(); return; }
+        if (gen !== this.gen) return;  // this connection was replaced meanwhile
         for (const m of (r && r.messages) || []) {
-          this.after = Math.max(this.after, m.seq || 0);
+          after = Math.max(after, m.seq || 0);
+          this.after = Math.max(this.after, after);
+          if (gen !== this.gen) return;
           try { await this.handle(m); } catch (err) { console.warn('mac screen signal', err); }
         }
-        if (r && r.status === 'ended') { this.end(); return; }
       }
     }
 
     async handle(m) {
-      if (!this.pc || this.closed) return;
+      const pc = this.pc;
+      if (!pc || this.closed) return;
       if (m.type === 'answer' && m.sdp) {
-        if (this.pc.signalingState === 'have-local-offer') {
-          await this.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
-        }
+        if (pc.signalingState !== 'have-local-offer') return;
+        await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp });
+        const queued = this.pending;
+        this.pending = [];
+        for (const c of queued) { try { await pc.addIceCandidate(c); } catch (_) { /* stale */ } }
+        // Answered but ICE never gets through (a blocked network, a dead TURN): start over.
+        const gen = this.gen;
+        this.later(() => {
+          if (gen === this.gen && !this.closed && this.state !== 'live' &&
+              !['connected', 'completed'].includes(pc.connectionState || pc.iceConnectionState)) this.retry('timeout');
+        }, ICE_TIMEOUT_MS);
       } else if (m.type === 'candidate' && m.candidate && m.candidate.candidate) {
-        await this.pc.addIceCandidate(m.candidate);
+        // The Mac's candidates can arrive before its answer: hold them until it is set.
+        if (!pc.remoteDescription) { if (this.pending.length < 64) this.pending.push(m.candidate); return; }
+        await pc.addIceCandidate(m.candidate);
       } else if (m.type === 'bye') {
         this.end();
       }
@@ -127,9 +225,10 @@
     end() {
       if (this.closed) return;
       this.closed = true;
+      this.clearTimers();
       try { if (this.pc) this.pc.close(); } catch (_) { /* already closed */ }
       this.setState('ended');
-      viewers.delete(this.id);
+      if (viewers.get(this.id) === this) viewers.delete(this.id);
     }
 
     leave() {  // this page stops watching; the share itself goes on
@@ -145,7 +244,7 @@
     if (!v || v.closed) {
       v = new Viewer(id);
       viewers.set(id, v);
-      v.start().catch((e) => { v.error = String((e && e.message) || e); v.setState('failed'); });
+      v.start().catch((e) => { v.error = String((e && e.message) || e); v.retry('error'); });
     }
     return v;
   }
@@ -189,7 +288,28 @@
     if (share.status === 'ended') return ['Ended', 'is-off'];
     if (v && v.state === 'live') return ['Live', 'is-live'];
     if (!share.mac_online) return ['Mac offline', 'is-off'];
+    if (v && v.state === 'failed') return ['Can’t connect', 'is-off'];
     return [share.status === 'live' ? 'Connecting' : 'Waiting for the Mac', ''];
+  }
+
+  const MAC_OFFLINE = 'Open Jarvis on your Mac to share its screen.';
+
+  /** The note over a not-yet-live picture (null when the picture is live). */
+  function liveNote(share, v) {
+    if (v && v.state === 'live') return null;
+    if (v && v.state === 'ended') return 'The share has ended.';
+    if (share && share.mac_online === false) return MAC_OFFLINE;
+    if (v && v.error) return v.error;
+    return 'Connecting to your Mac…';
+  }
+
+  // A task share's replay is uploaded by the Mac after the share ends; a long one
+  // can take a while. Anytime shares are never recorded.
+  const REPLAY_WAIT_MS = 10 * 60 * 1000;
+  function replayMayCome(share, now) {
+    if (!share || share.replay_url || share.reason !== 'task') return false;
+    const ended = Date.parse(share.ended_at || '');
+    return Number.isFinite(ended) && (now == null ? Date.now() : now) - ended < REPLAY_WAIT_MS;
   }
 
   function makeCard(shareId, el) {
@@ -201,7 +321,7 @@
       '<span class="mac-screen-gap"></span></div><div class="mac-screen-stage"><video muted playsinline autoplay></video>' +
       '<div class="mac-screen-note"></div></div>';
     cards.set(shareId, card);
-    const st = { share: null, viewer: null, replayShown: false, endedAt: 0 };
+    const st = { share: null, viewer: null, replayShown: false };
     card._mac = st;
     const stage = card.querySelector('.mac-screen-stage');
     stage.addEventListener('click', () => {
@@ -234,13 +354,11 @@
         video.src = share.replay_url.replace(/^\//, '');
       }
       note.textContent = share.replay_url ? '' :
-        (Date.now() - st.endedAt < 120000 ? 'The Mac is uploading the replay…' : (share.error || 'No replay for this one.'));
+        replayMayCome(share) ? 'The Mac is uploading the replay…' : (share.error || 'No replay for this one.');
       return;
     }
     if (v && v.stream && video.srcObject !== v.stream) video.srcObject = v.stream;
-    note.textContent = v && v.state === 'live' ? '' :
-      (v && v.error) ? v.error :
-      share && !share.mac_online ? 'Open the Jarvis app on your Mac to watch.' : 'Connecting to your Mac…';
+    note.textContent = liveNote(share, v) || '';
   }
 
   async function refreshCard(shareId, card) {
@@ -258,10 +376,9 @@
       }
       const share = st.share;
       if (share && share.status === 'ended') {
-        if (!st.endedAt) st.endedAt = Date.now();
         if (st.viewer) { st.viewer.end(); st.viewer = null; }
         draw(card);
-        if (share.replay_url || Date.now() - st.endedAt > 120000) return;
+        if (!replayMayCome(share)) return;
         await sleep(5000);
         continue;
       }
@@ -269,6 +386,7 @@
         st.viewer = viewerFor(shareId);
         st.viewer.on(() => draw(card));
       }
+      if (st.viewer) st.viewer.setShare(share);
       draw(card);
       await sleep(card.isConnected ? 3000 : 400);
     }
@@ -356,7 +474,27 @@
     return m;
   }
 
-  function openFull(shareId, share, opts) {
+  const avgX = (ts) => { let n = 0; for (const t of ts) n += t.clientX; return n / ts.length; };
+  const avgY = (ts) => { let n = 0; for (const t of ts) n += t.clientY; return n / ts.length; };
+
+  /**
+   * A keydown as an input message. `key` is the KeyboardEvent.key, except that a
+   * PC's Del key becomes "ForwardDelete" ("Delete" alone means backspace to the
+   * Mac, which is what the iPhone's ⌫ sends); `code` is the physical key, which
+   * the Mac uses for shortcuts (⌥F's key is "ƒ", ⌘⇧['s is "{").
+   */
+  function keyMessage(e) {
+    const key = e.key === 'Delete' ? 'ForwardDelete' : e.key;
+    const msg = { t: 'key', key, mods: mods(e) };
+    if (e.code) msg.code = e.code;
+    return msg;
+  }
+
+  function isPasteKey(e) {
+    return !!(e.metaKey || e.ctrlKey) && !e.altKey && (e.code === 'KeyV' || String(e.key).toLowerCase() === 'v');
+  }
+
+  function openFull(shareId, share0, opts) {
     ensureStyles();
     closeFull();
     const v = viewerFor(shareId);
@@ -376,13 +514,30 @@
     const stateEl = el.querySelector('.mac-screen-state');
     const paint = () => {
       if (v.stream && video.srcObject !== v.stream) video.srcObject = v.stream;
+      const share = v.share || share0;
       stateEl.textContent = v.state === 'live' ? 'Live · your mouse and keys go to the Mac' :
-        v.state === 'ended' ? 'Ended' : 'Connecting…';
-      note.textContent = v.state === 'live' ? (v.error || '') : v.state === 'ended' ? 'The share has ended.' :
-        v.error || 'Connecting to your Mac…';
+        v.state === 'ended' ? 'Ended' : v.state === 'failed' ? 'Can’t connect' :
+        share && share.mac_online === false ? 'Mac offline' : 'Connecting…';
+      const n = liveNote(share, v);
+      note.textContent = n == null ? (v.error || '') : n;
     };
     const off = v.on(paint);
     paint();
+    // Keep the share record fresh (mac_online, ended) while full screen is open.
+    let watching = true;
+    (async () => {
+      while (watching && !v.closed) {
+        try {
+          const share = await getJSON(`/api/screen/shares/${shareId}`);
+          if (!watching) return;
+          v.setShare(share);
+          if (share && share.status === 'ended') { v.end(); return; }
+        } catch (e) {
+          if (e && e.status === 404) { v.end(); return; }
+        }
+        await sleep(3000);
+      }
+    })();
 
     let lastMove = 0;
     const at = (e) => {
@@ -412,25 +567,91 @@
       const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
       v.send({ t: 'scroll', dx: Math.round(e.deltaX * k), dy: Math.round(e.deltaY * k) });
     }, { passive: false });
+    // ⌘V / Ctrl+V: let the browser fire `paste` so this computer's clipboard text
+    // is typed on the Mac. No paste event (Safari on a non-editable element, or
+    // no text on the clipboard) → press ⌘V on the Mac instead (its own clipboard).
+    let pasteFallback = null;
     surface.addEventListener('keydown', (e) => {
       if (e.isComposing) return;
+      if (['Meta', 'Shift', 'Alt', 'Control', 'CapsLock'].includes(e.key)) { e.preventDefault(); return; }
+      const msg = keyMessage(e);
+      if (isPasteKey(e)) {
+        clearTimeout(pasteFallback);
+        pasteFallback = setTimeout(() => { pasteFallback = null; v.send(msg); }, 250);
+        return;  // no preventDefault: the paste event must fire
+      }
       e.preventDefault();
-      if (['Meta', 'Shift', 'Alt', 'Control', 'CapsLock'].includes(e.key)) return;
-      v.send({ t: 'key', key: e.key, mods: mods(e) });
+      v.send(msg);
     });
     surface.addEventListener('paste', (e) => {
       const text = e.clipboardData && e.clipboardData.getData('text/plain');
-      if (text) { e.preventDefault(); v.send({ t: 'text', text }); }
-    });
-    // Touch: a tap is a click, a drag moves the pointer.
-    surface.addEventListener('touchend', (e) => {
-      const t = e.changedTouches && e.changedTouches[0];
-      if (!t) return;
+      if (!text) return;
       e.preventDefault();
-      v.send(Object.assign({ t: 'click', button: 'left', count: 1 }, at(t)));
+      clearTimeout(pasteFallback);
+      pasteFallback = null;
+      v.send({ t: 'text', text });
+    });
+    // Touch: a tap clicks, a one-finger swipe drags (down → move → up), two
+    // fingers scroll.
+    let touch = null;
+    const SLOP = 8;
+    surface.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      surface.focus();
+      const t = e.touches[0];
+      if (!t) return;
+      if (e.touches.length > 1) {
+        if (touch && touch.dragging) v.send(Object.assign({ t: 'up', button: 'left' }, at(touch.last)));
+        touch = { scroll: true, y: avgY(e.touches), x: avgX(e.touches) };
+        return;
+      }
+      touch = { start: { clientX: t.clientX, clientY: t.clientY }, last: { clientX: t.clientX, clientY: t.clientY },
+                dragging: false, scroll: false, sent: 0 };
     }, { passive: false });
+    surface.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!touch) return;
+      if (touch.scroll) {
+        if (e.touches.length < 2) return;
+        const x = avgX(e.touches), y = avgY(e.touches);
+        v.send({ t: 'scroll', dx: Math.round((touch.x - x) * 2), dy: Math.round((touch.y - y) * 2) });
+        touch.x = x; touch.y = y;
+        return;
+      }
+      const t = e.touches[0];
+      if (!t) return;
+      touch.last = { clientX: t.clientX, clientY: t.clientY };
+      if (!touch.dragging) {
+        if (Math.hypot(t.clientX - touch.start.clientX, t.clientY - touch.start.clientY) < SLOP) return;
+        touch.dragging = true;
+        v.send(Object.assign({ t: 'down', button: 'left' }, at(touch.start)));
+      }
+      const now = performance.now();
+      if (now - touch.sent < 30) return;
+      touch.sent = now;
+      v.send(Object.assign({ t: 'move' }, at(touch.last)));
+    }, { passive: false });
+    surface.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      if (!touch || e.touches.length) return;
+      const t = (e.changedTouches && e.changedTouches[0]) || touch.last;
+      const done = touch;
+      touch = null;
+      if (done.scroll) return;
+      if (done.dragging) {
+        v.send(Object.assign({ t: 'up', button: 'left' }, at(t)));
+      } else {
+        v.send(Object.assign({ t: 'click', button: 'left', count: 1 }, at(done.start)));
+      }
+    }, { passive: false });
+    surface.addEventListener('touchcancel', () => {
+      if (touch && touch.dragging) v.send(Object.assign({ t: 'up', button: 'left' }, at(touch.last)));
+      touch = null;
+    });
 
     const close = () => {
+      watching = false;
+      clearTimeout(pasteFallback);
       off();
       el.remove();
       overlay = null;
@@ -439,6 +660,8 @@
     el.querySelector('[data-act="close"]').addEventListener('click', close);
     el.querySelector('[data-act="stop"]').addEventListener('click', () => {
       postJSON(`/api/screen/shares/${shareId}/stop`, {}).catch(() => null);
+      watching = false;
+      clearTimeout(pasteFallback);
       v.leave();
       off();
       el.remove();
@@ -464,6 +687,7 @@
     return share.id;
   }
 
-  root.MacScreen = { toolRow, cardFor, openFull, startAnytime, shareIn, _viewers: viewers };
+  root.MacScreen = { toolRow, cardFor, openFull, startAnytime, shareIn, keyMessage, isPasteKey,
+    replayMayCome, liveNote, backoff, _viewers: viewers, _Viewer: Viewer };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MacScreen;
 })(typeof window !== 'undefined' ? window : globalThis);

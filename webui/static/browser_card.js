@@ -153,7 +153,7 @@
     q(el, 'tag').textContent = tagText(d);
     setView(card, d);
     const note = q(el, 'note');
-    note.textContent = card.error || noteFor(d);
+    note.textContent = card.error || (d.move_requested && card.notice) || noteFor(d);
     note.classList.toggle('plan-card-note--error', !!card.error);
 
     const actions = q(el, 'actions');
@@ -202,7 +202,9 @@
         const res = await apiCall(`/api/browser/sessions/${id}/move`,
           { method: 'POST', body: JSON.stringify({ to: 'cloud' }) });
         card.data = Object.assign({}, card.data, { move_requested: !!res.move_requested });
-        if (res.move_requested && !res.turn_running) sendContinue();
+        if (res.move_requested && !res.turn_running && !sendContinue()) {
+          card.notice = 'Ready on the cloud browser — send “continue” when you’re done with your draft.';
+        }
       }
     } catch (e) {
       card.error = (e && e.message) || 'That did not work.';
@@ -211,12 +213,19 @@
     schedule(card, 200);
   }
 
+  // Sends "Continue that on the cloud browser." through the composer's own send()
+  // — but only when the composer is empty: the user's draft and attachments are
+  // never sent or overwritten. Returns false when it left a draft alone.
   function sendContinue() {
     const box = typeof $ === 'function' ? $('msg') : document.getElementById('msg');
-    if (!box || typeof send !== 'function') return;
+    if (!box || typeof send !== 'function') return true;
+    // eslint-disable-next-line no-undef
+    const files = (typeof S !== 'undefined' && S && S.pendingFiles) || [];
+    if (box.value.trim() || files.length) return false;
     box.value = CONTINUE_TEXT;
     if (typeof autoResize === 'function') autoResize();
     send();
+    return true;
   }
 
   // ── polling ────────────────────────────────────────────────────────────────
