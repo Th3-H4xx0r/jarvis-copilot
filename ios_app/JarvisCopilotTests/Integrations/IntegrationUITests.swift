@@ -74,7 +74,7 @@ final class IntegrationUITests: XCTestCase {
             #"{"id":"render-test-page","name":"Shopping","version":1,"card":\#(Self.pageJSON),"state":\#(state)}"#)))
         XCTAssertNotNil(page.root)
         try RenderHarness.write(ScrollView { IntegrationUIPageSection(store: page).padding(16) },
-                                size: CGSize(width: 393, height: 1000), name: "integration-ui-page")
+                                size: CGSize(width: 393, height: 1350), name: "integration-ui-page")
         let card = IntegrationUIStore(card: IntegrationUICard(json: json(
             #"{"id":"render-test-card","name":"Shopping","version":1,"card":\#(Self.cardJSON),"state":\#(state)}"#)))
         XCTAssertNotNil(card.root)
@@ -110,6 +110,15 @@ final class IntegrationUITests: XCTestCase {
         {"type":"list","data":{"$":"items"},"row":
           {"type":"row","title":{"$row":"name"},"subtitle":{"$row":"qty"},"check":{"$row":"done"},
            "action":"toggle","swipe":[{"label":"Delete","action":"delete","role":"destructive"}]}}]},
+      {"type":"section","title":"Details","children":[
+        {"type":"hstack","spacing":16,"children":[
+          {"type":"gauge","value":0.62,"label":"62%","caption":"of budget"},
+          {"type":"vstack","spacing":8,"children":[
+            {"type":"titleSubtitle","title":"Trader Joe's","subtitle":"Usual store · 12 min away"},
+            {"type":"badge","text":"Open now"},
+            {"type":"progress","value":0.62}]}]},
+        {"type":"divider"},
+        {"type":"keyValue","pairs":[{"label":"Last trip","value":"Sat 4:10 PM"},{"label":"Average","value":"$52"},{"label":"Trips this month","value":"3"}]}]},
       {"type":"section","title":"Settings","children":[
         {"type":"toggle","id":"weekly","label":"Weekly reminder","value":true,"action":"weekly"},
         {"type":"stepper","id":"budget","label":"Budget","value":60,"step":5,"action":"budget"},

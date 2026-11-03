@@ -77,10 +77,31 @@ private struct IntegrationUINodes {
             // The widget's stat overlays its caption in a few points; a page has room
             // to stack it under the number.
             return AnyView(IntegrationUIStat(node: n, ctx: ctx))
+        // Display blocks in the app's type scale rather than the widget's.
         case "text":
-            // Only the page's long text; the shared one-liner handles the rest.
-            guard n.int("lineLimit") == 0 || n.bool("markdown") == true else { return nil }
             return AnyView(IntegrationUIText(node: n, ctx: ctx))
+        case "titleSubtitle":
+            return AnyView(IntegrationUITitleSubtitle(node: n, ctx: ctx))
+        case "keyValue":
+            return AnyView(IntegrationUIKeyValue(node: n, ctx: ctx))
+        case "badge":
+            let color = n.ref("color")?.color(ctx) ?? JcTheme.accent
+            return AnyView(StatusPill(n.ref("text")?.string(ctx) ?? "", color: color, dense: true))
+        case "gauge":
+            return AnyView(IntegrationUIGauge(node: n, ctx: ctx))
+        case "divider":
+            return AnyView(Rectangle().fill(JcTheme.border).frame(height: 1))
+        case "symbolValue":
+            return AnyView(
+                HStack(spacing: 8) {
+                    if let symbol = n.ref("symbol")?.string(ctx) {
+                        Image(systemName: symbol).font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(JcTheme.muted)
+                    }
+                    Text(n.ref("value")?.string(ctx) ?? "")
+                        .font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
+                        .lineLimit(2)
+                })
         default:
             return nil
         }
@@ -188,13 +209,95 @@ private struct IntegrationUIStat: View {
     }
 }
 
+private struct IntegrationUITitleSubtitle: View {
+    let node: JCNode
+    let ctx: JCBindingContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(node.ref("title")?.string(ctx) ?? "")
+                .font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text).lineLimit(2)
+            if let subtitle = node.ref("subtitle")?.string(ctx), !subtitle.isEmpty {
+                Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted).lineLimit(2)
+            }
+        }
+    }
+}
+
+/// Read-out rows: the label on the left, the value muted on the right, hairlines between.
+private struct IntegrationUIKeyValue: View {
+    let node: JCNode
+    let ctx: JCBindingContext
+
+    var body: some View {
+        let pairs = (node.ref("pairs")?.array(ctx) ?? node.props["pairs"]?.asArray ?? []).compactMap { $0.asObject }
+        VStack(spacing: 0) {
+            ForEach(jcIndexed(pairs), id: \.0) { i, pair in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(JCValueRef(pair["label"] ?? .null).string(ctx) ?? "")
+                        .font(.system(size: 15)).foregroundStyle(JcTheme.text).lineLimit(1)
+                    Spacer(minLength: 12)
+                    Text(JCValueRef(pair["value"] ?? .null).string(ctx) ?? "—")
+                        .font(.system(size: 15)).foregroundStyle(JcTheme.muted)
+                        .lineLimit(1).multilineTextAlignment(.trailing)
+                }
+                .padding(.vertical, 10)
+                if i < pairs.count - 1 { Rectangle().fill(JcTheme.border).frame(height: 1) }
+            }
+        }
+    }
+}
+
+/// A ring (or nested rings) sized for a page, its label in the middle.
+private struct IntegrationUIGauge: View {
+    let node: JCNode
+    let ctx: JCBindingContext
+
+    private var rings: [(value: Double, tint: Color)] {
+        let scale = jcScale(node)
+        if let list = node.ref("rings")?.array(ctx) ?? node.props["rings"]?.asArray, !list.isEmpty {
+            return list.compactMap { $0.asObject }.map { o in
+                (jcClamp01((JCValueRef(o["value"] ?? .null).double(ctx) ?? 0) / scale),
+                 JCValueRef(o["tint"] ?? .null).color(ctx) ?? JcTheme.accent)
+            }
+        }
+        return [(jcClamp01((node.ref("value")?.double(ctx) ?? 0) / scale),
+                 node.ref("tint")?.color(ctx) ?? JcTheme.accent)]
+    }
+
+    var body: some View {
+        let size = CGFloat(node.double("size") ?? 72)
+        let line = max(5, size / 11)
+        VStack(spacing: 6) {
+            ZStack {
+                ForEach(Array(rings.enumerated()), id: \.offset) { i, ring in
+                    let d = size - CGFloat(i) * (line * 2 + 4)
+                    Circle().stroke(Color.white.opacity(0.08), lineWidth: line).frame(width: d, height: d)
+                    Circle().trim(from: 0, to: CGFloat(ring.value))
+                        .stroke(ring.tint, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                        .rotationEffect(.degrees(-90)).frame(width: d, height: d)
+                }
+                if let label = node.ref("label")?.string(ctx) {
+                    Text(label).font(.system(size: size * 0.2, weight: .bold).monospacedDigit())
+                        .foregroundStyle(JcTheme.text).minimumScaleFactor(0.5).lineLimit(1)
+                        .padding(.horizontal, line * 2)
+                }
+            }
+            .frame(width: size + line, height: size + line)
+            if let caption = node.ref("caption")?.string(ctx), !caption.isEmpty {
+                Text(caption).font(.system(size: 12)).foregroundStyle(JcTheme.muted).lineLimit(1)
+            }
+        }
+    }
+}
+
 private struct IntegrationUIText: View {
     let node: JCNode
     let ctx: JCBindingContext
 
     var body: some View {
         let raw = node.ref("value")?.string(ctx) ?? ""
-        let size = CGFloat(node.style?.size ?? 14)
+        let size = CGFloat(node.style?.size ?? 15)
         let color = node.style?.color.flatMap(jcParseColor) ?? JcTheme.text
         Group {
             if node.bool("markdown") == true,

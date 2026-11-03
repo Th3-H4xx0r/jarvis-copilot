@@ -87,6 +87,20 @@ small labels over cards. Follow it:
 - **Charts for history**, `sparkline` for a trend inside a card, `keyValue` for details.
 - **No custom colours** outside charts, rings, badges and dots: the accent comes from the
   app. Size, weight and opacity are fine for hierarchy (`opacity: 0.6` for secondary text).
+- **Let the app style it.** Nodes on a page already draw in the app's look (section label
+  + card, stat number + caption, row with icon square, glass buttons, grey full-width
+  segmented filters). Don't add `style.padding` to sections or cards, don't set font sizes
+  on rows, buttons or inputs, and don't wrap a section's content in another card.
+- **Stat cards:** the main number big at the top left, its unit beside it, a 1–3 word
+  `caption` under it; secondary numbers smaller in the same grid. Put 2–4 stat `section`s
+  in a 2-column `grid` (each section is its own small card), and give a wide one `span: 2`.
+- **Words:** sentence case everywhere; section titles 1–2 words (the app uppercases them);
+  no emoji, no exclamation marks, no "✨ New". Units and dates as the person reads them
+  ("$48", "2 L", "Tue 9:40 AM"), formatted by `load`, not raw ISO strings or floats.
+- **Filters** are a `picker` (segmented) at the top of the section they filter, 2–4 short
+  options. A long choice list is `variant: "menu"`.
+- **Every state has a look:** an `empty` node for each list ("Nothing to buy"), and the
+  page still reads well when `load` returns zeros on day one.
 - **Lists:** `row` with `check` for to-dos, `trailing` for a value, `swipe` for delete
   (`role: "destructive"`), and always an `empty` node.
 - **Buttons:** one `primary` per section at most; `secondary` for the rest; `full: true`
