@@ -409,3 +409,36 @@ private enum Fx {
         ]]
     }
 }
+
+/// The Agents list drawn in-process (no system alerts over it), for comparing
+/// with Health and Devices.
+@MainActor
+final class AgentsListRenderTests: XCTestCase {
+    private func page(list: [String: Any], requests: [[String: Any]], usage: Bool) async -> some View {
+        let (client, transport) = JarvisAPI.mocked()
+        var payload = list
+        if usage {
+            payload["usage"] = Fx.claudeUsage
+            payload["usage_codex"] = Fx.codexUsage
+        }
+        transport.route("/api/coding/agents/list", json: payload)
+        transport.route("/api/coding/permission/pending", json: ["pending": requests])
+        let topics = BridgeTopics()
+        topics.send = { _ in }
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: topics)
+        await store.refresh()
+        let router = AppRouter()
+        router.selectedTab = .agents
+        return AgentsPage(store: store).environment(router).tint(JcTheme.accent)
+    }
+
+    func testTheListRenders() async throws {
+        let size = CGSize(width: 402, height: 1400)
+        try RenderHarness.write(await page(list: Fx.list, requests: [Fx.approvalRequest], usage: true),
+                                size: size, name: "agents-list")
+        try RenderHarness.write(await page(list: Fx.emptyList, requests: [], usage: false),
+                                size: CGSize(width: 402, height: 874), name: "agents-empty")
+        try RenderHarness.write(NavigationStack { AgentsHistoryView() }.tint(JcTheme.accent),
+                                size: CGSize(width: 402, height: 874), name: "agents-history")
+    }
+}

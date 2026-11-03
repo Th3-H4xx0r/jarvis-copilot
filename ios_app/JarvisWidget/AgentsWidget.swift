@@ -54,9 +54,10 @@ struct AgentsProvider: TimelineProvider {
 
 private func agentColor(_ state: String) -> Color {
     switch state.lowercased() {
-    case "approval", "question", "needs approval", "has a question": return Color(red: 0.98, green: 0.75, blue: 0.14)
-    case "working", "thinking": return Color(red: 0.20, green: 0.83, blue: 0.60)
-    case "error", "failed": return .red
+    // The Agents tab's rules (`jcAgentStateColor`): amber waits on you, the accent works.
+    case "approval", "question", "needs approval", "has a question", "needs you": return JcState.amber
+    case "working", "thinking": return JcAccent.color
+    case "error", "failed": return JcState.danger
     default: return .gray
     }
 }
@@ -101,7 +102,7 @@ struct AgentsWidgetView: View {
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
             }
             Text(entry.text("coding.lead_project").isEmpty ? "All quiet" : entry.text("coding.lead_project"))
-                .font(.system(size: 17, weight: .bold)).lineLimit(1)
+                .font(.system(size: 17, weight: .semibold)).lineLimit(1)
             Text(entry.text("coding.lead_state")).font(.system(size: 13, weight: .medium))
                 .foregroundStyle(agentColor(entry.text("coding.lead_state")))
             Text(entry.text("coding.lead_step")).font(.system(size: 11, design: .monospaced))
@@ -116,7 +117,7 @@ struct AgentsWidgetView: View {
     private var medium: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Agents").font(.system(size: 13, weight: .bold))
+                Text("Agents").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if let five = entry.number("coding.claude_5h") {
                     Text("5h \(five)%").font(.system(size: 11)).foregroundStyle(.secondary)

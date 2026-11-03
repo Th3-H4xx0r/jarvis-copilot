@@ -33,10 +33,7 @@ struct JarvisCarTalkView: View {
             .widgetURL(CarTalkLink.url)
             // Removable, like the JARVIS Voice widget: CarPlay drops it and the face sits
             // on the car's own surface.
-            .containerBackground(for: .widget) {
-                LinearGradient(colors: [JcAccent.color, JcAccent.deep],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
+            .containerBackground(Color.black, for: .widget)
     }
 
     private var textColor: Color { showsBackground ? .white : .primary }
@@ -48,10 +45,9 @@ struct JarvisCarTalkView: View {
                 .scaledToFit()
                 .frame(width: size, height: size)
                 .clipShape(Circle())
-                .shadow(color: JcAccent.color.opacity(0.55), radius: size / 6)
         } else {
             Image(systemName: "atom")
-                .font(.system(size: size * 0.55, weight: .bold))
+                .font(.system(size: size * 0.55, weight: .semibold))
                 .foregroundStyle(textColor)
         }
     }

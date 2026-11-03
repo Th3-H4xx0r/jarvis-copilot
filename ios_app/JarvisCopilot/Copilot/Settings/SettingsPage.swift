@@ -29,7 +29,7 @@ struct SettingsPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
+            VStack(alignment: .leading, spacing: 24) {
                 hero
                 identity
                 assistant
@@ -38,12 +38,12 @@ struct SettingsPage: View {
                 danger
                 version
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, JcUnified.pageInset)
             .padding(.top, 4)
             .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.interactively)
-        .jcScreen("Settings")
+        .jcPageChrome("Settings")
         .onAppear {
             deviceNameDraft = store.deviceName
             // The permission can be revoked in iOS Settings while we are
@@ -583,7 +583,7 @@ struct ContextCompactionScreen: View {
             .padding(.bottom, 36)
         }
         .scrollDismissesKeyboard(.interactively)
-        .jcScreen("Auto-compact")
+        .jcPageChrome("Auto-compact")
         .task { await store.load(); syncDrafts() }
         .refreshable { await store.load(); syncDrafts() }
     }

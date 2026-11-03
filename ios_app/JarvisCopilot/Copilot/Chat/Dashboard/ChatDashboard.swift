@@ -159,9 +159,9 @@ private struct DashboardCard<Art: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(compact ? 12 : 14)
-            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.065), lineWidth: 0.5))
+            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+                .strokeBorder(JcTheme.border, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -195,7 +195,7 @@ private struct StackedAvatars: View {
             ForEach(Array(shown.enumerated()), id: \.offset) { index, item in
                 // The rendered wearables are matte black: on the symbol circles'
                 // near-black they were silhouettes of nothing.
-                circle(fill: item.image == nil ? Color(jcHex: 0x151A22) : Color(jcHex: 0x3A4250)) {
+                circle(fill: item.image == nil ? Color(white: 0.11) : Color(white: 0.25)) {
                     if let image = item.image {
                         Image(uiImage: image)
                             .resizable()
@@ -221,16 +221,16 @@ private struct StackedAvatars: View {
     private func symbol(_ name: String) -> some View {
         JcIcon(name)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(JcTheme.cyan)
+            .foregroundStyle(JcTheme.text.opacity(0.85))
     }
 
-    private func circle<Content: View>(fill: Color = Color(jcHex: 0x151A22),
+    private func circle<Content: View>(fill: Color = Color(white: 0.11),
                                        @ViewBuilder _ content: () -> Content) -> some View {
         ZStack { content() }
             .frame(width: Self.side, height: Self.side)
             .background(fill, in: Circle())
             .clipShape(Circle())
-            .overlay(Circle().strokeBorder(Color(jcHex: 0x0A0C12), lineWidth: 2))
+            .overlay(Circle().strokeBorder(JcTheme.bg, lineWidth: 2))
     }
 }
 
@@ -241,14 +241,14 @@ private struct SymbolBadge: View {
     var body: some View {
         JcIcon(symbol)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(JcTheme.cyan)
+            .foregroundStyle(JcTheme.text.opacity(0.85))
             .frame(width: 34, height: 34)
-            .background(Color(jcHex: 0x151A22), in: Circle())
+            .background(Color(white: 0.11), in: Circle())
             .overlay(alignment: .topTrailing) {
                 if let dot {
                     Circle().fill(dot)
                         .frame(width: 9, height: 9)
-                        .overlay(Circle().strokeBorder(Color(jcHex: 0x0A0C12), lineWidth: 2))
+                        .overlay(Circle().strokeBorder(JcTheme.bg, lineWidth: 2))
                         .offset(x: 1, y: -1)
                 }
             }

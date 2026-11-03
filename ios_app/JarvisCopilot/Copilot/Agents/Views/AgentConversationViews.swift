@@ -382,7 +382,7 @@ struct AgentEditCard: View {
                 if edit.lines.isEmpty && edit.detailIndex != nil {
                     AgentDetailsLoading().padding(.horizontal, 14)
                 } else if edit.lines.isEmpty {
-                    Text("The diff isn’t available here.")
+                    Text("The diff isn’t available here")
                         .font(.system(size: 12.5))
                         .foregroundStyle(JcTheme.muted)
                         .padding(.horizontal, 14)
@@ -471,7 +471,7 @@ struct AgentDiffView: View {
             VStack(alignment: .leading, spacing: 0) {
                 AgentDiffLines(lines: edit.lines)
                 if edit.truncated {
-                    Text("Some lines were left out to keep this small.")
+                    Text("Some lines were left out to keep this small")
                         .font(.system(size: 12))
                         .foregroundStyle(JcTheme.muted)
                         .padding(12)

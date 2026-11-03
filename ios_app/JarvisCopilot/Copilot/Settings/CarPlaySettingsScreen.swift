@@ -34,7 +34,7 @@ struct CarPlaySettingsScreen: View {
             .padding(.top, 6)
             .padding(.bottom, 36)
         }
-        .jcScreen("CarPlay")
+        .jcPageChrome("CarPlay")
     }
 
     private func choose(_ option: CarMapsApp) {

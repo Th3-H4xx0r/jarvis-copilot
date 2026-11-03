@@ -22,8 +22,9 @@ struct AgentsRecapView: View {
                             AgentRecapCard(recap: recap, compact: true)
                         }
                     } else if let error {
-                        Text(error).font(JcText.body).foregroundStyle(JcTheme.muted)
-                            .frame(maxWidth: .infinity).padding(.top, 60)
+                        JcEmptyState(symbol: "wifi.exclamationmark", title: "Couldn’t load the recap",
+                                     subtitle: error)
+                            .padding(.top, 60)
                     } else {
                         ProgressView().tint(JcTheme.accent).padding(.top, 80)
                     }
@@ -51,13 +52,9 @@ struct AgentsRecapView: View {
     }
 
     private var empty: some View {
-        VStack(spacing: 10) {
-            JcIcon("moon.zzz", size: 34)
-            Text("A quiet week").font(JcText.title).foregroundStyle(JcTheme.text)
-            Text("No agent turns in the last seven days.")
-                .font(JcText.body).foregroundStyle(JcTheme.muted)
-        }
-        .frame(maxWidth: .infinity).padding(.top, 60)
+        JcEmptyState(symbol: "moon.zzz", title: "A quiet week",
+                     subtitle: "No agent turns in the last seven days")
+            .padding(.top, 60)
     }
 
     private func load() async {
@@ -92,12 +89,12 @@ struct AgentRecapCard: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 if !compact {
-                    Text("MY WEEK WITH THE AGENTS")
-                        .font(.system(size: 12, weight: .bold)).tracking(1.2)
-                        .foregroundStyle(JcTheme.accent)
+                    Text("My week with the agents")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(JcTheme.muted)
                 }
                 Text(recap.time)
-                    .font(.system(size: compact ? 44 : 56, weight: .bold, design: .rounded))
+                    .font(.system(size: compact ? 44 : 56, weight: .semibold, design: .rounded))
                     .foregroundStyle(JcTheme.text)
                 Text("of agent time · \(recap.sessions) session\(recap.sessions == 1 ? "" : "s")")
                     .font(JcText.body).foregroundStyle(JcTheme.muted)
@@ -118,9 +115,11 @@ struct AgentRecapCard: View {
                 }
                 if let l = recap.longest { highlight("timer", "Longest session", l) }
             }
-            .padding(14)
+            .padding(JcUnified.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+                .strokeBorder(JcTheme.border, lineWidth: 1))
             if !compact { Spacer(minLength: 0) }
         }
     }
@@ -131,17 +130,18 @@ struct AgentRecapCard: View {
                 .foregroundStyle(JcTheme.text).lineLimit(1).minimumScaleFactor(0.6)
             Text(label).font(.system(size: 12)).foregroundStyle(JcTheme.muted).lineLimit(1)
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private func highlight(_ icon: String, _ label: String, _ value: String) -> some View {
         HStack(spacing: 10) {
-            JcIcon(icon, size: 15)
+            JcIcon(icon, size: 15).foregroundStyle(JcTheme.muted)
             Text(label).font(.system(size: 14)).foregroundStyle(JcTheme.muted)
             Spacer()
-            Text(value).font(.system(size: 14, weight: .semibold)).foregroundStyle(JcTheme.text)
+            Text(value).font(.system(size: 14, weight: .medium)).foregroundStyle(JcTheme.text)
                 .lineLimit(1)
         }
     }

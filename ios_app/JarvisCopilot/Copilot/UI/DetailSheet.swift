@@ -25,7 +25,7 @@ struct DetailSheet<Content: View, Footer: View, Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.system(size: 18, weight: .bold))
+                .font(JcText.title)
                 .foregroundStyle(JcTheme.text)
                 .padding(.bottom, 12)
             ScrollView { content.frame(maxWidth: .infinity, alignment: .leading) }

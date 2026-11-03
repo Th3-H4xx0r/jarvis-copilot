@@ -32,7 +32,7 @@ struct RingWorkoutActivity: Widget {
                             Text(distance).foregroundStyle(.white.opacity(0.75))
                         }
                         if !context.state.running {
-                            Text("Paused").foregroundStyle(.orange)
+                            Text("Paused").foregroundStyle(JcState.amber)
                         }
                     }
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -46,7 +46,7 @@ struct RingWorkoutActivity: Widget {
                             .font(.system(size: 34, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .multilineTextAlignment(.trailing)
-                            .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                            .foregroundStyle(JcState.amber)
                     }
                 } else {
                     WorkoutTimerText(state: context.state, font: .system(size: 34, weight: .semibold, design: .rounded))
@@ -58,7 +58,7 @@ struct RingWorkoutActivity: Widget {
             .overlay(alignment: .bottom) {
                 if let rest = RestWindow(context) {
                     ProgressView(timerInterval: rest.range, countsDown: true) { EmptyView() } currentValueLabel: { EmptyView() }
-                        .tint(Color(red: 1, green: 0.76, blue: 0.3))
+                        .tint(JcState.amber)
                         .padding(.horizontal, 18)
                         .padding(.bottom, 6)
                 }
@@ -79,7 +79,7 @@ struct RingWorkoutActivity: Widget {
                             .font(.system(size: 28, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .multilineTextAlignment(.trailing)
-                            .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                            .foregroundStyle(JcState.amber)
                             .padding(.trailing, 4)
                     } else {
                         WorkoutTimerText(state: context.state, font: .system(size: 28, weight: .semibold, design: .rounded))
@@ -117,7 +117,7 @@ struct RingWorkoutActivity: Widget {
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .multilineTextAlignment(.trailing)
-                        .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                        .foregroundStyle(JcState.amber)
                         .frame(maxWidth: 56)
                 } else {
                     WorkoutTimerText(state: context.state, font: .system(size: 14, weight: .semibold, design: .rounded))

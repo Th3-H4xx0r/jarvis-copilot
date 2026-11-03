@@ -145,7 +145,7 @@ struct PromptCacheScreen: View {
             .padding(.top, 6)
             .padding(.bottom, 36)
         }
-        .jcScreen("Keep prompts cached")
+        .jcPageChrome("Keep prompts cached")
         .task { await store.load() }
         .refreshable { await store.load() }
     }

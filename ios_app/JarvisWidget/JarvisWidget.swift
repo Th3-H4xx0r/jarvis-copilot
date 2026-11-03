@@ -25,7 +25,7 @@ struct JarvisWidgetProvider: TimelineProvider {
 
 struct JarvisWidgetView: View {
     @Environment(\.widgetFamily) private var family
-    /// False where the gradient is dropped (CarPlay, tinted/clear Home Screens):
+    /// False where the background is dropped (CarPlay, tinted/clear Home Screens):
     /// the label then takes the system's colour instead of white-on-nothing.
     @Environment(\.showsWidgetContainerBackground) private var showsBackground
     var entry: JarvisWidgetProvider.Entry
@@ -58,20 +58,18 @@ struct JarvisWidgetView: View {
                         .scaledToFit()
                         .frame(width: 68, height: 68)
                         .clipShape(Circle())
-                        .shadow(color: JcAccent.color.opacity(0.55), radius: 10)
                 } else {
                     Image(systemName: "atom")
-                        .font(.system(size: 34, weight: .bold))
+                        .font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(.white)
                 }
-                Text("Talk to JARVIS")
+                Text("Talk to Jarvis")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(showsBackground ? AnyShapeStyle(.white.opacity(0.95)) : AnyShapeStyle(.primary))
             }
-            .containerBackground(for: .widget) {
-                LinearGradient(colors: [JcAccent.color, JcAccent.deep],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
+            // The app's black, with the orb as the colour; removable, so CarPlay
+            // still puts the orb on the car's own surface.
+            .containerBackground(Color.black, for: .widget)
             .widgetURL(URL(string: "jarviscopilot://voice"))
         }
     }

@@ -18,7 +18,7 @@ struct ChatCommandApprovalBar: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Allow this command?")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(JcTheme.text)
                     if !request.description.isEmpty {
                         Text(ApprovalText.reason(request.description))

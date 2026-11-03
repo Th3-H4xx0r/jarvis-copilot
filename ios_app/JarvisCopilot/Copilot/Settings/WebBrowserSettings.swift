@@ -182,7 +182,7 @@ struct WebBrowserSettingsScreen: View {
             .disabled(!store.loaded)
             .opacity(store.loaded ? 1 : 0.5)
         }
-        .jcScreen("Web & browser")
+        .jcPageChrome("Web & browser")
         .task { await store.load() }
         .refreshable { await store.load() }
         .sheet(isPresented: $picking) {

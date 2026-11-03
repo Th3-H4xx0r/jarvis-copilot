@@ -34,3 +34,51 @@ final class ApprovalRenderTests: XCTestCase {
                                 name: "agent-launch-sheet")
     }
 }
+
+/// The shared page pieces (JcUnified.swift) on one page, to look at side by side
+/// with Health and Devices.
+@MainActor
+final class UnifiedPiecesRenderTests: XCTestCase {
+    private enum Day: String, CaseIterable, Identifiable {
+        case today = "Today", yesterday = "Yesterday", sat = "Sat 31", fri = "Fri 30", thu = "Thu 29", wed = "Wed 28"
+        var id: String { rawValue }
+    }
+    private enum Half: String, CaseIterable, Identifiable {
+        case server = "Server", wearables = "Wearables"
+        var id: String { rawValue }
+    }
+
+    func testTheUnifiedPiecesRender() throws {
+        let page = NavigationStack {
+            JcPage("Agents") {
+                JcSegmented(items: Half.allCases, selection: .constant(.wearables), label: { $0.rawValue })
+                    .frame(maxWidth: 280).frame(maxWidth: .infinity)
+                JcSegmented(items: Day.allCases, selection: .constant(.today), label: { $0.rawValue })
+                    .padding(.top, 12)
+                JcSectionLabel("Needs you") { Text("2") }
+                JcCard(padding: 0) {
+                    JcRow(symbol: "terminal", title: "jarvis-copilot", subtitle: "Claude Code · Bash: npm test") {
+                        JcSmallAction("Allow", symbol: "checkmark") {}
+                    }
+                    JcRow(symbol: "folder", title: "Projects", subtitle: "4 sessions", action: {})
+                    JcRow(symbol: "clock", title: "Last run", value: "2 min ago")
+                    JcShowAllRow {}
+                }
+                JcSectionLabel("Body battery")
+                JcCard {
+                    Text("No battery yet").font(.system(size: 20, weight: .medium)).foregroundStyle(JcTheme.text)
+                    Text("It starts from a night of sleep on a linked wearable")
+                        .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                }
+                JcSectionLabel("Empty")
+                JcCard { JcEmptyState(symbol: "tray", title: "Nothing here", subtitle: "New sessions show up here") }
+            } actions: {
+                JcPageButton("plus", label: "New") {}
+                JcPageButton("ellipsis", label: "More") {}
+            } leading: {
+                JcPageButton("sidebar.left", label: "Chats") {}
+            }
+        }
+        try RenderHarness.write(page, size: CGSize(width: 402, height: 874), name: "unified-pieces")
+    }
+}

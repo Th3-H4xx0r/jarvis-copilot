@@ -34,7 +34,7 @@ struct SpeechEngineScreen: View {
             .padding(.top, 6)
             .padding(.bottom, 36)
         }
-        .jcScreen("Speech engine")
+        .jcPageChrome("Speech engine")
         .task { await store.load() }
         .refreshable { await store.load() }
     }
@@ -293,7 +293,7 @@ struct SpeechLanguagesScreen: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 6)
         }
-        .jcScreen("Languages")
+        .jcPageChrome("Languages")
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search languages")
     }

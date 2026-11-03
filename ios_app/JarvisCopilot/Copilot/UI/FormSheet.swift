@@ -38,7 +38,7 @@ struct FormSheet<Fields: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(JcText.title)
                     .foregroundStyle(JcTheme.text)
                     .padding(.bottom, 16)
                 fields
@@ -73,15 +73,15 @@ struct FormSheet<Fields: View>: View {
     }
 }
 
-/// An uppercase muted field label — the form-field caption.
+/// A muted field label — the form-field caption, in sentence case like the
+/// Settings fields ("Device name").
 struct FormFieldLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 11.5, weight: .bold))
-            .kerning(0.6)
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(JcTheme.muted)
     }
 }
@@ -157,7 +157,7 @@ struct FormChipMulti: View {
                     } label: {
                         HStack(spacing: 5) {
                             if on {
-                                JcIcon("checkmark", size: 10, weight: .bold)
+                                JcIcon("checkmark", size: 10, weight: .semibold)
                                     .foregroundStyle(JcTheme.accent)
                             }
                             Text(item).font(JcText.small)

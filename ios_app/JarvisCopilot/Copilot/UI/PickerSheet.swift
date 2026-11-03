@@ -18,8 +18,8 @@ struct PickerOption<Value: Hashable>: Identifiable, Hashable {
     var id: Value { value }
 }
 
-/// A thin gradient hairline border — the app's "futuristic glass edge". Wraps
-/// `content` in a 1.2pt cyan-to-teal outline over a solid fill.
+/// A field's edge: a solid fill with the app's one hairline. (The name is
+/// historical — it was a cyan-to-teal gradient.)
 struct GradientBorder<Content: View>: View {
     var radius: CGFloat = JcTheme.fieldRadius
     @ViewBuilder var content: Content
@@ -29,25 +29,15 @@ struct GradientBorder<Content: View>: View {
         self.content = content()
     }
 
-    private static var thickness: CGFloat { 1.2 }
-    private static var gradient: LinearGradient {
-        LinearGradient(colors: [JcTheme.cyan.opacity(0x55 / 255.0),
-                                JcTheme.primaryBlue.opacity(0x55 / 255.0)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
     var body: some View {
         content
-            .background(JcTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .padding(Self.thickness)
-            .background {
-                RoundedRectangle(cornerRadius: radius + Self.thickness, style: .continuous)
-                    .fill(Self.gradient)
-            }
+            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
-/// A select field: a gradient-edged glass pill showing the current value, opening
+/// A select field: a hairline-edged glass pill showing the current value, opening
 /// a themed sheet on tap. Replaces the stock picker, whose menu can't be themed
 /// to match the app.
 struct PickerField<Value: Hashable>: View {
@@ -65,10 +55,10 @@ struct PickerField<Value: Hashable>: View {
             GradientBorder(radius: JcTheme.fieldRadius) {
                 HStack(spacing: 10) {
                     if let symbol = current?.symbol {
-                        JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.cyan)
+                        JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.muted)
                     }
                     Text(current?.label ?? hint)
-                        .font(JcText.body.weight(.semibold))
+                        .font(JcText.body.weight(.medium))
                         .foregroundStyle(current == nil ? JcTheme.muted : JcTheme.text)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -87,8 +77,8 @@ struct PickerField<Value: Hashable>: View {
     }
 }
 
-/// The themed modal picker: an opaque dark sheet with a gradient top accent; the
-/// selected row gets a cyan tint and a cyan check.
+/// The themed modal picker: an opaque dark sheet, a title, the options as rows;
+/// the chosen one is lifted and carries the accent check.
 ///
 /// Opaque on purpose — a translucent sheet bleeds the aurora backdrop through.
 struct PickerSheet<Value: Hashable>: View {
@@ -100,14 +90,13 @@ struct PickerSheet<Value: Hashable>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(JcTheme.brandGradient).frame(height: 3)
             Text(title)
-                .font(.system(size: 17, weight: .bold))
+                .font(JcText.title)
                 .foregroundStyle(JcTheme.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 22)
-                .padding(.top, 18)
-                .padding(.bottom, 12)
+                .padding(.top, 24)
+                .padding(.bottom, 14)
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(options) { option in
@@ -139,37 +128,30 @@ private struct PickerRow<Value: Hashable>: View {
             if let symbol = option.symbol {
                 JcIcon(symbol)
                     .font(.system(size: 17))
-                    .foregroundStyle(selected ? JcTheme.cyan : JcTheme.muted)
+                    .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
-                    .font(.system(size: 15.5, weight: selected ? .bold : .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                 if let subtitle = option.subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.system(size: 12.5)).foregroundStyle(JcTheme.muted)
+                    Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }
             }
             Spacer(minLength: 0)
             if selected {
-                JcIcon("checkmark.circle.fill", size: 18).foregroundStyle(JcTheme.cyan)
+                JcIcon("checkmark", size: 15, weight: .semibold).foregroundStyle(JcTheme.accent)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
         .background {
             let shape = RoundedRectangle(cornerRadius: JcTheme.fieldRadius, style: .continuous)
-            if selected {
-                shape.fill(LinearGradient(
-                    colors: [JcTheme.accent.opacity(0.22), JcTheme.cyan.opacity(0.06)],
-                    startPoint: .leading, endPoint: .trailing))
-            } else {
-                shape.fill(JcTheme.glassFill)
-            }
+            shape.fill(selected ? Color.white.opacity(0.10) : JcTheme.glassFill)
         }
         .overlay {
             RoundedRectangle(cornerRadius: JcTheme.fieldRadius, style: .continuous)
-                .strokeBorder(selected ? JcTheme.accent.opacity(0.45) : JcTheme.glassBorder,
-                              lineWidth: selected ? 1 : 0.8)
+                .strokeBorder(JcTheme.border, lineWidth: 1)
         }
     }
 }

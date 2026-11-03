@@ -381,11 +381,10 @@ struct VoicePage: View {
         // never ambiguous which one a tap is about to put you in.
         ToolbarItem(placement: .topBarLeading) {
             Menu {
-                Button { switchTo(live: false) } label: {
-                    Label(liveMode ? "Voice" : "Voice ✓", jcIcon: "waveform.circle")
-                }
-                Button { switchTo(live: true) } label: {
-                    Label(liveMode ? "Live ✓" : "Live", jcIcon: "dot.radiowaves.left.and.right")
+                // A picker, so the menu ticks the current mode itself.
+                Picker("Mode", selection: Binding(get: { liveMode }, set: { switchTo(live: $0) })) {
+                    Label("Voice", jcIcon: "waveform.circle").tag(false)
+                    Label("Live", jcIcon: "dot.radiowaves.left.and.right").tag(true)
                 }
             } label: {
                 HStack(spacing: 5) {

@@ -49,13 +49,13 @@ struct LiveRoomMeter: View {
             HStack(spacing: 10) {
                 LiveCaptureDot(state: state)
                 Text("Recording")
-                    .font(.system(size: 14.5, weight: .semibold))
+                    .font(.system(size: 14.5, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .lineLimit(1)
                     .fixedSize()
                 if let elapsed {
                     Text(LiveFormat.stamp(ms: Int(elapsed * 1000)))
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(JcTheme.text)
                         .contentTransition(.numericText())
@@ -143,7 +143,7 @@ struct LiveRoomMeter: View {
     /// the layout.
     private func clock(_ seconds: TimeInterval) -> some View {
         Text(LiveFormat.stamp(ms: Int(seconds * 1000)))
-            .font(.system(size: 30, weight: .bold, design: .rounded))
+            .font(.system(size: 30, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(JcTheme.text)
             .contentTransition(.numericText())

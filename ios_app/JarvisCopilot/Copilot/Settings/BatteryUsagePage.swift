@@ -63,7 +63,7 @@ struct BatteryUsagePage: View {
         }
         .refreshable { load() }
         .onAppear { load() }
-        .jcScreen("Battery usage")
+        .jcPageChrome("Battery usage")
     }
 
     private func load() {
@@ -175,7 +175,7 @@ struct BatteryHourScreen: View {
             .padding(.top, 4)
             .padding(.bottom, 40)
         }
-        .jcScreen(hour.start.formatted(date: .omitted, time: .shortened))
+        .jcPageChrome(hour.start.formatted(date: .omitted, time: .shortened))
     }
 }
 
@@ -192,10 +192,10 @@ struct BatteryHeadline: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(summary.drained.map { String(format: "−%.0f%%", $0) } ?? "—")
-                            .font(.system(size: 44, weight: .bold).monospacedDigit())
+                            .font(.system(size: 44, weight: .semibold).monospacedDigit())
                             .foregroundStyle(JcTheme.text)
                         Text("battery")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(JcTheme.muted)
                     }
                     Text("Lost by the phone, \(label), charging left out")
@@ -212,8 +212,8 @@ struct BatteryHeadline: View {
                     .compactMap { name, rate in rate.map { "\(name) \(String(format: "%.1f", $0))%/h" } }
                 if !rates.isEmpty {
                     Text("Phone drain: " + rates.joined(separator: " · "))
-                        .font(JcText.small.weight(.semibold))
-                        .foregroundStyle(JcTheme.accent)
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,13 +222,13 @@ struct BatteryHeadline: View {
 
     private func figure(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(value)
-                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .font(.system(size: 15, weight: .medium).monospacedDigit())
                 .foregroundStyle(JcTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -528,16 +528,16 @@ struct BatteryRankRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                GlassCircleIcon(symbol: item.symbol)
+                JcIconSquare(symbol: item.symbol)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(item.title)
-                            .font(JcText.body.weight(.semibold))
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         Spacer(minLength: 6)
                         Text(value)
-                            .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                            .font(.system(size: 14, weight: .medium).monospacedDigit())
                             .foregroundStyle(JcTheme.text)
                     }
                     Capsule()
@@ -559,12 +559,10 @@ struct BatteryRankRow: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, JcUnified.cardPadding)
             .padding(.vertical, 12)
             .accessibilityElement(children: .combine)
-            if !last {
-                Rectangle().fill(JcTheme.glassBorder).frame(height: 1).padding(.leading, 68)
-            }
+            if !last { JcRowSeparator(inset: 56) }
         }
     }
 }

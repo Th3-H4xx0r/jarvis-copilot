@@ -85,18 +85,17 @@ struct AgentLogoMark: View {
     }
 }
 
-/// The state, as a tinted capsule: `NEEDS YOU` in amber, `WORKING` in the accent.
+/// The state, as a tinted capsule: "Needs you" in amber, "Working" in the accent.
 struct AgentStatePill: View {
     let state: String
     var body: some View {
         let c = jcAgentStateColor(state)
-        Text(jcAgentStateLabel(state).uppercased())
-            .font(.system(size: 10, weight: .heavy)).tracking(0.9)
+        Text(jcAgentStateLabel(state))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(c)
             .lineLimit(1)
             .padding(.vertical, 5).padding(.horizontal, 10)
-            .background(Capsule().fill(c.opacity(0.2)))
-            .overlay(Capsule().strokeBorder(c.opacity(0.45), lineWidth: 1))
+            .background(Capsule().fill(c.opacity(0.16)))
     }
 }
 
@@ -124,11 +123,11 @@ struct AgentHeaderText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
-                .font(.system(size: titleSize, weight: .heavy))
+                .font(.system(size: titleSize, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             subtitle
-                .font(.system(size: titleSize - 5, weight: .semibold))
+                .font(.system(size: titleSize - 4, weight: .regular))
                 .lineLimit(1)
         }
     }
@@ -202,7 +201,7 @@ struct AgentActionsRow: View {
             }
         } else if st.kind == "question" && st.actions {
             Text("Tap to answer in Jarvis")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(JcState.amber)
         }
     }
@@ -346,7 +345,7 @@ struct AgentCompactTrailing: View {
                 .foregroundStyle(JcState.danger)
         } else {
             Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(jcAgentStateColor("idle"))
         }
     }
@@ -399,7 +398,7 @@ struct AgentWaitingWho: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
-                .font(.system(size: nameSize, weight: .bold))
+                .font(.system(size: nameSize, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if !st.project.isEmpty {
@@ -423,10 +422,10 @@ struct AgentWaitingBadge: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: isQuestion ? "questionmark.bubble.fill" : "hand.raised.fill")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 11, weight: .semibold))
             if label {
                 Text(isQuestion ? "Question" : "Needs OK")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -475,7 +474,7 @@ struct AgentWaitingMessage: View {
     private var text: String {
         if !st.question.isEmpty { return st.question }
         if !command.isEmpty { return command }
-        return st.kind == "question" || st.state == "question" ? "It has a question for you." : "It needs your OK to go on."
+        return st.kind == "question" || st.state == "question" ? "It has a question for you" : "It needs your OK to go on"
     }
 }
 

@@ -32,7 +32,7 @@ struct StatusPill: View {
     }
 }
 
-/// A small dot that breathes (opacity + halo) — signals a live/active state.
+/// A small dot that breathes (opacity) — signals a live/active state.
 ///
 /// The animation is driven by a single repeating `withAnimation`, so a list of
 /// these costs one animation each rather than a ticker per frame.
@@ -46,7 +46,6 @@ struct PulsingDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .shadow(color: color.opacity(expanded ? 0.25 : 0.7), radius: expanded ? 3.5 : 1)
             .opacity(expanded ? 0.65 : 1)
             .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: expanded)
             .onAppear { expanded = true }
@@ -65,15 +64,16 @@ struct SectionHeader<Trailing: View>: View {
 
     var body: some View {
         HStack {
+            // Same look as `JcSectionLabel` (JcUnified.swift), the one section label.
             Text(text.uppercased())
-                .font(.system(size: 11.5, weight: .bold))
-                .kerning(0.8)
+                .font(.system(size: 12, weight: .medium))
+                .tracking(0.8)
                 .foregroundStyle(JcTheme.muted)
             Spacer()
             trailing
         }
         .padding(.top, 4)
-        .padding(.bottom, 10)
+        .padding(.bottom, JcUnified.labelGap)
     }
 }
 

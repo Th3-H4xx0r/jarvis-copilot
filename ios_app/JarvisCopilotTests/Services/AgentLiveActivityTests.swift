@@ -408,7 +408,7 @@ final class AgentLiveActivityTests: XCTestCase {
 
     func testAllowingClearsTheRequestAtOnce() {
         let st = AgentLiveDecision.decided(asking, decision: "allow")
-        XCTAssertEqual(st.step, "Allowed ✓ · Bash: rm -rf build")
+        XCTAssertEqual(st.step, "Allowed · Bash: rm -rf build")
         XCTAssertEqual(st.state, "working")
         XCTAssertFalse(st.waitsOnYou, "no longer amber")
         XCTAssertFalse(st.showsButtons, "the buttons go")
@@ -444,7 +444,7 @@ final class AgentLiveActivityTests: XCTestCase {
         jarvis.leadFingerprint = "fp"
         jarvis.leadStep = "Needs approval: Bash: ls"
         let st = AgentLiveDecision.decided(jarvis, decision: "allow")
-        XCTAssertEqual(st.leadStep, "Allowed ✓ · Bash: ls")
+        XCTAssertEqual(st.leadStep, "Allowed · Bash: ls")
         XCTAssertEqual(st.leadState, "working")
         XCTAssertEqual(st.leadKind, "")
         XCTAssertEqual(st.leadFingerprint, "")
@@ -458,7 +458,7 @@ final class AgentLiveActivityTests: XCTestCase {
         AgentLiveDecision.record("fp", decision: "allow", at: start)
         defer { AgentLiveDecision.forget("fp") }
         XCTAssertEqual(AgentLiveDecision.overlay(asking, now: start.addingTimeInterval(5)).step,
-                       "Allowed ✓ · Bash: rm -rf build")
+                       "Allowed · Bash: rm -rf build")
         XCTAssertEqual(AgentLiveDecision.overlay(asking, now: start.addingTimeInterval(120)), asking,
                        "after a minute the server's word is final")
         var other = asking

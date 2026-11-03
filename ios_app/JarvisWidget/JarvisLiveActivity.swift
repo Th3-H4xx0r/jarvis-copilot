@@ -82,12 +82,12 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
                 HStack(spacing: 9) {
                     JarvisOrb(state: "idle", size: 38)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Claude Code").font(.system(size: 14, weight: .bold))
+                        Text("Claude Code").font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                         (Text("\(st.sessionTotal) sessions").foregroundColor(.white.opacity(0.55))
                          + Text(st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
                             .foregroundColor(jcCodingColor("waiting")))
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 10, weight: .medium))
                     }
                 }
                 .padding(.leading, 4)

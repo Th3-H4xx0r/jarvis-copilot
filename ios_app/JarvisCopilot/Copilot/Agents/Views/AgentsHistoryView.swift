@@ -9,57 +9,82 @@ struct AgentsHistoryView: View {
     @State private var spotlight = AgentsSpotlight.enabled
 
     var body: some View {
-        List {
-            Section {
-                Toggle("Show finished turns in Spotlight", isOn: $spotlight)
-                    .onChange(of: spotlight) { _, on in AgentsSpotlight.enabled = on }
-            }
-            Section("Your decisions") {
-                if decisions.isEmpty {
-                    Text("Nothing decided from this phone yet.").foregroundStyle(JcTheme.muted)
-                }
-                ForEach(decisions.prefix(50)) { d in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            Text(d.decision.capitalized).font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(d.decision == "deny" ? JcTheme.danger : JcTheme.success)
-                            Text("\(d.agent) · \(d.project)").font(.system(size: 12))
-                                .foregroundStyle(JcTheme.muted)
-                            Spacer()
-                            Text(d.at.formatted(date: .abbreviated, time: .shortened))
-                                .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
-                        }
-                        Text(d.summary).font(.system(size: 12, design: .monospaced)).lineLimit(2)
+        ScrollView {
+            JcPageColumn {
+                JcSectionLabel("Spotlight", first: true)
+                JcCard(padding: 0) {
+                    JcRow(symbol: "magnifyingglass", title: "Show finished turns in Spotlight", last: true) {
+                        Toggle("", isOn: $spotlight).labelsHidden().tint(JcTheme.accent)
                     }
                 }
-            }
-            ForEach(byDay, id: \.day) { group in
-                Section(group.day.formatted(date: .complete, time: .omitted)) {
-                    ForEach(group.turns) { t in
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(t.project).font(.system(size: 14, weight: .semibold))
-                                Text("\(t.agent) · \(minutes(t)) · \(t.files) file\(t.files == 1 ? "" : "s") · \(t.commands) command\(t.commands == 1 ? "" : "s")")
-                                    .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                .onChange(of: spotlight) { _, on in AgentsSpotlight.enabled = on }
+
+                JcSectionLabel("Your decisions")
+                JcCard(padding: 0) {
+                    if decisions.isEmpty {
+                        Text("Nothing decided from this phone yet")
+                            .font(.system(size: 15))
+                            .foregroundStyle(JcTheme.muted)
+                            .padding(JcUnified.cardPadding)
+                    }
+                    let shown = Array(decisions.prefix(50))
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, d in
+                        decisionRow(d)
+                        if index < shown.count - 1 { JcRowSeparator() }
+                    }
+                }
+
+                ForEach(byDay, id: \.day) { group in
+                    JcSectionLabel(group.day.formatted(date: .complete, time: .omitted))
+                    JcCard(padding: 0) {
+                        ForEach(Array(group.turns.enumerated()), id: \.element.id) { index, t in
+                            JcRow(title: t.project,
+                                  subtitle: "\(t.agent) · \(minutes(t)) · \(t.files) file\(t.files == 1 ? "" : "s") · \(t.commands) command\(t.commands == 1 ? "" : "s")",
+                                  last: index == group.turns.count - 1) {
+                                Text("+\(t.added) −\(t.removed)")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(JcTheme.muted)
                             }
-                            Spacer()
-                            Text("+\(t.added) −\(t.removed)").font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(JcTheme.muted)
                         }
                     }
                 }
-            }
-            if let error {
-                Text(error).foregroundStyle(JcTheme.danger)
+                if let error {
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundStyle(JcTheme.danger)
+                        .padding(.top, 16)
+                }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("History")
+        .jcPageChrome("History")
         .task {
             decisions = AgentsDecisionLog.all()
             do { turns = try await AgentsAPI().history() } catch { self.error = apiErrorMessage(error) }
         }
+    }
+
+    private func decisionRow(_ d: AgentDecisionRecord) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(d.decision.capitalized)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(d.decision == "deny" ? JcTheme.danger : JcTheme.success)
+                Text("\(d.agent) · \(d.project)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Text(d.at.formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            Text(d.summary)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(JcTheme.text.opacity(0.85))
+                .lineLimit(2)
+        }
+        .padding(.horizontal, JcUnified.cardPadding)
+        .padding(.vertical, 12)
     }
 
     private var byDay: [(day: Date, turns: [AgentsAPI.TurnRecord])] {

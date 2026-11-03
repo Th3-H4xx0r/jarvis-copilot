@@ -55,7 +55,7 @@ enum AgentLiveDecision {
             command = String(command.dropFirst("needs approval:".count)).trimmingCharacters(in: .whitespaces)
         }
         switch decision {
-        case "allow", "always": return command.isEmpty ? "Allowed ✓" : "Allowed ✓ · \(command)"
+        case "allow", "always": return command.isEmpty ? "Allowed" : "Allowed · \(command)"
         case "deny": return command.isEmpty ? "Denied" : "Denied · \(command)"
         default: return option.isEmpty ? "Answered" : "Answered: \(option)"
         }

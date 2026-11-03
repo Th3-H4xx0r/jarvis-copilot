@@ -238,40 +238,32 @@ struct ChatClarifyBar: View {
     let onAnswer: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 JcIcon("questionmark.circle", size: 12)
-                Text("Quick question").font(.system(size: 11, weight: .bold))
+                Text("Quick question").font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(JcTheme.cyan)
+            .foregroundStyle(JcTheme.muted)
 
-            Text(prompt.question).font(.system(size: 14)).foregroundStyle(JcTheme.text)
+            Text(prompt.question).font(.system(size: 15)).foregroundStyle(JcTheme.text)
 
             if !prompt.choices.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(prompt.choices, id: \.self) { choice in
-                            Button { onAnswer(choice) } label: {
-                                Text(choice)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(JcTheme.text)
-                                    .padding(.horizontal, 14).padding(.vertical, 8)
-                                    .background(JcTheme.cyan.opacity(0.18), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(JcTheme.cyan.opacity(0.4), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
+                            Button(choice) { onAnswer(choice) }
+                                .buttonStyle(.jcGlass(compact: true))
                         }
                     }
                     .padding(.vertical, 2)
                 }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(JcTheme.cyan.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(JcTheme.cyan.opacity(0.30), lineWidth: 1))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(JcTheme.border, lineWidth: 1))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
     }

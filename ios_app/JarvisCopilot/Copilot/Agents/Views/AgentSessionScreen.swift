@@ -231,7 +231,7 @@ struct AgentSessionScreen: View {
 
     private func notice(_ text: String, tone: Color = JcTheme.text) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(tone)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 14)
@@ -474,7 +474,7 @@ struct AgentStatusPill: View {
             default: Circle().fill(status.color).frame(width: 6, height: 6)
             }
             Text(label)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(status.color)
         }
         .padding(.horizontal, 8)
@@ -503,7 +503,7 @@ struct AgentConversationHeader: View {
             }
             if lastTurnOnly {
                 Text("Showing the last turn")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(JcTheme.muted)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
@@ -588,23 +588,9 @@ struct AgentConversationEmpty: View {
     var error: String?
 
     var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Circle().fill(JcTheme.glassFill)
-                JcIcon(error == nil ? "bubble.left" : "exclamationmark.circle", size: 24)
-                    .foregroundStyle(error == nil ? JcTheme.accent : JcTheme.muted)
-            }
-            .frame(width: 64, height: 64)
-            Text(error == nil ? "No conversation yet" : "Couldn’t load this session")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(JcTheme.text)
-            Text(error ?? "When \(agentName) starts a turn, it shows up here. You can also start one below.")
-                .font(.system(size: 14))
-                .foregroundStyle(JcTheme.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 290)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 70)
+        JcEmptyState(symbol: error == nil ? "bubble.left" : "exclamationmark.circle",
+                     title: error == nil ? "No conversation yet" : "Couldn’t load this session",
+                     subtitle: error ?? "When \(agentName) starts a turn it shows up here, or start one below")
+            .padding(.top, 70)
     }
 }

@@ -277,20 +277,9 @@ struct AppUpdateSheet: View {
         .padding(.top, 26)
         .padding(.bottom, 6)
         .frame(maxWidth: 460)
-        .background {
-            // The app's black glass with the accent glowing in from the top, like the Voice tab.
-            ZStack {
-                JcTheme.bg
-                JcTheme.glassFill
-                RadialGradient(colors: [JcTheme.accent.opacity(0.28), .clear],
-                               center: .top, startRadius: 0, endRadius: 260)
-            }
-            .clipShape(shape)
-        }
-        .overlay(shape.strokeBorder(LinearGradient(
-            colors: [JcTheme.accent.opacity(0.55), JcTheme.glassBorder, JcTheme.glassBorder],
-            startPoint: .top, endPoint: .bottom), lineWidth: 1))
-        .shadow(color: JcTheme.accent.opacity(0.18), radius: 40, y: -6)
+        // The app's card: surface on black, one hairline.
+        .background(ZStack { JcTheme.bg; JcTheme.glassFill }.clipShape(shape))
+        .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
         .padding(.horizontal, 10)
         .padding(.bottom, 10)
         .accessibilityElement(children: .contain)
@@ -300,7 +289,6 @@ struct AppUpdateSheet: View {
         VStack(spacing: 0) {
             AppIconImage()
                 .frame(width: 72, height: 72)
-                .shadow(color: JcTheme.accent.opacity(0.55), radius: 22)
             HStack(spacing: 7) {
                 Circle().fill(JcTheme.accent).frame(width: 6, height: 6)
                 Text("Update available")
@@ -343,18 +331,16 @@ struct AppUpdateSheet: View {
     }
 
     private var whatsNew: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("WHAT\u{2019}S NEW")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(1.2)
-                .foregroundStyle(JcTheme.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            JcSectionLabel("What\u{2019}s new", first: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Image(systemName: "sparkle")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(JcTheme.accent)
+                            Circle().fill(JcTheme.muted)
+                                .frame(width: 5, height: 5)
+                                // Centred on the first line's x-height.
+                                .alignmentGuide(.firstTextBaseline) { d in d.height + 4 }
                             Text(item)
                                 .font(.system(size: 15))
                                 .foregroundStyle(JcTheme.text.opacity(0.88))
@@ -366,34 +352,19 @@ struct AppUpdateSheet: View {
             }
             .frame(maxHeight: 180)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(JcUnified.cardPadding)
+            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
+                .strokeBorder(JcTheme.border, lineWidth: 1))
         }
-        .padding(16)
-        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
     }
 
     private var actions: some View {
         VStack(spacing: 2) {
-            Button(action: onInstall) {
-                ZStack {
-                    Label("Install Now", systemImage: "arrow.down.circle.fill")
-                        .opacity(installing ? 0 : 1)
-                    if installing { ProgressView().tint(.black) }
-                }
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity, minHeight: 54)
-                .background(LinearGradient(colors: [JcTheme.primaryBlueHi, JcTheme.accent],
-                                           startPoint: .top, endPoint: .bottom), in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
-                .shadow(color: JcTheme.accent.opacity(0.45), radius: 16, y: 4)
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(installing)
-            Button("Not Now", action: onLater)
-                .font(.system(size: 16, weight: .medium))
+            GradientButton(installing ? "Installing…" : "Install now", symbol: "arrow.down.circle",
+                           busy: installing, full: true, action: onInstall)
+            Button("Not now", action: onLater)
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .contentShape(Rectangle())
@@ -410,7 +381,7 @@ struct AppIconImage: View {
                 Image(uiImage: icon).resizable().scaledToFill()
             } else {
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(JcTheme.accent)

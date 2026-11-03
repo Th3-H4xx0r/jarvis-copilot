@@ -31,7 +31,7 @@ struct OnDeviceAISettingsPage: View {
             .padding(.bottom, 32)
         }
         .scrollDismissesKeyboard(.interactively)
-        .jcScreen("On-device AI")
+        .jcPageChrome("On-device AI")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { await store.refresh() } } label: {
@@ -150,7 +150,7 @@ struct OnDeviceAISettingsPage: View {
                             Button { store.cancelDownload(model) } label: {
                                 ZStack {
                                     ProgressView(value: progress).progressViewStyle(.circular).tint(JcTheme.cyan)
-                                    JcIcon("xmark", size: 8, weight: .bold)
+                                    JcIcon("xmark", size: 8, weight: .semibold)
                                         .foregroundStyle(JcTheme.muted)
                                 }
                                 .frame(width: 22, height: 22)

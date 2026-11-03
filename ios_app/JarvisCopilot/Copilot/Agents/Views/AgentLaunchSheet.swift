@@ -57,7 +57,7 @@ struct AgentLaunchSheet: View {
                 VStack(alignment: .leading, spacing: 26) {
                     section("Run on") { placeGrid }
                     section("Agent") { agentGrid }
-                    section("Folder", footer: "On \(placeName). A folder that doesn't exist yet is created.") {
+                    section("Folder", footer: "On \(placeName). A folder that doesn't exist yet is created") {
                         AgentDirSuggestField(
                             path: $cwd,
                             hint: place == "server" ? "~/codingprojects/your-project" : "~/code/your-project",
@@ -67,9 +67,9 @@ struct AgentLaunchSheet: View {
                     if isClaude {
                         section("Options") { optionsCard }
                         section("Remote Control",
-                                footer: "Stays on for new sessions until you turn it off.") { remoteControlCard }
+                                footer: "Stays on for new sessions until you turn it off") { remoteControlCard }
                     }
-                    section("First message", footer: "Optional. Without one the session waits for you.") {
+                    section("First message", footer: "Optional — without one the session waits for you") {
                         promptCard
                     }
                     if let error {
@@ -83,7 +83,7 @@ struct AgentLaunchSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
-            .jcScreen("New Session")
+            .jcScreen("New session")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -222,13 +222,13 @@ struct AgentLaunchSheet: View {
                     } else {
                         JcIcon("play.fill", size: 15)
                     }
-                    Text(launching ? "Starting…" : "Start Session")
+                    Text(launching ? "Starting…" : "Start session")
                 }
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(JcTheme.accent)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .jcLiquidGlass(in: Capsule(), tint: JcTheme.accent.opacity(0.22))
+                .jcLiquidGlass(in: Capsule())
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)

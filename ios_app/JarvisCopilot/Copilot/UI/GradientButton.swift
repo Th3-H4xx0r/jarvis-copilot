@@ -67,7 +67,7 @@ struct BlueButton: View {
         Button { action?() } label: {
             HStack(spacing: 10) {
                 if busy { ProgressView().controlSize(.small).tint(JcTheme.accent) }
-                Text(title).font(.system(size: 15, weight: .bold))
+                Text(title).font(.system(size: 15, weight: .semibold))
             }
             .foregroundStyle(JcTheme.accent)
             .frame(maxWidth: .infinity)

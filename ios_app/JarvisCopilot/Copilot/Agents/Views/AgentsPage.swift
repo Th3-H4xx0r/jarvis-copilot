@@ -27,35 +27,23 @@ struct AgentsPage: View {
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                JcPageColumn {
                     if store.usage != nil || store.codexUsage != nil {
+                        JcSectionLabel("Plan usage", first: true)
                         AgentUsageStrip(claude: store.usage, codex: store.codexUsage)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 4)
-                            .padding(.bottom, 6)
                     }
                     if let card = store.card {
                         AgentsSleepCard(card: card, store: store)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 6)
+                            .padding(.top, store.usage != nil || store.codexUsage != nil ? 12 : 8)
                     }
                     content
                 }
-                .padding(.bottom, 28)
             }
             .refreshable { await store.refresh() }
-            .background(JcTheme.bg.ignoresSafeArea())
             .loadErrorBanner(store.loadError, hasContent: !store.isEmpty)
-            .navigationTitle("Agents")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showLaunch = true } label: {
-                        JcIcon("plus", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
-                    }
-                    .accessibilityLabel("New session")
-                    menu
-                }
+            .jcPageChrome("Agents") {
+                JcPageButton("plus", label: "New session") { showLaunch = true }
+                menu
             }
             .navigationDestination(for: AgentsRoute.self) { route in
                 switch route {
@@ -90,13 +78,16 @@ struct AgentsPage: View {
 
     // MARK: content
 
+    /// The first section on the page sits closer to the title.
+    private var contentFirst: Bool { store.usage == nil && store.codexUsage == nil && store.card == nil }
+
     @ViewBuilder private var content: some View {
         let needs = store.needsYou
         let orphans = store.orphanRequests
         let projects = store.projects
         let integrations = store.integrations
         if !store.loaded {
-            AgentsSkeletonList()
+            AgentsSkeletonList(first: contentFirst)
         } else if needs.isEmpty && orphans.isEmpty && projects.isEmpty && integrations.isEmpty {
             if let error = store.loadError {
                 AgentsErrorState(message: error) { Task { await store.refresh() } }
@@ -105,35 +96,55 @@ struct AgentsPage: View {
             }
         } else {
             if !needs.isEmpty || !orphans.isEmpty {
-                AgentSectionHeader(title: "Needs you", count: store.waitingCount)
-                ForEach(orphans) { request in
-                    AgentRequestCard(request: request, store: store)
-                        .padding(.bottom, 10)
+                JcSectionLabel("Needs you", first: contentFirst) {
+                    if store.waitingCount > 0 { Text("\(store.waitingCount)").monospacedDigit() }
                 }
-                rows(needs, showsProject: true)
+                VStack(spacing: 10) {
+                    ForEach(orphans) { request in
+                        AgentRequestCard(request: request, store: store, inset: 0)
+                    }
+                    if !needs.isEmpty {
+                        JcCard(padding: 0) { rows(needs, showsProject: true) }
+                    }
+                }
             }
             if !projects.isEmpty {
-                AgentSectionHeader(title: "Projects")
+                JcSectionLabel("Projects", first: contentFirst && needs.isEmpty && orphans.isEmpty)
                 let collapsed = AgentsListLayout.collapsed(from: collapsedRaw)
-                ForEach(projects) { group in
-                    let open = AgentsListLayout.isExpanded(group, collapsed: collapsed, needsYou: needs)
-                    AgentsProjectHeader(group: group, open: open,
-                                        waiting: AgentsListLayout.hasWaiting(group, needsYou: needs)) {
-                        toggle(group, collapsed: collapsed)
+                VStack(spacing: 10) {
+                    ForEach(projects) { group in
+                        let open = AgentsListLayout.isExpanded(group, collapsed: collapsed, needsYou: needs)
+                        JcCard(padding: 0) {
+                            AgentsProjectHeader(group: group, open: open,
+                                                waiting: AgentsListLayout.hasWaiting(group, needsYou: needs)) {
+                                toggle(group, collapsed: collapsed)
+                            }
+                            if open {
+                                JcRowSeparator()
+                                rows(group.sessions, showsProject: false)
+                            }
+                        }
                     }
-                    if open { rows(group.sessions, showsProject: false) }
                 }
             }
             if !integrations.isEmpty {
-                AgentSectionHeader(title: "Integrations")
+                JcSectionLabel("Integrations",
+                               first: contentFirst && needs.isEmpty && orphans.isEmpty && projects.isEmpty)
                 let expanded = AgentsListLayout.collapsed(from: expandedIntegrationsRaw)
-                ForEach(integrations) { group in
-                    let open = AgentsListLayout.isExpanded(group, expanded: expanded)
-                    AgentsIntegrationHeader(group: group, open: open,
-                                            waiting: AgentsListLayout.hasWaiting(group)) {
-                        toggle(group, expanded: expanded)
+                VStack(spacing: 10) {
+                    ForEach(integrations) { group in
+                        let open = AgentsListLayout.isExpanded(group, expanded: expanded)
+                        JcCard(padding: 0) {
+                            AgentsIntegrationHeader(group: group, open: open,
+                                                    waiting: AgentsListLayout.hasWaiting(group)) {
+                                toggle(group, expanded: expanded)
+                            }
+                            if open {
+                                JcRowSeparator()
+                                rows(group.sessions, showsProject: false)
+                            }
+                        }
                     }
-                    if open { rows(group.sessions, showsProject: false) }
                 }
             }
         }
@@ -145,11 +156,7 @@ struct AgentsPage: View {
                 AgentSessionRow(conv: conv, request: store.request(for: conv), showsProject: showsProject)
             }
             .buttonStyle(AgentRowButtonStyle())
-            if index < convs.count - 1 {
-                Rectangle().fill(JcTheme.glassBorder)
-                    .frame(height: 0.5)
-                    .padding(.leading, 52)
-            }
+            if index < convs.count - 1 { JcRowSeparator(inset: 56) }
         }
     }
 
@@ -195,37 +202,37 @@ struct AgentSessionRow: View {
     private var subtitle: String { AgentsListLayout.subtitle(conv, showsProject: showsProject) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 12) {
             AgentStatusMark(status: status)
-                .frame(width: 22, height: 22)
-            VStack(alignment: .leading, spacing: 4) {
+                .frame(width: JcUnified.iconSquare, height: 20)
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(conv.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(conv.status == .ended ? JcTheme.text.opacity(0.7) : JcTheme.text)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
                     Text(AgentsPresentation.time(conv.lastEventAt))
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .monospacedDigit()
                         .foregroundStyle(JcTheme.muted)
                 }
                 Text(subtitle)
-                    .font(.system(size: 13.5))
+                    .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
                 if let detail = AgentsListLayout.detail(conv, request: request) {
                     Text(detail.text)
-                        .font(.system(size: 13.5, weight: detail.tone == .waiting ? .medium : .regular))
+                        .font(.system(size: 12, weight: detail.tone == .waiting ? .medium : .regular))
                         .foregroundStyle(Self.color(detail.tone))
                         .lineLimit(1)
                         .padding(.top, 1)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.horizontal, JcUnified.cardPadding)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(conv.title), \(subtitle), " + AgentsListLayout.statusLabel(conv, request: request))
@@ -247,30 +254,6 @@ struct AgentRowButtonStyle: ButtonStyle {
         configuration.label
             .background(Color.white.opacity(configuration.isPressed ? 0.06 : 0))
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
-struct AgentSectionHeader: View {
-    let title: String
-    var count: Int = 0
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(JcTheme.muted)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 13, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(JcTheme.muted.opacity(0.7))
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 22)
-        .padding(.bottom, 4)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -335,34 +318,29 @@ struct AgentUsageStrip: View {
     let codex: AgentPlanUsage?
 
     var body: some View {
-        VStack(spacing: 0) {
+        JcCard(padding: 0) {
             if let claude { row("Claude", claude) }
-            if claude != nil && codex != nil {
-                Rectangle().fill(JcTheme.glassBorder).frame(height: 0.5).padding(.horizontal, 14)
-            }
+            if claude != nil && codex != nil { JcRowSeparator() }
             if let codex { row("Codex", codex) }
         }
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
     }
 
     private func row(_ name: String, _ usage: AgentPlanUsage) -> some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                 Text(Self.resetLine(usage))
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
             AgentPlanRings(usage: usage)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, JcUnified.cardPadding)
+        .padding(.vertical, 12)
     }
 
     /// "5-hour limit resets 3:40 PM", or the week's when that's all there is.
@@ -434,45 +412,21 @@ struct AgentsEmptyState: View {
     let startSession: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                Circle().fill(JcTheme.glassFill)
-                Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 0.5)
-                JcIcon("terminal", size: 30).foregroundStyle(JcTheme.accent)
+        VStack(spacing: 22) {
+            JcEmptyState(symbol: "terminal", title: "No agent sessions yet",
+                         subtitle: "Start Claude Code, Codex or another agent on your Mac, or tap + to start one on the server")
+            JcSmallAction("Start a session", symbol: "plus", action: startSession)
+            VStack(alignment: .leading, spacing: 0) {
+                JcSectionLabel("Nothing showing up?", first: true)
+                JcCard {
+                    Text(Self.hint)
+                        .font(.system(size: 13))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineSpacing(2)
+                }
             }
-            .frame(width: 84, height: 84)
-            .padding(.bottom, 4)
-            VStack(spacing: 8) {
-                Text("No agent sessions yet")
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(JcTheme.text)
-                Text("Start Claude Code, Codex or another coding agent on your Mac, or tap + to start one on the server. It shows up here live, with its approvals and questions.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(JcTheme.muted)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-            }
-            .frame(maxWidth: 320)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Nothing showing up?")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(JcTheme.text)
-                Text(Self.hint)
-                    .font(.system(size: 13))
-                    .foregroundStyle(JcTheme.muted)
-                    .lineSpacing(2)
-            }
-            .padding(14)
-            .frame(maxWidth: 340, alignment: .leading)
-            .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
-            Button("Start a session", action: startSession)
-                .buttonStyle(.jcGlass(tint: JcTheme.accent))
-                .padding(.top, 4)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 72)
+        .padding(.top, 56)
         .frame(maxWidth: .infinity)
     }
 
@@ -482,28 +436,34 @@ struct AgentsEmptyState: View {
         command.font = .system(size: 12.5, design: .monospaced)
         command.foregroundColor = JcTheme.text
         text += command
-        text += AttributedString(" there.")
+        text += AttributedString(" there")
         return text
     }
 }
 
 /// Placeholder rows while the first list loads.
 struct AgentsSkeletonList: View {
+    var first = true
     @State private var dim = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AgentSectionHeader(title: " ")
-            ForEach(0..<4, id: \.self) { i in
-                HStack(alignment: .top, spacing: 14) {
-                    Circle().fill(JcTheme.glassFill).frame(width: 14, height: 14).padding(4)
-                    VStack(alignment: .leading, spacing: 8) {
-                        bar(width: [230, 180, 250, 160][i], height: 14)
-                        bar(width: [150, 120, 170, 110][i], height: 10)
+            JcSectionLabel(" ", first: first)
+            JcCard(padding: 0) {
+                ForEach(0..<4, id: \.self) { i in
+                    HStack(alignment: .top, spacing: 12) {
+                        Circle().fill(JcTheme.glassFill).frame(width: 14, height: 14)
+                            .frame(width: JcUnified.iconSquare, height: 20)
+                        VStack(alignment: .leading, spacing: 8) {
+                            bar(width: [210, 160, 230, 140][i], height: 13)
+                            bar(width: [140, 110, 160, 100][i], height: 10)
+                        }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, JcUnified.cardPadding)
+                    .padding(.vertical, 14)
+                    if i < 3 { JcRowSeparator(inset: 56) }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 15)
             }
         }
         .opacity(dim ? 0.45 : 1)
@@ -524,25 +484,11 @@ struct AgentsErrorState: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle().fill(JcTheme.glassFill)
-                JcIcon("wifi.exclamationmark", size: 26).foregroundStyle(JcTheme.muted)
-            }
-            .frame(width: 72, height: 72)
-            Text("Couldn’t load your agents")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(JcTheme.text)
-            Text(message)
-                .font(.system(size: 14))
-                .foregroundStyle(JcTheme.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 300)
-            Button("Try again", action: retry)
-                .buttonStyle(.jcGlass(tint: JcTheme.accent))
-                .padding(.top, 4)
+        VStack(spacing: 18) {
+            JcEmptyState(symbol: "wifi.exclamationmark", title: "Couldn’t load your agents", subtitle: message)
+            JcSmallAction("Try again", symbol: "arrow.clockwise", action: retry)
         }
-        .padding(.top, 80)
+        .padding(.top, 72)
         .frame(maxWidth: .infinity)
     }
 }

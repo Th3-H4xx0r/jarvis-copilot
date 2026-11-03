@@ -71,10 +71,16 @@ struct ChatSessionsSheet: View {
         if store.sessionsLoading && store.sessions.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
         } else if groups.isEmpty {
-            CenteredMessage(text: query.isEmpty
-                            ? "No chats yet.\nStart a conversation and it will show up here."
-                            : "No chat title contains “\(query)”.")
-                .frame(maxHeight: .infinity)
+            Group {
+                if query.isEmpty {
+                    JcEmptyState(symbol: "chat.circle", title: "No chats yet",
+                                 subtitle: "Start a conversation and it shows up here")
+                } else {
+                    JcEmptyState(symbol: "magnifyingglass", title: "No matches",
+                                 subtitle: "No chat title contains “\(query)”")
+                }
+            }
+            .frame(maxHeight: .infinity)
                 .jcScreen()
         } else {
             List {
@@ -104,13 +110,13 @@ struct ChatSessionsSheet: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.displayTitle)
-                        .font(.system(size: 13.5, weight: active ? .bold : .medium))
+                        .font(.system(size: 15, weight: active ? .semibold : .medium))
                         .foregroundStyle(active ? JcTheme.accent : JcTheme.text)
                         .lineLimit(1)
                     if session.isStreaming {
-                        Text("streaming…").font(.system(size: 11)).foregroundStyle(JcTheme.blue)
+                        Text("streaming…").font(.system(size: 12)).foregroundStyle(JcTheme.accent)
                     } else if let subtitle = subtitle(session) {
-                        Text(subtitle).font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                        Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     }
                 }
                 Spacer(minLength: 4)

@@ -101,7 +101,7 @@ struct DefaultChoiceScreen: View {
             .padding(.top, 6)
             .padding(.bottom, 36)
         }
-        .jcScreen("Default")
+        .jcPageChrome("Default")
         .task { await store.load() }
         .refreshable { await store.load() }
         .sheet(item: $picking) { pick in

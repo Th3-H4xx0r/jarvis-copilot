@@ -79,7 +79,7 @@ struct ButtonActivity: Widget {
             } compactTrailing: {
                 if look.finished {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(JcAccent.color)
                 } else if let range = look.countdown {
                     ButtonCountdownText(range: range, tint: look.tint,
@@ -265,7 +265,7 @@ private struct ButtonStopButton: View {
     private var label: some View {
             HStack(spacing: 6) {
                 Image(systemName: look.state.symbol)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 13, weight: .semibold))
                 Text(look.state.title)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)

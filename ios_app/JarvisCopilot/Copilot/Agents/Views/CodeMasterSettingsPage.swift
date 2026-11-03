@@ -26,7 +26,7 @@ struct CodeMasterSettingsPage: View {
                 form
             }
         }
-        .jcScreen("Code Master settings")
+        .jcPageChrome("Code Master settings")
         .task {
             if store.onSaved == nil { store.onSaved = LiveActivityCoordinator.agentSettingsChanged }
             if store.loading { await store.load() }
@@ -35,61 +35,38 @@ struct CodeMasterSettingsPage: View {
 
     private var form: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassQuietLabel("Notifications")
-                Text("Which coding events notify you, and on which channels.")
+            JcPageColumn {
+                JcSectionLabel("Notifications", first: true)
+                Text("Which coding events notify you, and on which channels")
                     .font(.system(size: 13))
                     .foregroundStyle(JcTheme.muted)
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 14)
-                ForEach(CodeMasterSettingsStore.events, id: \.key) { event in
-                    eventCard(event).padding(.bottom, 12)
-                }
-
-                GlassQuietLabel("Usage rings").padding(.top, 12)
-                GlassCard(padding: 14) {
-                    Toggle(isOn: Binding(get: { store.usageDisplay },
-                                         set: { store.usageDisplay = $0 })) {
-                        Text("Show the 5-hour / weekly account-usage rings")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(JcTheme.text)
-                    }
-                    .tint(JcTheme.accent)
-                }
-
-                GlassQuietLabel("Remote approvals").padding(.top, 22)
-                GlassCard(padding: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: Binding(get: { store.remoteApprovals },
-                                             set: { store.remoteApprovals = $0 })) {
-                            Text("Approve tool permissions from your phone "
-                                 + "(relays prompts to the mobile app)")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(JcTheme.text)
-                        }
-                        .tint(JcTheme.accent)
-                        Text("Turn on when you’re away from the terminal. "
-                             + "While off, sessions prompt locally as usual.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(JcTheme.muted)
+                    .padding(.bottom, 10)
+                VStack(spacing: 12) {
+                    ForEach(CodeMasterSettingsStore.events, id: \.key) { event in
+                        eventCard(event)
                     }
                 }
 
-                GlassQuietLabel("Instructions from the phone").padding(.top, 22)
-                GlassCard(padding: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: Binding(get: { store.remoteInstructions },
-                                             set: { store.remoteInstructions = $0 })) {
-                            Text("Send a session its next instruction from the Agents tab")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(JcTheme.text)
-                        }
-                        .tint(JcTheme.accent)
-                        Text("Messages are typed into the session's terminal on your Mac (VS Code with the Jarvis "
-                             + "extension, or iTerm). A session that's mid-turn gets it when the turn ends.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(JcTheme.muted)
-                    }
+                JcSectionLabel("Usage rings")
+                JcCard(padding: 0) {
+                    toggleRow("chart.pie", "Show the 5-hour and weekly usage rings", nil,
+                              Binding(get: { store.usageDisplay }, set: { store.usageDisplay = $0 }))
+                }
+
+                JcSectionLabel("Remote approvals")
+                JcCard(padding: 0) {
+                    toggleRow("hand.raised", "Approve tool permissions from your phone",
+                              "Relays prompts to the phone. Turn on when you’re away from the terminal; "
+                              + "while off, sessions prompt locally as usual",
+                              Binding(get: { store.remoteApprovals }, set: { store.remoteApprovals = $0 }))
+                }
+
+                JcSectionLabel("Instructions from the phone")
+                JcCard(padding: 0) {
+                    toggleRow("paperplane", "Send a session its next instruction from the Agents tab",
+                              "Typed into the session’s terminal on your Mac (VS Code with the Jarvis extension, "
+                              + "or iTerm). A session that’s mid-turn gets it when the turn ends",
+                              Binding(get: { store.remoteInstructions }, set: { store.remoteInstructions = $0 }))
                 }
 
                 // One Live Activity per coding agent — the same setting the
@@ -102,7 +79,7 @@ struct CodeMasterSettingsPage: View {
                 if store.savedAt != nil && store.error == nil {
                     HStack(spacing: 6) {
                         JcIcon("checkmark.circle.fill", size: 13)
-                        Text("Code Master settings saved").font(.system(size: 13, weight: .semibold))
+                        Text("Code Master settings saved").font(.system(size: 13, weight: .medium))
                     }
                     .foregroundStyle(JcTheme.success)
                     .padding(.top, 18)
@@ -113,36 +90,29 @@ struct CodeMasterSettingsPage: View {
                                action: { Task { await store.save() } })
                     .padding(.top, 26)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 40)
+        }
+    }
+
+    private func toggleRow(_ symbol: String, _ title: String, _ subtitle: String?,
+                           _ isOn: Binding<Bool>, last: Bool = true) -> some View {
+        JcRow(symbol: symbol, title: title, subtitle: subtitle, subtitleLines: 4, last: last) {
+            Toggle("", isOn: isOn).labelsHidden().tint(JcTheme.accent)
         }
     }
 
     private func eventCard(_ event: (key: String, label: String)) -> some View {
-        GlassCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(event.label)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(JcTheme.text)
-                    .padding(.bottom, 4)
-                ForEach(store.channels, id: \.key) { channel in
-                    Toggle(isOn: Binding(
-                        get: { store.value(event: event.key, channel: channel.key) },
-                        set: { store.set(event: event.key, channel: channel.key, $0) })) {
-                            HStack(spacing: 12) {
-                                JcIcon(channel.symbol)
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(JcTheme.muted)
-                                    .frame(width: 20)
-                                Text(channel.label)
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(JcTheme.text)
-                            }
-                        }
-                        .tint(JcTheme.accent)
-                        .padding(.vertical, 2)
-                }
+        JcCard(padding: 0) {
+            Text(event.label)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(JcTheme.text)
+                .padding(.horizontal, JcUnified.cardPadding)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+            ForEach(Array(store.channels.enumerated()), id: \.element.key) { index, channel in
+                toggleRow(channel.symbol, channel.label, nil,
+                          Binding(get: { store.value(event: event.key, channel: channel.key) },
+                                  set: { store.set(event: event.key, channel: channel.key, $0) }),
+                          last: index == store.channels.count - 1)
             }
         }
     }

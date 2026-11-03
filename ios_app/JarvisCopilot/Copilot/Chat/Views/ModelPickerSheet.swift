@@ -75,13 +75,11 @@ struct CatalogModelPickerSheet: View {
         if loading && catalog == nil {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
         } else if catalog == nil {
-            VStack(spacing: 12) {
-                CenteredMessage(text: "Couldn’t load models.")
-                Button("Retry") {
+            VStack(spacing: 18) {
+                JcEmptyState(symbol: "wifi.exclamationmark", title: "Couldn’t load models")
+                JcSmallAction("Retry", symbol: "arrow.clockwise") {
                     Task { loading = true; await load(); loading = false }
                 }
-                .font(JcText.label)
-                .foregroundStyle(JcTheme.accent)
             }
             .frame(maxHeight: .infinity)
             .jcScreen()
@@ -106,7 +104,7 @@ struct CatalogModelPickerSheet: View {
                     }
                 }
                 if providers.isEmpty {
-                    Section { Text("No models match.").foregroundStyle(JcTheme.muted) }
+                    Section { Text("No models match").foregroundStyle(JcTheme.muted) }
                 }
             }
             .listStyle(.insetGrouped)
@@ -117,7 +115,7 @@ struct CatalogModelPickerSheet: View {
 
     private var defaultSubtitle: String {
         let fallback = catalog?.activeModel ?? catalog?.defaultModel ?? ""
-        return fallback.isEmpty ? "Server default model." : "Server default — \(fallback)."
+        return fallback.isEmpty ? "Server default model" : "Server default — \(fallback)"
     }
 
     private func row(title: String, subtitle: String?, selected: Bool,
@@ -129,7 +127,7 @@ struct CatalogModelPickerSheet: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 15, weight: selected ? .bold : .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(JcTheme.text)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted)

@@ -12,7 +12,7 @@ struct AgentsSleepCard: View {
     @State private var confirming: [String] = []
     @State private var error: String?
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 18, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,7 +34,7 @@ struct AgentsSleepCard: View {
                 }
                 .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true, full: true))
                 .disabled(!store.busy.isDisjoint(with: card.sessions.map(\.ckey)))
-                .padding(.horizontal, 14)
+                .padding(.horizontal, JcUnified.cardPadding)
                 .padding(.top, 4)
                 .padding(.bottom, 12)
             }
@@ -42,12 +42,12 @@ struct AgentsSleepCard: View {
                 Text(error)
                     .font(.system(size: 12.5))
                     .foregroundStyle(JcTheme.danger)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, JcUnified.cardPadding)
                     .padding(.bottom, 12)
             }
         }
         .background(JcTheme.glassFill, in: shape)
-        .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
+        .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
         .alert("Continue on the server?", isPresented: Binding(
             get: { !confirming.isEmpty }, set: { if !$0 { confirming = [] } })) {
             Button(confirming.count == 1 ? "Continue on server" : "Continue \(confirming.count) on server") {
@@ -87,7 +87,7 @@ struct AgentsSleepCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
         }
-        .padding(.leading, 14)
+        .padding(.leading, JcUnified.cardPadding)
         .padding(.trailing, 6)
         .padding(.top, 8)
         .padding(.bottom, 6)
@@ -97,7 +97,7 @@ struct AgentsSleepCard: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .lineLimit(1)
                 Text(AgentsListLayout.cardLine(s))
@@ -119,7 +119,7 @@ struct AgentsSleepCard: View {
             .disabled(store.busy.contains(s.ckey))
             .accessibilityLabel("Continue \(s.title) on the server")
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, JcUnified.cardPadding)
         .padding(.vertical, 9)
     }
 
@@ -141,53 +141,28 @@ struct AgentsSleepCard: View {
     }
 }
 
-/// A project group's header: the chevron, the name and how many sessions it
-/// holds, with an amber note when something in it waits on you.
+/// A project group's header, as the card's first row: a folder square, the name
+/// and how many sessions it holds, an amber note when something in it waits on
+/// you, and the chevron that turns as it opens.
 struct AgentsProjectHeader: View {
     let group: AgentProjectGroup
     let open: Bool
     var waiting = false
     let toggle: () -> Void
 
+    private var countLabel: String {
+        "\(group.sessions.count) session\(group.sessions.count == 1 ? "" : "s")"
+    }
+
     var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: 8) {
-                JcIcon("chevron.right", size: 10, weight: .semibold)
-                    .foregroundStyle(JcTheme.muted)
-                    .rotationEffect(.degrees(open ? 90 : 0))
-                    .frame(width: 12)
-                Text(group.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(open ? JcTheme.text : JcTheme.text.opacity(0.8))
-                    .lineLimit(1)
-                Text("\(group.sessions.count)")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(JcTheme.muted)
-                Spacer(minLength: 0)
-                if waiting {
-                    HStack(spacing: 5) {
-                        Circle().fill(JcTheme.amber).frame(width: 6, height: 6)
-                        Text("Needs you")
-                    }
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(JcTheme.amber)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(group.name), \(group.sessions.count) session\(group.sessions.count == 1 ? "" : "s")")
-        .accessibilityValue(open ? "Expanded" : "Collapsed")
-        .accessibilityAddTraits(.isHeader)
+        AgentsGroupHeader(symbol: "folder", name: group.name, detail: countLabel,
+                          open: open, waiting: waiting, toggle: toggle)
+            .accessibilityLabel("\(group.name), \(countLabel)")
     }
 }
 
-/// An integration's group header: the chevron, the integration's name, how
-/// many runs it holds and when the newest last did something.
+/// An integration's group header: its name, how many runs it holds and when the
+/// newest last did something.
 struct AgentsIntegrationHeader: View {
     let group: AgentIntegrationGroup
     let open: Bool
@@ -199,42 +174,54 @@ struct AgentsIntegrationHeader: View {
     }
 
     var body: some View {
+        AgentsGroupHeader(symbol: "puzzlepiece.extension", name: group.name,
+                          detail: "\(countLabel) · \(AgentsPresentation.time(group.latestActivity))",
+                          open: open, waiting: waiting, toggle: toggle)
+            .accessibilityLabel("\(group.name), \(countLabel), last active \(AgentsPresentation.time(group.latestActivity))")
+    }
+}
+
+/// The row both group headers are: `JcRow`'s shape with a turning chevron.
+private struct AgentsGroupHeader: View {
+    let symbol: String
+    let name: String
+    let detail: String
+    let open: Bool
+    let waiting: Bool
+    let toggle: () -> Void
+
+    var body: some View {
         Button(action: toggle) {
-            HStack(spacing: 8) {
-                JcIcon("chevron.right", size: 10, weight: .semibold)
-                    .foregroundStyle(JcTheme.muted)
-                    .rotationEffect(.degrees(open ? 90 : 0))
-                    .frame(width: 12)
-                Text(group.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(open ? JcTheme.text : JcTheme.text.opacity(0.8))
-                    .lineLimit(1)
-                Text("\(group.sessions.count)")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(JcTheme.muted)
-                Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                JcIconSquare(symbol: symbol)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(JcTheme.text)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
                 if waiting {
                     HStack(spacing: 5) {
                         Circle().fill(JcTheme.amber).frame(width: 6, height: 6)
                         Text("Needs you")
                     }
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(JcTheme.amber)
-                } else {
-                    Text(AgentsPresentation.time(group.latestActivity))
-                        .font(.system(size: 12.5))
-                        .monospacedDigit()
-                        .foregroundStyle(JcTheme.muted)
                 }
+                JcRowChevron()
+                    .rotationEffect(.degrees(open ? 90 : 0))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 6)
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(group.name), \(countLabel), last active \(AgentsPresentation.time(group.latestActivity))")
+        .buttonStyle(AgentRowButtonStyle())
         .accessibilityValue(open ? "Expanded" : "Collapsed")
         .accessibilityAddTraits(.isHeader)
     }

@@ -13,9 +13,7 @@ struct CenteredMessage: View {
                 .foregroundStyle(color)
                 .multilineTextAlignment(.center)
             if let onRetry {
-                Button("Retry", action: onRetry)
-                    .font(JcText.label)
-                    .foregroundStyle(JcTheme.accent)
+                JcSmallAction("Retry", symbol: "arrow.clockwise", action: onRetry)
             }
         }
         .padding(24)

@@ -9,12 +9,14 @@ struct AgentRequestCard: View {
     let request: AgentRequest
     let store: AgentsStore
     var showsProject = true
+    /// Side inset: the session screen's transcript has none of its own; the list's column does.
+    var inset: CGFloat = 16
 
     @State private var busy = false
     @State private var denying = false
     @State private var note = ""
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -43,7 +45,7 @@ struct AgentRequestCard: View {
         .background(JcTheme.surface, in: shape)
         .overlay(shape.strokeBorder(JcTheme.amber.opacity(0.35), lineWidth: 1))
         .disabled(busy)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, inset)
     }
 
     @ViewBuilder private var approvalBody: some View {

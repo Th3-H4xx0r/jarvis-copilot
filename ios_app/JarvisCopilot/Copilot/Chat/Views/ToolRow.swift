@@ -94,9 +94,8 @@ struct ChatCodeBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label.uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .kerning(0.6)
+            Text(label.prefix(1).uppercased() + label.dropFirst())
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(JcTheme.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text.count > Self.limit ? String(text.prefix(Self.limit)) + "\n…" : text)
@@ -105,7 +104,7 @@ struct ChatCodeBox: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(10)
-            .background(Color(jcHex: 0x111418), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(JcTheme.border, lineWidth: 1))
         }

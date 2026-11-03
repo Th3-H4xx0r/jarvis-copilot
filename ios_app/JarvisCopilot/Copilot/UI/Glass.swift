@@ -18,13 +18,13 @@ struct AuroraBackdrop: View {
 /// A frosted-glass container: translucent fill + hairline border.
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 16
-    var radius: CGFloat = JcTheme.cardRadius
+    var radius: CGFloat = JcUnified.cardRadius
     var fill: Color? = nil
     var borderColor: Color? = nil
     @ViewBuilder var content: Content
 
     init(padding: CGFloat = 16,
-         radius: CGFloat = JcTheme.cardRadius,
+         radius: CGFloat = JcUnified.cardRadius,
          fill: Color? = nil,
          borderColor: Color? = nil,
          @ViewBuilder content: () -> Content) {
@@ -46,7 +46,8 @@ struct GlassCard<Content: View>: View {
     }
 }
 
-/// A rounded frosted container that groups `GlassRow`s (iOS inset-list style).
+/// A rounded frosted container that groups `GlassRow`s (iOS inset-list style) —
+/// the same card as `JcCard(padding: 0)`.
 struct GlassGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -54,7 +55,7 @@ struct GlassGroup<Content: View>: View {
         self.content = content()
     }
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous) }
 
     var body: some View {
         VStack(spacing: 0) { content }
@@ -64,7 +65,8 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
-/// A tappable list row: circular frosted icon + title (+ subtitle) + chevron.
+/// A tappable list row, drawn as the unified `JcRow`: a 28pt muted icon square,
+/// title (+ subtitle), and a chevron.
 /// Pass `trailing` for a control (a `Toggle`, a value label) instead of the chevron.
 struct GlassRow<Trailing: View>: View {
     let symbol: String
@@ -106,21 +108,17 @@ struct GlassRow<Trailing: View>: View {
             } else {
                 row.opacity(isEnabled ? 1 : 0.45)
             }
-            if !last {
-                Rectangle().fill(JcTheme.glassBorder)
-                    .frame(height: 1)
-                    .padding(.leading, 68)
-            }
+            if !last { JcRowSeparator(inset: 56) }
         }
     }
 
     private var row: some View {
         HStack(spacing: 12) {
-            GlassCircleIcon(symbol: symbol, tint: danger ? JcTheme.danger : nil)
+            JcIconSquare(symbol: symbol, tint: danger ? JcTheme.danger : nil)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(JcText.body.weight(.semibold)).foregroundStyle(tint)
+                Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(tint)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(JcText.small).foregroundStyle(JcTheme.muted)
+                    Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                         .lineLimit(subtitleLineLimit)
                         .multilineTextAlignment(.leading)
                 }
@@ -128,8 +126,9 @@ struct GlassRow<Trailing: View>: View {
             Spacer(minLength: 8)
             trailing
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, JcUnified.cardPadding)
         .padding(.vertical, 12)
+        .frame(minHeight: 52)
         .contentShape(Rectangle())
     }
 }
@@ -146,8 +145,7 @@ extension GlassRow where Trailing == AnyView {
         self.init(symbol: symbol, title: title, subtitle: subtitle,
                   subtitleLineLimit: subtitleLineLimit,
                   last: last, danger: danger, action: action) {
-            AnyView(JcIcon("chevron.right", size: 14, weight: .semibold)
-                .foregroundStyle(JcTheme.muted.opacity(0.7)))
+            AnyView(JcRowChevron())
         }
     }
 }
@@ -370,7 +368,7 @@ private struct JcNavigationTitle: ViewModifier {
                 // Transparent chrome so the aurora runs behind the bar, as the
                 // Flutter screens do with `extendBodyBehindAppBar`.
                 .toolbarBackground(.hidden, for: .navigationBar)
-                // `glassAppBar` draws its title at 18/bold; the system default is
+                // `glassAppBar` drew its title at 18/bold (now semibold); the system default is
                 // 17/semibold, so the title is supplied explicitly. Placement
                 // stays the platform's: iOS 26 centres an inline title only when
                 // the bar has a leading item, and otherwise pins it to the
@@ -379,7 +377,7 @@ private struct JcNavigationTitle: ViewModifier {
                 .toolbar {
                     ToolbarItem(placement: .principal) {
                         Text(title)
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                     }

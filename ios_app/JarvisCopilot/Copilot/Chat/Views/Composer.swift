@@ -128,7 +128,7 @@ struct AttachmentChip: View {
         .attachmentViewer($viewing)
             .overlay(alignment: .topTrailing) {
                 Button(action: onRemove) {
-                    JcIcon("xmark", size: 9, weight: .bold)
+                    JcIcon("xmark", size: 9, weight: .semibold)
                         .foregroundStyle(.black)
                         .frame(width: 20, height: 20)
                         .background(.white, in: Circle())

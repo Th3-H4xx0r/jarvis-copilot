@@ -138,19 +138,7 @@ struct VoiceTryServerChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                JcIcon("icloud.and.arrow.up", size: 13, weight: .medium)
-                Text("Try on server")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .foregroundStyle(JcTheme.cyan)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(JcTheme.cyan.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.cyan.opacity(0.4), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
+        JcSmallAction("Try on server", symbol: "icloud.and.arrow.up", action: action)
     }
 }
 

@@ -135,7 +135,7 @@ struct PairPage: View {
                 Spacer(minLength: 0)
                 orbSlot(.welcome, size: Self.orbWelcomeSize)
                 VStack(spacing: 10) {
-                    WordReveal("Hey, I'm Jarvis.", font: .system(size: 34, weight: .bold),
+                    WordReveal("Hey, I'm Jarvis", font: .system(size: 34, weight: .semibold),
                                color: JcTheme.text, revealAt: revealAt, startDelay: 0.25,
                                step: 0.16, reduceMotion: reduceMotion)
                     WordReveal("Your assistant across every device you own.", font: JcText.body,
@@ -184,7 +184,7 @@ struct PairPage: View {
                     .font(JcText.title)
                     .foregroundStyle(JcTheme.text)
                     .modifier(Entrance(revealAt: revealAt, index: 1, reduceMotion: reduceMotion))
-                Text("On the server, open Devices and tap Pair new device.")
+                Text("On the server, open Devices and tap Pair new device")
                     .font(JcText.body)
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)

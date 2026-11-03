@@ -35,7 +35,7 @@ struct AgentProjectSettingsSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Sync with the server")
                                     .font(.system(size: 14)).foregroundStyle(JcTheme.text)
-                                Text("Keeps the Mac’s folder and the server’s copy the same, so a session can continue on the server.")
+                                Text("Keeps the Mac’s folder and the server’s copy the same, so a session can continue on the server")
                                     .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                             }
                         }

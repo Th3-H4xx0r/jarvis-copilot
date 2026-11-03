@@ -43,7 +43,7 @@ struct ChatMarkdownText: View {
         switch block {
         case .heading(let level, let text):
             Text(chatInlineMarkdown(text))
-                .font(.system(size: headingSize(level), weight: .bold))
+                .font(.system(size: headingSize(level), weight: .semibold))
                 .textSelection(.enabled)
 
         case .paragraph(let text):
@@ -162,7 +162,7 @@ struct ChatCodeBlock: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 9)
         }
-        .background(Color(jcHex: 0x111418), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(JcTheme.border, lineWidth: 1))
     }

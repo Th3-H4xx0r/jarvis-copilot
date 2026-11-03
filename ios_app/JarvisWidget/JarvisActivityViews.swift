@@ -108,8 +108,8 @@ struct JCUsageBlock: View {
         }
     }
     private func label(_ k: String, _ pct: Int, _ c: Color) -> Text {
-        Text("\(k) ").font(.system(size: 10, weight: .bold)).foregroundColor(c)
-            + Text(pct >= 0 ? "\(pct)%" : "—").font(.system(size: 10, weight: .heavy)).foregroundColor(c)
+        Text("\(k) ").font(.system(size: 10, weight: .medium)).foregroundColor(c)
+            + Text(pct >= 0 ? "\(pct)%" : "—").font(.system(size: 10, weight: .semibold)).foregroundColor(c)
     }
 }
 
@@ -122,11 +122,11 @@ struct JCHeader: View {
         HStack(spacing: 11) {
             JarvisOrb(state: "idle", size: orbSize)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Claude Code").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                Text("Claude Code").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                 (Text("\(st.sessionTotal) sessions").foregroundColor(.white.opacity(0.55))
                  + Text(st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
                     .foregroundColor(jcCodingColor("waiting")))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
             }
             Spacer(minLength: 6)
             JCUsageBlock(st: st)
@@ -224,7 +224,7 @@ struct JCLeadRow: View {
         switch st.leadState {
         case "approval", "question": return jcCodingColor("waiting")
         case "working", "thinking": return jcCodingColor("working")
-        case "error": return .red
+        case "error": return JcState.danger
         default: return jcCodingColor("idle")
         }
     }
@@ -332,7 +332,7 @@ struct JarvisSmallActivity: View {
             JarvisOrb(state: st.mode == "voice" ? st.state : "idle", size: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(st.mode == "voice" && st.state != "idle" ? jcStateColor(st.state) : .white)
                     .lineLimit(1)
                 if !line.isEmpty {
