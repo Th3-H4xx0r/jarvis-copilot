@@ -15,7 +15,12 @@ enum MacSettingsWindow {
     private static var window: NSWindow?
 
     static func show(_ section: MacSettingsSection? = nil) {
-        if let section { MacSettingsSelection.shared.section = section }
+        show(key: section?.rawValue)
+    }
+
+    /// `key`: a section's raw value, or "app.<id>" for one of the Mac app's panes.
+    static func show(key: String?) {
+        if let key { MacSettingsSelection.shared.key = key }
         if let window {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
@@ -46,7 +51,31 @@ enum MacSettingsWindow {
 @Observable
 final class MacSettingsSelection {
     static let shared = MacSettingsSelection()
-    var section: MacSettingsSection = .voice
+    /// A `MacSettingsSection` raw value, or "app.<id>" for an app pane.
+    var key: String = MacSettingsSection.voice.rawValue
+}
+
+/// The Jarvis Mac app's own panes (General, Agents, Mac power…), handed over by
+/// `JarvisVoicePanel.showSettings(options:)` so there is ONE settings window.
+struct MacAppPane: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let tint: Color
+    let controller: NSViewController
+}
+
+@MainActor
+@Observable
+final class MacAppPanes {
+    static let shared = MacAppPanes()
+    var panes: [MacAppPane] = []
+}
+
+private struct MacHostedPane: NSViewControllerRepresentable {
+    let controller: NSViewController
+    func makeNSViewController(context: Context) -> NSViewController { controller }
+    func updateNSViewController(_ controller: NSViewController, context: Context) {}
 }
 
 enum MacSettingsSection: String, CaseIterable, Identifiable, Hashable {
@@ -113,12 +142,14 @@ enum MacSettingsSection: String, CaseIterable, Identifiable, Hashable {
 
 struct MacSettingsView: View {
     @State private var selection = MainActor.assumeIsolated { MacSettingsSelection.shared }
+    @State private var app = MainActor.assumeIsolated { MacAppPanes.shared }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { Optional(selection.section) },
-                                    set: { if let value = $0 { selection.section = value } })) {
+            List(selection: Binding(get: { Optional(selection.key) },
+                                    set: { if let value = $0 { selection.key = value } })) {
                 Section("On this Mac") {
+                    ForEach(app.panes) { appRow($0) }
                     ForEach(MacSettingsSection.onThisMac) { row($0) }
                 }
                 Section("Server") {
@@ -128,28 +159,50 @@ struct MacSettingsView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
-            detail(selection.section)
-                .navigationTitle(selection.section.title)
+            detail(selection.key)
+                .navigationTitle(title(selection.key))
         }
         .frame(minWidth: 760, minHeight: 520)
         .preferredColorScheme(.dark)
     }
 
+    private func pane(_ key: String) -> MacAppPane? {
+        key.hasPrefix("app.") ? app.panes.first { "app." + $0.id == key } : nil
+    }
+
+    private func title(_ key: String) -> String {
+        pane(key)?.title ?? MacSettingsSection(rawValue: key)?.title ?? ""
+    }
+
+    private func icon(_ symbol: String, _ tint: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.gradient))
+    }
+
+    private func appRow(_ pane: MacAppPane) -> some View {
+        Label { Text(pane.title) } icon: { icon(pane.symbol, pane.tint) }
+            .tag("app." + pane.id)
+    }
+
     private func row(_ section: MacSettingsSection) -> some View {
-        Label {
-            Text(section.title)
-        } icon: {
-            Image(systemName: section.symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(section.tint.gradient))
-        }
-        .tag(section)
+        Label { Text(section.title) } icon: { icon(section.symbol, section.tint) }
+            .tag(section.rawValue)
     }
 
     @ViewBuilder
-    private func detail(_ section: MacSettingsSection) -> some View {
+    private func detail(_ key: String) -> some View {
+        if let pane = pane(key) {
+            MacHostedPane(controller: pane.controller).id(key)
+        } else {
+            sectionDetail(MacSettingsSection(rawValue: key) ?? .voice)
+        }
+    }
+
+    @ViewBuilder
+    private func sectionDetail(_ section: MacSettingsSection) -> some View {
         switch section {
         case .voice: MacVoiceSettingsPane()
         case .live: MacLiveSettingsPane()

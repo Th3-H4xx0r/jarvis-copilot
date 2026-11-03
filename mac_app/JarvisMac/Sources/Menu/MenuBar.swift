@@ -122,10 +122,6 @@ final class JarvisMenu: NSObject {
         add(menu, NoteTaker.shared.isRecording ? "Stop recording the call" : "Record a call", #selector(recordCall))
         menu.addItem(.separator())
         add(menu, "Settings…", #selector(settings), key: ",")
-        if NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel") != nil
-            || model.voiceDylib != nil {
-            add(menu, "Jarvis settings…", #selector(jarvisSettings))
-        }
         add(menu, "Open dashboard", #selector(dashboard))
         add(menu, "Voice Orb in a window", #selector(openVoiceWindow))
         add(menu, "Re-pair…", #selector(repair))
@@ -208,14 +204,16 @@ final class JarvisMenu: NSObject {
     @objc private func restart() { model.trayAction("restart") }
 
     /// Jarvis's own settings window, from the voice panel's library.
-    @objc private func jarvisSettings() {
-        _ = makeVoicePanel()   // loads the library if it isn't yet
-        if let cls = (NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel"))
-            as? NSObject.Type, cls.responds(to: NSSelectorFromString("showSettings")) {
-            _ = cls.perform(NSSelectorFromString("showSettings"))
-        } else {
-            model.trayAction("dashboard")
-        }
+    /// The one settings window: the voice library's sidebar window with this
+    /// app's panes in it. False when the library can't be loaded.
+    func openUnifiedSettings(tab: String?) -> Bool {
+        _ = makeVoicePanel()   // loads the library (and its signed-in proxy) if it isn't yet
+        let sel = NSSelectorFromString("showSettingsWithOptions:")
+        guard let cls = voicePanelClass() as? NSObject.Type, cls.responds(to: sel) else { return false }
+        var options: [String: Any] = ["panes": appSettingsPanes(model: model)]
+        if let tab { options["select"] = tab }
+        _ = cls.perform(sel, with: options as NSDictionary)
+        return true
     }
 
     /// One device or wearable: its picture, its name, what it's doing and a status dot.

@@ -8,8 +8,13 @@ import SwiftUI
 enum SettingsWindow {
     private static var window: NSWindow?
 
+    /// Opens the ONE settings window (the voice library's sidebar window, with
+    /// this app's panes in it). Set at launch; false when the library isn't there.
+    static var openUnified: ((_ tab: String?) -> Bool)?
+
     /// `tab`: "general", "agents", "mac-power", "voice", "flow" or "shortcuts".
     static func show(model: AppModel, tab: String? = nil) {
+        if let open = openUnified, open(tab) { return }
         if let tab { SettingsNav.shared.tab = tab }
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
@@ -23,6 +28,22 @@ enum SettingsWindow {
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
+}
+
+/// This app's panes for the one settings window (`JarvisVoicePanel.showSettings(options:)`):
+/// id, title, SF Symbol, tint and a hosting controller each.
+@MainActor
+func appSettingsPanes(model: AppModel) -> [[String: Any]] {
+    func pane<V: View>(_ id: String, _ title: String, _ symbol: String, _ tint: Int, _ view: V) -> [String: Any] {
+        ["id": id, "title": title, "symbol": symbol, "tint": tint,
+         "controller": NSHostingController(rootView: view.frame(maxWidth: .infinity, maxHeight: .infinity))]
+    }
+    return [pane("general", "General", "gearshape.fill", 0x7C8494, GeneralSettings()),
+            pane("agents", "Agents", "terminal.fill", 0x2FBF8F, AgentsSettings(model: model)),
+            pane("mac-power", "Mac power", "bolt.fill", 0xF2B53A, MacPowerSettings(model: model)),
+            pane("voice", "Talk & wake word", "mic.fill", 0x2F8CFF, VoiceSettings()),
+            pane("flow", "Flow", "text.bubble.fill", 0x9B6BFF, FlowSettings()),
+            pane("shortcuts", "Shortcuts", "keyboard.fill", 0x6B7280, ShortcutsSettings())]
 }
 
 /// Which Settings tab shows (a jarvismac://settings/<tab> link can pick it).

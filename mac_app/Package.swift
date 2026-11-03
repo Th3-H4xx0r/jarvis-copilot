@@ -30,6 +30,7 @@ let package = Package(
                 // design system and its chat/session layers, none of which the
                 // Mac panel uses. The voice loop underneath them is shared.
                 "Voice/VoicePage.swift",
+                "Voice/TalkHere.swift",          // iPhone-only (Talk Here intent / Live Activity)
                 "Voice/Views/VoiceEnginePicker.swift",
                 "Voice/Views/VoiceSessionPicker.swift",
                 "Voice/Views/VoiceModelPickerSheet.swift",

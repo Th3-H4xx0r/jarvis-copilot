@@ -169,6 +169,26 @@ public final class JarvisVoicePanel: NSObject {
         MacSettingsWindow.show()
     }
 
+    /// The ONE settings window, with the Mac app's own panes first under "On this
+    /// Mac". `options`: {"panes": [{"id", "title", "symbol", "tint" (0xRRGGBB),
+    /// "controller" (NSViewController)}], "select": app pane id (optional)}.
+    @objc(showSettingsWithOptions:)
+    @MainActor
+    public static func showSettings(options: NSDictionary) {
+        if MacAppPanes.shared.panes.isEmpty {
+            MacAppPanes.shared.panes = (options["panes"] as? [NSDictionary] ?? []).compactMap { p in
+                guard let id = p["id"] as? String, let title = p["title"] as? String,
+                      let symbol = p["symbol"] as? String, let vc = p["controller"] as? NSViewController
+                else { return nil }
+                return MacAppPane(id: id, title: title, symbol: symbol,
+                                  tint: Color(jcHex: UInt32((p["tint"] as? NSNumber)?.intValue ?? 0x6B7280)),
+                                  controller: vc)
+            }
+        }
+        let select = (options["select"] as? String).map { "app." + $0 }
+        MacSettingsWindow.show(key: select ?? (MacAppPanes.shared.panes.first.map { "app." + $0.id }))
+    }
+
     /// Stop whatever is running and release the mic — for the tray's Quit, and
     /// for a re-pair that invalidates the proxy behind us.
     ///

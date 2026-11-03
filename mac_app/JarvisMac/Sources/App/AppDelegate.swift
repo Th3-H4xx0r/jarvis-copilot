@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.island = island
         let menu = JarvisMenu(model: model, island: island)
         menu.onSettings = { [weak self] in self.map { SettingsWindow.show(model: $0.model) } }
+        SettingsWindow.openUnified = { [weak menu] tab in menu?.openUnifiedSettings(tab: tab) ?? false }
         menu.onDemo = { [weak self] in self.map { DemoEngine.run(model: $0.model, island: island) } }
         menu.onRecap = { [weak self] in self.map { RecapWindow.show(model: $0.model) } }
         menu.onFlow = { FlowWindow.show() }
