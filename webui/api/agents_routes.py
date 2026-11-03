@@ -98,11 +98,51 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
     return _err(404, "not found")
 
 
+def _mac(c, method, p, body):
+    """Wake Mac, keep-awake, timer, unlock and password answers (api/mac_power.py).
+    The check-in (GET /agents/mac/checkin) is routed in routes.py: it needs the
+    caller's device, from its session cookie."""
+    power = c.mac_power
+    if power is None:
+        return _err(503, "Mac power isn't ready yet")
+    if p == "/agents/mac/approval-key" and method == "GET":
+        from api.mac_power import approval_key
+        key = approval_key()
+        return _ok({"public_key": key}) if key else _err(404, "Set up Face ID approvals on the iPhone first")
+    if method != "POST":
+        return _err(405, "method not allowed")
+    if p == "/agents/mac/password/answer":
+        decision = str(body.get("decision") or "")
+        if decision not in ("allow", "deny"):
+            return _err(400, "decision must be allow or deny")
+        if decision == "allow" and not (body.get("ts") and body.get("signature")):
+            return _err(400, "an allow needs the Face ID signature")
+        return _result(power.answer(str(body.get("id") or ""), decision, body.get("ts"), body.get("signature")))
+    device_id = str(body.get("device_id") or "").strip()
+    if not device_id:
+        return _err(400, "device_id is required")
+    if p == "/agents/mac/wake":
+        return _ok(power.wake(device_id))
+    if p == "/agents/mac/keep-awake":
+        return _ok(power.keep_awake(device_id, bool(body.get("on"))))
+    if p == "/agents/mac/timer":
+        return _ok(power.timer(device_id, bool(body.get("on"))))
+    if p == "/agents/mac/let-sleep":
+        return _ok(power.let_sleep(device_id))
+    if p == "/agents/mac/unlock":
+        return _result(power.unlock(device_id))
+    return _err(404, "not found")
+
+
 # ── the merged Agents tab (webui/api/agents_core.py) ─────────────────────────
 _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/agents/continue",
                         "/agents/stop", "/agents/resume", "/agents/launch",
                         "/agents/card/dismiss", "/agents/terminal/start",
-                        "/agents/project/sync"})
+                        "/agents/project/sync",
+                        # Wake Mac / keep-awake / password requests (api/mac_power.py)
+                        "/agents/mac/wake", "/agents/mac/keep-awake", "/agents/mac/let-sleep",
+                        "/agents/mac/timer", "/agents/mac/unlock", "/agents/mac/password/answer",
+                        "/agents/mac/approval-key"})
 _MAX_CONTINUE = 20
 
 
@@ -130,6 +170,8 @@ def _v2(method, p, query, body):
     if c is None:
         return _err(503, "the Agents service isn't ready yet")
     ckey = str((query or {}).get("ckey") or body.get("ckey") or "").strip()
+    if p.startswith("/agents/mac/"):
+        return _mac(c, method, p, body)
     if p == "/agents/list" and method == "GET":
         return _ok(c.list_payload())
     if p == "/agents/messages" and method == "GET":

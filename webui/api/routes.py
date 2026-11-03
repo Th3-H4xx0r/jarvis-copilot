@@ -3578,6 +3578,17 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/coding/events/stream":
         return _handle_coding_events_sse_stream(handler, parsed)
 
+    if parsed.path == "/api/coding/agents/mac/checkin":
+        # The Mac's quiet timer check-in (jc_client/mac_power.py): which Mac is
+        # asking comes from its paired session cookie.
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session
+        from api import mac_power
+        device = find_device_by_session(parse_cookie(handler) or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        return j(handler, mac_power.store().checkin(device["id"]))
+
     if parsed.path.startswith("/api/coding"):
         from api.coding_routes import (
             CODING_PATH_PREFIX, default_manager, handle_coding_request)

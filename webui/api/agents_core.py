@@ -100,8 +100,9 @@ class AgentsCore:
                  publish: Optional[Callable[[str, dict], None]] = None,
                  tracker: Optional[Callable[[], object]] = None,
                  start_sync: Optional[Callable[[str, str, str], None]] = None,
-                 clock=time.time) -> None:
+                 mac_power=None, clock=time.time) -> None:
         self.store = store
+        self.mac_power = mac_power   # api/mac_power.py: Wake Mac, keep-awake, password requests
         self._send_frame = send_frame
         self._device_name = device_name
         self._alert = alert_phones
@@ -441,9 +442,15 @@ class AgentsCore:
                  "was": (by.get(k) or {}).get("state") or "idle",
                  "agent": (by.get(k) or {}).get("agent") or "claude"}
                 for k in card["sessions"]])
-        return {"card": card, "needs_you": needs, "projects": projects,
-                "usage": _claude_usage(tr, self.store),
-                "usage_codex": tr.usage("codex") if tr is not None else None, "ts": now}
+        out = {"card": card, "needs_you": needs, "projects": projects,
+               "usage": _claude_usage(tr, self.store),
+               "usage_codex": tr.usage("codex") if tr is not None else None, "ts": now}
+        if self.mac_power is not None:
+            try:
+                out.update(self.mac_power.list_payload(self._name))
+            except Exception:  # noqa: BLE001
+                log.warning("mac power list failed", exc_info=True)
+        return out
 
     def messages(self, ckey: str, *, after: int = 0, before: Optional[int] = None,
                  limit: Optional[int] = None, lite: bool = True) -> Optional[dict]:
@@ -794,10 +801,16 @@ def start(store) -> AgentsCore:
         codex = CodexRuntime(on_event=lambda kind, data: core() and core().on_codex_event(kind, data))
     except Exception:  # noqa: BLE001
         codex = _NoCodex()
+    from api import mac_power
+    power = mac_power.store()
     c = AgentsCore(store, send_frame=device_bridge.send_frame,
                    device_name=device_bridge.device_name, alert_phones=alert_phones,
-                   codex=codex, publish=device_bridge.publish)
+                   codex=codex, publish=device_bridge.publish, mac_power=power)
     set_core(c)
+    for name, fn in (("mac_power_status", power.on_status), ("mac_power_token", power.on_token),
+                     ("mac_power_set", power.on_set), ("mac_password_request", power.on_password_request),
+                     ("mac_password_done", power.on_password_done)):
+        device_bridge.on_device_event(name, fn)
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
                      ("agent_transcript_chunk", c.on_chunk), ("agent_transcript_need", c.on_need),
                      ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery),
