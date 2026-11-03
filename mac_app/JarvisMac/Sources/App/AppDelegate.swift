@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.onAppUpdate = { AppUpdater.shared.signal($0) }
         model.attach()
+        ScreenShareService.shared.start()
         AppUpdater.shared.start()
         MacPowerBridge.start()
         SecurityAgentWatch.shared.start()

@@ -289,6 +289,7 @@ class Registry:
             self._save()
             out = self.view(s)
         self._maybe_cleanup()
+        _announce(out)
         return out
 
     def get(self, sid: str) -> Optional[dict]:
@@ -321,6 +322,8 @@ class Registry:
             changed = self._end_locked(s, error)
             if changed:
                 self._save()
+        if changed:
+            _announce({"id": sid, "status": "ended"})
         return True
 
     def _end_locked(self, s: _Share, error: Optional[str] = None) -> bool:
@@ -536,6 +539,16 @@ class Registry:
             except OSError:
                 continue
         return removed
+
+
+def _announce(share: dict) -> None:
+    """Nudge the Mac app over its existing link (device-bridge topic ``screen_shares``),
+    so a new share starts without waiting for its next list poll."""
+    try:
+        from api import device_bridge
+        device_bridge.publish("screen_shares", {"id": share.get("id"), "status": share.get("status")})
+    except Exception:
+        logger.debug("screen_shares publish failed", exc_info=True)
 
 
 _REGISTRY: Optional[Registry] = None

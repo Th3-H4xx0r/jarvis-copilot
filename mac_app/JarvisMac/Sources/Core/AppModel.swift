@@ -75,7 +75,7 @@ final class AppModel {
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0]])
+                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0, "screen_shares": 0]])
                 self?.refreshRoster()
             }
         }
@@ -146,6 +146,8 @@ final class AppModel {
                 if let speak = data["speak"] as? [String: Any] { speakOnce(MacJob(json: speak)) }
             case "app_update":
                 onAppUpdate?(data)
+            case "screen_shares":
+                ScreenShareService.shared.poke()  // a share was asked for or ended: look now
             default: break
             }
         default:
