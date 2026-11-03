@@ -49,8 +49,11 @@ class AgentsLink:
                  runtime: Optional[LocalRuntime] = None, inline: bool = False,
                  power_thread: bool = True,
                  ui_broadcast: Optional[Callable[[dict], None]] = None,
-                 local_state: Optional[Callable[[str, str], Optional[str]]] = None) -> None:
+                 local_state: Optional[Callable[[str, str], Optional[str]]] = None,
+                 power=None) -> None:
         self._up = forward_up
+        # MacPower (mac_power.py): a quiet timer check-in is neither a sleep nor a wake here.
+        self._mac_power = power
         # This Mac's own hook engine: it sees an approval menu before the server does.
         self._local_state = local_state or (lambda agent, sid: None)
         self.vscode = vscode
@@ -117,6 +120,8 @@ class AgentsLink:
         self.shipper.set_online(False)
 
     def on_sleep(self) -> None:
+        if self._mac_power is not None and not self._mac_power.on_will_sleep():
+            return   # back to sleep after a quiet check-in: the server already knows
         self.shipper.flush_all(3.0)
         try:
             entries = self.roster.scan_now(send=False)
@@ -127,6 +132,8 @@ class AgentsLink:
                                                                ["claude", "codex"]))})
 
     def on_wake(self) -> None:
+        if self._mac_power is not None and not self._mac_power.on_did_wake():
+            return   # a timer check-in that found nothing: no hello, the Mac sleeps again
         self.gate.hold_until_confirmed(10.0)
         # A short sleep can keep the socket, so no reconnect (and no hello) would
         # follow: say it, so the server marks this Mac awake and answers with

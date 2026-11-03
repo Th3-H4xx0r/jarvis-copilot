@@ -157,6 +157,8 @@ class Service:
         # The Jarvis Mac app's link (ui.sock) and the server topics it wants.
         self._ui = None
         self._ui_topics: dict = {}
+        # Keep-awake, Wake Mac and password autofill (jc_client/power_service.py; macOS).
+        self._power = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -228,6 +230,10 @@ class Service:
 
     def _ui_request(self, req: dict) -> dict:
         kind = req.get("type")
+        if self._power is not None:
+            from jc_client.power_service import UI_REQUESTS
+            if kind in UI_REQUESTS:
+                return self._power.ui_request(req)
         if kind == "decide":
             if self._arbiter is None:
                 return {"ok": False}
@@ -443,6 +449,17 @@ class Service:
 
             self._arbiter = Arbiter(send_up=self._forward_up, gate=self._approvals_gate,
                                     on_settled=settled, on_change=self._ui_push_pending)
+            if sys.platform == "darwin":
+                try:
+                    from jc_client.power_service import PowerService
+                    self._power = PowerService(
+                        self._forward_up, self._ui_broadcast,
+                        lambda: self._hook_server.engine_sessions() if self._hook_server else [],
+                        _imessage_api_origin)
+                    self._power.start()
+                except Exception as exc:  # noqa: BLE001 — never fatal
+                    log.warning("mac power unavailable: %s", exc)
+                    self._power = None
             self._start_agents_link()
             link = self._agents_link
             server = HookServer(_hook_socket_path(), self._agent_engine,
@@ -495,7 +512,8 @@ class Service:
                                            queue=self._instruction_queue,
                                            instructions_on=lambda: self._agent_instructions,
                                            ui_broadcast=self._ui_broadcast,
-                                           local_state=self._local_agent_state)
+                                           local_state=self._local_agent_state,
+                                           power=self._power.power if self._power else None)
         except Exception as exc:  # noqa: BLE001
             log.warning("agents link unavailable: %s", exc)
             self._agents_link = None
@@ -504,6 +522,9 @@ class Service:
         link, self._agents_link = self._agents_link, None
         if link is not None:
             link.close()
+        power, self._power = self._power, None
+        if power is not None:
+            power.close()
         bridge, self._vscode = self._vscode, None
         if bridge is not None:
             try:
@@ -620,6 +641,10 @@ class Service:
                     break
                 continue
 
+            if self._power is not None:
+                # a quiet timer check-in must not reconnect: the server would take it
+                # for the Mac coming back (merge-back, "awake" on the phone)
+                self._power.wait_while_quiet(self._stop)
             self._last_connect_attempt = time.time()
             opened_at = time.time()
             try:
@@ -877,6 +902,11 @@ class Service:
             # A server push the Mac app subscribed to (harness_jobs).
             self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
                                 "data": frame.get("data") or {}})
+            return
+
+        if self._power is not None and msg_type in ("mac_power_set", "mac_password_answer",
+                                                     "mac_password_unlock"):
+            self._executor.submit(self._power.handle_frame, frame)   # may tick the helper
             return
 
         if self._agents_link is not None and (
