@@ -211,7 +211,7 @@ final class JarvisMenu: NSObject {
         let sel = NSSelectorFromString("showSettingsWithOptions:")
         guard let cls = voicePanelClass() as? NSObject.Type, cls.responds(to: sel) else { return false }
         var options: [String: Any] = ["panes": appSettingsPanes(model: model)]
-        if let tab { options["select"] = tab }
+        if let tab { options["select"] = tab == "voice" ? "talk" : tab }
         _ = cls.perform(sel, with: options as NSDictionary)
         return true
     }

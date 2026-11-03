@@ -41,7 +41,9 @@ func appSettingsPanes(model: AppModel) -> [[String: Any]] {
     return [pane("general", "General", "gearshape.fill", 0x7C8494, GeneralSettings()),
             pane("agents", "Agents", "terminal.fill", 0x2FBF8F, AgentsSettings(model: model)),
             pane("mac-power", "Mac power", "bolt.fill", 0xF2B53A, MacPowerSettings(model: model)),
-            pane("voice", "Talk & wake word", "mic.fill", 0x2F8CFF, VoiceSettings()),
+            // "talk", not "voice": the sidebar already has the voice library's own Voice
+            // row with that id, and SwiftUI would draw one row's label on the other.
+            pane("talk", "Talk & wake word", "mic.fill", 0x2F8CFF, VoiceSettings()),
             pane("flow", "Flow", "text.bubble.fill", 0x9B6BFF, FlowSettings()),
             pane("shortcuts", "Shortcuts", "keyboard.fill", 0x6B7280, ShortcutsSettings())]
 }
