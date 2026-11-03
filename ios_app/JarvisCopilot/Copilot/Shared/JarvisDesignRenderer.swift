@@ -8,9 +8,13 @@ final class JCDesignRenderer {
     private var count = 0
     // Generous safety clamps (not a layout limit): the expanded island + lock
     // screen size to their content, so a rich design can fill the full available
-    // height. These only guard against pathological/cyclic trees.
-    private let maxDepth = 12
-    private let maxNodes = 160
+    // height. These only guard against pathological/cyclic trees. An integration
+    // page passes larger ones.
+    private let maxDepth: Int
+    private let maxNodes: Int
+    /// App-only node types (an integration page's inputs and actions): consulted
+    /// before the built-in switch; nil falls through to it. Widgets never set it.
+    var extra: ((JCNode, JCBindingContext, Int) -> AnyView?)?
     let tint: Color
     /// The widget design being drawn; its buttons pass it with each press for its model override.
     let designID: String?
@@ -20,11 +24,14 @@ final class JCDesignRenderer {
     /// Home Screen widget, where symbol effects don't play, keeps the still picture.
     let liveOrb: Bool
 
-    init(tint: Color, designID: String? = nil, now: Date = Date(), liveOrb: Bool = false) {
+    init(tint: Color, designID: String? = nil, now: Date = Date(), liveOrb: Bool = false,
+         maxDepth: Int = 12, maxNodes: Int = 160) {
         self.tint = tint
         self.designID = designID
         self.now = now
         self.liveOrb = liveOrb
+        self.maxDepth = maxDepth
+        self.maxNodes = maxNodes
     }
 
     func render(_ node: JCNode?, _ ctx: JCBindingContext, depth: Int = 0) -> AnyView {
@@ -34,6 +41,9 @@ final class JCDesignRenderer {
         // `when` gating — skip a node (and its subtree) when its condition fails.
         if !jcEvalCondition(node.when, ctx) { return AnyView(EmptyView()) }
         count += 1
+        if let extra, let custom = extra(node, ctx, depth) {
+            return AnyView(applyStyle(custom, node.style, ctx))
+        }
         let view = body(node, ctx, depth: depth)
         return AnyView(applyStyle(view, node.style, ctx))
     }

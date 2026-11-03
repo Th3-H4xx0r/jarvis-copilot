@@ -11,6 +11,18 @@ import SwiftUI
 /// replaced by a single Close button. There is nothing left to say.
 struct IntegrationSetupSheet: View {
     let onFinish: () async -> Void
+    /// Set when this sheet changes an existing integration's UI instead of building
+    /// a new integration: nothing gets created, so backing out has nothing to undo.
+    var editing: Integration? = nil
+
+    init(onFinish: @escaping () async -> Void) {
+        self.onFinish = onFinish
+    }
+
+    init(editingUIOf integration: Integration, onFinish: @escaping () async -> Void) {
+        self.onFinish = onFinish
+        self.editing = integration
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var setup = MainActor.assumeIsolated { IntegrationSetupStore() }
@@ -20,14 +32,15 @@ struct IntegrationSetupSheet: View {
     var body: some View {
         NavigationStack {
             ChatConversationView(store: chat,
-                                 placeholder: "Tell Jarvis what to track\u{2026}",
+                                 placeholder: editing == nil ? "Tell Jarvis what to track\u{2026}"
+                                                             : "Tell Jarvis what to show\u{2026}",
                                  // Close replaces the composer only once there is
                                  // nothing left to say.
                                  showsComposer: setup.finished == nil) {
                 if setup.finished != nil { closeBar }
             }
             .memoryChipsHidden()
-            .jcScreen("New integration")
+            .jcScreen(editing.map { "\($0.name) UI" } ?? "New integration")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
@@ -68,14 +81,19 @@ struct IntegrationSetupSheet: View {
 
     private func begin() async {
         guard chat.sessionID == nil else { return }
-        guard let sessionID = await setup.begin() else { return }
+        guard let sessionID = await setup.begin(uiOf: editing?.id, name: editing?.name ?? "") else { return }
         await chat.openSession(sessionID)
         // The agent opens, so the sheet is never a blank box with a cursor.
-        await chat.send("Help me set up a new integration.")
+        if let editing {
+            await chat.send("Help me design the UI for my \(editing.name) integration.")
+        } else {
+            await chat.send("Help me set up a new integration.")
+        }
     }
 
     private func close(askFirst: Bool) {
-        if askFirst, setup.createdSpaceID != nil, setup.finished == nil {
+        // Editing a UI creates nothing new, so there is nothing to offer to undo.
+        if askFirst, editing == nil, setup.createdSpaceID != nil, setup.finished == nil {
             confirmingExit = true
         } else {
             Task { await chat.cancel(); await leave() }

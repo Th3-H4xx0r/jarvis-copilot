@@ -419,8 +419,13 @@ struct JCValueRef {
     func resolve(_ ctx: JCBindingContext) -> JCJSON? {
         switch raw {
         case .object(let o):
-            if let key = o["$"]?.asString { return ctx.data[key] }
-            if let field = o["$row"]?.asString { return ctx.row?[field] }
+            // A flat key first (the widget hub's `area.key` snapshot), then a dotted
+            // path into nested state (an integration page's `totals.spent`).
+            if let key = o["$"]?.asString { return ctx.data[key] ?? jcLookup(ctx.data, key) }
+            if let field = o["$row"]?.asString {
+                guard let row = ctx.row else { return nil }
+                return row[field] ?? jcLookup(row, field)
+            }
             // A source binding resolves to data[key] too — the coordinator (awake)
             // or server (suspended) places the resolved value under the src key.
             // Absent → nil (renders as missing), never a crash.
@@ -484,6 +489,51 @@ struct JCBindingContext {
     }
     func withRow(_ row: [String: JCJSON]) -> JCBindingContext {
         JCBindingContext(data: data, row: row)
+    }
+}
+
+/// `a.b.0.c` through nested objects and arrays; nil when any step is missing.
+func jcLookup(_ root: [String: JCJSON], _ path: String) -> JCJSON? {
+    let parts = path.split(separator: ".").map(String.init)
+    guard let first = parts.first, var current = root[first] else { return nil }
+    for part in parts.dropFirst() {
+        switch current {
+        case .object(let o):
+            guard let next = o[part] else { return nil }
+            current = next
+        case .array(let a):
+            guard let i = Int(part), a.indices.contains(i) else { return nil }
+            current = a[i]
+        default:
+            return nil
+        }
+    }
+    return current
+}
+
+extension JCJSON {
+    /// Foundation form, for JSONSerialization (posting an event).
+    var foundation: Any {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return n
+        case .bool(let b): return b
+        case .null: return NSNull()
+        case .array(let a): return a.map(\.foundation)
+        case .object(let o): return o.mapValues(\.foundation)
+        }
+    }
+
+    /// From a JSONSerialization value (an API response).
+    init(foundation value: Any?) {
+        switch value {
+        case let n as NSNumber:
+            self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let s as String: self = .string(s)
+        case let a as [Any]: self = .array(a.map { JCJSON(foundation: $0) })
+        case let o as [String: Any]: self = .object(o.mapValues { JCJSON(foundation: $0) })
+        default: self = .null
+        }
     }
 }
 

@@ -35,6 +35,8 @@ struct IntegrationsList: View {
     /// The built-in iMessage memory card pinned above the registry integrations; its
     /// screen shares this store so the card's line is current on the way back.
     @State private var iMessage: IMessageMemoryStore
+    /// The UIs Jarvis designed for integrations: their cards lead the list.
+    @State private var cards = MainActor.assumeIsolated { IntegrationUICardsStore() }
 
     init(store: IntegrationsStore? = nil, iMessage: IMessageMemoryStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { IntegrationsStore() })
@@ -53,7 +55,8 @@ struct IntegrationsList: View {
         .refreshable {
             async let list: Void = store.refresh()
             async let pinned: Void = iMessage.refresh()
-            _ = await (list, pinned)
+            async let uis: Void = cards.refresh()
+            _ = await (list, pinned, uis)
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
         .jcPageChrome("Integrations")
@@ -80,11 +83,15 @@ struct IntegrationsList: View {
         }
         .task { if !store.hasLoaded { store.load() } else { await store.refresh() } }
         .task { await iMessage.refresh() }
+        .task { await cards.refresh() }
         // Pushed from More now, not a tab: it pauses when it leaves the screen.
         .onDisappear { store.onDisappear() }
         .moreToast($store.toast)
         .fullScreenCover(isPresented: $settingUp) {
-            IntegrationSetupSheet { await store.refresh() }
+            IntegrationSetupSheet {
+                await store.refresh()
+                await cards.refresh()
+            }
         }
     }
 
@@ -105,6 +112,17 @@ struct IntegrationsList: View {
             CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track")
                 .padding(.top, 100)
         } else {
+            if !cards.cards.isEmpty {
+                // Each integration's own UI: a glance and its quick actions, right here.
+                ForEach(cards.cards, id: \.integrationID) { card in
+                    IntegrationUICardView(store: card,
+                                          name: cards.name(of: card.integrationID),
+                                          icon: cards.icon(of: card.integrationID),
+                                          integration: store.integrations.first { $0.id == card.integrationID })
+                }
+                JcSectionLabel("All integrations")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             ForEach(store.integrations) { integration in
                 NavigationLink(value: integration) {
                     IntegrationCard(integration: integration)

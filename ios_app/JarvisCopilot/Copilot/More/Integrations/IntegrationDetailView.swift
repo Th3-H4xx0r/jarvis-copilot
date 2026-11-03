@@ -20,10 +20,16 @@ struct IntegrationDetailView: View {
     @State private var pendingDelete: CronJob?
     @State private var confirming: IntegrationConfirm?
     @State private var deletingIntegration = false
+    /// The UI Jarvis designed for this integration (nothing drawn when it has none).
+    @State private var ui: IntegrationUIStore
+    @State private var editingUI = false
 
     init(integration: Integration, store: IntegrationsStore) {
         self.pushed = integration
         self.store = store
+        _ui = State(initialValue: MainActor.assumeIsolated {
+            IntegrationUIStore(integrationID: integration.id, presentation: .page)
+        })
     }
 
     /// The value this screen was pushed with never changes; the store's copy does.
@@ -53,6 +59,7 @@ struct IntegrationDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 2)
                 }
+                IntegrationUIPageSection(store: ui)
                 schedulesSection
                 dataSection
                 skillsSection
@@ -62,8 +69,10 @@ struct IntegrationDetailView: View {
             .padding(.bottom, 32)
         }
         .refreshable {
+            async let page: Void = ui.load()
             await store.open(pushed.id)
             await crons.refresh()
+            await page
         }
         .jcPageChrome(integration.name)
         .toolbar {
@@ -71,7 +80,12 @@ struct IntegrationDetailView: View {
         }
         .task {
             if !crons.hasLoaded { crons.load() }   // its own endpoint; don't wait on the detail
+            async let page: Void = ui.load()
             await store.open(pushed.id)
+            await page
+        }
+        .fullScreenCover(isPresented: $editingUI) {
+            IntegrationSetupSheet(editingUIOf: integration) { await ui.load() }
         }
         .onDisappear { crons.onDisappear() }
         .moreToast($store.toast)
@@ -125,6 +139,9 @@ struct IntegrationDetailView: View {
                       jcIcon: integration.isPaused ? "play.fill" : "pause.fill")
             }
             Button { route = .create } label: { Label("New schedule", jcIcon: "plus") }
+            Button { editingUI = true } label: {
+                Label(ui.root == nil ? "Design a UI" : "Edit UI", jcIcon: "square.grid.2x2")
+            }
             Divider()
             Button(role: .destructive) { deletingIntegration = true } label: {
                 Label("Delete\u{2026}", jcIcon: "trash")

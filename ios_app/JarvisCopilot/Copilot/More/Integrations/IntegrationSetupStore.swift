@@ -20,10 +20,10 @@ final class IntegrationSetupStore {
     init(api: IntegrationsAPI = IntegrationsAPI()) { self.api = api }
 
     /// Opens a session pinned to this job. Returns its id, or nil if it could not.
-    func begin() async -> String? {
+    func begin(uiOf space: String? = nil, name: String = "") async -> String? {
         do {
             errorMessage = nil
-            return try await api.startSetup()
+            return try await api.startSetup(name: name, uiOf: space)
         } catch {
             errorMessage = apiErrorMessage(error)
             return nil

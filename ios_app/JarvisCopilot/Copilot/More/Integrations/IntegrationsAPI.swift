@@ -78,9 +78,14 @@ struct IntegrationsAPI {
 
     /// Opens a session pinned to setting up one integration. Returns its id; the
     /// sheet then talks to it over the ordinary chat stream.
-    func startSetup(name: String = "") async throws -> String {
-        let body = try await api.post("/api/integrations/setup/start",
-                                      json: ["name": name]).object()
+    /// `uiOf`: change only that integration's UI rather than build a new one.
+    func startSetup(name: String = "", uiOf space: String? = nil) async throws -> String {
+        var json: [String: Any] = ["name": name]
+        if let space {
+            json["space"] = space
+            json["mode"] = "ui"
+        }
+        let body = try await api.post("/api/integrations/setup/start", json: json).object()
         guard let sessionID = body["session_id"] as? String, !sessionID.isEmpty else {
             throw APIError.badResponse("the server did not open a setup session")
         }
