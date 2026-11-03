@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onAppUpdate = { AppUpdater.shared.signal($0) }
         model.attach()
         AppUpdater.shared.start()
+        MacPowerBridge.start()
         registerShortcuts()
         MusicController.shared.start()
         WindowContext.startWatching()

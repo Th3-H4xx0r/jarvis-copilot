@@ -14,6 +14,8 @@ settings:
     # Manual signing with the Apple Development certificate (by SHA-1: two
     # certificates share the name). A plain Mac app with no restricted
     # entitlements needs no provisioning profile, and no Xcode account.
+    # build-app.sh switches to automatic signing + Jarvis-push.entitlements
+    # (Wake Mac push) when Xcode has an account or a Mac push profile exists.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: 9D37CB18DB604B9D715D00D7AD3B28C91EC07D77
     PROVISIONING_PROFILE_SPECIFIER: ""
