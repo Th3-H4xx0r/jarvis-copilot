@@ -1,3 +1,4 @@
+import AVKit
 import Observation
 import SwiftUI
 import WebRTC
@@ -18,6 +19,9 @@ final class MacScreenSession: NSObject {
     /// The Mac's display size, from the first frame (for aspect + coordinates).
     private(set) var videoSize: CGSize = .zero
     private(set) var track: RTCVideoTrack?
+    /// The share's replay once it has ended and the Mac uploaded it.
+    private(set) var replayURL: String?
+    private(set) var replayFile: URL?
 
     private let api: JarvisAPI
     private var pc: RTCPeerConnection?
@@ -26,6 +30,15 @@ final class MacScreenSession: NSObject {
     private var afterSeq = 0
     /// A share this viewer started for "anytime": stopping the viewer ends it.
     private var ownsShare = false
+    /// Find the running computer task's share (the card shows while the task runs,
+    /// before its result — which carries the id — exists).
+    private let findsTaskShare: Bool
+    /// This connection's id on the share: the Mac answers per viewer, so an old
+    /// connection's bye or answer never lands on this one.
+    private var viewerID = "ios-\(UUID().uuidString.prefix(8).lowercased())"
+    /// Remote candidates that arrived before the answer was applied.
+    private var pendingCandidates: [RTCIceCandidate] = []
+    private var remoteSet = false
 
     private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
@@ -33,8 +46,9 @@ final class MacScreenSession: NSObject {
                                         decoderFactory: RTCDefaultVideoDecoderFactory())
     }()
 
-    init(shareID: String? = nil, api: JarvisAPI = .shared) {
+    init(shareID: String? = nil, findsTaskShare: Bool = false, api: JarvisAPI = .shared) {
         self.shareID = shareID
+        self.findsTaskShare = findsTaskShare
         self.api = api
     }
 
@@ -45,12 +59,22 @@ final class MacScreenSession: NSObject {
         guard phase == .idle || phase == .ended || isFailed else { return }
         phase = .connecting
         afterSeq = 0
+        remoteSet = false
+        pendingCandidates = []
+        viewerID = "ios-\(UUID().uuidString.prefix(8).lowercased())"
         do {
             var ice: [[String: Any]] = []
+            if shareID == nil, findsTaskShare {
+                guard let found = await findTaskShare() else {
+                    phase = .failed("No live share for this task")
+                    return
+                }
+                shareID = found
+            }
             if let shareID {
                 let share = try await api.get("/api/screen/shares/\(shareID)", timeout: 20).object()
                 if share["status"] as? String == "ended" {
-                    phase = .ended
+                    await ended(share)
                     return
                 }
                 macOnline = share["mac_online"] as? Bool ?? true
@@ -62,6 +86,7 @@ final class MacScreenSession: NSObject {
                 guard let id = share["id"] as? String else { throw APIError.badResponse("no share id") }
                 shareID = id
                 ownsShare = true
+                macOnline = share["mac_online"] as? Bool ?? true
                 ice = share["ice_servers"] as? [[String: Any]] ?? []
             }
             try await connect(iceServers: ice)
@@ -70,19 +95,62 @@ final class MacScreenSession: NSObject {
         }
     }
 
+    /// The newest active task share (a computer task runs one at a time).
+    private func findTaskShare() async -> String? {
+        for _ in 0..<20 {
+            if let reply = try? await api.get("/api/screen/shares", query: ["active": "1"], timeout: 15).object() {
+                let shares = (reply["shares"] as? [[String: Any]] ?? []).filter { $0["reason"] as? String == "task" }
+                if let newest = shares.max(by: { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }),
+                   let id = newest["id"] as? String {
+                    return id
+                }
+            }
+            try? await Task.sleep(for: .seconds(1.5))
+        }
+        return nil
+    }
+
+    /// An ended share: show its replay when the Mac uploaded one.
+    private func ended(_ share: [String: Any]) async {
+        phase = .ended
+        replayURL = (share["replay_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let path = replayURL, replayFile == nil, let shareID else { return }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mac-replay-\(shareID).mp4")
+        if !FileManager.default.fileExists(atPath: file.path) {
+            guard let data = try? await api.get(path, timeout: 180).data, !data.isEmpty else { return }
+            try? data.write(to: file, options: .atomic)
+        }
+        replayFile = file
+    }
+
+    /// Re-reads an ended share until its replay arrives (the Mac uploads after the task).
+    func awaitReplay() async {
+        guard let shareID else { return }
+        for _ in 0..<40 where replayFile == nil && phase == .ended {
+            if let share = try? await api.get("/api/screen/shares/\(shareID)", timeout: 15).object() {
+                await ended(share)
+                if replayFile != nil { return }
+            }
+            try? await Task.sleep(for: .seconds(5))
+        }
+    }
+
     func stop() async {
+        // Tear down first, so a start() racing this sees .ended, not a stale .live.
         pollTask?.cancel()
         pollTask = nil
-        if let shareID, pc != nil {
-            _ = try? await api.post("/api/screen/shares/\(shareID)/signal", json: ["from": "viewer", "type": "bye"])
-            if ownsShare { _ = try? await api.post("/api/screen/shares/\(shareID)/stop") }
-        }
+        let hadConnection = pc != nil
         channel?.close()
         pc?.close()
         channel = nil
         pc = nil
         track = nil
         phase = .ended
+        if let shareID, hadConnection {
+            _ = try? await api.post("/api/screen/shares/\(shareID)/signal",
+                                    json: ["from": "viewer", "type": "bye", "viewer": viewerID])
+            if ownsShare { _ = try? await api.post("/api/screen/shares/\(shareID)/stop") }
+        }
     }
 
     private var isFailed: Bool {
@@ -125,6 +193,7 @@ final class MacScreenSession: NSObject {
         guard let shareID else { return }
         var message = body
         message["from"] = "viewer"
+        message["viewer"] = viewerID
         _ = try await api.post("/api/screen/shares/\(shareID)/signal", json: message, timeout: 20)
     }
 
@@ -132,12 +201,18 @@ final class MacScreenSession: NSObject {
         while !Task.isCancelled, let shareID, phase == .connecting || phase == .live {
             do {
                 let reply = try await api.get("/api/screen/shares/\(shareID)/signal",
-                                              query: ["for": "viewer", "after": "\(afterSeq)"],
+                                              query: ["for": "viewer", "after": "\(afterSeq)", "viewer": viewerID],
                                               timeout: 35).object()
                 for message in reply["messages"] as? [[String: Any]] ?? [] {
                     afterSeq = max(afterSeq, message["seq"] as? Int ?? afterSeq)
                     await handle(message)
                 }
+                // Ended on the server (e.g. after a restart, with no bye queued): stop.
+                if reply["status"] as? String == "ended" {
+                    await stop()
+                    return
+                }
+                if phase == .connecting, let mac = reply["mac_online"] as? Bool { macOnline = mac }
             } catch {
                 if Task.isCancelled { return }
                 try? await Task.sleep(for: .seconds(1))
@@ -149,13 +224,22 @@ final class MacScreenSession: NSObject {
         guard let pc else { return }
         switch message["type"] as? String {
         case "answer":
-            guard let sdp = message["sdp"] as? String else { return }
-            try? await pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp))
+            // Only the answer to this connection's offer (a stale one would win otherwise).
+            guard let sdp = message["sdp"] as? String, pc.signalingState == .haveLocalOffer else { return }
+            do {
+                try await pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp))
+                remoteSet = true
+                for candidate in pendingCandidates { try? await pc.add(candidate) }
+                pendingCandidates = []
+            } catch {
+                phase = .failed("The Mac's answer didn't fit")
+            }
         case "candidate":
             guard let c = message["candidate"] as? [String: Any],
                   let line = c["candidate"] as? String else { return }
-            try? await pc.add(RTCIceCandidate(sdp: line, sdpMLineIndex: Int32(c["sdpMLineIndex"] as? Int ?? 0),
-                                              sdpMid: c["sdpMid"] as? String))
+            let candidate = RTCIceCandidate(sdp: line, sdpMLineIndex: Int32(c["sdpMLineIndex"] as? Int ?? 0),
+                                            sdpMid: c["sdpMid"] as? String)
+            if remoteSet { try? await pc.add(candidate) } else { pendingCandidates.append(candidate) }
         case "bye":
             await stop()
         default:
@@ -181,9 +265,24 @@ final class MacScreenSession: NSObject {
         phase = .live
     }
 
+    private var retries = 0
+
     fileprivate func iceChanged(_ state: RTCIceConnectionState) {
         switch state {
-        case .failed: phase = .failed("Couldn't reach the Mac")
+        case .connected, .completed: retries = 0
+        case .failed:
+            // A Mac app relaunch, a network change, sleep: try a fresh connection a few times.
+            guard retries < 3 else {
+                phase = .failed("Couldn't reach the Mac")
+                return
+            }
+            retries += 1
+            let wait = Double(retries) * 2
+            Task {
+                await self.stop()
+                try? await Task.sleep(for: .seconds(wait))
+                await self.start()
+            }
         case .closed: if phase == .live { phase = .ended }
         default: break
         }
@@ -285,8 +384,11 @@ struct MacScreenCard: View {
     @State private var session: MacScreenSession
     @State private var fullScreen = false
 
-    init(shareID: String) {
-        _session = State(initialValue: MainActor.assumeIsolated { MacScreenSession(shareID: shareID) })
+    /// `shareID` nil: the running computer task's share, looked up live.
+    init(shareID: String?) {
+        _session = State(initialValue: MainActor.assumeIsolated {
+            MacScreenSession(shareID: shareID, findsTaskShare: shareID == nil)
+        })
     }
 
     var body: some View {
@@ -300,14 +402,23 @@ struct MacScreenCard: View {
                                color: session.phase == .live ? JcTheme.accent : JcTheme.muted,
                                live: session.phase == .live, dense: true)
                 }
-                MacScreenPreview(session: session)
-                    .frame(height: 210)
+                if session.phase == .ended, let file = session.replayFile {
+                    MacScreenReplay(file: file)
+                        .frame(height: 210)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                } else {
+                    MacScreenPreview(session: session)
+                        .frame(height: 210)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .contentShape(Rectangle())
-                    .onTapGesture { if session.phase == .live { fullScreen = true } }
+                        .onTapGesture { if session.phase == .live { fullScreen = true } }
+                }
             }
         }
-        .task { await session.start() }
+        .task {
+            await session.start()
+            if session.phase == .ended { await session.awaitReplay() }
+        }
         // Covering the card with its own full screen also "disappears" it; only a
         // card that really leaves (scrolled away, chat closed) hangs up.
         .onDisappear { if !fullScreen { Task { await session.stop() } } }
@@ -343,6 +454,16 @@ extension MacScreenSession.Phase {
     }
 }
 
+private struct MacScreenReplay: View {
+    let file: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear { if player == nil { player = AVPlayer(url: file) } }
+    }
+}
+
 /// The inline picture (watch only) with its waiting / failed states.
 private struct MacScreenPreview: View {
     let session: MacScreenSession
@@ -358,15 +479,16 @@ private struct MacScreenPreview: View {
             case .idle, .connecting:
                 VStack(spacing: 8) {
                     ProgressView()
-                    Text(session.macOnline ? "Connecting to your Mac…" : "Waiting for your Mac…")
+                    Text(session.macOnline ? "Connecting to your Mac…" : "Open Jarvis on your Mac to share its screen")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }
             case .failed(let why):
                 Text(why).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center).padding()
             case .ended:
-                if session.track == nil {
-                    Text("The share has ended.").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                if session.track == nil, session.replayFile == nil {
+                    Text(session.replayURL == nil ? "The share has ended." : "Loading the replay…")
+                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }
             case .live:
                 EmptyView()
@@ -387,6 +509,7 @@ struct MacScreenControlView: View {
     @State private var typing = ""
     @FocusState private var keyboard: Bool
     @State private var dragging = false
+    @State private var lastDrag: CGPoint?
 
     var body: some View {
         NavigationStack {
@@ -402,12 +525,14 @@ struct MacScreenControlView: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .gesture(dragGesture(container: geo.size))
-                        .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in
-                            click(at: tap.location, container: geo.size, count: 2)
-                        })
-                        .simultaneousGesture(SpatialTapGesture(count: 1).onEnded { tap in
-                            click(at: tap.location, container: geo.size, count: 1)
-                        })
+                        // One tap = click, double tap = double-click (never both).
+                        .simultaneousGesture(
+                            SpatialTapGesture(count: 2).onEnded { tap in
+                                click(at: tap.location, container: geo.size, count: 2)
+                            }
+                            .exclusively(before: SpatialTapGesture(count: 1).onEnded { tap in
+                                click(at: tap.location, container: geo.size, count: 1)
+                            }))
                     TextField("", text: $typing)
                         .focused($keyboard)
                         .opacity(0.01)
@@ -464,12 +589,18 @@ struct MacScreenControlView: View {
                     dragging = true
                     session.send(["t": "down", "x": start.x, "y": start.y, "button": "left"])
                 }
+                guard dragging else { return }
+                lastDrag = p
                 session.send(["t": "move", "x": p.x, "y": p.y])
             }
             .onEnded { value in
-                let p = macScreenNormalised(value.location, video: session.videoSize, in: container)
-                session.send(["t": "up", "x": p?.x ?? 0, "y": p?.y ?? 0, "button": "left"])
+                // A drag that never pressed sends no release; one leaving the picture
+                // releases where it last was, never at the Mac's corner.
+                if dragging, let p = macScreenNormalised(value.location, video: session.videoSize, in: container) ?? lastDrag {
+                    session.send(["t": "up", "x": p.x, "y": p.y, "button": "left"])
+                }
                 dragging = false
+                lastDrag = nil
             }
     }
 }

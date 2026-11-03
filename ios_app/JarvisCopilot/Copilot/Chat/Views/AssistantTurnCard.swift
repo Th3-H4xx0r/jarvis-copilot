@@ -122,6 +122,11 @@ struct ChatAssistantTurnCard: View {
             ForEach(planIDs, id: \.self) { IntegrationPlanCard(planID: $0) }
 
             ForEach(macShares, id: \.self) { MacScreenCard(shareID: $0) }
+            // A computer task still running: its share, found live (the result that
+            // names it only arrives when the task is over).
+            if macShares.isEmpty, tools.contains(where: { $0.name == "computer_do" && !$0.done }) {
+                MacScreenCard(shareID: nil)
+            }
 
             ForEach(browserSessions, id: \.self) { id in
                 BrowserSessionCard(sessionID: id) { text in onFormSubmit?(text) }

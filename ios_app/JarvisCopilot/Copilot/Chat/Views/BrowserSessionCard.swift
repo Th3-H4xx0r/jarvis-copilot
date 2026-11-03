@@ -27,6 +27,9 @@ struct BrowserSessionCard: View {
                 header
                 if let session = model.session {
                     content(session)
+                    if let error = model.error {
+                        Text(error).font(.system(size: 12)).foregroundStyle(JcTheme.amber)
+                    }
                 } else if let error = model.error {
                     Text(error).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 } else {
@@ -91,7 +94,7 @@ struct BrowserSessionCard: View {
             }
         }
 
-        if session.isRunning, session.engine != "cloud" {
+        if session.canMoveToCloud, session.engine != "cloud" {
             HStack(spacing: 10) {
                 Text(session.engine == "lightpanda"
                      ? "Lightpanda is fast but has no picture."
@@ -113,15 +116,14 @@ struct BrowserSessionCard: View {
                 Text(hint).font(.system(size: 11)).foregroundStyle(JcTheme.muted)
             }
         }
-        if session.isRunning, session.engine == "cloud" {
+        if session.isRunning, session.engine == "cloud", session.interactiveURL != nil {
             HStack {
                 JcSmallAction(session.takeover ? "Hand back to Jarvis" : "Take over",
                               symbol: session.takeover ? "arrow.uturn.backward" : "hand.point.up.left",
                               busy: model.switching) {
                     let takingOver = !session.takeover
                     Task {
-                        await model.setTakeover(takingOver)
-                        if takingOver { fullScreen = true }
+                        if await model.setTakeover(takingOver), takingOver { fullScreen = true }
                     }
                 }
                 Spacer()
@@ -164,6 +166,7 @@ struct BrowserSession: Equatable {
     var replayStatus: String
     var cloudReady: Bool
     var cloudHint: String?
+    var canMoveToCloud: Bool
 
     var isRunning: Bool { status == "running" }
     var host: String { URL(string: url)?.host() ?? url }
@@ -191,6 +194,7 @@ struct BrowserSession: Equatable {
         replayStatus = s("replay_status") ?? "none"
         cloudReady = json["cloud_ready"] as? Bool ?? false
         cloudHint = s("cloud_hint")
+        canMoveToCloud = json["can_move_to_cloud"] as? Bool ?? (status == "running" && engine != "cloud")
     }
 }
 
@@ -255,11 +259,21 @@ final class BrowserSessionModel {
         }
     }
 
-    func setTakeover(_ active: Bool) async {
+    /// Returns whether the switch took (the server refuses on an ended / non-cloud session).
+    @discardableResult
+    func setTakeover(_ active: Bool) async -> Bool {
         switching = true
         defer { switching = false }
-        _ = try? await api.post("\(path)/takeover", json: ["active": active])
-        await refresh()
+        do {
+            _ = try await api.post("\(path)/takeover", json: ["active": active])
+            error = nil
+            await refresh()
+            return true
+        } catch {
+            self.error = apiErrorMessage(error)
+            await refresh()
+            return false
+        }
     }
 
     func loadReplay() async {
@@ -284,6 +298,9 @@ struct BrowserLiveWebView: UIViewRepresentable {
     let url: URL
     let interactive: Bool
 
+    final class Coordinator { var requested: URL? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
@@ -294,13 +311,17 @@ struct BrowserLiveWebView: UIViewRepresentable {
         view.scrollView.isScrollEnabled = interactive
         view.isUserInteractionEnabled = interactive
         view.load(URLRequest(url: url))
+        context.coordinator.requested = url
         return view
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {
         view.isUserInteractionEnabled = interactive
         view.scrollView.isScrollEnabled = interactive
-        if let current = view.url, current.absoluteString != url.absoluteString, !view.isLoading {
+        // Reload only when a different view is asked for (the viewer may rewrite its
+        // own URL; comparing against that would reload it on every poll).
+        if context.coordinator.requested != url {
+            context.coordinator.requested = url
             view.load(URLRequest(url: url))
         }
     }
