@@ -136,8 +136,19 @@ class PowerService:
             self._up({"type": "event", "name": "mac_power_set", "data": change})
             return {"ok": True, **self.power.status()}
         if kind == "power_install":
-            from jc_client import power_install
-            return power_install.install(req.get("password") or None)
+            # In the background: the admin dialog can wait minutes, and this
+            # client's other requests queue behind a reply. Done → broadcast.
+            password = req.get("password") or None
+
+            def run() -> None:
+                from jc_client import power_install
+                try:
+                    result = power_install.install(password)
+                except Exception as exc:  # noqa: BLE001
+                    result = {"ok": False, "error": str(exc)}
+                self._ui({"type": "power_install_done", **result})
+            threading.Thread(target=run, daemon=True, name="jc-power-install").start()
+            return {"ok": True, "started": True}
         if kind == "approval_key":
             try:
                 return {"ok": True, **self._get("/api/coding/agents/mac/approval-key")}

@@ -30,6 +30,7 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             AgentsSettings(model: model).tabItem { Label("Agents", systemImage: "terminal") }
+            MacPowerSettings(model: model).tabItem { Label("Mac power", systemImage: "bolt") }
             VoiceSettings().tabItem { Label("Voice", systemImage: "waveform") }
             FlowSettings().tabItem { Label("Flow", systemImage: "text.bubble") }
             ShortcutsSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }

@@ -112,6 +112,7 @@ final class JarvisMenu: NSObject {
             menu.addItem(.separator())
             for row in rows { menu.addItem(rosterItem(row)) }
         }
+        addPower(menu)
         menu.addItem(.separator())
         add(menu, "Show the island", #selector(showIsland))
         add(menu, "Talk to Jarvis", #selector(talk))
@@ -140,6 +141,47 @@ final class JarvisMenu: NSObject {
         if model.waitingCount > 0 { return "\(model.waitingCount) agent\(model.waitingCount == 1 ? "" : "s") waiting on you" }
         if model.workingCount > 0 { return "\(model.workingCount) working" }
         return "\(model.sessions.count) agent session\(model.sessions.count == 1 ? "" : "s")"
+    }
+
+    /// Keep-awake (mac_power) and Mac password requests waiting on him.
+    private func addPower(_ menu: NSMenu) {
+        model.refreshPower()   // the next open shows it fresh
+        menu.addItem(.separator())
+        for req in model.passwordRequests {
+            let context = J.s(req["context"], "A Mac password prompt")
+            let item = NSMenuItem(title: "Mac password: \(context.prefix(48))", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for (title, action) in [("Allow with Touch ID…", #selector(allowPassword(_:))), ("Deny", #selector(denyPassword(_:)))] {
+                let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                i.target = self
+                i.representedObject = [J.s(req["id"]), context]
+                sub.addItem(i)
+            }
+            item.submenu = sub
+            menu.addItem(item)
+        }
+        let held = J.b(model.power["held"])
+        let why = ["session": "an agent is working", "grace": "an agent just finished", "manual": "Keep awake is on",
+                   "remote": "woken from your iPhone", "password": "a password request is waiting"][J.s(model.power["reason"])]
+        let line = NSMenuItem(title: held ? "Kept awake: \(why ?? "on")" : "Sleeps normally", action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        menu.addItem(line)
+        let keep = NSMenuItem(title: "Keep Mac awake", action: #selector(toggleKeepAwake), keyEquivalent: "")
+        keep.target = self
+        keep.state = J.b(model.power["keep_awake"]) ? .on : .off
+        menu.addItem(keep)
+    }
+
+    @objc private func toggleKeepAwake() { model.setKeepAwake(!J.b(model.power["keep_awake"])) }
+
+    @objc private func allowPassword(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
+        MacPasswordFiller.shared.allowWithTouchID(id: pair[0], context: pair[1])
+    }
+
+    @objc private func denyPassword(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], let id = pair.first else { return }
+        MacPasswordFiller.shared.deny(id: id)
     }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector, key: String = "") {

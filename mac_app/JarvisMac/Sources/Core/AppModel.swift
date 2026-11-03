@@ -31,6 +31,11 @@ final class AppModel {
     private(set) var onServer: [MacMovedSession] = []
     /// The session that just finished or failed, shown for a few seconds.
     private(set) var flash: MacSession?
+    /// Mac password requests waiting on him (MacPassword.swift), and the power state.
+    private(set) var passwordRequests: [[String: Any]] = []
+    private(set) var power: [String: Any] = [:]
+    /// The last one-time power setup's result (Settings → Mac power).
+    var installResult: [String: Any]?
     var selectedKey: String?
     /// While a demo runs, pushes from jc-client are ignored and restored after.
     var demoActive = false
@@ -98,6 +103,23 @@ final class AppModel {
             if let u = MacPlanUsage(json: ["rate_limits": msg["usage"] ?? [:]]) { usage = u }
             onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
             onAppUpdate?(nil)
+            refreshPower()
+            JcLink.shared.request(["type": "password_pending"]) { [weak self] reply in
+                self?.passwordRequests = J.arr(reply["pending"])
+            }
+        case "password_request":
+            let id = J.s(msg["id"])
+            passwordRequests.removeAll { J.s($0["id"]) == id }
+            passwordRequests.append(msg)
+            onMoment?(.needsYou, nil)
+        case "password_done":
+            let id = J.s(msg["id"])
+            passwordRequests.removeAll { J.s($0["id"]) == id }
+        case "password_fill":
+            MacPasswordFiller.shared.handle(msg)
+        case "power_install_done":
+            installResult = msg
+            refreshPower()
         case "moved":
             onServer = J.arr(msg["sessions"]).map(MacMovedSession.init(json:))
         case "sessions":
@@ -128,6 +150,19 @@ final class AppModel {
             }
         default:
             break
+        }
+    }
+
+    /// Keep-awake state and the power helper's install status (jc-client's mac_power).
+    func refreshPower(_ link: JcLink = .shared) {
+        link.request(["type": "mac_power_state"]) { [weak self] reply in
+            if J.b(reply["ok"]) { self?.power = reply }
+        }
+    }
+
+    func setKeepAwake(_ on: Bool, _ link: JcLink = .shared) {
+        link.request(["type": "mac_power_set", "keep_awake": on]) { [weak self] reply in
+            if J.b(reply["ok"]) { self?.refreshPower(link) }
         }
     }
 

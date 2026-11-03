@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.attach()
         AppUpdater.shared.start()
         MacPowerBridge.start()
+        SecurityAgentWatch.shared.start()
         registerShortcuts()
         MusicController.shared.start()
         WindowContext.startWatching()
