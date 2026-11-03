@@ -34,6 +34,9 @@ ENGINES = ("lightpanda", "chrome", "cloud")
 REPLAY_STATUSES = ("none", "recording", "encoding", "ready", "failed")
 # A running row nobody has touched for this long belongs to a process that died.
 STALE_AFTER_S = 30 * 60
+# A take-over nobody handed back (the page closed, the server restarted, the cloud
+# browser hit its own 15-minute limit) stops pausing Jarvis after this long.
+TAKEOVER_EXPIRE_S = 15 * 60
 # "Run on cloud browser" tapped after the task's browser closed: the next session of
 # that task (the turn the client starts) starts on the cloud, if it comes soon.
 MOVE_CARRY_S = 30 * 60
@@ -44,7 +47,7 @@ STUCK_REPLAY_S = 10 * 60
 
 _COLUMNS = (
     "id", "task_id", "engine", "provider", "provider_name", "status", "url", "title",
-    "live_url", "live_interactive_url", "takeover", "move_requested", "replay_status",
+    "live_url", "live_interactive_url", "takeover", "takeover_at", "move_requested", "replay_status",
     "replay_error", "created_at", "updated_at", "ended_at",
 )
 _SETTABLE = frozenset(_COLUMNS) - {"id", "task_id", "created_at"}
@@ -89,9 +92,13 @@ def _conn() -> Iterator[sqlite3.Connection]:
                         " id TEXT PRIMARY KEY, task_id TEXT NOT NULL, engine TEXT NOT NULL DEFAULT 'lightpanda',"
                         " provider TEXT, provider_name TEXT, status TEXT NOT NULL DEFAULT 'running',"
                         " url TEXT, title TEXT, live_url TEXT, live_interactive_url TEXT,"
-                        " takeover INTEGER NOT NULL DEFAULT 0, move_requested INTEGER NOT NULL DEFAULT 0,"
+                        " takeover INTEGER NOT NULL DEFAULT 0, takeover_at REAL,"
+                        " move_requested INTEGER NOT NULL DEFAULT 0,"
                         " replay_status TEXT NOT NULL DEFAULT 'none', replay_error TEXT,"
                         " created_at REAL NOT NULL, updated_at REAL NOT NULL, ended_at REAL)")
+                    columns = {r[1] for r in conn.execute("PRAGMA table_info(sessions)")}
+                    if "takeover_at" not in columns:   # a store from before take-over expiry
+                        conn.execute("ALTER TABLE sessions ADD COLUMN takeover_at REAL")
                     conn.execute("CREATE INDEX IF NOT EXISTS sessions_task ON sessions(task_id, status)")
                     _schema_ready.add(key)
         yield conn
@@ -137,6 +144,12 @@ def ensure(task_id: str, engine: str = "lightpanda") -> str:
     with _conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            # A running row idle this long belongs to a browser that is gone (a
+            # restarted server, a take-over left behind): end it, start fresh.
+            conn.execute(
+                "UPDATE sessions SET status = 'ended', takeover = 0, ended_at = ?, updated_at = ? "
+                "WHERE task_id = ? AND status = 'running' AND updated_at < ?",
+                (now, now, task_id, now - STALE_AFTER_S))
             row = conn.execute(
                 "SELECT id FROM sessions WHERE task_id = ? AND status = 'running' "
                 "ORDER BY created_at DESC LIMIT 1", (task_id,)).fetchone()
@@ -189,21 +202,34 @@ def end(session_id: str) -> None:
 
 
 def set_takeover(session_id: str, active: bool) -> None:
-    update(session_id, takeover=bool(active))
+    update(session_id, takeover=bool(active), takeover_at=time.time() if active else None)
 
 
 def request_move(session_id: str) -> None:
     update(session_id, move_requested=True)
 
 
+def _takeover_live(row: Optional[Dict[str, Any]], now: float) -> bool:
+    if not row or not row.get("takeover") or row.get("status") != "running":
+        return False
+    since = float(row.get("takeover_at") or row.get("updated_at") or 0)
+    return now - since < TAKEOVER_EXPIRE_S
+
+
 def takeover_active(session_id: Optional[str]) -> bool:
+    """Is Pranav holding this session's browser? An expired take-over is cleared."""
     row = get(session_id) if session_id else None
-    return bool(row and row.get("takeover") and row.get("status") == "running")
+    if not row or not row.get("takeover"):
+        return False
+    if _takeover_live(row, time.time()):
+        return True
+    if row.get("takeover"):
+        set_takeover(session_id, False)
+    return False
 
 
 def _is_stale(row: Dict[str, Any], now: float) -> bool:
-    return row.get("status") == "running" and now - float(row.get("updated_at") or 0) > STALE_AFTER_S \
-        and not row.get("takeover")
+    return row.get("status") == "running" and now - float(row.get("updated_at") or 0) > STALE_AFTER_S
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +349,7 @@ def view(session_id: str, *, turn_running: Optional[bool] = None) -> Optional[Di
         "title": row["title"] or "",
         "live_url": row["live_url"] if on_cloud and status == "running" else None,
         "live_interactive_url": row["live_interactive_url"] if on_cloud and status == "running" else None,
-        "takeover": bool(row["takeover"]) and status == "running",
+        "takeover": status == "running" and _takeover_live(row, now),
         "move_requested": bool(row["move_requested"]),
         "replay_url": f"/api/browser/replays/{row['id']}.mp4" if ready else None,
         "replay_status": replay_status,

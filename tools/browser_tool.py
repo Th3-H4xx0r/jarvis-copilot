@@ -3456,7 +3456,10 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
     engine = _get_browser_engine()
     _lp_prerouted = False
     _lp_fallback_warning = None
-    if engine == "lightpanda" and _should_inject_engine(engine):
+    # Only a task that is on Lightpanda right now: a task that moved to its Chrome
+    # or cloud browser screenshots that browser, not a fresh temporary Chrome.
+    if (engine == "lightpanda" and _should_inject_engine(engine)
+            and _session_engine(effective_task_id)[0] == "lightpanda"):
         logger.debug("browser_vision: pre-routing screenshot to Chrome (engine=lightpanda)")
         screenshot_args = []
         if annotate:
@@ -4110,8 +4113,8 @@ if __name__ == "__main__":
 #     "Run on cloud browser" (``move_requested``) moves on the next call of any kind.
 #     Reads never move on their own;
 #   * the card's row — engine, provider, page, live view;
-#   * the replay — cloud and server-Chrome sessions are screencast by
-#     tools/browser_recorder.py and encoded when the session ends.
+#   * the replay — cloud sessions are screencast by tools/browser_recorder.py
+#     and encoded when the session ends.
 
 TAKEOVER_MAX_WAIT_S = 600
 _TAKEOVER_POLL_S = 1.0
@@ -4121,7 +4124,7 @@ _REF_TOOLS = frozenset({"browser_click", "browser_type", "browser_press", "brows
                         "browser_back", "browser_dialog"})
 _INTERACTIVE_TOOLS = frozenset({"browser_click", "browser_type", "browser_press", "browser_dialog"})
 _INTERACTIVE_RUN_ACTIONS = frozenset({"click", "fill", "press"})
-# Calls after which the page may be somewhere new: read its URL and title back.
+# Calls after which the page may be somewhere new: read a cloud page's URL and title back.
 _PAGE_CHANGING_TOOLS = frozenset({"browser_click", "browser_press", "browser_run", "browser_back"})
 _HANDED_BACK_NOTE = ("Pranav took over the browser and handed it back — take a fresh snapshot "
                      "(browser_snapshot) before acting.")
@@ -4211,6 +4214,19 @@ def _is_interactive_call(tool_name: str, args: Dict[str, Any]) -> bool:
     return False
 
 
+def _opening_url(tool_name: str, args: Dict[str, Any]) -> str:
+    """The page a call opens before anything else (navigate, extract with a url, a run
+    whose first step is ``open``): the cloud browser can start there directly."""
+    if tool_name in ("browser_navigate", "browser_extract"):
+        return str(args.get("url") or "")
+    if tool_name == "browser_run":
+        steps = args.get("steps")
+        first = steps[0] if isinstance(steps, list) and steps else None
+        if isinstance(first, dict) and str(first.get("action") or "") == "open":
+            return str(first.get("url") or "")
+    return ""
+
+
 def _current_page_url(session_key: str) -> str:
     info = _active_sessions.get(session_key) or {}
     url = ""
@@ -4236,17 +4252,21 @@ def _start_cloud_session(task_id: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 def _move_task_to_cloud(task_id: str, url: str) -> Tuple[Optional[str], Optional[str]]:
-    """Reopen the task's page in its cloud browser and point the task there."""
+    """Reopen the task's page in its cloud browser and point the task there.
+
+    If the cloud browser can't open the page, it is closed again and the task stays
+    on its working local browser: (None, why)."""
     previous = _last_session_key(task_id)
     cloud_key, error = _start_cloud_session(task_id)
     if cloud_key is None:
         return None, error
-    if url:
-        opened = _run_browser_command(cloud_key, "open", [url], timeout=max(_get_command_timeout(), 60))
-        if not opened.get("success"):
-            logger.warning("Cloud browser could not reopen %s: %s", url, opened.get("error"))
-        else:
-            _active_sessions.get(cloud_key, {})["last_url"] = url
+    opened = _run_browser_command(cloud_key, "open", [url], timeout=max(_get_command_timeout(), 60))
+    if not opened.get("success"):
+        why = str(opened.get("error") or "the page did not open")
+        logger.warning("Cloud browser could not reopen %s: %s", url, why)
+        _cleanup_single_browser_session(cloud_key)
+        return None, f"it could not open {url}: {why}"
+    _active_sessions.get(cloud_key, {})["last_url"] = url
     _last_active_session_key[task_id] = cloud_key
     if previous != cloud_key and previous in _active_sessions:
         _cleanup_single_browser_session(previous)
@@ -4259,14 +4279,23 @@ def _wait_out_takeover(task_id: str, sid: str) -> Optional[str]:
     from tools import browser_sessions
     if not browser_sessions.takeover_active(sid):
         return None
+    cloud_key = f"{task_id}{_CLOUD_SUFFIX}"
+    if cloud_key not in _active_sessions:
+        # No cloud browser of this task lives in this process (the server
+        # restarted, or it was closed): there is nothing to hold — let go.
+        browser_sessions.set_takeover(sid, False)
+        return None
     from tools.interrupt import is_interrupted
     deadline = time.monotonic() + TAKEOVER_MAX_WAIT_S
+    last_touch = 0.0
     while time.monotonic() < deadline:
         if is_interrupted():
             return "interrupted"
-        key = _last_session_key(task_id)
-        if key in _active_sessions:
-            _update_session_activity(key)   # keep the browser alive while he works
+        if cloud_key in _active_sessions:
+            _update_session_activity(cloud_key)   # keep the browser alive while he works
+        if time.monotonic() - last_touch > 30:
+            browser_sessions.touch(sid)           # and its card's row fresh
+            last_touch = time.monotonic()
         time.sleep(_TAKEOVER_POLL_S)
         if not browser_sessions.takeover_active(sid):
             return "back"
@@ -4305,8 +4334,9 @@ def _before_browser_call(task_id: str, sid: str, tool_name: str,
             notes.append("Pranav asked for the cloud browser, but none is set up; staying on this one.")
         return None, notes
 
-    if tool_name in ("browser_navigate", "browser_extract") and args.get("url"):
-        url = str(args.get("url") or "")
+    nav_url = _opening_url(tool_name, args)
+    if nav_url:
+        url = nav_url
         if _url_is_private(url):
             return None, notes   # the cloud can't reach a private address
         cloud_key, error = _start_cloud_session(task_id)
@@ -4333,7 +4363,7 @@ def _before_browser_call(task_id: str, sid: str, tool_name: str,
     cloud_key, error = _move_task_to_cloud(task_id, url)
     browser_sessions.update(sid, move_requested=False)
     if cloud_key is None:
-        notes.append(f"The cloud browser did not start ({error}); staying on this browser.")
+        notes.append(f"The task did not move to the cloud browser ({error}); it stays on this browser.")
         return None, notes
     moved = (f"This browser task moved to the cloud browser ({provider.display_name}) so Pranav can watch "
              f"it live; the page was reopened at {url}.")
@@ -4347,28 +4377,6 @@ def _before_browser_call(task_id: str, sid: str, tool_name: str,
     if snap.get("success"):
         early["snapshot"] = _truncate_snapshot(str((snap.get("data") or {}).get("snapshot") or ""))
     return early, notes
-
-
-def _chrome_cdp_url(session_key: str) -> str:
-    """The CDP endpoint of a server-Chrome session (agent-browser ``get cdp-url``)."""
-    info = _active_sessions.get(session_key)
-    if info is None:
-        return ""
-    if "recorder_cdp" in info:
-        return info["recorder_cdp"]
-    url = ""
-    try:
-        got = _run_browser_command(session_key, "get", ["cdp-url"], timeout=10, _engine_override="auto")
-        data = got.get("data") if got.get("success") else None
-        candidates = list(data.values()) if isinstance(data, dict) else [data]
-        url = next((str(v).strip().strip('"') for v in candidates
-                    if isinstance(v, str) and v.strip().strip('"').startswith(("ws://", "wss://", "http://"))), "")
-        if url.startswith("http://"):
-            url = _resolve_cdp_override(url)
-    except Exception:
-        logger.debug("no CDP endpoint for %s", session_key, exc_info=True)
-    info["recorder_cdp"] = url
-    return url
 
 
 def _sync_live_session(task_id: str, sid: str, tool_name: str, result: Dict[str, Any]) -> None:
@@ -4390,7 +4398,7 @@ def _sync_live_session(task_id: str, sid: str, tool_name: str, result: Dict[str,
         fields.update(provider=None, provider_name=None, live_url=None, live_interactive_url=None)
     url = str(result.get("url") or "") if result.get("success") else ""
     title = result.get("title") if result.get("success") else None
-    if result.get("success") and tool_name in _PAGE_CHANGING_TOOLS:
+    if result.get("success") and tool_name in _PAGE_CHANGING_TOOLS and engine == "cloud":
         here = _run_browser_command(key, "eval", ["JSON.stringify([location.href, document.title])"],
                                     timeout=10, _engine_override="auto")
         try:
@@ -4410,8 +4418,10 @@ def _sync_live_session(task_id: str, sid: str, tool_name: str, result: Dict[str,
         fields["title"] = str(title)
     browser_sessions.update(sid, **fields)
 
-    if engine in ("cloud", "chrome") and not browser_recorder.is_recording(sid):
-        cdp = info.get("cdp_url") if engine == "cloud" else _chrome_cdp_url(key)
+    # Replays only for cloud sessions: screencasting every server-Chrome fallback
+    # (JPEG frames + x264 inside the webui's memory cap) costs too much.
+    if engine == "cloud" and not browser_recorder.is_recording(sid):
+        cdp = info.get("cdp_url")
         if cdp:
             browser_recorder.attach(sid, cdp)
         elif not info.get("recorder_noted"):

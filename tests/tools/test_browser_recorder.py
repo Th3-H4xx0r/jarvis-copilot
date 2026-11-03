@@ -214,3 +214,19 @@ def test_a_replay_left_unfinished_by_a_dead_process_reads_as_failed(no_cloud):
     browser_sessions.update(sid, ended_at=long_ago, updated_at=long_ago)
     v = browser_sessions.view(sid)
     assert v["replay_status"] == "failed" and v["replay_error"]
+
+
+def test_old_frame_dirs_from_a_restart_are_swept(tmp_path, monkeypatch):
+    import os
+    import tempfile
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    old = tmp_path / "jc-replay-b_old-x"
+    new = tmp_path / "jc-replay-b_new-y"
+    other = tmp_path / "something-else"
+    for d in (old, new, other):
+        d.mkdir()
+    past = time.time() - browser_recorder.STALE_FRAME_DIR_S - 60
+    os.utime(old, (past, past))
+    os.utime(other, (past, past))
+    assert browser_recorder.sweep_stale_frame_dirs() == 1
+    assert not old.exists() and new.exists() and other.exists()

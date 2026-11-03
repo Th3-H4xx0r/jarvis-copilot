@@ -219,6 +219,7 @@ def test_takeover_snapshot_runs_with_a_note(live, monkeypatch):
 def test_takeover_gives_up_after_ten_minutes(live, monkeypatch):
     nav = _call("browser_navigate", {"url": "https://example.com"})
     sid = nav["card"]["session"]
+    _call("browser_type", {"ref": "@e1", "text": "x"})          # → cloud
     browser_sessions.set_takeover(sid, True)
     monkeypatch.setattr(bt, "TAKEOVER_MAX_WAIT_S", 0)
     out = _call("browser_click", {"ref": "@e1"})
@@ -257,3 +258,99 @@ def test_explicit_live_setup_keeps_tasks_starting_locally(monkeypatch):
     monkeypatch.setattr(bt, "_cloud_provider_resolved", False)
     monkeypatch.setattr(bt, "_cached_cloud_provider", None)
     assert bt._get_cloud_provider() is None
+
+
+# -- review fixes (2026-11-03) ------------------------------------------------
+
+def test_a_takeover_with_no_cloud_browser_here_is_dropped_at_once(live, monkeypatch):
+    """After a restart (or the cloud browser closing) nothing holds the browser:
+    the next call must not wait 10 minutes."""
+    nav = _call("browser_navigate", {"url": "https://example.com"})
+    sid = nav["card"]["session"]
+    browser_sessions.update(sid, engine="cloud", live_interactive_url="https://x.steel.dev/p")
+    browser_sessions.set_takeover(sid, True)
+    monkeypatch.setattr(bt.time, "sleep", lambda _s: (_ for _ in ()).throw(AssertionError("waited")))
+    out = _call("browser_snapshot", {})
+    assert out["success"] is True
+    assert browser_sessions.takeover_active(sid) is False
+
+
+def test_an_old_takeover_expires(live):
+    sid = browser_sessions.ensure("chat5")
+    browser_sessions.set_takeover(sid, True)
+    assert browser_sessions.takeover_active(sid)
+    browser_sessions.update(sid, takeover_at=bt.time.time() - browser_sessions.TAKEOVER_EXPIRE_S - 1)
+    assert browser_sessions.takeover_active(sid) is False
+    assert browser_sessions.get(sid)["takeover"] == 0
+
+
+def test_ensure_ends_a_stale_row_even_when_taken_over(live):
+    sid = browser_sessions.ensure("chat6")
+    browser_sessions.set_takeover(sid, True)
+    browser_sessions.update(sid, updated_at=bt.time.time() - browser_sessions.STALE_AFTER_S - 5)
+    fresh = browser_sessions.ensure("chat6")
+    assert fresh != sid
+    old = browser_sessions.get(sid)
+    assert old["status"] == "ended" and old["takeover"] == 0
+
+
+def test_vision_on_a_cloud_task_does_not_spin_up_a_temp_chrome(live, monkeypatch):
+    _call("browser_navigate", {"url": "https://example.com"})
+    _call("browser_click", {"ref": "@e1"})                      # → cloud
+    used = []
+    monkeypatch.setattr(bt, "_chrome_fallback_screenshot", lambda *a, **k: used.append(a) or {"success": False})
+    bt.browser_vision("what is on the page?", task_id="chat1")
+    assert used == []
+    assert any(c["key"] == "chat1::cloud" and c["command"] == "screenshot" for c in live["calls"])
+
+
+def test_vision_on_lightpanda_still_uses_chrome_for_the_picture(live, monkeypatch):
+    _call("browser_navigate", {"url": "https://example.com"})
+    used = []
+    monkeypatch.setattr(bt, "_chrome_fallback_screenshot", lambda *a, **k: used.append(a) or {"success": False})
+    bt.browser_vision("what is on the page?", task_id="chat1")
+    assert len(used) == 1
+
+
+def test_a_failed_cloud_reopen_keeps_the_local_browser(live, monkeypatch):
+    _call("browser_navigate", {"url": "https://example.com"})
+    real = bt._run_browser_command
+
+    def failing_cloud_open(key, command, args=None, **kw):
+        if key.endswith("::cloud") and command == "open":
+            bt._get_session_info(key)
+            return {"success": False, "error": "net::ERR_TUNNEL"}
+        return real(key, command, args, **kw)
+
+    monkeypatch.setattr(bt, "_run_browser_command", failing_cloud_open)
+    out = _call("browser_click", {"ref": "@e1"})
+    assert out["success"] is True                               # clicked locally
+    assert "did not move" in out["browser_note"] and "ERR_TUNNEL" in out["browser_note"]
+    assert "chat1" in bt._active_sessions and "chat1::cloud" not in bt._active_sessions
+    assert bt._last_session_key("chat1") == "chat1"
+    assert live["provider"].closed == ["steel-sess-1"]
+    assert browser_sessions.view(out["card"]["session"])["engine"] == "lightpanda"
+
+
+def test_an_interactive_run_that_opens_a_page_starts_on_the_cloud(live):
+    out = _call("browser_run", {"steps": [
+        {"action": "open", "url": "https://example.com/login"},
+        {"action": "fill", "ref": "#user", "text": "pranav"},
+        {"action": "press", "key": "Enter"},
+    ]}, task="chat7")
+    opens = [c["key"] for c in live["calls"] if c["command"] == "open"]
+    assert opens == ["chat7::cloud"]
+    assert [c["key"] for c in live["calls"] if c["command"] == "fill"] == ["chat7::cloud"]
+    assert out["success"] is True
+    assert browser_sessions.view(out["card"]["session"])["engine"] == "cloud"
+
+
+def test_only_cloud_sessions_record_or_read_back_the_page(live, monkeypatch):
+    monkeypatch.setattr(browser_sessions, "cloud_for_interactive", lambda: False)
+    monkeypatch.setattr(bt, "_create_engine_local_session", lambda key: {
+        "session_name": "h_c", "bb_session_id": None, "cdp_url": None, "engine": "chrome",
+        "features": {"local": True}})
+    _call("browser_navigate", {"url": "https://example.com"})
+    _call("browser_click", {"ref": "@e1"})
+    assert live["attached"] == []
+    assert not any(c["command"] == "eval" and c["args"][0].startswith("JSON.stringify") for c in live["calls"])

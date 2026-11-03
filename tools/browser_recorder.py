@@ -1,13 +1,14 @@
 """Replays of browser sessions: a CDP screencast → an MP4 the chat card plays.
 
-For cloud and server-Chrome sessions a recorder attaches its *own* CDP client,
+For cloud sessions a recorder attaches its *own* CDP client,
 runs ``Page.startScreencast`` (JPEG) on every page, acks each frame and keeps it
 with its timestamp in a temp dir. When the session ends the frames become an MP4
 (ffmpeg concat demuxer, each frame shown for as long as it was on screen, long
 idle stretches capped) at ``get_hermes_home()/browser/replays/<id>.mp4``.
 
-One recorder per browser session id. A session that moves (server Chrome → cloud)
-re-attaches to the new browser and keeps filling the same timeline.
+One recorder per browser session id; if its cloud browser changes, it re-attaches
+and keeps filling the same timeline. Frame dirs a restarted process left behind in
+the temp dir are swept on first use (:func:`sweep_stale_frame_dirs`).
 
 Never breaks the task: no ffmpeg, a provider that refuses a second CDP client, or a
 socket that drops all end in ``replay_status = failed`` with a reason, nothing more.
@@ -39,8 +40,41 @@ LAST_FRAME_HOLD_S = 1.5
 OUTPUT_FPS = 10
 ENCODE_TIMEOUT_S = 300
 
+FRAME_DIR_PREFIX = "jc-replay-"
+STALE_FRAME_DIR_S = 60 * 60
+
 _recorders: Dict[str, "SessionRecorder"] = {}
 _lock = threading.Lock()
+_swept = False
+
+
+def sweep_stale_frame_dirs(max_age_s: float = STALE_FRAME_DIR_S) -> int:
+    """Remove ``jc-replay-*`` frame dirs untouched for ``max_age_s`` (a restart skips
+    exit cleanup, so they would pile up in the temp dir). Returns how many went."""
+    removed = 0
+    cutoff = time.time() - max_age_s
+    try:
+        for path in Path(tempfile.gettempdir()).glob(f"{FRAME_DIR_PREFIX}*"):
+            try:
+                if path.is_dir() and path.stat().st_mtime < cutoff:
+                    shutil.rmtree(path, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return removed
+
+
+def _sweep_once() -> None:
+    global _swept
+    if _swept:
+        return
+    _swept = True
+    try:
+        sweep_stale_frame_dirs()
+    except Exception:
+        logger.debug("sweeping old replay frame dirs failed", exc_info=True)
 
 
 def _default_connect(url: str):
@@ -189,7 +223,8 @@ class SessionRecorder:
     def __init__(self, session_id: str, connect: Callable[[str], Any] = _default_connect):
         self.session_id = session_id
         self._connect = connect
-        self.frames_dir = Path(tempfile.mkdtemp(prefix=f"jc-replay-{session_id}-"))
+        _sweep_once()
+        self.frames_dir = Path(tempfile.mkdtemp(prefix=f"{FRAME_DIR_PREFIX}{session_id}-"))
         self.frames: List[Tuple[Path, float]] = []
         self.errors: List[str] = []
         self._source: Optional[_CdpSource] = None
