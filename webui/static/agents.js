@@ -608,6 +608,7 @@
       (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
       '<div class="agents-sleep-row"><div class="agents-sleep-main">' +
       '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span></div>' +
+      (m.state === 'awake' && window.MacScreen ? btn('mac-share', 'Share screen') : '') +
       (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake Mac')) + '</div>' +
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
@@ -1824,6 +1825,7 @@
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
       case 'mac-wake': macPower('wake', t.dataset.device); break;
+      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(); break;
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
       case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
       case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;

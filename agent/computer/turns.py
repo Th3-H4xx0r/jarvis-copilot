@@ -105,7 +105,7 @@ def tool_result(result: _loop.Result):
     if card:
         # The chat draws the live view / replay from this; kept in the text too, the
         # one part of an image result that is stored with the chat.
-        text += "\n" + json.dumps({"card": card})
+        text = json.dumps({"card": card}) + "\n" + text  # first: result snippets are cut short
     from agent.computer.decide import data_url
     url = data_url(result.look or {})
     if url:

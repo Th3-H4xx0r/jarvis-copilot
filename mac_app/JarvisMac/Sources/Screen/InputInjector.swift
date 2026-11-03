@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import QuartzCore
 import Foundation
 
 /// The viewer's mouse and keys (data channel "input", Contract B) as real events
@@ -15,6 +16,9 @@ final class InputInjector: @unchecked Sendable {
     private var held: CGMouseButton?
     private var lastPoint: CGPoint
     private var warned = false
+    // Down/up pairs from a viewer become double and triple clicks the way a real mouse does.
+    private var lastDown: (at: CFTimeInterval, point: CGPoint, button: CGMouseButton)?
+    private var clicks = 1
 
     init(bounds: CGRect) {
         self.bounds = bounds
@@ -58,11 +62,19 @@ final class InputInjector: @unchecked Sendable {
         case "down":
             let p = at()
             held = button
-            mouse(src, button, down: true, at: p, clicks: 1)
+            let now = CACurrentMediaTime()
+            if let last = lastDown, last.button == button, now - last.at <= NSEvent.doubleClickInterval,
+               hypot(p.x - last.point.x, p.y - last.point.y) < 6 {
+                clicks = min(3, clicks + 1)
+            } else {
+                clicks = 1
+            }
+            lastDown = (now, p, button)
+            mouse(src, button, down: true, at: p, clicks: clicks)
         case "up":
             let p = at()
             held = nil
-            mouse(src, button, down: false, at: p, clicks: 1)
+            mouse(src, button, down: false, at: p, clicks: clicks)
         case "click":
             let p = at()
             let count = max(1, min(3, J.i(m["count"]) == 0 ? 1 : J.i(m["count"])))

@@ -6341,6 +6341,12 @@ function buildToolCard(tc){
     const planCard=buildIntegrationPlanCard(tc);
     if(planCard) return planCard;
   }
+  // A computer task runs on a Mac screen share: its live view / replay sits under
+  // the tool card, outside the collapsed activity group (mac_screen.js).
+  if(tc && tc.name==='computer_do' && !tc._plainCard && window.MacScreen){
+    const screenRow=window.MacScreen.toolRow(tc, buildToolCard(Object.assign({}, tc, {_plainCard:true})));
+    if(screenRow) return screenRow;
+  }
   const row=document.createElement('div');
   row.className='tool-card-row';
   const icon=toolIcon(tc.name);
