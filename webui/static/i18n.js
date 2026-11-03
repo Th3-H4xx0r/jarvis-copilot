@@ -1211,11 +1211,11 @@ const LOCALES = {
     profile_api_key_label: 'API key',
     cmd_yolo: 'Toggle YOLO mode (skip approvals)',
     yolo_no_session: 'No active session',
-    yolo_enabled: 'YOLO mode on: approvals skipped this session',
+    yolo_enabled: '⚡ YOLO mode ON — approvals skipped this session',
     yolo_disabled: 'YOLO mode OFF',
     yolo_pill_label: 'YOLO',
     yolo_pill_title_active: 'YOLO mode active — click to disable',
-    approval_skip_all: 'Skip all this session',
+    approval_skip_all: '⚡ Skip all this session',
     approval_skip_all_title: 'Skip all approval prompts for this session',
     // composer action tooltips
     composer_send: 'Send message',
