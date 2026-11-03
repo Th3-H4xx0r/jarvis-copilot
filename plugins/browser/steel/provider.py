@@ -55,7 +55,9 @@ def _with_query(url: str, **params: str) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query.update(params)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    # "wss://host?q" has an empty path: agent-browser then sends a bad request
+    # line and Steel answers 400, so always give it "/".
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", urlencode(query), parts.fragment))
 
 
 def _env_flag(name: str, default: bool) -> bool:

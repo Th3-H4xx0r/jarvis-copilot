@@ -71,6 +71,15 @@ def test_cdp_url_built_when_steel_sends_none(monkeypatch):
     assert url.startswith("wss://connect.steel.dev") and q == {"apiKey": ["ste-k-12345678"], "sessionId": ["s1"]}
 
 
+def test_cdp_url_always_has_a_path(monkeypatch):
+    # Steel sends "wss://connect.steel.dev?sessionId=…" (no "/" before "?");
+    # agent-browser then asks for an empty path and Steel answers 400.
+    monkeypatch.setenv("STEEL_API_KEY", "ste-k-12345678")
+    p = SteelBrowserProvider()
+    for data in ({"id": "s1"}, {"id": "s1", "websocketUrl": "wss://connect.steel.dev?sessionId=s1&token=t"}):
+        assert urlsplit(p.cdp_url_for(data)).path == "/"
+
+
 def test_create_failure_raises(monkeypatch):
     monkeypatch.setenv("STEEL_API_KEY", "ste-k-12345678")
     monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp(401, {}, "bad key"))
