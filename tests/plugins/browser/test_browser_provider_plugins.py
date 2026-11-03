@@ -78,8 +78,8 @@ class TestBundledPluginsRegister:
         _ensure_plugins_loaded()
         from agent.browser_registry import list_providers
 
-        names = sorted(p.name for p in list_providers())
-        assert names == ["browser-use", "browserbase", "firecrawl"]
+        names = {p.name for p in list_providers()}
+        assert {"browser-use", "browserbase", "firecrawl", "steel"} <= names
 
     @pytest.mark.parametrize(
         "plugin_name,expected_display",
@@ -355,8 +355,9 @@ class TestPickerIntegration:
         from jarviscopilot_cli.tools_config import _plugin_browser_providers
 
         rows = _plugin_browser_providers()
+        from agent.browser_registry import list_providers
         names = sorted(r.get("browser_provider") for r in rows)
-        assert names == ["browser-use", "browserbase", "firecrawl"]
+        assert names == sorted(p.name for p in list_providers())
 
     def test_picker_rows_carry_post_setup_hook(self) -> None:
         """Every browser plugin row has post_setup='agent_browser' so

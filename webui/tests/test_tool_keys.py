@@ -126,3 +126,30 @@ def test_removing_leaves_another_chosen_backend_alone(home):
 def test_refuses_bad_input(home, body):
     assert _post(body).status == 400
     assert "PARALLEL_API_KEY" not in (home / ".env").read_text()
+
+
+def test_steel_key_makes_steel_the_cloud_browser(home, monkeypatch):
+    """Saving the Steel key picks Steel as the cloud browser interactive tasks move to;
+    removing it hands browsing back to the local engine."""
+    monkeypatch.delenv("STEEL_API_KEY", raising=False)
+    steel = lambda payload: next(t for t in payload["tools"] if t["id"] == "steel")
+    assert steel(_get().payload())["has_key"] is False
+    out = _post({"tool": "steel", "api_key": "ste-live-key-12345"}).payload()
+    assert out["ok"] is True and steel(out)["has_key"] is True and steel(out)["in_use"] is True
+    assert "STEEL_API_KEY=ste-live-key-12345" in (home / ".env").read_text()
+    browser = yaml.safe_load((home / "config.yaml").read_text())["browser"]
+    assert browser["cloud_provider"] == "steel" and browser["cloud_for_interactive"] is True
+    out = _post({"tool": "steel", "api_key": ""}).payload()
+    assert out["action"] == "removed"
+    assert yaml.safe_load((home / "config.yaml").read_text())["browser"]["cloud_provider"] == "local"
+
+
+def test_steel_key_leaves_another_picked_cloud_browser(home, monkeypatch):
+    monkeypatch.delenv("STEEL_API_KEY", raising=False)
+    cfg = home / "config.yaml"
+    data = yaml.safe_load(cfg.read_text())
+    data["browser"] = {"cloud_provider": "browserbase"}
+    cfg.write_text(yaml.safe_dump(data))
+    api_config.reload_config()
+    _post({"tool": "steel", "api_key": "ste-live-key-12345"})
+    assert yaml.safe_load(cfg.read_text())["browser"]["cloud_provider"] == "browserbase"

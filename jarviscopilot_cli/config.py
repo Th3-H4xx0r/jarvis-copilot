@@ -898,6 +898,13 @@ DEFAULT_CONFIG = {
         # DuckDuckGo/Bing don't bot-block automated browsers; Google does.
         # One of: duckduckgo | bing | startpage | google.
         "search_engine": "duckduckgo",
+        # Live browser (Settings → Web & browser): the first interactive call
+        # (click / type / press / dialog) of a Lightpanda or Chrome task moves it
+        # to the cloud browser (browser.cloud_provider, e.g. steel) so the chat
+        # shows it live, with take-over and a replay. Reads stay local. Once this
+        # key is in config.yaml, tasks always start on the local engine and the
+        # cloud provider serves only the sessions that move to it.
+        "cloud_for_interactive": True,
         "auto_local_for_private_urls": True,  # When a cloud provider is set, auto-spawn local Chromium for LAN/localhost URLs instead of sending them to the cloud
         "cdp_url": "",  # Optional persistent CDP endpoint for attaching to an existing Chromium/Chrome
         # CDP supervisor — dialog + frame detection via a persistent WebSocket.
@@ -2567,6 +2574,14 @@ OPTIONAL_ENV_VARS = {
         "url": "https://browserbase.com/",
         "tools": ["browser_navigate", "browser_click"],
         "password": False,
+        "category": "tool",
+    },
+    "STEEL_API_KEY": {
+        "description": "Steel API key for the live cloud browser (watch, take over, replays) — interactive browser tasks move to it",
+        "prompt": "Steel API key",
+        "url": "https://app.steel.dev",
+        "tools": ["browser_navigate", "browser_click"],
+        "password": True,
         "category": "tool",
     },
     "BROWSER_USE_API_KEY": {
@@ -5328,6 +5343,7 @@ def show_config():
         ("TAVILY_API_KEY", "Tavily"),
         ("BROWSERBASE_API_KEY", "Browserbase"),
         ("BROWSER_USE_API_KEY", "Browser Use"),
+        ("STEEL_API_KEY", "Steel"),
         ("FAL_KEY", "FAL"),
     ]
     
@@ -5520,7 +5536,7 @@ def set_config_value(key: str, value: str):
         'EXA_API_KEY', 'PARALLEL_API_KEY', 'FIRECRAWL_API_KEY', 'FIRECRAWL_API_URL',
         'FIRECRAWL_GATEWAY_URL', 'TOOL_GATEWAY_DOMAIN', 'TOOL_GATEWAY_SCHEME',
         'TOOL_GATEWAY_USER_TOKEN', 'TAVILY_API_KEY',
-        'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'BROWSER_USE_API_KEY',
+        'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'BROWSER_USE_API_KEY', 'STEEL_API_KEY',
         'FAL_KEY', 'TELEGRAM_BOT_TOKEN', 'DISCORD_BOT_TOKEN',
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
         'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',

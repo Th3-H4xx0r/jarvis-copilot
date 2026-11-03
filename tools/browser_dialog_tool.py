@@ -133,16 +133,36 @@ def _browser_dialog_check() -> bool:
     return _browser_cdp_check()
 
 
-registry.register(
-    name="browser_dialog",
-    toolset="browser-cdp",
-    schema=BROWSER_DIALOG_SCHEMA,
-    handler=lambda args, **kw: browser_dialog(
+def _dialog_handler(args, **kw):
+    return browser_dialog(
         action=args.get("action", ""),
         prompt_text=args.get("prompt_text"),
         dialog_id=args.get("dialog_id"),
         task_id=kw.get("task_id"),
-    ),
+    )
+
+
+def _live_session_handler():
+    """The dialog handler wrapped like every browser tool (take-over wait, the
+    cloud move, the chat's browser card) — see tools.browser_tool._with_live_session."""
+    global _wrapped_dialog_handler
+    if _wrapped_dialog_handler is None:
+        try:
+            from tools.browser_tool import _with_live_session
+            _wrapped_dialog_handler = _with_live_session("browser_dialog", _dialog_handler)
+        except Exception:  # pragma: no cover — defensive
+            _wrapped_dialog_handler = _dialog_handler
+    return _wrapped_dialog_handler
+
+
+_wrapped_dialog_handler = None
+
+
+registry.register(
+    name="browser_dialog",
+    toolset="browser-cdp",
+    schema=BROWSER_DIALOG_SCHEMA,
+    handler=lambda args, **kw: _live_session_handler()(args, **kw),
     check_fn=_browser_dialog_check,
     emoji="💬",
 )

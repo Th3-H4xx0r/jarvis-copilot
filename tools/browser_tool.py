@@ -512,6 +512,15 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
         cfg = read_raw_config()
         browser_cfg = cfg.get("browser", {})
         provider_key = None
+        if isinstance(browser_cfg, dict) and "cloud_for_interactive" in browser_cfg:
+            # The live-browser setup (Settings → Web & browser writes this key):
+            # tasks start on the local engine and the cloud provider serves only
+            # the sessions that move to it (``<task>::cloud``, see
+            # _create_live_cloud_session) — interactive calls and "Run on cloud
+            # browser".
+            _cached_cloud_provider = None
+            _cloud_provider_resolved = True
+            return None
         if isinstance(browser_cfg, dict) and "cloud_provider" in browser_cfg:
             provider_key = normalize_browser_cloud_provider(
                 browser_cfg.get("cloud_provider")
@@ -1118,6 +1127,11 @@ def _navigation_session_key(task_id: str, url: str) -> str:
         return task_id
     if _is_camofox_mode():
         return task_id
+    current = _last_active_session_key.get(task_id, "")
+    if _is_cloud_key(current) and current in _active_sessions and not _url_is_private(url):
+        # The task moved to its cloud browser: keep it there (private addresses
+        # stay local — the cloud can't reach them).
+        return current
     if _get_cloud_provider() is None:
         if _get_browser_engine() == "lightpanda":
             from tools.browser_engine_sites import needs_chrome
@@ -1141,8 +1155,13 @@ def _is_chrome_sidecar_key(session_key: str) -> bool:
     return str(session_key or "").endswith(_CHROME_SUFFIX)
 
 
+def _is_cloud_key(session_key: str) -> bool:
+    """Return True when ``session_key`` is a task's moved-to-cloud session."""
+    return str(session_key or "").endswith(_CLOUD_SUFFIX)
+
+
 def _bare_task_id(session_key: str) -> str:
-    for suffix in (_LOCAL_SUFFIX, _CHROME_SUFFIX):
+    for suffix in (_LOCAL_SUFFIX, _CHROME_SUFFIX, _CLOUD_SUFFIX):
         if str(session_key or "").endswith(suffix):
             return session_key[: -len(suffix)]
     return session_key
@@ -1225,6 +1244,10 @@ _LOCAL_SUFFIX = "::local"
 # A task's Chrome session while Lightpanda is the engine: sites that need a real
 # renderer (tools/browser_engine_sites.py) and pages that broke on Lightpanda.
 _CHROME_SUFFIX = "::chrome"
+# A task's cloud browser (browser.cloud_provider, e.g. Steel) while the task's reads
+# run locally: the first interactive call or "Run on cloud browser" moves it here,
+# so Pranav can watch it live, take over and get a replay.
+_CLOUD_SUFFIX = "::cloud"
 
 # Flag to track if cleanup has been done
 _cleanup_done = False
@@ -1315,6 +1338,9 @@ def _cleanup_inactive_browser_sessions():
         for task_id, last_time in list(_session_last_activity.items()):
             if current_time - last_time > BROWSER_SESSION_INACTIVITY_TIMEOUT:
                 sessions_to_cleanup.append(task_id)
+    # Never close a browser Pranav has taken over.
+    sessions_to_cleanup = [k for k in sessions_to_cleanup
+                           if not _takeover_active_for_task(_bare_task_id(k))]
 
     for task_id in sessions_to_cleanup:
         try:
@@ -1326,7 +1352,8 @@ def _cleanup_inactive_browser_sessions():
             bare = _bare_task_id(task_id)
             with _cleanup_lock:
                 live_sidecar = any(k in _active_sessions for k in
-                                   (bare, f"{bare}{_LOCAL_SUFFIX}", f"{bare}{_CHROME_SUFFIX}"))
+                                   (bare, f"{bare}{_LOCAL_SUFFIX}", f"{bare}{_CHROME_SUFFIX}",
+                                    f"{bare}{_CLOUD_SUFFIX}"))
             if not live_sidecar:
                 _last_active_session_key.pop(bare, None)
             with _cleanup_lock:
@@ -1805,10 +1832,14 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
     # the bare task_id key.
     force_local = _is_local_sidecar_key(task_id)
     force_chrome = _is_chrome_sidecar_key(task_id)
+    force_cloud = _is_cloud_key(task_id)
 
     # Create session outside the lock (network call in cloud mode)
     cdp_override = _get_cdp_override()
-    if force_chrome:
+    if force_cloud:
+        # No silent local fallback: the caller (the move) reports the failure.
+        session_info = _create_live_cloud_session(task_id)
+    elif force_chrome:
         session_info = dict(_create_local_session(task_id))
         session_info["engine"] = "chrome"
     elif cdp_override and not force_local:
@@ -2047,7 +2078,8 @@ def _run_browser_command(
     # Local mode with no Chromium on disk: fail fast with an actionable
     # message instead of hanging for _command_timeout seconds per call.
     # Skip when engine=lightpanda — LP doesn't need Chromium for navigation.
-    if _is_local_mode() and not _chromium_installed() and _get_browser_engine() != "lightpanda":
+    if (_is_local_mode() and not _is_cloud_key(task_id) and not _chromium_installed()
+            and _get_browser_engine() != "lightpanda"):
         if _running_in_docker():
             hint = (
                 "Chromium browser is missing. You're running in Docker — pull "
@@ -2467,7 +2499,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None, engine: Optional[s
     # 169.254.169.254 / metadata.google.internal / ECS task metadata
     # via a browser, and routing those to a local Chromium sidecar
     # on an EC2/GCP/Azure host exfiltrates IAM credentials (#16234).
-    if not _is_local_backend() and _is_always_blocked_url(url):
+    if (not _is_local_backend() or _is_cloud_key(nav_session_key)) and _is_always_blocked_url(url):
         return json.dumps({
             "success": False,
             "error": "Blocked: URL targets a cloud metadata endpoint",
@@ -2547,7 +2579,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None, engine: Optional[s
         # when auto_local_this_nav is true — see pre-nav check for
         # rationale (#16234).
         if (
-            not _is_local_backend()
+            (not _is_local_backend() or _is_cloud_key(nav_session_key))
             and final_url
             and final_url != url
             and _is_always_blocked_url(final_url)
@@ -3695,23 +3727,33 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
 
     # Expand to the full set of session keys to reap. For a bare task_id
     # that includes the cloud/primary key + the local sidecar if one exists.
-    if _is_local_sidecar_key(task_id) or _is_chrome_sidecar_key(task_id):
+    is_sidecar = (_is_local_sidecar_key(task_id) or _is_chrome_sidecar_key(task_id)
+                  or _is_cloud_key(task_id))
+    if is_sidecar:
         session_keys = [task_id]
         bare_task_id = _bare_task_id(task_id)
     else:
         session_keys = [task_id]
         with _cleanup_lock:
-            for sidecar_key in (f"{task_id}{_LOCAL_SUFFIX}", f"{task_id}{_CHROME_SUFFIX}"):
+            for sidecar_key in (f"{task_id}{_LOCAL_SUFFIX}", f"{task_id}{_CHROME_SUFFIX}",
+                                f"{task_id}{_CLOUD_SUFFIX}"):
                 if sidecar_key in _active_sessions:
                     session_keys.append(sidecar_key)
         bare_task_id = task_id
+
+    # Pranav has the cloud browser (take over): leave it open for him. The
+    # inactivity reaper closes it once he hands it back and it goes idle.
+    kept_cloud = None
+    if not is_sidecar and _takeover_active_for_task(bare_task_id):
+        kept_cloud = next((k for k in session_keys if _is_cloud_key(k)), None)
+        session_keys = [k for k in session_keys if k != kept_cloud]
 
     for session_key in session_keys:
         _cleanup_single_browser_session(session_key)
 
     # Drop the last-active pointer only when the bare task is being cleaned
     # (i.e. not when we're only reaping a sidecar mid-task).
-    if not _is_local_sidecar_key(task_id) and not _is_chrome_sidecar_key(task_id):
+    if not is_sidecar and not kept_cloud:
         _last_active_session_key.pop(bare_task_id, None)
 
 
@@ -3768,7 +3810,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
         # Cloud mode: close the cloud browser session via provider API.
         # Local sidecars have bb_session_id=None so this no-ops for them.
         if bb_session_id:
-            provider = _get_cloud_provider()
+            provider = _provider_for_session(session_info)
             if provider is not None:
                 try:
                     provider.close_session(bb_session_id)
@@ -3793,6 +3835,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
                 shutil.rmtree(socket_dir, ignore_errors=True)
 
         logger.debug("Removed task %s from active sessions", task_id)
+        _end_live_session_if_closed(task_id)
     else:
         logger.debug("No active session found for task_id: %s", task_id)
 
@@ -4054,6 +4097,370 @@ if __name__ == "__main__":
 
 
 # ---------------------------------------------------------------------------
+# Live browser sessions — the chat's browser card (tools/browser_sessions.py)
+# ---------------------------------------------------------------------------
+#
+# Every browser_* result carries ``card: {"kind": "browser_session", "session": id}``.
+# Around each call (``_with_live_session``):
+#   * take over — while Pranav has the cloud browser, the call waits (≤10 min) and
+#     then tells the model to take a fresh snapshot;
+#   * the move — the first interactive call (click/type/press/dialog, or a run with
+#     those steps) on a Lightpanda/Chrome task moves it to the cloud browser at the
+#     same URL when ``browser.cloud_for_interactive`` is on and a provider is ready;
+#     "Run on cloud browser" (``move_requested``) moves on the next call of any kind.
+#     Reads never move on their own;
+#   * the card's row — engine, provider, page, live view;
+#   * the replay — cloud and server-Chrome sessions are screencast by
+#     tools/browser_recorder.py and encoded when the session ends.
+
+TAKEOVER_MAX_WAIT_S = 600
+_TAKEOVER_POLL_S = 1.0
+# Calls whose arguments point at the page's element refs: after a move (new
+# browser) or a take-over (Pranav changed the page) they must not run blind.
+_REF_TOOLS = frozenset({"browser_click", "browser_type", "browser_press", "browser_run",
+                        "browser_back", "browser_dialog"})
+_INTERACTIVE_TOOLS = frozenset({"browser_click", "browser_type", "browser_press", "browser_dialog"})
+_INTERACTIVE_RUN_ACTIONS = frozenset({"click", "fill", "press"})
+# Calls after which the page may be somewhere new: read its URL and title back.
+_PAGE_CHANGING_TOOLS = frozenset({"browser_click", "browser_press", "browser_run", "browser_back"})
+_HANDED_BACK_NOTE = ("Pranav took over the browser and handed it back — take a fresh snapshot "
+                     "(browser_snapshot) before acting.")
+
+
+def _create_live_cloud_session(session_key: str) -> Dict[str, Any]:
+    """A cloud browser session for ``<task>::cloud`` from the live provider."""
+    from tools import browser_sessions
+    provider = browser_sessions.live_provider()
+    if provider is None:
+        raise RuntimeError("no cloud browser is set up (Settings → Web & browser, and its key "
+                           "in Settings → Providers)")
+    session_info = provider.create_session(_bare_task_id(session_key))
+    if not session_info or not isinstance(session_info, dict) or not session_info.get("cdp_url"):
+        raise RuntimeError(f"{provider.display_name} returned no browser to connect to")
+    session_info = dict(session_info)
+    session_info["cdp_url"] = _resolve_cdp_override(str(session_info["cdp_url"]))
+    session_info["engine"] = "cloud"
+    session_info["provider_key"] = provider.name
+    return session_info
+
+
+def _provider_for_session(session_info: Dict[str, Any]):
+    """The provider that owns a cloud session (the live provider for moved ones)."""
+    name = session_info.get("provider_key")
+    if name:
+        try:
+            _ensure_browser_plugins_loaded()
+            provider = _registry_get_browser_provider(name)
+            if provider is not None:
+                return provider
+        except Exception:
+            logger.debug("provider %s lookup failed", name, exc_info=True)
+    return _get_cloud_provider()
+
+
+def _takeover_active_for_task(task_id: str) -> bool:
+    try:
+        from tools import browser_sessions
+        return browser_sessions.takeover_active(browser_sessions.current_id(task_id))
+    except Exception:
+        return False
+
+
+def _end_live_session_if_closed(session_key: str) -> None:
+    """The task's last browser closed: its card shows "ended" and its replay encodes."""
+    bare = _bare_task_id(session_key)
+    with _cleanup_lock:
+        still_open = any(k in _active_sessions for k in
+                         (bare, f"{bare}{_LOCAL_SUFFIX}", f"{bare}{_CHROME_SUFFIX}", f"{bare}{_CLOUD_SUFFIX}"))
+    try:
+        from tools import browser_recorder, browser_sessions
+        sid = browser_sessions.current_id(bare)
+        if not sid:
+            return
+        if still_open:
+            if _is_cloud_key(session_key) or _is_chrome_sidecar_key(session_key):
+                browser_recorder.detach(sid)
+            return
+        browser_sessions.end(sid)
+        browser_recorder.finish(sid)
+    except Exception:
+        logger.debug("ending the live browser session for %s failed", bare, exc_info=True)
+
+
+def _session_engine(session_key: str) -> Tuple[str, Optional[str]]:
+    """(engine, provider name) of a session key: lightpanda | chrome | cloud."""
+    info = _active_sessions.get(session_key) or {}
+    if _is_cloud_key(session_key):
+        return "cloud", info.get("provider_key")
+    if info.get("bb_session_id"):
+        provider = _get_cloud_provider()
+        return "cloud", info.get("provider_key") or (provider.name if provider is not None else None)
+    if _is_chrome_sidecar_key(session_key) or _is_local_sidecar_key(session_key):
+        return "chrome", None
+    engine = info.get("engine") or _get_browser_engine()
+    return ("lightpanda" if engine == "lightpanda" else "chrome"), None
+
+
+def _is_interactive_call(tool_name: str, args: Dict[str, Any]) -> bool:
+    if tool_name in _INTERACTIVE_TOOLS:
+        return True
+    if tool_name == "browser_run":
+        steps = args.get("steps") if isinstance(args, dict) else None
+        return any(isinstance(s, dict) and str(s.get("action") or "") in _INTERACTIVE_RUN_ACTIONS
+                   for s in (steps or []))
+    return False
+
+
+def _current_page_url(session_key: str) -> str:
+    info = _active_sessions.get(session_key) or {}
+    url = ""
+    if session_key in _active_sessions:
+        here = _run_browser_command(session_key, "eval", ["window.location.href"], timeout=10,
+                                    _engine_override="auto")
+        if here.get("success"):
+            url = str((here.get("data") or {}).get("result") or "").strip().strip('"').strip("'")
+    if not url.startswith(("http://", "https://")):
+        url = str(info.get("last_url") or "")
+    return url if url.startswith(("http://", "https://")) else ""
+
+
+def _start_cloud_session(task_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Open the task's cloud browser; (session key, None) or (None, why not)."""
+    cloud_key = f"{task_id}{_CLOUD_SUFFIX}"
+    try:
+        _get_session_info(cloud_key)
+    except Exception as exc:
+        logger.warning("Cloud browser for %s did not start: %s", task_id, exc)
+        return None, str(exc)
+    return cloud_key, None
+
+
+def _move_task_to_cloud(task_id: str, url: str) -> Tuple[Optional[str], Optional[str]]:
+    """Reopen the task's page in its cloud browser and point the task there."""
+    previous = _last_session_key(task_id)
+    cloud_key, error = _start_cloud_session(task_id)
+    if cloud_key is None:
+        return None, error
+    if url:
+        opened = _run_browser_command(cloud_key, "open", [url], timeout=max(_get_command_timeout(), 60))
+        if not opened.get("success"):
+            logger.warning("Cloud browser could not reopen %s: %s", url, opened.get("error"))
+        else:
+            _active_sessions.get(cloud_key, {})["last_url"] = url
+    _last_active_session_key[task_id] = cloud_key
+    if previous != cloud_key and previous in _active_sessions:
+        _cleanup_single_browser_session(previous)
+    return cloud_key, None
+
+
+def _wait_out_takeover(task_id: str, sid: str) -> Optional[str]:
+    """Wait while Pranav has the browser. None = never took over; "back" = handed
+    back; "timeout"/"interrupted" otherwise."""
+    from tools import browser_sessions
+    if not browser_sessions.takeover_active(sid):
+        return None
+    from tools.interrupt import is_interrupted
+    deadline = time.monotonic() + TAKEOVER_MAX_WAIT_S
+    while time.monotonic() < deadline:
+        if is_interrupted():
+            return "interrupted"
+        key = _last_session_key(task_id)
+        if key in _active_sessions:
+            _update_session_activity(key)   # keep the browser alive while he works
+        time.sleep(_TAKEOVER_POLL_S)
+        if not browser_sessions.takeover_active(sid):
+            return "back"
+    return "timeout"
+
+
+def _before_browser_call(task_id: str, sid: str, tool_name: str,
+                         args: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """Take-over wait and the cloud move. Returns (result instead of the call, notes)."""
+    from tools import browser_sessions
+    notes: List[str] = []
+    waited = _wait_out_takeover(task_id, sid)
+    if waited == "interrupted":
+        return {"success": False, "error": "Interrupted while Pranav had the browser."}, notes
+    if waited == "timeout":
+        return {"success": False, "error": (
+            "Pranav still has the browser (he took over more than 10 minutes ago). "
+            "Ask him to hand it back before using the browser again.")}, notes
+    if waited == "back":
+        if tool_name != "browser_snapshot":
+            return {"success": False, "handed_back": True, "error": _HANDED_BACK_NOTE}, notes
+        notes.append("Pranav took over the browser and handed it back; this is a fresh snapshot.")
+
+    current = _last_session_key(task_id)
+    if _is_cloud_key(current) or (current in _active_sessions and _session_engine(current)[0] == "cloud"):
+        return None, notes
+    row = browser_sessions.get(sid) or {}
+    requested = bool(row.get("move_requested"))
+    wanted = requested or (_is_interactive_call(tool_name, args) and browser_sessions.cloud_for_interactive())
+    if not wanted:
+        return None, notes
+    provider = browser_sessions.live_provider()
+    if provider is None:
+        if requested:
+            browser_sessions.update(sid, move_requested=False)
+            notes.append("Pranav asked for the cloud browser, but none is set up; staying on this one.")
+        return None, notes
+
+    if tool_name in ("browser_navigate", "browser_extract") and args.get("url"):
+        url = str(args.get("url") or "")
+        if _url_is_private(url):
+            return None, notes   # the cloud can't reach a private address
+        cloud_key, error = _start_cloud_session(task_id)
+        if cloud_key is None:
+            browser_sessions.update(sid, move_requested=False)
+            notes.append(f"The cloud browser did not start ({error}); this page opened locally.")
+            return None, notes
+        previous = current
+        _last_active_session_key[task_id] = cloud_key
+        if previous != cloud_key and previous in _active_sessions:
+            _cleanup_single_browser_session(previous)
+        browser_sessions.update(sid, move_requested=False)
+        notes.append(f"This browser task runs on the cloud browser ({provider.display_name}) so Pranav can watch it.")
+        return None, notes
+
+    url = _current_page_url(current)
+    if not url:
+        return None, notes          # no page yet: the move happens on the next open
+    if _url_is_private(url):
+        if requested:
+            browser_sessions.update(sid, move_requested=False)
+            notes.append("This page is on a private address the cloud browser can't reach; it stays here.")
+        return None, notes
+    cloud_key, error = _move_task_to_cloud(task_id, url)
+    browser_sessions.update(sid, move_requested=False)
+    if cloud_key is None:
+        notes.append(f"The cloud browser did not start ({error}); staying on this browser.")
+        return None, notes
+    moved = (f"This browser task moved to the cloud browser ({provider.display_name}) so Pranav can watch "
+             f"it live; the page was reopened at {url}.")
+    if tool_name not in _REF_TOOLS:
+        notes.append(moved)
+        return None, notes
+    early: Dict[str, Any] = {"success": False, "moved_to_cloud": True, "error": (
+        moved + " Its element refs changed and nothing was done yet — repeat the action "
+        "with refs from this snapshot.")}
+    snap = _run_browser_command(cloud_key, "snapshot", ["-c"])
+    if snap.get("success"):
+        early["snapshot"] = _truncate_snapshot(str((snap.get("data") or {}).get("snapshot") or ""))
+    return early, notes
+
+
+def _chrome_cdp_url(session_key: str) -> str:
+    """The CDP endpoint of a server-Chrome session (agent-browser ``get cdp-url``)."""
+    info = _active_sessions.get(session_key)
+    if info is None:
+        return ""
+    if "recorder_cdp" in info:
+        return info["recorder_cdp"]
+    url = ""
+    try:
+        got = _run_browser_command(session_key, "get", ["cdp-url"], timeout=10, _engine_override="auto")
+        data = got.get("data") if got.get("success") else None
+        candidates = list(data.values()) if isinstance(data, dict) else [data]
+        url = next((str(v).strip().strip('"') for v in candidates
+                    if isinstance(v, str) and v.strip().strip('"').startswith(("ws://", "wss://", "http://"))), "")
+        if url.startswith("http://"):
+            url = _resolve_cdp_override(url)
+    except Exception:
+        logger.debug("no CDP endpoint for %s", session_key, exc_info=True)
+    info["recorder_cdp"] = url
+    return url
+
+
+def _sync_live_session(task_id: str, sid: str, tool_name: str, result: Dict[str, Any]) -> None:
+    """Write where the task's browser is now into its card's row; start its recorder."""
+    from tools import browser_recorder, browser_sessions
+    key = _last_session_key(task_id)
+    info = _active_sessions.get(key)
+    if info is None:
+        browser_sessions.touch(sid)
+        return
+    engine, provider_key = _session_engine(key)
+    fields: Dict[str, Any] = {"engine": engine}
+    if engine == "cloud":
+        fields.update(provider=provider_key,
+                      provider_name=browser_sessions.provider_display_name(provider_key),
+                      live_url=info.get("live_url"),
+                      live_interactive_url=info.get("live_interactive_url"))
+    else:
+        fields.update(provider=None, provider_name=None, live_url=None, live_interactive_url=None)
+    url = str(result.get("url") or "") if result.get("success") else ""
+    title = result.get("title") if result.get("success") else None
+    if result.get("success") and tool_name in _PAGE_CHANGING_TOOLS:
+        here = _run_browser_command(key, "eval", ["JSON.stringify([location.href, document.title])"],
+                                    timeout=10, _engine_override="auto")
+        try:
+            raw = (here.get("data") or {}).get("result") if here.get("success") else None
+            pair = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(pair, list) and len(pair) == 2:
+                url, title = str(pair[0] or url), str(pair[1] or "")
+        except (TypeError, ValueError):
+            pass
+    if not url:
+        url = str(info.get("last_url") or "")
+    if url:
+        fields["url"] = url
+        if url.startswith(("http://", "https://")):
+            info["last_url"] = url
+    if title is not None:
+        fields["title"] = str(title)
+    browser_sessions.update(sid, **fields)
+
+    if engine in ("cloud", "chrome") and not browser_recorder.is_recording(sid):
+        cdp = info.get("cdp_url") if engine == "cloud" else _chrome_cdp_url(key)
+        if cdp:
+            browser_recorder.attach(sid, cdp)
+        elif not info.get("recorder_noted"):
+            info["recorder_noted"] = True
+            row = browser_sessions.get(sid) or {}
+            if row.get("replay_status") in (None, "none"):
+                browser_sessions.update(sid, replay_status="failed",
+                                        replay_error="this browser gave the recorder no CDP endpoint")
+
+
+def _with_live_session(tool_name: str, handler):
+    """Wrap a browser tool handler: take-over wait, cloud move, card, row, recorder."""
+    def wrapped(args, **kw):
+        if _is_camofox_mode():
+            return handler(args, **kw)
+        task_id = kw.get("task_id") or "default"
+        args = args if isinstance(args, dict) else {}
+        try:
+            from tools import browser_sessions
+            sid = browser_sessions.ensure(task_id)
+        except Exception:
+            logger.debug("browser session registry unavailable", exc_info=True)
+            return handler(args, **kw)
+        try:
+            early, notes = _before_browser_call(task_id, sid, tool_name, args)
+        except Exception:
+            logger.warning("browser %s: routing failed; running in place", tool_name, exc_info=True)
+            early, notes = None, []
+        raw = json.dumps(early, ensure_ascii=False) if early is not None else handler(args, **kw)
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else None
+        except (TypeError, ValueError):
+            data = None
+        if not isinstance(data, dict):
+            return raw
+        try:
+            _sync_live_session(task_id, sid, tool_name, data)
+        except Exception:
+            logger.debug("browser %s: card sync failed", tool_name, exc_info=True)
+        out: Dict[str, Any] = {"card": {"kind": "browser_session", "session": sid}}
+        out.update(data)
+        if notes:
+            out["browser_note"] = " ".join(notes)
+        return json.dumps(out, ensure_ascii=False)
+    wrapped.__wrapped__ = handler
+    return wrapped
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 from tools.registry import registry, tool_error
@@ -4064,8 +4471,8 @@ registry.register(
     name="browser_navigate",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_navigate"],
-    handler=lambda args, **kw: browser_navigate(url=args.get("url", ""), task_id=kw.get("task_id"),
-                                                engine=args.get("engine")),
+    handler=_with_live_session("browser_navigate", lambda args, **kw: browser_navigate(url=args.get("url", ""), task_id=kw.get("task_id"),
+                                                engine=args.get("engine"))),
     check_fn=check_browser_requirements,
     emoji="🌐",
 )
@@ -4073,8 +4480,8 @@ registry.register(
     name="browser_extract",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_extract"],
-    handler=lambda args, **kw: browser_extract(instruction=args.get("instruction", ""), url=args.get("url"),
-                                               schema=args.get("schema"), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_extract", lambda args, **kw: browser_extract(instruction=args.get("instruction", ""), url=args.get("url"),
+                                               schema=args.get("schema"), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="🧾",
 )
@@ -4082,7 +4489,7 @@ registry.register(
     name="browser_run",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_run"],
-    handler=lambda args, **kw: browser_run(steps=args.get("steps") or [], task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_run", lambda args, **kw: browser_run(steps=args.get("steps") or [], task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="⏩",
 )
@@ -4090,8 +4497,8 @@ registry.register(
     name="browser_snapshot",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_snapshot"],
-    handler=lambda args, **kw: browser_snapshot(
-        full=args.get("full", False), task_id=kw.get("task_id"), user_task=kw.get("user_task")),
+    handler=_with_live_session("browser_snapshot", lambda args, **kw: browser_snapshot(
+        full=args.get("full", False), task_id=kw.get("task_id"), user_task=kw.get("user_task"))),
     check_fn=check_browser_requirements,
     emoji="📸",
 )
@@ -4099,7 +4506,7 @@ registry.register(
     name="browser_click",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_click"],
-    handler=lambda args, **kw: browser_click(ref=args.get("ref", ""), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_click", lambda args, **kw: browser_click(ref=args.get("ref", ""), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="👆",
 )
@@ -4107,7 +4514,7 @@ registry.register(
     name="browser_type",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_type"],
-    handler=lambda args, **kw: browser_type(ref=args.get("ref", ""), text=args.get("text", ""), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_type", lambda args, **kw: browser_type(ref=args.get("ref", ""), text=args.get("text", ""), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="⌨️",
 )
@@ -4115,7 +4522,7 @@ registry.register(
     name="browser_scroll",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_scroll"],
-    handler=lambda args, **kw: browser_scroll(direction=args.get("direction", "down"), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_scroll", lambda args, **kw: browser_scroll(direction=args.get("direction", "down"), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="📜",
 )
@@ -4123,7 +4530,7 @@ registry.register(
     name="browser_back",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_back"],
-    handler=lambda args, **kw: browser_back(task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_back", lambda args, **kw: browser_back(task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="◀️",
 )
@@ -4131,7 +4538,7 @@ registry.register(
     name="browser_press",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_press"],
-    handler=lambda args, **kw: browser_press(key=args.get("key", ""), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_press", lambda args, **kw: browser_press(key=args.get("key", ""), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="⌨️",
 )
@@ -4140,7 +4547,7 @@ registry.register(
     name="browser_get_images",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_get_images"],
-    handler=lambda args, **kw: browser_get_images(task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_get_images", lambda args, **kw: browser_get_images(task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="🖼️",
 )
@@ -4148,7 +4555,7 @@ registry.register(
     name="browser_vision",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_vision"],
-    handler=lambda args, **kw: browser_vision(question=args.get("question", ""), annotate=args.get("annotate", False), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_vision", lambda args, **kw: browser_vision(question=args.get("question", ""), annotate=args.get("annotate", False), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="👁️",
 )
@@ -4156,7 +4563,7 @@ registry.register(
     name="browser_console",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_console"],
-    handler=lambda args, **kw: browser_console(clear=args.get("clear", False), expression=args.get("expression"), task_id=kw.get("task_id")),
+    handler=_with_live_session("browser_console", lambda args, **kw: browser_console(clear=args.get("clear", False), expression=args.get("expression"), task_id=kw.get("task_id"))),
     check_fn=check_browser_requirements,
     emoji="🖥️",
 )

@@ -7,6 +7,9 @@ POST /api/tool-keys  {tool, api_key}: a key saves it to the active profile's .en
 Saving the Parallel key also makes Parallel the web search backend
 (``web.search_backend``); removing it hands search back to the free engine.
 Page reads stay on the free local reader, so Parallel credits only pay for searches.
+Saving the Steel key makes Steel the cloud browser (``browser.cloud_provider``) that
+interactive browser tasks move to — the chat's live view, take-over and replays;
+removing it hands the browser back to the local engine.
 The key itself is never returned.
 """
 from __future__ import annotations
@@ -33,6 +36,16 @@ TOOL_KEYS: Dict[str, Dict[str, str]] = {
                 "If Parallel fails or runs out of credits, search falls back to free DuckDuckGo.",
         "url": "https://platform.parallel.ai",
         "search_backend": "parallel",
+    },
+    "steel": {
+        "display_name": "Steel",
+        "env": "STEEL_API_KEY",
+        "purpose": "Cloud browser",
+        "hint": "Interactive browser tasks (logging in, filling forms) run in Steel's cloud Chrome, "
+                "so the chat shows them live, you can take over, and you get a replay. "
+                "Reads and searches stay on the fast local browser. 100 free browser-hours a month.",
+        "url": "https://app.steel.dev",
+        "browser_provider": "steel",
     },
 }
 
@@ -75,6 +88,12 @@ def handle_tool_keys_post(handler, parsed, body) -> bool:
         logger.warning("tool keys: switching web.search_backend failed", exc_info=True)
         j(handler, {"error": "the key was saved, but web search could not be switched over"}, status=500)
         return True
+    try:
+        _set_browser_provider(spec.get("browser_provider"), key is not None)
+    except Exception:
+        logger.warning("tool keys: switching browser.cloud_provider failed", exc_info=True)
+        j(handler, {"error": "the key was saved, but the cloud browser could not be switched over"}, status=500)
+        return True
     j(handler, {"ok": True, "tool": tool_id, "action": "saved" if key else "removed", "tools": _tools()})
     return True
 
@@ -106,12 +125,52 @@ def _set_search_backend(backend: Optional[str], key_saved: bool) -> None:
     api_config.reload_config()
 
 
+def _set_browser_provider(provider: Optional[str], key_saved: bool) -> None:
+    """Saving a cloud browser's key makes it the cloud browser interactive tasks move
+    to (unless another one is already picked); removing it clears the choice only
+    when it was this one."""
+    if not provider:
+        return
+    path = api_config._get_config_path()
+    with api_config._cfg_lock:
+        stored = api_config._load_yaml_config_file(path)
+        if not stored and path.exists() and path.stat().st_size > 0:
+            raise RuntimeError("config.yaml could not be read")
+        browser = stored.get("browser") if isinstance(stored.get("browser"), dict) else {}
+        current = str(browser.get("cloud_provider") or "").strip().lower()
+        if key_saved:
+            if current not in ("", "local", "none"):
+                return
+            browser["cloud_provider"] = provider
+            browser.setdefault("cloud_for_interactive", True)
+        elif current == provider:
+            browser["cloud_provider"] = "local"
+        else:
+            return
+        stored["browser"] = browser
+        api_config._save_yaml_config_file(path, stored)
+    api_config.reload_config()
+    _forget_browser_provider_cache()
+
+
+def _forget_browser_provider_cache() -> None:
+    """browser_tool caches the cloud provider per process: re-read it next call."""
+    try:
+        import tools.browser_tool as _bt
+        _bt._cloud_provider_resolved = False
+        _bt._cached_cloud_provider = None
+    except Exception:
+        pass
+
+
 def _tools() -> List[Dict[str, Any]]:
     from api.providers import _get_hermes_home, _load_env_file
     env_file = _load_env_file(_get_hermes_home() / ".env")
     stored = api_config._load_yaml_config_file(api_config._get_config_path())
     web = stored.get("web") if isinstance(stored, dict) and isinstance(stored.get("web"), dict) else {}
     search_backend = str(web.get("search_backend") or "").strip().lower()
+    browser = stored.get("browser") if isinstance(stored, dict) and isinstance(stored.get("browser"), dict) else {}
+    cloud_provider = str(browser.get("cloud_provider") or "").strip().lower()
     out = []
     for tool_id, spec in TOOL_KEYS.items():
         has_key = bool((env_file.get(spec["env"]) or os.getenv(spec["env"]) or "").strip())
@@ -122,6 +181,9 @@ def _tools() -> List[Dict[str, Any]]:
             "hint": spec["hint"],
             "url": spec["url"],
             "has_key": has_key,
-            "in_use": has_key and bool(spec.get("search_backend")) and search_backend == spec["search_backend"],
+            "in_use": has_key and (
+                (bool(spec.get("search_backend")) and search_backend == spec["search_backend"])
+                or (bool(spec.get("browser_provider"))
+                    and cloud_provider in (spec["browser_provider"], ""))),
         })
     return out

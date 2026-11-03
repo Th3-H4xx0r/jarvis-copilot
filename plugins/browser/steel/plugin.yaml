@@ -1,0 +1,7 @@
+name: browser-steel
+version: 1.0.0
+description: "Steel (https://steel.dev) cloud browser backend. Requires STEEL_API_KEY. Gives a live view (read-only and interactive) Jarvis shows in chat, so you can watch and take over."
+author: Pranav Krishna
+kind: backend
+provides_browser_providers:
+  - steel

@@ -55,7 +55,9 @@ def _put(body):
 
 def test_reads_the_defaults(env):
     body = _get().payload()
-    assert body["config"] == {"extract_model": "", "engine": "chrome", "stealth_fallback": True}
+    assert body["config"] == {"extract_model": "", "engine": "chrome", "stealth_fallback": True,
+                              "cloud_provider": "none", "cloud_for_interactive": True}
+    assert {p["id"] for p in body["cloud_providers"]} >= {"none", "steel"}
     assert body["lightpanda_installed"] is True and "lightpanda" in body["engines"]
 
 
@@ -73,6 +75,8 @@ def test_saves_a_model_a_harness_and_the_engine(env):
     {"extract_model": 7},
     {"engine": "netscape"},
     {"stealth_fallback": "yes"},
+    {"cloud_provider": "netscape"},
+    {"cloud_for_interactive": "yes"},
 ])
 def test_refuses_bad_values(env, body):
     h = _put(body)
@@ -84,3 +88,29 @@ def test_a_new_engine_reaches_the_running_browser_tools(env, monkeypatch):
     bt._browser_engine_resolved, bt._cached_browser_engine = True, "auto"
     _put({"engine": "lightpanda"})
     assert bt._browser_engine_resolved is False          # re-read on the next browser call
+
+
+def test_cloud_browser_picker_and_switch(env, monkeypatch):
+    """Settings → Web & browser: the cloud browser interactive tasks move to, and the
+    "Interactive tasks use the cloud browser" switch. Both keys are written together."""
+    monkeypatch.delenv("STEEL_API_KEY", raising=False)
+    import tools.browser_tool as bt
+    bt._cloud_provider_resolved = True
+    out = _put({"cloud_provider": "steel"}).payload()
+    assert out["config"]["cloud_provider"] == "steel" and out["config"]["cloud_for_interactive"] is True
+    stored = yaml.safe_load(env.read_text())["browser"]
+    assert stored["cloud_provider"] == "steel" and stored["cloud_for_interactive"] is True
+    assert stored["engine"] == "auto"
+    assert bt._cloud_provider_resolved is False          # re-read on the next browser call
+    out = _put({"cloud_for_interactive": False}).payload()
+    assert out["config"] == {**out["config"], "cloud_provider": "steel", "cloud_for_interactive": False}
+    out = _put({"cloud_provider": "none"}).payload()
+    assert out["config"]["cloud_provider"] == "none"
+    assert yaml.safe_load(env.read_text())["browser"]["cloud_provider"] == "local"
+
+
+def test_switch_alone_keeps_tasks_local(env, monkeypatch):
+    monkeypatch.delenv("STEEL_API_KEY", raising=False)
+    _put({"cloud_for_interactive": True})
+    stored = yaml.safe_load(env.read_text())["browser"]
+    assert stored["cloud_for_interactive"] is True and stored["cloud_provider"] == "local"

@@ -3648,6 +3648,11 @@ def handle_get(handler, parsed) -> bool:
             "GET", parsed.path[len(WIDGETS_PATH_PREFIX):], None, widget_store())
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/browser/"):
+        # The chat's live browser card (Contract A) and its replays.
+        from api.browser_routes import handle_get as _browser_get
+        return _browser_get(handler, parsed)
+
     if parsed.path.startswith("/api/car/"):
         from api.car_routes import CAR_PATH_PREFIX, handle_car_request
         from api.auth import _check_host_signature
@@ -5137,6 +5142,10 @@ def handle_post(handler, parsed) -> bool:
         status, payload = handle_widgets_request(
             "POST", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
         return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/browser/"):
+        from api.browser_routes import handle_post as _browser_post
+        return _browser_post(handler, parsed, body)
 
     if parsed.path.startswith("/api/car/"):
         from api.car_routes import CAR_PATH_PREFIX, handle_car_request
