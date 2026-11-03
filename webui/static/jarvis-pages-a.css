@@ -540,15 +540,15 @@
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form{gap:18px;max-width:720px;margin:24px auto 0;}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-row > label{font-size:13px;font-weight:500;color:var(--jc-text-2);letter-spacing:0;text-transform:none;}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-row :is(input[type="text"],input[type="password"],input[type="number"],input[type="url"],input:not([type]),select,textarea){
-  background:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-control);
+  background-color:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-control);
   color:var(--jc-text);font-size:15px;padding:11px 12px;box-shadow:none;
 }
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-row textarea{font-size:13px;line-height:1.5;}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-row :is(input,select,textarea):focus{border-color:rgba(62,199,199,.6);box-shadow:none;}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-hint{font-size:12px;color:var(--jc-muted);}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-row label.detail-form-check{
-  flex-direction:row-reverse;justify-content:space-between;gap:16px;min-height:48px;padding:0 12px 0 16px;
-  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);font-size:15px;font-weight:500;color:var(--jc-text);
+  flex-direction:row-reverse;justify-content:space-between;gap:16px;min-height:48px;padding:10px 12px 10px 16px;
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);font-size:15px;font-weight:400;color:var(--jc-text);line-height:1.4;
 }
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-warning{background:transparent;border:0;padding:0;color:var(--jc-warn);font-size:12px;}
 :root.dark[data-skin="jarvis"] :is(#mainProfiles,#mainWorkspaces,#mainSkills,#mainTasks) .detail-form-error{background:rgba(229,72,77,.08);border-color:rgba(229,72,77,.3);color:var(--jc-danger);border-radius:var(--jc-r-control);}
@@ -648,7 +648,7 @@
 :root.dark[data-skin="jarvis"] #mainTasks .imm-hint + .imm-switch{margin-top:12px;}
 :root.dark[data-skin="jarvis"] #mainTasks :is(.imm-hint,.imm-status){font-size:13px;color:var(--jc-muted);line-height:1.45;}
 :root.dark[data-skin="jarvis"] #mainTasks .imm-input{
-  background:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-control);
+  background-color:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-control);
   color:var(--jc-text);font-size:15px;padding:10px 12px;min-height:42px;box-sizing:border-box;color-scheme:dark;
 }
 :root.dark[data-skin="jarvis"] #mainTasks .imm-input:focus{border-color:rgba(62,199,199,.6);outline:none;}
