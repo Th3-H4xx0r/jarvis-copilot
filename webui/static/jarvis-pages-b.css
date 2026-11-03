@@ -509,3 +509,47 @@
   :root[data-skin="jarvis"] #mainCodememory .cm-detail-body{padding:16px 16px 32px;}
   :root[data-skin="jarvis"] #mainCodememory .cm-search{width:auto;flex:1;max-width:none;}
 }
+
+/* ============================================================================
+   Learning (self-improvement) — the phone's Learning page: one card per
+   event, a small status capsule, origin, text, time
+   ============================================================================ */
+:root[data-skin="jarvis"] #mainSelfimprovement #selfImprovementRefreshBtn{
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:var(--jc-r-pill);
+  color:var(--jc-text);font-size:13px;font-weight:500;padding:6px 14px;
+}
+:root[data-skin="jarvis"] #mainSelfimprovement #selfImprovementRefreshBtn:hover{background:#24242C;}
+:root[data-skin="jarvis"] #selfImprovementContent{padding:24px 32px 40px !important;max-width:820px;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-entry{
+  background:var(--jc-surface) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;
+  padding:14px 16px !important;margin:0 0 12px !important;
+}
+:root[data-skin="jarvis"] #selfImprovementContent .si-entry-top{gap:8px !important;margin-bottom:8px !important;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-badge{
+  font-size:11px !important;font-weight:500 !important;border-radius:var(--jc-r-pill) !important;padding:2px 9px !important;
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair) !important;color:var(--jc-text-2) !important;
+}
+:root[data-skin="jarvis"] #selfImprovementContent .si-badge--change{color:var(--jc-accent) !important;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-badge--fail{color:var(--jc-danger) !important;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-badge--rejected{color:var(--jc-warn) !important;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-badge--noop{color:var(--jc-muted) !important;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-origin{font-size:12px !important;opacity:1 !important;color:var(--jc-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-text{font-size:14px;line-height:1.55;color:var(--jc-text);}
+:root[data-skin="jarvis"] #selfImprovementContent .si-text:empty{display:none;}
+:root[data-skin="jarvis"] #selfImprovementContent .si-ts{font-size:12px !important;opacity:1 !important;color:var(--jc-muted);margin-top:8px !important;}
+/* Empty / loading line: the phone's centred message. */
+:root[data-skin="jarvis"] #selfImprovementContent > .logs-empty{
+  display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;
+  max-width:420px;margin:72px auto 0;padding:0 16px;font-size:14px;line-height:1.5;color:var(--jc-muted);
+  background:transparent;border:0;
+}
+:root[data-skin="jarvis"] #selfImprovementContent > .logs-empty::before{
+  content:"";width:36px;height:36px;background:var(--jc-muted);opacity:.7;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z'/%3E%3Cpath d='M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z'/%3E%3C/svg%3E") center/contain no-repeat;
+          mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z'/%3E%3Cpath d='M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+@media (max-width:640px){
+  :root[data-skin="jarvis"] #selfImprovementContent{padding:12px 16px 32px !important;}
+  :root[data-skin="jarvis"] #mainSelfimprovement > .main-view-header .main-view-title{display:none;}
+  :root[data-skin="jarvis"] #mainSelfimprovement > .main-view-header{justify-content:flex-end;border-bottom:0;min-height:0;padding-top:8px;padding-bottom:0;}
+}

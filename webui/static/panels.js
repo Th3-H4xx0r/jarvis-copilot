@@ -3106,24 +3106,25 @@ function _renderSelfImprovement(data) {
     box.innerHTML = `<div class="logs-empty">${esc(hint)}</div>`;
     return;
   }
+  // Classes let a skin restyle the entries (si-entry / si-badge--<kind>).
   const meta = {
-    fail:     { label: 'FAILED',   color: '#f87171' },
-    rejected: { label: 'REJECTED', color: '#fbbf24' },
-    change:   { label: 'LEARNED',  color: '#34d399' },
-    noop:     { label: 'REVIEWED', color: '#9ca3af' },
+    fail:     { label: 'Failed',   color: '#f87171', cls: 'fail' },
+    rejected: { label: 'Rejected', color: '#fbbf24', cls: 'rejected' },
+    change:   { label: 'Learned',  color: '#34d399', cls: 'change' },
+    noop:     { label: 'Reviewed', color: '#9ca3af', cls: 'noop' },
   };
   box.innerHTML = entries.map(e => {
     const m = meta[(e && e.kind) || 'change'] || meta.change;
     const origin = e && e.origin ? esc(e.origin) : '';
     const ts = e && e.ts ? esc(e.ts) : '';
     const text = e && e.text ? esc(e.text) : '';
-    return `<div style="padding:10px 12px;margin:6px 0;border:1px solid var(--border,#2a2a3a);border-radius:8px;background:var(--surface,#16161f);">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-        <span style="font-size:11px;font-weight:700;color:${m.color};border:1px solid ${m.color};border-radius:5px;padding:1px 6px;">${m.label}</span>
-        ${origin ? `<span style="font-size:12px;opacity:0.6;">${origin}</span>` : ''}
+    return `<div class="si-entry si-entry--${m.cls}" style="padding:10px 12px;margin:6px 0;border:1px solid var(--border,#2a2a3a);border-radius:8px;background:var(--surface,#16161f);">
+      <div class="si-entry-top" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span class="si-badge si-badge--${m.cls}" style="font-size:11px;font-weight:700;color:${m.color};border:1px solid ${m.color};border-radius:5px;padding:1px 6px;">${m.label}</span>
+        ${origin ? `<span class="si-origin" style="font-size:12px;opacity:0.6;">${origin}</span>` : ''}
       </div>
-      <div style="white-space:pre-wrap;">${text}</div>
-      ${ts ? `<div style="font-size:11px;opacity:0.5;margin-top:6px;">${ts}</div>` : ''}
+      <div class="si-text" style="white-space:pre-wrap;">${text}</div>
+      ${ts ? `<div class="si-ts" style="font-size:11px;opacity:0.5;margin-top:6px;">${ts}</div>` : ''}
     </div>`;
   }).join('');
 }
