@@ -146,6 +146,9 @@ class MacPowerStore:
                  "signature": signature}
         if not self._send(did, frame):
             return {"ok": False, "error": "The Mac isn't connected."}
+        with self._lock:
+            req["answered"] = True     # off the list now: a reload mustn't bring the card back
+        self._changed()
         return {"ok": True}
 
     # ── from the Mac ─────────────────────────────────────────────────────
@@ -224,7 +227,8 @@ class MacPowerStore:
         connected = set(self._connected())
         with self._lock:
             self._requests = {k: r for k, r in self._requests.items() if r["expires"] >= now}
-            requests = [dict(r) for r in self._requests.values()]
+            requests = [{k: v for k, v in r.items() if k != "answered"}
+                        for r in self._requests.values() if not r.get("answered")]
             macs = []
             for did, d in self._devices.items():
                 status = d.get("status") or {}

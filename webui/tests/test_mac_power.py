@@ -183,3 +183,17 @@ def test_a_failed_fill_after_his_yes_tells_him_why(tmp_path):
                            {"kind": "mac_password_failed", "id": "r1", "device_id": MAC})]
     rig.store.on_password_done(MAC, {"id": "r2", "ok": False, "error": "Not allowed"})   # his own no
     assert len(rig.alerts) == 1
+
+
+
+def test_an_answered_request_leaves_the_list_at_once(tmp_path):
+    rig = Rig(tmp_path, connected=[MAC])
+    rig.store.on_password_request(MAC, {"id": "r1", "kind": "admin", "context": "x", "nonce": "n",
+                                        "created": rig.t, "expires": rig.t + 120})
+    rig.changes.clear()
+    assert rig.store.answer("r1", "allow", 1, "s")["ok"] is True
+    assert rig.store.list_payload(lambda d: "")["password_requests"] == []
+    assert rig.changes                                # pushed to the phone
+    # the Mac's outcome still finds it (failure push)
+    rig.store.on_password_done(MAC, {"id": "r1", "ok": False, "error": "Password didn't work"})
+    assert rig.alerts[-1][0] == "Mac password not filled"
