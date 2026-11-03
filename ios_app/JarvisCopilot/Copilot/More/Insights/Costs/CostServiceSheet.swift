@@ -47,7 +47,7 @@ struct CostServiceDetailView: View {
                 }
                 .padding(.bottom, 12)
             } else {
-                CenteredMessage(text: model.loadError ?? "This service is gone.")
+                CenteredMessage(text: model.loadError ?? "This service is gone")
             }
         }
         .task { if model.detail == nil { await model.load() } }
@@ -99,7 +99,7 @@ struct CostServiceDetailView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(service.status == .needsPrice ? "No price yet"
                      : CostsUI.money(service.periodTotal, estimated: service.isEstimate))
-                    .font(.system(size: 32, weight: .bold).monospacedDigit())
+                    .font(.system(size: 32, weight: .semibold).monospacedDigit())
                     .kerning(-0.5)
                     .foregroundStyle(service.status == .needsPrice ? JcTheme.amber : JcTheme.text)
                     .lineLimit(1)
@@ -300,7 +300,7 @@ struct CostServiceDetailView: View {
             planName = plan.label
         } label: {
             HStack(spacing: 5) {
-                Text(plan.label).font(.system(size: 12.5, weight: .semibold))
+                Text(plan.label).font(.system(size: 12.5, weight: .medium))
                 Text(CostsUI.planPrice(plan.amountUSD, interval: plan.interval))
                     .font(.system(size: 12.5).monospacedDigit())
                     .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)

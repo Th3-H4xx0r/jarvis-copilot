@@ -35,7 +35,7 @@ struct CostsView: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 60)
         } else if store.isEmpty {
-            CenteredMessage(text: "No cost data yet.").padding(.top, 60)
+            CenteredMessage(text: "No cost data yet").padding(.top, 60)
         } else {
             sections
         }
@@ -105,7 +105,7 @@ struct CostsView: View {
 
             Button { addingSubscription = true } label: {
                 HStack(spacing: 8) {
-                    JcIcon("plus", size: 14, weight: .bold)
+                    JcIcon("plus", size: 14)
                     Text("Add a subscription")
                 }
             }
@@ -155,13 +155,12 @@ struct CostsHeadlineCard: View {
         GlassCard(padding: 18) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("SPENT · LAST \(days) DAYS")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .kerning(0.6)
+                    Text("Spent in the last \(days) days")
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(CostsUI.money(totals.period, estimated: CostsUI.periodIsEstimate(totals)))
-                            .font(.system(size: 36, weight: .bold).monospacedDigit())
+                            .font(.system(size: 36, weight: .semibold).monospacedDigit())
                             .kerning(-0.6)
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
@@ -215,7 +214,7 @@ struct CostsBudgetCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(CostsUI.money(state.spent))
-                        .font(.system(size: 20, weight: .bold).monospacedDigit())
+                        .font(.system(size: 20, weight: .semibold).monospacedDigit())
                         .foregroundStyle(JcTheme.text)
                     Text("of \(CostsUI.money(state.budget)) this month")
                         .font(.system(size: 12.5))
@@ -292,7 +291,7 @@ struct CostServiceRow: View {
             VStack(alignment: .trailing, spacing: 5) {
                 if service.status == .needsPrice {
                     Text("Set price")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -339,7 +338,7 @@ struct CostAvailableRow: View {
             }
             Spacer(minLength: 6)
             Text(action)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(JcTheme.accent)
             JcIcon("chevron.right", size: 11, weight: .semibold)
                 .foregroundStyle(JcTheme.muted)

@@ -14,7 +14,7 @@ struct InsightsDailyTokensCard: View {
     var body: some View {
         GlassCard {
             if !InsightsUI.hasUsage(bars) {
-                CardEmptyBlock(symbol: "chart.bar", text: "No token usage recorded.")
+                CardEmptyBlock(symbol: "chart.bar", text: "No token usage recorded")
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Chart {
@@ -55,8 +55,8 @@ struct InsightsActivityCard: View {
             VStack(alignment: .leading, spacing: 18) {
                 if !hours.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("BY HOUR")
-                            .font(.system(size: 9.5, weight: .semibold)).kerning(0.5)
+                        Text("By hour")
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.muted)
                         Chart(hours) { bar in
                             AreaMark(x: .value("Hour", bar.hour),
@@ -86,13 +86,13 @@ struct InsightsActivityCard: View {
                 }
                 if !days.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("BY WEEKDAY")
-                            .font(.system(size: 9.5, weight: .semibold)).kerning(0.5)
+                        Text("By weekday")
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.muted)
                         Chart(days) { bar in
                             BarMark(x: .value("Day", bar.day),
                                     y: .value("Sessions", bar.sessions))
-                                .foregroundStyle(JcTheme.accentAlt)
+                                .foregroundStyle(JcTheme.accent)
                                 .cornerRadius(4)
                         }
                         .chartXAxis { InsightsChartStyle.categoryAxis(days.map(\.day)) }
@@ -166,7 +166,7 @@ struct InsightsMessagesCard: View {
     var body: some View {
         GlassCard {
             if messages.isEmpty {
-                CardEmptyBlock(symbol: "bubble.left", text: "No messages recorded yet.")
+                CardEmptyBlock(symbol: "bubble.left", text: "No messages recorded yet")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     header
@@ -194,17 +194,16 @@ struct InsightsMessagesCard: View {
     private var header: some View {
         HStack(spacing: 0) {
             caption("#").frame(width: 34, alignment: .leading)
-            caption("INPUT").frame(maxWidth: .infinity, alignment: .trailing)
-            caption("OUTPUT").frame(maxWidth: .infinity, alignment: .trailing)
-            caption("TOTAL").frame(maxWidth: .infinity, alignment: .trailing)
+            caption("Input").frame(maxWidth: .infinity, alignment: .trailing)
+            caption("Output").frame(maxWidth: .infinity, alignment: .trailing)
+            caption("Total").frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
-            .kerning(0.4)
+            .font(JcText.small)
             .foregroundStyle(JcTheme.muted)
     }
 }
@@ -216,7 +215,7 @@ struct InsightsMessageRow: View {
         VStack(spacing: 7) {
             HStack(spacing: 0) {
                 Text("#\(message.turn)")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .frame(width: 34, alignment: .leading)
                 HStack(spacing: 2) {
@@ -237,7 +236,7 @@ struct InsightsMessageRow: View {
                     .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 Text(Insights.formatTokensCompact(message.inputTokens + message.outputTokens))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -292,7 +291,7 @@ struct InsightsCompositionSheet: View {
                     }
                     if !message.model.isEmpty {
                         Text(message.model)
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(JcTheme.cyan)
                     }
                 }
@@ -302,7 +301,7 @@ struct InsightsCompositionSheet: View {
                     .foregroundStyle(JcTheme.muted.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
                 if slices.isEmpty {
-                    Text("No composition data for this message.")
+                    Text("No composition data for this message")
                         .font(JcText.body)
                         .foregroundStyle(JcTheme.muted)
                         .padding(.vertical, 24)
@@ -319,7 +318,7 @@ struct InsightsCompositionSheet: View {
     private func total(_ label: String, _ value: Int) -> some View {
         (Text("\(label): ").font(.system(size: 12.5)).foregroundColor(JcTheme.muted)
          + Text(Insights.formatTokenCount(value))
-            .font(.system(size: 12.5, weight: .semibold)).foregroundColor(JcTheme.text))
+            .font(.system(size: 12.5, weight: .medium)).foregroundColor(JcTheme.text))
     }
 }
 

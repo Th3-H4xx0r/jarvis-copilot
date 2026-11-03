@@ -30,7 +30,7 @@ private struct SendConfirmSheet: View {
 
             VStack(spacing: 4) {
                 Text(card.title)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                 Text(card.subtitle)

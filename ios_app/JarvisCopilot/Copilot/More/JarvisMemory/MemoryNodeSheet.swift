@@ -184,7 +184,7 @@ struct MemoryNodeSheet: View {
         Section {
             if let detail = model.detail {
                 if detail.memories.isEmpty {
-                    Text("No memories link here now.")
+                    Text("No memories link here now")
                         .font(.system(size: 13))
                         .foregroundStyle(JcTheme.muted)
                 }
@@ -318,7 +318,7 @@ struct MemoryAliasesEditor: View {
                         if saved { dismiss() }
                     }
                 } label: {
-                    if saving { ProgressView() } else { Text("Save").bold() }
+                    if saving { ProgressView() } else { Text("Save").fontWeight(.semibold) }
                 }
                 .disabled(saving)
             }

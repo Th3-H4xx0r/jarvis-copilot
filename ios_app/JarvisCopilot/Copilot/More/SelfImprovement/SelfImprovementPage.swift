@@ -17,12 +17,11 @@ struct SelfImprovementPage: View {
     var body: some View {
         content
             .loadErrorBanner(store.errorMessage, hasContent: !store.events.isEmpty)
-            .jcScreen("Learning")
+            .jcPageChrome("Learning")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { store.load() } label: { JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent) }
+                    JcPageButton("arrow.clockwise", label: "Reload") { store.load() }
                         .disabled(store.isLoading)
-                        .accessibilityLabel("Reload")
                 }
             }
             .task { if !store.hasLoaded { store.load() } }

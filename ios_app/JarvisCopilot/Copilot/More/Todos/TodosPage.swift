@@ -25,10 +25,10 @@ struct TodosPage: View {
         // A failed pull-to-refresh with rows already on screen is otherwise
         // silent — the list just stays stale.
         .loadErrorBanner(store.errorMessage, hasContent: !store.todos.isEmpty)
-        .jcScreen("Todos")
+        .jcPageChrome("Todos")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "arrow.clockwise", size: 34, iconSize: 16) {
+                JcPageButton("arrow.clockwise", label: "Reload") {
                     store.load()
                 }
             }
@@ -49,7 +49,7 @@ struct TodosPage: View {
         } else {
             SectionHeader("Active session") {
                 Text(store.progressLabel)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(JcTheme.muted)
             }
             // Todo ids come from the agent and are not guaranteed unique (or even
@@ -117,7 +117,7 @@ struct TodoSpinningIcon: View {
 /// Icon + text empty state for a session with no plan.
 struct TodosEmptyState: View {
     var body: some View {
-        JcEmptyState(symbol: "checklist", title: "No active todo list.",
-                     subtitle: "When the active chat session has a plan, its todos show here.")
+        JcEmptyState(symbol: "checklist", title: "No active todo list",
+                     subtitle: "When the active chat session has a plan, its todos show here")
     }
 }

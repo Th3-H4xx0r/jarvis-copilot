@@ -40,7 +40,7 @@ struct Device: Identifiable, Equatable, Sendable {
     }
 
     var displayName: String { label.isEmpty ? (id.isEmpty ? "(unknown device)" : id) : label }
-    var statusLabel: String { online ? "ONLINE" : "OFFLINE" }
+    var statusLabel: String { online ? "Online" : "Offline" }
     var statusTone: MoreTone { online ? .success : .muted }
 
     func lastSeenLabel(now: Date = Date()) -> String {

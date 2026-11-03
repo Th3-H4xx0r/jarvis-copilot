@@ -24,7 +24,7 @@ struct IntegrationRecordsView: View {
                 } else if !loaded {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
                 } else if records.isEmpty {
-                    CenteredMessage(text: "Nothing recorded yet.").padding(.top, 80)
+                    CenteredMessage(text: "Nothing recorded yet").padding(.top, 80)
                 } else {
                     Text("\(records.count) record\(records.count == 1 ? "" : "s"), newest first.")
                         .font(JcText.small)
@@ -40,7 +40,7 @@ struct IntegrationRecordsView: View {
             .padding(.bottom, 28)
         }
         .refreshable { await load() }
-        .jcScreen(collection)
+        .jcPageChrome(collection)
         .task { if !loaded { await load() } }
     }
 
@@ -118,7 +118,7 @@ struct IntegrationDocumentView: View {
             .padding(.bottom, 28)
         }
         .refreshable { await load() }
-        .jcScreen(key)
+        .jcPageChrome(key)
         .task { if !loaded { await load() } }
     }
 

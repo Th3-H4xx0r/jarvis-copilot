@@ -96,23 +96,13 @@ struct HealthTab: View {
                 await vitals.load()
                 await HealthUnitSync.sendIfChanged()
             }
-            .jcScreen("Health")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    GlassIconButton(symbol: "figure.run", size: 34, iconSize: 16) {
-                        // A workout under way reopens; otherwise pick one to start.
-                        if workout.isActive { workout.showsLive = true } else { choosingWorkout = true }
-                    }
-                        .accessibilityLabel("Start a workout")
+            .jcPageChrome("Health") {
+                JcPageButton("figure.run", label: workout.isActive ? "Open the workout" : "Start a workout") {
+                    // A workout under way reopens; otherwise pick one to start.
+                    if workout.isActive { workout.showsLive = true } else { choosingWorkout = true }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    GlassIconButton(symbol: "calendar.badge.checkmark", size: 34, iconSize: 16) { showingHabits = true }
-                        .accessibilityLabel("Habits")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    GlassIconButton(symbol: "gearshape", size: 34, iconSize: 16) { showingSettings = true }
-                        .accessibilityLabel("Health settings")
-                }
+                JcPageButton("calendar.badge.checkmark", label: "Habits") { showingHabits = true }
+                JcPageButton("gearshape", label: "Health settings") { showingSettings = true }
             }
             .sheet(isPresented: $showingSettings) {
                 HealthTabSettings(model: model)
@@ -168,30 +158,16 @@ struct HealthTab: View {
 
     // MARK: Day row
 
+    /// The app's one in-page filter: the grey capsule, scrolling sideways.
     private var dayRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                pill("Today", for: .today)
-                ForEach(1..<7, id: \.self) { offset in
-                    pill(dayLabel(offset), for: .day(dayKey(offset)))
-                }
-            }
+        let days = [HealthDayChoice(selection: .today, label: "Today")]
+            + (1..<7).map { HealthDayChoice(selection: .day(dayKey($0)), label: dayLabel($0)) }
+        let current = days.first { $0.selection == selection } ?? days[0]
+        return JcSegmented(items: days,
+                           selection: Binding(get: { current }, set: { selection = $0.selection }),
+                           label: \.label,
+                           scrolls: true)
             .padding(.horizontal, 20)
-        }
-    }
-
-    private func pill(_ title: String, for choice: HealthSelection) -> some View {
-        let selected = selection == choice
-        return Button { selection = choice } label: {
-            Text(title)
-                .font(.subheadline.weight(selected ? .semibold : .regular))
-                .monospacedDigit()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(selected ? JcTheme.accent.opacity(0.28) : Color.white.opacity(0.07), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// Days count back from Today's own date — the day last night ended on —
@@ -218,6 +194,13 @@ struct HealthTab: View {
 
 }
 
+/// One day in the Health tab's day filter.
+struct HealthDayChoice: Hashable, Identifiable {
+    let selection: HealthSelection
+    let label: String
+    var id: String { selection.cacheKey }
+}
+
 /// The day at a glance, above the battery: how long you have been awake, a
 /// big live number under its own label. The label sits above the number, so
 /// no grey line runs into the section heading below.
@@ -230,7 +213,7 @@ struct HealthDayHeader: View {
     var body: some View {
         TimelineView(.everyMinute) { context in
             let end = isToday ? max(window.end, context.date) : window.end
-            stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
+            stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.muted,
                  minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onScrolledIntoView {
@@ -255,7 +238,7 @@ struct HealthDayHeader: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
             Text(revealed ? Self.length(minutes) : Self.length(minutes).odometerZero)
-                .font(.system(size: size, weight: .bold, design: .rounded))
+                .font(.system(size: size, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(.snappy, value: minutes)

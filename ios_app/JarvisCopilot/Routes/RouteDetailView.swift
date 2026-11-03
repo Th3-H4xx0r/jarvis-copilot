@@ -87,7 +87,7 @@ struct RouteDetailView: View {
                         if let gpx { ShareLink(item: gpx) { Label("Export GPX", systemImage: "square.and.arrow.up") } }
                         Divider()
                         Button(role: .destructive) { confirmingDelete = true } label: {
-                            Label("Delete Workout", systemImage: "trash")
+                            Label("Delete workout", systemImage: "trash")
                         }
                     } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("Workout options")
@@ -113,7 +113,7 @@ struct RouteDetailView: View {
             }
         }
         .alert("Delete this workout?", isPresented: $confirmingDelete) {
-            Button("Delete Workout", role: .destructive) {
+            Button("Delete workout", role: .destructive) {
                 WorkoutEditing.delete(workout)
                 dismiss()
             }
@@ -198,7 +198,7 @@ struct RouteDetailView: View {
                     ZStack(alignment: .bottomLeading) {
                         RouteMapView(segments: [], revision: 0, style: style, showsUser: true,
                                      following: $followingYou, fitToken: nil, interactive: false)
-                        Label(note ?? "No route was recorded for this workout.", systemImage: "location.slash")
+                        Label(note ?? "No route was recorded for this workout", systemImage: "location.slash")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12)
@@ -276,7 +276,7 @@ struct RouteDetailView: View {
             Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: 32, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -302,7 +302,7 @@ struct RouteDetailView: View {
                     RouteProfileChart(kind: profile, points: points, unit: unit, scrub: $scrub)
                         .frame(height: 160)
                 } else {
-                    Text("Not enough readings to chart.").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Not enough readings to chart").font(.subheadline).foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -375,12 +375,12 @@ struct RouteDetailView: View {
             } else {
                 VStack(spacing: 0) {
                     HStack {
-                        Text(unit.symbol.uppercased()).frame(width: 44, alignment: .leading)
-                        Text("PACE").frame(maxWidth: .infinity, alignment: .leading)
-                        Text("ELEV").frame(width: 92, alignment: .leading)
+                        Text(unit.symbol).frame(width: 44, alignment: .leading)
+                        Text("Pace").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Elevation").frame(width: 92, alignment: .leading)
                         if hr { Text("HR").frame(width: 44, alignment: .trailing) }
                     }
-                    .font(.caption2.weight(.bold))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -402,8 +402,8 @@ struct RouteDetailView: View {
                 Text(unit.pace(secondsPerMeter: split.pace))
                     .foregroundStyle(fastest ? JcTheme.accent : .primary)
                 if fastest {
-                    Text("FASTEST")
-                        .font(.system(size: 9, weight: .bold))
+                    Text("Fastest")
+                        .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(JcTheme.accent)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(JcTheme.accent.opacity(0.14), in: Capsule())
@@ -427,7 +427,7 @@ struct RouteDetailView: View {
             Row(minHeight: 60) {
                 HStack(spacing: 12) {
                     Image(systemName: "map").foregroundStyle(.secondary).frame(width: 30)
-                    Text("The route couldn't be loaded.").foregroundStyle(.secondary)
+                    Text("The route couldn't be loaded").foregroundStyle(.secondary)
                     Spacer()
                     Button("Retry") {
                         loaded = false

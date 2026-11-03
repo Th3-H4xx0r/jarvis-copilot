@@ -29,7 +29,7 @@ struct TemplateEditor: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
                             TextField("Template name", text: $session.log.name)
-                                .font(.title2.weight(.bold))
+                                .font(.title2.weight(.semibold))
                                 .submitLabel(.done)
                             TextField("Add a note", text: $session.log.note, axis: .vertical)
                                 .font(.subheadline)
@@ -39,7 +39,7 @@ struct TemplateEditor: View {
                         .padding(.top, 8)
                         StrengthExerciseList(session: session)
                         if !isNew {
-                            Button("Delete Template", role: .destructive) { confirmingDelete = true }
+                            Button("Delete template", role: .destructive) { confirmingDelete = true }
                                 .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
                                 .padding(.horizontal, 16)
                         }
@@ -53,7 +53,7 @@ struct TemplateEditor: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { SetKeypad(session: session) }
             .animation(.snappy, value: session.focus != nil)
-            .jcScreen(isNew ? "New Template" : "Edit Template")
+            .jcScreen(isNew ? "New template" : "Edit template")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -66,7 +66,7 @@ struct TemplateEditor: View {
                 }
             }
             .alert("Delete \(base.name)?", isPresented: $confirmingDelete) {
-                Button("Delete Template", role: .destructive) {
+                Button("Delete template", role: .destructive) {
                     store.deleteTemplate(id: base.id)
                     dismiss()
                 }

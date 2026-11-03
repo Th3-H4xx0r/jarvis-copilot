@@ -274,8 +274,8 @@ struct HarnessNodeCard: View {
     var body: some View {
         let size = HarnessEditorView.nodeSize
         VStack(alignment: .leading, spacing: 2) {
-                Text(node.type.label.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
+                Text(node.type.label)
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(JcTheme.accent)
                 Text(node.label ?? node.id)
                     .font(JcText.small).foregroundStyle(JcTheme.text).lineLimit(1)

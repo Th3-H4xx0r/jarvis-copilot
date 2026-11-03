@@ -103,14 +103,14 @@ final class InsightsUITests: XCTestCase {
         XCTAssertEqual(InsightsUI.metricPercentText(41), "41%")
         XCTAssertEqual(InsightsUI.metricPercentText(41.5), "41.5%")
         XCTAssertEqual(InsightsUI.metricTone(10), .cyan)
-        XCTAssertEqual(InsightsUI.metricTone(70), .accentAlt)
+        XCTAssertEqual(InsightsUI.metricTone(70), .amber)
         XCTAssertEqual(InsightsUI.metricTone(93.2), .danger)
     }
 
     func testHealthBadgeMarksPartialHosts() {
-        XCTAssertEqual(InsightsUI.healthBadge(SystemHealth(json: ["status": "ok"])).label, "LIVE")
+        XCTAssertEqual(InsightsUI.healthBadge(SystemHealth(json: ["status": "ok"])).label, "Live")
         let partial = InsightsUI.healthBadge(SystemHealth(json: ["status": "partial"]))
-        XCTAssertEqual(partial.label, "PARTIAL")
+        XCTAssertEqual(partial.label, "Partial")
         XCTAssertEqual(partial.tone, .amber)
     }
 
@@ -178,6 +178,9 @@ final class InsightsUITests: XCTestCase {
         XCTAssertEqual(store.overview.totalSessions, 42)
         XCTAssertTrue(store.showsMessages)
         moreUIBHost(NavigationStack { InsightsPage(store: store) })
+        // A picture to look at before installing (/tmp/ringshots or RING_SNAPSHOT_DIR).
+        try? RenderHarness.write(NavigationStack { InsightsPage(store: store) },
+                                 size: CGSize(width: 402, height: 2400), name: "insights-usage")
     }
 
     func testErrorPageRenders() async {

@@ -59,7 +59,7 @@ struct ExercisePicker: View {
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search exercises")
-            .jcScreen(single ? "Replace Exercise" : "Add Exercises")
+            .jcScreen(single ? "Replace exercise" : "Add exercises")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) { Button("New") { creating = true } }
@@ -101,7 +101,7 @@ struct ExercisePicker: View {
     private func chip(_ title: String, active: Bool) -> some View {
         HStack(spacing: 4) {
             Text(title)
-            Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+            Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium))
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(active ? Color.black : JcTheme.text)
@@ -203,7 +203,7 @@ struct CustomExerciseForm: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .jcScreen("New Exercise")
+            .jcScreen("New exercise")
             .onChange(of: equipment) { _, value in
                 kind = ExerciseLibrary.kind(category: "strength", equipment: value)
             }

@@ -25,7 +25,7 @@ struct CodeMemoryPage: View {
         .refreshable { await store.refresh() }
         .scrollDismissesKeyboard(.interactively)
         .loadErrorBanner(store.errorMessage, hasContent: !store.overview.projects.isEmpty)
-        .jcScreen("Code memory")
+        .jcPageChrome("Code memory")
         .task { if !store.hasLoaded { store.load() } }
     }
 
@@ -126,16 +126,12 @@ struct CodeMemoryProjectRow: View {
     var body: some View {
         GlassCard(padding: 0) {
             HStack(alignment: .top, spacing: 0) {
-                JcIcon("point.3.filled.connected.trianglepath.dotted", size: 17)
-                    .foregroundStyle(JcTheme.blue)
-                    .frame(width: 40, height: 40)
-                    .background(JcTheme.blue.opacity(0.12), in: Circle())
-                    .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                JcIconSquare(symbol: "point.3.filled.connected.trianglepath.dotted")
                     .padding(.trailing, 12)
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(project.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(JcTheme.text)
                         .lineLimit(1)
                     if !project.slug.isEmpty && project.slug != project.title {

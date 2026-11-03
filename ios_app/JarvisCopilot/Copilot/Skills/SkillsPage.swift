@@ -44,7 +44,7 @@ struct SkillsPage: View {
         .searchable(text: searchText,
                     placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search skills")
-        .jcScreen("Skills")
+        .jcPageChrome("Skills")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { model.reload() }
         .sheet(item: $testing) { item in
@@ -60,7 +60,7 @@ struct SkillsPage: View {
             ForEach(devices.devices.filter { $0.deviceID != "wearables" && $0.capabilities.contains { $0.name.hasPrefix("glasses_") } }, id: \.deviceID) { device in
                 GlassCard {
                     VStack(alignment: .leading, spacing: 8) {
-                        NavigationLink("GO3 Controls and Availability") { InmoCapabilitiesView(device: InmoGo3Device.shared) }
+                        NavigationLink("GO3 controls and availability") { InmoCapabilitiesView(device: InmoGo3Device.shared) }
                         Text(device.isConnected ? "Control channel ready" : "Control channel offline; status remains available").font(.caption).foregroundStyle(.secondary)
                         ForEach(device.capabilities.filter { model.query.isEmpty || $0.name.localizedCaseInsensitiveContains(model.query) || $0.description.localizedCaseInsensitiveContains(model.query) }, id: \.name) { capability in
                             VStack(alignment: .leading, spacing: 3) {
@@ -68,7 +68,7 @@ struct SkillsPage: View {
                                 Text(capability.description).font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        Text("Sharing is controlled on the device page.").font(.caption).foregroundStyle(.secondary)
+                        Text("Sharing is controlled on the device page").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -88,17 +88,16 @@ struct SkillsPage: View {
                 Text(model.summary).font(JcText.small).foregroundStyle(JcTheme.muted)
             }
             if model.isEmpty {
-                CenteredMessage(text: "No native skills are registered on this device.")
+                CenteredMessage(text: "No native skills are registered on this device")
             } else if !model.hasResults {
-                CenteredMessage(text: "No skill matches “\(model.query)”.")
+                CenteredMessage(text: "No skill matches “\(model.query)”")
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(model.sections) { section in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(section.title)
-                                .font(.system(size: 11, weight: .bold)).kerning(0.8)
-                                .foregroundStyle(JcTheme.muted)
+                            SectionHeader(section.title)
                                 .padding(.leading, 4)
+                                .padding(.bottom, -4)
                             GlassGroup {
                                 ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
                                     SkillToggleRow(item: item,
@@ -125,8 +124,7 @@ struct SkillToggleRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                GlassCircleIcon(symbol: item.requiresForeground ? "shield" : "chevron.left.forwardslash.chevron.right",
-                                tint: item.requiresForeground ? JcTheme.accent : nil)
+                JcIconSquare(symbol: item.requiresForeground ? "shield" : "chevron.left.forwardslash.chevron.right")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.name)
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
@@ -142,14 +140,8 @@ struct SkillToggleRow: View {
                 Spacer(minLength: 4)
                 Button(action: onTest) {
                     Text("Test")
-                        .font(.system(size: 11.5, weight: .bold))
-                        .foregroundStyle(JcTheme.cyan)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(JcTheme.cyan.opacity(0.12), in: Capsule())
-                        .overlay(Capsule().strokeBorder(JcTheme.cyan.opacity(0.3), lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.jcGlass(compact: true))
                 .accessibilityLabel("Test \(item.name)")
                 Toggle("", isOn: Binding(get: { item.enabled }, set: onToggle))
                     .labelsHidden()
@@ -288,7 +280,7 @@ struct SkillTestSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if fields.isEmpty {
-                    Text("This skill takes no arguments.")
+                    Text("This skill takes no arguments")
                         .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                 } else {
@@ -298,8 +290,8 @@ struct SkillTestSheet: View {
                 }
                 if let result {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("RESULT")
-                            .font(.system(size: 10.5, weight: .bold)).kerning(0.6)
+                        Text("Result")
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.muted)
                         Text(result)
                             .font(.system(size: 12, design: .monospaced))
@@ -344,8 +336,8 @@ struct SkillArgFieldView: View {
                     .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(JcTheme.text)
                 if field.required {
-                    Text("REQUIRED")
-                        .font(.system(size: 9, weight: .bold)).kerning(0.4)
+                    Text("Required")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(JcTheme.amber)
                 }
                 Spacer(minLength: 0)

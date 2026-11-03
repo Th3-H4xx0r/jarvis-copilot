@@ -49,18 +49,17 @@ struct StrengthWorkoutDetail: View {
                 .padding(.bottom, 28)
         }
         .background(JcTheme.bg)
-        .navigationTitle(workout.strength?.name ?? workout.sportName)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(workout.strength?.name ?? workout.sportName)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button { editing = true } label: { Label("Edit Workout", systemImage: "pencil") }
+                    Button { editing = true } label: { Label("Edit workout", systemImage: "pencil") }
                     Button {
                         templateName = workout.strength?.name ?? ""
                         naming = true
-                    } label: { Label("Save as Template", systemImage: "list.bullet.clipboard") }
+                    } label: { Label("Save as template", systemImage: "list.bullet.clipboard") }
                     Divider()
-                    Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete Workout", systemImage: "trash") }
+                    Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete workout", systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -84,7 +83,7 @@ struct StrengthWorkoutDetail: View {
             Button("Cancel", role: .cancel) {}
         }
         .alert("Delete this workout?", isPresented: $confirmingDelete) {
-            Button("Delete Workout", role: .destructive) {
+            Button("Delete workout", role: .destructive) {
                 WorkoutEditing.delete(workout, store: store)
                 dismiss()
             }
@@ -123,7 +122,7 @@ struct StrengthEditView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             TextField("Workout name", text: $session.log.name)
-                                .font(.title2.weight(.bold))
+                                .font(.title2.weight(.semibold))
                             DatePicker("Started", selection: Binding(get: { start }, set: { value in
                                 // Moving the start moves the whole workout, end included.
                                 end = end.addingTimeInterval(value.timeIntervalSince(start))
@@ -147,7 +146,7 @@ struct StrengthEditView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { SetKeypad(session: session) }
             .animation(.snappy, value: session.focus != nil)
-            .jcScreen("Edit Workout")
+            .jcScreen("Edit workout")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

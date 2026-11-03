@@ -60,7 +60,7 @@ struct WeightCard: View {
                 RingStat(label: "BMI", value: latest?.bmi.map { String(format: "%.1f", $0) }),
             ],
             showAll: showAll,
-            emptyText: latest == nil ? "No weigh-ins yet — step on your scale and it lands here." : nil,
+            emptyText: latest == nil ? "No weigh-ins yet — step on your scale and it lands here" : nil,
             readout: { (date: Date) -> RingScrubReadout? in
                 guard let point = points.first(where: { Calendar.current.isDate($0.day, inSameDayAs: date) }) else { return nil }
                 return RingScrubReadout(value: HealthFormat.weight(point.kg),

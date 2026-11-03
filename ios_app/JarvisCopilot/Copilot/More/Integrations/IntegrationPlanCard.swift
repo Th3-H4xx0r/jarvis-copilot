@@ -97,9 +97,8 @@ struct IntegrationPlanCard: View {
     @ViewBuilder
     private func slot<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(label.uppercased())
+            Text(label)
                 .font(JcText.small)
-                .kerning(0.8)
                 .foregroundStyle(JcTheme.muted)
             content()
         }

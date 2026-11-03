@@ -10,22 +10,22 @@ final class SelfImprovementTests: XCTestCase {
         func event(_ kind: String) -> SelfImprovementEvent {
             SelfImprovementEvent(json: ["kind": kind], index: 0)
         }
-        XCTAssertEqual(event("fail").label, "FAILED")
+        XCTAssertEqual(event("fail").label, "Failed")
         XCTAssertEqual(event("fail").tone, .danger)
-        XCTAssertEqual(event("rejected").label, "REJECTED")
+        XCTAssertEqual(event("rejected").label, "Rejected")
         XCTAssertEqual(event("rejected").tone, .amber)
-        XCTAssertEqual(event("noop").label, "REVIEWED")
+        XCTAssertEqual(event("noop").label, "Reviewed")
         XCTAssertEqual(event("noop").tone, .muted)
-        XCTAssertEqual(event("change").label, "LEARNED")
+        XCTAssertEqual(event("change").label, "Learned")
         XCTAssertEqual(event("change").tone, .success)
         // An unknown kind reads as a normal change.
-        XCTAssertEqual(event("whatever").label, "LEARNED")
+        XCTAssertEqual(event("whatever").label, "Learned")
     }
 
     func testKindDefaultsToChange() {
         let event = SelfImprovementEvent(json: ["text": "did a thing"], index: 0)
         XCTAssertEqual(event.kind, "change")
-        XCTAssertEqual(event.label, "LEARNED")
+        XCTAssertEqual(event.label, "Learned")
     }
 
     func testIDIsStableAndUniquePerRow() {
@@ -59,7 +59,7 @@ final class SelfImprovementTests: XCTestCase {
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events[0].origin, "skills")
         XCTAssertEqual(events[0].text, "created skill: weather")
-        XCTAssertEqual(events[1].label, "FAILED")
+        XCTAssertEqual(events[1].label, "Failed")
     }
 
     func testRecentDefaultLimitMatchesTheFlutterClient() async throws {

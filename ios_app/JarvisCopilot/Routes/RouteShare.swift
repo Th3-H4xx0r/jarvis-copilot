@@ -118,7 +118,7 @@ enum RouteShareImage {
     private static func figure(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label).font(.system(size: 28, weight: .semibold)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 50, weight: .bold, design: .rounded)).foregroundStyle(.white)
+            Text(value).font(.system(size: 50, weight: .semibold, design: .rounded)).foregroundStyle(.white)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

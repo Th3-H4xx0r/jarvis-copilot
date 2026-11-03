@@ -291,7 +291,7 @@ struct HealthDataSources<Analysis: View>: View {
     var body: some View {
         if devices.isEmpty {
             CardGroup("Data sources", footer: Self.footer) {
-                CardEmptyBlock(symbol: "applewatch.slash", text: "No wearables yet — pair one in Devices.")
+                CardEmptyBlock(symbol: "applewatch.slash", text: "No wearables yet — pair one in Devices")
             }
         } else {
             VStack(spacing: 12) {
@@ -322,8 +322,8 @@ struct HealthDataSources<Analysis: View>: View {
                                 HStack(spacing: 6) {
                                     Text(device.name ?? device.kind.capitalized).font(.body.weight(.medium))
                                     if device.key == primaryKey {
-                                        Text("PRIMARY")
-                                            .font(.system(size: 9, weight: .bold))
+                                        Text("Primary")
+                                            .font(.system(size: 10.5, weight: .medium))
                                             .foregroundStyle(JcTheme.accent)
                                             .padding(.horizontal, 6).padding(.vertical, 2)
                                             .background(JcTheme.accent.opacity(0.14), in: Capsule())

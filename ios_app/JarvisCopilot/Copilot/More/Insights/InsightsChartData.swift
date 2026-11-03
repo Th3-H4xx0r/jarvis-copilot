@@ -184,16 +184,16 @@ enum InsightsUI {
                                      : String(format: "%.1f%%", percent)
     }
 
-    /// Bar colour tier: red at 90%+, pink from 70%, brand cyan below.
+    /// Bar colour tier: red at 90%+, amber from 70%, the accent below.
     static func metricTone(_ percent: Double) -> MoreTone {
         if percent >= 90 { return .danger }
-        if percent >= 70 { return .accentAlt }
+        if percent >= 70 { return .amber }
         return .cyan
     }
 
     /// The "LIVE" / "PARTIAL" chip beside the System health header.
     static func healthBadge(_ health: SystemHealth) -> (label: String, tone: MoreTone) {
-        health.status == "partial" ? ("PARTIAL", .amber) : ("LIVE", .success)
+        health.status == "partial" ? ("Partial", .amber) : ("Live", .success)
     }
 
     // MARK: LLM Wiki

@@ -13,7 +13,7 @@ struct BatteryCard: View {
     let isRefreshing: Bool
     var error: String? = nil
     let onRefresh: () -> Void
-    /// Opens the battery's history ("Show all ›" beside the title).
+    /// Opens the battery's history (the Show all row at the card's foot).
     var showAll: (() -> Void)? = nil
 
     /// Where a finger is on the curve: the card reads the level there.
@@ -28,10 +28,6 @@ struct BatteryCard: View {
                     let picked = scrubbed.flatMap { Self.point(near: $0, in: battery.curve) }
                     VStack(alignment: .leading, spacing: 18) {
                         headline(level: level, battery: battery, picked: picked)
-                            // The top corner is free here: Show all sits in it.
-                            .overlay(alignment: .topTrailing) {
-                                if let showAll { ShowAllLink(action: showAll) }
-                            }
                         if battery.curve.count > 1 { curve(battery, picked: picked) }
                         parts(battery)
                     }
@@ -49,13 +45,18 @@ struct BatteryCard: View {
                 }
                 RowDivider()
                 footer(note: note(battery))
+                // The one Show all row, at the foot like every other card's.
+                if let showAll {
+                    RowDivider()
+                    JcShowAllRow(action: showAll)
+                }
             } else {
                 Row(minHeight: 84) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(isRefreshing ? "Charting your battery…" : "No battery yet")
                                 .foregroundStyle(.secondary)
-                            Text("It starts from a night of sleep on a linked wearable.")
+                            Text("It starts from a night of sleep on a linked wearable")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -115,7 +116,7 @@ struct BatteryCard: View {
                     .foregroundStyle(Color.primary.opacity(0.06))
                     .annotation(position: .overlay, alignment: .topLeading, spacing: 0) {
                         Image(systemName: "moon.fill")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                             .padding(5)
                     }
@@ -182,8 +183,8 @@ struct BatteryCard: View {
         HStack(alignment: .top, spacing: 12) {
             ForEach(Array(items.prefix(4).enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(item.0.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
+                    Text(item.0)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -204,7 +205,7 @@ struct BatteryCard: View {
             HStack {
                 Text(error ?? note ?? updatedText)
                     .font(.caption)
-                    .foregroundStyle(error == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange))
+                    .foregroundStyle(error == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(JcTheme.danger))
                     .lineLimit(2)
                 Spacer(minLength: 12)
                 refreshButton
@@ -233,9 +234,7 @@ struct BatteryCard: View {
                     .font(.system(size: 14, weight: .semibold))
             }
         }
-        .buttonStyle(.bordered)
-        .tint(JcTheme.accent)
-        .controlSize(.small)
+        .buttonStyle(.jcGlass(compact: true))
         .disabled(isRefreshing)
         .accessibilityLabel("Chart the battery again")
         .sensoryFeedback(.success, trigger: lastRefreshed)

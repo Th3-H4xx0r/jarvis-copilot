@@ -58,21 +58,21 @@ final class CronsTests: XCTestCase {
     // MARK: cronStatusLabel
 
     func testKnownStatusKeys() {
-        XCTAssertEqual(Crons.statusLabel("running"), "RUNNING")
-        XCTAssertEqual(Crons.statusLabel("paused"), "PAUSED")
-        XCTAssertEqual(Crons.statusLabel("off"), "OFF")
-        XCTAssertEqual(Crons.statusLabel("error"), "ERROR")
-        XCTAssertEqual(Crons.statusLabel("needs_attention"), "NEEDS ATTENTION")
-        XCTAssertEqual(Crons.statusLabel("scheduled"), "ACTIVE")
-        XCTAssertEqual(Crons.statusLabel("active"), "ACTIVE")
+        XCTAssertEqual(Crons.statusLabel("running"), "Running")
+        XCTAssertEqual(Crons.statusLabel("paused"), "Paused")
+        XCTAssertEqual(Crons.statusLabel("off"), "Off")
+        XCTAssertEqual(Crons.statusLabel("error"), "Error")
+        XCTAssertEqual(Crons.statusLabel("needs_attention"), "Needs attention")
+        XCTAssertEqual(Crons.statusLabel("scheduled"), "Active")
+        XCTAssertEqual(Crons.statusLabel("active"), "Active")
     }
 
-    func testUnknownStatusKeyUppercases() {
-        XCTAssertEqual(Crons.statusLabel("whatever"), "WHATEVER")
+    func testUnknownStatusKeyIsSentenceCase() {
+        XCTAssertEqual(Crons.statusLabel("whatever"), "Whatever")
     }
 
     func testEmptyStatusKeyDefaultsToActive() {
-        XCTAssertEqual(Crons.statusLabel(""), "ACTIVE")
+        XCTAssertEqual(Crons.statusLabel(""), "Active")
     }
 
     // MARK: cronStatusColor → cronStatusTone

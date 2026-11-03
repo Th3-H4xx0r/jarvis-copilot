@@ -37,7 +37,7 @@ struct MorePage: View {
                 .padding(16)
             }
             .navigationDestination(for: MoreDestination.self) { destination(for: $0) }
-            .jcScreen("More")
+            .jcPageChrome("More")
         }
         // A card elsewhere (the Chat dashboard) asked for a screen: open it on
         // top of the grid, so Back lands on More.

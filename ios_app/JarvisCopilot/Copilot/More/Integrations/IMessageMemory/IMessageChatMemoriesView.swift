@@ -30,7 +30,7 @@ struct IMessageChatMemoriesView: View {
     private func list(_ memories: IMessageChatMemories) -> some View {
         List {
             if memories.isEmpty {
-                Text("Nothing remembered from this chat yet.")
+                Text("Nothing remembered from this chat yet")
                     .font(JcText.body)
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)

@@ -91,7 +91,7 @@ struct KanbanTaskDetailView: View {
             ForEach(Array(store.comments.enumerated()), id: \.offset) { _, comment in
                 VStack(alignment: .leading, spacing: 0) {
                     Text(comment.author.isEmpty ? "anon" : comment.author)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(JcTheme.accent)
                     Text(comment.body)
                         .font(.system(size: 14))
@@ -180,9 +180,8 @@ struct KanbanTaskDetailView: View {
                     Spacer(minLength: 0)
                     if store.isRunning {
                         PulsingDot(color: JcTheme.success, size: 6)
-                        Text("LIVE")
-                            .font(.system(size: 10, weight: .semibold))
-                            .kerning(0.6)
+                        Text("Live")
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.success)
                     } else {
                         Button { Task { await store.loadLog() } } label: {

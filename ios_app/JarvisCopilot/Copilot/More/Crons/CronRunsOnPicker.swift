@@ -142,7 +142,7 @@ struct CronRunsOnSheet: View {
                     }
                     GlassQuietLabel("Harnesses").padding(.top, 16)
                     if choices.loaded && choices.harnesses.isEmpty {
-                        Text("No harnesses yet.").font(.footnote).foregroundStyle(JcTheme.muted)
+                        Text("No harnesses yet").font(.footnote).foregroundStyle(JcTheme.muted)
                     } else if choices.harnesses.isEmpty {
                         ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
                     } else {

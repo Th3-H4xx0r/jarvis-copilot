@@ -54,7 +54,7 @@ struct SleepDebtCard: View {
                 Chart {
                     ForEach(bars) { bar in
                         BarMark(x: .value("Night", bar.date, unit: .day), y: .value("Owed", bar.hours), width: .ratio(0.55))
-                            .foregroundStyle(Self.tint(bar.night.band).gradient)
+                            .foregroundStyle(Self.tint(bar.night.band))
                             .cornerRadius(5)
                             .opacity(selected == nil || Calendar.current.isDate(bar.date, inSameDayAs: selected!) ? 1 : 0.35)
                     }

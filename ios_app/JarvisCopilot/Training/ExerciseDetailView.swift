@@ -57,7 +57,7 @@ struct ExerciseDetailView: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .jcScreen(exercise?.name ?? "Exercise")
+        .jcPageChrome(exercise?.name ?? "Exercise")
     }
 
     // MARK: About
@@ -87,7 +87,7 @@ struct ExerciseDetailView: View {
                         ForEach(Array(exercise.instructions.enumerated()), id: \.offset) { i, step in
                             HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Text("\(i + 1)")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                                     .foregroundStyle(JcTheme.accent)
                                     .frame(width: 18)
                                 Text(step).font(.subheadline).fixedSize(horizontal: false, vertical: true)
@@ -99,12 +99,12 @@ struct ExerciseDetailView: View {
             }
             settingsCard(exercise)
             if exercise.custom {
-                Button("Delete Exercise", role: .destructive) { store.deleteExercise(id: exercise.id) }
+                Button("Delete exercise", role: .destructive) { store.deleteExercise(id: exercise.id) }
                     .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
                     .padding(.horizontal, 16)
             }
         } else {
-            CardEmptyBlock("This exercise is no longer in the library.", symbol: "questionmark.circle")
+            CardEmptyBlock("This exercise is no longer in the library", symbol: "questionmark.circle")
         }
     }
 
@@ -177,7 +177,7 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder private var history: some View {
         if logs.isEmpty {
-            CardEmptyBlock("Not done yet. Every workout with it will be here.", symbol: "clock.arrow.circlepath")
+            CardEmptyBlock("Not done yet. Every workout with it will be here", symbol: "clock.arrow.circlepath")
         } else {
             ForEach(Array(logs.enumerated()), id: \.offset) { _, log in
                 CardGroup(log.started.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())) {
@@ -187,7 +187,7 @@ struct ExerciseDetailView: View {
                             ForEach(Array(entry.sets.filter(\.isDone).enumerated()), id: \.element.id) { i, set in
                                 HStack {
                                     Text(set.tag.badge ?? "\(i + 1)")
-                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                                         .foregroundStyle(set.tag == .warmup ? JcTheme.amber : JcTheme.muted)
                                         .frame(width: 22, alignment: .leading)
                                     Text(SetRow.describe(set, kind: entry.kind, unit: unit))
@@ -225,7 +225,7 @@ struct ExerciseDetailView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(chosen.label).font(.headline)
-                        Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(JcTheme.accent)
                 }
@@ -237,7 +237,7 @@ struct ExerciseDetailView: View {
                 .frame(width: 150)
             }
             if points.count < 2 {
-                CardEmptyBlock(points.isEmpty ? "Nothing in this range yet." : "One workout so far — the line starts at the second.",
+                CardEmptyBlock(points.isEmpty ? "Nothing in this range yet" : "One workout so far — the line starts at the second",
                                symbol: "chart.xyaxis.line")
                     .frame(height: 200)
             } else {
@@ -293,7 +293,7 @@ struct ExerciseDetailView: View {
     @ViewBuilder private var records: some View {
         let r = TrainingMath.records(exerciseID: exerciseID, in: logs)
         if r == TrainingMath.Records() {
-            CardEmptyBlock("Records appear after the first workout with this exercise.", symbol: "trophy")
+            CardEmptyBlock("Records appear after the first workout with this exercise", symbol: "trophy")
         } else {
             CardGroup("Personal records") {
                 recordRow("Estimated 1RM", r.e1RM.map { "\(unit.estimate($0)) \(unit.symbol)" })
@@ -311,7 +311,7 @@ struct ExerciseDetailView: View {
                         Text("Best").frame(width: 90, alignment: .trailing)
                         Text("Predicted").frame(width: 90, alignment: .trailing)
                     }
-                    .font(.caption.weight(.bold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(JcTheme.muted)
                     .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 4)
                     ForEach(1...12, id: \.self) { reps in
@@ -321,7 +321,7 @@ struct ExerciseDetailView: View {
                             Text("\(reps)").frame(width: 50, alignment: .leading)
                             Spacer()
                             Text(row.actual.map { unit.format($0) } ?? "—")
-                                .fontWeight(beats ? .bold : .regular)
+                                .fontWeight(beats ? .semibold : .regular)
                                 .foregroundStyle(row.actual == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                                 .frame(width: 90, alignment: .trailing)
                             Text(row.predicted.map { unit.format(TrainingMath.roundToPlates($0, unit: unit)) } ?? "—")
@@ -363,7 +363,7 @@ private struct ExercisePhoto: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                ProgressView().tint(.gray)
+                ProgressView().tint(JcTheme.muted)
             }
         }
         .task { image = await ExerciseImageCache.shared.image(path) }

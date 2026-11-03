@@ -21,11 +21,10 @@ struct WorkspacesPage: View {
     var body: some View {
         content
             .loadErrorBanner(store.errorMessage, hasContent: !store.workspaces.isEmpty)
-            .jcScreen("Workspaces")
+            .jcPageChrome("Workspaces")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { adding = true } label: { JcIcon("plus").foregroundStyle(JcTheme.accent) }
-                        .accessibilityLabel("Add workspace")
+                    JcPageButton("plus", label: "Add workspace") { adding = true }
                 }
             }
             .task { if store.workspaces.isEmpty { store.load() } }
@@ -100,18 +99,11 @@ struct WorkspaceRow: View {
     let onRename: () -> Void
     let onRemove: () -> Void
 
-    private var accent: Color { isLastUsed ? JcTheme.success : JcTheme.muted }
 
     var body: some View {
-        GlassCard(padding: 12, fill: JcTheme.surface,
-                  borderColor: isLastUsed ? JcTheme.success.opacity(0.35) : JcTheme.glassBorder) {
+        GlassCard(padding: 12, radius: JcUnified.cardRadius) {
             HStack(spacing: 12) {
-                JcIcon(isLastUsed ? "folder.fill" : "folder")
-                    .font(.system(size: 19))
-                    .foregroundStyle(accent)
-                    .frame(width: 38, height: 38)
-                    .background(accent.opacity(isLastUsed ? 0.16 : 0.10), in: Circle())
-                    .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                JcIconSquare(symbol: isLastUsed ? "folder.fill" : "folder")
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(workspace.name)
@@ -119,7 +111,7 @@ struct WorkspaceRow: View {
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         if isLastUsed {
-                            StatusPill("LAST USED", color: JcTheme.success, dense: true)
+                            StatusPill("Last used", color: JcTheme.success, dense: true)
                         }
                     }
                     Text(workspace.path)

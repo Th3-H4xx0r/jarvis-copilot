@@ -48,10 +48,10 @@ struct WebViewPage: View {
                                   isLoading: $isLoading)
                 }
             } else {
-                CenteredMessage(text: "No server paired.")
+                CenteredMessage(text: "No server paired")
             }
         }
-        .jcScreen(title)
+        .jcPageChrome(title)
     }
 }
 

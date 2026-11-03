@@ -58,10 +58,10 @@ struct LongTermMemoryPage: View {
                 }
             }
         }
-        .jcScreen("Long-term memory")
+        .jcPageChrome("Long-term memory")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "arrow.clockwise", size: 34, iconSize: 16) {
+                JcPageButton("arrow.clockwise", label: "Reload") {
                     if mode == .map {
                         Task { await graph.load() }
                     } else {
@@ -132,22 +132,15 @@ struct LongTermMemoryPage: View {
     private var statsHeader: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 14) {
-                    JcIcon("brain", size: 22)
-                        .foregroundStyle(JcTheme.accent)
-                        .frame(width: 46, height: 46)
-                        .background(JcTheme.accent.opacity(0.14), in: Circle())
-                        .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(store.data.count)")
-                            .font(.system(size: 30, weight: .heavy))
-                            .foregroundStyle(JcTheme.text)
-                        Text("memories stored")
-                            .font(.system(size: 13))
-                            .foregroundStyle(JcTheme.muted)
-                    }
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(store.data.count)")
+                        .font(.system(size: 30, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(JcTheme.text)
+                    Text("memories stored")
+                        .font(.system(size: 13))
+                        .foregroundStyle(JcTheme.muted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if !store.namespaces.isEmpty {
                     Rectangle().fill(JcTheme.glassBorder).frame(height: 1)
                         .padding(.vertical, 14)
@@ -425,7 +418,7 @@ struct LongTermMemoryPage: View {
                             Button(done ? "Restored" : "Restore") {
                                 Task { await map.restore(item.id) }
                             }
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(done ? JcTheme.muted : JcTheme.accent)
                             .buttonStyle(.plain)
                             .disabled(done)
@@ -521,7 +514,7 @@ struct MemoryNamespaceChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(name)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(JcTheme.text)
             Text("\(count)")
                 .font(.system(size: 11.5, weight: .medium))

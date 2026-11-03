@@ -108,8 +108,8 @@ struct SetKeypad: View {
                     Text("Next")
                         .font(.system(size: 17, weight: .semibold))
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .foregroundStyle(.black)
-                        .background(JcTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .foregroundStyle(JcTheme.accent)
+                        .background(JcTheme.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -202,7 +202,7 @@ struct SetKeypad: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             if result.perSide.isEmpty {
-                Text(total <= bar ? "Just the bar." : "No plates make that.")
+                Text(total <= bar ? "Just the bar" : "No plates make that")
                     .foregroundStyle(.secondary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -308,7 +308,7 @@ struct PlateChip: View {
     var body: some View {
         let height = 34 + 58 * min(1, weight / heavy)
         Text(TrainingUnit.number(weight))
-            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
             .foregroundStyle(.black)
             .frame(width: 38, height: height)
             .background(JcTheme.accent.opacity(0.55 + 0.45 * min(1, weight / heavy)),

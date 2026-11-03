@@ -21,7 +21,7 @@ struct IMessageMemoryCardRow: View {
                               name: "iMessage memory",
                               subtitle: subtitle,
                               dimmed: !on,
-                              pill: card?.liveJob != nil ? "BACKFILLING" : nil)
+                              pill: card?.liveJob != nil ? "Backfilling" : nil)
     }
 }
 
@@ -62,7 +62,7 @@ struct IMessageMemoryView: View {
         }
         .refreshable { await store.refresh() }
         .loadErrorBanner(store.errorMessage, hasContent: store.card != nil)
-        .jcScreen("iMessage memory")
+        .jcPageChrome("iMessage memory")
         .onAppear { store.appeared() }
         .onDisappear { store.disappeared() }
         .moreToast($store.toast)
@@ -223,7 +223,7 @@ struct IMessageMemoryView: View {
             }
             InsetGroup {
                 if card.chats.isEmpty {
-                    CardEmptyBlock("Chats appear once your Mac reports.", symbol: "bubble.left")
+                    CardEmptyBlock("Chats appear once your Mac reports", symbol: "bubble.left")
                 } else if shown.isEmpty {
                     CardEmptyBlock("Nothing matches “\(query)”", symbol: "magnifyingglass")
                 } else {

@@ -34,7 +34,7 @@ struct NoteDetailScreen: View {
             .padding(.bottom, 120)
         }
         .refreshable { await store.load(noteID) }
-        .jcScreen(note?.title ?? "Note")
+        .jcPageChrome(note?.title ?? "Note")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if let markdown {
@@ -99,7 +99,7 @@ struct NoteDetailScreen: View {
                     Text("The summary failed: \(note.summaryError ?? "no model answered").")
                         .foregroundStyle(JcTheme.amber)
                 case .none, .done:
-                    Text("No summary yet.").foregroundStyle(JcTheme.muted)
+                    Text("No summary yet").foregroundStyle(JcTheme.muted)
                 }
             }
             if note.summaryStatus != .pending && note.lineCount > 0 && (note.summary == nil || note.summaryStatus == .failed) {
@@ -164,7 +164,7 @@ struct NoteDetailScreen: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(note.name(of: line.speaker))
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(note.isMe(line.speaker) ? JcTheme.accent : JcTheme.text)
                                 Text(AgentNote.clock(line.start))
                                     .font(.system(size: 11).monospacedDigit())

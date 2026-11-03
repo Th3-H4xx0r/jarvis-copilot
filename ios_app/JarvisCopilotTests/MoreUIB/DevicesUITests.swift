@@ -47,7 +47,7 @@ final class DevicesUITests: XCTestCase {
 
     func testStatusAndLastSeenLabels() async {
         let store = await loadedStore()
-        XCTAssertEqual(store.devices.map(\.statusLabel), ["ONLINE", "OFFLINE"])
+        XCTAssertEqual(store.devices.map(\.statusLabel), ["Online", "Offline"])
         XCTAssertEqual(store.devices.map(\.statusTone), [.success, .muted])
         XCTAssertEqual(store.devices[1].displayName, "MacBook Pro")
     }

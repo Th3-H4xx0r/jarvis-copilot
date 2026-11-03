@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The "Quota & Usage" card at the top of Insights.
+/// The "Quota & usage" card at the top of Insights.
 ///
 /// One block per configured quota-capable provider (Claude Code, Codex, …), each
 /// limit window drawn as a bar + percentage + reset countdown.
@@ -24,25 +24,20 @@ struct QuotaCard: View {
         }
     }
 
+    /// The app's section label, with the refresh in its trailing slot.
     private var header: some View {
-        HStack {
-            Text("Quota & Usage")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(JcTheme.text)
-            Spacer()
+        JcSectionLabel("Quota & usage", first: true) {
             if store.isRefreshing {
-                ProgressView().controlSize(.small).tint(JcTheme.muted)
+                ProgressView().controlSize(.mini).tint(JcTheme.muted)
             } else {
                 Button { store.reload() } label: {
-                    JcIcon("arrow.clockwise", size: 16, weight: .semibold)
+                    JcIcon("arrow.clockwise", size: 13)
                         .foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Refresh usage")
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.bottom, 12)
     }
 
     @ViewBuilder
@@ -73,11 +68,7 @@ struct QuotaCard: View {
         HStack {
             Text(text).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
             Spacer(minLength: 8)
-            if let retry {
-                Button("Retry", action: retry)
-                    .font(JcText.label)
-                    .foregroundStyle(JcTheme.accent)
-            }
+            if let retry { JcSmallAction("Retry", action: retry) }
         }
         .padding(.vertical, 8)
     }
@@ -90,19 +81,14 @@ struct QuotaProviderBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                JcIcon(provider.iconName)
-                    .font(.system(size: 16))
-                    .foregroundStyle(JcTheme.text)
-                    .frame(width: 30, height: 30)
-                    .background(JcTheme.text.opacity(0.10), in: Circle())
-                    .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                JcIconSquare(symbol: provider.iconName)
                 Text(provider.headerTitle)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                 Spacer(minLength: 0)
             }
             if provider.windows.isEmpty {
-                Text("No active limits.")
+                Text("No active limits")
                     .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
             }
@@ -145,18 +131,18 @@ struct QuotaWindowRow: View {
 }
 
 /// A 6pt usage bar whose fill tracks the window's used fraction and whose colour
-/// shifts amber/red near the limit. An unknown value renders an empty track
+/// turns amber, then red, near the limit. An unknown value renders an empty track
 /// (paired with "—") rather than a misleading full or empty bar.
 struct QuotaBar: View {
     let fraction: Double
     let tone: QuotaBarTone
 
-    private var colors: [Color] {
+    private var color: Color {
         switch tone {
-        case .critical: return [Color(jcHex: 0xEF4444), Color(jcHex: 0xF97316)]
-        case .warning:  return [Color(jcHex: 0xF59E0B), Color(jcHex: 0xFBBF24)]
-        case .normal:   return [JcTheme.cyan, JcTheme.accent]
-        case .unknown:  return [JcTheme.muted, JcTheme.muted]
+        case .critical: return JcTheme.danger
+        case .warning:  return JcTheme.amber
+        case .normal:   return JcTheme.accent
+        case .unknown:  return JcTheme.muted
         }
     }
 
@@ -165,7 +151,7 @@ struct QuotaBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(JcTheme.glassBorder)
                 Capsule()
-                    .fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+                    .fill(color)
                     .frame(width: max(0, geo.size.width * min(max(fraction, 0), 1)))
             }
         }

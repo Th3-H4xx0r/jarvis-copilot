@@ -45,14 +45,12 @@ struct HarnessesPage: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .jcScreen()
-        .navigationTitle("Harnesses")
+        .jcPageChrome("Harnesses")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
+                JcPageButton("plus", label: "New harness") {
                     editing = HarnessGraph.newHarness(id: uniqueID("harness"), name: "New harness")
-                } label: { JcIcon("plus").foregroundStyle(JcTheme.accent) }
-                .accessibilityLabel("New harness")
+                }
             }
         }
         .navigationDestination(item: $editing) { HarnessEditorView(harness: $0) }

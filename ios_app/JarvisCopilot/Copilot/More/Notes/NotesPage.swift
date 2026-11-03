@@ -37,7 +37,7 @@ struct NotesPage: View {
             .padding(.bottom, 120)
         }
         .refreshable { await store.refresh() }
-        .jcScreen("Notes")
+        .jcPageChrome("Notes")
         .navigationDestination(for: NotesRoute.self) { route in
             switch route {
             case .detail(let id): NoteDetailScreen(noteID: id, store: store)

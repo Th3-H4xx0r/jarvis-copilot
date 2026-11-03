@@ -156,7 +156,7 @@ struct HealthVitalDayView: View {
                 content(history, day)
             } else if let error = model.error {
                 CardGroup {
-                    Row { Text(error).font(.subheadline).foregroundStyle(.orange) }
+                    Row { Text(error).font(.subheadline).foregroundStyle(JcTheme.danger) }
                     RowDivider()
                     Row { Button("Try again") { Task { await model.load() } } }
                 }
@@ -207,7 +207,7 @@ struct HealthVitalDayView: View {
             CardGroup {
                 if day.points.isEmpty {
                     Row(minHeight: 180) {
-                        Text("No \(metric.inSentence) on this day.").font(.subheadline).foregroundStyle(.secondary)
+                        Text("No \(metric.inSentence) on this day").font(.subheadline).foregroundStyle(.secondary)
                     }
                 } else {
                     HealthVitalDayChart(day: day, kind: kind, tint: metric.tint, title: metric.title,
@@ -276,12 +276,11 @@ struct HealthVitalDayView: View {
 
     private func headline(_ slot: HealthVitalDay.Slot?, day: HealthVitalDay) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text((slot.map { "\($0.count > 1 ? "Average" : "Reading") · \(span($0))" } ?? "Average").uppercased())
-                .font(.caption.weight(.semibold))
-                .kerning(0.4)
+            Text((slot.map { "\($0.count > 1 ? "Average" : "Reading") · \(span($0))" } ?? "Average"))
+                .font(.subheadline)
                 .foregroundStyle(picked == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
             Text(slot.map { text($0.value, $0.low) } ?? "—")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -302,8 +301,8 @@ struct HealthVitalDayView: View {
     private func extreme(_ title: String, _ reading: HealthVitalReading, symbol: String) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 2) {
-                RingMetricSymbol(name: metric.symbol, tint: metric.tint, size: 18)
-                JcIcon(symbol, size: 12).foregroundStyle(metric.tint)
+                RingMetricSymbol(name: metric.symbol, tint: JcTheme.muted, size: 18)
+                JcIcon(symbol, size: 12).foregroundStyle(JcTheme.muted)
             }
             Text(title).font(.subheadline).foregroundStyle(.secondary)
             Text(HealthReadingsCard.text(reading, kind: kind))

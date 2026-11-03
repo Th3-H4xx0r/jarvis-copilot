@@ -36,12 +36,10 @@ struct HabitDetailView: View {
         Group {
             if let habit { content(habit) } else { Color.clear }
         }
-        .navigationTitle(habit?.name ?? "")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(habit?.name ?? "")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "pencil", size: 34, iconSize: 15) { editing = true }
-                    .accessibilityLabel("Edit habit")
+                JcPageButton("pencil", label: "Edit habit") { editing = true }
             }
         }
         .sheet(isPresented: $editing) {
@@ -102,8 +100,8 @@ struct HabitDetailView: View {
                 CardGroup("Highlights") {
                     Row {
                         HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(JcTheme.accent)
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .foregroundStyle(JcTheme.muted)
                                 .padding(.top, 2)
                             Text(HabitMath.highlight(range: range, period: period,
                                                      count: HabitMath.count(relapses, in: period),
@@ -133,12 +131,11 @@ struct HabitDetailView: View {
         let value = "\(count)"
         let current = HabitMath.isCurrent(range, anchor: anchor, now: clock, calendar: calendar)
         return VStack(alignment: .leading, spacing: 2) {
-            Text((picked.map(label) ?? "Relapses").uppercased())
-                .font(.caption.weight(.semibold))
-                .kerning(0.4)
+            Text(picked.map(label) ?? "Relapses")
+                .font(.subheadline)
                 .foregroundStyle(picked == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
             Text(revealed ? value : value.odometerZero)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.2), value: value)
@@ -202,18 +199,18 @@ struct HabitDetailView: View {
         return Chart {
             ForEach(shown) { bucket in
                 BarMark(x: .value("When", bucket.start, unit: unit), y: .value("Relapses", bucket.count))
-                    .foregroundStyle(tint(habit, bucket).gradient)
+                    .foregroundStyle(tint(habit, bucket))
                     .cornerRadius(3)
                     .opacity(picked != nil && picked?.id != bucket.id ? 0.35 : 1)
             }
             if let dailyLimit, range == .week || range == .month {
                 RuleMark(y: .value("Limit", dailyLimit))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                    .foregroundStyle(Color.orange.opacity(0.8))
+                    .foregroundStyle(JcTheme.amber.opacity(0.8))
                     .annotation(position: .top, alignment: .trailing, spacing: 2) {
                         Text("Limit \(dailyLimit)")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.orange)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(JcTheme.amber)
                     }
             }
             if let picked {
@@ -243,12 +240,12 @@ struct HabitDetailView: View {
         .frame(height: 200)
     }
 
-    /// Orange past the limit for its period; the accent otherwise.
+    /// Amber past the limit for its period; the accent otherwise.
     private func tint(_ habit: Habit, _ bucket: HabitMath.Bucket) -> Color {
         guard let limit = habit.goal.limit else { return JcTheme.accent }
         let over = (limit.per == .day && (range == .week || range == .month))
             || (limit.per == .month && range == .year)
-        return over && bucket.count > limit.count ? Color.orange : JcTheme.accent
+        return over && bucket.count > limit.count ? JcTheme.amber : JcTheme.accent
     }
 
     private var axisValues: AxisMarkValues {
@@ -309,9 +306,9 @@ struct HabitDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(used) of \(limit.count) relapses this month")
                         .font(.subheadline)
-                        .foregroundStyle(used > limit.count ? Color.orange : .secondary)
+                        .foregroundStyle(used > limit.count ? JcTheme.amber : .secondary)
                     ProgressView(value: Double(min(used, max(limit.count, 1))), total: Double(max(limit.count, 1)))
-                        .tint(used > limit.count ? Color.orange : JcTheme.accent)
+                        .tint(used > limit.count ? JcTheme.amber : JcTheme.accent)
                 }
             }
             if let limit = habit.goal.limit, limit.per == .month, range == .year {
@@ -477,12 +474,12 @@ struct HabitDayMark: View {
             switch status {
             case .clean, .within:
                 Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(JcTheme.success)
             case .over:
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.orange)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(JcTheme.amber)
             case .beforeStart, .future:
                 EmptyView()
             }
@@ -493,7 +490,7 @@ struct HabitDayMark: View {
     private var ring: Color {
         switch status {
         case .clean, .within: return today ? JcTheme.accent : JcTheme.success.opacity(0.7)
-        case .over: return Color.orange.opacity(0.8)
+        case .over: return JcTheme.amber.opacity(0.8)
         case .beforeStart, .future: return Color.white.opacity(0.1)
         }
     }
@@ -511,7 +508,7 @@ struct HabitCalendarCell: View {
             Button(action: tap) {
                 VStack(spacing: 3) {
                     Text(day.formatted(.dateTime.day()))
-                        .font(.subheadline.weight(today ? .bold : .semibold))
+                        .font(.subheadline.weight(today ? .semibold : .medium))
                         .monospacedDigit()
                         .foregroundStyle(faded ? JcTheme.muted.opacity(0.6) : JcTheme.text)
                     mark
@@ -536,16 +533,16 @@ struct HabitCalendarCell: View {
         switch cell.status {
         case .clean:
             Image(systemName: "checkmark")
-                .font(.system(size: 9, weight: .heavy))
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(JcTheme.success)
         case .within:
             Text("\(cell.count)")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(JcTheme.accent)
         case .over:
             Text("\(cell.count)")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Color.orange)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(JcTheme.amber)
         default:
             Color.clear
         }
@@ -555,7 +552,7 @@ struct HabitCalendarCell: View {
         switch cell.status {
         case .clean: return JcTheme.success.opacity(0.10)
         case .within: return JcTheme.accent.opacity(0.16)
-        case .over: return Color.orange.opacity(min(0.45, 0.14 + 0.08 * Double(cell.count)))
+        case .over: return JcTheme.amber.opacity(min(0.45, 0.14 + 0.08 * Double(cell.count)))
         default: return Color.white.opacity(0.03)
         }
     }

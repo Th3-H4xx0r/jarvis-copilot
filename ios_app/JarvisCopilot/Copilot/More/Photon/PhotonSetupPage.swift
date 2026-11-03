@@ -79,7 +79,7 @@ struct PhotonSetupPage: View {
                 .scrollDismissesKeyboard(.interactively)
             }
         }
-        .jcScreen("Photon (iMessage)")
+        .jcPageChrome("Photon (iMessage)")
         .task { if store.isLoading { store.load() } }
         .moreToast($store.toast)
     }
@@ -87,7 +87,7 @@ struct PhotonSetupPage: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Connect hosted iMessage")
-                .font(.system(size: 22, weight: .heavy))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
             Text("Create a project at app.photon.codes, then paste its credentials "
                + "from the project settings page. The Photon sidecar must be running "

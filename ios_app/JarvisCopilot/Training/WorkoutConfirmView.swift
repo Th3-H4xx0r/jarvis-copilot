@@ -322,7 +322,7 @@ struct WorkoutConfirmView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.largeTitle.weight(.bold))
+                .font(.largeTitle.weight(.semibold))
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
             Text(facts)
@@ -590,14 +590,13 @@ struct ExercisePlanCard: View {
 
     private var columns: some View {
         HStack(spacing: 8) {
-            Text("SET").frame(width: 30, alignment: .leading)
-            Text("PREVIOUS").frame(maxWidth: .infinity, alignment: .leading)
+            Text("Set").frame(width: 30, alignment: .leading)
+            Text("Previous").frame(maxWidth: .infinity, alignment: .leading)
             ForEach(fields, id: \.self) { field in
                 Text(SetRow.heading(field, kind: exercise.kind, unit: unit)).frame(width: 56, alignment: .trailing)
             }
         }
-        .font(.system(size: 11, weight: .semibold))
-        .kerning(0.4)
+        .font(JcText.small)
         .foregroundStyle(JcTheme.muted)
         .accessibilityHidden(true)
     }
@@ -767,7 +766,7 @@ struct MonitorPicker: View {
                 }
                 .padding(.top, 8)
             }
-            .jcScreen("Health Monitoring")
+            .jcScreen("Health monitoring")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])

@@ -85,11 +85,11 @@ final class ProfilesTests: XCTestCase {
 
     func testGatewayLabelAndTone() {
         let running = Profile(json: ["name": "a", "gateway_running": true])
-        XCTAssertEqual(running.gatewayLabel, "GATEWAY RUNNING")
+        XCTAssertEqual(running.gatewayLabel, "Gateway running")
         XCTAssertEqual(running.gatewayTone, .primaryBlue)
 
         let idle = Profile(json: ["name": "b"])
-        XCTAssertEqual(idle.gatewayLabel, "GATEWAY IDLE")
+        XCTAssertEqual(idle.gatewayLabel, "Gateway idle")
         XCTAssertEqual(idle.gatewayTone, .muted)
     }
 

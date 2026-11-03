@@ -228,17 +228,17 @@ enum Crons {
         return "active"
     }
 
-    /// Short uppercase badge label for a status key.
+    /// Short sentence-case badge label for a status key.
     static func statusLabel(_ key: String) -> String {
         switch key.lowercased() {
-        case "running": return "RUNNING"
-        case "paused": return "PAUSED"
-        case "off", "disabled": return "OFF"
-        case "error": return "ERROR"
-        case "needs_attention", "schedule_error": return "NEEDS ATTENTION"
-        case "completed": return "COMPLETED"
-        case "scheduled", "active": return "ACTIVE"
-        default: return key.isEmpty ? "ACTIVE" : key.uppercased()
+        case "running": return "Running"
+        case "paused": return "Paused"
+        case "off", "disabled": return "Off"
+        case "error": return "Error"
+        case "needs_attention", "schedule_error": return "Needs attention"
+        case "completed": return "Completed"
+        case "scheduled", "active": return "Active"
+        default: return key.isEmpty ? "Active" : key.prefix(1).uppercased() + key.dropFirst().lowercased().replacingOccurrences(of: "_", with: " ")
         }
     }
 

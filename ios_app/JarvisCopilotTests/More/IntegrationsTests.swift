@@ -112,15 +112,15 @@ final class IntegrationsTests: XCTestCase {
             "skills": [["name": "gym-logger", "purpose": "Log from a sentence."]],
         ])
         XCTAssertTrue(plan.isPending)
-        XCTAssertEqual(plan.statusLabel, "PROPOSED")
+        XCTAssertEqual(plan.statusLabel, "Proposed")
         XCTAssertEqual(plan.schedules.map(\.when), ["0 19 * * 0"])
         XCTAssertEqual(plan.collections.first?.summary, "one workout")
         XCTAssertEqual(plan.skills.first?.summary, "Log from a sentence.")
     }
 
     func testADecidedPlanSaysWhatBecameOfIt() {
-        XCTAssertEqual(IntegrationPlan(json: ["id": "p", "status": "approved"]).statusLabel, "CREATED")
-        XCTAssertEqual(IntegrationPlan(json: ["id": "p", "status": "cancelled"]).statusLabel, "CANCELLED")
+        XCTAssertEqual(IntegrationPlan(json: ["id": "p", "status": "approved"]).statusLabel, "Created")
+        XCTAssertEqual(IntegrationPlan(json: ["id": "p", "status": "cancelled"]).statusLabel, "Cancelled")
         XCTAssertFalse(IntegrationPlan(json: ["id": "p", "status": "approved"]).isPending)
     }
 }

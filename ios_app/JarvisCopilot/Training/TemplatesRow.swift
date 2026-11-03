@@ -61,7 +61,7 @@ struct TemplatesRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button { onStart(template) } label: { Label("Start Workout", systemImage: "play.fill") }
+            Button { onStart(template) } label: { Label("Start workout", systemImage: "play.fill") }
             Button { onEdit(template) } label: { Label("Edit", systemImage: "pencil") }
             Button { store.duplicateTemplate(id: template.id) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
             Button(role: .destructive) { withAnimation { store.deleteTemplate(id: template.id) } } label: {
@@ -106,7 +106,7 @@ struct TemplatesRow: View {
                     .foregroundStyle(JcTheme.accent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Create a template").font(.headline).foregroundStyle(.primary)
-                    Text("Plan the lifts you repeat, then start them in a tap.")
+                    Text("Plan the lifts you repeat, then start them in a tap")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
@@ -160,7 +160,7 @@ struct TemplatesManager: View {
             .jcScreen("Templates")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(mode.isEditing ? "Done Reordering" : "Reorder") {
+                    Button(mode.isEditing ? "Done reordering" : "Reorder") {
                         withAnimation { mode = mode.isEditing ? .inactive : .active }
                     }
                 }

@@ -99,7 +99,7 @@ struct IMessagePreviewSheet: View {
     @ViewBuilder private var content: some View {
         if let messages {
             if messages.isEmpty {
-                CenteredMessage(text: "No messages in this chat yet.")
+                CenteredMessage(text: "No messages in this chat yet")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -150,7 +150,7 @@ private struct IMessagePreviewBubble: View {
         VStack(alignment: message.isFromMe ? .trailing : .leading, spacing: 3) {
             if showsSender && !message.sender.isEmpty {
                 Text(message.sender)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(JcTheme.muted)
                     .padding(.horizontal, 6)
             }

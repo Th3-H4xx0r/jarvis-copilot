@@ -466,7 +466,7 @@ final class RoutePin: NSObject, MKAnnotation {
             let rect = CGRect(x: 0, y: 0, width: diameter, height: diameter)
             UIColor.white.setFill()
             context.cgContext.fillEllipse(in: rect)
-            let config = UIImage.SymbolConfiguration(pointSize: diameter * 0.5, weight: .bold)
+            let config = UIImage.SymbolConfiguration(pointSize: diameter * 0.5, weight: .semibold)
             if let glyph = UIImage(systemName: symbol, withConfiguration: config)?.withTintColor(.black, renderingMode: .alwaysOriginal) {
                 glyph.draw(in: CGRect(x: (diameter - glyph.size.width) / 2, y: (diameter - glyph.size.height) / 2,
                                       width: glyph.size.width, height: glyph.size.height))
@@ -482,7 +482,7 @@ final class RoutePin: NSObject, MKAnnotation {
             UIColor(white: 0.08, alpha: 1).setFill()
             context.cgContext.fillEllipse(in: rect.insetBy(dx: 1.5, dy: 1.5))
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: text.count > 1 ? 9 : 10.5, weight: .bold), .foregroundColor: UIColor.white,
+                .font: UIFont.systemFont(ofSize: text.count > 1 ? 9 : 10.5, weight: .semibold), .foregroundColor: UIColor.white,
             ]
             let size = (text as NSString).size(withAttributes: attributes)
             (text as NSString).draw(at: CGPoint(x: (diameter - size.width) / 2, y: (diameter - size.height) / 2),

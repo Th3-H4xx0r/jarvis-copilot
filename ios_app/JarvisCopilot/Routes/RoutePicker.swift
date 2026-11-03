@@ -66,7 +66,7 @@ struct RoutePicker: View {
                     }
                     if store.index.isEmpty && remote.isEmpty {
                         CardGroup {
-                            CardEmptyBlock(symbol: "map", text: "No routes yet — finish an outdoor workout and it's here to follow.")
+                            CardEmptyBlock(symbol: "map", text: "No routes yet — finish an outdoor workout and it's here to follow")
                         }
                     }
                 }

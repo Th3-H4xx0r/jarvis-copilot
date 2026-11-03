@@ -32,7 +32,7 @@ struct StrengthExerciseList: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             Button { sheet = .add } label: {
-                Label("Add Exercises", systemImage: "plus")
+                Label("Add exercises", systemImage: "plus")
             }
             .buttonStyle(.jcGlass(full: true))
             .padding(.horizontal, 16)

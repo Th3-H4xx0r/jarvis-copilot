@@ -34,7 +34,7 @@ struct IntegrationSkillView: View {
             .padding(.bottom, 28)
         }
         .refreshable { await load() }
-        .jcScreen(name)
+        .jcPageChrome(name)
         .task { if !loaded { await load() } }
     }
 

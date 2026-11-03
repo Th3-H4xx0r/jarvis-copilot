@@ -107,14 +107,14 @@ final class TodosTests: XCTestCase {
     }
 
     func testStyleMirrorsPanelsJS() {
-        XCTAssertEqual(TodoStatusStyle.of("completed").label, "COMPLETED")
+        XCTAssertEqual(TodoStatusStyle.of("completed").label, "Completed")
         XCTAssertTrue(TodoStatusStyle.of("completed").strikethrough)
-        XCTAssertEqual(TodoStatusStyle.of("in_progress").label, "IN PROGRESS")
+        XCTAssertEqual(TodoStatusStyle.of("in_progress").label, "In progress")
         XCTAssertTrue(TodoStatusStyle.of("in_progress").spin)
-        XCTAssertEqual(TodoStatusStyle.of("cancelled").label, "CANCELLED")
+        XCTAssertEqual(TodoStatusStyle.of("cancelled").label, "Cancelled")
         XCTAssertTrue(TodoStatusStyle.of("cancelled").strikethrough)
-        XCTAssertEqual(TodoStatusStyle.of("pending").label, "PENDING")
-        XCTAssertEqual(TodoStatusStyle.of("whatever").label, "PENDING")
+        XCTAssertEqual(TodoStatusStyle.of("pending").label, "Pending")
+        XCTAssertEqual(TodoStatusStyle.of("whatever").label, "Pending")
     }
 
     func testMissingStatusDefaultsToPending() {

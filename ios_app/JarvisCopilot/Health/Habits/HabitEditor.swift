@@ -76,7 +76,7 @@ struct HabitEditor: View {
                             }
                         }
                     }
-                    CardGroup("Relapse limit", footer: "The most you allow yourself. Days or months over it show in orange.") {
+                    CardGroup("Relapse limit", footer: "The most you allow yourself. Days or months over it show in amber.") {
                         Row {
                             Picker("Limit", selection: $limitKind.animation(.snappy)) {
                                 ForEach(LimitKind.allCases) { Text($0.rawValue).tag($0) }
@@ -93,7 +93,7 @@ struct HabitEditor: View {
                         }
                     }
                     if habit != nil {
-                        Button("Delete Habit", role: .destructive) { confirmingDelete = true }
+                        Button("Delete habit", role: .destructive) { confirmingDelete = true }
                             .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
                             .padding(.horizontal, 20)
                     }
@@ -101,7 +101,7 @@ struct HabitEditor: View {
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
-            .jcScreen(habit == nil ? "New Habit" : "Edit Habit")
+            .jcScreen(habit == nil ? "New habit" : "Edit habit")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

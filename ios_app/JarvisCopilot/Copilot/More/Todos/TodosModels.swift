@@ -52,15 +52,15 @@ struct TodoStatusStyle: Equatable, Sendable {
         switch status {
         case "completed":
             return .init(iconName: "checkmark.circle.fill", tone: .success,
-                         label: "COMPLETED", strikethrough: true)
+                         label: "Completed", strikethrough: true)
         case "in_progress":
             return .init(iconName: "arrow.triangle.2.circlepath", tone: .primaryBlue,
-                         label: "IN PROGRESS", spin: true)
+                         label: "In progress", spin: true)
         case "cancelled":
             return .init(iconName: "xmark.circle.fill", tone: .muted,
-                         label: "CANCELLED", strikethrough: true)
+                         label: "Cancelled", strikethrough: true)
         default:
-            return .init(iconName: "circle", tone: .muted, label: "PENDING")
+            return .init(iconName: "circle", tone: .muted, label: "Pending")
         }
     }
 }

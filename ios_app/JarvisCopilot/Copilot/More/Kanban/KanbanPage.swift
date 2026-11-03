@@ -22,12 +22,16 @@ struct KanbanPage: View {
             boardList
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.allTasks.isEmpty)
-        .jcScreen("Kanban")
+        .jcPageChrome("Kanban")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                JcPageButton("plus", label: "New task") {
                     route = .createTask
                 }
+                JcPageButton("bolt.fill", label: "Run the dispatcher") {
+                    Task { await store.runDispatcher() }
+                }
+                JcPageButton("ellipsis", label: "Board actions") { route = .boardActions }
             }
         }
         .onTabVisibilityChange(.more) { visible in
@@ -48,59 +52,40 @@ struct KanbanPage: View {
 
     // MARK: Header
 
+    /// The board in use, as one row that opens the board picker.
     private var boardSwitcher: some View {
-        HStack(spacing: 10) {
-            Button { if !store.boards.isEmpty { route = .boardPicker } } label: {
-                GradientBorder(radius: 14) {
-                    HStack(spacing: 10) {
-                        JcIcon("rectangle.split.3x1", size: 16).foregroundStyle(JcTheme.cyan)
-                        Text(store.activeBoard?.displayName ?? store.currentSlug ?? "Board")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(JcTheme.text)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        JcIcon("chevron.down", size: 14, weight: .semibold)
-                            .foregroundStyle(JcTheme.muted)
-                    }
-                    .padding(.leading, 14)
-                    .padding(.trailing, 10)
-                    .padding(.vertical, 12)
-                }
+        JcCard(padding: 0) {
+            JcRow(symbol: "rectangle.split.3x1",
+                  title: store.activeBoard?.displayName ?? store.currentSlug ?? "Board",
+                  last: true,
+                  action: { if !store.boards.isEmpty { route = .boardPicker } }) {
+                JcIcon("chevron.down", size: 13, weight: .semibold)
+                    .foregroundStyle(JcTheme.muted)
             }
-            .buttonStyle(.plain)
-
-            KanbanHeaderButton(symbol: "bolt.fill", tint: JcTheme.accent) {
-                Task { await store.runDispatcher() }
-            }
-            KanbanHeaderButton(symbol: "ellipsis") { route = .boardActions }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, 10)
     }
 
+    /// All, or one column: the app's one in-page filter.
     private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                KanbanFilterChip(label: "All", selected: store.columnFilter == nil) {
-                    store.columnFilter = nil
-                }
-                ForEach(Kanban.columns, id: \.self) { column in
-                    KanbanFilterChip(label: Kanban.columnLabel(column),
-                                     selected: store.columnFilter == column) {
-                        store.columnFilter = column
-                    }
-                }
-                // The live event stream died and the board fell back to a 30 s
-                // poll. Worth saying: without it "someone else moved this card"
-                // silently takes half a minute to appear.
-                if store.isPolling {
-                    StatusPill("UPDATES DELAYED", color: JcTheme.amber, dense: true)
-                }
+        let options = [KanbanColumnChoice(column: nil)] + Kanban.columns.map { KanbanColumnChoice(column: $0) }
+        let current = options.first { $0.column == store.columnFilter } ?? options[0]
+        return VStack(alignment: .leading, spacing: 8) {
+            JcSegmented(items: options,
+                        selection: Binding(get: { current }, set: { store.columnFilter = $0.column }),
+                        label: \.label,
+                        scrolls: true)
+            // The live event stream died and the board fell back to a 30 s
+            // poll. Worth saying: without it "someone else moved this card"
+            // silently takes half a minute to appear.
+            if store.isPolling {
+                StatusPill("Updates delayed", color: JcTheme.amber, dense: true)
             }
-            .padding(.horizontal, 16)
         }
-        .frame(height: 50)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 
     // MARK: Board
@@ -115,10 +100,10 @@ struct KanbanPage: View {
                 } else if !store.hasLoaded {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
                 } else if store.isEmpty {
-                    CenteredMessage(text: "No tasks on this board yet.\nTap + to add one.")
+                    CenteredMessage(text: "No tasks on this board yet.\nTap + to add one")
                         .padding(.top, 100)
                 } else if store.sections.isEmpty {
-                    CenteredMessage(text: "No tasks in this column.").padding(.top, 100)
+                    CenteredMessage(text: "No tasks in this column").padding(.top, 100)
                 } else {
                     ForEach(store.sections, id: \.column) { section in
                         KanbanSectionHeader(column: section.column, count: section.tasks.count)
@@ -332,28 +317,16 @@ enum KanbanTaskAction {
 
 // MARK: - Rows
 
-/// A column heading: a coloured dot, the name, and the task count.
+/// A column heading: the app's section label, with the task count beside it.
 struct KanbanSectionHeader: View {
     let column: String
     let count: Int
 
     var body: some View {
-        HStack(spacing: 0) {
-            Circle()
-                .fill(Color(tone: Kanban.columnTone(column)))
-                .frame(width: 8, height: 8)
-                .padding(.trailing, 8)
-            Text(Kanban.columnLabel(column).uppercased())
-                .font(.system(size: 13, weight: .semibold))
-                .kerning(0.4)
-                .foregroundStyle(JcTheme.text)
-                .padding(.trailing, 6)
-            Text("\(count)").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
-            Spacer(minLength: 0)
+        JcSectionLabel(Kanban.columnLabel(column), first: false) {
+            Text("\(count)").monospacedDigit()
         }
-        .padding(.horizontal, 2)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
+        .padding(.top, -10)
     }
 }
 
@@ -362,10 +335,10 @@ struct KanbanTaskCard: View {
     let task: KanbanTask
 
     var body: some View {
-        GlassCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 6) {
+        JcCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(task.title.isEmpty ? "(untitled)" : task.title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
@@ -380,40 +353,9 @@ struct KanbanTaskCard: View {
     }
 }
 
-/// A column filter pill; the selected one lifts with a soft white fill.
-struct KanbanFilterChip: View {
-    let label: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
-                .padding(.horizontal, 15)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(.white.opacity(selected ? 0.10 : 0.045)))
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.16), value: selected)
-    }
-}
-
-/// The 46pt circular header action (dispatcher / board menu).
-struct KanbanHeaderButton: View {
-    let symbol: String
-    var tint: Color? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            JcIcon(symbol)
-                .font(.system(size: 19))
-                .foregroundStyle(tint ?? JcTheme.accent)
-                .frame(width: 46, height: 46)
-                .jcLiquidGlass(in: Circle())
-        }
-        .buttonStyle(.plain)
-    }
+/// One choice in the board's column filter; `nil` is All.
+struct KanbanColumnChoice: Hashable, Identifiable {
+    let column: String?
+    var id: String { column ?? "" }
+    var label: String { column.map(Kanban.columnLabel) ?? "All" }
 }

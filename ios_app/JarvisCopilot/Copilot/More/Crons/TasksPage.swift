@@ -27,10 +27,10 @@ struct TasksPage: View {
         }
         .refreshable { await store.refresh() }
         .loadErrorBanner(store.errorMessage, hasContent: !store.jobs.isEmpty)
-        .jcScreen("Tasks")
+        .jcPageChrome("Tasks")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { route = .create }
+                JcPageButton("plus", label: "New task") { route = .create }
             }
         }
         .task { if !store.hasLoaded { store.load() } }
@@ -59,7 +59,7 @@ struct TasksPage: View {
         } else if !store.hasLoaded {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
-            CenteredMessage(text: "No scheduled tasks yet.").padding(.top, 100)
+            CenteredMessage(text: "No scheduled tasks yet").padding(.top, 100)
         } else {
             ForEach(store.jobs) { job in
                 CronJobCard(job: job, starting: store.isStarting(job),
@@ -152,7 +152,7 @@ struct CronJobCard: View {
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         Spacer(minLength: 0)
-                        StatusPill(starting ? "STARTING" : job.statusLabel,
+                        StatusPill(starting ? "Starting" : job.statusLabel,
                                    color: tone, live: running, dense: true)
                         CronRunButton(running: job.isRunning, starting: starting, onRun: onRun)
                     }
@@ -203,7 +203,7 @@ struct CronMetaChip: View {
             Text(label)
                 .font(.system(size: 12)).foregroundStyle(JcTheme.muted.opacity(0.7))
             Text(value)
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(JcTheme.muted)
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(JcTheme.muted)
         }
     }
 }

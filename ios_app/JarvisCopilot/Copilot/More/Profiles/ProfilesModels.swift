@@ -37,7 +37,7 @@ struct Profile: Identifiable, Equatable, Sendable {
     /// Only a non-default, non-active profile can be deleted.
     func canDelete(activeName: String) -> Bool { !isDefault && name != activeName }
 
-    var gatewayLabel: String { gatewayRunning ? "GATEWAY RUNNING" : "GATEWAY IDLE" }
+    var gatewayLabel: String { gatewayRunning ? "Gateway running" : "Gateway idle" }
     var gatewayTone: MoreTone { gatewayRunning ? .primaryBlue : .muted }
 }
 

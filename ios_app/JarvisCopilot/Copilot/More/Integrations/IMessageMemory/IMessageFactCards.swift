@@ -32,7 +32,7 @@ struct IMessageFactCards: View {
                 .foregroundStyle(JcTheme.muted)
             if store.facts.count > 1 {
                 Text("\(store.facts.count)")
-                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .font(.caption2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(JcTheme.accent)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1.5)
@@ -126,8 +126,6 @@ struct IMessageFactCard: View {
         .padding(16)
         .background {
             shape.fill(JcTheme.surface)
-                .overlay(shape.fill(LinearGradient(colors: [JcTheme.accent.opacity(0.10), .clear],
-                                                   startPoint: .top, endPoint: .center)))
         }
         .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .overlay(alignment: drag > 0 ? .topLeading : .topTrailing) { swipeHint }
@@ -179,7 +177,7 @@ struct IMessageFactCard: View {
                 JcIcon("person.2.fill", size: 10)
             } else {
                 Text(IMessageFactCard.initials(fact.chatName))
-                    .font(.caption2.weight(.bold))
+                    .font(.caption2.weight(.semibold))
             }
         }
         .foregroundStyle(JcTheme.text)
@@ -210,9 +208,8 @@ struct IMessageFactCard: View {
     @ViewBuilder private var swipeHint: some View {
         let progress = min(1, abs(drag) / Self.decideAt)
         if drag != 0 {
-            Text(drag > 0 ? "SAVE" : "SKIP")
-                .font(.caption.weight(.heavy))
-                .tracking(1.2)
+            Text(drag > 0 ? "Save" : "Skip")
+                .font(JcText.label)
                 .foregroundStyle(drag > 0 ? JcTheme.accent : JcTheme.muted)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)

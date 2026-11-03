@@ -35,7 +35,7 @@ struct HabitsView: View {
                 if let error = store.error {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(JcTheme.danger)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -44,12 +44,10 @@ struct HabitsView: View {
             .padding(.bottom, 100)
         }
         .overlay(alignment: .bottom) { undoBar }
-        .navigationTitle("Habits")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Habits")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { editing = .new }
-                    .accessibilityLabel("Add a habit")
+                JcPageButton("plus", label: "Add a habit") { editing = .new }
             }
         }
         .sheet(item: $editing) { target in
@@ -82,7 +80,7 @@ struct HabitsView: View {
                     undoTimer?.cancel()
                     withAnimation(.snappy) { logged = nil }
                 }
-                .font(.subheadline.weight(.bold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(JcTheme.accent)
             }
             .padding(.horizontal, 20)
@@ -134,7 +132,7 @@ struct HabitCard: View {
                             .lineLimit(1)
                         let counter = HabitMath.duration(at.timeIntervalSince(since))
                         Text(revealed ? counter : counter.odometerZero)
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(size: 30, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
@@ -172,7 +170,7 @@ struct HabitCard: View {
         if let limit = HabitMath.limitLine(habit, relapses, now: at) {
             Text(limit.text)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(limit.over ? Color.orange : JcTheme.muted)
+                .foregroundStyle(limit.over ? JcTheme.amber : JcTheme.muted)
         } else {
             let month = HabitMath.count(relapses, in: Calendar.current.dateInterval(of: .month, for: at)
                                         ?? DateInterval(start: at, duration: 0))

@@ -60,9 +60,8 @@ struct WatchPage: View {
                         if let at = watch.lastTurnAt {
                             row("Last turn at", at.formatted(date: .omitted, time: .shortened), ok: true)
                         }
-                        Button("Reset counters") { WatchBridge.shared.resetStatistics() }
-                            .font(.system(size: 12))
-                            .padding(.top, 2)
+                        JcSmallAction("Reset counters") { WatchBridge.shared.resetStatistics() }
+                            .padding(.top, 4)
                     }
                 }
 

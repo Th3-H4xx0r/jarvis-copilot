@@ -46,7 +46,7 @@ struct HealthHistoryView: View {
                     content(history)
                 } else if let error = model.error {
                     CardGroup {
-                        Row { Text(error).font(.subheadline).foregroundStyle(.orange) }
+                        Row { Text(error).font(.subheadline).foregroundStyle(JcTheme.danger) }
                         RowDivider()
                         Row { Button("Try again") { Task { await model.load(range) } } }
                     }
@@ -58,8 +58,7 @@ struct HealthHistoryView: View {
             .padding(.top, 8)
             .padding(.bottom, 40)
         }
-        .navigationTitle(metric.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(metric.title)
         .toolbar {
             if model.isLoading {
                 ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
@@ -146,7 +145,7 @@ struct HealthHistoryView: View {
             CardGroup("Highlights") {
                 Row {
                     HStack(alignment: .top, spacing: 12) {
-                        RingMetricSymbol(name: metric.symbol, tint: metric.tint, size: 15)
+                        RingMetricSymbol(name: metric.symbol, tint: JcTheme.muted, size: 15)
                             .padding(.top, 2)
                         Text(history.highlight)
                             .font(.subheadline)
@@ -209,12 +208,11 @@ struct HealthHistoryView: View {
         let label = bucket.map(span) ?? history.headline.label
         let value = bucket.map { value(of: $0, kind: history.kind) } ?? headlineValue(history)
         return VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased())
-                .font(.caption.weight(.semibold))
-                .kerning(0.4)
+            Text(label)
+                .font(.subheadline)
                 .foregroundStyle(bucket == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
             Text(revealed ? value : value.odometerZero)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -275,7 +273,7 @@ struct HealthHistoryView: View {
                     .foregroundStyle(JcTheme.muted)
                     .annotation(position: .top, alignment: .leading, spacing: 2) {
                         Text("Resting \(Int(resting.rounded()))")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(JcTheme.muted)
                     }
             }
@@ -287,7 +285,7 @@ struct HealthHistoryView: View {
         }
         .chartXScale(domain: xDomain(history))
         .chartForegroundStyleScale(["Deep": JcTheme.primaryBlue, "Light": JcTheme.accent,
-                                    "REM": JcTheme.accentAlt, "Awake": Color.orange])
+                                    "REM": JcTheme.accentAlt, "Awake": JcTheme.amber])
         .chartLegend(metric == .sleep ? .visible : .hidden)
         .chartXAxis { xAxis }
         .chartYAxis {
@@ -311,14 +309,14 @@ struct HealthHistoryView: View {
         switch metric.style {
         case .bars:
             BarMark(x: x, y: .value(metric.title, plotted(bucket.value)))
-                .foregroundStyle(metric.tint.gradient)
+                .foregroundStyle(metric.tint)
                 .cornerRadius(3)
                 .opacity(fade)
         case .range:
             let low = plotted(bucket.low ?? bucket.value), high = plotted(bucket.high ?? bucket.value)
             BarMark(x: x, yStart: .value("Low", low), yEnd: .value("High", max(high, low + 0.6)),
                     width: .ratio(range == .halfYear ? 0.7 : 0.42))
-                .foregroundStyle(rangeTint(bucket).gradient)
+                .foregroundStyle(rangeTint(bucket))
                 .cornerRadius(5)
                 .opacity(fade)
             if metric == .heartRate, let average = bucket.value {
@@ -343,7 +341,7 @@ struct HealthHistoryView: View {
                 .opacity(fade)
         case .bandBars:
             BarMark(x: x, y: .value(metric.title, plotted(bucket.value)))
-                .foregroundStyle(bandTint(bucket).gradient)
+                .foregroundStyle(bandTint(bucket))
                 .cornerRadius(3)
                 .opacity(fade)
         }

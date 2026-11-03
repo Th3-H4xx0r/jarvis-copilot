@@ -26,12 +26,11 @@ struct ServerLogsPage: View {
             ServerLogsFooter(store: store)
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.tail.lines.isEmpty)
-        .jcScreen("Server logs")
+        .jcPageChrome("Server logs")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { store.load() } label: { JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent) }
+                JcPageButton("arrow.clockwise", label: "Reload logs") { store.load() }
                     .disabled(store.isLoading)
-                    .accessibilityLabel("Reload logs")
             }
         }
         .task { if !store.hasLoaded { store.load() } }
@@ -220,8 +219,8 @@ struct ServerLogsMenuChip: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Text(label.uppercased())
-                    .font(.system(size: 11, weight: .semibold)).kerning(0.3)
+                Text(label)
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                 Text(value)
                     .font(.system(size: 14, weight: .semibold))
@@ -248,8 +247,8 @@ struct ServerLogsFooter: View {
                 if store.autoRefresh {
                     HStack(spacing: 6) {
                         PulsingDot(color: JcTheme.success, size: 7)
-                        Text("LIVE")
-                            .font(.system(size: 10.5, weight: .semibold)).kerning(0.6)
+                        Text("Live")
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.success)
                     }
                 }

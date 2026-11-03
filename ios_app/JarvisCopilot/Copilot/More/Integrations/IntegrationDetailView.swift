@@ -65,7 +65,7 @@ struct IntegrationDetailView: View {
             await store.open(pushed.id)
             await crons.refresh()
         }
-        .jcScreen(integration.name)
+        .jcPageChrome(integration.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { integrationMenu }
         }

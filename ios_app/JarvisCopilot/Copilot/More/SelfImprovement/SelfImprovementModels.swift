@@ -21,10 +21,10 @@ struct SelfImprovementEvent: Identifiable, Equatable, Sendable {
     /// Badge label: FAILED / REJECTED / REVIEWED / LEARNED.
     var label: String {
         switch kind {
-        case "fail": return "FAILED"
-        case "rejected": return "REJECTED"
-        case "noop": return "REVIEWED"
-        default: return "LEARNED"
+        case "fail": return "Failed"
+        case "rejected": return "Rejected"
+        case "noop": return "Reviewed"
+        default: return "Learned"
         }
     }
 

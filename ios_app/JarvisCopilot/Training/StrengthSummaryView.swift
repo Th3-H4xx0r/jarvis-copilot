@@ -39,19 +39,19 @@ struct StrengthSummaryView: View {
         .alert(promptTitle, isPresented: Binding(get: { prompt != nil }, set: { if !$0 { prompt = nil } }), presenting: prompt) { which in
             switch which {
             case .structure(let template):
-                Button("Update Template") {
+                Button("Update template") {
                     var updated = TrainingMath.template(from: log, id: template.id, name: template.name, order: template.order)
                     updated.note = template.note
                     store.saveTemplate(updated)
                     onSave?()
                 }
-                Button("Keep Original") { onSave?() }
+                Button("Keep original") { onSave?() }
             case .values(let template):
-                Button("Update Values") {
+                Button("Update values") {
                     store.saveTemplate(TrainingMath.updatingValues(template, from: log))
                     onSave?()
                 }
-                Button("Keep Original") { onSave?() }
+                Button("Keep original") { onSave?() }
             }
             Button("Cancel", role: .cancel) {}
         } message: { which in
@@ -62,19 +62,19 @@ struct StrengthSummaryView: View {
         }
         .alert("Save as a template?", isPresented: $naming) {
             TextField("Name", text: $templateName)
-            Button("Save Template") {
+            Button("Save template") {
                 let name = templateName.trimmingCharacters(in: .whitespaces)
                 store.saveTemplate(TrainingMath.template(from: log, id: WorkoutTemplate.newID(),
                                                          name: name.isEmpty ? log.name : name, order: 0))
                 onSave?()
             }
-            Button("Not Now", role: .cancel) { onSave?() }
+            Button("Not now", role: .cancel) { onSave?() }
         } message: {
             Text("Start it again from the workout picker in one tap.")
         }
         .alert("Discard this workout?", isPresented: $confirmingDiscard) {
-            Button("Discard Workout", role: .destructive) { onDiscard?() }
-            Button("Keep It", role: .cancel) {}
+            Button("Discard workout", role: .destructive) { onDiscard?() }
+            Button("Keep it", role: .cancel) {}
         } message: {
             Text("It won't be saved to Health.")
         }
@@ -132,7 +132,7 @@ struct StrengthSummaryContent: View {
                     .font(.headline)
                     .foregroundStyle(JcTheme.accent)
                 Text(WorkoutLiveView.clock(workout.activeSeconds))
-                    .font(.system(size: 56, weight: .bold, design: .rounded))
+                    .font(.system(size: 56, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 Text("\(workout.start.formatted(date: .abbreviated, time: .shortened)) – \(workout.end.formatted(date: .omitted, time: .shortened))")
                     .font(.subheadline)
@@ -254,7 +254,7 @@ struct StrengthSummaryContent: View {
             ForEach(Array(done.enumerated()), id: \.element.id) { i, set in
                 HStack(spacing: 8) {
                     Text(set.tag.badge ?? "\(done[..<i].filter { $0.tag != .warmup }.count + 1)")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(set.tag == .warmup ? JcTheme.amber : JcTheme.muted)
                         .frame(width: 18, alignment: .leading)
                     Text(SetRow.describe(set, kind: exercise.kind, unit: unit) + (set.rpe.map { " @\(TrainingUnit.number($0))" } ?? ""))
@@ -297,7 +297,7 @@ struct EffortBar: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Effort").font(.subheadline.weight(.semibold))
                 Spacer()
-                Text("\(effort)").font(.system(.title3, design: .rounded).weight(.bold)).foregroundStyle(band.1)
+                Text("\(effort)").font(.system(.title3, design: .rounded).weight(.semibold)).foregroundStyle(band.1)
                 Text("/ 10 · \(band.0)").font(.subheadline).foregroundStyle(.secondary)
             }
             HStack(spacing: 3) {

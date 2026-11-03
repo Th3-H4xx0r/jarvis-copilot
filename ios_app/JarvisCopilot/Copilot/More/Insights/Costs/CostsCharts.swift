@@ -39,7 +39,7 @@ struct CostsDailyChartCard: View {
     var body: some View {
         GlassCard {
             if !stack.hasSpend {
-                CardEmptyBlock(symbol: "chart.bar", text: "No spend recorded in this period.")
+                CardEmptyBlock(symbol: "chart.bar", text: "No spend recorded in this period")
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     readout
@@ -55,14 +55,14 @@ struct CostsDailyChartCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if let picked {
                 Text(CostsUI.money(picked.total))
-                    .font(.system(size: 20, weight: .bold).monospacedDigit())
+                    .font(.system(size: 20, weight: .semibold).monospacedDigit())
                     .foregroundStyle(JcTheme.text)
                 Text(CostsUI.barLabel(picked))
                     .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
             } else {
                 Text(CostsUI.money(stack.averagePerBar(total: periodTotal)))
-                    .font(.system(size: 20, weight: .bold).monospacedDigit())
+                    .font(.system(size: 20, weight: .semibold).monospacedDigit())
                     .foregroundStyle(JcTheme.text)
                 Text(stack.bucketDays == 7 ? "a week on average" : "a day on average")
                     .font(.system(size: 12))

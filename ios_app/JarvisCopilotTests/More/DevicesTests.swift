@@ -20,7 +20,7 @@ final class DevicesTests: XCTestCase {
         XCTAssertEqual(device.id, "d1")
         XCTAssertEqual(device.displayName, "Pranav's iPhone")
         XCTAssertTrue(device.online)
-        XCTAssertEqual(device.statusLabel, "ONLINE")
+        XCTAssertEqual(device.statusLabel, "Online")
         XCTAssertEqual(device.statusTone, .success)
         XCTAssertEqual(device.lastSeenLabel(now: now), "2m ago")
         XCTAssertEqual(device.skills.map(\.displayName), ["Notify"])
@@ -29,7 +29,7 @@ final class DevicesTests: XCTestCase {
     func testDeviceFallsBackToIDThenAPlaceholderForItsName() {
         XCTAssertEqual(Device(json: ["device_id": "abc"]).displayName, "abc")
         XCTAssertEqual(Device(json: [:]).displayName, "(unknown device)")
-        XCTAssertEqual(Device(json: [:]).statusLabel, "OFFLINE")
+        XCTAssertEqual(Device(json: [:]).statusLabel, "Offline")
         XCTAssertEqual(Device(json: [:]).statusTone, .muted)
     }
 

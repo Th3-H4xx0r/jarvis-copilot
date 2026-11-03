@@ -111,7 +111,7 @@ struct GoalDayRing: View {
                     .rotationEffect(.degrees(-90))
                 if met {
                     Image(systemName: "checkmark")
-                        .font(.system(size: size * 0.34, weight: .heavy))
+                        .font(.system(size: size * 0.34, weight: .semibold))
                         .foregroundStyle(tint)
                         .opacity(revealed ? 1 : 0)
                 }

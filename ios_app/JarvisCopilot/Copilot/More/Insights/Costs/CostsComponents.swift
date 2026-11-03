@@ -35,39 +35,30 @@ enum CostsPalette {
 
 // MARK: - Segmented pill
 
-/// A segmented control in a glass pill — `InsightsPeriodSelector`'s look, for
-/// any set of options (the Usage | Costs tabs, Monthly | Yearly).
+/// A segmented control for any set of options (the Usage | Costs tabs, the
+/// period, Monthly | Yearly).
 struct InsightsSegmentedPill<Value: Hashable>: View {
     let options: [(value: Value, label: String)]
     let selection: Value
     var compact = false
     let onChange: (Value) -> Void
 
+    private struct Option: Hashable, Identifiable {
+        let value: Value
+        let label: String
+        var id: Value { value }
+    }
+
+    /// The app's one in-page filter, `JcSegmented`; this only adapts the
+    /// value + callback shape the Insights screens use.
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(options, id: \.value) { option in
-                let selected = option.value == selection
-                Button { onChange(option.value) } label: {
-                    Text(option.label)
-                        .font(.system(size: compact ? 13 : 14, weight: .semibold))
-                        .kerning(0.3)
-                        .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, compact ? 7 : 9)
-                        .background {
-                            if selected { Capsule().fill(.white.opacity(0.10)) }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
-            }
+        let items = options.map { Option(value: $0.value, label: $0.label) }
+        if let current = items.first(where: { $0.value == selection }) ?? items.first {
+            JcSegmented(items: items,
+                        selection: Binding(get: { current }, set: { onChange($0.value) }),
+                        label: \.label,
+                        scrolls: false)
         }
-        .padding(4)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-        .animation(.easeInOut(duration: 0.16), value: selection)
     }
 }
 
@@ -109,9 +100,8 @@ struct CostMiniStat: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.5)
+            Text(label)
+                .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -179,7 +169,7 @@ struct CostFormNote: View {
             }
         } else if let note {
             HStack(spacing: 6) {
-                JcIcon("checkmark", size: 11, weight: .bold).foregroundStyle(JcTheme.success)
+                JcIcon("checkmark", size: 11).foregroundStyle(JcTheme.success)
                 Text(note).font(JcText.small).foregroundStyle(JcTheme.muted)
             }
         }

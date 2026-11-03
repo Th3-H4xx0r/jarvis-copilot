@@ -255,6 +255,9 @@ final class MoreUIAHostingTests: XCTestCase {
         XCTAssertEqual(store.sections.map(\.column), ["todo", "running", "blocked"])
         XCTAssertEqual(store.activeBoard?.displayName, "Main")
         moreUIAHost(KanbanPage(store: store))
+        // A picture to look at before installing (/tmp/ringshots or RING_SNAPSHOT_DIR).
+        try? RenderHarness.write(NavigationStack { KanbanPage(store: store) },
+                                 size: CGSize(width: 402, height: 874), name: "kanban")
     }
 
     func testKanbanPageRendersTheErrorState() async {
@@ -315,7 +318,7 @@ final class MoreUIAHostingTests: XCTestCase {
         store.onDisappear()
 
         XCTAssertEqual(store.jobs.count, 2)
-        XCTAssertEqual(store.jobs[0].statusLabel, "ACTIVE")
+        XCTAssertEqual(store.jobs[0].statusLabel, "Active")
         XCTAssertTrue(store.jobs[1].isPaused)
         XCTAssertEqual(store.skillOptions(), ["calendar", "email"])
         moreUIAHost(TasksPage(store: store))

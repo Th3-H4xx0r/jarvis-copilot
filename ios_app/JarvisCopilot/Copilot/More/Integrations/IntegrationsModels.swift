@@ -212,9 +212,9 @@ struct IntegrationPlan: Identifiable, Equatable, Sendable {
 
     var statusLabel: String {
         switch status {
-        case "approved": return "CREATED"
-        case "cancelled": return "CANCELLED"
-        default: return "PROPOSED"
+        case "approved": return "Created"
+        case "cancelled": return "Cancelled"
+        default: return "Proposed"
         }
     }
 }

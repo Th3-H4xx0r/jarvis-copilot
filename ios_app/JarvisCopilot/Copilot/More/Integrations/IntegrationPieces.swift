@@ -370,7 +370,7 @@ struct SetupCardView: View {
                 }
             }
             Spacer(minLength: 0)
-            StatusPill(card.kind.rawValue.uppercased(), color: JcTheme.success, dense: true)
+            StatusPill(card.kind.rawValue.prefix(1).uppercased() + card.kind.rawValue.dropFirst(), color: JcTheme.success, dense: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

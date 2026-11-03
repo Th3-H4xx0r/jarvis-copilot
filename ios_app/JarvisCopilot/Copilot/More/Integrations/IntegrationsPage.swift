@@ -56,10 +56,10 @@ struct IntegrationsList: View {
             _ = await (list, pinned)
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
-        .jcScreen("Integrations")
+        .jcPageChrome("Integrations")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
+                JcPageButton("plus", label: "New integration") { settingUp = true }
             }
         }
         .navigationDestination(for: Integration.self) { integration in
@@ -102,7 +102,7 @@ struct IntegrationsList: View {
         } else if !store.hasLoaded {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
-            CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track.")
+            CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track")
                 .padding(.top, 100)
         } else {
             ForEach(store.integrations) { integration in
@@ -122,8 +122,8 @@ struct IntegrationCard: View {
     let integration: Integration
 
     private var pill: String? {
-        if integration.isPaused { return "PAUSED" }
-        if integration.scheduleCount > 0, integration.enabledScheduleCount == 0 { return "ALL OFF" }
+        if integration.isPaused { return "Paused" }
+        if integration.scheduleCount > 0, integration.enabledScheduleCount == 0 { return "All off" }
         return nil
     }
 
@@ -146,18 +146,12 @@ struct IntegrationCardLayout: View {
     var dimmed: Bool = false
     var pill: String? = nil
 
-    private var accent: Color { dimmed ? JcTheme.muted : JcTheme.accent }
 
     var body: some View {
         GlassCard(padding: 12,
                   borderColor: dimmed ? JcTheme.muted.opacity(0.28) : JcTheme.glassBorder) {
             HStack(spacing: 12) {
-                JcIcon(symbol)
-                    .font(.system(size: 19))
-                    .foregroundStyle(accent)
-                    .frame(width: 38, height: 38)
-                    .background(accent.opacity(0.12), in: Circle())
-                    .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                JcIconSquare(symbol: symbol)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(name)

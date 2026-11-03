@@ -44,7 +44,7 @@ struct CodeMemoryProjectPage: View {
                     .allowsHitTesting(kind == .sessions)
             }
         }
-        .jcScreen(project.title)
+        .jcPageChrome(project.title)
     }
 }
 

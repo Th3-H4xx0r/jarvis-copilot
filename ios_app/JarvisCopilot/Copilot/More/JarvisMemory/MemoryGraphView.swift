@@ -162,7 +162,7 @@ struct MemoryGraphFilterBar: View {
                 .overlay(Circle().strokeBorder(dot.opacity(on ? 0 : 0.7), lineWidth: 1))
                 .frame(width: 7, height: 7)
             Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
         }
         .padding(.horizontal, 11)
@@ -174,7 +174,7 @@ struct MemoryGraphFilterBar: View {
     private func menuChip(_ title: String, symbol: String, active: Bool) -> some View {
         HStack(spacing: 5) {
             JcIcon(symbol, size: 11)
-            Text(title).font(.system(size: 12.5, weight: .semibold))
+            Text(title).font(.system(size: 12.5, weight: .medium))
             JcIcon("chevron.down", size: 8)
         }
         .foregroundStyle(active ? JcTheme.accent : JcTheme.text)
@@ -489,7 +489,7 @@ struct MemoryUsedChip: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 9, weight: .medium))
                         .rotationEffect(.degrees(open ? 90 : 0))
                     Text(MemoryRecallDetail.chipLabel(count: recall.memoryIDs.count))
                         .font(.system(size: 12, weight: .medium))
@@ -567,7 +567,7 @@ struct MemoryRecallMapSheet: View {
     var body: some View {
         NavigationStack {
             MemoryMapScreen(store: store, recall: recall, standalone: true)
-                .jcScreen("Memory map")
+                .jcScreen("Memory map", header: .inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") { dismiss() }

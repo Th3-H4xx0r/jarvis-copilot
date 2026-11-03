@@ -84,11 +84,10 @@ struct CronPromptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                JcIcon("bolt.fill", size: 12).foregroundStyle(JcTheme.accent)
-                Text("PROMPT")
-                    .font(.system(size: 11, weight: .semibold))
-                    .kerning(0.6)
-                    .foregroundStyle(JcTheme.accent)
+                JcIcon("bolt.fill", size: 12).foregroundStyle(JcTheme.muted)
+                Text("Prompt")
+                    .font(JcText.small)
+                    .foregroundStyle(JcTheme.muted)
             }
             Text(prompt).font(.system(size: 14)).foregroundStyle(JcTheme.text)
         }
@@ -113,9 +112,8 @@ struct CronInfoTile: View {
             HStack(spacing: 6) {
                 JcIcon(symbol)
                     .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
-                Text(label.uppercased())
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .kerning(0.5)
+                Text(label)
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
             }
@@ -171,7 +169,7 @@ struct CronRunHistoryView: View {
                 Text("Failed to load history: \(error)")
                     .font(.system(size: 12)).foregroundStyle(JcTheme.danger)
             } else if store.runs.isEmpty {
-                Text("No runs yet.").font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                Text("No runs yet").font(.system(size: 13)).foregroundStyle(JcTheme.muted)
             } else {
                 ForEach(store.runs) { run in
                     CronRunRow(run: run,

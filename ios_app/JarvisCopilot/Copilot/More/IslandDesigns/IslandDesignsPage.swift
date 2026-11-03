@@ -24,7 +24,7 @@ struct IslandDesignsPage: View {
 
     var body: some View {
         content
-            .jcScreen("Dynamic Island")
+            .jcPageChrome("Dynamic Island")
             .task { if store.entries.isEmpty { store.load() } }
             .moreToast($store.toast)
             .alert("Delete this design?", isPresented: deletingBinding, presenting: deleting) { entry in
@@ -64,7 +64,7 @@ struct IslandDesignsPage: View {
                     GlassGroup {
                         IslandRadioRow(symbol: "wand.and.stars",
                                        title: "Auto",
-                                       subtitle: "Let rules pick the right island at the right time.",
+                                       subtitle: "Let rules pick the right island at the right time",
                                        selected: store.selectedKey == IslandDesignsStore.autoKey,
                                        last: store.entries.isEmpty,
                                        enabled: !store.isBusy) {
@@ -130,7 +130,7 @@ struct IslandRadioRow: View {
         VStack(spacing: 0) {
             Button(action: onSelect) {
                 HStack(spacing: 14) {
-                    GlassCircleIcon(symbol: symbol)
+                    JcIconSquare(symbol: symbol)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
                             .font(.system(size: 15, weight: .semibold))

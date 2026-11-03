@@ -64,7 +64,7 @@ struct StrengthExerciseCard: View {
                 Button {
                     withAnimation(.snappy) { session.addSet(exercise.id) }
                 } label: {
-                    Label("Add Set", systemImage: "plus")
+                    Label("Add set", systemImage: "plus")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
@@ -107,32 +107,32 @@ struct StrengthExerciseCard: View {
             .buttonStyle(.plain)
             Spacer(minLength: 8)
             Menu {
-                Button { editingNote = true } label: { Label("Add Note", systemImage: "note.text") }
-                Button { pinText = pinned ?? ""; pinning = true } label: { Label("Pinned Note", systemImage: "pin") }
-                Button { restPicker = true } label: { Label("Rest Timers", systemImage: "timer") }
+                Button { editingNote = true } label: { Label("Add note", systemImage: "note.text") }
+                Button { pinText = pinned ?? ""; pinning = true } label: { Label("Pinned note", systemImage: "pin") }
+                Button { restPicker = true } label: { Label("Rest timers", systemImage: "timer") }
                 if exercise.kind.usesWeight {
                     Button { withAnimation(.snappy) { session.addWarmups(exercise.id) } } label: {
                         Label("Add Warm-up Sets", systemImage: "flame")
                     }
                 }
                 Divider()
-                Button { onReplace(exercise.id) } label: { Label("Replace Exercise", systemImage: "arrow.left.arrow.right") }
+                Button { onReplace(exercise.id) } label: { Label("Replace exercise", systemImage: "arrow.left.arrow.right") }
                 if exercise.superset == nil {
-                    Button { onSuperset(exercise.id) } label: { Label("Superset With…", systemImage: "link") }
+                    Button { onSuperset(exercise.id) } label: { Label("Superset with…", systemImage: "link") }
                 } else {
                     Button { withAnimation(.snappy) { session.unlink(exercise.id) } } label: {
-                        Label("Remove from Superset", systemImage: "link.badge.plus")
+                        Label("Remove from superset", systemImage: "link.badge.plus")
                     }
                 }
                 Button(role: .destructive) { withAnimation(.snappy) { session.remove(exercise.id) } } label: {
-                    Label("Remove Exercise", systemImage: "trash")
+                    Label("Remove exercise", systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(JcTheme.accent)
                     .frame(width: 34, height: 28)
-                    .background(JcTheme.accent.opacity(0.14), in: Capsule())
+                    .jcLiquidGlass(in: Capsule())
             }
             .accessibilityLabel("\(exercise.name) options")
         }
@@ -140,15 +140,14 @@ struct StrengthExerciseCard: View {
 
     private var columns: some View {
         HStack(spacing: 8) {
-            Text("SET").frame(width: SetRow.badgeWidth)
-            Text("PREVIOUS").frame(maxWidth: .infinity)
+            Text("Set").frame(width: SetRow.badgeWidth)
+            Text("Previous").frame(maxWidth: .infinity)
             ForEach(SetRow.fields(for: exercise.kind), id: \.self) { field in
                 Text(SetRow.heading(field, kind: exercise.kind, unit: unit)).frame(width: SetRow.cellWidth)
             }
             if ticks { Image(systemName: "checkmark").frame(width: SetRow.checkWidth) }
         }
-        .font(.system(size: 11, weight: .bold))
-        .kerning(0.5)
+        .font(JcText.small)
         .foregroundStyle(JcTheme.muted)
         .accessibilityHidden(true)
     }
@@ -176,10 +175,10 @@ struct SetRow: View {
 
     static func heading(_ field: SetField, kind: ExerciseKind, unit: TrainingUnit) -> String {
         switch field {
-        case .weight: return kind.weightHeading(unit).uppercased()
-        case .reps: return "REPS"
-        case .seconds: return "TIME"
-        case .meters: return unit == .kg ? "KM" : "MI"
+        case .weight: return kind.weightHeading(unit)
+        case .reps: return "Reps"
+        case .seconds: return "Time"
+        case .meters: return unit == .kg ? "km" : "mi"
         }
     }
 
@@ -227,10 +226,10 @@ struct SetRow: View {
                 }
             }
             Divider()
-            Button(role: .destructive) { session.removeSet(set.id, in: exercise.id) } label: { Label("Delete Set", systemImage: "trash") }
+            Button(role: .destructive) { session.removeSet(set.id, in: exercise.id) } label: { Label("Delete set", systemImage: "trash") }
         } label: {
             Text(set.tag.badge ?? "\(number)")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(tagColor)
                 .frame(width: Self.badgeWidth, height: 30)
                 .background(tagColor.opacity(set.tag == .working ? 0.0 : 0.16), in: RoundedRectangle(cornerRadius: 8))
@@ -259,7 +258,7 @@ struct SetRow: View {
                     .foregroundStyle(value == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                 if field == .reps, let rpe = set.rpe {
                     Text("@\(TrainingUnit.number(rpe))")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(JcTheme.accent)
                 }
             }
@@ -283,7 +282,7 @@ struct SetRow: View {
             withAnimation(.snappy(duration: 0.2)) { session.toggleDone(set.id, in: exercise.id) }
         } label: {
             Image(systemName: "checkmark")
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(set.isDone ? Color.black : JcTheme.muted)
                 .frame(width: Self.checkWidth - 4, height: 30)
                 .background(set.isDone ? JcTheme.success : Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
@@ -339,7 +338,7 @@ struct RestSettingsSheet: View {
                 Spacer()
             }
             .padding(20)
-            .navigationTitle("Rest Timers")
+            .navigationTitle("Rest timers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

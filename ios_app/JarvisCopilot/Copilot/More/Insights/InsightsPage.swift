@@ -55,7 +55,7 @@ struct InsightsPage: View {
         }
         .loadErrorBanner(tab == .usage ? store.errorMessage : costs.errorMessage,
                          hasContent: tab == .usage ? !store.overview.isEmpty : costs.hasContent)
-        .jcScreen("Insights")
+        .jcPageChrome("Insights")
         .task(id: tab) { loadIfNeeded(tab) }
     }
 
@@ -81,7 +81,7 @@ struct InsightsPage: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 60)
         } else if store.isEmpty {
-            CenteredMessage(text: "No usage data yet.").padding(.top, 60)
+            CenteredMessage(text: "No usage data yet").padding(.top, 60)
         } else {
             sections
         }
@@ -93,9 +93,9 @@ struct InsightsPage: View {
             // unreachable host used to look exactly like one with no metrics.
             if store.health.failed {
                 section("System health") {
-                    StatusPill("UNAVAILABLE", color: JcTheme.danger, dense: true)
+                    StatusPill("Unavailable", color: JcTheme.danger, dense: true)
                 } body: {
-                    CenteredMessage(text: "Couldn't reach the host's health endpoint.")
+                    CenteredMessage(text: "Couldn't reach the host's health endpoint")
                 }
             } else if InsightsUI.healthIsAvailable(store.health) {
                 let badge = InsightsUI.healthBadge(store.health)
@@ -128,8 +128,8 @@ struct InsightsPage: View {
             section("By model") { InsightsModelsCard(models: store.overview.models) }
 
             Text("Local WebUI session data · last \(store.days) days")
-                .font(.system(size: 10.5))
-                .foregroundStyle(JcTheme.muted.opacity(0.6))
+                .font(JcText.small)
+                .foregroundStyle(JcTheme.muted.opacity(0.7))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 10)
         }
@@ -179,29 +179,8 @@ struct InsightsPeriodSelector: View {
     let onChange: (Int) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Insights.periodOptions, id: \.days) { option in
-                let selected = option.days == days
-                Button { onChange(option.days) } label: {
-                    Text(option.label)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .kerning(0.3)
-                        .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background {
-                            if selected { Capsule().fill(.white.opacity(0.10)) }
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
-            }
-        }
-        .padding(4)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-        .animation(.easeInOut(duration: 0.16), value: days)
+        InsightsSegmentedPill(options: Insights.periodOptions.map { ($0.days, $0.label) },
+                              selection: days, onChange: onChange)
     }
 }
 

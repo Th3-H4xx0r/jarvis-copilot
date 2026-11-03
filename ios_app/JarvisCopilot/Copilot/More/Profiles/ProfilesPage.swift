@@ -22,11 +22,10 @@ struct ProfilesPage: View {
     var body: some View {
         content
             .loadErrorBanner(store.errorMessage, hasContent: !store.profiles.isEmpty)
-            .jcScreen("Profiles")
+            .jcPageChrome("Profiles")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { creating = true } label: { JcIcon("plus").foregroundStyle(JcTheme.accent) }
-                        .accessibilityLabel("New profile")
+                    JcPageButton("plus", label: "New profile") { creating = true }
                 }
             }
             .task {
@@ -55,7 +54,7 @@ struct ProfilesPage: View {
                             .padding(.bottom, 8)
                     }
                     if store.isEmpty {
-                        CenteredMessage(text: "No profiles yet.").padding(.top, 60)
+                        CenteredMessage(text: "No profiles yet").padding(.top, 60)
                     } else {
                         ForEach(store.profiles) { profile in
                             Button { detail = profile } label: {
@@ -87,8 +86,8 @@ struct ProfilePersonalityCard: View {
         GlassCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("ACTIVE PERSONALITY")
-                        .font(.system(size: 10.5, weight: .semibold)).kerning(0.6)
+                    Text("Active personality")
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                     Spacer(minLength: 8)
                     Button(expanded ? "Less" : "More") { expanded.toggle() }
@@ -139,8 +138,8 @@ struct ProfileCard: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
-                        if isActive { StatusPill("ACTIVE", color: JcTheme.success, dense: true) }
-                        if profile.isDefault { StatusPill("DEFAULT", color: JcTheme.blue, dense: true) }
+                        if isActive { StatusPill("Active", color: JcTheme.success, dense: true) }
+                        if profile.isDefault { StatusPill("Default", color: JcTheme.blue, dense: true) }
                     }
                     if !subtitle.isEmpty {
                         HStack(spacing: 5) {
@@ -175,8 +174,8 @@ struct ProfileDetailSheet: View {
         DetailSheet(title: profile.name.isEmpty ? "Profile" : profile.name) {
             VStack(alignment: .leading, spacing: 14) {
                 JcWrap(spacing: 8, runSpacing: 8) {
-                    if isActive { StatusPill("ACTIVE", color: JcTheme.success) }
-                    if profile.isDefault { StatusPill("DEFAULT", color: JcTheme.blue) }
+                    if isActive { StatusPill("Active", color: JcTheme.success) }
+                    if profile.isDefault { StatusPill("Default", color: JcTheme.blue) }
                     StatusPill(profile.gatewayLabel, color: Color(tone: profile.gatewayTone),
                                live: profile.gatewayRunning)
                 }

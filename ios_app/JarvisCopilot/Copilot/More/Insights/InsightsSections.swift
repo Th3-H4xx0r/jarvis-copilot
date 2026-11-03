@@ -19,7 +19,7 @@ struct InsightsHealthCard: View {
     var body: some View {
         GlassCard {
             if rows.isEmpty {
-                CardEmptyBlock(symbol: "speedometer", text: "Host metrics unavailable.")
+                CardEmptyBlock(symbol: "speedometer", text: "Host metrics unavailable")
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Current VPS resource usage")
@@ -120,9 +120,8 @@ struct InsightsKeyValueTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
-                .kerning(0.5)
+            Text(label)
+                .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
             Text(value)
                 .font(.system(size: 13.5, weight: .semibold))
@@ -171,25 +170,18 @@ struct InsightsStatTile: View {
     let tone: MoreTone
 
     var body: some View {
-        let tint = Color(tone: tone)
         GlassCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                JcIcon(symbol)
-                    .font(.system(size: 17))
-                    .foregroundStyle(tint)
-                    .frame(width: 32, height: 32)
-                    .background(tint.opacity(0.15),
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(value)
-                        .font(.system(size: 22, weight: .semibold))
-                        .kerning(-0.4)
-                        .foregroundStyle(JcTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(label.uppercased())
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .kerning(0.6)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 24, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(JcTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                HStack(spacing: 6) {
+                    JcIcon(symbol, size: 12)
+                        .foregroundStyle(JcTheme.muted)
+                    Text(label)
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                 }
@@ -224,11 +216,11 @@ struct InsightsTokenBreakdownCard: View {
     private func row(_ label: String, _ value: String, bold: Bool = false) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 13.5, weight: bold ? .bold : .medium))
+                .font(.system(size: 13.5, weight: bold ? .semibold : .regular))
                 .foregroundStyle(bold ? JcTheme.text : JcTheme.muted)
             Spacer(minLength: 8)
             Text(value)
-                .font(.system(size: 14.5, weight: bold ? .bold : .semibold))
+                .font(.system(size: 14.5, weight: bold ? .semibold : .medium).monospacedDigit())
                 .foregroundStyle(JcTheme.text)
         }
     }
@@ -244,7 +236,7 @@ struct InsightsModelsCard: View {
     var body: some View {
         GlassCard {
             if models.isEmpty {
-                CardEmptyBlock(symbol: "square.stack.3d.up", text: "No model usage in this period.")
+                CardEmptyBlock(symbol: "square.stack.3d.up", text: "No model usage in this period")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(models.enumerated()), id: \.element.id) { index, model in

@@ -39,7 +39,7 @@ struct HealthReferenceBar: Codable, Equatable {
         case "low": return JcTheme.blue
         case "normal": return JcTheme.success
         case "elevated": return JcTheme.amber
-        case "high": return .orange
+        case "high": return JcTheme.danger
         default: return JcTheme.muted
         }
     }
@@ -336,8 +336,7 @@ struct HealthReadingsList: View {
             }
             .padding(.vertical, 12)
         }
-        .navigationTitle("All readings")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("All readings")
     }
 }
 
@@ -383,7 +382,7 @@ struct HealthVitalsCard: View {
         let entry = vitals.metrics[metric.rawValue]
         return Row(minHeight: 64) {
             HStack(spacing: 12) {
-                RingMetricSymbol(name: group.symbol, tint: group.tint).frame(width: 26)
+                JcIconSquare(symbol: group.symbol)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(group.title).font(.body.weight(.medium))
@@ -462,7 +461,6 @@ struct HealthMetricGroupView: View {
             HealthHistoryView(metric: metric, tab: tab, selection: selection)
                 .id(metric)
         }
-        .navigationTitle(group.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(group.title)
     }
 }

@@ -24,11 +24,11 @@ struct MemoryPage: View {
             .refreshable { await store.refresh() }
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.documents.isEmpty)
-        .jcScreen("Memory")
+        .jcPageChrome("Memory")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "square.and.pencil", size: 34, iconSize: 16,
-                                tint: store.canEdit ? JcTheme.text : JcTheme.muted.opacity(0.5)) {
+                JcPageButton("square.and.pencil", label: "Edit",
+                             tint: store.canEdit ? JcTheme.text : JcTheme.muted.opacity(0.5)) {
                     if store.canEdit { editing = true }
                 }
             }
@@ -154,7 +154,7 @@ struct MemoryEditorView: View {
                     Text("Markdown supported")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     Spacer(minLength: 8)
-                    if dirty { StatusPill("UNSAVED", color: JcTheme.accentAlt, dense: true) }
+                    if dirty { StatusPill("Unsaved", color: JcTheme.amber, dense: true) }
                 }
                 .padding(.bottom, 10)
 

@@ -19,7 +19,7 @@ struct StrengthLiveView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         header
                         StrengthExerciseList(session: session)
-                        Button("Cancel Workout", role: .destructive) { confirmingCancel = true }
+                        Button("Cancel workout", role: .destructive) { confirmingCancel = true }
                             .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
                             .padding(.horizontal, 16)
                             .padding(.top, 8)
@@ -37,14 +37,14 @@ struct StrengthLiveView: View {
         .animation(.snappy, value: session.rest != nil)
         .alert(undone > 0 ? "\(undone) sets aren't done" : "Finish workout?",
                isPresented: $confirmingFinish) {
-            Button(undone > 0 ? "Finish Anyway" : "Finish") { workout.end() }
-            Button("Keep Going", role: .cancel) {}
+            Button(undone > 0 ? "Finish anyway" : "Finish") { workout.end() }
+            Button("Keep going", role: .cancel) {}
         } message: {
             if undone > 0 { Text("Unticked sets don't count toward the workout's totals or records.") }
         }
         .alert("Cancel this workout?", isPresented: $confirmingCancel) {
-            Button("Cancel Workout", role: .destructive) { workout.cancelStrength() }
-            Button("Keep Going", role: .cancel) {}
+            Button("Cancel workout", role: .destructive) { workout.cancelStrength() }
+            Button("Keep going", role: .cancel) {}
         } message: {
             Text("Nothing from it is saved.")
         }
@@ -85,9 +85,9 @@ struct StrengthLiveView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let left = rest.remaining(at: context.date)
                     HStack(spacing: 6) {
-                        Image(systemName: "timer").font(.system(size: 13, weight: .bold))
+                        Image(systemName: "timer").font(.system(size: 13, weight: .semibold))
                         Text(SetRow.clock(left))
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .contentTransition(.numericText(countsDown: true))
                     }
@@ -121,7 +121,7 @@ struct StrengthLiveView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("Workout name", text: $session.log.name)
-                .font(.title2.weight(.bold))
+                .font(.title2.weight(.semibold))
                 .submitLabel(.done)
             Text(session.log.started.formatted(.dateTime.weekday(.wide).month(.abbreviated).day().hour().minute()))
                 .font(.subheadline)
@@ -194,7 +194,7 @@ struct RestTimerView: View {
                             .rotationEffect(.degrees(-90))
                         VStack(spacing: 4) {
                             Text(SetRow.clock(Int(left.rounded(.up))))
-                                .font(.system(size: 64, weight: .bold, design: .rounded))
+                                .font(.system(size: 64, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                             Text("of \(SetRow.clock(rest.total))")
                                 .font(.subheadline)

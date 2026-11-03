@@ -141,7 +141,7 @@ struct RouteLiveView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(WorkoutLiveView.clock(elapsed))
-                        .font(.system(size: 54, weight: .bold, design: .rounded))
+                        .font(.system(size: 54, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                         .contentTransition(.numericText())
@@ -196,7 +196,7 @@ struct RouteLiveView: View {
             RingMetricSymbol(name: "heart.fill", tint: RingMeasurementType.heartRate.tint,
                              pulsing: workout.phase == .running && workout.tick?.heartRate != nil, size: 18)
             Text(workout.tick?.heartRate.map(String.init) ?? "--")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
             Text("bpm").font(.subheadline).foregroundStyle(.secondary)
@@ -254,7 +254,7 @@ struct RouteLiveView: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .font(.system(size: 30, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                     Text("\(unit.distance(progress.distance)) \(unit.symbol) · \(unit.pace(secondsPerMeter: progress.pace.map { $0 / 1000 }))/\(unit.symbol)")
                         .font(.subheadline.weight(.medium))
@@ -278,7 +278,7 @@ struct RouteLiveView: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.system(size: size * 0.33, weight: .bold))
+                    .font(.system(size: size * 0.33, weight: .semibold))
                     .foregroundStyle(tint)
                     .frame(width: size, height: size)
                     .background(tint.opacity(0.16), in: Circle())
