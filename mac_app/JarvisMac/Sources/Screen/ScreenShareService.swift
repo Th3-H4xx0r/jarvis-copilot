@@ -19,8 +19,12 @@ final class ScreenShareService {
 
     /// Shares running on this Mac, by id.
     private(set) var sessions: [String: ScreenShareSession] = [:]
-    /// Viewers connected across all shares (the banner shows while > 0).
+    /// Viewers connected across all shares.
     private(set) var viewers = 0
+    /// Shares capturing this screen right now (the banner shows while > 0, watched or not).
+    private(set) var capturing = 0
+    /// One of them is a task share, so it is being recorded for the replay.
+    private(set) var recording = false
     /// Screen Recording was refused: the banner says so until he fixes it or dismisses it.
     private(set) var permissionProblem: String?
 
@@ -90,6 +94,9 @@ final class ScreenShareService {
 
     private func recount() {
         viewers = sessions.values.reduce(0) { $0 + $1.viewerCount }
+        let live = sessions.values.filter(\.capturing)
+        capturing = live.count
+        recording = live.contains { $0.reason == "task" }
         ShareBanner.update()
     }
 }

@@ -28,6 +28,29 @@ final class ScreenShareTests: XCTestCase {
         XCTAssertEqual(InputInjector.flags(["alt", "ctrl", "nope"]), [.maskAlternate, .maskControl])
     }
 
+    func testPhysicalCodesWinForShortcutsAndDeleteMeansBackspaceWithoutOne() {
+        // ⌥F on a Mac browser: key "ƒ", code "KeyF" → F's key code.
+        XCTAssertEqual(InputInjector.keyCode("ƒ", code: "KeyF", shortcut: true), 3)
+        // ⌘⇧[ : key "{" has no key; the code does.
+        XCTAssertEqual(InputInjector.keyCode("{", code: "BracketLeft", shortcut: true), 33)
+        XCTAssertEqual(InputInjector.keyCode("!", code: "Digit1", shortcut: true), 18)
+        // The iPhone's ⌫ sends a bare "Delete": backspace.
+        XCTAssertEqual(InputInjector.keyCode("Delete", code: "", shortcut: false), 51)
+        // A PC's Del key: forward delete, by name or by code.
+        XCTAssertEqual(InputInjector.keyCode("ForwardDelete", code: "", shortcut: false), 117)
+        XCTAssertEqual(InputInjector.keyCode("ForwardDelete", code: "Delete", shortcut: false), 117)
+        XCTAssertEqual(InputInjector.keyCode("Backspace", code: "Backspace", shortcut: false), 51)
+        // No modifier and no code: the name as before.
+        XCTAssertEqual(InputInjector.keyCode("c", code: "", shortcut: true), 8)
+        XCTAssertEqual(InputInjector.physicalKeyCode("F5"), 96)
+        XCTAssertNil(InputInjector.physicalKeyCode("MediaPlayPause"))
+    }
+
+    func testBannerSaysHowManyWatchAndWhetherItRecords() {
+        XCTAssertEqual(ShareBannerDetail.text(viewers: 0, recording: true), "recording, no one watching")
+        XCTAssertEqual(ShareBannerDetail.text(viewers: 2, recording: false), "2 watching")
+    }
+
     func testStreamSizeFitsInto1080pWithEvenSides() {
         XCTAssertEqual(FramePipeline.outputSize(pixels: CGSize(width: 3456, height: 2234)),
                        CGSize(width: 1670, height: 1080))

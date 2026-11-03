@@ -25,8 +25,15 @@ final class ScreenShareSession {
     private var seq = 0
     private var signalTask: Task<Void, Never>?
     private var ended = false
+    /// A viewer's candidates that arrived before its offer (each signal is its own
+    /// POST, so the server's seq order isn't the order the viewer made them in).
+    private var earlyCandidates: [String: [[String: Any]]] = [:]
+    /// This side's signals go out one at a time per viewer (answer before candidates).
+    private var outbox: [String: Task<Void, Never>] = [:]
 
     var viewerCount: Int { peers.values.filter(\.connected).count }
+    /// The screen is being captured (and, for a task share, recorded) right now.
+    var capturing: Bool { pipeline != nil && !ended }
 
     init(id: String, reason: String, origin: String) {
         self.id = id
@@ -51,6 +58,10 @@ final class ScreenShareSession {
     private func run() async {
         iceServers = await Self.fetchIce(origin)
         let pipeline = FramePipeline(record: reason == "task", shareID: id)
+        // Capture ended under us (the menu bar's Stop, a display change, the
+        // display went to sleep for good): end the share so viewers see it end
+        // instead of a frozen frame that still takes clicks.
+        pipeline.onStopped = { [weak self] text in self?.stop(reason: text) }
         do {
             try await pipeline.start()
         } catch {
@@ -67,6 +78,7 @@ final class ScreenShareSession {
         }
         guard !ended else { await pipeline.stop(); return }
         self.pipeline = pipeline
+        onViewers?(viewerCount)  // the banner shows from now on, watched or not
         signalTask = Task { [weak self] in await self?.signalLoop() }
     }
 
@@ -108,11 +120,23 @@ final class ScreenShareSession {
             }
             peers[viewer] = peer
             peer.accept(offer: J.s(msg["sdp"]))
+            // The peer holds these itself until the offer is applied.
+            for c in earlyCandidates.removeValue(forKey: viewer) ?? [] { add(c, to: peer) }
         case "candidate":
             let c = J.obj(msg["candidate"])
-            peers[viewer]?.addRemote(candidate: J.s(c["candidate"]), mid: c["sdpMid"] as? String,
-                                     index: Int32(J.i(c["sdpMLineIndex"])))
+            if let peer = peers[viewer] {
+                add(c, to: peer)
+            } else {
+                var queued = earlyCandidates[viewer] ?? []
+                if queued.count < 64 { queued.append(c) }
+                earlyCandidates[viewer] = queued
+                // A viewer that never offers (it left at once): don't keep its candidates forever.
+                if earlyCandidates.count > 16, let stale = earlyCandidates.keys.first(where: { $0 != viewer }) {
+                    earlyCandidates[stale] = nil
+                }
+            }
         case "bye":
+            earlyCandidates[viewer] = nil
             peers.removeValue(forKey: viewer)?.close()
             onViewers?(viewerCount)
         default:
@@ -120,13 +144,23 @@ final class ScreenShareSession {
         }
     }
 
+    private func add(_ c: [String: Any], to peer: ScreenPeer) {
+        peer.addRemote(candidate: J.s(c["candidate"]), mid: c["sdpMid"] as? String,
+                       index: Int32(J.i(c["sdpMLineIndex"])))
+    }
+
+    /// Posts in order per viewer: a candidate never overtakes the answer.
     private func post(_ body: [String: Any], viewer: String) {
         guard !ended else { return }
         var msg = body
         msg["from"] = "mac"
         if !viewer.isEmpty { msg["viewer"] = viewer }
         let origin = origin, id = id
-        Task { await ScreenAPI.postJSON(origin, "/api/screen/shares/\(id)/signal", msg) }
+        let previous = outbox[viewer]
+        outbox[viewer] = Task {
+            await previous?.value
+            await ScreenAPI.postJSON(origin, "/api/screen/shares/\(id)/signal", msg)
+        }
     }
 
     // MARK: ending
@@ -137,6 +171,8 @@ final class ScreenShareSession {
         signalTask?.cancel()
         for p in peers.values { p.close() }
         peers = [:]
+        earlyCandidates = [:]
+        outbox = [:]
         onViewers?(0)
         let origin = origin, id = id, pipeline = pipeline
         self.pipeline = nil

@@ -28,6 +28,8 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private var lastAt: CFTimeInterval = 0
     private var timer: DispatchSourceTimer?
     private var stopped = false
+    /// Capture ended by itself (not through `stop`): why, for the viewers. Main actor.
+    var onStopped: (@MainActor (String) -> Void)?
 
     init(record: Bool, shareID: String) {
         self.record = record
@@ -116,6 +118,23 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         NSLog("Jarvis screen share: capture stopped: \(error)")
+        queue.async { [weak self] in
+            guard let self, !self.stopped else { return }
+            self.stopped = true
+            self.lastFrame = nil
+            let text = Self.stopText(error)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.onStopped?(text) }
+            }
+        }
+    }
+
+    static func stopText(_ error: Error) -> String {
+        let ns = error as NSError
+        if ns.domain == SCStreamErrorDomain, ns.code == SCStreamError.Code.userStopped.rawValue {
+            return "Sharing was stopped on the Mac."
+        }
+        return "The Mac stopped capturing the screen (\(ns.localizedDescription))."
     }
 
     private func repeatLast() {
@@ -131,10 +150,16 @@ final class FramePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 }
 
 /// H.264 MP4 of a task share (the replay). Runs on the pipeline's queue.
+///
+/// The replay goes up in one POST through Cloudflare, which refuses bodies over
+/// 100 MB, so the file stays under ~90 MB: 750 kbit/s at 15 fps (plenty for a
+/// screen), and recording simply stops — the file kept — at 90 MB or 50 minutes,
+/// whichever comes first. The live WebRTC stream is not affected.
 final class ScreenRecorder {
-    /// ~1.2 Mbit/s average keeps 50 minutes under the server's 500 MB cap.
-    static let bitrate = 1_200_000
+    static let bitrate = 750_000
+    static let fps: Int32 = 15
     static let maxDuration: Double = 50 * 60
+    static let maxBytes: Int64 = 90_000_000
 
     let url: URL
     private let writer: AVAssetWriter
@@ -143,6 +168,7 @@ final class ScreenRecorder {
     private var first: CMTime?
     private var last: CMTime = .zero
     private var frames = 0
+    private var full = false
 
     init(shareID: String, size: CGSize) throws {
         url = FileManager.default.temporaryDirectory.appendingPathComponent("jarvis-screen-\(shareID).mp4")
@@ -154,8 +180,8 @@ final class ScreenRecorder {
             AVVideoHeightKey: Int(size.height),
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: Self.bitrate,
-                AVVideoExpectedSourceFrameRateKey: Int(FramePipeline.fps),
-                AVVideoMaxKeyFrameIntervalKey: Int(FramePipeline.fps) * 2,
+                AVVideoExpectedSourceFrameRateKey: Int(Self.fps),
+                AVVideoMaxKeyFrameIntervalKey: Int(Self.fps) * 4,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
             ],
         ])
@@ -174,9 +200,23 @@ final class ScreenRecorder {
             writer.startSession(atSourceTime: time)
             first = time
         }
-        guard writer.status == .writing, let first, time > last,
-              CMTimeGetSeconds(CMTimeSubtract(time, first)) < Self.maxDuration,
+        guard !full, writer.status == .writing, let first, time > last,
               input.isReadyForMoreMediaData else { return }
+        // 15 fps is enough for a replay; the first frame always goes in.
+        if frames > 0, CMTimeGetSeconds(CMTimeSubtract(time, last)) < 1.0 / Double(Self.fps) * 0.9 { return }
+        if CMTimeGetSeconds(CMTimeSubtract(time, first)) >= Self.maxDuration { full = true; return }
+        // The writer flushes as it goes: check the file every ~2 s of frames. If its
+        // size can't be read, go by the bitrate (with headroom for busy screens).
+        if frames > 0, frames % (Int(Self.fps) * 2) == 0 {
+            let written = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value ?? 0
+            let elapsed = CMTimeGetSeconds(CMTimeSubtract(time, first))
+            let estimate = Int64(elapsed * Double(Self.bitrate) / 8 * 1.25)
+            if (written > 0 ? written : estimate) >= Self.maxBytes {
+                full = true
+                NSLog("Jarvis screen share: replay reached ~90 MB after \(Int(elapsed)) s, recording stops here")
+                return
+            }
+        }
         if adaptor.append(pixels, withPresentationTime: time) {
             last = time
             frames += 1

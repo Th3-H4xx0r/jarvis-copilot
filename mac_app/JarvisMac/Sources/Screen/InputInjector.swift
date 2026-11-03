@@ -7,7 +7,14 @@ import Foundation
 /// on the shared display. Coordinates arrive normalised (0…1) to that display.
 ///
 ///   {"t":"move","x","y"}  {"t":"down"|"up","x","y","button"}  {"t":"click","x","y","button","count"}
-///   {"t":"scroll","dx","dy"}  {"t":"key","key","mods"}  {"t":"text","text"}
+///   {"t":"scroll","dx","dy"}  {"t":"key","key","mods","code"?}  {"t":"text","text"}
+///
+/// Keys: `key` is a KeyboardEvent.key-style name or a character; `code` (optional,
+/// the web's KeyboardEvent.code: "KeyF", "Digit1", "BracketLeft", "Delete"…) names
+/// the physical key and wins for shortcuts (⌘/⌥/⌃ held — the key's character is
+/// then "ƒ" or "{", not the key) and for named keys. "Backspace" deletes back,
+/// "ForwardDelete" deletes forward; a bare "Delete" with no `code` is backspace
+/// (the iPhone's ⌫), with `code` "Delete" it is forward delete (a PC's Del key).
 ///
 /// Posting events needs Accessibility (the same grant dictation and push to talk use).
 final class InputInjector: @unchecked Sendable {
@@ -91,7 +98,7 @@ final class InputInjector: @unchecked Sendable {
             CGEvent(scrollWheelEvent2Source: src, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)?
                 .post(tap: .cghidEventTap)
         case "key":
-            key(src, J.s(m["key"]), mods: (m["mods"] as? [String]) ?? [])
+            key(src, J.s(m["key"]), code: J.s(m["code"]), mods: (m["mods"] as? [String]) ?? [])
         case "text":
             type(src, J.s(m["text"]))
         default:
@@ -127,15 +134,16 @@ final class InputInjector: @unchecked Sendable {
         return f
     }
 
-    private func key(_ src: CGEventSource?, _ name: String, mods: [String]) {
+    private func key(_ src: CGEventSource?, _ name: String, code physical: String, mods: [String]) {
         let flags = Self.flags(mods)
+        let shortcut = !flags.subtracting(.maskShift).isEmpty
         // A plain character (maybe shifted: "A", "?") is typed as itself, so the case
         // and the layout come out right; shortcuts (⌘C…) go by key code.
-        if name.count == 1, name != " ", flags.subtracting(.maskShift).isEmpty {
+        if name.count == 1, name != " ", !shortcut {
             type(src, name)
             return
         }
-        guard let code = Self.keyCode(name) else {
+        guard let code = Self.keyCode(name, code: physical, shortcut: shortcut) else {
             // A character with no key on the US layout (é, emoji…): type it instead.
             if flags.isEmpty, !name.isEmpty { type(src, name) }
             return
@@ -161,7 +169,32 @@ final class InputInjector: @unchecked Sendable {
         }
     }
 
+    /// The key to press: the physical `code` for shortcuts and named keys when the
+    /// viewer sent one, else the `key` name / character.
+    static func keyCode(_ name: String, code: String, shortcut: Bool) -> CGKeyCode? {
+        if !code.isEmpty, shortcut || name.count != 1, let c = physicalKeyCode(code) { return c }
+        return keyCode(name)
+    }
+
+    /// macOS virtual key codes (ANSI) for KeyboardEvent.code values.
+    static func physicalKeyCode(_ code: String) -> CGKeyCode? {
+        if code.hasPrefix("Key"), code.count == 4 { return keyCode(String(code.dropFirst(3)).lowercased()) }
+        if code.hasPrefix("Digit"), code.count == 6 { return keyCode(String(code.dropFirst(5))) }
+        let codes: [String: CGKeyCode] = [
+            "Minus": 27, "Equal": 24, "BracketLeft": 33, "BracketRight": 30, "Backslash": 42,
+            "Semicolon": 41, "Quote": 39, "Backquote": 50, "Comma": 43, "Period": 47, "Slash": 44,
+            "IntlBackslash": 10, "Space": 49, "Enter": 36, "NumpadEnter": 76, "Tab": 48,
+            "Backspace": 51, "Delete": 117, "Escape": 53, "Home": 115, "End": 119,
+            "PageUp": 116, "PageDown": 121, "ArrowLeft": 123, "ArrowRight": 124,
+            "ArrowDown": 125, "ArrowUp": 126,
+        ]
+        if let c = codes[code] { return c }
+        if code.hasPrefix("F"), let n = Int(code.dropFirst()), (1...12).contains(n) { return keyCode("f\(n)") }
+        return nil
+    }
+
     /// macOS virtual key codes (ANSI layout) for KeyboardEvent.key names and plain characters.
+    /// "delete" is backspace (the iPhone's ⌫); "forwarddelete" deletes forward.
     static func keyCode(_ name: String) -> CGKeyCode? {
         let named: [String: CGKeyCode] = [
             "return": 36, "enter": 36, "tab": 48, "space": 49, " ": 49, "backspace": 51, "delete": 51,

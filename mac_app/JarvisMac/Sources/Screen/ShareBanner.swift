@@ -1,16 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// "Your screen is shared with Jarvis · Stop" — always on top, on every Space,
-/// while any viewer is connected. Also says when Screen Recording is off.
+/// "Your screen is shared with Jarvis · 1 watching · Stop" — always on top, on
+/// every Space, while any share is capturing (a task share records with nobody
+/// watching). Also says when Screen Recording is off.
 @MainActor
 enum ShareBanner {
     private static var panel: NSPanel?
-    static let size = CGSize(width: 400, height: 40)
+    static let size = CGSize(width: 440, height: 40)
 
     static func update() {
         let service = ScreenShareService.shared
-        let show = service.viewers > 0 || service.permissionProblem != nil
+        let show = service.capturing > 0 || service.permissionProblem != nil
         if !show {
             panel?.orderOut(nil)
             return
@@ -62,9 +63,8 @@ private struct ShareBannerView: View {
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             } else {
                 Circle().fill(Color.red).frame(width: 8, height: 8)
-                Text(service.viewers > 1 ? "Your screen is shared with Jarvis · \(service.viewers) watching"
-                                         : "Your screen is shared with Jarvis")
-                    .font(.system(size: 12.5, weight: .medium))
+                Text("Your screen is shared with Jarvis · \(ShareBannerDetail.text(viewers: service.viewers, recording: service.recording))")
+                    .font(.system(size: 12.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 Button("Stop") { service.stopAll() }
                     .buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
@@ -74,5 +74,14 @@ private struct ShareBannerView: View {
         .frame(width: ShareBanner.size.width, height: ShareBanner.size.height)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+    }
+
+}
+
+/// The banner's "· 1 watching" / "· recording, no one watching" part.
+enum ShareBannerDetail {
+    static func text(viewers: Int, recording: Bool) -> String {
+        let watching = viewers == 0 ? "no one watching" : "\(viewers) watching"
+        return recording ? "recording, \(watching)" : watching
     }
 }
