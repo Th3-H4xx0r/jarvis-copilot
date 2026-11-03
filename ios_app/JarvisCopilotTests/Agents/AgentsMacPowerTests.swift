@@ -180,6 +180,13 @@ final class AgentsMacPowerTests: XCTestCase {
                        "jarvis-mac-password|sudo|abc123|1700000000|8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
     }
 
+    func testTheRequestBoxOnlyShowsWhenItSaysSomethingNew() {
+        XCTAssertFalse(MacPasswordSheetCopy.showsRequest(kind: "unlock", context: "Unlock Mac"))
+        XCTAssertTrue(MacPasswordSheetCopy.showsRequest(kind: "unlock", context: "Unlock Mac for Claude"))
+        XCTAssertTrue(MacPasswordSheetCopy.showsRequest(kind: "sudo", context: "sudo ls"))
+        XCTAssertFalse(MacPasswordSheetCopy.showsRequest(kind: "admin", context: "  "))
+    }
+
     func testSheetTitlesAndCountdown() {
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "sudo"), "sudo wants your Mac password")
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "admin"), "Admin access on your Mac")
@@ -294,7 +301,11 @@ final class AgentsMacPowerRenderTests: XCTestCase {
             "id": "pw-2", "device_id": "mac-1", "kind": "admin", "nonce": "n", "expires": now + 24,
             "context": (1...14).map { "line \($0): installer wants to change /Library/LaunchDaemons/com.example.helper.plist" }
                 .joined(separator: "\n")])
-        for (request, name) in [(short, "mac-password-sheet"), (long, "mac-password-sheet-long")] {
+        let unlock = MacPasswordRequest(json: [
+            "id": "pw-3", "device_id": "mac-1", "kind": "unlock", "nonce": "n", "expires": now + 115,
+            "context": "Unlock Mac"])
+        for (request, name) in [(short, "mac-password-sheet"), (long, "mac-password-sheet-long"),
+                                (unlock, "mac-password-sheet-unlock")] {
             let host = Color.black.sheet(isPresented: .constant(true)) {
                 MacPasswordSheet(request: request, macName: "Pranav's MacBook Pro", answer: { _ in nil })
             }
