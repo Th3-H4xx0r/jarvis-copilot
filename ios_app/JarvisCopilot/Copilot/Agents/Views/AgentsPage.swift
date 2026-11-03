@@ -10,8 +10,9 @@ enum AgentsRoute: Hashable {
 
 /// The Agents tab: every coding-agent conversation on the Mac and the server,
 /// one record each, live from their hooks. Top to bottom: the plan usage, the
-/// Mac-asleep card when a Mac left sessions behind, what needs you (a flat
-/// list across projects and machines), then every other session in
+/// MacBook power card, the Mac-asleep card when a Mac left sessions behind,
+/// what needs you (Mac password prompts, then a flat list across projects and
+/// machines), then every other session in
 /// collapsible project groups, and last the runs Jarvis does in the background
 /// for an integration (collapsed until opened). Approvals and questions are
 /// answered inside each session; "+" starts a new one.
@@ -32,9 +33,15 @@ struct AgentsPage: View {
                         JcSectionLabel("Plan usage", first: true)
                         AgentUsageStrip(claude: store.usage, codex: store.codexUsage)
                     }
+                    if !store.macs.isEmpty {
+                        VStack(spacing: 10) {
+                            ForEach(store.macs) { mac in AgentsMacPowerCard(mac: mac, store: store) }
+                        }
+                        .padding(.top, store.usage != nil || store.codexUsage != nil ? 12 : 8)
+                    }
                     if let card = store.card {
                         AgentsSleepCard(card: card, store: store)
-                            .padding(.top, store.usage != nil || store.codexUsage != nil ? 12 : 8)
+                            .padding(.top, store.usage != nil || store.codexUsage != nil || !store.macs.isEmpty ? 12 : 8)
                     }
                     content
                 }
@@ -65,6 +72,10 @@ struct AgentsPage: View {
             guard store.openRequest != nil, store.loaded, let key = store.consumeOpen() else { return }
             path = [.session(store.resolveCkey(key))]
         }
+        .onChange(of: store.passwordsRequested, initial: true) { _, _ in
+            // A Mac password push: back to the list, where it waits under Needs you.
+            if store.consumePasswords() { path = [] }
+        }
         .onChange(of: store.recapRequested, initial: true) { _, _ in
             if store.consumeRecap() { showRecap = true }
         }
@@ -79,27 +90,34 @@ struct AgentsPage: View {
     // MARK: content
 
     /// The first section on the page sits closer to the title.
-    private var contentFirst: Bool { store.usage == nil && store.codexUsage == nil && store.card == nil }
+    private var contentFirst: Bool {
+        store.usage == nil && store.codexUsage == nil && store.macs.isEmpty && store.card == nil
+    }
 
     @ViewBuilder private var content: some View {
         let needs = store.needsYou
         let orphans = store.orphanRequests
+        let passwords = store.passwordRequests
         let projects = store.projects
         let integrations = store.integrations
         if !store.loaded {
             AgentsSkeletonList(first: contentFirst)
-        } else if needs.isEmpty && orphans.isEmpty && projects.isEmpty && integrations.isEmpty {
+        } else if needs.isEmpty && orphans.isEmpty && passwords.isEmpty && projects.isEmpty && integrations.isEmpty {
             if let error = store.loadError {
                 AgentsErrorState(message: error) { Task { await store.refresh() } }
             } else if store.card == nil {
                 AgentsEmptyState { showLaunch = true }
             }
         } else {
-            if !needs.isEmpty || !orphans.isEmpty {
+            let nothingWaits = needs.isEmpty && orphans.isEmpty && passwords.isEmpty
+            if !nothingWaits {
                 JcSectionLabel("Needs you", first: contentFirst) {
                     if store.waitingCount > 0 { Text("\(store.waitingCount)").monospacedDigit() }
                 }
                 VStack(spacing: 10) {
+                    ForEach(passwords) { request in
+                        AgentsMacPasswordCard(request: request, store: store)
+                    }
                     ForEach(orphans) { request in
                         AgentRequestCard(request: request, store: store, inset: 0)
                     }
@@ -109,7 +127,7 @@ struct AgentsPage: View {
                 }
             }
             if !projects.isEmpty {
-                JcSectionLabel("Projects", first: contentFirst && needs.isEmpty && orphans.isEmpty)
+                JcSectionLabel("Projects", first: contentFirst && nothingWaits)
                 let collapsed = AgentsListLayout.collapsed(from: collapsedRaw)
                 VStack(spacing: 10) {
                     ForEach(projects) { group in
@@ -129,7 +147,7 @@ struct AgentsPage: View {
             }
             if !integrations.isEmpty {
                 JcSectionLabel("Integrations",
-                               first: contentFirst && needs.isEmpty && orphans.isEmpty && projects.isEmpty)
+                               first: contentFirst && nothingWaits && projects.isEmpty)
                 let expanded = AgentsListLayout.collapsed(from: expandedIntegrationsRaw)
                 VStack(spacing: 10) {
                     ForEach(integrations) { group in

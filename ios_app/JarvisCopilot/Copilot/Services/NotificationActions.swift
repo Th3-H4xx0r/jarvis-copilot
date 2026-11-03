@@ -125,6 +125,11 @@ enum NotificationCategories {
                 intentIdentifiers: [], options: []),
             UNNotificationCategory(
                 identifier: agentQuestion, actions: [answer],
+                intentIdentifiers: [], options: []),
+            // A Mac password prompt: no lock-screen buttons — Allow needs Face ID
+            // and a signature, so the tap opens the card in the Agents tab.
+            UNNotificationCategory(
+                identifier: MacPasswordApproval.category, actions: [],
                 intentIdentifiers: [], options: [])]
         // "MacBook went to sleep" — Continue all on server; iMessage facts — Store / Skip all.
         return base.union(AgentsPushActions.categories()).union(IMessageFactsPush.categories())
@@ -185,6 +190,10 @@ final class NotificationActionHandler {
             } else if action.kind == AgentsPushActions.pushKind {
                 // "MacBook went to sleep": the Agents tab, where the card waits.
                 router.open(.agents(key: nil))
+            } else if action.kind == MacPasswordApproval.pushKind {
+                // "Mac password": the Agents list, where it waits under Needs you.
+                router.open(.agents(key: nil))
+                AgentsStore.shared.requestPasswords()
             } else if !action.agentKey.isEmpty {
                 router.open(.agents(key: action.agentKey))
             } else if !action.sessionID.isEmpty {

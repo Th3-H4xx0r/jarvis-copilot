@@ -91,7 +91,8 @@ struct AgentsAPI {
 
     // MARK: - The merged list (webui/api/agents_core.py)
 
-    /// `GET /api/coding/agents/list` → `{card, needs_you, projects, usage, usage_codex, ts}`.
+    /// `GET /api/coding/agents/list` → `{card, needs_you, projects, usage, usage_codex, mac,
+    /// password_requests, ts}`.
     func list() async throws -> AgentsList {
         AgentsList(json: try await api.get("/api/coding/agents/list").object())
     }
@@ -171,6 +172,24 @@ struct AgentsAPI {
         var body: [String: Any] = ["device_id": deviceId]
         if let ckeys { body["ckeys"] = ckeys }
         _ = try await api.post("/api/coding/agents/card/dismiss", json: body)
+    }
+
+    // MARK: - Mac power and password prompts (webui/api/mac_power.py)
+
+    /// `POST /api/coding/agents/mac/{wake|keep-awake|let-sleep|timer|unlock} {device_id, on?}`.
+    func macPower(_ action: String, deviceId: String, on: Bool? = nil) async throws {
+        var body: [String: Any] = ["device_id": deviceId]
+        if let on { body["on"] = on }
+        _ = try await api.post("/api/coding/agents/mac/\(action)", json: body)
+    }
+
+    /// `POST /api/coding/agents/mac/password/answer {id, decision, ts?, signature?}` —
+    /// the server only relays it; the Mac checks the signature before typing.
+    func macPasswordAnswer(id: String, decision: String, ts: Int? = nil, signature: String? = nil) async throws {
+        var body: [String: Any] = ["id": id, "decision": decision]
+        if let ts { body["ts"] = ts }
+        if let signature { body["signature"] = signature }
+        _ = try await api.post("/api/coding/agents/mac/password/answer", json: body)
     }
 
     /// `POST /api/coding/agents/terminal/start {ckey, rows, cols}` → `{terminal_id}`

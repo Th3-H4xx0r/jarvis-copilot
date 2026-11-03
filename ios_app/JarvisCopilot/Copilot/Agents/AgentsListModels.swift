@@ -3,7 +3,8 @@ import Foundation
 // The merged Agents tab's data (`GET /api/coding/agents/list`, pushed on the
 // `agents_list` bridge topic, built by `webui/api/agents_core.py`): one record
 // per conversation whichever machine runs it, the Mac-asleep card, what waits
-// on you, and every other session grouped by project.
+// on you, every other session grouped by project, and each Mac's power state
+// with its password prompts.
 
 /// Where a conversation is, from the server's session record.
 enum AgentConvStatus: String, Equatable {
@@ -167,6 +168,72 @@ struct AgentSleepCard: Equatable {
     }
 }
 
+/// One Mac's power state, as its jc-client last reported it (`mac` in the list,
+/// from `webui/api/mac_power.py`): awake or not, what holds it up, the
+/// keep-awake and timer switches, and a pending wake.
+struct AgentMacPower: Identifiable, Equatable {
+    enum State: String, Equatable { case awake, sleeping, offline }
+
+    let deviceId: String
+    let name: String
+    let state: State
+    /// The power helper is holding it awake right now.
+    let held: Bool
+    /// Why it's held: "manual", "session", "grace", "remote", "password" or "".
+    let reason: String
+    var keepAwake: Bool
+    /// "Check for wake requests while asleep" (the 15-minute timer).
+    var timerOn: Bool
+    let battery: Int?
+    let onAC: Bool?
+    /// "open", "closed" or nil.
+    let lid: String?
+    let seenAt: Date?
+    /// When a Wake Mac was asked for and not yet answered.
+    var wakeRequestedAt: Date?
+
+    var id: String { deviceId }
+    var isAwake: Bool { state == .awake }
+
+    init(json: [String: Any]) {
+        deviceId = CodingJSON.text(json["device_id"])
+        name = CodingJSON.str(json["name"]) ?? "Your Mac"
+        state = State(rawValue: CodingJSON.text(json["state"])) ?? .offline
+        held = CodingJSON.bool(json["held"])
+        reason = CodingJSON.text(json["reason"])
+        keepAwake = CodingJSON.bool(json["keep_awake"])
+        timerOn = json["timer_on"] == nil ? true : CodingJSON.bool(json["timer_on"])
+        battery = json["battery"] is NSNumber ? CodingJSON.int(json["battery"]) : nil
+        onAC = json["on_ac"] is NSNumber ? CodingJSON.bool(json["on_ac"]) : nil
+        lid = CodingJSON.str(json["lid"])
+        seenAt = CodingJSON.double(json["seen_at"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        wakeRequestedAt = CodingJSON.double(json["wake_requested_at"])
+            .flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+    }
+}
+
+/// A Mac password prompt waiting on his yes (`password_requests` in the list):
+/// sudo in a session, an admin pop-up, a Keychain prompt or the lock screen.
+/// The password never comes here, only what asked and the nonce to sign.
+struct MacPasswordRequest: Identifiable, Equatable {
+    let id: String
+    let deviceId: String
+    /// "sudo", "admin", "keychain" or "unlock" — signed exactly as sent.
+    let kind: String
+    let context: String
+    let nonce: String
+    let expires: Date
+
+    init(json: [String: Any]) {
+        id = CodingJSON.text(json["id"])
+        deviceId = CodingJSON.text(json["device_id"])
+        kind = CodingJSON.text(json["kind"])
+        context = CodingJSON.text(json["context"])
+        nonce = CodingJSON.text(json["nonce"])
+        expires = Date(timeIntervalSince1970: CodingJSON.double(json["expires"]) ?? 0)
+    }
+}
+
 /// One project's group of sessions.
 struct AgentProjectGroup: Identifiable, Equatable {
     let projectId: String?
@@ -221,12 +288,17 @@ struct AgentsList: Equatable {
     var integrations: [AgentIntegrationGroup]
     var usage: AgentPlanUsage?
     var codexUsage: AgentPlanUsage?
+    /// Each paired Mac's power state (the MacBook card).
+    var mac: [AgentMacPower]
+    /// Mac password prompts waiting on his yes (shown under Needs you).
+    var passwordRequests: [MacPasswordRequest]
     var ts: Double
 
     /// Integration runs found in `projects` move to `integrations`; a project
     /// left with nothing is dropped.
     init(card: AgentSleepCard? = nil, needsYou: [AgentConv] = [], projects: [AgentProjectGroup] = [],
-         usage: AgentPlanUsage? = nil, codexUsage: AgentPlanUsage? = nil, ts: Double = 0) {
+         usage: AgentPlanUsage? = nil, codexUsage: AgentPlanUsage? = nil,
+         mac: [AgentMacPower] = [], passwordRequests: [MacPasswordRequest] = [], ts: Double = 0) {
         self.card = card
         self.needsYou = needsYou
         let split = Self.splitIntegrations(projects)
@@ -234,6 +306,8 @@ struct AgentsList: Equatable {
         self.integrations = split.integrations
         self.usage = usage
         self.codexUsage = codexUsage
+        self.mac = mac
+        self.passwordRequests = passwordRequests
         self.ts = ts
     }
 
@@ -245,6 +319,9 @@ struct AgentsList: Equatable {
                     .filter { !$0.sessions.isEmpty },
                   usage: AgentPlanUsage(json: CodingJSON.dict(json["usage"])),
                   codexUsage: AgentPlanUsage(json: CodingJSON.dict(json["usage_codex"])),
+                  mac: CodingJSON.maps(json["mac"]).map(AgentMacPower.init(json:)).filter { !$0.deviceId.isEmpty },
+                  passwordRequests: CodingJSON.maps(json["password_requests"]).map(MacPasswordRequest.init(json:))
+                    .filter { !$0.id.isEmpty },
                   ts: CodingJSON.double(json["ts"]) ?? 0)
     }
 
@@ -253,7 +330,10 @@ struct AgentsList: Equatable {
 
     func conv(_ ckey: String) -> AgentConv? { all.first { $0.ckey == ckey } }
 
-    var isEmpty: Bool { card == nil && needsYou.isEmpty && projects.isEmpty && integrations.isEmpty }
+    var isEmpty: Bool {
+        card == nil && needsYou.isEmpty && projects.isEmpty && integrations.isEmpty
+            && mac.isEmpty && passwordRequests.isEmpty
+    }
 
     /// Pulls the integration runs out of the project groups and groups them by
     /// integration name (A–Z, so the section doesn't reshuffle on every push).

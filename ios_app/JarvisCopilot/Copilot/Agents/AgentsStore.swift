@@ -3,7 +3,7 @@ import Observation
 
 /// The Agents tab's state: every conversation on the Mac and the server (one
 /// record each), the Mac-asleep card, the approvals and questions waiting on
-/// you, and the plan usage.
+/// you, the plan usage, and each Mac's power state and password prompts.
 ///
 /// Push-driven: while the tab is on screen the store wants the `agents_list`
 /// bridge topic (the server pushes the whole list on every change), fetches
@@ -52,8 +52,12 @@ final class AgentsStore {
     /// Integration runs, by integration — their own section, collapsed by default.
     var integrations: [AgentIntegrationGroup] { list?.integrations ?? [] }
     var orphanRequests: [AgentRequest] { list.map { AgentsListLayout.orphans(requests, list: $0) } ?? requests }
+    /// Each paired Mac's power state (the MacBook card).
+    var macs: [AgentMacPower] { list?.mac ?? [] }
+    /// Mac password prompts, shown under Needs you.
+    var passwordRequests: [MacPasswordRequest] { list?.passwordRequests ?? [] }
     /// The number beside "Needs you" — never a different count from the rows.
-    var waitingCount: Int { needsYou.count + orphanRequests.count }
+    var waitingCount: Int { needsYou.count + orphanRequests.count + passwordRequests.count }
     var isEmpty: Bool { (list?.isEmpty ?? true) && requests.isEmpty }
 
     func conv(_ ckey: String) -> AgentConv? { list?.conv(ckey) }
@@ -73,6 +77,19 @@ final class AgentsStore {
     func consumeOpen() -> String? {
         defer { openRequest = nil }
         return openRequest
+    }
+
+    /// A Mac password push was tapped: the list, from the top, freshly read.
+    private(set) var passwordsRequested = false
+
+    func requestPasswords() {
+        passwordsRequested = true
+        Task { await refresh() }
+    }
+
+    func consumePasswords() -> Bool {
+        defer { passwordsRequested = false }
+        return passwordsRequested
     }
 
     /// The weekly recap was asked for (Monday's notification, a deep link).
@@ -266,6 +283,80 @@ final class AgentsStore {
     }
 
     func clearActionError() { actionError = nil }
+
+    // MARK: Mac power
+
+    enum MacPowerAction: Equatable {
+        case wake, letSleep, unlock
+        case keepAwake(Bool), timer(Bool)
+
+        var path: String {
+            switch self {
+            case .wake: return "wake"
+            case .letSleep: return "let-sleep"
+            case .unlock: return "unlock"
+            case .keepAwake: return "keep-awake"
+            case .timer: return "timer"
+            }
+        }
+
+        var on: Bool? {
+            switch self {
+            case .keepAwake(let on), .timer(let on): return on
+            default: return nil
+            }
+        }
+    }
+
+    /// Macs a power action is running for, by device id.
+    private(set) var macBusy: Set<String> = []
+
+    /// Wake / Keep awake / Let it sleep / the timer / Unlock. The card shows the
+    /// change at once; the list is read again either way. Nil on success, else why not.
+    @discardableResult
+    func macPower(_ mac: AgentMacPower, _ action: MacPowerAction) async -> String? {
+        if let i = list?.mac.firstIndex(where: { $0.deviceId == mac.deviceId }) {
+            switch action {
+            case .wake: list?.mac[i].wakeRequestedAt = Date()
+            case .keepAwake(let on): list?.mac[i].keepAwake = on
+            case .timer(let on): list?.mac[i].timerOn = on
+            case .letSleep, .unlock: break
+            }
+        }
+        macBusy.insert(mac.deviceId)
+        defer { macBusy.remove(mac.deviceId) }
+        do {
+            try await api.macPower(action.path, deviceId: mac.deviceId, on: action.on)
+            await refresh()
+            return nil
+        } catch {
+            let message = apiErrorMessage(error)
+            await refresh()
+            return message
+        }
+    }
+
+    /// Allow (Face ID, then the signed yes) or Deny a Mac password prompt. Nil
+    /// when it went, or when he cancelled Face ID (nothing sent); else why not.
+    @discardableResult
+    func answerMacPassword(_ request: MacPasswordRequest, allow: Bool) async -> String? {
+        do {
+            if allow {
+                try await MacPasswordApproval.allow(request, api: api)
+            } else {
+                try await MacPasswordApproval.deny(request, api: api)
+            }
+        } catch CarSignError.cancelled {
+            return nil
+        } catch let error as CarSignError {
+            return error.errorDescription
+        } catch {
+            return apiErrorMessage(error)
+        }
+        list?.passwordRequests.removeAll { $0.id == request.id }
+        await refresh()
+        return nil
+    }
 
     /// Runs one action for a conversation; nil on success, else the reason
     /// (also kept in `actionError`).
