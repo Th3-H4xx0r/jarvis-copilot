@@ -104,6 +104,37 @@ final class IntegrationUITests: XCTestCase {
             size: CGSize(width: 393, height: 320), name: "integration-ui-card")
     }
 
+    /// Renders every real integration UI dropped in /tmp/integration-ui-renders
+    /// (`<id>.page.json`, `<id>.card.json`, `<id>.state.json`) — a look at what Jarvis
+    /// built before anyone opens it on the phone. Skips when the folder is absent.
+    func testRenderRealIntegrationUIs() throws {
+        let dir = URL(fileURLWithPath: "/tmp/integration-ui-renders")
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+            throw XCTSkip("no renders requested")
+        }
+        let ids = Set(names.filter { $0.hasSuffix(".state.json") }.map { $0.replacingOccurrences(of: ".state.json", with: "") })
+        for id in ids.sorted() {
+            func text(_ suffix: String) -> String? {
+                try? String(contentsOf: dir.appendingPathComponent("\(id).\(suffix).json"), encoding: .utf8)
+            }
+            guard let state = text("state") else { continue }
+            if let page = text("page") {
+                let store = IntegrationUIStore(integrationID: "render-\(id)", presentation: .page)
+                store.update(from: IntegrationUICard(json: json(#"{"id":"x","card":\#(page),"state":\#(state)}"#)))
+                try RenderHarness.write(ScrollView { IntegrationUIPageSection(store: store).padding(16) },
+                                        size: CGSize(width: 393, height: 2200), name: "real-\(id)-page", settle: 1.5)
+            }
+            if let card = text("card") {
+                let store = IntegrationUIStore(integrationID: "render-\(id)", presentation: .card)
+                store.update(from: IntegrationUICard(json: json(#"{"id":"x","card":\#(card),"state":\#(state)}"#)))
+                try RenderHarness.write(
+                    VStack { IntegrationUICardView(store: store, name: id, icon: "", integration: nil) }
+                        .padding(16).frame(maxHeight: .infinity, alignment: .top),
+                    size: CGSize(width: 393, height: 380), name: "real-\(id)-card", settle: 1.5)
+            }
+        }
+    }
+
     static let cardJSON = #"""
     {"type":"vstack","spacing":10,"children":[
       {"type":"grid","columns":3,"children":[
