@@ -167,7 +167,7 @@ struct HealthTab: View {
                            selection: Binding(get: { current }, set: { selection = $0.selection }),
                            label: \.label,
                            scrolls: true)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, JcUnified.pageInset)
     }
 
     /// Days count back from Today's own date — the day last night ended on —
@@ -213,8 +213,11 @@ struct HealthDayHeader: View {
     var body: some View {
         TimelineView(.everyMinute) { context in
             let end = isToday ? max(window.end, context.date) : window.end
-            stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.muted,
-                 minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
+            let sinceMidnight = Self.countsFromMidnight(window, now: end)
+            stat(symbol: sinceMidnight ? "clock.fill" : "sun.max.fill",
+                 label: sinceMidnight ? "Since midnight" : "Awake", tint: JcTheme.muted,
+                 minutes: max(0, Int(end.timeIntervalSince(Self.countStart(window, now: end)) / 60)),
+                 size: 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onScrolledIntoView {
                     guard !revealed else { return }
@@ -223,10 +226,18 @@ struct HealthDayHeader: View {
         }
     }
 
-    /// Awake since the night ended; with no night recorded, the day since midnight.
-    private var primaryStart: Date { window.noNight ? window.start : (window.wake ?? window.start) }
-    private var primaryLabel: String { window.noNight ? "Since midnight" : "Awake" }
-    private var primarySymbol: String { window.noNight ? "clock.fill" : "sun.max.fill" }
+    /// Awake since the night ended; with no night recorded — or a wake-up more than a
+    /// day old, from a ring that missed last night — the day since midnight.
+    static func countsFromMidnight(_ window: HealthWindow, now: Date) -> Bool {
+        if window.noNight { return true }
+        guard let wake = window.wake else { return false }
+        return now.timeIntervalSince(wake) > 24 * 3600
+    }
+
+    static func countStart(_ window: HealthWindow, now: Date) -> Date {
+        guard !window.noNight, let wake = window.wake else { return window.start }
+        return countsFromMidnight(window, now: now) ? Calendar.current.startOfDay(for: now) : wake
+    }
 
     private func stat(symbol: String, label: String, tint: Color, minutes: Int, size: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 2) {

@@ -24,12 +24,7 @@ struct CodeMemoryProjectPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Kind", selection: $kind) {
-                ForEach(CodeMemoryKind.allCases) { item in
-                    Text(item.label).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
+            JcSegmented(items: CodeMemoryKind.allCases, selection: $kind, label: \.label)
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 4)
@@ -44,7 +39,7 @@ struct CodeMemoryProjectPage: View {
                     .allowsHitTesting(kind == .sessions)
             }
         }
-        .jcPageChrome(project.title)
+        .jcPageChrome(project.title, header: .inline)
     }
 }
 

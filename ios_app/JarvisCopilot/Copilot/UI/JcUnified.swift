@@ -122,12 +122,19 @@ extension View {
     func jcPageChrome(_ title: String) -> some View {
         jcPageChrome(title, actions: { EmptyView() }, leading: { EmptyView() })
     }
+
+    /// The same chrome with a small title, for pages whose content doesn't scroll at the
+    /// root (a full-screen map, 3D stage or chat) — a large title there never folds.
+    func jcPageChrome(_ title: String, header: JcScreenHeader) -> some View {
+        modifier(JcPageChrome(title: title, actions: EmptyView(), leading: EmptyView(), header: header))
+    }
 }
 
 private struct JcPageChrome<Actions: View, Leading: View>: ViewModifier {
     let title: String
     let actions: Actions
     let leading: Leading
+    var header: JcScreenHeader = .large
 
     func body(content: Content) -> some View {
         content
@@ -136,7 +143,7 @@ private struct JcPageChrome<Actions: View, Leading: View>: ViewModifier {
             .onAppear { EnergyLedger.shared.screenAppeared(title) }
             .onDisappear { EnergyLedger.shared.screenDisappeared(title) }
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(header == .inline ? .inline : .large)
             .toolbar {
                 if Leading.self != EmptyView.self {
                     ToolbarItem(placement: .topBarLeading) { leading }
@@ -406,6 +413,39 @@ struct JcSmallAction: View {
         }
         .buttonStyle(.jcGlass(tint: tint, compact: true))
         .disabled(busy)
+    }
+}
+
+// MARK: - Segmented over plain values
+
+/// `JcSegmented` — the one in-page filter, the grey capsule — for values that are
+/// not `Identifiable` (a Bool, a String tag, an Int) or whose label lives beside
+/// them. The binding is the caller's own; a selection outside the options
+/// highlights none, as the system picker did.
+struct JcSegmentedPicker<Value: Hashable>: View {
+    let options: [(value: Value, label: String)]
+    @Binding var selection: Value
+    var scrolls: Bool?
+
+    init(_ options: [(value: Value, label: String)], selection: Binding<Value>, scrolls: Bool? = nil) {
+        self.options = options
+        self._selection = selection
+        self.scrolls = scrolls
+    }
+
+    private struct Option: Hashable, Identifiable {
+        let value: Value
+        let label: String
+        var id: Value { value }
+    }
+
+    var body: some View {
+        let items = options.map { Option(value: $0.value, label: $0.label) }
+        let current = items.first { $0.value == selection } ?? Option(value: selection, label: "")
+        JcSegmented(items: items,
+                    selection: Binding(get: { current }, set: { selection = $0.value }),
+                    label: \.label,
+                    scrolls: scrolls)
     }
 }
 

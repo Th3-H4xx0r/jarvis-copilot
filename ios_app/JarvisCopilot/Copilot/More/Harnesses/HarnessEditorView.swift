@@ -191,10 +191,18 @@ struct HarnessEditorView: View {
 
     // MARK: Chrome
 
+    private var builtInLabel: some View {
+        Text("Built-in").font(JcText.small).foregroundStyle(JcTheme.muted).fixedSize()
+    }
+
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
         if readOnly {
-            ToolbarItem(placement: .topBarTrailing) {
-                Text("Built-in").font(JcText.small).foregroundStyle(JcTheme.muted)
+            // A label, not a button: on iOS 26 it must not sit in a glass circle.
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarTrailing) { builtInLabel }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { builtInLabel }
             }
         } else {
             ToolbarItem(placement: .topBarTrailing) {

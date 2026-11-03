@@ -14,7 +14,7 @@ struct AgentsHistoryView: View {
                 JcSectionLabel("Spotlight", first: true)
                 JcCard(padding: 0) {
                     JcRow(symbol: "magnifyingglass", title: "Show finished turns in Spotlight", last: true) {
-                        Toggle("", isOn: $spotlight).labelsHidden().tint(JcTheme.accent)
+                        Toggle("Show finished turns in Spotlight", isOn: $spotlight).labelsHidden().tint(JcTheme.accent)
                     }
                 }
                 .onChange(of: spotlight) { _, on in AgentsSpotlight.enabled = on }

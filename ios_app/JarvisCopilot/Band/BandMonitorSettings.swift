@@ -463,7 +463,7 @@ struct BandGlucoseCalibrationEditor: View {
     private var single: Bool { session.glucoseCalibrationKind == .single }
 
     var body: some View {
-        BandSettingEditor(title: "Blood glucose calibration",
+        BandSettingEditor(title: "Glucose calibration",
                           footer: single
                               ? "A reading from a glucose meter: the band's estimate follows it."
                               : "Readings from a glucose meter before and after each meal, and when you took them: the band's estimate follows them. Leave a meal empty to skip it.",

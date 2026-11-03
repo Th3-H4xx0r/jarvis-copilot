@@ -51,7 +51,7 @@ struct WebViewPage: View {
                 CenteredMessage(text: "No server paired")
             }
         }
-        .jcPageChrome(title)
+        .jcPageChrome(title, header: .inline)
     }
 }
 

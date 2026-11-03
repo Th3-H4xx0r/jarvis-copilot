@@ -104,9 +104,8 @@ struct DevicesMetricColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .kerning(0.7)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(JcTheme.muted)
             Text(InsightsUI.metricPercentText(percent))
                 .font(.system(size: 15, weight: .medium))
@@ -269,10 +268,9 @@ struct DeviceServerCard: View {
     private var skillList: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(groups) { group in
-                Text(group.title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .kerning(0.7)
-                    .foregroundStyle(JcTheme.muted.opacity(0.85))
+                Text(group.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
                     .padding(.horizontal, 14)
                     .padding(.top, 10)
                     .padding(.bottom, 3)

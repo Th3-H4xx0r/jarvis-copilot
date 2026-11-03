@@ -253,7 +253,7 @@ struct AppleHealthKindRow: View {
                 HStack(spacing: 12) {
                     Image(systemName: kind.symbol)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(isOn ? JcTheme.accent : JcTheme.muted)
+                        .foregroundStyle(JcTheme.muted)
                         .frame(width: 24)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(kind.title)

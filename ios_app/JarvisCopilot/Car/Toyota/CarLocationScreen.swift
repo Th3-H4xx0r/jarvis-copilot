@@ -36,7 +36,7 @@ struct CarLocationScreen: View {
             }
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .jcPageChrome("Location")
+        .jcPageChrome("Location", header: .inline)
     }
 
     private func directions(to location: ToyotaCar.Location) {

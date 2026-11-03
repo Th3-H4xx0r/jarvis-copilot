@@ -419,8 +419,7 @@ struct ControlButtonsPage: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("Control Center buttons")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Control Center")
     }
 }
 
@@ -504,8 +503,7 @@ struct ControlButtonEditor: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle(isNew ? "New button" : "Button")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(isNew ? "New button" : "Button")
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
@@ -691,8 +689,7 @@ struct SymbolPicker: View {
             .padding(.vertical, 12)
         }
         .searchable(text: $query, prompt: "Search 7,000+ symbols")
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(title)
     }
 
     private func chip(_ text: String, icon: String, key: String?) -> some View {

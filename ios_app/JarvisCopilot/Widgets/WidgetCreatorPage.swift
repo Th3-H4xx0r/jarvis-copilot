@@ -56,8 +56,7 @@ struct WidgetCreatorPage: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("Widget creator")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Widget creator")
         .task { await store.refresh() }
         .refreshable { await store.refresh() }
     }
@@ -114,8 +113,7 @@ struct WidgetTemplateGallery: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle("Templates")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Templates")
         .onAppear { data = WidgetDataFile.read() }
     }
 
@@ -185,8 +183,7 @@ struct WidgetDesignViewer: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle(info.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome(info.name)
         .onAppear { data = WidgetDataFile.read() }
         .alert("Delete this widget?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {

@@ -920,6 +920,7 @@
 		BD1DF43D95E8AA20A82227C1 /* TalkHereIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB267A6EA889793B608DA7B /* TalkHereIntent.swift */; };
 		BD3F53DA7AF2DE07140A2592 /* AgentLogos.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEE710F590669824A19CCFA1 /* AgentLogos.xcassets */; };
 		BD4793C906FB84BEBC549139 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 022844154506DD1C8D094A52 /* Foundation.framework */; };
+		BD8C6974C2061E80B086C884 /* HealthDayHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8763BE7E2407CCCCD53F8682 /* HealthDayHeaderTests.swift */; };
 		BDA78C33C068ED12B1011782 /* Camry-LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6588D51E1EBC7DFC6F10CB63 /* Camry-LICENSE.md */; };
 		BDC3283A9813E58CEFFAF305 /* RouteCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9266826902B749A17D36225 /* RouteCharts.swift */; };
 		BDEFDDB02CFAFD78AE00B6C0 /* StopwatchCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */; };
@@ -1889,6 +1890,7 @@
 		863366496127EA732989D701 /* ChatUIFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormatTests.swift; sourceTree = "<group>"; };
 		86719261442AFBE85FA6D47B /* IslandBindingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandBindingsTests.swift; sourceTree = "<group>"; };
 		86A2BEA0DCA28EE2E7705DAF /* RestingHeartRateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestingHeartRateTests.swift; sourceTree = "<group>"; };
+		8763BE7E2407CCCCD53F8682 /* HealthDayHeaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayHeaderTests.swift; sourceTree = "<group>"; };
 		877CC859AE6E4F74AD6D4A5B /* DoorAlarmAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmAPI.swift; sourceTree = "<group>"; };
 		87A413500A6DBF30B47833A9 /* DashcamTags.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamTags.swift; sourceTree = "<group>"; };
 		87AFCD28D46279B3A077F8B4 /* SelfImprovementTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementTests.swift; sourceTree = "<group>"; };
@@ -3732,6 +3734,7 @@
 				C828E24B5AE60A633A09127B /* HabitMathTests.swift */,
 				AE817D1708EA41254D3DD809 /* HabitStoreTests.swift */,
 				1A2CEB6249AE39EE47DCA065 /* HabitRenderTests.swift */,
+				8763BE7E2407CCCCD53F8682 /* HealthDayHeaderTests.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -5321,6 +5324,7 @@
 				302296ECE5218518A25EAA04 /* CostsRenderTests.swift in Sources */,
 				5F8803305BC7B71D220F0BE2 /* ApprovalRenderTests.swift in Sources */,
 				C354F4DA7C9F27EF404CA206 /* DevicesUnifiedRenderTests.swift in Sources */,
+				BD8C6974C2061E80B086C884 /* HealthDayHeaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

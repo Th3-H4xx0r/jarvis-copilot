@@ -96,7 +96,7 @@ struct CodeMasterSettingsPage: View {
     private func toggleRow(_ symbol: String, _ title: String, _ subtitle: String?,
                            _ isOn: Binding<Bool>, last: Bool = true) -> some View {
         JcRow(symbol: symbol, title: title, subtitle: subtitle, subtitleLines: 4, last: last) {
-            Toggle("", isOn: isOn).labelsHidden().tint(JcTheme.accent)
+            Toggle(title, isOn: isOn).labelsHidden().tint(JcTheme.accent)
         }
     }
 

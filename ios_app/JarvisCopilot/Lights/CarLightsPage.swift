@@ -33,8 +33,7 @@ struct CarLightsPage: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle("Car lights")
-        .navigationBarTitleDisplayMode(.inline)
+        .jcPageChrome("Car lights")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 WearableToolbarButton(title: "Add lights", icon: "plus") { pairing = true }
@@ -202,8 +201,7 @@ struct CarLightsPairSheet: View {
                 .padding(.vertical, 12)
             }
             .background(JcTheme.bg.ignoresSafeArea())
-            .navigationTitle("Add car lights")
-            .navigationBarTitleDisplayMode(.inline)
+            .jcPageChrome("Add car lights")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
             .onAppear { manager.scan() }
             .onDisappear { manager.stopScan() }

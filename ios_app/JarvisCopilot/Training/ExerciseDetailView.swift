@@ -57,7 +57,9 @@ struct ExerciseDetailView: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .jcPageChrome(exercise?.name ?? "Exercise")
+        .jcPageChrome(exercise?.name ?? "Exercise",
+                      // A long exercise name would be cut off as a large title.
+                      header: (exercise?.name.count ?? 0) > 18 ? .inline : .large)
     }
 
     // MARK: About

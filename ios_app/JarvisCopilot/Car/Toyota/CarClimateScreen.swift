@@ -38,7 +38,7 @@ struct CarClimateScreen: View {
             panel
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .jcPageChrome("Climate")
+        .jcPageChrome("Climate", header: .inline)
     }
 
     @ViewBuilder private var panel: some View {

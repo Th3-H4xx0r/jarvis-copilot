@@ -82,8 +82,7 @@ private struct LinkWearableSheet: View {
                 .padding(.vertical, 12)
             }
             .background(JcTheme.bg.ignoresSafeArea())
-            .navigationTitle("Link to \(hostName)")
-            .navigationBarTitleDisplayMode(.inline)
+            .jcPageChrome("Link to \(hostName)")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }

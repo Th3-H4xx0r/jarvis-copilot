@@ -57,7 +57,7 @@ struct Esp32ChatView: View {
             composer
         }
         .background(Color.black.opacity(0.001))  // makes the whole area tappable for keyboard dismissal
-        .jcPageChrome(board.name)
+        .jcPageChrome(board.name, header: .inline)
         .toolbar {
             ToolbarItem(placement: .principal) { titleView }
             ToolbarItem(placement: .topBarTrailing) { modelMenu }

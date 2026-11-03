@@ -103,7 +103,7 @@ enum JcTheme {
     //
     // The radii the Flutter widgets use, so ported screens line up.
 
-    static let cardRadius: CGFloat = 22
+    static let cardRadius: CGFloat = JcUnified.cardRadius
     static let fieldRadius: CGFloat = 14
 }
 
