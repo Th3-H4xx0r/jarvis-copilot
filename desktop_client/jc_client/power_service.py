@@ -24,11 +24,56 @@ UI_REQUESTS = frozenset({"password_request", "password_seen", "password_local_an
                          "approval_key"})
 FRAMES = frozenset({"mac_power_set", "mac_password_answer", "mac_password_unlock"})
 _KINDS = ("sudo", "admin", "keychain", "unlock")
+# Requests only the Jarvis Mac app may make (checked by the connecting process,
+# which ui_server reads from the kernel): a stranger on ui.sock can't start the
+# root setup, answer for Touch ID, hand in a fill result, or pose as a dialog.
+_APP_ONLY = frozenset({"password_seen", "password_local_answer", "password_fill_result",
+                       "password_pending", "mac_power_token", "mac_power_wake", "mac_power_set",
+                       "power_install", "approval_key"})
+_APP_SUFFIX = "/Jarvis.app/Contents/MacOS/Jarvis"
+_MAX_CONTEXT = 2000
+
+
+class Procs:
+    """What a process is: its executable, parent and command line (macOS)."""
+
+    def exe(self, pid: int) -> str:
+        try:
+            import ctypes
+            lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+            buf = ctypes.create_string_buffer(4096)
+            return buf.value.decode("utf-8", "replace") if lib.proc_pidpath(int(pid), buf, 4096) > 0 else ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _ps(self, pid: int, field: str) -> str:
+        try:
+            import subprocess
+            return subprocess.run(["/bin/ps", "-ww", "-o", f"{field}=", "-p", str(int(pid))],
+                                  capture_output=True, text=True, timeout=5).stdout.strip()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def ppid(self, pid: int) -> int:
+        out = self._ps(pid, "ppid")
+        return int(out) if out.isdigit() else 0
+
+    def command(self, pid: int) -> str:
+        return self._ps(pid, "command")
+
+
+def sudo_context(command: str, started_by: str) -> str:
+    """What the phone shows (and his signature covers): the whole sudo command."""
+    text = command if len(command) <= _MAX_CONTEXT else (
+        command[:_MAX_CONTEXT] + f" … [{len(command) - _MAX_CONTEXT} more characters not shown]")
+    return f"{text} (started by {started_by})" if started_by else text
 
 
 class PowerService:
     def __init__(self, up: Callable[[dict], None], ui_broadcast: Callable[[dict], None],
-                 sessions: Callable[[], list], api_origin: Callable[[], Optional[str]]) -> None:
+                 sessions: Callable[[], list], api_origin: Callable[[], Optional[str]],
+                 procs: Optional[Procs] = None) -> None:
+        self._procs = procs or Procs()
         self._up = up
         self._ui = ui_broadcast
         self._origin = api_origin
@@ -48,7 +93,8 @@ class PowerService:
         """Before reconnecting: a timer check-in that's putting the Mac back to sleep
         must not reconnect (the server would take it for the Mac coming back)."""
         waited = 0.0
-        while self.power.quiet() and waited < limit and not stop.is_set():
+        # also while a wake isn't classified yet (asleep until on_did_wake runs)
+        while (self.power.quiet() or self.power.asleep()) and waited < limit and not stop.is_set():
             stop.wait(0.5)
             waited += 0.5
 
@@ -95,13 +141,27 @@ class PowerService:
         threading.Thread(target=self.passwords.request, args=(kind, context), daemon=True,
                          name=f"jc-password-{kind}").start()
 
+    def _is_app(self, req: dict) -> bool:
+        return self._procs.exe(int(req.get("_peer_pid") or 0)).endswith(_APP_SUFFIX)
+
+    def _sudo_request(self, req: dict) -> dict:
+        """jarvis-askpass, for sudo. Only a process whose parent really is sudo; the
+        command shown (and signed) is read from that sudo, never the client's word.
+        Blocks this client's reader until he answers."""
+        peer = int(req.get("_peer_pid") or 0)
+        sudo = self._procs.ppid(peer) if peer else 0
+        if not sudo or self._procs.exe(sudo) != "/usr/bin/sudo":
+            return {"ok": False, "error": "not sudo's askpass"}
+        starter = self._procs.command(self._procs.ppid(sudo)).split(" ")[0].rsplit("/", 1)[-1]
+        context = sudo_context(self._procs.command(sudo) or "sudo", starter)
+        return self.passwords.request("sudo", context, ppid=sudo)
+
     def ui_request(self, req: dict) -> dict:
         kind = req.get("type")
+        if kind in _APP_ONLY and not self._is_app(req):
+            return {"ok": False, "error": "only the Jarvis Mac app may ask that"}
         if kind == "password_request":
-            # jarvis-askpass, for sudo: blocks this client's reader until he answers
-            ppid = req.get("ppid")
-            return self.passwords.request("sudo", str(req.get("command") or "sudo"),
-                                          ppid=int(ppid) if str(ppid or "").isdigit() else None)
+            return self._sudo_request(req)
         if kind == "password_seen":
             what = str(req.get("kind") or "admin")
             self._ask_async(what if what in _KINDS else "admin", str(req.get("context") or ""))

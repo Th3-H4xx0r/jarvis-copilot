@@ -19,6 +19,7 @@ import time
 from typing import Callable, Optional
 
 TIMEOUT = 120.0
+MAX_CONTEXT = 2400   # the whole request text: his signature covers it
 _FILL_TIMEOUT = 15.0
 _SUDO_REMEMBER = 300.0
 
@@ -59,7 +60,7 @@ class PasswordBroker:
                 again = ppid in self._sudo_given
             if again:
                 return {"ok": False, "error": "The Mac password didn't work (sudo asked again)"}
-        req = _Request(secrets.token_hex(8), kind, (context or "")[:500], secrets.token_hex(16), now)
+        req = _Request(secrets.token_hex(8), kind, (context or "")[:MAX_CONTEXT], secrets.token_hex(16), now)
         rid = req.public["id"]
         with self._lock:
             self._reqs[rid] = req
@@ -74,8 +75,10 @@ class PasswordBroker:
         if answer.get("decision") != "allow":
             return self._finish(rid, False, "Not allowed")
         try:
+            # context too: the app checks his signature covers exactly this text
             result = self._ask_app({"type": "password_fill", "id": rid, "kind": kind,
-                                    "nonce": req.public["nonce"], "proof": answer["proof"]},
+                                    "nonce": req.public["nonce"], "context": req.public["context"],
+                                    "proof": answer["proof"]},
                                    _FILL_TIMEOUT) or {}
         except Exception as exc:  # noqa: BLE001
             result = {"ok": False, "error": f"The Mac app didn't answer ({exc})"}

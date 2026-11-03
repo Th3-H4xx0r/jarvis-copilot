@@ -29,6 +29,7 @@ GRACE = 600.0
 REMOTE_IDLE = 1800.0
 CHECKIN = 900.0
 LOW_BATTERY = 5
+KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 _OUR_ALARM = 120.0      # a wake this close to our alarm (and an rtc one) is the check-in
 _QUIET_MAX = 60.0       # a check-in that didn't put the Mac back to sleep stops being quiet
 _STATUS_EVERY = 60.0
@@ -79,6 +80,12 @@ def read_wake_reason() -> str:
     return m.group(1) if m else ""
 
 
+def read_idle_seconds() -> float:
+    """Seconds since the last key or trackpad event (IOHIDSystem's HIDIdleTime)."""
+    m = re.search(r'"HIDIdleTime" = (\d+)', _run(["/usr/sbin/ioreg", "-c", "IOHIDSystem", "-d", "4"]))
+    return int(m.group(1)) / 1e9 if m else 1e9
+
+
 def helper_call(op: str, **kw) -> dict:
     """One request to the root helper; {"ok": False} when it isn't installed or running."""
     try:
@@ -99,7 +106,9 @@ class MacPower:
                  battery: Callable[[], tuple] = read_battery,
                  wake_reason: Callable[[], str] = read_wake_reason,
                  lid: Callable[[], Optional[str]] = read_lid,
-                 clock: Callable[[], float] = time.time) -> None:
+                 idle: Callable[[], float] = None,
+                 clock: Callable[[], float] = time.time,
+                 mono: Callable[[], float] = time.monotonic) -> None:
         self._helper = helper
         self._up = up
         self._checkin = checkin
@@ -109,7 +118,12 @@ class MacPower:
         self._wake_reason = wake_reason
         self._lid = lid
         self._clock = clock
+        self._mono = mono
+        self._idle = idle or read_idle_seconds
         self._lock = threading.RLock()
+        self._manual_since = 0.0
+        self._quiet_mono: Optional[float] = None
+        self._quiet_lid: Optional[str] = None
         self.manual = False
         self.timer_on = True
         self.remote_since: Optional[float] = None
@@ -144,6 +158,9 @@ class MacPower:
             return {}
 
     # ── sleep and wake ───────────────────────────────────────────────────
+    def asleep(self) -> bool:
+        return self._asleep
+
     def quiet(self) -> bool:
         """A timer check-in is in progress: don't reconnect or say hello."""
         return self._quiet_since is not None
@@ -154,16 +171,30 @@ class MacPower:
         with self._lock:
             announce = not self.quiet()
             self._asleep = True
-            if self.timer_on:
-                self._wake_at = self._clock() + CHECKIN
-                self._call("wake_at", ts=self._wake_at)
+            self._arm()
             return announce
+
+    def _arm(self) -> None:
+        if self.timer_on:
+            self._wake_at = self._clock() + CHECKIN
+            self._call("wake_at", ts=self._wake_at)
+
+    def _user_active(self) -> bool:
+        """He's at the Mac (keys / trackpad since the check-in began, or opened the lid)."""
+        elapsed = self._mono() - (self._quiet_mono or self._mono())
+        return self._idle() < elapsed + 1.0 or (self._quiet_lid == "closed" and self._lid() == "open")
 
     def on_did_wake(self) -> bool:
         """True for a real wake (say hello, reconnect); False for a quiet check-in
         that found nothing and put the Mac back to sleep."""
         with self._lock:
             if not self._asleep:
+                if self._quiet_since is not None:
+                    # the same wake's second signal (app + clock jump): still quiet,
+                    # unless he's at the Mac now
+                    if not self._user_active():
+                        return False
+                    self._quiet_since = None
                 return True
             self._asleep = False
             now = self._clock()
@@ -176,19 +207,29 @@ class MacPower:
                 self._quiet_since = None
                 return True
             self._wake_at = None
-            self._quiet_since = now
+            self._quiet_since = token = now
+            self._quiet_mono = self._mono()
+            self._quiet_lid = self._lid()
         try:
             answer = self._checkin()
         except Exception:  # noqa: BLE001 — offline: fail open, never strand him
             log.info("wake check-in failed; staying awake", exc_info=True)
             answer = None
         with self._lock:
+            if self._quiet_since != token:
+                return True          # a push or his own wake made it real meanwhile
             if not isinstance(answer, dict):
                 self._quiet_since = None
                 return True
-            self.manual = bool(answer.get("keep_awake"))
+            self._set_manual(bool(answer.get("keep_awake")), now)
             self.timer_on = answer.get("timer_on") is not False
-            if not (answer.get("wake") or self.manual):
+            percent, on_ac = self._battery()
+            low = not on_ac and percent is not None and percent <= LOW_BATTERY
+            if not (answer.get("wake") or (self.manual and not low)) and not self._user_active():
+                # nobody wants it: straight back to sleep, and arm the next check-in
+                # here (a sleep from a dark wake may bring no will-sleep)
+                self._asleep = True
+                self._arm()
                 self._call("sleepnow")
                 return False
             if answer.get("wake"):
@@ -204,11 +245,17 @@ class MacPower:
             self._quiet_since = None
         self.tick()
 
+    def _set_manual(self, on: bool, now: float) -> None:
+        if on and not self.manual:
+            self._manual_since = now
+        self.manual = on
+
     def on_frame(self, frame: dict) -> None:
         """mac_power_set from the server: keep_awake / timer_on / let_sleep."""
         with self._lock:
+            now = self._clock()
             if "keep_awake" in frame:
-                self.manual = bool(frame.get("keep_awake"))
+                self._set_manual(bool(frame.get("keep_awake")), now)
             if "timer_on" in frame:
                 self.timer_on = bool(frame.get("timer_on"))
             if frame.get("let_sleep"):
@@ -221,6 +268,9 @@ class MacPower:
     def tick(self) -> None:
         with self._lock:
             now = self._clock()
+            if self.manual and now - self._manual_since > KEEP_AWAKE_MAX:
+                self.manual = False                    # a forgotten switch never pins it awake
+                self._send({"type": "event", "name": "mac_power_set", "data": {"keep_awake": False}})
             try:
                 sessions = list(self._sessions() or [])
             except Exception:  # noqa: BLE001
@@ -233,15 +283,29 @@ class MacPower:
                                        battery=battery)
             self._reason = reason
             if want != self._held:
-                self._call("hold", on=want)
-                self._held = want
-                if not want and not self._asleep and self._lid() == "closed":
-                    self._call("sleepnow")
+                # only what the helper confirms counts (not installed, restarted…)
+                if self._call("hold", on=want).get("ok"):
+                    self._held = want
+                    if not want and not self._asleep and self._lid() == "closed":
+                        self._call("sleepnow")
             elif want:
-                self._call("heartbeat")
-            if self._quiet_since is not None and not self._asleep and now - self._quiet_since > _QUIET_MAX:
+                beat = self._call("heartbeat")
+                if beat.get("ok") and beat.get("held") is False:   # helper restarted: hold again
+                    self._call("hold", on=True)
+            if (self._quiet_since is not None and self._quiet_mono is not None
+                    and self._mono() - self._quiet_mono > _QUIET_MAX):
+                # awake a minute (monotonic: sleep doesn't count) after a check-in:
+                # it didn't go back to sleep, so stop hiding
                 self._quiet_since = None
-            self._maybe_status(now, battery)
+                self._asleep = False
+            if self._quiet_since is None:
+                self._maybe_status(now, battery)
+
+    def _send(self, frame: dict) -> None:
+        try:
+            self._up(frame)
+        except Exception:  # noqa: BLE001
+            log.debug("mac power up failed", exc_info=True)
 
     def status(self) -> dict:
         with self._lock:
@@ -254,7 +318,4 @@ class MacPower:
             return
         self._last_status = data
         self._status_at = now
-        try:
-            self._up({"type": "event", "name": "mac_power_status", "data": data})
-        except Exception:  # noqa: BLE001
-            log.debug("mac_power_status up failed", exc_info=True)
+        self._send({"type": "event", "name": "mac_power_status", "data": data})

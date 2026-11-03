@@ -262,9 +262,15 @@ class Service:
             ui.note_talk_screen(req.get("bounds") or (), str(req.get("name") or ""))
             return {"ok": True}
         if kind == "power":
-            # The Mac app heard the system's will-sleep / did-wake.
+            # The Mac app heard the system's will-sleep / did-wake. Will-sleep stays
+            # inline (the app waits for the flush); did-wake may run a wake check-in
+            # over HTTPS, so it goes to a worker, not the app's link.
             if self._agents_link is not None:
-                self._agents_link.power.notify(str(req.get("event") or ""))
+                event = str(req.get("event") or "")
+                if event == "did_wake":
+                    self._executor.submit(self._agents_link.power.notify, event)
+                else:
+                    self._agents_link.power.notify(event)
             return {"ok": True}
         if kind == "agent_continue_mac":
             # The island's "Bring back" on a session that moved to the server.

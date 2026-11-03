@@ -25,6 +25,7 @@ from typing import Callable, Iterable, Optional
 log = logging.getLogger(__name__)
 
 INTENT_MAX = 1200.0       # a wake request older than this is forgotten
+KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 REQUEST_TTL = 120.0
 MAC_TOPIC = "com.jarviscopilot.mac"
 _KIND_TITLE = {"sudo": "sudo needs your Mac password", "admin": "Admin password requested",
@@ -98,8 +99,25 @@ class MacPowerStore:
                 log.warning("Wake Mac push failed", exc_info=True)
         return {"ok": True, "pushed": pushed}
 
+    def _keep(self, d: dict) -> bool:
+        """Keep-awake, unless it's been on longer than KEEP_AWAKE_MAX (then it's off)."""
+        if d.get("keep_awake") and self._clock() - float(d.get("keep_awake_at") or 0) > KEEP_AWAKE_MAX:
+            d["keep_awake"] = False
+            self._save()
+        return bool(d.get("keep_awake"))
+
+    def sync(self, did: str) -> None:
+        """A Mac (re)connected: hand it the switches, which may have changed while
+        it was away or since jc-client restarted."""
+        with self._lock:
+            if did not in self._devices:
+                return
+            d = self.device(did)
+            frame = {"type": "mac_power_set", "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
+        self._send(did, frame)
+
     def keep_awake(self, did: str, on: bool) -> dict:
-        self._update(did, keep_awake=bool(on))
+        self._update(did, keep_awake=bool(on), keep_awake_at=self._clock())
         return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "keep_awake": bool(on)})}
 
     def timer(self, did: str, on: bool) -> dict:
@@ -137,7 +155,7 @@ class MacPowerStore:
             if at is not None:
                 d["wake_requested_at"] = None
                 self._save()
-            out = {"wake": wake, "keep_awake": bool(d["keep_awake"]), "timer_on": bool(d["timer_on"])}
+            out = {"wake": wake, "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
         if wake:
             self._changed()
         return out
@@ -159,6 +177,7 @@ class MacPowerStore:
         fields = {}
         if "keep_awake" in data:
             fields["keep_awake"] = bool(data["keep_awake"])
+            fields["keep_awake_at"] = self._clock()
         if "timer_on" in data:
             fields["timer_on"] = bool(data["timer_on"])
         if data.get("let_sleep"):
@@ -171,7 +190,7 @@ class MacPowerStore:
         if not rid:
             return
         kind = str(data.get("kind") or "admin")
-        req = {"id": rid, "kind": kind, "context": str(data.get("context") or "")[:500],
+        req = {"id": rid, "kind": kind, "context": str(data.get("context") or "")[:2400],
                "nonce": str(data.get("nonce") or ""), "created": data.get("created") or self._clock(),
                "expires": float(data.get("expires") or self._clock() + REQUEST_TTL), "device_id": did}
         with self._lock:
@@ -205,7 +224,7 @@ class MacPowerStore:
                              "state": "awake" if awake else "sleeping",
                              "held": bool(status.get("held")) if awake else False,
                              "reason": (status.get("reason") or "") if awake else "",
-                             "keep_awake": bool(d.get("keep_awake")), "timer_on": bool(d.get("timer_on", True)),
+                             "keep_awake": self._keep(d), "timer_on": bool(d.get("timer_on", True)),
                              "battery": status.get("battery"), "on_ac": status.get("on_ac"),
                              "lid": status.get("lid"), "seen_at": d.get("seen_at"),
                              "wake_requested_at": d.get("wake_requested_at")})

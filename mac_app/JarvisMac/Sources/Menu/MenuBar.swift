@@ -154,7 +154,7 @@ final class JarvisMenu: NSObject {
             for (title, action) in [("Allow with Touch ID…", #selector(allowPassword(_:))), ("Deny", #selector(denyPassword(_:)))] {
                 let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
                 i.target = self
-                i.representedObject = [J.s(req["id"]), context]
+                i.representedObject = [J.s(req["id"]), context, J.s(req["kind"])]
                 sub.addItem(i)
             }
             item.submenu = sub
@@ -175,8 +175,8 @@ final class JarvisMenu: NSObject {
     @objc private func toggleKeepAwake() { model.setKeepAwake(!J.b(model.power["keep_awake"])) }
 
     @objc private func allowPassword(_ sender: NSMenuItem) {
-        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
-        MacPasswordFiller.shared.allowWithTouchID(id: pair[0], context: pair[1])
+        guard let info = sender.representedObject as? [String], info.count == 3 else { return }
+        MacPasswordFiller.shared.allowWithTouchID(id: info[0], kind: info[2], context: info[1])
     }
 
     @objc private func denyPassword(_ sender: NSMenuItem) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Settings → Mac power: keep-awake, Wake Mac's timer, the one-time helper setup,
@@ -99,10 +100,22 @@ struct MacPowerSettings: View {
                 message = J.s(reply["error"], "Couldn't get the iPhone's key")
                 return
             }
+            // The key comes through the server, so he checks it against the code his
+            // iPhone works out from its own key before the Mac trusts it.
+            let code = ApprovalKey.fingerprint(key)
+            let alert = NSAlert()
+            alert.messageText = "Does your iPhone show \(code)?"
+            alert.informativeText = "On the iPhone: Agents → your Mac → ⋯ → Pairing code. Pair only if it's the same code."
+            alert.addButton(withTitle: "Same code, pair")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                message = "Not paired."
+                return
+            }
             do {
                 try ApprovalKey.pin(key)
                 pinned = key
-                message = "Paired: \(ApprovalKey.fingerprint(key))."
+                message = "Paired: \(code)."
             } catch {
                 message = error.localizedDescription
             }

@@ -40,6 +40,16 @@ class _Client:
         self.conn = conn
         self.queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=_QUEUE)
         self.closed = False
+        self.pid = _peer_pid(conn)
+
+
+def _peer_pid(conn: socket.socket) -> int:
+    """The connecting process (macOS LOCAL_PEERPID); 0 when unknown."""
+    try:
+        import struct
+        return struct.unpack("i", conn.getsockopt(0, 2, 4))[0]   # SOL_LOCAL, LOCAL_PEERPID
+    except (OSError, AttributeError, ValueError):
+        return 0
 
 
 class UiServer:
@@ -172,6 +182,9 @@ class UiServer:
         if not isinstance(req, dict):
             return
         rid = req.get("id")
+        # Who really asked (the kernel's word, never the client's): password and
+        # power requests check it (power_service.py).
+        req["_peer_pid"] = client.pid
         try:
             result = self._on_request(req) or {}
             reply = {"type": "reply", "id": rid}

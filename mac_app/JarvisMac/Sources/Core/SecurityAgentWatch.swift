@@ -18,13 +18,45 @@ final class SecurityAgentWatch {
         }
     }
 
+    nonisolated static let bundleID = "com.apple.SecurityAgent"
+
     private func tick(link: JcLink) {
         let now = Self.isShowing()
         defer { showing = now }
         guard now, !showing, !suppressed else { return }
-        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
-        let context = app.isEmpty || app == "SecurityAgent" ? "A Mac password dialog" : "Password dialog over \(app)"
-        link.request(["type": "password_seen", "kind": "admin", "context": context])
+        // What the dialog itself says (who asks, for what); the app in front can be anyone.
+        let text = Self.dialogText()
+        if Self.isAboutJarvis(text) { return }   // something is after Jarvis's own saved password
+        let context = text.isEmpty ? "A Mac password dialog (Jarvis couldn't read what it's for)" : text
+        link.request(["type": "password_seen", "kind": "admin", "context": String(context.prefix(1500))])
+    }
+
+    nonisolated static func isAboutJarvis(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("jarviscopilot") || t.contains(MacPassword.service) || t.contains(ApprovalKey.service)
+    }
+
+    /// The dialog's static text through Accessibility (its password field stays hidden).
+    nonisolated static func dialogText() -> String {
+        guard AXIsProcessTrusted(),
+              let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+        else { return "" }
+        var texts: [String] = []
+        func walk(_ el: AXUIElement, _ depth: Int) {
+            guard depth < 10, texts.count < 30 else { return }
+            var role: CFTypeRef?
+            AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role)
+            if (role as? String) == (kAXStaticTextRole as String) {
+                var value: CFTypeRef?
+                AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &value)
+                if let s = value as? String, !s.isEmpty { texts.append(s) }
+            }
+            var kids: CFTypeRef?
+            AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &kids)
+            for kid in (kids as? [AXUIElement]) ?? [] { walk(kid, depth + 1) }
+        }
+        walk(AXUIElementCreateApplication(app.processIdentifier), 0)
+        return texts.joined(separator: " ")
     }
 
     nonisolated static func isShowing() -> Bool {

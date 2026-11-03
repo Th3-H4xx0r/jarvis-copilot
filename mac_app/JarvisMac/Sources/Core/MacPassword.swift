@@ -86,18 +86,21 @@ final class ApprovalVerifier: @unchecked Sendable {
     private var used: [String: Date] = [:]
     private let lock = NSLock()
 
-    static func message(kind: String, nonce: String, ts: Int) -> Data {
-        Data("jarvis-mac-password|\(kind)|\(nonce)|\(ts)".utf8)
+    /// What his iPhone signs: the kind, the request's nonce and time, and a hash of
+    /// the exact text he was shown (so a server can't show one thing and get another).
+    static func message(kind: String, nonce: String, ts: Int, context: String) -> Data {
+        let digest = SHA256.hash(data: Data(context.utf8)).map { String(format: "%02x", $0) }.joined()
+        return Data("jarvis-mac-password|\(kind)|\(nonce)|\(ts)|\(digest)".utf8)
     }
 
-    func verify(kind: String, nonce: String, ts: Int, signatureB64: String, publicKeyB64: String,
-                now: Date = Date()) -> Bool {
+    func verify(context: String, kind: String, nonce: String, ts: Int, signatureB64: String,
+                publicKeyB64: String, now: Date = Date()) -> Bool {
         guard !nonce.isEmpty, abs(now.timeIntervalSince1970 - Double(ts)) <= Self.freshness,
               let keyData = Data(base64Encoded: publicKeyB64),
               let key = try? P256.Signing.PublicKey(x963Representation: keyData),
               let sigData = Data(base64Encoded: signatureB64),
               let signature = try? P256.Signing.ECDSASignature(derRepresentation: sigData),
-              key.isValidSignature(signature, for: Self.message(kind: kind, nonce: nonce, ts: ts))
+              key.isValidSignature(signature, for: Self.message(kind: kind, nonce: nonce, ts: ts, context: context))
         else { return false }
         lock.lock()
         defer { lock.unlock() }
@@ -105,6 +108,13 @@ final class ApprovalVerifier: @unchecked Sendable {
         guard used[nonce] == nil else { return false }
         used[nonce] = now
         return true
+    }
+}
+
+enum ScreenLock {
+    static var isLocked: Bool {
+        guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (d["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
     }
 }
 
@@ -154,19 +164,21 @@ enum PasswordTyper {
 final class MacPasswordFiller {
     static let shared = MacPasswordFiller()
     let verifier = ApprovalVerifier()
-    /// Requests he allowed with Touch ID in the menu bar, waiting for their fill.
-    private var touchApproved: Set<String> = []
+    /// Requests he allowed with Touch ID in the menu bar (id → kind), waiting for their fill.
+    private var touchApproved: [String: String] = [:]
 
     /// Menu bar "Allow with Touch ID": the check happens here, in the app.
-    func allowWithTouchID(id: String, context: String, link: JcLink = .shared) {
+    func allowWithTouchID(id: String, kind: String, context: String, link: JcLink = .shared) {
         let la = LAContext()
         la.localizedCancelTitle = "Cancel"
         la.evaluatePolicy(.deviceOwnerAuthentication,
                           localizedReason: "type your Mac password for: \(context)") { ok, _ in
             DispatchQueue.main.async {
-                guard ok else { return }
-                self.touchApproved.insert(id)
-                link.request(["type": "password_local_answer", "id": id, "decision": "allow"])
+                MainActor.assumeIsolated {
+                    guard ok else { return }
+                    self.touchApproved[id] = kind
+                    link.request(["type": "password_local_answer", "id": id, "decision": "allow"])
+                }
             }
         }
     }
@@ -178,6 +190,7 @@ final class MacPasswordFiller {
     /// `password_fill` from jc-client.
     func handle(_ msg: [String: Any], link: JcLink = .shared) {
         let id = J.s(msg["id"]), kind = J.s(msg["kind"]), nonce = J.s(msg["nonce"])
+        let context = J.s(msg["context"])
         let proof = J.obj(msg["proof"])
         func reply(_ ok: Bool, password: String? = nil, error: String? = nil) {
             var body: [String: Any] = ["type": "password_fill_result", "id": id, "ok": ok]
@@ -187,15 +200,15 @@ final class MacPasswordFiller {
         }
         let approved: Bool
         if J.b(proof["local"]) {
-            approved = touchApproved.remove(id) != nil
+            approved = touchApproved.removeValue(forKey: id) == kind && !kind.isEmpty
         } else if let key = ApprovalKey.pinned, let ts = (proof["ts"] as? NSNumber)?.intValue {
-            approved = verifier.verify(kind: kind, nonce: nonce, ts: ts, signatureB64: J.s(proof["signature"]),
-                                       publicKeyB64: key)
+            approved = verifier.verify(context: context, kind: kind, nonce: nonce, ts: ts,
+                                       signatureB64: J.s(proof["signature"]), publicKeyB64: key)
         } else {
             approved = false
         }
         guard approved else {
-            return reply(false, error: ApprovalKey.pinned == nil
+            return reply(false, error: ApprovalKey.pinned == nil && !J.b(proof["local"])
                          ? "Pair your iPhone in Jarvis → Settings → Mac power first"
                          : "The approval didn't check out on the Mac")
         }
@@ -203,20 +216,40 @@ final class MacPasswordFiller {
             return reply(false, error: "No Mac password saved in Jarvis → Settings → Mac power")
         }
         if kind == "sudo" { return reply(true, password: password) }
+        // Only ever into the right place: the lock screen, or the password dialog
+        // brought to the front. Never whatever app happens to have the keyboard.
+        if kind == "unlock" {
+            guard ScreenLock.isLocked else { return reply(false, error: "The Mac isn't locked") }
+        } else {
+            guard SecurityAgentWatch.isShowing() else { return reply(false, error: "The password dialog is gone") }
+            if SecurityAgentWatch.isAboutJarvis(SecurityAgentWatch.dialogText()) {
+                return reply(false, error: "That dialog asks for Jarvis's own saved password: refused")
+            }
+            NSRunningApplication.runningApplications(withBundleIdentifier: SecurityAgentWatch.bundleID)
+                .first?.activate()
+        }
         DispatchQueue.global(qos: .userInitiated).async {
-            let typed = PasswordTyper.type(password)
-            var cleared = true
-            if typed && kind != "unlock" {
-                cleared = false
-                for _ in 0..<15 {
-                    usleep(200_000)
-                    if !SecurityAgentWatch.isShowing() { cleared = true; break }
+            if kind != "unlock" {
+                usleep(300_000)
+                let front = DispatchQueue.main.sync { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+                guard front == SecurityAgentWatch.bundleID else {
+                    return DispatchQueue.main.async {
+                        MainActor.assumeIsolated { reply(false, error: "Couldn't bring the password dialog to the front") }
+                    }
                 }
             }
+            let typed = PasswordTyper.type(password)
+            var cleared = false
+            for _ in 0..<15 where typed {
+                usleep(200_000)
+                if kind == "unlock" ? !ScreenLock.isLocked : !SecurityAgentWatch.isShowing() { cleared = true; break }
+            }
             DispatchQueue.main.async {
-                if !typed { reply(false, error: "Couldn't type on the Mac (Accessibility for Jarvis?)") }
-                else if !cleared { reply(false, error: "Password didn't work") }
-                else { reply(true) }
+                MainActor.assumeIsolated {
+                    if !typed { reply(false, error: "Couldn't type on the Mac (Accessibility for Jarvis?)") }
+                    else if !cleared { reply(false, error: "Password didn't work") }
+                    else { reply(true) }
+                }
             }
         }
     }

@@ -56,7 +56,7 @@ def test_allow_routes_proof_to_app():
     rig.broker.request("sudo", "sudo ls", ppid=7)
     req = rig.sent()[0]["data"]
     assert rig.asked[0] == {"type": "password_fill", "id": req["id"], "kind": "sudo", "nonce": req["nonce"],
-                            "proof": {"ts": 1700000000, "signature": "c2ln"}}
+                            "context": "sudo ls", "proof": {"ts": 1700000000, "signature": "c2ln"}}
 
 
 def test_timeout_120s_denies():

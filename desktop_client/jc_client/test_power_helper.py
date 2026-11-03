@@ -110,3 +110,26 @@ def test_install_script_keeps_existing_sudo_conf_lines():
     other = "Path askpass /usr/local/bin/other\nSet x y\n"
     assert sudo_conf_with_askpass(other) == f"Path askpass {ASKPASS_PATH}\nSet x y\n"
     assert sudo_conf_with_askpass("") == f"Path askpass {ASKPASS_PATH}\n"
+
+
+def test_install_script_writes_files_from_itself_not_a_user_folder():
+    from jc_client.power_install import HELPER_PATH, PLIST_PATH, _script
+    script = _script([(HELPER_PATH, "644", b"print('hi')\n"), (PLIST_PATH, "644", b"<plist/>")])
+    assert "/tmp" not in script and "TMPDIR" not in script and "/var/folders" not in script
+    assert "base64 -D" in script and f"mv -f {HELPER_PATH}.jc-new {HELPER_PATH}" in script
+    assert script.rstrip().endswith(f"launchctl bootstrap system {PLIST_PATH}")
+    import subprocess, os, tempfile
+    with tempfile.TemporaryDirectory() as d:   # the decode really reproduces the bytes
+        target = os.path.join(d, "f")
+        body = _script([(target, "644", b"\x00bytes\n")]).split("\n")
+        line = [ln for ln in body if "base64 -D" in ln][0].replace(f"{target}.jc-new", target)
+        subprocess.run(["/bin/sh", "-c", "rm -f " + target + "; " + line], check=True)
+        assert open(target, "rb").read() == b"\x00bytes\n"
+
+
+def test_wake_at_rejects_nan_inf_and_far_future():
+    state, calls, clock = make()
+    calls.clear()
+    for bad in ("nan", "inf", clock.t + 8 * 86400):
+        assert state.handle({"op": "wake_at", "ts": bad})["ok"] is False
+    assert calls == []

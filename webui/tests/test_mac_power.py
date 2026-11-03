@@ -148,3 +148,23 @@ def test_state_file_never_holds_password_requests(tmp_path):
     rig.store.on_password_request(MAC, {"id": "r1", "kind": "sudo", "context": "x", "nonce": "secret-nonce",
                                         "created": rig.t, "expires": rig.t + 120})
     assert "secret-nonce" not in json.dumps(json.loads((tmp_path / "mac_power.json").read_text()))
+
+
+
+def test_hello_resends_the_switches(tmp_path):
+    rig = Rig(tmp_path, connected=[MAC])
+    rig.store.sync(MAC)
+    assert rig.frames == []                       # an unknown device (a phone) gets nothing
+    rig.store.keep_awake(MAC, True)
+    rig.store.timer(MAC, False)
+    rig.frames.clear()
+    rig.store.sync(MAC)
+    assert rig.frames == [(MAC, {"type": "mac_power_set", "keep_awake": True, "timer_on": False})]
+
+
+def test_keep_awake_expires_after_12h(tmp_path):
+    from api.mac_power import KEEP_AWAKE_MAX
+    rig = Rig(tmp_path)
+    rig.store.keep_awake(MAC, True)
+    rig.t += KEEP_AWAKE_MAX + 1
+    assert rig.store.checkin(MAC)["keep_awake"] is False

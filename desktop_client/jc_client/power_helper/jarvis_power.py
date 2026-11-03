@@ -20,6 +20,7 @@ Standalone on purpose: stdlib only, nothing from jc_client.
 from __future__ import annotations
 
 import json
+import math
 import os
 import socketserver
 import subprocess
@@ -29,6 +30,7 @@ import time
 from typing import Callable, List, Optional
 
 WATCHDOG = 35.0
+MAX_WAKE_AHEAD = 7 * 86400.0
 SOCKET_PATH = "/var/run/com.jarviscopilot.power.sock"
 
 
@@ -77,6 +79,8 @@ class HelperState:
                     ts = float(req.get("ts"))
                 except (TypeError, ValueError):
                     return {"ok": False, "error": "bad ts"}
+                if not math.isfinite(ts) or ts > now + MAX_WAKE_AHEAD:
+                    return {"ok": False, "error": "bad ts"}
                 if ts <= now:
                     return {"ok": False, "error": "wake time has passed"}
                 self._cancel()
@@ -110,8 +114,8 @@ def serve(owner_uid: int, path: str = SOCKET_PATH) -> None:
                 try:
                     req = json.loads(raw.decode("utf-8", "replace"))
                     reply = state.handle(req) if isinstance(req, dict) else {"ok": False, "error": "bad request"}
-                except ValueError:
-                    reply = {"ok": False, "error": "bad json"}
+                except Exception:  # noqa: BLE001 — a bad request never drops the helper
+                    reply = {"ok": False, "error": "bad request"}
                 self.wfile.write((json.dumps(reply) + "\n").encode())
                 self.wfile.flush()
 

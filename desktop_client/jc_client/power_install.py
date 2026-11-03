@@ -10,12 +10,12 @@ on stdin only), else macOS's own admin dialog.
 """
 from __future__ import annotations
 
+import base64
 import os
 import plistlib
 import shlex
 import socket
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -53,18 +53,22 @@ def _plist(uid: int) -> bytes:
     })
 
 
-def _script(stage: Path) -> str:
+def _script(files: list) -> str:
+    """Root's install script. The files ride inside it (base64) and root writes them
+    straight into root-owned places: nothing passes through a folder the user (or
+    anything running as the user) could swap a file in while the admin step waits."""
     q = shlex.quote
-    return "\n".join([
-        "set -e",
-        "install -d -m 755 -o root -g wheel /Library/PrivilegedHelperTools",
-        f"install -m 644 -o root -g wheel {q(str(stage / 'helper.py'))} {q(HELPER_PATH)}",
-        f"install -m 755 -o root -g wheel {q(str(stage / 'askpass'))} {q(ASKPASS_PATH)}",
-        f"install -m 644 -o root -g wheel {q(str(stage / 'sudo.conf'))} {q(SUDO_CONF)}",
-        f"launchctl bootout system/{LABEL} 2>/dev/null || true",
-        f"install -m 644 -o root -g wheel {q(str(stage / 'power.plist'))} {q(PLIST_PATH)}",
-        f"launchctl bootstrap system {q(PLIST_PATH)}",
-    ]) + "\n"
+    lines = ["set -e", "umask 022", "install -d -m 755 -o root -g wheel /Library/PrivilegedHelperTools"]
+    for path, mode, data in files:
+        tmp = path + ".jc-new"
+        lines += [f"rm -f {q(tmp)}",
+                  f"printf %s {q(base64.b64encode(data).decode())} | /usr/bin/base64 -D > {q(tmp)}",
+                  f"chown root:wheel {q(tmp)}", f"chmod {mode} {q(tmp)}"]
+        if path == PLIST_PATH:
+            lines.append(f"launchctl bootout system/{LABEL} 2>/dev/null || true")
+        lines.append(f"mv -f {q(tmp)} {q(path)}")
+    lines.append(f"launchctl bootstrap system {q(PLIST_PATH)}")
+    return "\n".join(lines) + "\n"
 
 
 def _applescript_str(s: str) -> str:
@@ -72,23 +76,20 @@ def _applescript_str(s: str) -> str:
 
 
 def install(password: Optional[str] = None) -> dict:
-    with tempfile.TemporaryDirectory(prefix="jc-power-") as tmp:
-        stage = Path(tmp)
-        (stage / "helper.py").write_bytes((_HERE / "jarvis_power.py").read_bytes())
-        (stage / "askpass").write_bytes((_HERE / "jarvis_askpass.sh").read_bytes())
-        current = Path(SUDO_CONF).read_text() if os.path.exists(SUDO_CONF) else ""
-        (stage / "sudo.conf").write_text(sudo_conf_with_askpass(current))
-        (stage / "power.plist").write_bytes(_plist(os.getuid()))
-        script = stage / "install.sh"
-        script.write_text(_script(stage))
-        if password:
-            proc = subprocess.run(["/usr/bin/sudo", "-S", "-k", "-p", "", "/bin/sh", str(script)],
-                                  input=password + "\n", capture_output=True, text=True, timeout=60)
-        else:
-            cmd = (f"do shell script {_applescript_str('/bin/sh ' + shlex.quote(str(script)))} "
-                   "with administrator privileges")
-            proc = subprocess.run(["/usr/bin/osascript", "-e", cmd], capture_output=True, text=True,
-                                  timeout=300)
+    current = Path(SUDO_CONF).read_text() if os.path.exists(SUDO_CONF) else ""
+    script = _script([
+        (HELPER_PATH, "644", (_HERE / "jarvis_power.py").read_bytes()),
+        (ASKPASS_PATH, "755", (_HERE / "jarvis_askpass.sh").read_bytes()),
+        (SUDO_CONF, "644", sudo_conf_with_askpass(current).encode()),
+        (PLIST_PATH, "644", _plist(os.getuid())),
+    ])
+    if password:
+        proc = subprocess.run(["/usr/bin/sudo", "-S", "-k", "-p", "", "/bin/sh", "-c", script],
+                              input=password + "\n", capture_output=True, text=True, timeout=60)
+    else:
+        cmd = f"do shell script {_applescript_str(script)} with administrator privileges"
+        proc = subprocess.run(["/usr/bin/osascript", "-e", cmd], capture_output=True, text=True,
+                              timeout=300)
     if proc.returncode != 0:
         err = (proc.stderr or "").strip().splitlines()
         return {"ok": False, "error": err[-1] if err else f"exit {proc.returncode}"}

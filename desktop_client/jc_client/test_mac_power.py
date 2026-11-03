@@ -1,7 +1,7 @@
 """Keep-awake policy, quiet timer check-ins and Wake Mac (jc_client/mac_power.py)."""
 from __future__ import annotations
 
-from jc_client.mac_power import CHECKIN, GRACE, REMOTE_IDLE, MacPower, should_hold
+from jc_client.mac_power import CHECKIN, GRACE, KEEP_AWAKE_MAX, REMOTE_IDLE, MacPower, should_hold
 
 FULL = (80, True)
 
@@ -50,15 +50,18 @@ def test_battery_5_percent_releases():
 class FakeHelper:
     def __init__(self):
         self.calls = []
+        self.reply = {"ok": True}
 
     def call(self, op, **kw):
         self.calls.append((op, kw))
-        return {"ok": True}
+        return dict(self.reply)
 
 
 class Rig:
     def __init__(self, *, reason="lid", checkin=None, lid="open", battery=FULL, sessions=()):
         self.t = 100_000.0
+        self.idle = 1e9           # nobody at the Mac
+        self.during_checkin = None
         self.helper = FakeHelper()
         self.up = []
         self.reason = reason
@@ -68,10 +71,13 @@ class Rig:
         self.sessions = list(sessions)
         self.power = MacPower(self.helper.call, self.up.append, self._checkin, lambda: self.sessions,
                               battery=lambda: battery, wake_reason=lambda: self.reason,
-                              lid=lambda: self.lid_state, clock=lambda: self.t)
+                              lid=lambda: self.lid_state, idle=lambda: self.idle,
+                              clock=lambda: self.t, mono=lambda: self.t)
 
     def _checkin(self):
         self.checkins += 1
+        if self.during_checkin:
+            self.during_checkin(self)
         if isinstance(self.checkin_answer, Exception):
             raise self.checkin_answer
         return self.checkin_answer
@@ -98,9 +104,8 @@ def test_rtc_wake_with_nothing_pending_sleeps_quietly():
     rig.helper.calls.clear()
     assert rig.power.on_did_wake() is False                       # no hello
     assert rig.power.quiet() is True                              # no reconnect either
-    assert rig.ops() == ["sleepnow"]
+    assert rig.ops() == ["wake_at", "sleepnow"]                   # next check-in armed first
     assert rig.power.on_will_sleep() is False                     # the re-sleep isn't announced
-    assert ("wake_at", {"ts": rig.t + CHECKIN}) in rig.helper.calls
 
 
 def test_rtc_wake_with_request_is_real():
@@ -176,3 +181,100 @@ def test_held_tick_sends_heartbeat_and_status_up():
     status = [f for f in rig.up if f.get("name") == "mac_power_status"]
     assert status and status[-1]["data"]["held"] is True
     assert status[-1]["data"]["reason"] == "session"
+
+
+
+def checkin_rig(answer=None, **kw):
+    rig = Rig(reason="rtc/Alarm", checkin=answer or {"wake": False, "keep_awake": False, "timer_on": True}, **kw)
+    rig.power.on_will_sleep()
+    rig.t += CHECKIN
+    return rig
+
+
+def test_second_wake_signal_during_a_checkin_stays_quiet():
+    seen = {}
+    rig = checkin_rig()
+    rig.during_checkin = lambda r: seen.update(second=r.power.on_did_wake())   # the clock-jump signal
+    assert rig.power.on_did_wake() is False
+    assert seen["second"] is False
+
+
+def test_he_opens_the_lid_during_a_checkin_so_it_is_real():
+    seen = {}
+    rig = checkin_rig(lid="closed")
+
+    def opens(r):
+        r.lid_state = "open"
+        seen["second"] = r.power.on_did_wake()
+    rig.during_checkin = opens
+    assert rig.power.on_did_wake() is True
+    assert seen["second"] is True
+    assert "sleepnow" not in rig.ops()
+
+
+def test_typing_during_a_checkin_keeps_it_awake():
+    rig = checkin_rig()
+    rig.during_checkin = lambda r: setattr(r, "idle", 0.2)
+    assert rig.power.on_did_wake() is True
+    assert "sleepnow" not in rig.ops()
+
+
+def test_push_during_a_checkin_wins():
+    rig = checkin_rig()
+    rig.during_checkin = lambda r: r.power.request_wake()
+    assert rig.power.on_did_wake() is True
+    assert "sleepnow" not in rig.ops()
+
+
+def test_keep_awake_on_low_battery_checkin_stays_quiet():
+    rig = checkin_rig({"wake": False, "keep_awake": True, "timer_on": True}, battery=(4, False))
+    assert rig.power.on_did_wake() is False
+
+
+def test_no_status_during_a_checkin():
+    rig = checkin_rig()
+    rig.up.clear()
+    rig.power.on_did_wake()
+    rig.power.tick()
+    assert not [f for f in rig.up if f.get("name") == "mac_power_status"]
+
+
+def test_held_only_when_the_helper_confirms():
+    rig = Rig(sessions=[{"state": "working"}])
+    rig.helper.reply = {"ok": False, "error": "not installed"}
+    rig.power.tick()
+    assert rig.power.status()["held"] is False
+    rig.helper.reply = {"ok": True}
+    rig.power.tick()
+    assert rig.power.status()["held"] is True
+
+
+def test_helper_that_restarted_is_told_to_hold_again():
+    rig = Rig(sessions=[{"state": "working"}])
+    rig.power.tick()
+    rig.helper.reply = {"ok": True, "held": False}
+    rig.helper.calls.clear()
+    rig.power.tick()
+    assert rig.ops() == ["heartbeat", "hold"]
+
+
+def test_keep_awake_turns_itself_off_after_12h():
+    rig = Rig()
+    rig.power.on_frame({"type": "mac_power_set", "keep_awake": True})
+    rig.t += KEEP_AWAKE_MAX - 1
+    rig.power.tick()
+    assert rig.power.status()["keep_awake"] is True
+    rig.t += 2
+    rig.power.tick()
+    assert rig.power.status()["keep_awake"] is False
+    assert {"type": "event", "name": "mac_power_set", "data": {"keep_awake": False}} in rig.up
+    assert KEEP_AWAKE_MAX == 12 * 3600.0
+
+
+def test_a_checkin_that_never_slept_stops_hiding_after_a_minute():
+    rig = checkin_rig()
+    rig.power.on_did_wake()
+    assert rig.power.quiet() is True
+    rig.t += 61
+    rig.power.tick()
+    assert rig.power.quiet() is False

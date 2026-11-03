@@ -206,6 +206,11 @@ class AgentsCore:
         self._changed()
 
     def on_hello(self, device_id, _data=None) -> None:
+        if self.mac_power is not None:
+            try:
+                self.mac_power.sync(device_id)   # keep-awake / timer switches, after a restart
+            except Exception:  # noqa: BLE001
+                log.warning("mac power sync failed", exc_info=True)
         self.presence.on_connect(device_id, self._name(device_id))
         self._ensure_syncs(device_id)
         self.handoff.on_device_connect(device_id)
