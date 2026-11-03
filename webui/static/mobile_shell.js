@@ -144,6 +144,13 @@
     buildRailMore();
     placePill();
     PHONE.addEventListener('change', () => { placePill(); closeMore(); });
+    // Phones: picking something in the drawer closes it, like the app.
+    document.addEventListener('click', e => {
+      if (!PHONE.matches || !e.target.closest) return;
+      const row = e.target.closest('.sidebar .session-item, .sidebar [class*="-item"]');
+      if (!row || e.target.closest('.session-actions-trigger, .session-action-menu, input, textarea, select')) return;
+      if (typeof closeMobileSidebar === 'function') setTimeout(closeMobileSidebar, 0);
+    });
     if (typeof window.switchPanel === 'function') {
       const orig = window.switchPanel;
       window.switchPanel = async function (name, opts) {
