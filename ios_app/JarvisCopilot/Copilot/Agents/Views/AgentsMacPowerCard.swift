@@ -66,6 +66,8 @@ struct AgentsMacPowerCard: View {
                 Toggle("Check for wake requests while asleep", isOn: Binding(
                     get: { mac.timerOn },
                     set: { on in run(.timer(on)) }))
+                // What the Mac shows when it pairs for password approvals: they must match.
+                Text("Pairing code \(MacPasswordApproval.pairingCode() ?? "unavailable")")
             } label: {
                 JcIcon("ellipsis", size: 15)
                     .foregroundStyle(JcTheme.muted)
@@ -177,7 +179,9 @@ struct AgentsMacPasswordCard: View {
                         Text(request.context)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(AgentPane.paneText)
-                            .lineLimit(6)
+                            // all of it: his Face ID yes covers exactly this text
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(AgentPane.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))

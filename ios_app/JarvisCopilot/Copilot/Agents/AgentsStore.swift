@@ -349,7 +349,14 @@ final class AgentsStore {
         } catch CarSignError.cancelled {
             return nil
         } catch let error as CarSignError {
-            return error.errorDescription
+            switch error {
+            case .unavailable(let why):
+                return why.replacingOccurrences(of: "to use the car's commands", with: "to approve Mac passwords")
+            case .otherPhone, .faceIDChanged:
+                return "This iPhone's Face ID key changed. Set it up again on the Car page, then pair again in Jarvis on the Mac (Settings → Mac power)."
+            default:
+                return error.errorDescription
+            }
         } catch {
             return apiErrorMessage(error)
         }
