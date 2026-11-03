@@ -38,10 +38,19 @@ HELPER_SOCKET = "/var/run/com.jarviscopilot.power.sock"
 
 
 def should_hold(now: float, sessions: list, *, manual: bool, remote_since: Optional[float],
-                last_busy: Optional[float], pending_password: bool, battery: tuple) -> tuple:
-    """(hold?, why): why is password|session|manual|grace|remote, or "" when not holding."""
+                last_busy: Optional[float], pending_password: bool, battery: tuple,
+                lid_closed: bool = False) -> tuple:
+    """(hold?, why): why is password|session|manual|grace|remote, or "" when not holding.
+    A shut lid means "sleep" (his rule, 2026-11-03): then only Keep awake and a
+    wake from his phone hold it; agents, grace and password requests need it open."""
     percent, on_ac = battery
     if not on_ac and percent is not None and percent <= LOW_BATTERY:
+        return False, ""
+    if lid_closed:
+        if manual:
+            return True, "manual"
+        if remote_since is not None and now - max(remote_since, last_busy or 0) < REMOTE_IDLE:
+            return True, "remote"
         return False, ""
     if pending_password:
         return True, "password"
@@ -73,6 +82,14 @@ def read_lid() -> Optional[str]:
     m = re.search(r'"AppleClamshellState" = (Yes|No)',
                   _run(["/usr/sbin/ioreg", "-r", "-k", "AppleClamshellState", "-d", "1"]))
     return None if not m else ("closed" if m.group(1) == "Yes" else "open")
+
+
+def read_clamshell_sleeps() -> bool:
+    """Does a shut lid put this Mac to sleep now? (No in clamshell mode: an external
+    display and power keep it running, and then we must not force it.)"""
+    out = _run(["/usr/sbin/ioreg", "-r", "-k", "AppleClamshellCausesSleep", "-d", "1"])
+    m = re.search(r'"AppleClamshellCausesSleep" = (Yes|No)', out)
+    return m is None or m.group(1) == "Yes"
 
 
 def read_wake_reason() -> str:
@@ -107,6 +124,7 @@ class MacPower:
                  wake_reason: Callable[[], str] = read_wake_reason,
                  lid: Callable[[], Optional[str]] = read_lid,
                  idle: Callable[[], float] = None,
+                 clamshell_sleeps: Callable[[], bool] = read_clamshell_sleeps,
                  clock: Callable[[], float] = time.time,
                  mono: Callable[[], float] = time.monotonic) -> None:
         self._helper = helper
@@ -120,6 +138,7 @@ class MacPower:
         self._clock = clock
         self._mono = mono
         self._idle = idle or read_idle_seconds
+        self._clamshell_sleeps = clamshell_sleeps
         self._lock = threading.RLock()
         self._manual_since = 0.0
         self._quiet_mono: Optional[float] = None
@@ -278,15 +297,19 @@ class MacPower:
             if any((s.get("state") or "") in BUSY for s in sessions):
                 self.last_busy = now
             battery = self._battery()
+            lid_closed = self._lid() == "closed"
             want, reason = should_hold(now, sessions, manual=self.manual, remote_since=self.remote_since,
                                        last_busy=self.last_busy, pending_password=self._pending_password(),
-                                       battery=battery)
+                                       battery=battery, lid_closed=lid_closed)
             self._reason = reason
             if want != self._held:
                 # only what the helper confirms counts (not installed, restarted…)
                 if self._call("hold", on=want).get("ok"):
                     self._held = want
-                    if not want and not self._asleep and self._lid() == "closed":
+                    # let go with the lid shut: macOS won't notice by itself, so sleep
+                    # now — unless it's in clamshell mode (external display), where a
+                    # shut lid means keep running
+                    if not want and not self._asleep and lid_closed and self._clamshell_sleeps():
                         self._call("sleepnow")
             elif want:
                 beat = self._call("heartbeat")

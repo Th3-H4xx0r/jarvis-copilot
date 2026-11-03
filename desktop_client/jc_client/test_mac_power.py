@@ -7,9 +7,10 @@ FULL = (80, True)
 
 
 def hold(now=1000.0, sessions=(), manual=False, remote_since=None, last_busy=None,
-         pending_password=False, battery=FULL):
+         pending_password=False, battery=FULL, lid_closed=False):
     return should_hold(now, list(sessions), manual=manual, remote_since=remote_since,
-                       last_busy=last_busy, pending_password=pending_password, battery=battery)
+                       last_busy=last_busy, pending_password=pending_password, battery=battery,
+                       lid_closed=lid_closed)
 
 
 def test_busy_states_hold():
@@ -61,6 +62,7 @@ class Rig:
     def __init__(self, *, reason="lid", checkin=None, lid="open", battery=FULL, sessions=()):
         self.t = 100_000.0
         self.idle = 1e9           # nobody at the Mac
+        self.clamshell_sleeps = True
         self.during_checkin = None
         self.helper = FakeHelper()
         self.up = []
@@ -72,6 +74,7 @@ class Rig:
         self.power = MacPower(self.helper.call, self.up.append, self._checkin, lambda: self.sessions,
                               battery=lambda: battery, wake_reason=lambda: self.reason,
                               lid=lambda: self.lid_state, idle=lambda: self.idle,
+                              clamshell_sleeps=lambda: self.clamshell_sleeps,
                               clock=lambda: self.t, mono=lambda: self.t)
 
     def _checkin(self):
@@ -278,3 +281,33 @@ def test_a_checkin_that_never_slept_stops_hiding_after_a_minute():
     rig.t += 61
     rig.power.tick()
     assert rig.power.quiet() is False
+
+
+
+def test_lid_shut_sleeps_even_while_an_agent_works():
+    assert hold(sessions=[{"state": "working"}], lid_closed=True) == (False, "")
+    assert hold(now=1000 + 60, last_busy=1000, lid_closed=True) == (False, "")      # no grace
+    assert hold(pending_password=True, lid_closed=True) == (False, "")
+    assert hold(manual=True, lid_closed=True) == (True, "manual")                    # Keep awake wins
+    assert hold(now=1000 + 60, remote_since=1000, sessions=[{"state": "working"}],
+                lid_closed=True) == (True, "remote")                                 # woken from the phone
+
+
+def test_closing_the_lid_mid_session_lets_go_and_sleeps():
+    rig = Rig(lid="open", sessions=[{"state": "working"}])
+    rig.power.tick()
+    assert rig.power.status()["held"] is True
+    rig.lid_state = "closed"
+    rig.helper.calls.clear()
+    rig.power.tick()
+    assert rig.ops() == ["hold", "sleepnow"]
+
+
+def test_clamshell_mode_with_a_display_is_not_forced_to_sleep():
+    rig = Rig(lid="open", sessions=[{"state": "working"}])
+    rig.power.tick()
+    rig.lid_state = "closed"
+    rig.clamshell_sleeps = False
+    rig.helper.calls.clear()
+    rig.power.tick()
+    assert rig.ops() == ["hold"]

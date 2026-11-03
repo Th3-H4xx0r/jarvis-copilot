@@ -21,7 +21,7 @@ struct MacPowerSettings: View {
                 Toggle("Check for Wake Mac requests while asleep (every 15 min)", isOn: Binding(
                     get: { model.power["timer_on"] == nil || J.b(model.power["timer_on"]) },
                     set: { on in JcLink.shared.request(["type": "mac_power_set", "timer_on": on]) { _ in model.refreshPower() } }))
-                Text("Stays awake while an agent works or waits on you, 10 minutes after, and 30 minutes after Wake Mac, with the lid shut too. Lets go at 5% battery.")
+                Text("Stays awake while an agent works or waits on you, and 10 minutes after. Closing the lid sleeps it, unless Keep Mac awake is on or you woke it from your iPhone (then 30 minutes). Lets go at 5% battery.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("One-time setup") {
