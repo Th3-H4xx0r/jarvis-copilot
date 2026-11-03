@@ -87,6 +87,7 @@ struct IntegrationsList: View {
         // Pushed from More now, not a tab: it pauses when it leaves the screen.
         .onDisappear { store.onDisappear() }
         .moreToast($store.toast)
+        .moreToast($cards.toast)
         .fullScreenCover(isPresented: $settingUp) {
             IntegrationSetupSheet {
                 await store.refresh()
@@ -118,7 +119,8 @@ struct IntegrationsList: View {
                     IntegrationUICardView(store: card,
                                           name: cards.name(of: card.integrationID),
                                           icon: cards.icon(of: card.integrationID),
-                                          integration: store.integrations.first { $0.id == card.integrationID })
+                                          integration: store.integrations.first { $0.id == card.integrationID },
+                                          onToast: { cards.toast = $0 })
                 }
                 JcSectionLabel("All integrations")
                     .frame(maxWidth: .infinity, alignment: .leading)

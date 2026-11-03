@@ -45,7 +45,8 @@ struct IntegrationSetupSheet: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { close(askFirst: true) }
+                    // Editing a UI saves as it goes: leaving is Done, not Cancel.
+                    Button(editing == nil ? "Cancel" : "Done") { close(askFirst: true) }
                         .foregroundStyle(JcTheme.muted)
                 }
                 // The same capsule and picker the Chat tab has, over this session.
@@ -95,6 +96,9 @@ struct IntegrationSetupSheet: View {
         // Editing a UI creates nothing new, so there is nothing to offer to undo.
         if askFirst, editing == nil, setup.createdSpaceID != nil, setup.finished == nil {
             confirmingExit = true
+        } else if editing != nil {
+            // Done: a save Jarvis is still making finishes on the server.
+            Task { await leave() }
         } else {
             Task { await chat.cancel(); await leave() }
         }

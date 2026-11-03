@@ -14,7 +14,6 @@ struct IntegrationUIPageSection: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .integrationUIConfirm(store)
-            .moreToast($store.toast)
         } else if store.loading && !store.hasLoaded {
             ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
         }
@@ -46,7 +45,7 @@ extension View {
               isPresented: Binding(get: { store.pendingConfirm != nil },
                                    set: { if !$0 { store.pendingConfirm = nil } }),
               presenting: store.pendingConfirm) { action in
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { store.cancelPending() }
             Button("Continue") { Task { await store.perform(action) } }
         }
     }
@@ -63,6 +62,8 @@ final class IntegrationUICardsStore {
     private(set) var cards: [IntegrationUIStore] = []
     private(set) var names: [String: [String]] = [:]
     private(set) var hasLoaded = false
+    /// A card's toast, shown at the foot of the tab rather than over the card.
+    var toast: String?
 
     private static let orderKey = "integrationUI.cardOrder"
     private static let namesKey = "integrationUI.cardNames"
@@ -108,6 +109,7 @@ struct IntegrationUICardView: View {
     let name: String
     let icon: String
     let integration: Integration?
+    var onToast: (String) -> Void = { _ in }
 
     var body: some View {
         JcCard {
@@ -118,7 +120,11 @@ struct IntegrationUICardView: View {
             }
         }
         .integrationUIConfirm(store)
-        .moreToast($store.toast)
+        .onChange(of: store.toast) { _, message in
+            guard let message else { return }
+            onToast(message)
+            store.toast = nil
+        }
     }
 
     @ViewBuilder

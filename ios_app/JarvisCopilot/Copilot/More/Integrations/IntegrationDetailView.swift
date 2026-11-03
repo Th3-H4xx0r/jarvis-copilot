@@ -89,6 +89,7 @@ struct IntegrationDetailView: View {
         }
         .onDisappear { crons.onDisappear() }
         .moreToast($store.toast)
+        .moreToast($ui.toast)
         .sheet(item: $route) { sheet(for: $0) }
         .sheet(isPresented: $deletingIntegration) {
             IntegrationDeleteSheet(

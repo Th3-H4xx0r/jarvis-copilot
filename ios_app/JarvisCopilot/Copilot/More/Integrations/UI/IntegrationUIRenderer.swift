@@ -8,7 +8,7 @@ import SwiftUI
 @MainActor
 enum IntegrationUIRenderer {
     static func view(_ root: JCNode, store: IntegrationUIStore) -> AnyView {
-        let renderer = JCDesignRenderer(tint: JcTheme.accent, maxDepth: 24, maxNodes: 2000)
+        let renderer = JCDesignRenderer(tint: JcTheme.accent, maxDepth: 24, maxNodes: .max)
         let fields = textFieldIDs(in: root)
         renderer.extra = { [weak renderer] node, ctx, depth in
             guard let renderer else { return nil }
@@ -47,7 +47,13 @@ private struct IntegrationUINodes {
         case "grid":
             return AnyView(IntegrationUIGrid(node: n, render: child))
         case "section":
-            return AnyView(IntegrationUISection(node: n, ctx: ctx, render: child))
+            // A card is already a card: its sections draw plain inside it.
+            return AnyView(IntegrationUISection(node: n, ctx: ctx, plain: store.presentation == .card,
+                                                render: child))
+        case "list" where n.node("row")?.type == "row":
+            return AnyView(IntegrationUIRowList(node: n, ctx: ctx, render: { row, rowCtx in
+                renderer.render(row, rowCtx, depth: depth + 1)
+            }))
         case "hscroll":
             return AnyView(
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -158,6 +164,7 @@ private struct IntegrationUIGrid: View {
 private struct IntegrationUISection: View {
     let node: JCNode
     let ctx: JCBindingContext
+    let plain: Bool
     let render: (JCNode?) -> AnyView
 
     var body: some View {
@@ -167,7 +174,7 @@ private struct IntegrationUISection: View {
                     if let subtitle = node.ref("subtitle")?.string(ctx) { Text(subtitle) }
                 }
             }
-            if node.bool("plain") == true {
+            if plain || node.bool("plain") == true {
                 content
             } else {
                 JcCard { content }
@@ -291,6 +298,28 @@ private struct IntegrationUIGauge: View {
     }
 }
 
+/// A list of rows, with the app's hairlines between them.
+private struct IntegrationUIRowList: View {
+    let node: JCNode
+    let ctx: JCBindingContext
+    let render: (JCNode?, JCBindingContext) -> AnyView
+
+    var body: some View {
+        let rows = (node.ref("data")?.array(ctx) ?? []).compactMap { $0.asObject }
+        let count = max(0, min(node.int("max") ?? rows.count, rows.count))
+        if rows.isEmpty {
+            render(node.node("empty"), ctx)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(0..<count, id: \.self) { i in
+                    render(node.node("row"), ctx.withRow(rows[i]))
+                    if i < count - 1 { Rectangle().fill(JcTheme.border).frame(height: 1) }
+                }
+            }
+        }
+    }
+}
+
 private struct IntegrationUIText: View {
     let node: JCNode
     let ctx: JCBindingContext
@@ -317,6 +346,12 @@ private struct IntegrationUIText: View {
 }
 
 // MARK: - Controls
+
+/// A control whose `value` reads state: once its script succeeds, the state shows it.
+private func bindsValue(_ n: JCNode) -> Bool {
+    guard let o = n.props["value"]?.asObject else { return false }
+    return o["$"] != nil || o["$row"] != nil
+}
 
 @MainActor
 private func isBusy(_ store: IntegrationUIStore, _ action: IntegrationUIAction) -> Bool {
@@ -364,6 +399,7 @@ private struct IntegrationUIRow: View {
                 Button(role: swipe.role == "destructive" ? .destructive : nil) {
                     store.request(IntegrationUIAction(name: swipe.action, control: nil, row: ctx.row))
                 } label: { Text(swipe.label) }
+                .disabled(store.running != nil)
             }
         }
     }
@@ -465,9 +501,10 @@ private struct IntegrationUITextField: View {
 
     var body: some View {
         let id = node.string("id") ?? "field"
+        let key = IntegrationUIStore.inputKey(id, row: ctx.row)
         let text = Binding<String>(
-            get: { store.value(of: id, bound: node.ref("value")?.resolve(ctx))?.asString ?? "" },
-            set: { store.setInput(id, .string($0)) })
+            get: { store.value(of: key, bound: node.ref("value")?.resolve(ctx))?.asString ?? "" },
+            set: { store.setInput(key, .string($0)) })
         let plain = node.string("keyboard") == "email" || node.string("keyboard") == "url"
         TextField(node.ref("placeholder")?.string(ctx) ?? "", text: text)
             .font(.system(size: 15))
@@ -485,13 +522,14 @@ private struct IntegrationUITextField: View {
             .background(Color.white.opacity(0.06),
                         in: RoundedRectangle(cornerRadius: JcTheme.fieldRadius, style: .continuous))
             .overlay(alignment: .trailing) {
-                if store.running == id { ProgressView().controlSize(.small).padding(.trailing, 10) }
+                if store.running == key { ProgressView().controlSize(.small).padding(.trailing, 10) }
             }
     }
 
     private var keyboard: UIKeyboardType {
         switch node.string("keyboard") {
-        case "number": return .decimalPad
+        // Has a return key, so `submit` can fire and the keyboard can close.
+        case "number": return .numbersAndPunctuation
         case "email": return .emailAddress
         case "url": return .URL
         default: return .default
@@ -521,13 +559,16 @@ private struct IntegrationUIPicker: View {
 
     var body: some View {
         let id = node.string("id") ?? "picker"
+        let inputKey = IntegrationUIStore.inputKey(id, row: ctx.row)
         let opts = options
-        let current = store.value(of: id, bound: node.ref("value")?.resolve(ctx))?.asString ?? opts.first?.key ?? ""
+        let current = store.value(of: inputKey, bound: node.ref("value")?.resolve(ctx))?.asString ?? opts.first?.key ?? ""
         let selection = Binding<String>(get: { current }, set: { key in
-            guard let picked = opts.first(where: { $0.key == key }) else { return }
-            store.setInput(id, picked.raw)
+            // Re-tapping the chosen segment is not a new choice.
+            guard key != current, let picked = opts.first(where: { $0.key == key }) else { return }
+            store.setInput(inputKey, picked.raw)
             if let action = node.string("action") {
-                store.request(IntegrationUIAction(name: action, control: id, value: picked.raw, row: ctx.row))
+                store.request(IntegrationUIAction(name: action, control: id, value: picked.raw, row: ctx.row,
+                                                  revertsInput: true, clearsInputOnSuccess: bindsValue(node)))
             }
         })
         if node.string("variant") == "menu" {
@@ -542,6 +583,9 @@ private struct IntegrationUIPicker: View {
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundStyle(JcTheme.text)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.white.opacity(0.06), in: Capsule())
             }
             .disabled(store.running != nil)
         } else {
@@ -559,20 +603,33 @@ private struct IntegrationUISlider: View {
 
     var body: some View {
         let id = node.string("id") ?? "slider"
+        let key = IntegrationUIStore.inputKey(id, row: ctx.row)
         let lo = node.double("min") ?? 0
         let hi = max(lo + 0.000_1, node.double("max") ?? 100)
         let step = node.double("step")
-        let stored = store.value(of: id, bound: node.ref("value")?.resolve(ctx))?.asDouble ?? lo
+        let stored = store.value(of: key, bound: node.ref("value")?.resolve(ctx))?.asDouble ?? lo
         let shown = dragging ?? stored
         let binding = Binding<Double>(get: { shown }, set: { dragging = $0 })
         let editing: (Bool) -> Void = { active in
             guard !active, let final = dragging else { return }
             dragging = nil
-            store.setInput(id, .number(final))
+            store.setInput(key, .number(final))
             if let action = node.string("action") {
-                store.request(IntegrationUIAction(name: action, control: id, value: .number(final), row: ctx.row))
+                store.request(IntegrationUIAction(name: action, control: id, value: .number(final), row: ctx.row,
+                                                  revertsInput: true, clearsInputOnSuccess: bindsValue(node)))
             }
         }
+        VStack(alignment: .leading, spacing: 6) {
+            if let label = node.ref("label")?.string(ctx), !label.isEmpty {
+                Text(label).font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
+            }
+            sliderRow(binding: binding, lo: lo, hi: hi, step: step, shown: shown, editing: editing)
+        }
+        .disabled(store.running != nil)
+    }
+
+    private func sliderRow(binding: Binding<Double>, lo: Double, hi: Double, step: Double?, shown: Double,
+                           editing: @escaping (Bool) -> Void) -> some View {
         HStack(spacing: 10) {
             Group {
                 if let step, step > 0 {
@@ -587,7 +644,6 @@ private struct IntegrationUISlider: View {
                 .foregroundStyle(JcTheme.muted)
                 .frame(minWidth: 36, alignment: .trailing)
         }
-        .disabled(store.running != nil)
     }
 }
 
@@ -598,14 +654,16 @@ private struct IntegrationUIStepper: View {
 
     var body: some View {
         let id = node.string("id") ?? "stepper"
+        let key = IntegrationUIStore.inputKey(id, row: ctx.row)
         let lo = node.double("min") ?? 0
         let hi = max(lo, node.double("max") ?? 1_000_000)
         let step = max(0.000_1, node.double("step") ?? 1)
-        let value = store.value(of: id, bound: node.ref("value")?.resolve(ctx))?.asDouble ?? lo
+        let value = store.value(of: key, bound: node.ref("value")?.resolve(ctx))?.asDouble ?? lo
         let binding = Binding<Double>(get: { value }, set: { new in
-            store.setInput(id, .number(new))
+            store.setInput(key, .number(new))
             if let action = node.string("action") {
-                store.request(IntegrationUIAction(name: action, control: id, value: .number(new), row: ctx.row))
+                store.request(IntegrationUIAction(name: action, control: id, value: .number(new), row: ctx.row,
+                                                  revertsInput: true, clearsInputOnSuccess: bindsValue(node)))
             }
         })
         Stepper(value: binding, in: lo...hi, step: step) {
@@ -629,14 +687,16 @@ private struct IntegrationUIDate: View {
 
     var body: some View {
         let id = node.string("id") ?? "date"
+        let key = IntegrationUIStore.inputKey(id, row: ctx.row)
         let mode = node.string("mode") ?? "date"
-        let current = store.value(of: id, bound: node.ref("value")?.resolve(ctx))?.asString
+        let current = store.value(of: key, bound: node.ref("value")?.resolve(ctx))?.asString
             .flatMap(IntegrationUIDates.parse) ?? Date()
         let binding = Binding<Date>(get: { current }, set: { new in
             let text = IntegrationUIDates.format(new, mode: mode)
-            store.setInput(id, .string(text))
+            store.setInput(key, .string(text))
             if let action = node.string("action") {
-                store.request(IntegrationUIAction(name: action, control: id, value: .string(text), row: ctx.row))
+                store.request(IntegrationUIAction(name: action, control: id, value: .string(text), row: ctx.row,
+                                                  revertsInput: true, clearsInputOnSuccess: bindsValue(node)))
             }
         })
         let components: DatePickerComponents = mode == "time" ? [.hourAndMinute]

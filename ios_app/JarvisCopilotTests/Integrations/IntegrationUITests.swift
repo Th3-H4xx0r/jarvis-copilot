@@ -59,6 +59,24 @@ final class IntegrationUITests: XCTestCase {
         XCTAssertEqual(IntegrationUIAction(name: "refresh").busyKey, "refresh")
     }
 
+    func testControlsInsideListRowsKeepTheirOwnInput() {
+        XCTAssertEqual(IntegrationUIStore.inputKey("qty", row: nil), "qty")
+        XCTAssertEqual(IntegrationUIStore.inputKey("qty", row: ["id": .string("7")]), "qty#7")
+        XCTAssertEqual(IntegrationUIStore.inputKey("qty", row: ["id": .number(3)]), "qty#3")
+        let a = IntegrationUIAction(name: "set_qty", control: "qty", row: ["id": .string("1")])
+        let b = IntegrationUIAction(name: "set_qty", control: "qty", row: ["id": .string("2")])
+        XCTAssertNotEqual(a.busyKey, b.busyKey, "one row's spinner must not spin every row")
+    }
+
+    func testUntouchedControlsReportWhatTheyShow() throws {
+        let ctx = JCBindingContext(data: [:])
+        let picker = try XCTUnwrap(IntegrationUIDecode.node(json(
+            #"{"type":"picker","id":"cat","options":[{"label":"Fruit","value":"fruit"},{"label":"Veg","value":"veg"}]}"#)))
+        XCTAssertEqual(IntegrationUIStore.defaultValue(picker, ctx), .string("fruit"))
+        let stepper = try XCTUnwrap(IntegrationUIDecode.node(json(#"{"type":"stepper","id":"n","min":2}"#)))
+        XCTAssertEqual(IntegrationUIStore.defaultValue(stepper, ctx), .number(2))
+    }
+
     func testDatesRoundTrip() throws {
         let d = try XCTUnwrap(IntegrationUIDates.parse("2026-11-03"))
         XCTAssertEqual(IntegrationUIDates.format(d, mode: "date"), "2026-11-03")
@@ -70,7 +88,9 @@ final class IntegrationUITests: XCTestCase {
     /// Renders the sample page + card to /tmp/ringshots for a look before shipping.
     func testRenderSamplePageAndCard() throws {
         let state = #"{"count":3,"done":1,"spent":"$48","items":[{"id":"1","name":"Milk","qty":"2 L","done":false},{"id":"2","name":"Eggs","qty":"12","done":true},{"id":"3","name":"Bread","qty":"1","done":false}],"week":[3,5,2,6,4,7,5],"filter":"all"}"#
-        let page = IntegrationUIStore(card: IntegrationUICard(json: json(
+        // A page store (sections draw as cards on a page, plain inside a card).
+        let page = IntegrationUIStore(integrationID: "render-test-page", presentation: .page)
+        page.update(from: IntegrationUICard(json: json(
             #"{"id":"render-test-page","name":"Shopping","version":1,"card":\#(Self.pageJSON),"state":\#(state)}"#)))
         XCTAssertNotNil(page.root)
         try RenderHarness.write(ScrollView { IntegrationUIPageSection(store: page).padding(16) },
