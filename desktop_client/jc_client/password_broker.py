@@ -13,10 +13,13 @@ the password was wrong) is refused without asking him again.
 """
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 import time
 from typing import Callable, Optional
+
+log = logging.getLogger(__name__)
 
 TIMEOUT = 120.0
 MAX_CONTEXT = 2400   # the whole request text: his signature covers it
@@ -113,7 +116,9 @@ class PasswordBroker:
 
     def _finish(self, rid: str, ok: bool, error: Optional[str]) -> dict:
         with self._lock:
-            self._reqs.pop(rid, None)
+            req = self._reqs.pop(rid, None)
+        log.info("mac password request %s (%s): %s", rid, req.public["kind"] if req else "?",
+                 "filled" if ok else f"not filled: {error}")
         data = {"id": rid, "ok": ok}
         if error:
             data["error"] = error

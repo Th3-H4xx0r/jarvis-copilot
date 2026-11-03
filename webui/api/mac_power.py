@@ -28,6 +28,8 @@ INTENT_MAX = 1200.0       # a wake request older than this is forgotten
 KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 REQUEST_TTL = 120.0
 MAC_TOPIC = "com.jarviscopilot.mac"
+# How a request can end without him needing a push about it.
+_QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
 _KIND_TITLE = {"sudo": "sudo needs your Mac password", "admin": "Admin password requested",
                "keychain": "Keychain wants your Mac password", "unlock": "Unlock your Mac"}
 
@@ -204,8 +206,17 @@ class MacPowerStore:
 
     def on_password_done(self, did: str, data: dict) -> None:
         with self._lock:
-            self._requests.pop(str(data.get("id") or ""), None)
+            req = self._requests.pop(str(data.get("id") or ""), None)
         self._changed()
+        error = str(data.get("error") or "")
+        # He said yes but the Mac couldn't fill it (not set up, wrong password,
+        # dialog gone…): say why, or it looks like Allow did nothing.
+        if req is not None and not data.get("ok") and error and error not in _QUIET_ENDINGS:
+            try:
+                self._alert("Mac password not filled", error, {"kind": "mac_password_failed",
+                                                               "id": req["id"], "device_id": did})
+            except Exception:  # noqa: BLE001
+                log.warning("Mac password failure push failed", exc_info=True)
 
     # ── for the Agents list ──────────────────────────────────────────────
     def list_payload(self, name_of: Callable[[str], str]) -> dict:

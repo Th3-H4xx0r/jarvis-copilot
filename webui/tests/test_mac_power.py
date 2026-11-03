@@ -168,3 +168,18 @@ def test_keep_awake_expires_after_12h(tmp_path):
     rig.store.keep_awake(MAC, True)
     rig.t += KEEP_AWAKE_MAX + 1
     assert rig.store.checkin(MAC)["keep_awake"] is False
+
+
+
+def test_a_failed_fill_after_his_yes_tells_him_why(tmp_path):
+    rig = Rig(tmp_path, connected=[MAC])
+    for rid in ("r1", "r2"):
+        rig.store.on_password_request(MAC, {"id": rid, "kind": "admin", "context": "x", "nonce": "n",
+                                            "created": rig.t, "expires": rig.t + 120})
+    rig.alerts.clear()
+    rig.store.on_password_done(MAC, {"id": "r1", "ok": False,
+                                     "error": "Pair your iPhone in Jarvis → Settings → Mac power first"})
+    assert rig.alerts == [("Mac password not filled", "Pair your iPhone in Jarvis → Settings → Mac power first",
+                           {"kind": "mac_password_failed", "id": "r1", "device_id": MAC})]
+    rig.store.on_password_done(MAC, {"id": "r2", "ok": False, "error": "Not allowed"})   # his own no
+    assert len(rig.alerts) == 1
