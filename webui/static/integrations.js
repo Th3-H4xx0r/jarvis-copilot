@@ -51,7 +51,7 @@ function _intgCard(item) {
   const unread = _intgHasNewRun(item.id);
   el.innerHTML = `
     <div class="intg-card-head">
-      <span class="intg-card-icon" aria-hidden="true">${esc(_intgGlyph(item.icon))}</span>
+      <span class="intg-card-icon" aria-hidden="true">${_intgIcon(item.icon)}</span>
       <span class="cron-name" title="${esc(item.name)}">${esc(item.name)}</span>
       ${unread ? '<span class="intg-card-dot" title="New run"></span>' : ''}
       ${paused ? `<span class="cron-status paused">${esc(item.status)}</span>` : ''}
@@ -75,13 +75,29 @@ function _intgMeta(item) {
   return bits.length ? bits.join(' · ') : 'nothing yet';
 }
 
-// One glyph per integration. The icon field is a plain word so the phone and the
-// web can each draw it their own way; here that means an emoji.
-const _INTG_GLYPHS = {
-  music: '🎧', envelope: '✉️', house: '🏠', airplane: '✈️', chips: '🎲',
-  chart: '📈', dots: '⋯', clock: '⏱', bolt: '⚡', book: '📓', heart: '❤️',
+// One line icon per integration. The icon field is a plain word so the phone and
+// the web can each draw it their own way; here that means a Lucide-style SVG
+// (the phone uses SF Symbols), never an emoji.
+const _INTG_ICON_PATHS = {
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  envelope: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
+  house: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  airplane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+  chips: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="8.5" cy="15.5" r="1"/><circle cx="15.5" cy="15.5" r="1"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
+  dots: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
 };
-function _intgGlyph(icon) { return _INTG_GLYPHS[String(icon || '').toLowerCase()] || '◈'; }
+const _INTG_ICON_DEFAULT = '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>';
+function _intgIcon(icon, size = 16) {
+  const p = _INTG_ICON_PATHS[String(icon || '').toLowerCase()] || _INTG_ICON_DEFAULT;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+       + `stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+}
 
 // ── detail ───────────────────────────────────────────────────────────────────
 async function openIntegration(id) {
@@ -107,7 +123,7 @@ async function openIntegration(id) {
     return;
   }
   if (_intgView !== mine) return;                                  // user moved on while loading
-  if (title) title.textContent = `${_intgGlyph(data.icon)}  ${data.name || id}`;
+  if (title) title.textContent = data.name || id;
   if (body) body.innerHTML = _intgDetailHtml(data);
   _intgBindDetail(data);
 }
@@ -656,7 +672,7 @@ function _intgPlanHtml(plan) {
   return `
     <div class="plan-card plan-card--${esc(status)}">
       <div class="plan-card-head">
-        <span class="plan-card-icon" aria-hidden="true">${esc(_intgGlyph(plan.icon))}</span>
+        <span class="plan-card-icon" aria-hidden="true">${_intgIcon(plan.icon)}</span>
         <span class="plan-card-title">${esc(plan.name || '')}</span>
         <span class="plan-card-tag">${esc(_intgPlanTag(status))}</span>
       </div>

@@ -23,7 +23,7 @@ function _immCardEl(card) {
   if (_intgView === _IMM_VIEW) el.classList.add('active');
   el.innerHTML = `
     <div class="intg-card-head">
-      <span class="intg-card-icon" aria-hidden="true">💬</span>
+      <span class="intg-card-icon" aria-hidden="true">${_intgIcon('message')}</span>
       <span class="cron-name">iMessage memory</span>
       ${card && card.active_job ? '<span class="cron-status">backfilling</span>' : ''}
     </div>
@@ -60,7 +60,7 @@ async function openIMessageMemory() {
   if (card) card.classList.add('active');
   const title = $('taskDetailTitle'), body = $('taskDetailBody'), empty = $('taskDetailEmpty');
   if (empty) empty.style.display = 'none';
-  if (title) title.textContent = '💬  iMessage memory';
+  if (title) title.textContent = 'iMessage memory';
   if (body) { body.style.display = ''; body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`; }
   try {
     const state = await api('/api/imessage-memory');
