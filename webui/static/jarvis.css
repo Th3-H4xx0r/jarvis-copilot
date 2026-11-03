@@ -292,3 +292,23 @@
 
 /* Toasts: a dark pill like the phone's banners. */
 :root.dark[data-skin="jarvis"] .toast{background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text);border-radius:var(--jc-r-control);box-shadow:0 8px 24px rgba(0,0,0,.5);}
+
+/* ── New chat: the phone's orb and words, quiet suggestions ─────────────── */
+:root[data-skin="jarvis"] .empty-state{background:none !important;gap:8px;}
+:root[data-skin="jarvis"] .empty-state::before,
+:root[data-skin="jarvis"] .empty-state::after{display:none !important;}
+:root[data-skin="jarvis"] .empty-logo{
+  width:128px;height:128px;border:0;border-radius:50%;box-shadow:none;margin-bottom:12px;
+  background:url('jarvis-orb.png') center/cover no-repeat;
+}
+:root[data-skin="jarvis"] .empty-logo svg{display:none;}
+:root[data-skin="jarvis"] .empty-state h2{font-size:22px;font-weight:600;letter-spacing:0;}
+:root[data-skin="jarvis"] .empty-state p{font-size:14px;color:var(--jc-muted);}
+:root[data-skin="jarvis"] .suggestion-grid{gap:8px;margin-top:20px;}
+:root.dark[data-skin="jarvis"] .suggestion{
+  display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:var(--jc-r-card);
+  background:var(--jc-surface);border:1px solid var(--jc-hair);color:var(--jc-text-2);font-size:14px;
+  transition:background-color .15s ease,color .15s ease;
+}
+:root.dark[data-skin="jarvis"] .suggestion:hover{background:var(--jc-surface-2);color:var(--jc-text);border-color:var(--jc-hair-strong);}
+:root[data-skin="jarvis"] .suggestion svg{color:var(--jc-muted);flex-shrink:0;}
