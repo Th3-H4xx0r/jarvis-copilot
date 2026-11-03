@@ -131,6 +131,11 @@ struct JarvisMemoryAPI {
     }
 
     /// Newest first; `sessionID` narrows to one chat.
+    func recallMemories(id: String) async throws -> MemoryRecallDetail {
+        let response = try await api.get("/api/jarvis-memory/recall", query: ["id": id])
+        return MemoryRecallDetail(json: try response.object())
+    }
+
     func recalls(limit: Int = 30, sessionID: String? = nil) async throws -> [MemoryRecall] {
         var query = ["limit": String(limit)]
         if let sessionID { query["session_id"] = sessionID }

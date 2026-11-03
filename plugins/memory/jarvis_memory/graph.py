@@ -174,6 +174,22 @@ def recalls(store, *, limit=30, session_id=None) -> List[dict]:
     return out
 
 
+def recall_memories(store, recall_id) -> dict:
+    """What one recall actually used: its query and the memories, in the order
+    they ranked — the list under a reply's "Used N memories" chip."""
+    trace = store.get_trace(int(recall_id))
+    if trace is None:
+        raise KeyError(recall_id)
+    hits = [h[0] for h in (trace.get("trace") or {}).get("hits") or [] if h]
+    chunks = {c.id: c for c in store.get_chunks(hits)}
+    memories = [{"id": cid, "text": chunks[cid].body,
+                 "source": (chunks[cid].source or "").split(":", 1)[0],
+                 "created_at": chunks[cid].created_at}
+                for cid in hits if cid in chunks]
+    return {"id": trace.get("id"), "ts": trace.get("ts"), "query": trace.get("query") or "",
+            "memories": memories}
+
+
 def highlight(store, namespace, recall_id) -> dict:
     trace = store.get_trace(int(recall_id))
     if trace is None:

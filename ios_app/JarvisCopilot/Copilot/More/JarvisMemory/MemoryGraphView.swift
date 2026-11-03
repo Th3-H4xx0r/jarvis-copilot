@@ -475,25 +475,86 @@ final class MemoryGraphDrawCache {
 /// Under a Jarvis reply that drew on memory: opens the map lit up on what it used.
 struct MemoryUsedChip: View {
     let recall: MemoryRecall
+    /// "Open on map": the memory map lit up on this recall.
     let action: () -> Void
 
+    @State private var open = false
+    @State private var detail: MemoryRecallDetail?
+    @State private var failed = false
+
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                JcIcon("brain", size: 11)
-                Text(recall.memoryIDs.count == 1 ? "1 memory used" : recall.memoryIDs.isEmpty
-                     ? "Memories used" : "\(recall.memoryIDs.count) memories used")
-                    .font(.system(size: 11.5, weight: .medium))
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { open.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                    Text(MemoryRecallDetail.chipLabel(count: recall.memoryIDs.count))
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(JcTheme.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(JcTheme.muted)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.white.opacity(0.05), in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
-            .contentShape(Capsule())
+            .buttonStyle(.plain)
+            .accessibilityHint(open ? "Hides the memories" : "Shows the memories Jarvis used for this reply")
+
+            if open {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let detail {
+                        if detail.memories.isEmpty {
+                            Text("No memories to show").font(.footnote).foregroundStyle(JcTheme.muted)
+                        }
+                        ForEach(detail.memories) { memory in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(memory.text)
+                                    .font(.footnote)
+                                    .foregroundStyle(JcTheme.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                                Text(meta(memory)).font(.caption2).foregroundStyle(JcTheme.muted)
+                            }
+                        }
+                    } else if failed {
+                        Text("Couldn't load the memories").font(.footnote).foregroundStyle(JcTheme.muted)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button("Open on map", action: action)
+                        .font(.footnote)
+                        .tint(JcTheme.accent)
+                }
+                .padding(.leading, 12)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(JcTheme.glassBorder).frame(width: 2)
+                }
+                .padding(.leading, 6)
+                .task { await load() }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Shows the memory map lit up on what this reply used")
+    }
+
+    private func meta(_ memory: MemoryRecallDetail.Memory) -> String {
+        var parts: [String] = []
+        if !memory.source.isEmpty { parts.append(memory.sourceLabel) }
+        if let date = memory.createdAt { parts.append(date.formatted(.dateTime.month(.abbreviated).day())) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func load() async {
+        guard detail == nil else { return }
+        failed = false
+        do {
+            detail = try await JarvisMemoryAPI().recallMemories(id: recall.id)
+        } catch {
+            failed = true
+        }
     }
 }
 

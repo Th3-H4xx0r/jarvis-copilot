@@ -86,6 +86,36 @@
     return s;
   }
 
+  // ── the "Used N memories" chip under a reply ──
+  function recallChipLabel(n) {
+    if (!n) return 'Memories';
+    return 'Used ' + n + (n === 1 ? ' memory' : ' memories');
+  }
+
+  function recallUrl(id) { return 'api/jarvis-memory/recall?id=' + enc(String(id)); }
+
+  function _escHtml(t) {
+    return String(t == null ? '' : t).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // The memories one recall used, newest-ranked first: the text, then where
+  // it came from and when (iMessage · Oct 21).
+  function recallListHtml(data) {
+    const mems = (data && Array.isArray(data.memories)) ? data.memories : [];
+    if (!mems.length) return '<div class="jmem-recall-empty">No memories to show</div>';
+    return mems.map(m => {
+      const src = (SOURCES.find(s => s.value && s.value === m.source) || {}).label || '';
+      let when = '';
+      if (typeof m.created_at === 'number' && m.created_at > 0) {
+        try { when = new Date(m.created_at * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } catch (e) { when = ''; }
+      }
+      const meta = [src, when].filter(Boolean).join(' · ');
+      return '<div class="jmem-recall-item"><div class="jmem-recall-text">' + _escHtml(m.text) + '</div>' +
+        (meta ? '<div class="jmem-recall-meta">' + _escHtml(meta) + '</div>' : '') + '</div>';
+    }).join('');
+  }
+
   // ── graph state ──
   function createGraph() { return { nodes: [], edges: [] }; }
 
@@ -524,7 +554,7 @@
   return {
     BASE_MAX_AGE_MS, chatSignature, isStale, acceptsPointer, tapSlop, memoriesHeading,
     TYPES, TYPE_LABELS, TIME_RANGES, SOURCES, COLORS, BASE_LIMIT, MAX_NODES, MIN_ZOOM, MAX_ZOOM, MAX_RADIUS, ME,
-    sinceFor, graphUrl, recallsUrl,
+    sinceFor, graphUrl, recallsUrl, recallUrl, recallChipLabel, recallListHtml,
     createGraph, node, edgeKey, loadGraph, mergeGraph, capGraph, removeNode, mergeNodes, mergeCandidates,
     radiusFor, step, isSettled, colorFor, showLabel, isDimmed,
     toWorld, toScreen, zoomAt, hitTest,

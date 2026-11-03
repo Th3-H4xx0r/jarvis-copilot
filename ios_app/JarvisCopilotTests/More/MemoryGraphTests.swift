@@ -894,3 +894,30 @@ final class GatedTransport: APITransport, @unchecked Sendable {
         try await inner.stream(request)
     }
 }
+
+
+/// "Used N memories" under a reply, opened into the memories themselves.
+final class MemoryUsedListTests: XCTestCase {
+    func testChipLabel() {
+        XCTAssertEqual(MemoryRecallDetail.chipLabel(count: 9), "Used 9 memories")
+        XCTAssertEqual(MemoryRecallDetail.chipLabel(count: 1), "Used 1 memory")
+        XCTAssertEqual(MemoryRecallDetail.chipLabel(count: 0), "Memories")
+    }
+
+    func testParsesTheMemoriesARecallUsed() {
+        let detail = MemoryRecallDetail(json: [
+            "id": 7, "query": "smart glasses",
+            "memories": [
+                ["id": "c1", "text": "Prefers slim glasses", "source": "fact", "created_at": 1_790_000_000],
+                ["id": "c2", "text": "Told Sid about the race", "source": "imessage"],
+                ["id": "", "text": "dropped"],
+            ],
+        ])
+        XCTAssertEqual(detail.query, "smart glasses")
+        XCTAssertEqual(detail.memories.map(\.id), ["c1", "c2"])
+        XCTAssertEqual(detail.memories[0].sourceLabel, "Chats")
+        XCTAssertEqual(detail.memories[1].sourceLabel, "iMessage")
+        XCTAssertNotNil(detail.memories[0].createdAt)
+        XCTAssertNil(detail.memories[1].createdAt)
+    }
+}

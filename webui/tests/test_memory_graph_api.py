@@ -75,6 +75,22 @@ def test_recalls_and_highlight(out):
     assert calls[-1][0] == 400
 
 
+def test_recall_lists_the_memories_it_used(out):
+    calls, store, ids = out
+    mg.handle_get(None, _get("/api/jarvis-memory/recalls?session_id=sess1"))
+    [rec] = calls[-1][1]["recalls"]
+    mg.handle_get(None, _get(f"/api/jarvis-memory/recall?id={rec['id']}"))
+    status, body = calls[-1]
+    assert status == 200 and body["query"] == "where is the race"
+    [mem] = body["memories"]
+    assert mem["id"] == ids["a"] and mem["text"] == "Going to the F1 race at COTA with Sid"
+    assert mem["source"] == "imessage" and mem["created_at"] == 1.0
+    mg.handle_get(None, _get("/api/jarvis-memory/recall?id=999999"))
+    assert calls[-1][0] == 404
+    mg.handle_get(None, _get("/api/jarvis-memory/recall?id=x"))
+    assert calls[-1][0] == 400
+
+
 def test_unknown_path_is_not_handled(out):
     assert mg.handle_get(None, _get("/api/jarvis-memory/other")) is None
 

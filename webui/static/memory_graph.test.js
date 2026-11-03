@@ -471,3 +471,27 @@ test('memoriesHeading: "50 of N" when the node weight says there are more', () =
   assert.equal(G.memoriesHeading(3, null), 'Memories (3)');
   assert.equal(G.memoriesHeading(0, 0), 'Memories');
 });
+
+// ── the "Used N memories" chip under a reply ────────────────────────────────
+
+test('the chip reads "Used N memories"', () => {
+  assert.equal(G.recallChipLabel(9), 'Used 9 memories');
+  assert.equal(G.recallChipLabel(1), 'Used 1 memory');
+  assert.equal(G.recallChipLabel(0), 'Memories');
+});
+
+test('one recall is fetched by id', () => {
+  assert.equal(G.recallUrl(42), 'api/jarvis-memory/recall?id=42');
+});
+
+test('the list shows each memory, escaped, with where and when it came from', () => {
+  const html = G.recallListHtml({ memories: [
+    { id: 'c1', text: 'Going to <the> F1 race with Sid', source: 'imessage', created_at: 1780000000 },
+    { id: 'c2', text: 'Prefers slim glasses', source: '', created_at: null },
+  ] });
+  assert.match(html, /class="jmem-recall-item"/);
+  assert.match(html, /Going to &lt;the&gt; F1 race with Sid/);
+  assert.match(html, /iMessage/);
+  assert.equal((html.match(/class="jmem-recall-item"/g) || []).length, 2);
+  assert.match(G.recallListHtml({ memories: [] }), /No memories/);
+});

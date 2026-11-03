@@ -248,25 +248,52 @@
         if (el.classList.contains("assistant-turn")) { turn = el; break; }
       }
       if (!turn || turn.id === "liveAssistantTurn" || turn.querySelector("[data-live-assistant]")) return;
-      // A quiet link at the end of the reply's footer line (not a row of its own).
+      // Its own line right under the reply's footer: "Used 9 memories", which
+      // opens into the memories themselves (and a way to the map).
       var feet = turn.querySelectorAll(".msg-foot");
-      var host = feet.length ? feet[feet.length - 1] : (turn.querySelector(".assistant-turn-blocks") || turn);
-      var have = host.querySelector(":scope > .jmem-recall-chip");
+      var anchor = feet.length ? feet[feet.length - 1] : null;
+      var have = turn.querySelector(".jmem-recall");
       if (!rc) { if (have) have.remove(); return; }     // e.g. a Regenerate that used no memory
       if (have && have.getAttribute("data-recall") === String(rc.id)) return;
       if (have) have.remove();
       var n = (rc.memory_ids || []).length;
-      var chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "jmem-recall-chip";
-      chip.setAttribute("data-recall", String(rc.id));
-      chip.setAttribute("data-query", String(rc.query || ""));
-      chip.title = "Show the memories Jarvis used on the map";
-      chip.textContent = n ? n + (n === 1 ? " memory" : " memories") : "memories";
-      // Right after "model · time", so it stays next to it while the hover icons are hidden.
-      var lead = host.querySelector(":scope > .msg-answered-by");
-      if (lead) host.insertBefore(chip, lead.nextSibling); else host.appendChild(chip);
+      var block = document.createElement("div");
+      block.className = "jmem-recall";
+      block.setAttribute("data-recall", String(rc.id));
+      block.setAttribute("data-query", String(rc.query || ""));
+      block.innerHTML = '<button type="button" class="jmem-recall-chip" aria-expanded="false" ' +
+        'title="See the memories Jarvis used for this reply">' +
+        '<svg class="jmem-recall-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>' +
+        esc(MemoryGraph.recallChipLabel(n)) + '</button>' +
+        '<div class="jmem-recall-list" hidden></div>';
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(block, anchor.nextSibling);
+      else (turn.querySelector(".assistant-turn-blocks") || turn).appendChild(block);
     });
+  }
+
+  // Open / close the list under a reply's chip; the memories load on first open.
+  function toggleRecallList(block, chip) {
+    var list = block.querySelector(".jmem-recall-list");
+    if (!list) return;
+    var open = list.hidden;
+    list.hidden = !open;
+    chip.setAttribute("aria-expanded", open ? "true" : "false");
+    block.classList.toggle("is-open", open);
+    if (!open || list.getAttribute("data-loaded")) return;
+    list.setAttribute("data-loaded", "1");
+    list.innerHTML = '<div class="jmem-recall-empty">Loading…</div>';
+    var mapBtn = '<button type="button" class="jmem-recall-map">Open on map</button>';
+    fetch(MemoryGraph.recallUrl(block.getAttribute("data-recall")))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        list.innerHTML = (d ? MemoryGraph.recallListHtml(d) : '<div class="jmem-recall-empty">Couldn\'t load the memories</div>') + mapBtn;
+        if (!d) list.removeAttribute("data-loaded");
+      })
+      .catch(function () {
+        list.innerHTML = '<div class="jmem-recall-empty">Couldn\'t load the memories</div>' + mapBtn;
+        list.removeAttribute("data-loaded");
+      });
   }
 
   function initChips() {
@@ -281,11 +308,19 @@
       });
     } catch (e) { return; }
     document.addEventListener("click", function (ev) {
-      var b = ev.target && ev.target.closest ? ev.target.closest(".jmem-recall-chip") : null;
-      if (!b) return;
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      var map = t.closest(".jmem-recall-map");
+      var chip = t.closest(".jmem-recall-chip");
+      var block = (map || chip) ? (map || chip).closest(".jmem-recall") : null;
+      if (!block) return;
       ev.preventDefault();
       ev.stopPropagation();
-      try { openRecall(b.getAttribute("data-recall"), b.getAttribute("data-query")); } catch (e) {}
+      if (map) {
+        try { openRecall(block.getAttribute("data-recall"), block.getAttribute("data-query")); } catch (e) {}
+        return;
+      }
+      toggleRecallList(block, chip);
     });
     scheduleChips();
   }

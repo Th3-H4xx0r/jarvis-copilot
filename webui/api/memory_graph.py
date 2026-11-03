@@ -53,6 +53,14 @@ def handle_get(handler, parsed):
             return bad(handler, "recall must be a recall id")
         except KeyError:
             return j(handler, {"error": "no such recall"}, status=404)
+    if path == "/api/jarvis-memory/recall":
+        store, _ns = _store_ns()
+        try:
+            return j(handler, graph.recall_memories(store, int(_arg(q, "id"))))
+        except ValueError:
+            return bad(handler, "id must be a recall id")
+        except KeyError:
+            return j(handler, {"error": "no such recall"}, status=404)
     if path == "/api/jarvis-memory/entity":
         store, _ns = _store_ns()
         try:

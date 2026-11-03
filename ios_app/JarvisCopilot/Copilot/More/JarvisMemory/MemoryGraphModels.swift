@@ -288,6 +288,35 @@ struct MemoryRecall: Identifiable, Equatable, Sendable {
     }
 }
 
+/// What one recall used — the list under a reply's "Used N memories" chip
+/// (`GET /api/jarvis-memory/recall?id=`).
+struct MemoryRecallDetail: Equatable, Sendable {
+    struct Memory: Identifiable, Equatable, Sendable {
+        var id: String
+        var text: String
+        var source: String
+        var createdAt: Date?
+        var sourceLabel: String { MemorySourceFilter.label(forSource: source) }
+    }
+
+    var query: String
+    var memories: [Memory]
+
+    init(json: JSONObject) {
+        query = MoreJSON.text(json["query"])
+        memories = MoreJSON.mapList(json["memories"]).compactMap { m in
+            let id = MoreJSON.text(m["id"])
+            guard !id.isEmpty else { return nil }
+            return Memory(id: id, text: MoreJSON.text(m["text"]), source: MoreJSON.text(m["source"]),
+                          createdAt: MoreJSON.double(m["created_at"]).map { Date(timeIntervalSince1970: $0) })
+        }
+    }
+
+    static func chipLabel(count: Int) -> String {
+        count == 0 ? "Memories" : "Used \(count) \(count == 1 ? "memory" : "memories")"
+    }
+}
+
 /// One transcript message, as the chip matching needs it. Assistant turns
 /// carry no text (only user messages are compared).
 struct MemoryRecallTurn: Equatable, Sendable {
