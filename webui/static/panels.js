@@ -3482,7 +3482,7 @@ function _renderInsights(d, box, wikiStatus, msgData) {
         const inT = Number(m.input_tokens || 0), outT = Number(m.output_tokens || 0);
         const cacheHit = Number(m.cache_read_tokens || 0) > 0;
         const comp = (m.composition && m.composition.sections) || {};
-        const cacheBadge = cacheHit ? `<span class="insights-msg-cache" title="${esc(t('insights_cache_hit'))}">⚡</span>` : '';
+        const cacheBadge = cacheHit ? `<span class="insights-msg-cache" title="${esc(t('insights_cache_hit'))}">${li('zap', 11)}</span>` : '';
         return `<div class="insights-table-row"><span>#${esc(String(m.turn))}</span><span>${fmtTokens(inT)}${cacheBadge}</span><span>${fmtTokens(outT)}</span><span>${fmtTokens(inT + outT)}</span><span class="insights-msg-bar-cell">${_compositionBar(comp)}</span><span><button type="button" class="insights-msg-details" onclick="showMsgComposition(${i})">${esc(t('insights_details'))}</button></span></div>`;
       }).join('') +
       `</div></div>`;

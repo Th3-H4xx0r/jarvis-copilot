@@ -6,8 +6,9 @@ const COSTS = {data: null, detail: null, detailId: null};
 const _COSTS_TAB_KEY = 'jarviscopilot-insights-tab';
 // Series colours for the stacked chart: the accent first, then hues far apart from it
 // and from each other so neighbouring services never match.
-const _COSTS_SERIES = ['var(--accent)', '#F2A541', '#3FC7A0', '#B983FF', '#FF6B8B'];
-const _COSTS_OTHER = '#7D8597';
+// One accent leads; the rest are neutral steps (2026-11-03 phone design brief).
+const _COSTS_SERIES = ['var(--accent)', '#C9CFDB', '#9AA2B3', '#727A8C', '#555C6B'];
+const _COSTS_OTHER = '#3D424E';
 const _COSTS_TOP_N = 5;
 const _COSTS_EST = 'color-mix(in srgb, var(--accent) 38%, transparent)';
 
