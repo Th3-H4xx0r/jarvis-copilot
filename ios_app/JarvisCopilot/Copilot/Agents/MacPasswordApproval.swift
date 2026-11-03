@@ -11,6 +11,16 @@ enum MacPasswordApproval {
     /// The push's `kind` and category (`mac_power.py` → `alert_phones`).
     static let pushKind = "mac_password"
     static let category = "MAC_PASSWORD"
+    /// Posted when a Mac password push arrives with the app open: the Agents tab
+    /// reloads, so the card shows (or goes) even if the live link is down.
+    static let changed = Notification.Name("jc.macPassword.changed")
+
+    /// A Mac password request, or the "not filled" push after one.
+    static func isMacPasswordPush(_ userInfo: [AnyHashable: Any]) -> Bool {
+        let env = userInfo[NotificationAction.envelopeKey] as? [String: Any] ?? [:]
+        let kind = env["kind"] as? String ?? userInfo["kind"] as? String
+        return kind == pushKind || kind == "mac_password_failed"
+    }
 
     /// The exact bytes the Mac verifies (MacPassword.swift `ApprovalVerifier.message`).
     static func message(kind: String, nonce: String, ts: Int, context: String) -> Data {

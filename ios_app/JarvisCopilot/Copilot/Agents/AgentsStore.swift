@@ -124,6 +124,14 @@ final class AgentsStore {
             guard let self, self.visible else { return }
             Task { await self.refresh() }
         }
+        // A Mac password push arrived with the app open: don't wait for the live link.
+        NotificationCenter.default.addObserver(forName: MacPasswordApproval.changed, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.visible else { return }
+                Task { await self.refresh() }
+            }
+        }
     }
 
     // MARK: data

@@ -246,6 +246,10 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         if IMessageFactsPush.isFactsPush(content.userInfo) {
             await MainActor.run { NotificationCenter.default.post(name: IMessageFactsPush.changed, object: nil) }
         }
+        // A Mac password request (or its "not filled"): the Agents tab re-reads now.
+        if MacPasswordApproval.isMacPasswordPush(content.userInfo) {
+            await MainActor.run { NotificationCenter.default.post(name: MacPasswordApproval.changed, object: nil) }
+        }
         // Foreground delivery must route too: the background callback is not
         // guaranteed. Both paths decode the same card, so lens dedupe handles overlap.
         if let card = WearableNotification.decode(content.userInfo) {
