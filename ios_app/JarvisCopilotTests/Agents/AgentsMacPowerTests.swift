@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import JarvisCopilot
 
@@ -96,21 +97,78 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(waking, now: at(5)), "Waking…")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(waking, now: at(60)), "Waking…")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(waking, now: at(61)),
-                       "Waking… up to 15 min if it's in deep sleep")
-        XCTAssertEqual(AgentsMacPowerCopy.stateLine(waking, now: at(900)),
-                       "Waking… up to 15 min if it's in deep sleep")
+                       "Waking… · up to 15 min from deep sleep")
+        XCTAssertEqual(AgentsMacPowerCopy.status(waking, now: at(900)).tone, .waking)
         // The server drops an intent this old: back to the plain asleep line.
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(waking, now: at(1300)), "Asleep · last seen 1 h ago")
     }
 
     func testAwakeAndAsleepLines() {
         let now = Date(timeIntervalSince1970: 1_700_000_300)
-        XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("awake", reason: "session"), now: now), "Awake · Claude working")
+        XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("awake", reason: "session"), now: now), "Awake · Claude is working")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("awake"), now: now), "Awake")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("awake", reason: "manual", wake: 1_700_000_000), now: now),
-                       "Awake · Keep awake on", "an awake Mac is never 'Waking…'")
+                       "Awake · Kept awake", "an awake Mac is never 'Waking…'")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("sleeping"), now: now), "Asleep · last seen 5 min ago")
         XCTAssertEqual(AgentsMacPowerCopy.stateLine(mac("offline", seen: nil), now: now), "Offline")
+        XCTAssertEqual(AgentsMacPowerCopy.status(mac("sleeping"), now: now),
+                       .init(tone: .asleep, label: "Asleep", detail: "last seen 5 min ago"))
+        XCTAssertEqual(AgentsMacPowerCopy.reason("grace"), "A session just finished")
+        XCTAssertEqual(AgentsMacPowerCopy.reason("remote"), "Woken from iPhone")
+        XCTAssertNil(AgentsMacPowerCopy.reason("rtc/Alarm"), "an unknown reason says nothing")
+    }
+
+    func testFriendlyName() {
+        let name = AgentsMacPowerCopy.friendlyName
+        XCTAssertEqual(name("Pranavs-MacBook-Pro.local"), "Pranav's MacBook Pro")
+        XCTAssertEqual(name("Pranavs-MacBook-Air"), "Pranav's MacBook Air")
+        XCTAssertEqual(name("pranavs-macbook-pro.local"), "Pranav's MacBook Pro")
+        XCTAssertEqual(name("Pranavs-MacBook-Pro-2.local"), "Pranav's MacBook Pro", "macOS's clash number goes")
+        XCTAssertEqual(name("Jamess-iMac.local"), "James's iMac")
+        XCTAssertEqual(name("Studio-Mac-mini.local"), "Studio Mac mini",
+                       "an owner without the possessive s stays as it is")
+        XCTAssertEqual(name("Annas-Mac-Studio"), "Anna's Mac Studio")
+        XCTAssertEqual(name("MacBook-Pro.local"), "MacBook Pro")
+        XCTAssertEqual(name("Pranav’s MacBook Pro"), "Pranav’s MacBook Pro", "already words: kept")
+        XCTAssertEqual(name("build-box.local"), "build box")
+        XCTAssertEqual(name("MacBook"), "MacBook")
+        XCTAssertEqual(name(""), "Your Mac")
+        XCTAssertEqual(name(".local"), "Your Mac")
+    }
+
+    func testBatterySymbolAndKeepAwakeWords() {
+        XCTAssertEqual(AgentsMacPowerCopy.batterySymbol(level: 29, charging: false), "battery.25percent")
+        XCTAssertEqual(AgentsMacPowerCopy.batterySymbol(level: 5, charging: false), "battery.0percent")
+        XCTAssertEqual(AgentsMacPowerCopy.batterySymbol(level: 100, charging: false), "battery.100percent")
+        XCTAssertEqual(AgentsMacPowerCopy.batterySymbol(level: 29, charging: true), "battery.100percent.bolt")
+        // the server turns Keep awake off after KEEP_AWAKE_MAX: both states say so
+        XCTAssertTrue(AgentsMacPowerCopy.keepAwakeSubtitle(on: true).contains("12 hours"))
+        XCTAssertTrue(AgentsMacPowerCopy.keepAwakeSubtitle(on: false).contains("12 hours"))
+    }
+
+    // MARK: the password sheet's queue
+
+    private func request(_ id: String, expires: Double) -> MacPasswordRequest {
+        MacPasswordRequest(json: ["id": id, "device_id": "mac-1", "kind": "sudo", "context": "x",
+                                  "nonce": "n", "expires": expires])
+    }
+
+    func testThePasswordSheetShowsOneAtATimeAndSkipsSnoozedAndExpired() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let a = request("a", expires: 1_700_000_100), b = request("b", expires: 1_700_000_100)
+        let old = request("old", expires: 1_699_999_990)
+        XCTAssertEqual(MacPasswordQueue.next([old, a, b], snoozed: [], now: now)?.id, "a")
+        XCTAssertEqual(MacPasswordQueue.next([a, b], snoozed: ["a"], now: now)?.id, "b")
+        XCTAssertNil(MacPasswordQueue.next([a], snoozed: ["a"], now: now))
+        XCTAssertFalse(MacPasswordQueue.isDone(a, in: [a, b], now: now))
+        XCTAssertTrue(MacPasswordQueue.isDone(a, in: [b], now: now), "answered: it left the list")
+        XCTAssertTrue(MacPasswordQueue.isDone(a, in: [a], now: Date(timeIntervalSince1970: 1_700_000_100)))
+    }
+
+    func testRequestsNameTheirMacFriendly() throws {
+        let macs = [AgentMacPower(json: ["device_id": "mac-1", "name": "Pranavs-MacBook-Pro.local"])]
+        XCTAssertEqual(AgentsMacPowerCopy.macName("mac-1", in: macs), "Pranav's MacBook Pro")
+        XCTAssertEqual(AgentsMacPowerCopy.macName("gone", in: macs), "Your Mac")
     }
 
     // MARK: the signed yes
@@ -122,9 +180,12 @@ final class AgentsMacPowerTests: XCTestCase {
                        "jarvis-mac-password|sudo|abc123|1700000000|8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
     }
 
-    func testTitlesAndCountdown() {
-        XCTAssertEqual(MacPasswordApproval.title(kind: "sudo"), "sudo in Claude session")
-        XCTAssertEqual(MacPasswordApproval.title(kind: "unlock"), "Unlock Mac")
+    func testSheetTitlesAndCountdown() {
+        XCTAssertEqual(MacPasswordSheetCopy.title(kind: "sudo"), "sudo wants your Mac password")
+        XCTAssertEqual(MacPasswordSheetCopy.title(kind: "admin"), "Admin access on your Mac")
+        XCTAssertEqual(MacPasswordSheetCopy.title(kind: "keychain"), "Keychain access")
+        XCTAssertEqual(MacPasswordSheetCopy.title(kind: "unlock"), "Unlock your Mac")
+        XCTAssertEqual(MacPasswordSheetCopy.title(kind: "something-new"), "Your Mac wants its password")
         let expires = Date(timeIntervalSince1970: 1_700_000_120)
         XCTAssertEqual(MacPasswordApproval.countdown(expires, now: Date(timeIntervalSince1970: 1_700_000_015)),
                        "1:45 left")
@@ -187,5 +248,57 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(body["decision"] as? String, "deny")
         XCTAssertNil(body["signature"])
         XCTAssertNil(body["ts"])
+    }
+}
+
+/// The MacBook card (awake, asleep, waking) and the password sheet, drawn to
+/// /tmp/ringshots to look at before installing.
+@MainActor
+final class AgentsMacPowerRenderTests: XCTestCase {
+    private func store(_ macs: [[String: Any]]) -> AgentsStore {
+        let store = AgentsStore(api: AgentsAPI(api: JarvisAPI.mocked().0), topics: BridgeTopics())
+        store.show(AgentsList(json: ["needs_you": [], "projects": [], "mac": macs]))
+        return store
+    }
+
+    func testTheMacBookCardRenders() throws {
+        let now = Date().timeIntervalSince1970
+        let awake: [String: Any] = ["device_id": "mac-1", "name": "Pranavs-MacBook-Pro.local", "state": "awake",
+                                    "held": true, "reason": "session", "keep_awake": false, "timer_on": true,
+                                    "battery": 29, "on_ac": false, "lid": "open", "seen_at": now]
+        let asleep: [String: Any] = ["device_id": "mac-2", "name": "Pranavs-MacBook-Air.local", "state": "sleeping",
+                                     "keep_awake": true, "battery": 84, "on_ac": true, "seen_at": now - 300]
+        let waking: [String: Any] = ["device_id": "mac-3", "name": "Studio-Mac-mini.local", "state": "sleeping",
+                                     "seen_at": now - 7200, "wake_requested_at": now - 90]
+        let store = store([awake, asleep, waking])
+        let page = ScrollView {
+            VStack(spacing: 12) {
+                ForEach(store.macs) { AgentsMacPowerCard(mac: $0, store: store) }
+                JcCard(padding: 0) {
+                    AgentsMacPasswordRow(request: MacPasswordRequest(json: [
+                        "id": "pw", "device_id": "mac-1", "kind": "sudo", "context": "x", "nonce": "n",
+                        "expires": now + 102]), macName: "Pranav's MacBook Pro", last: true) {}
+                }
+            }
+            .padding(16)
+        }
+        try RenderHarness.write(page, size: CGSize(width: 402, height: 874), name: "agents-mac-card")
+    }
+
+    func testThePasswordSheetRenders() throws {
+        let now = Date().timeIntervalSince1970
+        let short = MacPasswordRequest(json: [
+            "id": "pw-1", "device_id": "mac-1", "kind": "sudo", "nonce": "n", "expires": now + 102,
+            "context": "sudo in jarvis-copilot: brew install jq"])
+        let long = MacPasswordRequest(json: [
+            "id": "pw-2", "device_id": "mac-1", "kind": "admin", "nonce": "n", "expires": now + 24,
+            "context": (1...14).map { "line \($0): installer wants to change /Library/LaunchDaemons/com.example.helper.plist" }
+                .joined(separator: "\n")])
+        for (request, name) in [(short, "mac-password-sheet"), (long, "mac-password-sheet-long")] {
+            let host = Color.black.sheet(isPresented: .constant(true)) {
+                MacPasswordSheet(request: request, macName: "Pranav's MacBook Pro", answer: { _ in nil })
+            }
+            try RenderHarness.write(host, size: CGSize(width: 402, height: 874), name: name, settle: 3)
+        }
     }
 }

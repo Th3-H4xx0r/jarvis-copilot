@@ -22,6 +22,11 @@ struct AgentsPage: View {
     @State private var path: [AgentsRoute] = []
     @State private var showRecap = false
     @State private var showLaunch = false
+    /// The Mac password request the sheet shows, one at a time.
+    @State private var passwordSheet: MacPasswordRequest?
+    /// Requests he swiped away: they wait under Needs you instead of coming back.
+    @State private var snoozedPasswords: Set<String> = []
+    @State private var onScreen = false
     @AppStorage(AgentsListPrefs.collapsedKey) private var collapsedRaw = ""
     @AppStorage(AgentsListPrefs.expandedIntegrationsKey) private var expandedIntegrationsRaw = ""
 
@@ -65,7 +70,11 @@ struct AgentsPage: View {
                 }
             }
         }
-        .onTabVisibilityChange(.agents) { store.setVisible($0) }
+        .onTabVisibilityChange(.agents) {
+            store.setVisible($0)
+            onScreen = $0
+            syncPasswordSheet()
+        }
         .onChange(of: "\(store.openRequest ?? "")|\(store.loaded)", initial: true) { _, _ in
             // A push tap can name its session before the first list is in;
             // wait for it so the tracker key resolves to its conversation.
@@ -73,9 +82,16 @@ struct AgentsPage: View {
             path = [.session(store.resolveCkey(key))]
         }
         .onChange(of: store.passwordsRequested, initial: true) { _, _ in
-            // A Mac password push: back to the list, where it waits under Needs you.
-            if store.consumePasswords() { path = [] }
+            // A Mac password push: back to the list, and its sheet up again
+            // even if he swiped an earlier one away.
+            if store.consumePasswords() {
+                path = []
+                snoozedPasswords = []
+                syncPasswordSheet()
+            }
         }
+        .onChange(of: store.passwordRequests.map(\.id), initial: true) { _, _ in syncPasswordSheet() }
+        .onChange(of: showRecap || showLaunch) { _, _ in syncPasswordSheet() }
         .onChange(of: store.recapRequested, initial: true) { _, _ in
             if store.consumeRecap() { showRecap = true }
         }
@@ -85,6 +101,44 @@ struct AgentsPage: View {
         .sheet(isPresented: $showLaunch) {
             AgentLaunchSheet(store: store)
         }
+        .sheet(item: passwordSheetBinding, onDismiss: syncPasswordSheet) { request in
+            MacPasswordSheet(request: request,
+                             macName: AgentsMacPowerCopy.macName(request.deviceId, in: store.macs),
+                             answer: { await store.answerMacPassword(request, allow: $0) },
+                             expired: { if passwordSheet?.id == request.id { passwordSheet = nil } })
+        }
+    }
+
+    // MARK: Mac password sheet
+
+    /// The sheet's binding: a swipe-down puts the request aside (it stays under
+    /// Needs you); the page's own closes (answered, ran out) don't.
+    private var passwordSheetBinding: Binding<MacPasswordRequest?> {
+        Binding(get: { passwordSheet }, set: { next in
+            if next == nil, let shown = passwordSheet,
+               store.passwordRequests.contains(where: { $0.id == shown.id }) {
+                snoozedPasswords.insert(shown.id)
+            }
+            passwordSheet = next
+        })
+    }
+
+    /// Closes the sheet once its request is answered or gone, and puts up the
+    /// next waiting one while the Agents tab is on screen and no other sheet is.
+    private func syncPasswordSheet() {
+        let requests = store.passwordRequests
+        if let shown = passwordSheet {
+            if MacPasswordQueue.isDone(shown, in: requests) { passwordSheet = nil }
+            return
+        }
+        snoozedPasswords.formIntersection(requests.map(\.id))
+        guard onScreen, !showRecap, !showLaunch else { return }
+        passwordSheet = MacPasswordQueue.next(requests, snoozed: snoozedPasswords)
+    }
+
+    private func openPassword(_ request: MacPasswordRequest) {
+        snoozedPasswords.remove(request.id)
+        if passwordSheet == nil { passwordSheet = request }
     }
 
     // MARK: content
@@ -115,8 +169,16 @@ struct AgentsPage: View {
                     if store.waitingCount > 0 { Text("\(store.waitingCount)").monospacedDigit() }
                 }
                 VStack(spacing: 10) {
-                    ForEach(passwords) { request in
-                        AgentsMacPasswordCard(request: request, store: store)
+                    if !passwords.isEmpty {
+                        JcCard(padding: 0) {
+                            ForEach(Array(passwords.enumerated()), id: \.element.id) { index, request in
+                                AgentsMacPasswordRow(request: request,
+                                                     macName: AgentsMacPowerCopy.macName(request.deviceId, in: store.macs),
+                                                     last: index == passwords.count - 1) {
+                                    openPassword(request)
+                                }
+                            }
+                        }
                     }
                     ForEach(orphans) { request in
                         AgentRequestCard(request: request, store: store, inset: 0)

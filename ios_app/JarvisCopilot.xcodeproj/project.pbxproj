@@ -116,6 +116,7 @@
 		18CD0906A4C3A9E2A9FA4AD9 /* IntegrationPlanCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA5E5761C4DA35F367FAD51 /* IntegrationPlanCard.swift */; };
 		18D9152F0C81C7D54EFDCC51 /* InmoMediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B384B7D25776A11F5D5FFD /* InmoMediaView.swift */; };
 		18E93BAE43CA8EAA0B79EB49 /* DoorAlarmStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10561849F6EF8D0433395794 /* DoorAlarmStore.swift */; };
+		19220BB9DC7C11D58779399A /* MacPasswordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55862AFE362B6248C213EE18 /* MacPasswordSheet.swift */; };
 		192D13AB99647DD2800B6649 /* ChatTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68AA6C21EF2F12B8AD1D080C /* ChatTestSupport.swift */; };
 		1A1D4C9F1AF7D2330893D396 /* DashcamSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9985639A9F0FC30B7E4C373 /* DashcamSyncTests.swift */; };
 		1A21D154E34CFB9FF2799959 /* AlarmSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */; };
@@ -1689,6 +1690,7 @@
 		553E205366DFBAA2BD7031EE /* TodosModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TodosModels.swift; sourceTree = "<group>"; };
 		5543E00864B127432DB9F6F1 /* ChatMarkdownCacheTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatMarkdownCacheTests.swift; sourceTree = "<group>"; };
 		5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisStopwatchActivity.swift; path = JarvisWidget/JarvisStopwatchActivity.swift; sourceTree = "<group>"; };
+		55862AFE362B6248C213EE18 /* MacPasswordSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPasswordSheet.swift; sourceTree = "<group>"; };
 		56538D9E7ADE4F6CF39B634F /* GlassesNoteWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteWire.swift; sourceTree = "<group>"; };
 		565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelection.swift; sourceTree = "<group>"; };
 		566A186B39D80F5F0CA7266B /* LocalRouterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalRouterTests.swift; sourceTree = "<group>"; };
@@ -4289,6 +4291,7 @@
 				3BDF20BB23637DDBDBB55C14 /* AgentsSleepCard.swift */,
 				C318CF8270F8127766E1D341 /* CodeMasterSettingsPage.swift */,
 				429CFE4240883FFA52688AF6 /* AgentsMacPowerCard.swift */,
+				55862AFE362B6248C213EE18 /* MacPasswordSheet.swift */,
 			);
 			name = Views;
 			path = Views;
@@ -6156,6 +6159,7 @@
 				B117A25A21128DD7555608F1 /* JcUnified.swift in Sources */,
 				8F78D025D5C081BB8E34DF4D /* MacPasswordApproval.swift in Sources */,
 				3CC2A0887AAEAFA40B995FC1 /* AgentsMacPowerCard.swift in Sources */,
+				19220BB9DC7C11D58779399A /* MacPasswordSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
