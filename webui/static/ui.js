@@ -6370,7 +6370,9 @@ function buildToolCard(tc){
   const hasMore=tc.snippet&&tc.snippet.length>displaySnippet.length;
   const moreLabel=tc.is_diff?'Show diff':'Show more';
   const lessLabel=tc.is_diff?'Hide diff':'Show less';
-  const runIndicator=tc.done===false?'<span class="tool-card-running-dot"></span>':'';
+  // A running call shows its dot in the icon's slot, not beside it, so the row
+  // stays lined up with the finished ones.
+  const iconSlot=tc.done===false?'<span class="tool-card-running-dot"></span>':icon;
   const isSubagent=tc.name==='subagent_progress';
   const isDelegation=tc.name==='delegate_task';
   const cardClass='tool-card'+(tc.done===false?' tool-card-running':'')+(isSubagent?' tool-card-subagent':'');
@@ -6381,8 +6383,7 @@ function buildToolCard(tc){
   row.innerHTML=`
     <div class="${cardClass}">
       <div class="tool-card-header" onclick="this.closest('.tool-card').classList.toggle('open')">
-        ${runIndicator}
-        <span class="tool-card-icon">${icon}</span>
+        <span class="tool-card-icon">${iconSlot}</span>
         <span class="tool-card-name">${esc(displayName)}</span>
         <span class="tool-card-preview">${esc(previewText)}</span>
         ${hasDetail?`<span class="tool-card-toggle">${li('chevron-right',12)}</span>`:''}

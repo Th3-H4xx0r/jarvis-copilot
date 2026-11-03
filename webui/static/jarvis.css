@@ -137,10 +137,10 @@
 :root[data-skin="jarvis"] .msg-body h5,
 :root[data-skin="jarvis"] .msg-body h6{text-transform:none;letter-spacing:0;}
 
-/* Tool / thinking / queue cards: one solid surface, hairline, 12 radius. */
+/* Tool / reasoning / queue cards: one solid surface, hairline, 12 radius.
+   Not .thinking: that's the bare three-dot "working" row, never a card. */
 :root.dark[data-skin="jarvis"] .tool-card,
 :root.dark[data-skin="jarvis"] .reasoning-card,
-:root.dark[data-skin="jarvis"] .thinking,
 :root.dark[data-skin="jarvis"] .queue-card-inner{
   background:var(--surface);border:1px solid var(--border);border-radius:12px;
 }
