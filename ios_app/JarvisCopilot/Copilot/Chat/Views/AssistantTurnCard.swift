@@ -71,7 +71,8 @@ struct ChatAssistantTurnCard: View {
             }
 
             if !footer.isEmpty {
-                ChatStatsLine(text: footer)
+                ChatStatsLine(text: footer,
+                              details: HarnessFormat.footerDetails(meta: message.meta, stats: message.stats))
             }
 
             if !jobs.isEmpty {
@@ -200,11 +201,7 @@ struct ChatAssistantTurnCard: View {
     /// as it does in Flutter.
     private var footer: String {
         guard !message.streaming else { return "" }
-        var stats = message.stats?.line ?? ""
-        let answeredBy = HarnessFormat.answeredBy(message.meta)
-        if !answeredBy.isEmpty { stats = stats.isEmpty ? answeredBy : "\(answeredBy) · \(stats)" }
-        if message.onDevice { return stats.isEmpty ? "On-device" : "On-device · \(stats)" }
-        return stats
+        return HarnessFormat.footerSummary(meta: message.meta, stats: message.stats, onDevice: message.onDevice)
     }
 }
 

@@ -183,6 +183,37 @@ enum HarnessFormat {
         return m
     }
 
+    /// The one quiet line under a settled reply: "Claude Haiku 5.5 · 9.1 s"
+    /// (web shows the same). Everything else lives in ``footerDetails``.
+    static func footerSummary(meta: HarnessMeta?, stats: ChatTurnStats?, onDevice: Bool) -> String {
+        var parts: [String] = []
+        if onDevice { parts.append("On-device") }
+        if let model = meta?.model, !model.isEmpty { parts.append(shortModel(model)) }
+        if let meta, meta.isBackground, let kind = meta.kind { parts.append(kind) }
+        if let ms = stats?.durationMs ?? meta?.ms, ms > 0 { parts.append(seconds(ms)) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// What a tap on the footer shows: model, route, tokens, cache…
+    static func footerDetails(meta: HarnessMeta?, stats: ChatTurnStats?) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if let model = meta?.model, !model.isEmpty { rows.append(("Model", shortModel(model))) }
+        if let meta, !meta.isBackground, let route = meta.route {
+            rows.append(("Route", String(routedText(route).dropFirst("routed ".count))))
+        }
+        if meta?.handedOff == true { rows.append(("Handed off", "yes")) }
+        if let note = meta?.note, !note.isEmpty { rows.append(("Note", note)) }
+        if let ms = stats?.durationMs ?? meta?.ms, ms > 0 { rows.append(("Time", seconds(ms))) }
+        if let stats, stats.inputTokens != nil || stats.outputTokens != nil {
+            let tilde = stats.estimated ? "~" : ""
+            rows.append(("Tokens", "\(tilde)\(ChatTurnStats.compact(stats.promptTokens)) in · \(ChatTurnStats.compact(stats.outputTokens ?? 0)) out"))
+            if let cached = stats.cachedTokens, cached > 0, stats.promptTokens > 0 {
+                rows.append(("Cache", "\(Int((Double(cached) / Double(stats.promptTokens) * 100).rounded()))% hit"))
+            }
+        }
+        return rows
+    }
+
     static func answeredBy(_ meta: HarnessMeta?) -> String {
         guard let meta, let model = meta.model, !model.isEmpty else { return "" }
         var parts = [shortModel(model)]

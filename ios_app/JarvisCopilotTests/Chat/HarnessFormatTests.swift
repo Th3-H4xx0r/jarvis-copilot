@@ -22,6 +22,30 @@ final class HarnessFormatTests: XCTestCase {
 
     func testNil() { XCTAssertEqual(HarnessFormat.answeredBy(nil), "") }
 
+    // MARK: the tidy footer (2026-11-02): "model · time", the rest on tap
+
+    func testFooterSummaryIsModelAndTime() {
+        var meta = HarnessMeta(kind: "answer", model: "@anthropic-api:claude-haiku-5-5", ms: 8700)
+        meta.route = HarnessRoute(label: "default", by: "decision", confidence: 0.28)
+        let stats = ChatTurnStats(inputTokens: 8, cachedTokens: 40_000, outputTokens: 825, durationMs: 9100)
+        XCTAssertEqual(HarnessFormat.footerSummary(meta: meta, stats: stats, onDevice: false), "Claude Haiku 5.5 · 9.1 s")
+        XCTAssertEqual(HarnessFormat.footerSummary(meta: nil, stats: stats, onDevice: true), "On-device · 9.1 s")
+        XCTAssertEqual(HarnessFormat.footerSummary(meta: HarnessMeta(kind: "background", model: "@x:claude-sonnet-5-5", ms: 41000),
+                                                   stats: nil, onDevice: false), "Claude Sonnet 5.5 · background · 41 s")
+    }
+
+    func testFooterDetailsCarryTheRest() {
+        var meta = HarnessMeta(kind: "answer", model: "@anthropic-api:claude-haiku-5-5", ms: 8700, handedOff: true)
+        meta.route = HarnessRoute(label: "default", by: "decision", confidence: 0.28)
+        let stats = ChatTurnStats(inputTokens: 8, cachedTokens: 40_000, outputTokens: 825, durationMs: 9100)
+        let rows = HarnessFormat.footerDetails(meta: meta, stats: stats)
+        XCTAssertEqual(rows.map(\.0), ["Model", "Route", "Handed off", "Time", "Tokens", "Cache"])
+        XCTAssertEqual(rows.first { $0.0 == "Route" }?.1, "default 28%")
+        XCTAssertEqual(rows.first { $0.0 == "Tokens" }?.1, "40.0k in · 825 out")
+        XCTAssertEqual(rows.first { $0.0 == "Cache" }?.1, "100% hit")
+        XCTAssertTrue(HarnessFormat.footerDetails(meta: nil, stats: nil).isEmpty)
+    }
+
     func testAnsweredByAddsRoute() {
         var meta = HarnessMeta(kind: "answer", model: "@claude-code:claude-sonnet-5-5", ms: 3200)
         meta.route = HarnessRoute(label: "deep", by: "decision", confidence: 0.82)
