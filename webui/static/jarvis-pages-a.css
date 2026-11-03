@@ -1,3 +1,312 @@
 /* JARVIS skin — Pages A: Settings (all sections), Agent profiles, Spaces/workspaces, Skills, Logs, Integrations (tasks), Todos.
    Matches the iPhone app. Scoped to :root[data-skin="jarvis"]; uses the --jc-* tokens
    from jarvis.css. See docs/superpowers/specs/2026-11-03-web-phone-ui-design.md. */
+
+/* ============================================================================
+   Shared controls for these pages — iOS switch, radio, phone inputs, buttons
+   ============================================================================ */
+
+/* iOS switch: 51x31 capsule, off #39393D, on teal, white knob. */
+:root.dark[data-skin="jarvis"] :is(#mainSettings, #panelLogs, #mainLogs, #panelTasks, #mainTasks, #mainProfiles, #mainWorkspaces, #mainSkills, #panelTodos) input[type="checkbox"]{
+  -webkit-appearance:none;appearance:none;flex:0 0 auto;
+  width:51px !important;height:31px !important;margin:0 !important;border-radius:999px;border:0;
+  background-color:#39393D;cursor:pointer;
+  background-image:radial-gradient(circle at center,#FFFFFF 0 12.5px,transparent 13px);
+  background-size:31px 31px;background-repeat:no-repeat;background-position:left center;
+  transition:background-color .15s var(--jc-ease),background-position .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] :is(#mainSettings, #panelLogs, #mainLogs, #panelTasks, #mainTasks, #mainProfiles, #mainWorkspaces, #mainSkills, #panelTodos) input[type="checkbox"]:checked{
+  background-color:var(--jc-accent);background-position:right center;
+}
+:root.dark[data-skin="jarvis"] :is(#mainSettings, #panelLogs, #mainLogs, #panelTasks, #mainTasks, #mainProfiles, #mainWorkspaces, #mainSkills, #panelTodos) input[type="checkbox"]:disabled{opacity:.45;cursor:not-allowed;}
+
+/* Radio: a hairline ring, teal when picked. */
+:root.dark[data-skin="jarvis"] :is(#mainSettings, #mainTasks, #mainProfiles, #mainWorkspaces, #mainSkills) input[type="radio"]{
+  -webkit-appearance:none;appearance:none;flex:0 0 auto;width:20px;height:20px;margin:0;
+  border-radius:50%;border:1.5px solid var(--jc-hair-strong);background:transparent;cursor:pointer;
+  transition:border .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] :is(#mainSettings, #mainTasks, #mainProfiles, #mainWorkspaces, #mainSkills) input[type="radio"]:checked{border:6px solid var(--jc-accent);}
+
+/* Range: teal thumb on a dark track. */
+:root.dark[data-skin="jarvis"] #mainSettings input[type="range"]{accent-color:var(--jc-accent);}
+
+/* Inputs and selects: black fill, hairline, 10px radius, 15px text. */
+:root.dark[data-skin="jarvis"] #mainSettings :is(input[type="text"],input[type="password"],input[type="number"],input[type="url"],input[type="email"],input[type="search"],input:not([type]),select,textarea){
+  background-color:var(--jc-bg) !important;border:1px solid var(--jc-hair-strong) !important;
+  border-radius:var(--jc-r-control) !important;color:var(--jc-text) !important;
+  font-size:15px !important;padding:10px 12px !important;min-height:42px;box-sizing:border-box;
+  box-shadow:none !important;outline:none;transition:border-color .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] #mainSettings textarea{min-height:84px;line-height:1.45;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(input,select,textarea)::placeholder{color:var(--jc-muted);opacity:1;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(input,select,textarea):focus{border-color:rgba(62,199,199,.6) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings select{
+  -webkit-appearance:none;appearance:none;padding-right:36px !important;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238A93A8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat:no-repeat !important;background-position:right 12px center !important;background-size:16px 16px !important;
+}
+:root.dark[data-skin="jarvis"] #mainSettings select option,
+:root.dark[data-skin="jarvis"] #mainSettings select optgroup{background:var(--jc-surface-2);color:var(--jc-text);}
+
+/* ============================================================================
+   SETTINGS — the phone's grouped lists
+   ============================================================================ */
+
+/* Section menu (sidebar): one rounded card of rows, teal icons in round wells. */
+:root.dark[data-skin="jarvis"] #settingsMenu{padding:12px;gap:0;}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item{
+  gap:12px;padding:8px 12px;min-height:48px;border-radius:0;font-size:15px;font-weight:500;color:var(--jc-text);
+  background:var(--jc-surface);border:solid var(--jc-hair);border-width:0 1px;
+  position:relative;transition:background-color .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item:first-of-type{border-top-width:1px;border-radius:var(--jc-r-card) var(--jc-r-card) 0 0;}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item:last-of-type{border-bottom-width:1px;border-radius:0 0 var(--jc-r-card) var(--jc-r-card);}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item + .side-menu-item::before{
+  content:"";position:absolute;top:0;left:56px;right:0;height:1px;background:var(--jc-hair);
+}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item svg{
+  width:32px;height:32px;padding:8px;box-sizing:border-box;border-radius:50%;
+  background:var(--jc-surface-2);color:var(--jc-accent);opacity:1;
+}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item:hover{background:var(--jc-surface-2);}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item:hover svg{background:#24242C;}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item.active{background:var(--jc-surface-2);color:var(--jc-text);}
+:root.dark[data-skin="jarvis"] #settingsMenu .side-menu-item.active svg{background:var(--jc-accent);color:var(--jc-accent-ink);}
+
+/* Page */
+:root.dark[data-skin="jarvis"] #mainSettings{background:var(--jc-bg);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-main{max-width:720px;padding:32px 32px 96px;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-section-head{
+  border-bottom:0;padding-bottom:0;margin-bottom:28px;flex-wrap:wrap;align-items:center;row-gap:12px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-section-head > div:first-child{flex:1 1 auto;min-width:min(100%,260px);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-section-title{font-size:28px;font-weight:600;letter-spacing:-.01em;color:var(--jc-text);margin-bottom:6px;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-section-meta{font-size:14px;color:var(--jc-muted);line-height:1.5;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-version-badge{
+  font-family:inherit;font-size:12px;font-weight:500;color:var(--jc-text-2);
+  background:var(--jc-pill);border:1px solid var(--jc-hair);padding:4px 10px;
+}
+
+/* Rows: consecutive .settings-field siblings read as ONE rounded card,
+   separated by hairlines (the phone's grouped list). */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field{
+  background:var(--jc-surface);border:solid var(--jc-hair);border-width:0 1px;
+  border-radius:0;margin:0 !important;padding:14px 16px;position:relative;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field + .settings-field::before{
+  content:"";position:absolute;top:0;left:16px;right:0;height:1px;background:var(--jc-hair);
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:not(.settings-field + .settings-field){
+  border-top-width:1px;border-top-left-radius:var(--jc-r-card);border-top-right-radius:var(--jc-r-card);
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:not(:has(+ .settings-field)){
+  border-bottom-width:1px;border-bottom-left-radius:var(--jc-r-card);border-bottom-right-radius:var(--jc-r-card);margin-bottom:24px !important;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field div[id$="Status"]:empty{display:none !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > :is(select,input):last-child{margin-bottom:0 !important;}
+/* Row title / description */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > label{
+  font-size:15px;font-weight:500;color:var(--jc-text);letter-spacing:0;margin-bottom:8px;line-height:1.3;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > div:is([style*="font-size:11px"],[style*="font-size: 11px"]){
+  font-size:13px !important;color:var(--jc-muted) !important;opacity:1 !important;line-height:1.45;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field code{
+  font-size:12px;background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:6px;padding:1px 5px;color:var(--jc-text-2);
+}
+/* Switch rows: title + description on the left, the switch trailing, centred. */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:has(> label > input[type="checkbox"]){
+  display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:16px;align-items:center;padding:12px 16px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > label:has(> input[type="checkbox"]){display:contents !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > label > input[type="checkbox"]{grid-column:2;grid-row:1 / 3;align-self:center;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > label:has(> input[type="checkbox"]) > span{
+  grid-column:1;grid-row:1;font-size:15px;font-weight:500;color:var(--jc-text);line-height:1.3;cursor:pointer;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:has(> label > input[type="checkbox"]) > :not(label){grid-column:1;margin-top:3px !important;}
+/* Any other checkbox label (rendered by JS): text left, switch right. */
+:root.dark[data-skin="jarvis"] #mainSettings :not(.settings-field) > label:has(> input[type="checkbox"]){
+  display:flex !important;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:16px !important;
+  font-size:15px !important;font-weight:500;color:var(--jc-text) !important;min-height:36px;
+}
+/* Radio labels */
+:root.dark[data-skin="jarvis"] #mainSettings label:has(> input[type="radio"]){
+  gap:10px !important;font-size:15px !important;color:var(--jc-text) !important;
+}
+
+/* Standalone sections (Conversation, System): the small caps header sits
+   ABOVE the rounded card, exactly like the phone's "THIS DEVICE". */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:has(> :is([style*="text-transform:uppercase"],[style*="text-transform: uppercase"]):first-child){
+  border-width:1px;border-radius:var(--jc-r-card);margin:40px 0 0 !important;padding:16px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field:has(> :is([style*="text-transform:uppercase"],[style*="text-transform: uppercase"]):first-child)::before{display:none;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field > :is([style*="text-transform:uppercase"],[style*="text-transform: uppercase"]):first-child{
+  position:absolute;left:4px;top:-28px;margin:0 !important;
+  font-size:11px !important;font-weight:500 !important;letter-spacing:.04em !important;color:var(--jc-muted) !important;line-height:20px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .jarviscopilot-action-grid + .settings-field{margin-top:44px !important;}
+
+/* JS-rendered bodies inside a section: small labels, help text, sub-items. */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field label:is([style*="font-size:11px"],[style*="font-size: 11px"],[style*="font-size:12px"],[style*="font-size: 12px"]):not(:has(input)){
+  font-size:13px !important;font-weight:500;color:var(--jc-text-2) !important;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field :is(div,p,span):is([style*="font-size:11px"],[style*="font-size: 11px"],[style*="font-size: 10px"]):not([style*="text-transform"]){
+  font-size:13px !important;color:var(--jc-muted) !important;opacity:1 !important;line-height:1.45;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field :is(div,p,span):is([style*="font-size: 10px"]):empty{display:none;}
+/* Bordered sub-cards (voice providers, Soniox, …) become list rows. */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field div[style*="border: 1px solid var(--border"]{
+  border:0 !important;border-top:1px solid var(--jc-hair) !important;border-radius:0 !important;
+  padding:14px 0 6px !important;background:transparent !important;
+}
+:root.dark[data-skin="jarvis"] #voiceProvidersList{gap:0 !important;margin-top:4px !important;}
+:root.dark[data-skin="jarvis"] #voiceProvidersList > div:first-child{border-top:0 !important;padding-top:4px !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field div[style*="font-weight: 500"]{font-size:15px !important;color:var(--jc-text) !important;}
+/* Status capsules ("Ready", "Needs setup", "No key"): a dot and a word. */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span:is([style*="text-transform: uppercase"],[style*="text-transform:uppercase"]){
+  background:transparent !important;text-transform:none !important;letter-spacing:0 !important;
+  font-size:13px !important;font-weight:400;padding:0 !important;color:var(--jc-muted) !important;
+  display:inline-flex;align-items:center;gap:6px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span:is([style*="text-transform: uppercase"],[style*="text-transform:uppercase"])::before{
+  content:"";width:7px;height:7px;border-radius:50%;background:var(--jc-muted);
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span[style*="140, 180, 255"]::before,
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span[style*="80, 200"]::before,
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span[style*="63, 185, 80"]::before{background:var(--jc-ok);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span[style*="255, 180, 80"]::before,
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field span[style*="255, 200"]::before{background:var(--jc-warn);}
+/* Small inline buttons rendered by JS ("Use this", Save, Test, …). */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field button[type="button"]:not([class]){
+  background:var(--jc-surface-2) !important;border:1px solid var(--jc-hair) !important;color:var(--jc-text) !important;
+  border-radius:var(--jc-r-pill) !important;font-size:13px !important;font-weight:500;padding:6px 14px !important;
+  transition:background-color .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-field button[type="button"]:not([class]):hover{background:#24242C !important;}
+
+/* Conversation actions: secondary pills in one row. */
+:root.dark[data-skin="jarvis"] #mainSettings .jarviscopilot-action-grid{gap:8px;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-action-btn{
+  background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:var(--jc-r-control);
+  color:var(--jc-text);font-size:14px;font-weight:500;padding:10px 16px;
+  transition:background-color .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-action-btn:hover{background:#24242C;border-color:var(--jc-hair-strong);color:var(--jc-text);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-action-btn.danger{color:var(--jc-danger);border-color:var(--jc-hair);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-action-btn.danger:hover{background:rgba(229,72,77,.10);border-color:rgba(229,72,77,.3);color:var(--jc-danger);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-action-btn:is(:disabled,.disabled):hover{background:var(--jc-surface-2);border-color:var(--jc-hair);color:var(--jc-text);}
+
+/* Buttons: primary = teal + ink; secondary = surface-2 + hairline. */
+:root.dark[data-skin="jarvis"] #mainSettings :is(.sm-btn[onclick^="saveSettings"],.btn-primary,.provider-card-btn-primary){
+  background:var(--jc-accent) !important;border:1px solid var(--jc-accent) !important;color:var(--jc-accent-ink) !important;
+  border-radius:var(--jc-r-control) !important;font-weight:500 !important;font-size:15px !important;padding:11px 18px !important;
+  box-shadow:none;transition:opacity .15s var(--jc-ease);
+}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.sm-btn[onclick^="saveSettings"],.btn-primary,.provider-card-btn-primary):hover:not(:disabled){opacity:.88;}
+:root.dark[data-skin="jarvis"] #mainSettings .sm-btn:not([onclick^="saveSettings"]),
+:root.dark[data-skin="jarvis"] #mainSettings :is(.btn-tiny,.provider-card-btn,.provider-quota-refresh,.mcp-tool-page-btn):not(.provider-card-btn-primary){
+  background:var(--jc-surface-2) !important;border:1px solid var(--jc-hair) !important;color:var(--jc-text) !important;
+  border-radius:var(--jc-r-control);font-weight:500;font-size:13px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .sm-btn:not([onclick^="saveSettings"]):hover,
+:root.dark[data-skin="jarvis"] #mainSettings :is(.btn-tiny,.provider-card-btn,.provider-quota-refresh,.mcp-tool-page-btn):not(.provider-card-btn-primary):hover:not(:disabled){background:#24242C !important;color:var(--jc-text) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.btn-tiny,.provider-quota-refresh){border-radius:var(--jc-r-pill) !important;padding:6px 14px;font-size:13px;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-btn-danger{color:var(--jc-danger) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-autosave-status{font-size:13px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-autosave-status.is-saved{color:var(--jc-ok);}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-autosave-status.is-failed{color:var(--jc-danger);}
+
+/* Appearance — Theme and Font size become the phone's segmented control. */
+:root.dark[data-skin="jarvis"] #mainSettings :is(#themePickerGrid,#fontSizePickerGrid){
+  display:flex !important;gap:2px !important;padding:3px;margin-top:4px !important;
+  background:var(--jc-bg);border:1px solid var(--jc-hair);border-radius:var(--jc-r-pill);width:fit-content;max-width:100%;
+}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn){
+  background:transparent !important;border:0 !important;box-shadow:none !important;
+  border-radius:var(--jc-r-pill) !important;padding:7px 16px !important;min-width:72px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn) > div{display:none !important;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn) > span{font-size:13px !important;font-weight:500 !important;color:var(--jc-muted) !important;white-space:nowrap;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn):hover > span{color:var(--jc-text) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn).active{background:#2A2A30 !important;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn).active > span{color:var(--jc-text) !important;}
+/* Skin chips: dark capsules, the picked one outlined in teal. */
+:root.dark[data-skin="jarvis"] #mainSettings .skin-pick-btn{
+  background:var(--jc-bg) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-control) !important;box-shadow:none !important;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .skin-pick-btn:hover{background:var(--jc-surface-2) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .skin-pick-btn.active{border-color:var(--jc-accent) !important;background:var(--jc-surface-2) !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .skin-pick-btn span{font-weight:500 !important;}
+
+/* Providers + Plugins: one grouped list of rows with trailing chevrons. */
+:root.dark[data-skin="jarvis"] #mainSettings .provider-quota-card{
+  background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);padding:16px;margin-bottom:24px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-quota-title{font-size:15px;font-weight:600;}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.provider-quota-subtitle,.provider-quota-checked){font-size:12px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-quota-badge{
+  background:transparent;color:var(--jc-text-2);font-size:13px;font-weight:400;padding:0;display:inline-flex;align-items:center;gap:6px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-quota-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-quota-message{font-size:13px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card{
+  background:var(--jc-surface);border:solid var(--jc-hair);border-width:0 1px;border-radius:0;margin:0;position:relative;overflow:visible;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card:not(.provider-card + .provider-card){border-top-width:1px;border-top-left-radius:var(--jc-r-card);border-top-right-radius:var(--jc-r-card);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card:not(:has(+ .provider-card)){border-bottom-width:1px;border-bottom-left-radius:var(--jc-r-card);border-bottom-right-radius:var(--jc-r-card);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card + .provider-card::before{content:"";position:absolute;top:0;left:16px;right:0;height:1px;background:var(--jc-hair);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-header{padding:14px 16px;min-height:60px;border-radius:inherit;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-header:hover{background:var(--jc-surface-2);}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card-header:hover{background:transparent;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-name{font-size:15px;font-weight:500;color:var(--jc-text);line-height:1.3;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-meta{font-size:12px;color:var(--jc-muted);opacity:1;line-height:1.35;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-chevron{color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-badge{
+  background:transparent !important;color:var(--jc-text-2) !important;font-size:13px;font-weight:400;padding:0;letter-spacing:0;
+  display:inline-flex;align-items:center;gap:6px;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--jc-ok);}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card-badge-disabled::before{background:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-body{border-top:1px solid var(--jc-hair);padding:14px 16px 16px;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-hint{font-size:13px;color:var(--jc-muted);line-height:1.5;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-label{font-size:13px;font-weight:500;color:var(--jc-text-2);text-transform:none;letter-spacing:0;}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-input{background:var(--jc-bg);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-control);font-size:15px;padding:10px 12px;color:var(--jc-text);}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-model-tag{background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text-2);border-radius:var(--jc-r-pill);font-family:inherit;font-size:12px;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-hook-badge{background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text-2);font-size:12px;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-hook-empty{font-style:normal;font-size:13px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card-body .provider-card-label{margin-top:8px;}
+
+/* Integrations (Photon card) */
+:root.dark[data-skin="jarvis"] #mainSettings .settings-card{
+  background:var(--jc-surface) !important;border:1px solid var(--jc-hair) !important;border-radius:var(--jc-r-card) !important;padding:16px 20px !important;
+}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-card > div:first-child{font-size:17px !important;font-weight:600 !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-card p{font-size:13px !important;color:var(--jc-muted);opacity:1 !important;line-height:1.5;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-card label > span{font-size:13px !important;font-weight:500;color:var(--jc-text-2);opacity:1 !important;margin-bottom:6px !important;}
+:root.dark[data-skin="jarvis"] #mainSettings .settings-card input:not([type="checkbox"]){max-width:none !important;}
+
+/* System: MCP lists and notes. */
+:root.dark[data-skin="jarvis"] #mainSettings :is(.mcp-server-row,.mcp-tool-row){background:var(--jc-bg);border:1px solid var(--jc-hair);border-radius:var(--jc-r-control);}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.mcp-readonly-note,.mcp-restart-hint){background:transparent;border:0;padding:0;font-size:13px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.mcp-empty-state,.mcp-tool-empty-state){font-size:14px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings :is(.mcp-transport-badge,.mcp-status-badge,.mcp-tool-server){text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;}
+:root.dark[data-skin="jarvis"] #mainSettings .mcp-tool-schema{background:var(--jc-bg);border-color:var(--jc-hair);}
+
+/* Phone: the page edge is 16, titles a step smaller. */
+@media (max-width:640px){
+  :root.dark[data-skin="jarvis"] #mainSettings .settings-main{padding:20px 16px 120px;}
+  :root.dark[data-skin="jarvis"] #mainSettings .settings-section-title{font-size:24px;}
+  :root.dark[data-skin="jarvis"] #mainSettings .settings-section-head{margin-bottom:20px;align-items:flex-start;}
+  :root.dark[data-skin="jarvis"] #mainSettings .settings-section-head > div:first-child{flex:none;width:100%;}
+  :root.dark[data-skin="jarvis"] #mainSettings :is(#themePickerGrid,#fontSizePickerGrid){width:100%;}
+  :root.dark[data-skin="jarvis"] #mainSettings :is(.theme-pick-btn,.font-size-pick-btn){flex:1 1 0;min-width:0;padding:7px 8px !important;}
+  :root.dark[data-skin="jarvis"] #mainSettings #skinPickerGrid{grid-template-columns:repeat(3,1fr) !important;}
+}
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-field + .provider-card-field,
+:root.dark[data-skin="jarvis"] #mainSettings .provider-card-body > * + *{margin-top:12px;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card .provider-card-header{padding-bottom:4px;min-height:0;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card .provider-card-body{border-top:0;padding:4px 16px 16px;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card .provider-card-body > * + *{margin-top:8px;}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card .provider-card-label{font-size:12px;color:var(--jc-muted);}
+:root.dark[data-skin="jarvis"] #mainSettings .plugin-card .plugin-hook-list{margin-top:4px;}

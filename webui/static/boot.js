@@ -1234,7 +1234,7 @@ const _SKINS=[
   {name:'Sienna',   colors:['#D97757','#C06A49','#9A523A']},
   {name:'Catppuccin',colors:['#CBA6F7','#B4BEFE','#8839EF']},
   {name:'Nous',     colors:['#4682B4','#3A6E9A','#2C5F88']},
-  {name:'Jarvis',   colors:['#6FB0FF','#2E6BFF','#1E57DC']},
+  {name:'Jarvis',   colors:['#6FD6D6','#3EC7C7','#1F8C8C']},
 ];
 const _VALID_THEMES=new Set((_THEMES||[]).map(t=>t.value));
 const _VALID_SKINS=new Set((_SKINS||[]).map(s=>s.name.toLowerCase()));

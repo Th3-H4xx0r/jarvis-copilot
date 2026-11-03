@@ -5490,7 +5490,7 @@ function _photonCardHtml(p){
         color:inherit;font-size:13px"></label>`;
   return `
     <div class="settings-card" style="padding:14px 16px;border:1px solid var(--border,#33363d);border-radius:12px">
-      <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px">💬 Photon (iMessage)</div>
+      <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px">Photon (iMessage)</div>
       <p style="opacity:.7;font-size:12px;margin:.4em 0 .8em;max-width:560px">
         Hosted iMessage with no Mac required. Paste your Photon project credentials
         (app.photon.codes → project settings). Saving reloads the sidecar
@@ -7525,7 +7525,7 @@ function _buildProviderCard(p){
   refreshBtn.style.display='flex';
   refreshBtn.style.alignItems='center';
   refreshBtn.style.gap='5px';
-  refreshBtn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refresh_models')||'Refresh Models'}`;
+  refreshBtn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> Refresh models`;
   refreshBtn.onclick=()=>_refreshProviderModels(p.id, refreshBtn);
   refreshRow.appendChild(refreshBtn);
   body.appendChild(refreshRow);
