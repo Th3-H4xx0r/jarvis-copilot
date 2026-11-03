@@ -4,8 +4,9 @@
  * approval and question cards, a message box and a terminal drawer.
  *
  * Replaces the old Coding panel. Left column, top to bottom: the plan-usage
- * strip, the Mac-asleep card (only while it applies), "Needs you" (a flat list
- * of whatever waits on an approval or a question) and the projects as
+ * strip, the MacBook power card, the Mac-asleep card (only while it applies),
+ * "Needs you" (Mac password prompts, read-only, and whatever waits on an
+ * approval or a question) and the projects as
  * collapsible groups. Right column: the session. Below 760 px it shows the list
  * OR the session, with a back button.
  *
@@ -453,14 +454,18 @@
       return parts.join('');
     }
     parts.push(usageHtml(l.usage, l.usage_codex));
+    const macs = l.mac || [];
+    parts.push(macs.map(macHtml).join(''));
     const card = cardHtml(l.card);
     parts.push(card);
     const needs = (l.needs_you || []).slice().sort((a, b) => toMs(b.last_event_at) - toMs(a.last_event_at));
     const orph = orphans();
-    if (needs.length || orph.length) {
+    const pw = l.password_requests || [];
+    if (needs.length || orph.length || pw.length) {
       parts.push('<div class="agents-sec">Needs you <span class="agents-sec-count">' +
-        (needs.length + orph.length) + '</span></div>');
+        (needs.length + orph.length + pw.length) + '</span></div>');
       parts.push('<div class="agents-sec-body">' +
+        pw.map((r) => passwordHtml(r, macs)).join('') +
         needs.map((c) => rowHtml(c, { showsProject: true, decision: true })).join('') +
         orph.map(orphanHtml).join('') + '</div>');
     }
@@ -475,7 +480,7 @@
       parts.push('<div class="agents-sec">Integrations</div>');
       parts.push(integrations.map((g) => groupHtml(g, needs)).join(''));
     }
-    if (!card && !needs.length && !orph.length && !groups.length) {
+    if (!card && !needs.length && !orph.length && !pw.length && !groups.length) {
       parts.push('<div class="agents-empty"><div class="agents-empty-title">No sessions right now</div>' +
         'Run <code>claude</code> or <code>codex</code> in any terminal on a paired Mac and it shows up ' +
         'here, or start one with <b>+ New session</b>.</div>');
@@ -563,6 +568,85 @@
       '<button type="button" class="agents-x" data-act="dismiss" data-device="' + esc(card.device_id) + '" ' +
       'aria-label="Dismiss" title="Dismiss">✕</button></div>' +
       rows + confirmHtml('card') + flashHtml('card') + allBtn + '</div>';
+  }
+
+  // ── the MacBook card (mac_power.py) ────────────────────────────────────
+  const MAC_REASONS = {
+    manual: 'Keep awake on', session: 'Claude working', grace: 'Staying up after the last turn',
+    remote: 'Woken from your phone', password: 'Waiting on a password',
+  };
+  const PW_TITLES = {
+    sudo: 'sudo in Claude session', admin: 'Admin password', keychain: 'Keychain access', unlock: 'Unlock Mac',
+  };
+  // "Awake · Claude working", "Asleep · last seen 5 min ago", "Waking…" (the deep-sleep
+  // line after 60 s; the server drops a wake intent after 20 min).
+  function macLine(m, now) {
+    if (m.state === 'awake') return MAC_REASONS[m.reason] ? 'Awake · ' + MAC_REASONS[m.reason] : 'Awake';
+    const asked = toMs(m.wake_requested_at);
+    const waited = asked ? (now - asked) / 1000 : Infinity;
+    if (waited < 1200) return waited > 60 ? 'Waking… up to 15 min if it’s in deep sleep' : 'Waking…';
+    const base = m.state === 'sleeping' ? 'Asleep' : 'Offline';
+    const seen = toMs(m.seen_at);
+    if (!seen) return base;
+    const s = Math.max(0, (now - seen) / 1000);
+    const when = s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + ' min ago'
+      : s < 86400 ? Math.floor(s / 3600) + ' h ago' : clock(m.seen_at);
+    return base + ' · last seen ' + when;
+  }
+  function macSwitch(act, m, on, label) {
+    return '<button type="button" class="agents-switch" role="switch" aria-checked="' + (on ? 'true' : 'false') +
+      '" data-act="' + act + '" data-device="' + esc(m.device_id) + '" data-on="' + (on ? '1' : '') + '">' +
+      '<span class="agents-switch-track" aria-hidden="true"></span>' + esc(label) + '</button>';
+  }
+  function macHtml(m) {
+    const busy = !!st.busy['mac:' + m.device_id];
+    const battery = m.battery != null ? m.battery + '%' + (m.on_ac ? ' · charging' : '') : '';
+    const btn = (act, label) => '<button type="button" class="agents-pill-btn" data-act="' + act + '" data-device="' +
+      esc(m.device_id) + '"' + (busy ? ' disabled' : '') + '>' + label + '</button>';
+    return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(m.name || 'Mac') + '">' +
+      '<div class="agents-sleep-head"><b>' + esc(m.name || 'Your Mac') + '</b>' +
+      (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
+      '<div class="agents-sleep-row"><div class="agents-sleep-main">' +
+      '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span></div>' +
+      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake Mac')) + '</div>' +
+      '<div class="agents-sleep-row agents-mac-switches">' +
+      macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
+      macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep') + '</div>' +
+      flashHtml('mac:' + m.device_id) + '</div>';
+  }
+  // Read-only here: Allow needs Face ID on the iPhone or Touch ID on the Mac.
+  function passwordHtml(r, macs) {
+    const mac = macs.find((m) => m.device_id === r.device_id);
+    const left = Math.ceil((toMs(r.expires) - Date.now()) / 1000);
+    const time = left > 0 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ' left' : 'Expired';
+    return '<div class="agents-row-wrap"><div class="agents-row is-static">' + markHtml('waiting') +
+      '<span class="agents-row-main"><span class="agents-row-top">' +
+      '<span class="agents-row-title">' + esc(PW_TITLES[r.kind] || 'Mac password') + '</span>' +
+      '<span class="agents-row-time">' + esc(time) + '</span></span>' +
+      '<span class="agents-row-sub">' + esc((mac && mac.name) || 'Your Mac') +
+      (r.context ? ' · ' + esc(r.context) : '') + '</span>' +
+      '<span class="agents-row-detail tone-waiting">Approve on your iPhone or Mac</span></span></div></div>';
+  }
+  async function macPower(action, deviceId, on) {
+    const key = 'mac:' + deviceId;
+    if (!deviceId || st.busy[key]) return;
+    const m = ((st.list && st.list.mac) || []).find((x) => x.device_id === deviceId);
+    if (m) {   // shown at once; the list is read again either way
+      if (action === 'wake') m.wake_requested_at = Date.now() / 1000;
+      if (action === 'keep-awake') m.keep_awake = on;
+      if (action === 'timer') m.timer_on = on;
+    }
+    st.busy[key] = true;
+    renderAll();
+    const body = { device_id: deviceId };
+    if (on !== undefined) body.on = on;
+    try { await post('/agents/mac/' + action, body); }
+    catch (e) { setFlash(key, errText(e, 'Couldn’t reach the Mac.'), 'error'); }
+    finally {
+      delete st.busy[key];
+      renderAll();
+      refreshSoon();
+    }
   }
 
   const MARKS = {
@@ -1739,6 +1823,10 @@
         break;
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
+      case 'mac-wake': macPower('wake', t.dataset.device); break;
+      case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
+      case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
+      case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;
       case 'continue':
         doContinue(splitKeys(t.dataset.ckeys), t.dataset.to || 'server', { scope: t.dataset.scope, name: t.dataset.name });
         break;

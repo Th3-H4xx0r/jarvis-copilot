@@ -9,6 +9,8 @@
 //   be typed into Claude's menu, and the Return picks the highlighted "Yes".
 // * One session is never asked to continue twice at once (a row's Continue
 //   while "Continue all" is on its way): two moves could start it twice.
+// * The MacBook card wakes and switches the Mac; a Mac password prompt is shown
+//   but can't be approved here (that needs Face ID or Touch ID).
 //
 // agents.js is an IIFE over the DOM; this drives it through its real entry
 // points (window.loadAgents and the panel's delegated listeners) with just
@@ -40,6 +42,7 @@ function harness() {
   const handlers = {};
   const sends = [];
   const continues = [];
+  const macPosts = [];
   const els = {};
   const state = { list: listWith(conv()), failNextSend: true };
   const root = {
@@ -65,6 +68,10 @@ function harness() {
     if (url.startsWith('/api/coding/agents/continue')) {
       continues.push(JSON.parse(opts.body));
       return new Promise(() => {});          // still moving
+    }
+    if (url.startsWith('/api/coding/agents/mac/')) {
+      macPosts.push([url.slice('/api/coding/agents/mac/'.length), JSON.parse(opts.body)]);
+      return { ok: true };
     }
     if (url.startsWith('/api/coding/agents/send')) {
       const body = JSON.parse(opts.body);
@@ -95,7 +102,7 @@ function harness() {
     handlers.click({ target: t });
     await settle(); await settle();
   };
-  return { window, handlers, sends, continues, els, state, click, settle };
+  return { window, handlers, sends, continues, macPosts, els, state, click, settle };
 }
 
 test('Retry while the Mac still sleeps keeps the message, and a later Retry sends it', async () => {
@@ -193,4 +200,42 @@ test('A long Mac chat still copying to the server says so, then opens on its new
   await h.window.loadAgents();
   await h.settle(); await h.settle();
   assert.match(h.els.agentsMsgs.innerHTML, /the newest question/);
+});
+
+test('The MacBook card wakes and switches the Mac; password prompts are read-only', async () => {
+  const h = harness();
+  h.els.agentsBody = { dataset: { view: 'list' } };
+  h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
+  const now = Date.now() / 1000;
+  h.state.list = Object.assign(listWith(conv()), {
+    mac: [{ device_id: 'mac-1', name: 'MacBook', state: 'sleeping', held: false, reason: '', keep_awake: false,
+      timer_on: true, battery: 64, on_ac: false, lid: 'closed', seen_at: now - 300, wake_requested_at: null }],
+    password_requests: [{ id: 'pw-1', device_id: 'mac-1', kind: 'sudo', context: 'brew install jq',
+      nonce: 'n1', expires: now + 100 }],
+  });
+  await h.window.loadAgents();
+  const html = () => h.els.agentsListInner.innerHTML;
+  assert.match(html(), /MacBook/);
+  assert.match(html(), /Asleep · last seen 5 min ago/);
+  assert.match(html(), /64%/);
+  assert.match(html(), /sudo in Claude session/);
+  assert.match(html(), /Approve on your iPhone or Mac/);
+  assert.doesNotMatch(html(), /data-act="mac-allow"|>Allow</, 'no Allow on the web');
+
+  await h.click({ act: 'mac-wake', device: 'mac-1' });
+  await h.click({ act: 'mac-keep', device: 'mac-1', on: '' });
+  await h.click({ act: 'mac-timer', device: 'mac-1', on: '1' });
+  assert.deepStrictEqual(h.macPosts, [
+    ['wake', { device_id: 'mac-1' }],
+    ['keep-awake', { device_id: 'mac-1', on: true }],
+    ['timer', { device_id: 'mac-1', on: false }],
+  ]);
+
+  h.state.list.mac[0].wake_requested_at = now - 90;
+  await h.window.loadAgents();
+  assert.match(html(), /Waking… up to 15 min if it’s in deep sleep/);
+  h.state.list.mac[0] = Object.assign(h.state.list.mac[0], { state: 'awake', reason: 'session' });
+  await h.window.loadAgents();
+  assert.match(html(), /Awake · Claude working/);
+  assert.match(html(), /data-act="mac-sleep"/);
 });
