@@ -57,6 +57,54 @@ def test_fill_result_answers_the_waiting_request():
     assert svc.ui_request(app({"type": "password_fill_result", "id": "r1", "ok": True})) == {"ok": False}
 
 
+def _ask_in_background(svc, ui, rid, timeout=5):
+    out = {}
+    t = threading.Thread(target=lambda: out.update(reply=svc._ask_app({"type": "password_fill", "id": rid}, timeout)))
+    t.start()
+    _until(lambda: any(m.get("id") == rid for m in ui))
+    return t, out
+
+
+def test_fill_result_as_the_app_sends_it_over_ui_sock():
+    # JcLink.send stamps its own integer request number into "id" (the reply
+    # correlation id on ui.sock), so the app names the fill in "request_id".
+    svc, _up, ui = service()
+    t, out = _ask_in_background(svc, ui, "r1")
+    assert svc.ui_request(app({"type": "password_fill_result", "id": 57, "request_id": "r1",
+                               "ok": False, "error": "Password didn't work"})) == {"ok": True}
+    t.join(2)
+    assert out["reply"] == {"ok": False, "error": "Password didn't work"}
+
+
+def test_fill_result_from_an_older_app_with_only_its_link_id():
+    # Builds before the fix lose the request id entirely: with one fill
+    # waiting, that fill is the one the app answered.
+    svc, _up, ui = service()
+    t, out = _ask_in_background(svc, ui, "r1")
+    assert svc.ui_request(app({"type": "password_fill_result", "id": 12, "ok": True})) == {"ok": True}
+    t.join(2)
+    assert out["reply"] == {"ok": True}
+
+
+def test_fill_result_with_only_a_link_id_is_refused_when_ambiguous():
+    svc, _up, ui = service()
+    t1, out1 = _ask_in_background(svc, ui, "r1", timeout=0.5)
+    t2, out2 = _ask_in_background(svc, ui, "r2", timeout=0.5)
+    assert svc.ui_request(app({"type": "password_fill_result", "id": 12, "ok": True})) == {"ok": False}
+    t1.join(2)
+    t2.join(2)
+    assert out1["reply"]["ok"] is False and out2["reply"]["ok"] is False
+
+
+def test_menu_bar_answer_as_the_app_sends_it_over_ui_sock():
+    svc, _up, _ui = service()
+    seen = {}
+    svc.passwords.on_local_answer = lambda rid, decision: seen.update(rid=rid, decision=decision) or True
+    assert svc.ui_request(app({"type": "password_local_answer", "id": 9, "request_id": "abc",
+                               "decision": "allow"})) == {"ok": True}
+    assert seen == {"rid": "abc", "decision": "allow"}
+
+
 def test_password_seen_twice_asks_once():
     svc, up, _ui = service()
     gate = threading.Event()

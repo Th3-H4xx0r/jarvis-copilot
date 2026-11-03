@@ -69,6 +69,12 @@ def sudo_context(command: str, started_by: str) -> str:
     return f"{text} (started by {started_by})" if started_by else text
 
 
+def _request_id(req: dict) -> str:
+    """Which password request an app message is about. Not "id": on ui.sock that
+    is the reply's correlation number, and JcLink.send overwrites it with its own."""
+    return str(req.get("request_id") or req.get("id") or "")
+
+
 class PowerService:
     def __init__(self, up: Callable[[dict], None], ui_broadcast: Callable[[dict], None],
                  sessions: Callable[[], list], api_origin: Callable[[], Optional[str]],
@@ -169,11 +175,14 @@ class PowerService:
             self._ask_async(what if what in _KINDS else "admin", str(req.get("context") or ""))
             return {"ok": True}
         if kind == "password_local_answer":
-            return {"ok": self.passwords.on_local_answer(str(req.get("id") or ""),
-                                                         str(req.get("decision") or ""))}
+            return {"ok": self.passwords.on_local_answer(_request_id(req), str(req.get("decision") or ""))}
         if kind == "password_fill_result":
             with self._lock:
-                waiter = self._fills.get(str(req.get("id") or ""))
+                waiter = self._fills.get(_request_id(req))
+                if waiter is None and "request_id" not in req and len(self._fills) == 1:
+                    # An app build from before request_id: its "id" is only the
+                    # link's number, so the one fill waiting is the one answered.
+                    waiter = next(iter(self._fills.values()))
             if waiter is None:
                 return {"ok": False}
             event, holder = waiter

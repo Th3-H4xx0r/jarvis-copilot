@@ -23,7 +23,9 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 120.0
 MAX_CONTEXT = 2400   # the whole request text: his signature covers it
-_FILL_TIMEOUT = 15.0
+# The app's lock-screen fill wakes the screen, waits for it to settle, clears
+# the field, types and then watches up to 8 s for the unlock: ~15 s at worst.
+_FILL_TIMEOUT = 30.0
 _SUDO_REMEMBER = 300.0
 
 

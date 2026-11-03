@@ -64,6 +64,61 @@ final class MacPasswordTests: XCTestCase {
         XCTAssertEqual(ApprovalKey.fingerprint(pub).count, 8)
     }
 
+    // MARK: typing (the lock screen dropped the front of the password, 2026-11-03)
+
+    private let fakeLayout: [UInt16: KeyStroke] = [
+        UInt16(UInt8(ascii: "a")): KeyStroke(code: 0, unicode: [UInt16(UInt8(ascii: "a"))]),
+        UInt16(UInt8(ascii: "A")): KeyStroke(code: 0, shift: true, unicode: [UInt16(UInt8(ascii: "A"))]),
+        UInt16(UInt8(ascii: "1")): KeyStroke(code: 18, unicode: [UInt16(UInt8(ascii: "1"))]),
+        UInt16(UInt8(ascii: "!")): KeyStroke(code: 18, shift: true, unicode: [UInt16(UInt8(ascii: "!"))]),
+    ]
+
+    private func keys(_ steps: [TypingStep]) -> [KeyStroke] {
+        steps.compactMap { if case .key(let k) = $0 { return k } else { return nil } }
+    }
+
+    private func typed(_ strokes: [KeyStroke]) -> String {
+        String(utf16CodeUnits: strokes.flatMap(\.unicode), count: strokes.flatMap(\.unicode).count)
+    }
+
+    func testLockScreenWakesWithDeleteSettlesAndClearsBeforeTyping() {
+        let steps = PasswordTyper.plan("aA1!", lockScreen: true, layout: fakeLayout)
+        guard let settle = steps.firstIndex(of: .settle) else { return XCTFail("no settle") }
+        let before = keys(Array(steps[..<settle]))
+        XCTAssertEqual(before, [KeyStroke(code: PasswordTyper.deleteKey)], "only a Delete before it settles")
+        let after = keys(Array(steps[(settle + 1)...]))
+        let firstChar = after.firstIndex { !$0.unicode.isEmpty }!
+        XCTAssertTrue(after[..<firstChar].allSatisfy { $0.code == PasswordTyper.deleteKey }, "then only Deletes")
+        XCTAssertGreaterThanOrEqual(firstChar, 16)
+        XCTAssertEqual(after.last, KeyStroke(code: PasswordTyper.returnKey))
+        XCTAssertEqual(after.filter { $0.code == PasswordTyper.returnKey }.count, 1, "one Return, at the end")
+    }
+
+    func testEveryCharacterOnceInOrderOnItsRealKey() {
+        let strokes = keys(PasswordTyper.plan("aA1!é", lockScreen: false, layout: fakeLayout))
+        XCTAssertFalse(strokes.contains { $0.code == PasswordTyper.deleteKey }, "a dialog isn't cleared")
+        let chars = strokes.filter { !$0.unicode.isEmpty }
+        XCTAssertEqual(typed(chars), "aA1!é")
+        XCTAssertEqual(chars[1], KeyStroke(code: 0, shift: true, unicode: [UInt16(UInt8(ascii: "A"))]))
+        XCTAssertEqual(chars[3].code, 18)
+        XCTAssertTrue(chars[3].shift)
+        XCTAssertEqual(chars[4], KeyStroke(code: 0, unicode: Array("é".utf16)), "not on the layout: the character alone")
+        XCTAssertEqual(strokes.last?.code, PasswordTyper.returnKey)
+    }
+
+    func testCurrentLayoutTypesLowercaseLetters() {
+        let layout = KeyLayout.current()
+        let letters = "abcdefghijklmnopqrstuvwxyz".utf16
+        XCTAssertGreaterThan(letters.filter { layout[$0] != nil }.count, 20)
+    }
+
+    func testFillResultNamesTheRequestOutsideTheLinkId() {
+        let body = MacPasswordFiller.result(id: "abc", ok: false, error: "Password didn't work")
+        XCTAssertEqual(body["request_id"] as? String, "abc")
+        XCTAssertNil(body["id"], "JcLink.send overwrites \"id\" with its own number")
+        XCTAssertEqual(body["type"] as? String, "password_fill_result")
+    }
+
     func testPushTokenMessage() {
         let msg = MacPowerBridge.tokenMessage(Data([0xab, 0x01]))
         XCTAssertEqual(msg["token"] as? String, "ab01")
