@@ -6640,10 +6640,36 @@ async function loadWebBrowserSettings(){
     const res = await _webBrowserSave(patch);
     if (res && res.config) Object.assign(saved, res.config); else restore();
   };
+  // The cloud browser browser tasks move to (live view, take over, replays) and
+  // whether the first click / type / key press moves a task there by itself.
+  const cloudRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const cloud = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
+  const cloudKeyNote = _speechEl('div', _SPEECH_LABEL + ';color:#e0b24b');
+  const cloudProviders = st.cloud_providers || [{ id: 'none', name: 'None', has_key: true }];
+  for (const p of cloudProviders) {
+    addOpt(cloud, p.id, p.id === 'none' ? 'None — browser tasks stay on the server' : p.name + (p.has_key ? '' : ' (no key yet)'));
+  }
+  cloud.value = saved.cloud_provider || 'none';
+  const paintCloudNote = () => {
+    const p = cloudProviders.find(x => x.id === cloud.value);
+    cloudKeyNote.textContent = p && !p.has_key ? `Add the ${p.name} key in Settings → Providers → Tool keys.` : '';
+    cloudKeyNote.style.display = cloudKeyNote.textContent ? '' : 'none';
+  };
+  paintCloudNote();
+  cloudRow.append(_speechEl('label', _SPEECH_LABEL, 'Cloud browser — lets you watch a task live, take over and replay it'), cloud, cloudKeyNote);
+
+  const interactiveRow = _speechEl('label', 'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg,#e8eef6);cursor:pointer');
+  const interactive = _speechEl('input');
+  interactive.type = 'checkbox';
+  interactive.checked = saved.cloud_for_interactive !== false;
+  interactiveRow.append(interactive, document.createTextNode('Interactive tasks use the cloud browser (reads stay on the fast local one)'));
+
   pick.addEventListener('change', () => save({ extract_model: pick.value }, () => { pick.value = saved.extract_model || ''; }));
   engine.addEventListener('change', () => save({ engine: engine.value }, () => { engine.value = saved.engine === 'lightpanda' ? 'lightpanda' : 'chrome'; }));
   stealth.addEventListener('change', () => save({ stealth_fallback: stealth.checked }, () => { stealth.checked = saved.stealth_fallback !== false; }));
-  body.append(modelRow, engineRow, stealthRow);
+  cloud.addEventListener('change', () => { paintCloudNote(); save({ cloud_provider: cloud.value }, () => { cloud.value = saved.cloud_provider || 'none'; paintCloudNote(); }); });
+  interactive.addEventListener('change', () => save({ cloud_for_interactive: interactive.checked }, () => { interactive.checked = saved.cloud_for_interactive !== false; }));
+  body.append(modelRow, engineRow, stealthRow, cloudRow, interactiveRow);
 
   // Models and harnesses can take a moment on a cold server: fill them in after.
   const [models, harnesses] = await Promise.all([

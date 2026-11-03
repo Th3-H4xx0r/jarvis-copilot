@@ -257,6 +257,7 @@ class Handler(BaseHTTPRequestHandler):
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
         "media-src 'self' data: blob:; "
+        "frame-src 'self' https://*.steel.dev https://*.browserbase.com https://*.browser-use.com; "
         "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; "
         "report-uri /api/csp-report; report-to csp-endpoint"
     )

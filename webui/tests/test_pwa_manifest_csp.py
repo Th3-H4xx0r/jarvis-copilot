@@ -19,8 +19,9 @@ class TestManifestSrcCSP:
         start = text.find("Content-Security-Policy")
         assert start != -1, "Content-Security-Policy not found in helpers.py"
         # Grab the full CSP string (up to the closing paren of send_header)
-        chunk = text[start:start + 600]
-        return chunk
+        end = text.find("\n    )", start)
+        assert end != -1, "end of the CSP send_header call not found"
+        return text[start:end]
 
     def test_manifest_src_self_present(self):
         """CSP must contain an explicit manifest-src 'self' directive."""

@@ -41,6 +41,7 @@ def _security_headers(handler):
     handler.send_header('X-Content-Type-Options', 'nosniff')
     handler.send_header('X-Frame-Options', 'DENY')
     handler.send_header('Referrer-Policy', 'same-origin')
+    # frame-src: the chat's live browser card embeds the cloud browser's live view.
     handler.send_header(
         'Content-Security-Policy',
         "default-src 'self' https://*.cloudflareaccess.com; "
@@ -48,6 +49,7 @@ def _security_headers(handler):
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
         "img-src 'self' data: https: blob:; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; connect-src 'self' https://cdn.jsdelivr.net; "
         "manifest-src 'self' https://*.cloudflareaccess.com; "
+        "frame-src 'self' https://*.steel.dev https://*.browserbase.com https://*.browser-use.com; "
         "base-uri 'self'; form-action 'self'"
     )
     handler.send_header(

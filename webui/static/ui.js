@@ -6347,6 +6347,12 @@ function buildToolCard(tc){
     const screenRow=window.MacScreen.toolRow(tc, buildToolCard(Object.assign({}, tc, {_plainCard:true})));
     if(screenRow) return screenRow;
   }
+  // A browser task's live card (engine, live view, take over, replay) sits under the
+  // first tool call of its session, outside the collapsed activity group (browser_card.js).
+  if(tc && !tc._plainCard && /^browser_/.test(tc.name||'') && window.BrowserCard){
+    const browserRow=window.BrowserCard.toolRow(tc, buildToolCard(Object.assign({}, tc, {_plainCard:true})));
+    if(browserRow) return browserRow;
+  }
   const row=document.createElement('div');
   row.className='tool-card-row';
   const icon=toolIcon(tc.name);
@@ -6511,6 +6517,12 @@ function appendLiveToolCard(tc){
     const prior=tid?inner.querySelector(`.plan-card-row[data-live-tid="${CSS.escape(tid)}"]`):null;
     if(prior) prior.replaceWith(liveCard);
     else group.insertAdjacentElement('afterend', liveCard);
+    // A standalone row that carries the call's own tool card (browser / Mac screen
+    // cards) replaces the plain card the call got in the group when it started.
+    if(tid && liveCard.querySelector('.tool-card')){
+      const plain=body.querySelector(`.tool-card-row[data-live-tid="${CSS.escape(tid)}"]`);
+      if(plain){ plain.remove(); _syncToolCallGroupSummary(group); }
+    }
     if(typeof scrollIfPinned==='function') scrollIfPinned();
     return;
   }
