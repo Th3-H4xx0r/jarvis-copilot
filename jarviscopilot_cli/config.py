@@ -929,6 +929,16 @@ DEFAULT_CONFIG = {
     #   - enabled: True -> False   (opt-in; most users never use /rollback)
     #   - max_snapshots: 50 -> 20  (now actually enforced via ref rewrite)
     #   - auto_prune:   False -> True (orphans/stale pruned automatically)
+    # Mac screen sharing (webui/api/screen_share.py): the coturn TURN server the
+    # iPhone/web viewer and the Mac relay through when they can't reach each
+    # other directly. ``turn_secret`` is coturn's ``static-auth-secret`` (made on
+    # first use; scripts/setup_coturn.sh reads it and sets ``turn_host`` to the
+    # server's public IP). No ``turn_host`` → STUN only.
+    "screen": {
+        "turn_host": "",
+        "turn_port": 3478,
+        "turn_secret": "",
+    },
     # Opt in via ``jarviscopilot chat --checkpoints`` or set enabled=True here.
     "checkpoints": {
         "enabled": False,

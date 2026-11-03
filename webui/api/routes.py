@@ -3573,6 +3573,12 @@ def handle_get(handler, parsed) -> bool:
         if handle_edge_get(handler, parsed):
             return True
 
+    # Mac screen shares: WebRTC signalling (long polls), TURN credentials, replays.
+    if parsed.path.startswith("/api/screen/"):
+        from api import screen_share
+        if screen_share.handle_get(handler, parsed):
+            return True
+
     # Instant coding-session updates over SSE — MUST be matched before the
     # generic /api/coding GET below (which returns a JSON tuple, not a stream).
     if parsed.path == "/api/coding/events/stream":
@@ -5041,6 +5047,12 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path.startswith("/api/app-updates/"):
         from api import app_updates
         if app_updates.handle_post(handler, parsed):
+            return True
+
+    # Mac screen shares read their own bodies (the replay upload is raw MP4).
+    if parsed.path.startswith("/api/screen/"):
+        from api import screen_share
+        if screen_share.handle_post(handler, parsed):
             return True
 
     # Dashcam raw-body POSTs (16 MiB upload chunks, JPEG thumbnails) must be read
