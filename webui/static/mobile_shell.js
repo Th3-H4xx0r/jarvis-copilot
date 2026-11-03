@@ -43,8 +43,10 @@
   function open(panel) {
     closeMore();
     const railBtn = document.querySelector('.rail .nav-tab[data-panel="' + panel + '"]');
-    if (railBtn) { railBtn.click(); return; }
-    if (typeof switchPanel === 'function') switchPanel(panel, { fromRailClick: true });
+    if (railBtn) railBtn.click();
+    else if (typeof switchPanel === 'function') switchPanel(panel, { fromRailClick: true });
+    // Phones go straight to the page, like the app; the ◫ button opens the drawer.
+    if (PHONE.matches && typeof closeMobileSidebar === 'function') setTimeout(closeMobileSidebar, 0);
   }
 
   // ── More (sheet on phones, popover on desktop) ───────────────────────────
