@@ -22,6 +22,19 @@ final class MacScreenSession: NSObject {
     /// The share's replay once it has ended and the Mac uploaded it.
     private(set) var replayURL: String?
     private(set) var replayFile: URL?
+    /// Why the share ended, when the Mac said (e.g. no Screen Recording permission).
+    private(set) var endedReason: String?
+
+    // MARK: Command Center (data channel, t = "cc"; Mac side MacControls.swift)
+    /// The Mac's switches as it last reported them.
+    private(set) var controls = MacControlState()
+    /// The Mac answered at least once (an older Mac app never does).
+    private(set) var controlsLoaded = false
+    /// The Mac's open apps (the Dock's running ones) and their icons by bundle id.
+    private(set) var apps: [MacApp] = []
+    private(set) var appIcons: [String: UIImage] = [:]
+    /// The last thing the Mac couldn't do, for the Command Center to show.
+    private(set) var controlError: String?
 
     private let api: JarvisAPI
     private var pc: RTCPeerConnection?
@@ -59,6 +72,7 @@ final class MacScreenSession: NSObject {
         guard phase == .idle || phase == .ended || isFailed else { return }
         phase = .connecting
         afterSeq = 0
+        endedReason = nil
         remoteSet = false
         pendingCandidates = []
         viewerID = "ios-\(UUID().uuidString.prefix(8).lowercased())"
@@ -113,6 +127,7 @@ final class MacScreenSession: NSObject {
     /// An ended share: show its replay when the Mac uploaded one.
     private func ended(_ share: [String: Any]) async {
         phase = .ended
+        if let why = share["error"] as? String, !why.isEmpty { endedReason = why }
         replayURL = (share["replay_url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         guard let path = replayURL, replayFile == nil, let shareID else { return }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("mac-replay-\(shareID).mp4")
@@ -179,6 +194,7 @@ final class MacScreenSession: NSObject {
         let dc = RTCDataChannelConfiguration()
         dc.isOrdered = true
         channel = pc.dataChannel(forLabel: "input", configuration: dc)
+        channel?.delegate = self
 
         let offer = try await pc.offer(for: RTCMediaConstraints(
             mandatoryConstraints: ["OfferToReceiveVideo": "true"], optionalConstraints: nil))
@@ -210,6 +226,11 @@ final class MacScreenSession: NSObject {
                 // Ended on the server (e.g. after a restart, with no bye queued): stop.
                 if reply["status"] as? String == "ended" {
                     await stop()
+                    // The Mac may have said why (no Screen Recording permission…).
+                    if let share = try? await api.get("/api/screen/shares/\(shareID)", timeout: 15).object(),
+                       let why = share["error"] as? String, !why.isEmpty {
+                        endedReason = why
+                    }
                     return
                 }
                 if phase == .connecting, let mac = reply["mac_online"] as? Bool { macOnline = mac }
@@ -254,6 +275,49 @@ final class MacScreenSession: NSObject {
         guard let channel, channel.readyState == .open,
               let data = try? JSONSerialization.data(withJSONObject: event) else { return }
         channel.sendData(RTCDataBuffer(data: data, isBinary: false))
+    }
+
+    /// One Command Center action (`do` + its fields). `optimistic` shows the change
+    /// at once; the Mac's next cc_state says what really happened.
+    func command(_ action: String, _ fields: [String: Any] = [:],
+                 optimistic: ((inout MacControlState) -> Void)? = nil) {
+        var message = fields
+        message["t"] = "cc"
+        message["do"] = action
+        controlError = nil
+        optimistic?(&controls)
+        send(message)
+    }
+
+    func clearControlError() { controlError = nil }
+
+    fileprivate func received(_ data: Data) {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        switch obj["t"] as? String {
+        case "cc_state":
+            controls = MacControlState(json: obj)
+            controlsLoaded = true
+        case "cc_apps":
+            apps = (obj["apps"] as? [[String: Any]] ?? []).compactMap(MacApp.init(json:))
+        case "cc_icon":
+            if let bundle = obj["bundle"] as? String, let b64 = obj["png"] as? String,
+               let png = Data(base64Encoded: b64), let image = UIImage(data: png) {
+                appIcons[bundle] = image
+            }
+        case "cc_error", "error":
+            controlError = obj["error"] as? String
+        default:
+            break
+        }
+    }
+
+    /// Feeds a Mac message in as if it came over the channel (tests, previews).
+    func receivedForTesting(_ obj: [String: Any]) {
+        if let data = try? JSONSerialization.data(withJSONObject: obj) { received(data) }
+    }
+
+    fileprivate func channelOpened() {
+        command("state")
     }
 
     func setVideoSize(_ size: CGSize) {
@@ -318,6 +382,18 @@ extension MacScreenSession: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     nonisolated func peerConnection(_ pc: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+extension MacScreenSession: RTCDataChannelDelegate {
+    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        guard dataChannel.readyState == .open else { return }
+        Task { @MainActor in self.channelOpened() }
+    }
+
+    nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        let data = buffer.data
+        Task { @MainActor in self.received(data) }
+    }
 }
 
 // MARK: - Video view
@@ -487,8 +563,9 @@ private struct MacScreenPreview: View {
                     .multilineTextAlignment(.center).padding()
             case .ended:
                 if session.track == nil, session.replayFile == nil {
-                    Text(session.replayURL == nil ? "The share has ended." : "Loading the replay…")
+                    Text(session.replayURL != nil ? "Loading the replay…" : session.endedReason ?? "The share has ended.")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                        .multilineTextAlignment(.center).padding()
                 }
             case .live:
                 EmptyView()
@@ -500,74 +577,111 @@ private struct MacScreenPreview: View {
 // MARK: - Full screen (watch + control)
 
 /// Full screen: the Mac live, and control of it — tap to click, double-tap to
-/// double-click, drag with the button held, the keyboard to type. `closesShare`:
-/// an anytime share ends when this closes.
+/// double-click, drag with the button held, the keyboard to type. Portrait: the
+/// bar on top (Command Center, esc, ⌫, keyboard) and the open apps along the
+/// bottom; turned to landscape, the Mac fills the left and a slim rail of the
+/// same controls runs down the right. `closesShare`: an anytime share ends when
+/// this closes.
 struct MacScreenControlView: View {
     let session: MacScreenSession
     var closesShare = true
     @Environment(\.dismiss) private var dismiss
     @State private var typing = ""
     @FocusState private var keyboard: Bool
+    @State private var keyboardWanted = false
     @State private var dragging = false
     @State private var lastDrag: CGPoint?
+    @State private var showCenter = false
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geo in
-                ZStack {
-                    Color.black.ignoresSafeArea()
-                    if session.phase == .live {
-                        MacScreenVideoView(track: session.track) { session.setVideoSize($0) }
-                    } else {
-                        MacScreenPreview(session: session)
+        GeometryReader { outer in
+            if outer.size.width > outer.size.height {
+                HStack(spacing: 0) {
+                    screen
+                    MacScreenRail(session: session, showCenter: $showCenter, keyboard: $keyboardWanted, close: close)
+                }
+                .background(Color.black.ignoresSafeArea())
+                .statusBarHidden()
+                .persistentSystemOverlays(.hidden)
+            } else {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        screen
+                        if !session.apps.isEmpty {
+                            MacAppStrip(session: session)
+                                .background(Color.black)
+                        }
                     }
-                    // Input layer over the picture.
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(dragGesture(container: geo.size))
-                        // One tap = click, double tap = double-click (never both).
-                        .simultaneousGesture(
-                            SpatialTapGesture(count: 2).onEnded { tap in
-                                click(at: tap.location, container: geo.size, count: 2)
+                    .background(Color.black.ignoresSafeArea())
+                    .jcScreen("Your Mac", header: .inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { close() }
+                        }
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            Button { showCenter = true } label: { Image(systemName: "switch.2") }
+                                .accessibilityLabel("Command Center")
+                            Button { session.send(["t": "key", "key": "Escape", "mods": [String]()]) } label: {
+                                Text("esc").font(.system(size: 14, weight: .semibold))
                             }
-                            .exclusively(before: SpatialTapGesture(count: 1).onEnded { tap in
-                                click(at: tap.location, container: geo.size, count: 1)
-                            }))
-                    TextField("", text: $typing)
-                        .focused($keyboard)
-                        .opacity(0.01)
-                        .frame(width: 1, height: 1)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .onChange(of: typing) { _, text in
-                            guard !text.isEmpty else { return }
-                            session.send(["t": "text", "text": text])
-                            typing = ""
+                            Button { session.send(["t": "key", "key": "Delete", "mods": [String]()]) } label: {
+                                Image(systemName: "delete.left")
+                            }
+                            .accessibilityLabel("Delete")
+                            Button { keyboardWanted.toggle() } label: { Image(systemName: "keyboard") }
+                                .accessibilityLabel("Keyboard")
                         }
-                        .onSubmit {
-                            session.send(["t": "key", "key": "Return", "mods": [String]()])
-                            keyboard = true
-                        }
-                }
-            }
-            .navigationTitle("Your Mac")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { close() }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { session.send(["t": "key", "key": "Escape", "mods": [String]()]) } label: {
-                        Text("esc").font(.system(size: 14, weight: .semibold))
                     }
-                    Button { session.send(["t": "key", "key": "Delete", "mods": [String]()]) } label: {
-                        Image(systemName: "delete.left")
-                    }
-                    Button { keyboard.toggle() } label: { Image(systemName: "keyboard") }
                 }
             }
         }
+        .sheet(isPresented: $showCenter) { MacCommandCenterSheet(session: session) }
+        .onChange(of: keyboardWanted) { _, on in keyboard = on }
+        .onChange(of: keyboard) { _, on in keyboardWanted = on }
+        .onAppear { MacScreenOrientation.allowLandscape(true) }
+        .onDisappear { MacScreenOrientation.allowLandscape(false) }
         .task { if session.phase == .idle { await session.start() } }
+    }
+
+    /// The Mac's picture with the input layer over it, sized to the space it gets.
+    private var screen: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.black
+                if session.phase == .live {
+                    MacScreenVideoView(track: session.track) { session.setVideoSize($0) }
+                } else {
+                    MacScreenPreview(session: session)
+                }
+                // Input layer over the picture.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(dragGesture(container: geo.size))
+                    // One tap = click, double tap = double-click (never both).
+                    .simultaneousGesture(
+                        SpatialTapGesture(count: 2).onEnded { tap in
+                            click(at: tap.location, container: geo.size, count: 2)
+                        }
+                        .exclusively(before: SpatialTapGesture(count: 1).onEnded { tap in
+                            click(at: tap.location, container: geo.size, count: 1)
+                        }))
+                TextField("", text: $typing)
+                    .focused($keyboard)
+                    .opacity(0.01)
+                    .frame(width: 1, height: 1)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onChange(of: typing) { _, text in
+                        guard !text.isEmpty else { return }
+                        session.send(["t": "text", "text": text])
+                        typing = ""
+                    }
+                    .onSubmit {
+                        session.send(["t": "key", "key": "Return", "mods": [String]()])
+                        keyboard = true
+                    }
+            }
+        }
     }
 
     private func close() {

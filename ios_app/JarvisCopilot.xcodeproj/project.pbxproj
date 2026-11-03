@@ -332,8 +332,10 @@
 		3F484B5749A00F5F37C5340C /* DashcamSyncBeacon.swift in Sources */ = {isa = PBXBuildFile; fileRef = E847495AB59BCFEAF2D85F05 /* DashcamSyncBeacon.swift */; };
 		3F801C1F909F081F609094DF /* MoreUIAHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */; };
 		3FA02E17F7F05F025CDBAEED /* RouteFollower.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB391EB2C40AAEA96CC56A2B /* RouteFollower.swift */; };
+		3FF3C31292D1CD92C5B30CBE /* MacCommandCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293C47B0DB99D68762DC73AA /* MacCommandCenter.swift */; };
 		400D414F4B6895FBBAB2B3F1 /* ScanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255C5915F64E76446E20AA5 /* ScanView.swift */; };
 		4038CDA3EEAA94BE13F29546 /* DashcamModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365B06F937E30A136D3FDF5B /* DashcamModel.swift */; };
+		40406621A7236D68B689B3B8 /* MacCommandCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DC954F4B964CD6FB823AD0 /* MacCommandCenterTests.swift */; };
 		405290DE4EA28C37F1F63604 /* VoiceReplyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9C939812877EA192CCACFD /* VoiceReplyTests.swift */; };
 		405532E913484BA2F6A76EE2 /* BandModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1A41CB8A612FE035259C54 /* BandModel.swift */; };
 		4060A5EE3A84D3AB4AB0DDAA /* StrengthExerciseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA0FAF907B689578B9C42E6 /* StrengthExerciseCard.swift */; };
@@ -1209,6 +1211,7 @@
 		F4EC088AB65F2A55048B368D /* WearableLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AB49951D6DCEFDA46066AF /* WearableLinks.swift */; };
 		F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6731BC35052EE46AE1591D /* LiveCaptureAttributes.swift */; };
 		F50966134FC2B16961AB05BA /* VoiceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07894ECE04B91692C8C31BCC /* VoiceSettingsTests.swift */; };
+		F50E177FBFCD2BD6CE0AD63E /* MacCommandCenterRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */; };
 		F53DA9847912BB45A6AB26A0 /* JarvisCarTalkWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400D1D3E686018E364B71D53 /* JarvisCarTalkWidget.swift */; };
 		F60833FA3907DFF27CE008FF /* VoicePlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14039A35A737105416C29A49 /* VoicePlatform.swift */; };
 		F6B55154827CCCCC032D3B08 /* ToyotaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51CB018D4B4CBC2D328F254C /* ToyotaStore.swift */; };
@@ -1508,6 +1511,7 @@
 		27872693B9A44032039788FC /* RingDecodersTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDecodersTests.swift; sourceTree = "<group>"; };
 		2806CB4F8A8931CB3A651F21 /* WidgetDataHubTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDataHubTests.swift; sourceTree = "<group>"; };
 		28B2C1F4FE59B3E43C5DA5EE /* GlassesTranslateWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslateWire.swift; sourceTree = "<group>"; };
+		293C47B0DB99D68762DC73AA /* MacCommandCenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacCommandCenter.swift; sourceTree = "<group>"; };
 		296993EE95A7073BE01AFB11 /* CarLightsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsPage.swift; sourceTree = "<group>"; };
 		2A4872C584ECD913DE33F627 /* InmoEvent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoEvent.swift; sourceTree = "<group>"; };
 		2A8EDB517D89B29E58364D2E /* RouteRecordingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRecordingTests.swift; sourceTree = "<group>"; };
@@ -1851,6 +1855,7 @@
 		7864490CBD79D96EC84DEE07 /* WearableArt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableArt.swift; sourceTree = "<group>"; };
 		78A8C0E2FD9406558BA73A59 /* CarDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarDevice.swift; sourceTree = "<group>"; };
 		78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushHandlerTests.swift; sourceTree = "<group>"; };
+		78DC954F4B964CD6FB823AD0 /* MacCommandCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacCommandCenterTests.swift; sourceTree = "<group>"; };
 		7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLinkWireTests.swift; sourceTree = "<group>"; };
 		7980A5303014857B9ECBD669 /* BandDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandDevice.swift; sourceTree = "<group>"; };
 		79F1DBB8FD844D28B35DC2EA /* WearableIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableIdentity.swift; sourceTree = "<group>"; };
@@ -2111,6 +2116,7 @@
 		AB967D41CB1681FEC3E5EFBC /* RingSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSessionTests.swift; sourceTree = "<group>"; };
 		AB99238B6A3CE53FEC44B720 /* QuotaCardUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCardUITests.swift; sourceTree = "<group>"; };
 		ABB3F558D05BF433A58D7179 /* InsightsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsUITests.swift; sourceTree = "<group>"; };
+		ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacCommandCenterRenderTests.swift; sourceTree = "<group>"; };
 		AC55A5B95B8F19C84D67EF5E /* RingProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProbe.swift; sourceTree = "<group>"; };
 		AC7565B5245A07F935338195 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		AD01036FD92CB886C124E925 /* DashcamUIModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamUIModelTests.swift; sourceTree = "<group>"; };
@@ -3149,6 +3155,8 @@
 				31E90B4027E586F5C69B6348 /* HarnessJobTests.swift */,
 				8FC385D221268401C6257A37 /* PasteboardAttachmentsTests.swift */,
 				0354C595838F9DD90440E0FC /* LivePreviewCardTests.swift */,
+				78DC954F4B964CD6FB823AD0 /* MacCommandCenterTests.swift */,
+				ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -4293,6 +4301,7 @@
 				0B913DD3AA1ED97722F7EEDD /* ChatImageGallery.swift */,
 				0EAD38B4C5D021BA6241BED4 /* BrowserSessionCard.swift */,
 				4807E0AC37BBD0359CC852DD /* MacScreenViewer.swift */,
+				293C47B0DB99D68762DC73AA /* MacCommandCenter.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -5378,6 +5387,8 @@
 				913602C52EA45F5FE734CCCC /* AgentsMacPowerTests.swift in Sources */,
 				22F8F88679C327BB887CB463 /* IntegrationUITests.swift in Sources */,
 				A3E3BC62CF05761F613DBC05 /* LivePreviewCardTests.swift in Sources */,
+				40406621A7236D68B689B3B8 /* MacCommandCenterTests.swift in Sources */,
+				F50E177FBFCD2BD6CE0AD63E /* MacCommandCenterRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6201,6 +6212,7 @@
 				34BB7B3D5F191FDAA6137BD8 /* IntegrationUIViews.swift in Sources */,
 				0B2320C2918493E9D81485B1 /* BrowserSessionCard.swift in Sources */,
 				0D34BCA299E7CD069B564644 /* MacScreenViewer.swift in Sources */,
+				3FF3C31292D1CD92C5B30CBE /* MacCommandCenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6474,7 +6486,7 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -6586,7 +6598,7 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
