@@ -1,0 +1,3 @@
+/* JARVIS skin — Phone shell: bottom tab bar, More sheet, phone header, phone composer, desktop nav regroup.
+   Matches the iPhone app. Scoped to :root[data-skin="jarvis"]; uses the --jc-* tokens
+   from jarvis.css. See docs/superpowers/specs/2026-11-03-web-phone-ui-design.md. */

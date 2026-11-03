@@ -238,3 +238,57 @@
 :root.dark[data-skin="jarvis"] textarea:focus,
 :root.dark[data-skin="jarvis"] select:focus{border-color:var(--border2);outline:none;box-shadow:none;}
 :root[data-skin="jarvis"] :focus-visible{outline:2px solid rgba(62,199,199,0.55);outline-offset:2px;}
+
+/* ============================================================================
+   Phone design language — shared tokens + components for every page
+   (2026-11-03: "every page, popup and element matched to the mobile app").
+   Page-specific rules live in jarvis-pages-*.css (loaded after this file).
+   ============================================================================ */
+:root[data-skin="jarvis"]{
+  --jc-accent:#3EC7C7;
+  --jc-accent-ink:#041414;          /* text on a teal fill */
+  --jc-bg:#000000;
+  --jc-surface:#121218;             /* cards, rows */
+  --jc-surface-2:#1A1A22;           /* a step up: hover, selected, inputs on cards */
+  --jc-pill:#16161C;                /* header pills, tab bar */
+  --jc-hair:rgba(255,255,255,0.08); /* hairline borders */
+  --jc-hair-strong:rgba(255,255,255,0.12);
+  --jc-text:#EDF0F8;
+  --jc-text-2:#B6BDCC;              /* secondary */
+  --jc-muted:#8A93A8;
+  --jc-danger:#E5484D;
+  --jc-warn:#F5A524;
+  --jc-ok:#3DD68C;
+  --jc-r-card:16px;                 /* cards, sheets */
+  --jc-r-control:10px;              /* inputs, buttons, chips */
+  --jc-r-pill:999px;
+  --jc-ease:cubic-bezier(.2,.8,.2,1);
+}
+
+/* Overlays + the app's own dialog: a calm dark sheet, no blue tint or blur. */
+:root.dark[data-skin="jarvis"] [class*="overlay"]:not([class*="orb"]):not([class*="map"]){
+  background-color:rgba(0,0,0,0.62);-webkit-backdrop-filter:none;backdrop-filter:none;
+}
+:root.dark[data-skin="jarvis"] .app-dialog{
+  background:var(--jc-surface);border:1px solid var(--jc-hair-strong);border-radius:var(--jc-r-card);
+  box-shadow:0 16px 48px rgba(0,0,0,0.6);
+}
+:root[data-skin="jarvis"] .app-dialog-title{font-weight:600;letter-spacing:0;}
+:root.dark[data-skin="jarvis"] .app-dialog-close{background:var(--jc-surface-2);border-radius:var(--jc-r-pill);}
+:root.dark[data-skin="jarvis"] .app-dialog-input{background:var(--jc-bg);border-color:var(--jc-hair-strong);}
+:root.dark[data-skin="jarvis"] .app-dialog-btn{background:var(--jc-surface-2);border:1px solid var(--jc-hair);border-radius:var(--jc-r-control);color:var(--jc-text);font-weight:500;}
+
+/* No hue gradients on any card-like surface (charts, the voice orb and the
+   memory map keep theirs — they are content). */
+:root.dark[data-skin="jarvis"] :is([class*="card"],[class*="dialog"],[class*="modal"],[class*="sheet"],[class*="banner"],[class*="badge"],[class*="tile"],[class*="-panel"],[class*="toast"]):not([class*="orb"]):not([class*="voice"]):not([class*="live-"]):not([class*="map"]):not([class*="chart"]){
+  background-image:none !important;
+}
+/* Progress / quota bars: one solid accent, warnings keep their meaning. */
+:root[data-skin="jarvis"] :is([class*="bar-fill"],[class*="progress-fill"],[class*="meter-fill"]){background-image:none !important;background-color:var(--jc-accent);}
+:root[data-skin="jarvis"] :is([class*="bar-fill"],[class*="progress-fill"]):is(.is-high *, .is-high){background-color:var(--jc-warn);}
+:root[data-skin="jarvis"] :is([class*="bar-fill"],[class*="progress-fill"]):is(.is-critical *, .is-critical){background-color:var(--jc-danger);}
+/* Nothing glows. */
+:root.dark[data-skin="jarvis"] [class*="glow"]:not([class*="orb"]){box-shadow:none !important;filter:none;}
+
+/* Toasts: a dark pill like the phone's banners. */
+:root.dark[data-skin="jarvis"] .toast{background:var(--jc-surface-2);border:1px solid var(--jc-hair);color:var(--jc-text);border-radius:var(--jc-r-control);box-shadow:0 8px 24px rgba(0,0,0,.5);}
