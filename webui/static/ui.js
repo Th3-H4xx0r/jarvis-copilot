@@ -4856,7 +4856,9 @@ function isTpsDisplayEnabled(){
 function _assistantRoleHtml(tsTitle='', tpsText=''){
   const _bn=window._botName||'JarvisCopilot';
   // Speed lives in the reply's details (ⓘ), not as a badge by the name.
-  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant">${esc(_bn.charAt(0).toUpperCase())}</div><span style="font-size:12px">${esc(_bn)}</span></div>`;
+  // The letter avatar, or (JARVIS skin) the phone's sparkle — CSS picks one.
+  const sparkle='<svg class="role-sparkle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5l1.6 4.9a3 3 0 0 0 1.9 1.9l4.9 1.6-4.9 1.6a3 3 0 0 0-1.9 1.9L10 20.3l-1.6-4.9a3 3 0 0 0-1.9-1.9L1.6 11.9l4.9-1.6a3 3 0 0 0 1.9-1.9z"/><path d="M19 2.5v4M17 4.5h4"/></svg>';
+  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant"><span class="role-letter">${esc(_bn.charAt(0).toUpperCase())}</span>${sparkle}</div><span style="font-size:12px">${esc(_bn)}</span></div>`;
 }
 // Speed is shown in the reply's details (ⓘ), not as a live badge by the name;
 // the stream still records it on the message (_turnTps).
