@@ -358,7 +358,7 @@ function _questionJumpButtonHtml(questionRawIdx){
   if(typeof questionRawIdx!=='number'||questionRawIdx<0) return '';
   const label=t('jump_to_question')||'Question';
   const title=t('jump_to_question_label')||'Jump to the question for this response';
-  return `<button class="msg-question-jump-btn" type="button" title="${esc(title)}" aria-label="${esc(title)}" onclick="jumpToTurnQuestion(${questionRawIdx})"><span aria-hidden="true">↑</span><span>${esc(label)}</span></button>`;
+  return `<button class="msg-action-btn msg-question-jump-btn" type="button" title="${esc(title)}" aria-label="${esc(title)}" data-label="${esc(label)}" onclick="jumpToTurnQuestion(${questionRawIdx})">${li('arrow-up',13)}</button>`;
 }
 
 function _highlightQuestionRow(row){
@@ -4855,24 +4855,12 @@ function isTpsDisplayEnabled(){
 }
 function _assistantRoleHtml(tsTitle='', tpsText=''){
   const _bn=window._botName||'JarvisCopilot';
-  const tps=(isTpsDisplayEnabled()&&tpsText)?`<span class="msg-tps-inline" title="Tokens per second">${esc(tpsText)}</span>`:'';
-  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant">${esc(_bn.charAt(0).toUpperCase())}</div><span style="font-size:12px">${esc(_bn)}</span>${tps}</div>`;
+  // Speed lives in the reply's details (ⓘ), not as a badge by the name.
+  return `<div class="msg-role assistant" ${tsTitle?`title="${esc(tsTitle)}"`:''}><div class="role-icon assistant">${esc(_bn.charAt(0).toUpperCase())}</div><span style="font-size:12px">${esc(_bn)}</span></div>`;
 }
-function _setAssistantTurnTps(turn, tpsText=''){
-  if(!turn) return;
-  const role=turn.querySelector('.msg-role.assistant');
-  if(!role) return;
-  let chip=role.querySelector('.msg-tps-inline');
-  const text=String(tpsText||'').trim();
-  if(!text){if(chip) chip.remove();return;}
-  if(!chip){
-    chip=document.createElement('span');
-    chip.className='msg-tps-inline';
-    chip.title='Tokens per second';
-    role.appendChild(chip);
-  }
-  chip.textContent=text;
-}
+// Speed is shown in the reply's details (ⓘ), not as a live badge by the name;
+// the stream still records it on the message (_turnTps).
+function _setAssistantTurnTps(){}
 function _setLiveAssistantTps(value){
   _setAssistantTurnTps($('liveAssistantTurn'), isTpsDisplayEnabled()?_formatTurnTps(value):'');
 }
@@ -5858,7 +5846,7 @@ function renderMessages(options){
     const questionJumpBtn = (!_view&&(!isUser&&!m._live&&isTurnFinalAssistant))
       ? _questionJumpButtonHtml(questionRawIdxByAssistantRawIdx.get(rawIdx))
       : '';
-    const footHtml = `<div class="msg-foot">${timeHtml}<span class="msg-actions">${editBtn}${ttsBtn}${forkBtn}${copyBtn}${retryBtn}</span>${questionJumpBtn}</div>`;
+    const footHtml = `<div class="msg-foot">${timeHtml}<span class="msg-actions">${editBtn}${ttsBtn}${forkBtn}${copyBtn}${retryBtn}${questionJumpBtn}</span></div>`;
 
     if(_isContextCompactionMessage(m)){
       if(compressionState || referenceNode){
@@ -6205,91 +6193,69 @@ function renderMessages(options){
       const modelWarningText=_gatewayModelWarningText(routing);
       const hasTurnUsage=!!msg._turnUsage;
       const onDevice=msg.on_device===true;
-      const compactActivityForMessage=isSimplifiedToolCalling()&&(
-        assistantThinking.has(mi)||
-        (S.toolCalls||[]).some(tc=>tc&&(tc.assistant_msg_idx!==undefined?tc.assistant_msg_idx:-1)===mi)
-      );
-      const durationText=compactActivityForMessage?'':_formatTurnDuration(msg._turnDuration);
-      // Agent harness: who answered (model · seconds · handed off / background / review).
-      const answeredText=(msg._meta&&window.HarnessFormat)?HarnessFormat.answeredBy(msg._meta):'';
-      if(!hasTurnUsage&&!durationText&&!gatewayText&&!failoverText&&!modelWarningText&&!onDevice&&!answeredText) continue;
+      // One quiet line under the reply — model · time — plus an ⓘ with the
+      // rest (route, tokens, cache, cost, speed). Warnings stay visible.
+      const meta=msg._meta||null;
+      const HF=window.HarnessFormat||null;
+      const model=(meta&&meta.model&&HF)?HF.shortModel(meta.model):gatewayText;
+      const sideKind=(meta&&HF&&HF.isSideReply(meta))?meta.kind:'';
+      const dur=_formatTurnDuration(msg._turnDuration)||((meta&&meta.ms)?`${Math.max(1,Math.round(meta.ms/1000))}s`:'');
+      const summaryText=[model, sideKind, dur, onDevice?'on-device':''].filter(Boolean).join(' · ');
+      const rows=[];
+      if(meta&&meta.model&&HF) rows.push(['Model', HF.shortModel(meta.model)+(meta.provider?` · ${meta.provider}`:'')]);
+      else if(gatewayText) rows.push(['Model', gatewayText]);
+      if(meta&&(meta.harness_name||meta.harness)) rows.push(['Harness', meta.harness_name||meta.harness]);
+      if(meta&&meta.route&&HF){
+        const r=meta.route;
+        rows.push(['Route', HF.routedText(r).replace(/^routed /,'')+(r.model?` · by ${HF.shortModel(r.model)}`:'')+(r.ms?` · ${r.ms} ms`:'')]);
+      }
+      if(meta&&meta.handed_off) rows.push(['Handed off', 'yes']);
+      if(meta&&meta.note) rows.push(['Note', String(meta.note)]);
+      if(dur) rows.push(['Time', dur]);
+      if(hasTurnUsage){
+        const u=msg._turnUsage;
+        rows.push(['Tokens', `${_fmtTokens(u.input_tokens||0)} in · ${_fmtTokens(u.output_tokens||0)} out`]);
+        if(u.estimated_cost) rows.push(['Cost', `~$${u.estimated_cost<0.01?u.estimated_cost.toFixed(4):u.estimated_cost.toFixed(2)}`]);
+        const cr=u.cache_read_tokens||0, cw=u.cache_write_tokens||0;
+        if(cr+cw) rows.push(['Cache', `${Math.round(cr/(cr+cw)*100)}% hit`]);
+      }
+      if(typeof msg._turnTps==='number'&&msg._turnTps>0) rows.push(['Speed', _formatTurnTps(msg._turnTps)]);
+      if(!summaryText&&!rows.length&&!failoverText&&!modelWarningText) continue;
       const seg=assistantSegments.get(mi);
       const row=seg?seg.closest('.assistant-turn'):null;
       const footerRows=row?row.querySelectorAll('.msg-foot'):[];
       const targetFoot=footerRows.length?footerRows[footerRows.length-1]:null;
-      if(!targetFoot) continue;
-      // Who answered leads the footer. Placed apart from the guard below so
-      // another message's duration/usage already in this footer cannot hide it.
-      const placeAnsweredBy=()=>{
-        if(!answeredText||targetFoot.querySelector('.msg-answered-by')) return;
+      if(!targetFoot||targetFoot.querySelector('.msg-answered-by')) continue;
+      const lead=[];
+      if(summaryText){
         const by=document.createElement('span');
         by.className='msg-answered-by';
-        by.textContent=answeredText;
-        const meta=msg._meta;
-        const harnessName=meta.harness_name||meta.harness||'';
-        const route=meta.route||null;
-        by.title=['Answered by '+(meta.model||''), meta.provider?'provider '+meta.provider:'',
-          meta.node?'node '+meta.node:'', harnessName?'harness '+harnessName:'',
-          route?'routed '+route.label+(route.model?' by '+route.model:'')+(route.ms?' in '+route.ms+' ms':'')+(route.error?' ('+route.error+')':''):''].filter(Boolean).join(' · ');
-        targetFoot.classList.add('msg-foot-with-usage');
-        targetFoot.insertBefore(by, targetFoot.firstChild);
-      };
-      if(targetFoot.querySelector('.msg-usage-inline,.msg-duration-inline,.msg-gateway-inline,.gateway-failover-inline,.msg-model-warning-inline,.msg-on-device-inline')){
-        placeAnsweredBy();
-        continue;
-      }
-      const fragments=[];
-      if(onDevice){
-        const od=document.createElement('span');
-        od.className='msg-on-device-inline';
-        od.textContent='⚡ on-device';
-        od.title='Answered on-device (Apple Foundation Model) — no server';
-        fragments.push(od);
+        by.textContent=summaryText;
+        lead.push(by);
       }
       if(modelWarningText){
         const warning=document.createElement('span');
         warning.className='msg-model-warning-inline';
         warning.textContent=modelWarningText;
-        fragments.push(warning);
+        lead.push(warning);
       }
       if(failoverText){
         const failover=document.createElement('span');
         failover.className='gateway-failover-inline';
         failover.textContent=failoverText;
-        fragments.push(failover);
+        lead.push(failover);
       }
-      if(gatewayText){
-        const gateway=document.createElement('span');
-        gateway.className='msg-gateway-inline';
-        gateway.textContent=gatewayText;
-        fragments.push(gateway);
+      targetFoot.classList.add('msg-foot-with-usage');
+      for(let i=lead.length-1;i>=0;i--) targetFoot.insertBefore(lead[i], targetFoot.firstChild);
+      if(rows.length){
+        const actions=targetFoot.querySelector('.msg-actions');
+        const details=document.createElement('span');
+        details.className='msg-details';
+        details.innerHTML=`<button type="button" class="msg-action-btn msg-details-btn" aria-label="Reply details" title="Details">`+
+          `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r=".6" fill="currentColor"/></svg></button>`+
+          `<span class="msg-details-pop" role="tooltip">${rows.map(([k,v])=>`<span class="msg-details-k">${esc(k)}</span><span class="msg-details-v">${esc(v)}</span>`).join('')}</span>`;
+        if(actions) actions.appendChild(details); else targetFoot.appendChild(details);
       }
-      if(durationText){
-        const duration=document.createElement('span');
-        duration.className='msg-duration-inline';
-        duration.textContent=`Done in ${durationText}`;
-        fragments.push(duration);
-      }
-      if(window._showTokenUsage&&hasTurnUsage){
-        const usage=document.createElement('span');
-        usage.className='msg-usage-inline';
-        const inTok=msg._turnUsage.input_tokens||0;
-        const outTok=msg._turnUsage.output_tokens||0;
-        const cost=msg._turnUsage.estimated_cost;
-        const cacheRead=msg._turnUsage.cache_read_tokens||0;
-        const cacheWrite=msg._turnUsage.cache_write_tokens||0;
-        let text=`${_fmtTokens(inTok)} in · ${_fmtTokens(outTok)} out`;
-        if(cost) text+=` · ~$${cost<0.01?cost.toFixed(4):cost.toFixed(2)}`;
-        const cacheTotal=cacheRead+cacheWrite;
-        if(cacheTotal) text+=` · cache ${Math.round((cacheRead/cacheTotal)*100)}% hit`;
-        usage.textContent=text;
-        fragments.push(usage);
-      }
-      if(fragments.length){
-        targetFoot.classList.add('msg-foot-with-usage');
-        for(let i=fragments.length-1;i>=0;i--) targetFoot.insertBefore(fragments[i], targetFoot.firstChild);
-      }
-      placeAnsweredBy();
     }
   }
   // Agent harness: a Background job this reply started draws as a card under

@@ -248,7 +248,9 @@
         if (el.classList.contains("assistant-turn")) { turn = el; break; }
       }
       if (!turn || turn.id === "liveAssistantTurn" || turn.querySelector("[data-live-assistant]")) return;
-      var host = turn.querySelector(".assistant-turn-blocks") || turn;
+      // A quiet link at the end of the reply's footer line (not a row of its own).
+      var feet = turn.querySelectorAll(".msg-foot");
+      var host = feet.length ? feet[feet.length - 1] : (turn.querySelector(".assistant-turn-blocks") || turn);
       var have = host.querySelector(":scope > .jmem-recall-chip");
       if (!rc) { if (have) have.remove(); return; }     // e.g. a Regenerate that used no memory
       if (have && have.getAttribute("data-recall") === String(rc.id)) return;
@@ -260,13 +262,10 @@
       chip.setAttribute("data-recall", String(rc.id));
       chip.setAttribute("data-query", String(rc.query || ""));
       chip.title = "Show the memories Jarvis used on the map";
-      chip.style.cssText = "display:inline-flex;align-items:center;gap:5px;margin:4px 0 2px;padding:2px 9px;font-size:11px;" +
-        "border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);cursor:pointer";
-      chip.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
-        '<circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="2"/><circle cx="20" cy="6" r="2"/><circle cx="12" cy="21" r="2"/>' +
-        '<path d="M6 7l4 3M18 7l-4 3M12 15v4"/></svg>' +
-        esc(n ? n + (n === 1 ? " memory used" : " memories used") : "memories used");
-      host.appendChild(chip);
+      chip.textContent = n ? n + (n === 1 ? " memory" : " memories") : "memories";
+      // Right after "model · time", so it stays next to it while the hover icons are hidden.
+      var lead = host.querySelector(":scope > .msg-answered-by");
+      if (lead) host.insertBefore(chip, lead.nextSibling); else host.appendChild(chip);
     });
   }
 

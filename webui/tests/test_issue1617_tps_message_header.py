@@ -18,14 +18,13 @@ UI_JS = (REPO / "static" / "ui.js").read_text(encoding="utf-8")
 CSS = (REPO / "static" / "style.css").read_text(encoding="utf-8")
 
 
-def test_tps_renders_in_message_header_not_global_titlebar():
-    assert "msg-tps-inline" in UI_JS, "assistant message headers need a TPS chip hook"
-    assert "msg-tps-inline" in CSS, "TPS header chip needs an explicit CSS hook"
-    assert "_assistantRoleHtml(tsTitle='', tpsText='')" in UI_JS, (
-        "assistant role/header rendering should accept the per-message TPS text"
-    )
+def test_tps_lives_in_the_reply_details_not_a_header_badge():
+    # 2026-11-02: speed moved into the reply's ⓘ details (his pick: minimal
+    # footer, numbers on hover) — no badge by the name, no global titlebar chip.
+    assert "rows.push(['Speed', _formatTurnTps(msg._turnTps)])" in UI_JS
+    assert '<span class="msg-tps-inline"' not in UI_JS
     assert "_formatTurnTps" in UI_JS, "TPS formatting should be centralized"
-    assert "_turnTps" in UI_JS, "settled assistant messages should render final TPS from message metadata"
+    assert "_turnTps" in UI_JS, "settled assistant messages keep their final TPS"
     assert "tpsStat" not in MESSAGES_JS, "live TPS must not target the removed/global titlebar chip"
 
 
@@ -126,15 +125,6 @@ def test_tps_display_hot_applies_when_preferences_autosave():
     )
 
 
-def test_tps_header_rendering_respects_display_setting():
+def test_tps_display_setting_still_centralized():
     assert "function isTpsDisplayEnabled()" in UI_JS, "TPS visibility should be centralized"
-    assert "return window._showTps===true" in UI_JS, "TPS should only render when explicitly enabled"
-    assert "const tps=(isTpsDisplayEnabled()&&tpsText)" in UI_JS, (
-        "settled assistant headers must suppress TPS when the setting is off"
-    )
-    assert "isTpsDisplayEnabled()?_formatTurnTps(value):''" in UI_JS, (
-        "live TPS updates must remove/suppress the chip when the setting is off"
-    )
-    assert "isTpsDisplayEnabled()?_formatTurnTps(m._turnTps):''" in UI_JS, (
-        "reloaded assistant messages must not render persisted TPS while disabled"
-    )
+    assert "return window._showTps===true" in UI_JS

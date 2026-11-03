@@ -97,7 +97,8 @@ def test_frontend_copies_and_formats_gateway_metadata_without_absent_noise():
     assert "lastAsst._gatewayRouting" in MESSAGES_JS
     assert "_formatGatewayModelLabel" in UI_JS
     assert "_gatewayRoutingLabel" in UI_JS
-    assert "msg-gateway-inline" in UI_JS
+    # The gateway's model label is the footer's model when no harness meta says otherwise.
+    assert "const model=(meta&&meta.model&&HF)?HF.shortModel(meta.model):gatewayText;" in UI_JS
     assert "msg-model-warning-inline" in UI_JS
     assert "gateway-failover-inline" in UI_JS
     assert "if(!routing)return''" in UI_JS.replace(" ", "")

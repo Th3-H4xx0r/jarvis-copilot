@@ -46,8 +46,8 @@ def test_ui_formats_and_renders_turn_duration_in_footer_and_activity_summary():
     assert "function _formatTurnDuration" in UI_JS, (
         "ui.js should centralize duration formatting for footer and compact activity display."
     )
-    assert "msg-duration-inline" in UI_JS and "Done in" in UI_JS, (
-        "Expanded/non-activity display should show a subtle footer chip like 'Done in 42s'."
+    assert "const summaryText=[model, sideKind, dur" in UI_JS and "Done in" in UI_JS, (
+        "The footer's one quiet line reads 'model · 9s'; the Activity row keeps 'Done in'."
     )
     assert "tool-call-group-duration" in UI_JS, (
         "Compact tool activity summary should have a dedicated duration span at the end of the line."
@@ -55,10 +55,7 @@ def test_ui_formats_and_renders_turn_duration_in_footer_and_activity_summary():
     assert "data-turn-duration" in UI_JS, (
         "Activity groups need a stable data-turn-duration hook so settled duration can update the summary."
     )
-    assert "compactActivityForMessage" in UI_JS, (
-        "When compact activity is present, duration should live on the Activity row "
-        "instead of being duplicated in the assistant footer."
-    )
+
     assert ".msg-duration-inline" in CSS and ".tool-call-group-duration" in CSS, (
         "Duration UI should have explicit CSS hooks for the footer chip and compact activity summary."
     )

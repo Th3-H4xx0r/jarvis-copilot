@@ -49,7 +49,9 @@ def test_live_stream_keeps_turn_meta_for_the_final_message():
 
 def test_footer_renders_answered_by_and_marks_side_replies():
     ui = _read("ui.js")
-    assert "HarnessFormat.answeredBy" in ui
+    # 2026-11-02: the footer reads "model · time" (shortModel) and the route
+    # goes into the ⓘ details (routedText).
+    assert "HF.shortModel(meta.model)" in ui and "HF.routedText(r)" in ui
     assert "msg-answered-by" in ui
     assert "HarnessFormat.isSideReply" in ui
     assert ".msg-answered-by" in _read("style.css")
