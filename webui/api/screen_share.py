@@ -231,8 +231,11 @@ def ice_servers(*, now: Optional[float] = None) -> list:
     extra = sec.get("stun_urls")
     if isinstance(extra, list):
         stun += [str(u) for u in extra if str(u).startswith("stun:")]
-    elif not host:
-        stun.append(DEFAULT_STUN)
+    # A public STUN server is always offered: a self-hosted TURN that failed to
+    # start (or whose ports aren't open) must not leave the share with nothing.
+    for public in (CLOUDFLARE_STUN, DEFAULT_STUN):
+        if public not in stun:
+            stun.append(public)
     if stun:
         servers.append({"urls": stun})
     if host:
