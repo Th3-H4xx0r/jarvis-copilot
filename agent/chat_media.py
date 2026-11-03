@@ -36,6 +36,9 @@ _KEEP_FORMATS = {"PNG": ("png", "image/png"), "JPEG": ("jpg", "image/jpeg"),
                  "WEBP": ("webp", "image/webp"), "GIF": ("gif", "image/gif")}
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+# Sites like Wikimedia throttle anonymous browser-looking clients from servers
+# (429) and ask bots to identify themselves; one retry with this agent.
+_BOT_UA = "JarvisCopilot/1.0 (personal assistant; image fetch for a private chat) python-httpx"
 
 # `MEDIA:<ref>` and `![alt](<ref>)` — the two ways a reply shows an image.
 _LOCAL_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif", ".tif", ".tiff",
@@ -160,9 +163,22 @@ def _transport():
     return None
 
 
+class _Throttled(ImageRejected):
+    pass
+
+
 def fetch_image(url: str, timeout: float = 8.0) -> bytes:
     """Download one web image (public addresses only, every redirect hop
-    re-checked), at most 15 MB and about ``2 × timeout`` seconds in all."""
+    re-checked), at most 15 MB and about ``2 × timeout`` seconds a try. A
+    site that throttles (429/403) gets one more try as an identified bot."""
+    try:
+        return _fetch_once(url, timeout, _UA)
+    except _Throttled:
+        time.sleep(0.5)
+        return _fetch_once(url, timeout, _BOT_UA)
+
+
+def _fetch_once(url: str, timeout: float, user_agent: str) -> bytes:
     import httpx
     from tools.url_safety import is_safe_url
     from tools.vision_tools import _validate_image_url
@@ -182,8 +198,10 @@ def fetch_image(url: str, timeout: float = 8.0) -> bytes:
     try:
         with httpx.Client(follow_redirects=True, timeout=timeout, transport=_transport(),
                           event_hooks={"response": [_redirect_guard]}) as client:
-            with client.stream("GET", url, headers={"User-Agent": _UA,
+            with client.stream("GET", url, headers={"User-Agent": user_agent,
                                                     "Accept": "image/*,*/*;q=0.5"}) as resp:
+                if resp.status_code in (403, 429) and user_agent != _BOT_UA:
+                    raise _Throttled(f"the site answered {resp.status_code}")
                 if resp.status_code >= 400:
                     raise ImageRejected(f"the site answered {resp.status_code}")
                 chunks, total = [], 0

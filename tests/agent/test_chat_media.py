@@ -172,3 +172,21 @@ def test_fetch_image_refuses_a_redirect_to_a_private_address(monkeypatch):
     monkeypatch.setattr("tools.url_safety.is_safe_url", lambda url: "169.254" not in url)
     with pytest.raises(cm.ImageRejected):
         cm.fetch_image("https://public.example/a.jpg")
+
+
+def test_fetch_image_retries_a_throttled_site_with_an_identifying_agent(monkeypatch):
+    import httpx
+    seen = []
+
+    def handler(request):
+        ua = request.headers.get("user-agent", "")
+        seen.append(ua)
+        if "Mozilla" in ua:
+            return httpx.Response(429)
+        return httpx.Response(200, content=_img(300, 300))
+
+    monkeypatch.setattr(cm, "_transport", lambda: httpx.MockTransport(handler))
+    monkeypatch.setattr("tools.url_safety.is_safe_url", lambda url: True)
+    monkeypatch.setattr(cm.time, "sleep", lambda s: None)
+    assert len(cm.fetch_image("https://upload.wikimedia.org/a.jpg")) > 0
+    assert len(seen) == 2 and seen[1].startswith("JarvisCopilot/")
