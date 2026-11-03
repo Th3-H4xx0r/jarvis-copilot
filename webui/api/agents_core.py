@@ -100,8 +100,14 @@ class AgentsCore:
                  publish: Optional[Callable[[str, dict], None]] = None,
                  tracker: Optional[Callable[[], object]] = None,
                  start_sync: Optional[Callable[[str, str, str], None]] = None,
-                 mac_power=None, clock=time.time) -> None:
+                 mac_power=None, publish_async: bool = False, clock=time.time) -> None:
         self.store = store
+        # Pushes rebuilt on a worker, coalesced (start() turns it on): a rebuild
+        # never holds up the device event that caused it.
+        self._publish_async = publish_async
+        self._pub_event = threading.Event()
+        self._pub_thread: Optional[threading.Thread] = None
+        self._tpaths: dict = {}   # (ckey, owner, session) -> transcript path (computing it is the slow part)
         self.mac_power = mac_power   # api/mac_power.py: Wake Mac, keep-awake, password requests
         self._send_frame = send_frame
         self._device_name = device_name
@@ -413,8 +419,12 @@ class AgentsCore:
         if tr is not None:
             for s in tr.sessions():   # by host too: a moved session's stale Mac copy isn't it
                 tsess[(s.get("agent"), s.get("session_id"), s.get("host") or "server")] = s
+        try:
+            recent = self.deliveries.recent_since(now - 3600)
+        except Exception:  # noqa: BLE001
+            recent = None
         convs = [self._present(r, tsess.get((r.get("agent"), r.get("session_id"),
-                                             r.get("owner") or "server")))
+                                             r.get("owner") or "server")), recent)
                  for r in self.conv.list_visible(now)]
         convs.sort(key=lambda c: -(c.get("last_event_at") or 0))   # most recent first
         needs = [c for c in convs if c["status"] == "live" and c["state"] in _WAITING]
@@ -642,7 +652,7 @@ class AgentsCore:
         if changed:
             self._changed()
 
-    def _present(self, row: dict, ts: Optional[dict]) -> dict:
+    def _present(self, row: dict, ts: Optional[dict], recent: Optional[dict] = None) -> dict:
         ts = ts or {}
         owner, status = row.get("owner"), row.get("status") or "live"
         if status == "live" and owner not in (None, "server") \
@@ -677,7 +687,9 @@ class AgentsCore:
             "can_terminal": owner == "server" and run.get("kind") == "background" and status == "live",
             "moved_from": row.get("moved_from"),
             "moved_from_name": self._name(row["moved_from"]) if row.get("moved_from") else "",
-            "deliveries": self._recent_deliveries(row["ckey"]),
+            "deliveries": (self._recent_deliveries(row["ckey"]) if recent is None else
+                           [{"id": d["id"], "state": d["state"], "reason": d.get("reason")}
+                            for d in recent.get(row["ckey"], [])]),
         }
 
     def _recent_deliveries(self, ckey: str) -> list:
@@ -706,8 +718,12 @@ class AgentsCore:
         """When it last did anything: its newest hook, transcript write, or the
         Mac's reading of its transcript — never a roster refresh."""
         times = [row.get("last_event_at"), row.get("last_active_at")]
+        key = (row.get("ckey"), row.get("owner"), row.get("session_id"))
         try:
-            times.append(tm.last_write(row))
+            path = self._tpaths.get(key)
+            if path is None:
+                path = self._tpaths[key] = str(tm.path_for(row))
+            times.append(os.stat(path).st_mtime)
         except Exception:  # noqa: BLE001
             pass
         vals = [float(t) for t in times if t]
@@ -762,10 +778,33 @@ class AgentsCore:
     def _changed(self) -> None:
         if self._publish_cb is None:
             return
+        if not self._publish_async:
+            self._publish_now()
+            return
+        with self._cache_lock:
+            if self._pub_thread is None or not self._pub_thread.is_alive():
+                self._pub_thread = threading.Thread(target=self._publisher, daemon=True,
+                                                    name="agents-list-publish")
+                self._pub_thread.start()
+        self._pub_event.set()
+
+    def _publisher(self) -> None:
+        """One rebuild for however many changes came in meanwhile, at most every
+        _PUBLISH_GAP — a busy turn's hooks no longer each wait on a full rebuild."""
+        while True:
+            self._pub_event.wait()
+            self._pub_event.clear()
+            self._publish_now()
+            time.sleep(_PUBLISH_GAP)
+
+    def _publish_now(self) -> None:
         try:
             self._publish_cb("agents_list", self.list_payload())
         except Exception:  # noqa: BLE001
             log.debug("agents_list publish failed", exc_info=True)
+
+
+_PUBLISH_GAP = 0.25
 
 
 def _device_home(cwd: str) -> str:
@@ -810,7 +849,7 @@ def start(store) -> AgentsCore:
     power = mac_power.store()
     c = AgentsCore(store, send_frame=device_bridge.send_frame,
                    device_name=device_bridge.device_name, alert_phones=alert_phones,
-                   codex=codex, publish=device_bridge.publish, mac_power=power)
+                   codex=codex, publish=device_bridge.publish, mac_power=power, publish_async=True)
     set_core(c)
     for name, fn in (("mac_power_status", power.on_status), ("mac_power_token", power.on_token),
                      ("mac_power_set", power.on_set), ("mac_password_request", power.on_password_request),

@@ -589,3 +589,44 @@ def test_list_shows_claude_usage_from_the_oauth_snapshot(env):
         coding_usage._cache = None
     assert body["usage"]["five_hour"] == {"used_percentage": 31, "resets_at": 9e9}
     assert body["usage"]["seven_day"]["used_percentage"] == 8
+
+
+def test_list_pushes_are_rebuilt_off_the_event_thread_and_coalesced(tmp_path):
+    import threading
+    import time as _time
+    from agent.coding_session_db import CodingSessionStore
+    store = CodingSessionStore(str(tmp_path / "s.db"))
+    pushed, gate = [], threading.Event()
+
+    def publish(topic, data):
+        gate.wait(2)            # a slow push: the events behind it must not wait
+        pushed.append(topic)
+    core = agents_core.AgentsCore(store, send_frame=lambda d, f: False, claude=FakeClaude(),
+                                  publish=publish, tracker=lambda: None, publish_async=True)
+    t = _time.time()
+    for _ in range(20):
+        core._changed()
+    assert _time.time() - t < 0.5           # 20 changes didn't wait on 20 rebuilds
+    gate.set()
+    for _ in range(100):
+        if pushed and not core._pub_event.is_set():
+            break
+        _time.sleep(0.02)
+    _time.sleep(0.4)
+    assert 1 <= len(pushed) <= 3            # coalesced, and the latest state still went out
+
+
+def test_recent_deliveries_come_from_one_query(tmp_path):
+    from agent.coding_session_db import CodingSessionStore
+    from agent.agent_delivery import Deliveries
+    store = CodingSessionStore(str(tmp_path / "s.db"))
+    now = [1000.0]
+    d = Deliveries(store, clock=lambda: now[0])
+    for i in range(5):
+        d.create("claude|a", f"m{i}")
+        now[0] += 1
+    d.create("claude|b", "x")
+    got = d.recent_since(0, per=3)
+    assert [len(got["claude|a"]), len(got["claude|b"])] == [3, 1]
+    assert got["claude|a"][0]["text"] if "text" in got["claude|a"][0] else True
+    assert d.recent_since(now[0] + 10) == {}

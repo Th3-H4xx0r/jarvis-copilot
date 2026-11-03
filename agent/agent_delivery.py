@@ -64,6 +64,19 @@ class Deliveries:
             r = c.execute("SELECT * FROM agent_deliveries WHERE id=?", (did,)).fetchone()
         return dict(r) if r else None
 
+    def recent_since(self, cutoff: float, per: int = 3) -> dict:
+        """Every conversation's newest `per` deliveries updated since `cutoff`, in
+        one query (the Agents list used to ask once per row: 1,700 queries)."""
+        with self.store._conn() as c:
+            rows = c.execute("SELECT * FROM agent_deliveries WHERE updated_at >= ? "
+                             "ORDER BY created_at DESC", (float(cutoff),)).fetchall()
+        out: dict = {}
+        for r in rows:
+            lst = out.setdefault(r["ckey"], [])
+            if len(lst) < per:
+                lst.append(dict(r))
+        return out
+
     def recent(self, ckey: str, limit: int = 20) -> list:
         with self.store._conn() as c:
             rows = c.execute("SELECT * FROM agent_deliveries WHERE ckey=? ORDER BY created_at "
