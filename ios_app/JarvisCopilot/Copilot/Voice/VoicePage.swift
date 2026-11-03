@@ -64,7 +64,7 @@ struct VoicePage: View {
                 }
             }
             // The leading chip names the mode, so a centred title repeated it.
-            .jcScreen(liveMode ? "" : "Voice")
+            .jcScreen(liveMode ? "" : "Voice", header: .inline)
             .toolbar { toolbar }
         }
         .sheet(isPresented: $showLiveSettings) {

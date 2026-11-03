@@ -82,3 +82,21 @@ final class UnifiedPiecesRenderTests: XCTestCase {
         try RenderHarness.write(page, size: CGSize(width: 402, height: 874), name: "unified-pieces")
     }
 }
+
+/// Pages that take their header from `jcScreen(title)`: the large left title
+/// with the page's own toolbar items in the trailing pill.
+@MainActor
+final class JcScreenHeaderRenderTests: XCTestCase {
+    func testJcScreenPagesWearTheLargeTitle() throws {
+        let size = CGSize(width: 402, height: 874)
+        try RenderHarness.write(NavigationStack { BridgeSettingsView() }.environment(AppRouter()),
+                                size: size, name: "jcscreen-bridge")
+        try RenderHarness.write(NavigationStack { WatchPage() }, size: size, name: "jcscreen-watch")
+        try RenderHarness.write(HealthTabSettings(model: HealthTabModel()), size: size,
+                                name: "jcscreen-health-settings")
+        try RenderHarness.write(NavigationStack {
+            ScrollView { Text("Inline header").foregroundStyle(JcTheme.text).padding() }
+                .jcScreen("Voice", header: .inline)
+        }, size: CGSize(width: 402, height: 300), name: "jcscreen-inline")
+    }
+}

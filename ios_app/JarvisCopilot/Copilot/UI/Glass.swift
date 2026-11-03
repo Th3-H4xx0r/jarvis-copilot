@@ -327,14 +327,29 @@ struct JcSegmented<T: Hashable & Identifiable>: View {
 
 // MARK: - Screen chrome
 
+/// How `jcScreen` draws its title.
+enum JcScreenHeader {
+    /// The app's page header (`JcPage`): the large title on the left that folds
+    /// into a small centred one on scroll, the page's toolbar actions in the one
+    /// trailing glass pill.
+    case large
+    /// One small title in the bar and nothing else — for a screen with a header of
+    /// its own (Voice's mode chip, a full-screen map or scene).
+    case inline
+}
+
 extension View {
-    /// The screen pattern every ported page uses: aurora backdrop behind a clear
-    /// container, inline navigation title, dark chrome.
-    func jcScreen(_ title: String? = nil) -> some View {
+    /// The screen pattern every page uses: black canvas behind a clear container,
+    /// dark chrome, and — given a title — the app's page header: the large title
+    /// on the left, folding on scroll, with the page's own toolbar items in the
+    /// trailing glass pill. An empty title, or `header: .inline`, keeps the bar
+    /// to one small title for screens that draw their own header.
+    func jcScreen(_ title: String? = nil, header: JcScreenHeader = .large) -> some View {
         self
             .background(AuroraBackdrop().ignoresSafeArea())
             .modifier(JcNoTopEdgeLine())
-            .modifier(JcNavigationTitle(title: title))
+            .modifier(JcNavigationTitle(title: title,
+                                        header: (title ?? "").isEmpty ? .inline : header))
     }
 }
 
@@ -356,32 +371,43 @@ private struct JcNoTopEdgeLine: ViewModifier {
 /// and reset its state on the flip).
 private struct JcNavigationTitle: ViewModifier {
     let title: String?
+    var header: JcScreenHeader = .large
 
     func body(content: Content) -> some View {
         if let title {
-            content
-                // Settings → Battery usage charges on-screen CPU to the titled screen showing.
-                .onAppear { EnergyLedger.shared.screenAppeared(title) }
-                .onDisappear { EnergyLedger.shared.screenDisappeared(title) }
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                // Transparent chrome so the aurora runs behind the bar, as the
-                // Flutter screens do with `extendBodyBehindAppBar`.
-                .toolbarBackground(.hidden, for: .navigationBar)
-                // `glassAppBar` drew its title at 18/bold (now semibold); the system default is
-                // 17/semibold, so the title is supplied explicitly. Placement
-                // stays the platform's: iOS 26 centres an inline title only when
-                // the bar has a leading item, and otherwise pins it to the
-                // leading edge with the actions in a trailing glass platter — a
-                // `.principal` item does not override that.
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        Text(title)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(JcTheme.text)
-                            .lineLimit(1)
+            if header == .large {
+                // The `JcPage` header: the system's large title folds into the small
+                // centred one by itself, and trailing toolbar items share one glass
+                // platter on iOS 26 — so a caller's own `.toolbar` lands in the pill.
+                content
+                    // Settings → Battery usage charges on-screen CPU to the titled screen showing.
+                    .onAppear { EnergyLedger.shared.screenAppeared(title) }
+                    .onDisappear { EnergyLedger.shared.screenDisappeared(title) }
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.large)
+                    .toolbarBackground(.hidden, for: .navigationBar)
+            } else {
+                content
+                    .onAppear { EnergyLedger.shared.screenAppeared(title) }
+                    .onDisappear { EnergyLedger.shared.screenDisappeared(title) }
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    // Transparent chrome so the canvas runs behind the bar.
+                    .toolbarBackground(.hidden, for: .navigationBar)
+                    // The system's inline title is 17/semibold; the app's is 18. Placement
+                    // stays the platform's: iOS 26 centres an inline title only when
+                    // the bar has a leading item, and otherwise pins it to the
+                    // leading edge with the actions in a trailing glass platter — a
+                    // `.principal` item does not override that.
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text(title)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(JcTheme.text)
+                                .lineLimit(1)
+                        }
                     }
-                }
+            }
         } else {
             content
         }
