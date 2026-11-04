@@ -97,13 +97,14 @@ def test_the_pre_tool_check_enforces_it():
     assert get_pre_tool_call_block_message("browser_navigate", {"url": "https://kayak.com"}, task_id="t2") is None
 
 
-def test_a_later_message_closes_the_gate_again(monkeypatch):
-    clock = {"t": 0.0}
-    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+def test_taking_the_mac_back_closes_the_gate_again():
     gate.note_turn("t3", "open it in my browser")
     assert gate.block_message("chrome_navigate", "t3") is None
-    clock["t"] += gate.STICKY_S + 1  # a follow-up after the window no longer counts
     gate.note_turn("t3", [{"type": "image_url", "image_url": {"url": "data:x"}}])
+    assert gate.block_message("chrome_navigate", "t3") is None  # a follow-up keeps it
+    gate.note_turn("t3", "don't use my browser for this one")
+    assert gate.block_message("chrome_navigate", "t3") is not None
+    gate.note_turn("t3", "Continue.")
     assert gate.block_message("chrome_navigate", "t3") is not None
 
 
@@ -216,21 +217,59 @@ def test_a_harness_background_job_follows_its_chat_turn():
     assert not gate.allowed("chat2~background-1")
 
 
-def test_follow_ups_in_the_same_chat_keep_his_mac_ask_for_ten_minutes(monkeypatch):
-    """Live: "Continue." right after a Mac task was blocked ("couldn't … because the Mac control was blocked")."""
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+def test_follow_ups_keep_his_mac_ask_for_the_whole_chat():
+    """Live: "Continue." / "Can you try again?" / "Yes, try again. You have authorization." after
+    a Mac task were blocked (cacf096e2d57, 739bdff4a9f9). Pranav 2026-11-03: Mac OK lasts the chat."""
     gate.note_turn("chat", "Can you do some research for me on my MacBook")
-    gate.note_turn("chat", "Continue.")
-    assert gate.allowed("chat")
-    clock["t"] += 9 * 60
-    gate.note_turn("chat", "now open the second one")
-    assert gate.allowed("chat")
-    clock["t"] += 2 * 60  # 11 min after his ask: follow-ups no longer count
-    gate.note_turn("chat", "keep going")
-    assert not gate.allowed("chat")
+    for follow_up in ("Continue.", "Can you try again?", "Yes, try again. You have authorization.",
+                      "read the page", "now open the second one", "keep going"):
+        gate.note_turn("chat", follow_up)
+        assert gate.allowed("chat"), follow_up
     gate.note_turn("other-chat", "Continue.")
     assert not gate.allowed("other-chat")
+
+
+def test_stop_using_my_mac_takes_it_back():
+    gate.note_turn("chat", "on my mac open safari")
+    gate.note_turn("chat", "ok stop using my mac now")
+    assert not gate.allowed("chat")
+    gate.note_turn("chat", "try again")
+    assert not gate.allowed("chat")
+
+
+def test_an_ask_earlier_in_the_chat_survives_a_server_restart():
+    history = [{"role": "user", "content": "On my MacBook, open VS Code for IntelliStock"},
+               {"role": "assistant", "content": "Done, sir."},
+               {"role": "user", "content": "Send me ss of MacBook screen"},
+               {"role": "assistant", "content": "I couldn't get a useful screenshot."}]
+    gate.note_turn("restarted", "I am not near my Mac rn so do this for me", history=history)
+    assert gate.allowed("restarted")
+    took_back = history + [{"role": "user", "content": "don't use my mac anymore"},
+                           {"role": "assistant", "content": "Understood."}]
+    gate.note_turn("restarted-2", "try again", history=took_back)
+    assert not gate.allowed("restarted-2")
+    gate.note_turn("fresh", "try again", history=[{"role": "user", "content": "find flights to SF"}])
+    assert not gate.allowed("fresh")
+
+
+def test_a_yes_earlier_in_the_chat_counts_after_a_restart():
+    history = [{"role": "user", "content": "open amazon and find a deal"},
+               {"role": "assistant", "content": "Shall I open Today's Deals on your MacBook?"},
+               {"role": "user", "content": "Yes, you have full authorization."},
+               {"role": "assistant", "content": "Opening it now."}]
+    gate.note_turn("yes-chat", "can you try again?", history=history)
+    assert gate.allowed("yes-chat")
+
+
+@pytest.mark.parametrize("text", ["use visual control with clicks to do this",
+                                  "You must choose Computer Control.",
+                                  "do it with screen control"])
+def test_asking_for_computer_control_counts(text):
+    assert gate.explicit_mac_request(text)
+
+
+def test_claude_remote_control_is_not_a_mac_ask():
+    assert not gate.explicit_mac_request("start claude with --remote-control in the repo")
 
 
 @pytest.fixture
@@ -241,29 +280,31 @@ def devices(monkeypatch):
     return now
 
 
-def test_a_car_turn_never_inherits_the_macs_ask(monkeypatch, devices):
+def test_a_car_turn_never_inherits_the_macs_ask(devices):
     """Live (2026-10-21 00:01): his voice chat is the same on the Mac and in the car — a
     Mac turn's "play …" unlocked the Mac, and the next car turns drove the Mac's screen."""
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
     devices["voice"] = "mac-1"
     gate.note_turn("voice", "Can you do this on my Mac")
     assert gate.allowed("voice")
-    clock["t"] += 60
     devices["voice"] = "iphone-1"
     gate.note_turn("voice", "Play Blinding Lights on Spotify")
     assert not gate.allowed("voice")
     assert gate.block_message("computer_do", "voice") is not None
 
 
-def test_the_same_device_keeps_its_ask_for_ten_minutes(monkeypatch, devices):
-    clock = {"t": 1000.0}
-    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+def test_the_same_device_keeps_its_ask_for_the_chat(devices):
     devices["voice"] = "mac-1"
     gate.note_turn("voice", "Can you do this on my Mac")
-    clock["t"] += 60
     gate.note_turn("voice", "Continue.")
     assert gate.allowed("voice")
+
+
+def test_a_car_turn_never_inherits_the_macs_ask_from_history(monkeypatch, devices):
+    monkeypatch.setattr(gate, "_voice_off_the_mac", lambda task_id: True)
+    devices["voice2"] = "iphone-1"
+    gate.note_turn("voice2", "Play it again",
+                   history=[{"role": "user", "content": "Can you do this on my Mac"}])
+    assert not gate.allowed("voice2")
 
 
 def test_playing_music_in_spotify_is_never_done_by_driving_the_screen(devices):

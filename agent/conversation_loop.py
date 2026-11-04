@@ -403,7 +403,7 @@ def run_conversation(
         _prev_reply = next((m.get("content") for m in reversed(conversation_history or [])
                             if isinstance(m, dict) and m.get("role") == "assistant" and m.get("content")), None)
         mac_browser_gate.note_turn(effective_task_id, persist_user_message or user_message,
-                                   prev_assistant=_prev_reply)
+                                   prev_assistant=_prev_reply, history=conversation_history)
     except Exception:
         logger.debug("mac browser gate: turn not recorded", exc_info=True)
     # The harness Computer node (if any) this turn's computer_do uses, and the

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 import threading
-import time
 from collections import OrderedDict
 from typing import Optional
 
@@ -45,7 +44,13 @@ _ASKS = (
     re.compile(rf"\b(?:look(?:ing)?\s+at|see|check|read|view|scan|describe|analy[sz]e|glance\s+at|screenshot)"
                rf"\s+(?:of\s+)?(?:what(?:'s|\s+is)\s+on\s+)?my\s+(?:own\s+)?(?:{_TARGET}(?:'s)?\s+)?"
                rf"(?:screen|display|monitor)\b", re.I),
+    # "use computer control", "do it with visual control", "you must choose Computer Control"
+    # (live 2026-10-30: "use visual control with clicks to do this" was refused)
+    re.compile(r"\b(?:computer|visual|screen|mac|desktop)[\s-]+control\b", re.I),
 )
+# "stop using my Mac", "no more controlling my laptop" — takes a chat's ask back.
+_STOP_MAC = re.compile(rf"\b(?:stop|quit|no\s+more)\s+(?:using|controlling|driving|touching)\s+(?:the\s+|my\s+(?:own\s+)?)"
+                       rf"{_TARGET}\b", re.I)
 # Said to the Mac itself (its voice panel or app): a show-me request means this screen.
 _SHOW = re.compile(r"\b(?:open|show(?:\s+me)?|pull\s+up|bring\s+up|go\s+to|navigate\s+to|play|launch|"
                    r"put\s+on|start)\b", re.I)
@@ -62,13 +67,12 @@ _MAX_TURNS = 2000
 
 _lock = threading.Lock()
 _allowed: "OrderedDict[str, bool]" = OrderedDict()
-# When his last explicit ask in a chat was: follow-ups ("Continue.", "now open the
-# second one") in the same chat keep it for STICKY_S. Only an explicit ask renews it.
-_asked_at: "OrderedDict[str, float]" = OrderedDict()
-# The device that ask came from: his voice chat is the same on the Mac and in the car,
-# and a car turn must not drive the Mac on a Mac turn's say-so (2026-10-21 00:01).
+# Chats where he asked for his Mac, and the device that ask came from: every later turn
+# in that chat ("Continue.", "try again", "now open the second one") keeps it until he
+# takes it back (Pranav 2026-11-03: "Mac OK lasts the chat"). Same device only: his
+# voice chat is the same on the Mac and in the car, and a car turn must not drive the
+# Mac on a Mac turn's say-so (2026-10-21 00:01).
 _asked_from: "OrderedDict[str, Optional[str]]" = OrderedDict()
-STICKY_S = 600.0
 _pinned: set = set()
 
 BLOCK_MESSAGE = (
@@ -91,6 +95,8 @@ def explicit_mac_request(text, *, from_mac: bool = False, prev_assistant=None) -
     asks the Mac itself to show something (``from_mac``: said to its voice panel or
     app), or says yes to Jarvis asking about the Mac (``prev_assistant``)."""
     t = _text(text).replace("’", "'")
+    if _STOP_MAC.search(t):  # "stop using my Mac" reads like "using my Mac"
+        return False
     for pattern in _ASKS:
         for m in pattern.finditer(t):
             if not _NEGATED.search(t[:m.start()]):
@@ -101,6 +107,43 @@ def explicit_mac_request(text, *, from_mac: bool = False, prev_assistant=None) -
         return True
     prev = _text(prev_assistant or "")
     return bool(prev and _CONSENT.search(t) and _MAC_WORDS.search(prev))
+
+
+def explicit_mac_refusal(text) -> bool:
+    """True when the user takes the Mac back: "don't use my Mac", "not in my browser",
+    "stop using my laptop"."""
+    t = _text(text).replace("’", "'")
+    if _STOP_MAC.search(t):
+        return True
+    return any(_NEGATED.search(t[:m.start()]) for pattern in _ASKS for m in pattern.finditer(t))
+
+
+def asked_earlier(history) -> bool:
+    """Whether an earlier user turn of this chat asked for the Mac (or said yes to Jarvis
+    asking) and no later turn took it back. Used when the server restarted mid-chat and
+    lost the turn it remembered."""
+    asked, prev = False, None
+    for m in history or []:
+        if not isinstance(m, dict):
+            continue
+        if m.get("role") == "assistant" and m.get("content"):
+            prev = m.get("content")
+        elif m.get("role") == "user":
+            text = m.get("content")
+            if explicit_mac_request(text, prev_assistant=prev):
+                asked = True
+            elif explicit_mac_refusal(text):
+                asked = False
+    return asked
+
+
+def _voice_off_the_mac(task_id) -> bool:
+    """A spoken turn from somewhere other than the Mac (the phone, the car)."""
+    try:
+        from api import turn_origin
+        return turn_origin.is_voice_session(task_id) and not turn_origin.is_mac_session(task_id)
+    except Exception:
+        return False
 
 
 def _from_mac(task_id) -> bool:
@@ -126,10 +169,12 @@ def is_mac_control_tool(name: Optional[str]) -> bool:
     return str(name or "").startswith(_MAC_CONTROL_PREFIXES)
 
 
-def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
+def note_turn(task_id: Optional[str], text, *, prev_assistant=None, history=None) -> None:
     """Record whether this turn's user message allows the Mac browser (fails closed).
-    A pinned turn (a background job / subagent of a parent turn) keeps the parent's
-    decision instead of re-reading model-written text."""
+    An ask lasts the rest of the chat on the same device; ``history`` (the chat's earlier
+    messages) restores it after a server restart. A pinned turn (a background job /
+    subagent of a parent turn) keeps the parent's decision instead of re-reading
+    model-written text."""
     if not task_id:
         return
     parent = str(task_id).split("~", 1)[0] if "~" in str(task_id) else None
@@ -142,23 +187,32 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
         return
     try:
         allowed = explicit_mac_request(text, from_mac=_from_mac(task_id), prev_assistant=prev_assistant)
+        refused = not allowed and explicit_mac_refusal(text)
     except Exception:
-        allowed = False
+        allowed, refused = False, False
     device = _turn_device(task_id)
-    now = time.monotonic()
+    from_history = False
+    if not allowed and not refused and history and not _voice_off_the_mac(task_id):
+        try:
+            from_history = asked_earlier(history)
+        except Exception:
+            from_history = False
     with _lock:
         if task_id in _pinned:
             return
-        if allowed:
-            _asked_at[task_id] = now
-            _asked_at.move_to_end(task_id)
+        if refused:
+            _asked_from.pop(task_id, None)
+        elif allowed:
             _asked_from[task_id] = device
-            _asked_from.move_to_end(task_id)
-            while len(_asked_at) > _MAX_TURNS:
-                old, _ = _asked_at.popitem(last=False)
-                _asked_from.pop(old, None)
-        elif now - _asked_at.get(task_id, -1e9) < STICKY_S and _asked_from.get(task_id) == device:
+        elif task_id in _asked_from:
+            allowed = _asked_from[task_id] == device
+        elif from_history:
             allowed = True
+            _asked_from[task_id] = device
+        if task_id in _asked_from:
+            _asked_from.move_to_end(task_id)
+            while len(_asked_from) > _MAX_TURNS:
+                _asked_from.popitem(last=False)
         _remember(task_id, allowed)
 
 
@@ -238,5 +292,4 @@ def reset_for_tests() -> None:
     with _lock:
         _allowed.clear()
         _pinned.clear()
-        _asked_at.clear()
         _asked_from.clear()
