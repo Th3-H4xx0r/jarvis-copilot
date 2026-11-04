@@ -98,8 +98,7 @@ final class AgentActivityRenderTests: XCTestCase {
                         Spacer(minLength: 0)
                         AgentIslandTrailing(st: s.1)
                     }
-                    AgentIslandCenter(agent: s.0, st: s.1)
-                    AgentIslandBottom(st: s.1)
+                    AgentIslandBottom(agent: s.0, st: s.1)
                 }
                 .padding(14)
                 .frame(width: 370)

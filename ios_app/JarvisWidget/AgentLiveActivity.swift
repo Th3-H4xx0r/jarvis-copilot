@@ -23,11 +23,8 @@ struct AgentLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     AgentIslandTrailing(st: st)
                 }
-                DynamicIslandExpandedRegion(.center) {
-                    AgentIslandCenter(agent: agent, st: st)
-                }
                 DynamicIslandExpandedRegion(.bottom) {
-                    AgentIslandBottom(st: st)
+                    AgentIslandBottom(agent: agent, st: st)
                 }
             } compactLeading: {
                 AgentCompactLeading(agent: agent, st: st)

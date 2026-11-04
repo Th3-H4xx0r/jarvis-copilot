@@ -224,8 +224,7 @@ struct AgentLockScreenView: View {
 
 // MARK: - Dynamic Island
 
-/// Expanded, leading: the logo. (Beside the camera there's no room for the
-/// name: it read "Claude…" in the simulator; the name goes in `.center`.)
+/// Expanded, leading: the logo (beside the camera there's no room for more).
 struct AgentIslandLeading: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
@@ -235,23 +234,22 @@ struct AgentIslandLeading: View {
     }
 }
 
-/// Expanded, center (under the camera): "Claude Code · jarvis-copilot".
-struct AgentIslandCenter: View {
-    let agent: String
-    let st: AgentActivityAttributes.ContentState
-    var body: some View {
-        AgentWaitingWho(agent: agent, st: st, nameSize: 14, oneLine: true)
-            .frame(maxWidth: .infinity, alignment: .center)
-    }
-}
-
-/// Expanded, trailing: the state, or how long it has waited on you.
+/// Expanded, trailing: how long it has waited on you, or the turn's running
+/// time large like the workout island's clock, else the state.
 struct AgentIslandTrailing: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
         Group {
             if st.waitsOnYou {
                 AgentWaitingBadge(st: st, label: false)
+            } else if st.isWorking && st.since > 0 {
+                // A timer Text takes the width of its widest value: a fixed box.
+                Text(Date(timeIntervalSince1970: st.since), style: .timer)
+                    .font(.system(size: 24, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(AgentLA.primary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .frame(width: 76, alignment: .trailing)
             } else {
                 AgentStatePill(state: st.state)
             }
@@ -260,27 +258,37 @@ struct AgentIslandTrailing: View {
     }
 }
 
-/// Expanded, bottom: what the lead is doing, and its buttons.
+/// Expanded, bottom: "Claude Code · project" on the left, then what it's doing;
+/// or, waiting on you, what it asks with its buttons. Left-aligned under the logo, the way
+/// the workout island reads; inset from the island's round bottom corners.
 struct AgentIslandBottom: View {
+    let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: st.waitsOnYou ? 8 : 4) {
+            if !st.waitsOnYou {
+                AgentWaitingWho(agent: agent, st: st, nameSize: 15, oneLine: true)
+            }
             if st.waitsOnYou {
+                // The logo says who asks: the room goes to the ask and its buttons.
                 // The expanded island stops at ~144 pt: one line of command, 36 pt buttons.
-                VStack(alignment: .leading, spacing: 8) {
-                    AgentWaitingMessage(st: st, size: 15, commandLines: 1)
-                    AgentWaitingButtons(st: st, height: 36)
-                }
-                .padding(.top, 2)
-                .padding(.bottom, 6)
+                AgentWaitingMessage(st: st, size: 15, commandLines: 1)
+                AgentWaitingButtons(st: st, height: 36)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    AgentDetailRow(st: st)
-                    AgentActionsRow(st: st)
+                HStack(spacing: 8) {
+                    Circle().fill(st.isWorking ? AgentLA.primary : AgentLA.tertiary).frame(width: 6, height: 6)
+                    Text(st.step.isEmpty ? jcAgentStateLabel(st.state) : st.step)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(AgentLA.secondary)
+                        .lineLimit(1)
                 }
+                AgentActionsRow(st: st)
             }
         }
-        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
     }
 }
 
