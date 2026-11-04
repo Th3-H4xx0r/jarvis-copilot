@@ -19,10 +19,11 @@ final class WorkoutActivityRenderTests: XCTestCase {
             ("Push day", "figure.strengthtraining.traditional",
              CS(running: true, reference: now.addingTimeInterval(-1820), frozenElapsed: 1820, heartRate: 121,
                 distanceKm: nil, zone: 2, restEnds: now.addingTimeInterval(72), restStarted: now.addingTimeInterval(-48),
-                detail: "Bench Press · set 3 · 60 kg × 8")),
+                detail: "Bench Press · set 3 · 60 kg × 8", weight: "60", weightUnit: "kg", reps: 8)),
             ("Push day", "figure.strengthtraining.traditional",
              CS(running: true, reference: now.addingTimeInterval(-1900), frozenElapsed: 1900, heartRate: 134,
-                distanceKm: nil, zone: 3, detail: "Incline Dumbbell Press · set 1 · 22.5 kg × 10")),
+                distanceKm: nil, zone: 3, detail: "Incline Dumbbell Press · set 1 · 22.5 kg × 10",
+                weight: "22.5", weightUnit: "kg", reps: 10)),
             ("Cycle", "figure.outdoor.cycle",
              CS(running: false, reference: now, frozenElapsed: 3725, heartRate: nil, distanceKm: 21.4, zone: nil)),
             ("Yoga", "figure.yoga",
@@ -74,7 +75,7 @@ final class WorkoutActivityRenderTests: XCTestCase {
                         Spacer(minLength: 0)
                         WorkoutIslandTrailing(state: s.state)
                     }
-                    WorkoutIslandBottom(state: s.state)
+                    WorkoutIslandBottom(sport: s.sport, state: s.state)
                 }
                 .padding(14)
                 .frame(width: 370)
@@ -90,10 +91,18 @@ final class WorkoutActivityRenderTests: XCTestCase {
     func testNextSetSplitsTheExerciseFromTheSet() {
         let next = WorkoutNextSet("Bench Press · set 3 · 60 kg × 8")
         XCTAssertEqual(next?.exercise, "Bench Press")
+        XCTAssertEqual(next?.number, "Set 3")
+        XCTAssertEqual(next?.values, "60 kg × 8")
         XCTAssertEqual(next?.set, "Set 3 · 60 kg × 8")
         XCTAssertEqual(WorkoutNextSet("Plank")?.set, "")
         XCTAssertNil(WorkoutNextSet(nil))
         XCTAssertNil(WorkoutNextSet(""))
+    }
+
+    func testEveryButtonsActionRoundTrips() {
+        for action in WorkoutLiveAction.allCases {
+            XCTAssertEqual(WorkoutLiveAction(rawValue: WorkoutLiveActionIntent(action).action), action)
+        }
     }
 
     func testAnEndedRestFallsBackToTheWorkoutClock() {

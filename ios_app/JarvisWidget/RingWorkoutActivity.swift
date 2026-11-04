@@ -23,7 +23,7 @@ struct RingWorkoutActivity: Widget {
                     WorkoutIslandTrailing(state: context.state, isStale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    WorkoutIslandBottom(state: context.state, isStale: context.isStale)
+                    WorkoutIslandBottom(sport: context.attributes.sport, state: context.state, isStale: context.isStale)
                 }
             } compactLeading: {
                 WorkoutCompactLeading(symbol: context.attributes.symbol)
@@ -32,7 +32,7 @@ struct RingWorkoutActivity: Widget {
             } minimal: {
                 WorkoutCompactLeading(symbol: context.attributes.symbol)
             }
-            .keylineTint(JcAccent.color)
+            .keylineTint(.white)
         }
     }
 }

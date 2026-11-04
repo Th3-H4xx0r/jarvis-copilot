@@ -22,6 +22,13 @@ struct RingWorkoutAttributes: ActivityAttributes {
         var detail: String? = nil
         /// Distance shown in miles (the person's unit), else kilometres.
         var miles: Bool? = nil
+        /// Strength: the next set's weight in the person's unit ("62.5"), for the
+        /// −/+ buttons; nil when the exercise has no weight.
+        var weight: String? = nil
+        /// "kg" or "lb".
+        var weightUnit: String? = nil
+        /// Strength: the next set's reps (0 = not set yet); nil when it has none.
+        var reps: Int? = nil
 
         /// "3.42 mi" or "5.51 km".
         var distanceText: String? {

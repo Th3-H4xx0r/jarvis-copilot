@@ -1057,9 +1057,33 @@ extension RingWorkoutController {
         // Short: the activity's whole payload has to fit in 4 KB.
         let sport = RingSport(id: RingSport.strengthID, name: String(strength.log.name.prefix(40)),
                               symbol: RingSport.withID(RingSport.strengthID).symbol)
+        let values = strength.nextValues
         liveActivity?.update(sport: sport, running: true, elapsed: elapsed(at: clock()), heartRate: tick?.heartRate,
                              distanceKm: nil, zone: zone, restEnds: strength.rest?.ends,
-                             restStarted: strength.rest?.started, detail: strength.detail.map { String($0.prefix(90)) })
+                             restStarted: strength.rest?.started, detail: strength.detail.map { String($0.prefix(90)) },
+                             weight: values?.weight, weightUnit: strength.unit.symbol, reps: values?.reps)
+    }
+
+    /// A button on the workout's Live Activity (`WorkoutLiveActionIntent`): the
+    /// change is made as its button in the app would make it, then shown at once.
+    func liveAction(_ action: WorkoutLiveAction) {
+        switch action {
+        case .pause:
+            pause()
+            if let tick { pushLiveActivity(tick) }
+        case .resume:
+            resume()
+            if let tick { pushLiveActivity(tick) }
+        case .weightUp: strength?.adjustNext(.weight, by: 1)
+        case .weightDown: strength?.adjustNext(.weight, by: -1)
+        case .repsUp: strength?.adjustNext(.reps, by: 1)
+        case .repsDown: strength?.adjustNext(.reps, by: -1)
+        case .logSet: strength?.logNext()
+        case .restLonger: strength?.adjustRest(by: 15)
+        case .restShorter: strength?.adjustRest(by: -15)
+        case .skipRest: strength?.skipRest()
+        }
+        if strength != nil { saveStrengthNow() }
     }
 
     /// Finish: the log with each set's heart rate and records, calories and

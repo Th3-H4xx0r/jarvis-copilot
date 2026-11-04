@@ -9,8 +9,8 @@ final class WorkoutLiveActivity {
     private var activity: Activity<RingWorkoutAttributes>?
     private var lastPush = Date.distantPast
     private var lastRunning: Bool?
-    /// A rest starting, moving or ending, or the next set changing, is
-    /// pushed at once; heart rate waits for the budget.
+    /// A rest starting, moving or ending, or the next set changing (its
+    /// weight or reps too), is pushed at once; heart rate waits for the budget.
     private var lastStep: String?
     private var lastAttempt = Date.distantPast
 
@@ -23,13 +23,15 @@ final class WorkoutLiveActivity {
     var isShowing: Bool { activity != nil }
 
     func update(sport: RingSport, running: Bool, elapsed: Int, heartRate: Int?, distanceKm: Double?, zone: Int?,
-                restEnds: Date? = nil, restStarted: Date? = nil, detail: String? = nil) {
+                restEnds: Date? = nil, restStarted: Date? = nil, detail: String? = nil,
+                weight: String? = nil, weightUnit: String? = nil, reps: Int? = nil) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let state = RingWorkoutAttributes.ContentState(
             running: running, reference: Date().addingTimeInterval(-Double(elapsed)),
             frozenElapsed: Double(elapsed), heartRate: heartRate, distanceKm: distanceKm, zone: zone,
-            restEnds: restEnds, restStarted: restStarted, detail: detail, miles: DistanceUnit.current == .mi)
-        let step = "\(restEnds?.timeIntervalSince1970 ?? 0)|\(detail ?? "")"
+            restEnds: restEnds, restStarted: restStarted, detail: detail, miles: DistanceUnit.current == .mi,
+            weight: weight, weightUnit: weightUnit, reps: reps)
+        let step = "\(restEnds?.timeIntervalSince1970 ?? 0)|\(detail ?? "")|\(weight ?? "")|\(reps ?? -1)"
         // A rest ends by the clock: past it the activity is stale, and the
         // widget goes back to the workout's timer without a push.
         let content = ActivityContent(state: state, staleDate: restEnds)

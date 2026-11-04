@@ -76,6 +76,34 @@ final class StrengthSessionTests: XCTestCase {
         XCTAssertEqual(alerts.scheduled.first?.0, clock.addingTimeInterval(120))
     }
 
+    func testTheLiveActivityButtonsStepAndLogTheNextSet() {
+        lastTime(bench, [(60, 8), (60, 8)])
+        let s = session(exercises: [bench])
+        XCTAssertEqual(s.nextValues?.weight, "60")
+        XCTAssertEqual(s.nextValues?.reps, 8)
+        s.adjustNext(.weight, by: 1)
+        s.adjustNext(.reps, by: -1)
+        XCTAssertEqual(s.nextValues?.weight, "62.5")
+        XCTAssertEqual(s.nextValues?.reps, 7)
+        s.logNext()
+        let first = s.log.exercises[0].sets[0]
+        XCTAssertEqual(first.kg, 62.5)
+        XCTAssertEqual(first.reps, 7)
+        XCTAssertTrue(first.isDone)
+        XCTAssertNotNil(s.rest)
+        // The next set shows last time's values again.
+        XCTAssertEqual(s.nextValues?.weight, "60")
+        XCTAssertEqual(s.nextValues?.reps, 8)
+    }
+
+    func testTheLiveActivityNeverStepsBelowZero() {
+        let s = session(exercises: [bench])
+        s.adjustNext(.weight, by: -1)
+        s.adjustNext(.reps, by: -1)
+        XCTAssertEqual(s.nextValues?.weight, "0")
+        XCTAssertEqual(s.nextValues?.reps, 0)
+    }
+
     func testASetWithNothingToCountOpensTheKeypad() {
         let s = session(exercises: [bench])
         let e = s.log.exercises[0]

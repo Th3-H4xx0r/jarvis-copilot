@@ -403,6 +403,37 @@ final class StrengthSession: ObservableObject {
         return parts.joined(separator: " · ")
     }
 
+    // MARK: Live Activity buttons
+
+    /// The next set's weight ("62.5", in the person's unit) and reps, as the Live
+    /// Activity's −/+ buttons show them: its own values, else last time's (as
+    /// `detail` does). Nil for a field the exercise doesn't use; 0 when unknown.
+    var nextValues: (weight: String?, reps: Int?)? {
+        guard let next = nextUp else { return nil }
+        let values = next.set.kg != nil || next.set.reps != nil ? next.set
+            : (previous(next.set.id, in: next.exercise.id) ?? next.set)
+        let kind = next.exercise.kind
+        return (kind.usesWeight ? unit.format(values.kg ?? 0) : nil,
+                kind.usesReps ? (values.reps ?? 0) : nil)
+    }
+
+    /// −/+ on the next set: a plate's step of weight, or one rep. An empty set
+    /// first takes last time's values, so the change starts from what it shows.
+    func adjustNext(_ field: SetField, by steps: Int) {
+        guard let next = nextUp else { return }
+        if next.set.kg == nil && next.set.reps == nil { copyPrevious(next.set.id, in: next.exercise.id) }
+        guard let current = nextUp, current.set.id == next.set.id else { return }
+        let step = field == .weight ? unit.step : 1
+        let value = (self.value(field, of: current.set) ?? 0) + Double(steps) * step
+        setValue(max(0, value), field: field, set: current.set.id, in: current.exercise.id)
+    }
+
+    /// Log the next set, as its tick in the app does (which starts the rest).
+    func logNext() {
+        guard let next = nextUp else { return }
+        toggleDone(next.set.id, in: next.exercise.id)
+    }
+
     // MARK: Rest
 
     func startRest(seconds: Int, after set: UUID) {

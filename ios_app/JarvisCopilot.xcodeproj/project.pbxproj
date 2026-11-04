@@ -23,6 +23,7 @@
 		034082D75854BCAF4477C39E /* LiveCaptionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC76EA030922E52DEA5E27BE /* LiveCaptionsSettingsView.swift */; };
 		038069EF52B3458FEBCFCA18 /* DashcamExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73DD265319271BA771FCD710 /* DashcamExportTests.swift */; };
 		039B4399E28DC2D93B42E77B /* RingHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6794BFF29A8955885D2DFF9 /* RingHistoryStore.swift */; };
+		03D42E253260BD1941E2AA37 /* WorkoutLiveIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */; };
 		03E25F2A2C76440424E55F2E /* IslandDesignsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A43AF4B8CFB7F55DC620A6 /* IslandDesignsStore.swift */; };
 		03F3E45BF303E8D56DC714ED /* JcTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E9AD94F1C0459F59355A1C /* JcTheme.swift */; };
 		03F5B2CD5DD775E59AE1790B /* WorkoutViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F918C742EB0DCFAA0DAB3646 /* WorkoutViews.swift */; };
@@ -36,6 +37,7 @@
 		063EC72FB433EC60E0A8E457 /* CarLightLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C08251FD1328C01C2D56EC2 /* CarLightLayout.swift */; };
 		06404466A5F34DAEA1F39690 /* AudioSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D47A6D7A646C7790970F30E /* AudioSessionController.swift */; };
 		06692C9000C765ED495D8E99 /* ServerLogsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55E0D7E58635BEC7823851E /* ServerLogsStore.swift */; };
+		06CBA0CF13DABDAE8F3332A6 /* WorkoutLiveIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */; };
 		06FF463F01E03EB61F24513E /* JcAccent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BD547D065A4A998BAAFE07 /* JcAccent.swift */; };
 		0749DE7EA697FBD3A1FA5961 /* CronsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D883E45BA9E8351D1C9F64D /* CronsAPI.swift */; };
 		07621D37A721396DB5BC4BB2 /* VoiceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */; };
@@ -2356,6 +2358,7 @@
 		DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
 		DD4AD08296D0BB6CACA7C8ED /* GlassesPlaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesPlaces.swift; sourceTree = "<group>"; };
 		DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoderTests.swift; sourceTree = "<group>"; };
+		DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutLiveIntents.swift; sourceTree = "<group>"; };
 		DE15106A360CC72986B8C768 /* ButtonStates.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonStates.swift; sourceTree = "<group>"; };
 		DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
 		DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAPITests.swift; sourceTree = "<group>"; };
@@ -4404,6 +4407,7 @@
 				1AB267A6EA889793B608DA7B /* TalkHereIntent.swift */,
 				3147B0BDFA2874440C835FA2 /* JarvisPulse.swift */,
 				317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */,
+				DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -5040,6 +5044,7 @@
 				BD1DF43D95E8AA20A82227C1 /* TalkHereIntent.swift in Sources */,
 				0B5A97E10165C18B029D628C /* JarvisPulse.swift in Sources */,
 				268DE107A0477CC0C6CC6496 /* RingWorkoutActivityViews.swift in Sources */,
+				06CBA0CF13DABDAE8F3332A6 /* WorkoutLiveIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6223,6 +6228,7 @@
 				0D34BCA299E7CD069B564644 /* MacScreenViewer.swift in Sources */,
 				3FF3C31292D1CD92C5B30CBE /* MacCommandCenter.swift in Sources */,
 				477EDB1B03231104CC9B7CCD /* RingWorkoutActivityViews.swift in Sources */,
+				03D42E253260BD1941E2AA37 /* WorkoutLiveIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
