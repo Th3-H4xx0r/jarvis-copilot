@@ -403,6 +403,14 @@ class _Unavailable(Exception):
     strip their buttons, and the next good tick would start / alert them again."""
 
 
+def _turn_mark(cs: dict) -> str:
+    """What the activity is about right now: the lead session, its turn, and the
+    wait on you if any. A swipe-away holds until this changes — the agent's next
+    turn, or the next time it needs you — not for the whole episode: a busy
+    agent's episode never ends, and the activity never came back (2026-11-03)."""
+    return f"{cs.get('key')}|{cs.get('since')}|{_wait_id(cs)}"
+
+
 def _wait_id(cs: dict) -> str:
     """One wait on you: the lead session and when its request started waiting.
     Its fingerprint isn't part of it — that arrives a moment after the hook."""
@@ -430,8 +438,10 @@ class AgentLaPusher:
         self._clock = clock
         self._mono = mono
         self._lock = threading.RLock()
-        # group -> {"id": episode id, "started": {device}, "suppressed": {device}}
+        # group -> {"id": episode id, "started": {device},
+        #           "suppressed": {device: the _turn_mark it was hidden at (None = not seen yet)}}
         self._episodes: dict = {}
+        self._episode_seq = 0
         # (device, group) -> {"sig", "ts", "cs"}
         self._pushed: dict = {}
         # fingerprint -> when it was last held (answerable). One that stops being
@@ -529,7 +539,7 @@ class AgentLaPusher:
     def activity_ended(self, device_id: str, agent: str, token: str = "",
                        dismissed: bool = False) -> None:
         """An activity ended on the phone. ``dismissed`` (swiped away by you) keeps
-        it from being started again until that agent's next episode."""
+        it from being started again until the agent's next turn or wait on you."""
         group, device = group_of(agent), device_id or "unknown"
         if group is None:
             return
@@ -544,7 +554,7 @@ class AgentLaPusher:
                 self._save(reg)
                 self._pushed.pop((device, group), None)
             if dismissed and group in self._episodes:
-                self._episodes[group]["suppressed"].add(device)
+                self._suppress(group, device, self._last_desired.get(group))
 
     # ── state ────────────────────────────────────────────────────────────
     @staticmethod
@@ -585,12 +595,38 @@ class AgentLaPusher:
         # Episodes: one per stretch of time an agent's activity is wanted.
         for g in desired:
             if g not in self._episodes:
-                self._episodes[g] = {"id": f"{g}-{int(self._clock() * 1000)}",
-                                     "started": set(), "suppressed": set()}
+                self._episodes[g] = {"id": self._episode_id(g), "started": set(), "suppressed": {}}
         for g in [g for g in self._episodes if g not in desired]:
             self._episodes.pop(g, None)
+        for g, cs in desired.items():
+            self._lift_suppression(g, cs)
         self._last_desired = desired
         return desired
+
+    def _episode_id(self, group) -> str:
+        self._episode_seq += 1
+        return f"{group}-{int(self._clock() * 1000)}-{self._episode_seq}"
+
+    def _suppress(self, group, device, cs) -> None:
+        """Hide ``group`` on ``device`` until what it's about changes."""
+        self._episodes[group]["suppressed"][device] = _turn_mark(cs) if cs else None
+
+    def _lift_suppression(self, group, cs) -> None:
+        """A new turn or wait brings a hidden activity back: push-to-start again,
+        and a new episode id, which lifts the app's own dismissal (it is keyed to
+        the episode) so a foregrounded app starts it too."""
+        ep = self._episodes[group]
+        mark, lifted = _turn_mark(cs), []
+        for device, at in list(ep["suppressed"].items()):
+            if at is None:
+                ep["suppressed"][device] = mark      # first look since the swipe
+            elif at != mark:
+                lifted.append(device)
+        if lifted:
+            for device in lifted:
+                ep["suppressed"].pop(device, None)
+                ep["started"].discard(device)
+            ep["id"] = self._episode_id(group)
 
     def snapshot(self) -> dict:
         """What the app shows while it's in the foreground (``/agent-la/state``).
@@ -679,13 +715,14 @@ class AgentLaPusher:
         log.warning("agent LA update failed (%s, token …%s): %s", group, str(token)[-6:],
                     res.get("error"))
         if self._dead(res):
-            # The activity is gone (ended on the phone while the app was closed):
-            # forget it, and don't start a new one this episode.
+            # The activity is gone (ended on the phone while the app was closed —
+            # a swipe, an app update): forget it, and start a new one at the
+            # agent's next turn or wait on you.
             self._device(reg, device)["activities"].pop(group, None)
             self._save(reg)
             self._pushed.pop(key, None)
             if group in self._episodes:
-                self._episodes[group]["suppressed"].add(device)
+                self._suppress(group, device, cs)
         return 0
 
     def _forget_activity(self, reg, device, group) -> None:

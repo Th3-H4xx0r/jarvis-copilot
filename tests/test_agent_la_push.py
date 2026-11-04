@@ -336,6 +336,57 @@ def test_a_dismissed_activity_is_not_restarted_in_the_same_episode():
     assert sender.events()[-1] == ("start", "START")
 
 
+def test_a_dismissed_activity_comes_back_on_the_agents_next_turn():
+    # Pranav, 2026-11-03: "live activity for agents is not starting" — he had
+    # swiped broken cards away mid-session, and a busy agent's episode never ends.
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", started=900.0)], sender=sender)
+    p.register_start_token("phone", "START")
+    p.register_activity_token("phone", "claude", "ACT1")
+    before = p.snapshot()["activities"][0]["episode"]
+    p.activity_ended("phone", "claude", "ACT1", dismissed=True)
+    sender.calls.clear()
+    clock.t += 30
+    p.tick()
+    assert sender.calls == []        # hidden for the rest of this turn
+    box["sessions"] = [tracked("a", started=clock.t, last=clock.t)]
+    p.tick()
+    assert sender.events()[-1] == ("start", "START")
+    # The app's own dismissal is keyed to the episode: a new id lifts it there too.
+    assert p.snapshot()["activities"][0]["episode"] != before
+
+
+def test_a_dismissed_activity_comes_back_when_the_agent_needs_you():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.register_activity_token("phone", "claude", "ACT1")
+    p.tick()
+    p.activity_ended("phone", "claude", "ACT1", dismissed=True)
+    sender.calls.clear()
+    box["sessions"] = [tracked("a", state="approval", last=clock.t,
+                               pending={"kind": "approval", "fingerprint": "fp", "at": clock.t})]
+    p.tick()
+    assert sender.events()[-1] == ("start", "START")
+
+
+def test_an_activity_gone_from_the_phone_comes_back_on_the_next_turn():
+    # An app update (or iOS) ends it while the app is closed: the next update
+    # finds a dead token. Not forever — the agent's next turn brings it back.
+    sender = Sender(status=410)
+    p, box, clock, store = pusher([tracked("a")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.register_activity_token("phone", "claude", "ACT1")
+    clock.t += 60
+    box["sessions"] = [tracked("a", step="Bash: make", last=clock.t)]
+    p.tick()
+    sender.status = 200
+    sender.calls.clear()
+    box["sessions"] = [tracked("a", started=clock.t, last=clock.t)]
+    p.tick()
+    assert ("start", "START") in sender.events()
+
+
 def test_turning_the_feature_off_ends_every_activity():
     sender = Sender()
     p, box, clock, _ = pusher([tracked("a"), tracked("b", "codex")], sender=sender)
