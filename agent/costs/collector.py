@@ -395,8 +395,17 @@ def fetch_anthropic(ctx: Context) -> bool:
     per_day: Dict[str, Dict[str, Any]] = {}
     page: Optional[str] = None
     for _ in range(20):
-        data = ctx.get_json("https://api.anthropic.com/v1/organizations/cost_report",
-                            headers=headers, params=base + ([("page", page)] if page else [])) or {}
+        try:
+            data = ctx.get_json("https://api.anthropic.com/v1/organizations/cost_report",
+                                headers=headers, params=base + ([("page", page)] if page else [])) or {}
+        except ProviderError as exc:
+            if exc.status in (401, 403):
+                raise ProviderError(
+                    "This key can't read Anthropic billing. It needs an Admin key (starts with "
+                    "sk-ant-admin, Console → Settings → Admin keys); individual accounts must set "
+                    "up an organization first (Console → Settings → Organization).",
+                    status=exc.status) from exc
+            raise
         for bucket in data.get("data") or []:
             day = _utc_day(bucket.get("starting_at"))
             d = per_day.setdefault(day, {"amount": 0.0, "by_item": {}})

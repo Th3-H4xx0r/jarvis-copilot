@@ -96,6 +96,17 @@ def test_connect_refuses_unknown_fields_and_junk(home):
     assert _post("/api/costs/connect", {"service": "anthropic", "fields": {"admin_key": ""}}).status == 400
 
 
+def test_connect_refuses_a_regular_key_in_an_admin_field(home):
+    before = (home / ".env").read_text()
+    for key in ("sk-ant-usr-1234567890abcdef", "sk-ant-api03-1234567890abcdef"):
+        h = _post("/api/costs/connect", {"service": "anthropic", "fields": {"admin_key": key}})
+        assert h.status == 400
+        assert "sk-ant-admin" in json.dumps(h.payload())
+    h = _post("/api/costs/connect", {"service": "openai", "fields": {"admin_key": "sk-proj-1234567890"}})
+    assert h.status == 400 and "sk-admin-" in json.dumps(h.payload())
+    assert (home / ".env").read_text() == before
+
+
 def test_disconnect_removes_only_billing_only_keys(home):
     (home / ".env").write_text("ANTHROPIC_ADMIN_KEY=sk-ant-admin01-x\nELEVENLABS_API_KEY=el-keep\n")
     assert _post("/api/costs/disconnect", {"service": "anthropic"}).payload()["removed_keys"] == 1

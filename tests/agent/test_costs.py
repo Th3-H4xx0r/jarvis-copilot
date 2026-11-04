@@ -192,6 +192,21 @@ def test_anthropic_cost_report_amounts_are_cents(home):
     assert detail["billing_items"][0]["item"] == "claude-sonnet-5-5"
 
 
+def test_anthropic_403_says_what_key_is_needed(home):
+    # A regular API key authenticates but can't read billing: Anthropic answers a
+    # bare "Missing permissions" that told him nothing.
+    (home / ".env").write_text("ANTHROPIC_ADMIN_KEY=sk-ant-admin01-test\n")
+
+    def http_get(url, headers=None, params=None):
+        raise collector.ProviderError('HTTP 403: {"type":"error","error":{"type":"permission_error"}}',
+                                      status=403)
+
+    result = collector.collect("anthropic", http_get=http_get)
+    error = result["services"]["anthropic"]["error"]
+    assert "Admin key" in error and "sk-ant-admin" in error
+    assert "permission_error" not in error
+
+
 def test_a_custom_subscription_can_be_added_and_deleted(home):
     store = CostStore(home / "costs.db")
     sid = settings.add_custom("Domain", 12, interval="year", store=store)

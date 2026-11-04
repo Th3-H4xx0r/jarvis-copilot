@@ -143,6 +143,9 @@ def _connect(handler, body: Dict[str, Any]) -> bool:
         if not pattern.match(value):
             bad(handler, f"That doesn't look like a valid {spec['label']}.")
             return True
+        if spec.get("prefix") and not value.startswith(spec["prefix"]):
+            bad(handler, spec.get("prefix_hint") or f"{spec['label']} starts with {spec['prefix']}.")
+            return True
         updates[spec["env"]] = value
     if not updates:
         bad(handler, "Nothing to save.")

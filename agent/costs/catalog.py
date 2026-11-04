@@ -39,7 +39,12 @@ SERVICES: List[Dict[str, Any]] = [
                  "Anthropic's own daily cost report too. Admin keys need an organization account."),
         "fields": [
             {"key": "admin_key", "label": "Admin API key", "kind": "secret",
-             "env": "ANTHROPIC_ADMIN_KEY", "billing_only": True, "placeholder": "sk-ant-admin01-…"},
+             "env": "ANTHROPIC_ADMIN_KEY", "billing_only": True, "placeholder": "sk-ant-admin01-…",
+             "prefix": "sk-ant-admin",
+             "prefix_hint": ("That's a regular API key. Billing needs an Admin key, which starts with "
+                             "sk-ant-admin: Console → Settings → Admin keys. Individual accounts "
+                             "can't make one until they set up an organization (Console → Settings → "
+                             "Organization).")},
         ],
     },
     {
@@ -191,7 +196,10 @@ SERVICES: List[Dict[str, Any]] = [
         "help": "An OpenAI Admin key reads your organization's daily costs.",
         "fields": [
             {"key": "admin_key", "label": "Admin API key", "kind": "secret",
-             "env": "OPENAI_ADMIN_KEY", "billing_only": True, "placeholder": "sk-admin-…"},
+             "env": "OPENAI_ADMIN_KEY", "billing_only": True, "placeholder": "sk-admin-…",
+             "prefix": "sk-admin-",
+             "prefix_hint": ("That's a project or user key. Costs need an Admin key, which starts "
+                             "with sk-admin-: platform.openai.com → Settings → Admin keys.")},
         ],
     },
     {
