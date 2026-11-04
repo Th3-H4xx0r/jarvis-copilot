@@ -948,6 +948,21 @@ class TestMarkJobRunConcurrency:
 
 
 class TestSaveJobOutput:
+    def test_keeps_only_the_newest_outputs(self, tmp_cron_dir, monkeypatch):
+        # An every-minute job wrote 231k files and filled the server's disk.
+        monkeypatch.setattr("cron.jobs.MAX_OUTPUTS_PER_JOB", 3)
+        out_dir = tmp_cron_dir / "cron" / "output" / "busy"
+        out_dir.mkdir(parents=True)
+        for i in range(5):
+            (out_dir / f"2026-01-0{i + 1}_00-00-00.md").write_text(f"old {i}")
+        (out_dir / "notes.txt").write_text("not an output")
+        newest = save_job_output("busy", "fresh")
+        kept = sorted(p.name for p in out_dir.glob("*.md"))
+        assert len(kept) == 3
+        assert newest.name in kept
+        assert "2026-01-05_00-00-00.md" in kept and "2026-01-01_00-00-00.md" not in kept
+        assert (out_dir / "notes.txt").exists()
+
     def test_creates_output_file(self, tmp_cron_dir):
         output_file = save_job_output("test123", "# Results\nEverything ok.")
         assert output_file.exists()

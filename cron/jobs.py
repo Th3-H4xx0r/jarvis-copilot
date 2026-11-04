@@ -1180,8 +1180,23 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
     return due
 
 
+# Outputs kept per job. Each run writes one file, silent runs included, so an
+# every-minute job without a cap wrote 231k files and filled the disk.
+MAX_OUTPUTS_PER_JOB = 200
+
+
+def _prune_outputs(job_output_dir: Path) -> None:
+    """Drop all but the newest MAX_OUTPUTS_PER_JOB outputs (names sort by time)."""
+    try:
+        outputs = sorted(job_output_dir.glob("*.md"), key=lambda p: p.name)
+        for old in outputs[:-MAX_OUTPUTS_PER_JOB] if MAX_OUTPUTS_PER_JOB > 0 else []:
+            old.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.debug("pruning cron output %s failed: %s", job_output_dir, exc)
+
+
 def save_job_output(job_id: str, output: str):
-    """Save job output to file."""
+    """Save job output to file, keeping only the newest MAX_OUTPUTS_PER_JOB."""
     ensure_dirs()
     job_output_dir = OUTPUT_DIR / job_id
     job_output_dir.mkdir(parents=True, exist_ok=True)
@@ -1204,7 +1219,8 @@ def save_job_output(job_id: str, output: str):
         except OSError:
             pass
         raise
-    
+
+    _prune_outputs(job_output_dir)
     return output_file
 
 
