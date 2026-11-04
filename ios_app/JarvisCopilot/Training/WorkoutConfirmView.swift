@@ -505,10 +505,10 @@ struct WorkoutConfirmView: View {
         } label: {
             Text("Start")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(JcTheme.accent)
+                .foregroundStyle(JcAccent.onFill)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .jcLiquidGlass(in: Capsule())
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: true)
         }
         .buttonStyle(.plain)
         .disabled(!canStart)

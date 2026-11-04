@@ -225,7 +225,7 @@ struct IslandManageRow: View {
             .disabled(busy || entry.priority >= 99)
         }
         .foregroundStyle(JcTheme.muted)
-        .background(JcTheme.glassFill, in: Capsule())
+        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
         .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         .accessibilityLabel("\(entry.name) priority \(entry.priority)")
     }

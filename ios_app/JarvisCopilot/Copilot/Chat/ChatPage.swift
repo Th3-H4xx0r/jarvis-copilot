@@ -261,7 +261,7 @@ struct ChatClarifyBar: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
             .strokeBorder(JcTheme.border, lineWidth: 1))
         .padding(.horizontal, 12)

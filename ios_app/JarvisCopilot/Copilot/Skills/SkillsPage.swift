@@ -429,7 +429,7 @@ struct SkillArgChips: View {
                         .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .frame(maxWidth: .infinity)
-                        .background(on ? JcTheme.accent.opacity(0.22) : JcTheme.glassFill, in: Capsule())
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: on)
                         .overlay(Capsule().strokeBorder(on ? JcTheme.accent : JcTheme.glassBorder, lineWidth: 1))
                 }
                 .buttonStyle(.plain)

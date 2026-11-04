@@ -126,10 +126,10 @@ struct ChatFormCard: View {
                     Button { values[field.key] = picked ? "" : option } label: {
                         Text(option)
                             .font(JcText.small)
-                            .foregroundStyle(picked ? JcTheme.bg : JcTheme.text)
+                            .foregroundStyle(JcButton.label)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .background(picked ? JcTheme.accent : JcTheme.glassFill, in: Capsule())
+                            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: picked)
                             .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
                     }
                     .buttonStyle(.plain)

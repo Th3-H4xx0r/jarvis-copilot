@@ -118,7 +118,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
 
     var tint: Color {
         switch self {
-        case .battery, .steps, .exercise: return JcTheme.accent
+        case .battery, .steps, .exercise: return JcMetric.activity
         case .sleep: return JcTheme.accentAlt
         case .sleepDebt: return JcTheme.amber
         case .heartRate: return RingMeasurementType.heartRate.tint
@@ -126,7 +126,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .hrv: return RingMeasurementType.hrv.tint
         case .stress: return RingMeasurementType.stress.tint
         case .temperature: return RingMeasurementType.temperature.tint
-        case .weight: return JcTheme.blue
+        case .weight: return JcMetric.activitySoft
         case .bodyFat: return JcTheme.success
         case .bloodPressure: return BandMeasure.bloodPressure.tint
         case .bloodGlucose: return BandMeasure.bloodGlucose.tint

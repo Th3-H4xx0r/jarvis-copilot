@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Primary CTA — accent label on clear liquid glass. (The name is historical.)
+/// Primary CTA — the one main button: a solid `JcAccent.fill` with an
+/// `JcAccent.onFill` label (a danger one is the grey button with a red label).
+/// (The name is historical.)
 struct GradientButton: View {
     let title: String
     var symbol: String? = nil
@@ -26,7 +28,7 @@ struct GradientButton: View {
         self.action = action
     }
 
-    private var tint: Color { danger ? JcTheme.danger : JcTheme.accent }
+    private var tint: Color { danger ? JcTheme.danger : JcAccent.onFill }
 
     var body: some View {
         Button { action?() } label: {
@@ -42,7 +44,8 @@ struct GradientButton: View {
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
-            .jcLiquidGlass(in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous),
+                             prominent: !danger)
         }
         .buttonStyle(.plain)
         .opacity(action == nil && !busy ? 0.45 : 1)
@@ -51,7 +54,7 @@ struct GradientButton: View {
 }
 
 /// The primary CTA pill — `pair_page.dart`'s `_BlueButton`, the one commit action on
-/// a screen (Pair, Pair another device): accent label on clear liquid glass.
+/// a screen (Pair, Pair another device): the solid main-button fill.
 struct BlueButton: View {
     let title: String
     var busy: Bool = false
@@ -66,14 +69,15 @@ struct BlueButton: View {
     var body: some View {
         Button { action?() } label: {
             HStack(spacing: 10) {
-                if busy { ProgressView().controlSize(.small).tint(JcTheme.accent) }
+                if busy { ProgressView().controlSize(.small).tint(JcAccent.onFill) }
                 Text(title).font(.system(size: 15, weight: .semibold))
             }
-            .foregroundStyle(JcTheme.accent)
+            .foregroundStyle(JcAccent.onFill)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 22)
             .padding(.vertical, 15)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous),
+                             prominent: true)
         }
         .buttonStyle(.plain)
         .opacity(action == nil && !busy ? 0.5 : 1)

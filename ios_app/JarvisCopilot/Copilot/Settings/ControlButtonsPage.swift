@@ -676,9 +676,8 @@ struct SymbolPicker: View {
                             Image(systemName: symbol.name)
                                 .font(.title3)
                                 .frame(maxWidth: .infinity, minHeight: 52)
-                                .foregroundStyle(symbol.name == selection ? Color.black : Color.primary)
-                                .background(symbol.name == selection ? JcAccent.color : Color.white.opacity(0.06),
-                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .foregroundStyle(JcButton.label)
+                                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: symbol.name == selection)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(symbol.name)
@@ -698,8 +697,8 @@ struct SymbolPicker: View {
                 .font(.caption.weight(.medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .foregroundStyle(category == key ? Color.black : Color.primary)
-                .background(category == key ? JcAccent.color : Color.white.opacity(0.08), in: Capsule())
+                .foregroundStyle(JcButton.label)
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: category == key)
         }
         .buttonStyle(.plain)
     }

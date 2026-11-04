@@ -68,7 +68,7 @@ struct StrengthExerciseCard: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
-                        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.primary)
@@ -130,9 +130,9 @@ struct StrengthExerciseCard: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(JcTheme.accent)
+                    .foregroundStyle(JcButton.label)
                     .frame(width: 34, height: 28)
-                    .jcLiquidGlass(in: Capsule())
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
             }
             .accessibilityLabel("\(exercise.name) options")
         }

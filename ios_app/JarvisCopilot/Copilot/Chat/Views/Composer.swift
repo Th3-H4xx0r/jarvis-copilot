@@ -63,9 +63,9 @@ struct ChatComposer: View {
                 } label: {
                     JcIcon(canStop ? "stop.fill" : "arrow.up")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(canStop ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
+                        .foregroundStyle(canStop ? JcTheme.text : (canSend ? JcAccent.onFill : JcTheme.muted))
                         .frame(width: 44, height: 44)
-                        .jcLiquidGlass(in: Circle())
+                        .jcButtonSurface(in: Circle(), prominent: canSend && !canStop)
                 }
                 .buttonStyle(.plain)
                 .disabled(!canStop && !canSend)

@@ -104,9 +104,9 @@ struct ExercisePicker: View {
             Image(systemName: "chevron.down").font(.system(size: 10, weight: .medium))
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(active ? Color.black : JcTheme.text)
+        .foregroundStyle(JcButton.label)
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(active ? JcTheme.accent : Color.white.opacity(0.1), in: Capsule())
+        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: active)
     }
 
     private func row(_ exercise: Exercise) -> some View {

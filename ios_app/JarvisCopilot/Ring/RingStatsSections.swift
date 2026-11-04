@@ -53,7 +53,7 @@ struct RingStatsSections: View {
                 spo2(day, summary)
             }
             if shows(.hrv, capabilities.hrv || day.hrv != nil) {
-                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [], measuring: .hrv, metric: .hrv,
+                series("HRV", unit: "ms", color: JcMetric.activitySoft, values: day.hrv, extra: [], measuring: .hrv, metric: .hrv,
                        stats: [("Latest", summary.hrvLatest.map { "\($0) ms" }), ("Average", summary.hrvAvg.map { "\($0) ms" })],
                        format: { "\(Int($0.rounded())) ms" })
             }
@@ -97,7 +97,7 @@ struct RingStatsSections: View {
     private func activity(_ day: RingDay, _ s: RingDaySummary) -> some View {
         RingMetricCard(
             title: "Activity",
-            symbol: RingSymbol(name: "figure.walk", tint: JcTheme.accent),
+            symbol: RingSymbol(name: "figure.walk", tint: JcMetric.activity),
             headline: RingStat(label: "Steps", value: s.steps.map { $0.formatted() }),
             details: [
                 RingStat(label: "Calories", value: s.kilocalories.map { String(format: "%.0f kcal", $0) }),
@@ -117,7 +117,7 @@ struct RingStatsSections: View {
             Chart {
                 ForEach(day.stepSlots, id: \.slot) { slot in
                     BarMark(x: .value("Hour", Double(slot.slot) / 4), y: .value("Steps", slot.steps), width: 3)
-                        .foregroundStyle(JcTheme.accent.gradient)
+                        .foregroundStyle(JcMetric.activity.gradient)
                 }
                 if let selected { RingScrubRule(x: selected) }
             }
@@ -164,7 +164,7 @@ struct RingStatsSections: View {
                         if let selected { RingScrubRule(x: selected) }
                     }
                     .chartForegroundStyleScale(["Awake": JcTheme.amber, "REM": JcTheme.accentAlt,
-                                                "Light": JcTheme.accent, "Deep": JcTheme.primaryBlue])
+                                                "Light": JcMetric.activity, "Deep": JcMetric.activityDeep])
                     .chartLegend(.hidden)
                     .chartXSelection(value: selection)
                     .frame(height: 170)
@@ -261,7 +261,7 @@ struct RingStatsSections: View {
                     RuleMark(x: .value("Hour", Double(range.hour) + 0.5),
                              yStart: .value("Low", range.low), yEnd: .value("High", range.high))
                         .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .foregroundStyle(JcTheme.accent.opacity(0.8))
+                        .foregroundStyle(JcMetric.activity.opacity(0.8))
                 }
                 ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("%", point.value))
@@ -415,7 +415,7 @@ struct RingStatsSections: View {
     private func bandTint(_ band: String) -> Color {
         switch band {
         case "Excellent": return JcTheme.accentAlt
-        case "Good": return JcTheme.accent
+        case "Good": return JcMetric.activity
         case "Fair": return JcTheme.amber
         default: return JcTheme.danger
         }

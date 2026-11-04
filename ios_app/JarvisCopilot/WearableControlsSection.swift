@@ -59,8 +59,7 @@ struct WearableControlTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 96, maxHeight: .infinity, alignment: .topLeading)
-        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous),
-                       tint: isOn ? JcTheme.accent.opacity(0.55) : .clear)
+        .jcButtonSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous), selected: isOn)
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture {
             switch control.kind {

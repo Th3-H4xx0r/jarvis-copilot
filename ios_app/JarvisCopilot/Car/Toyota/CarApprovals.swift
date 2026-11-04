@@ -233,7 +233,7 @@ private struct ApprovalSheet: View {
         JcIcon(command?.symbol ?? "car.fill", size: 22)
             .foregroundStyle(tint)
             .frame(width: 56, height: 56)
-            .jcLiquidGlass(in: Circle())
+            .jcButtonSurface(in: Circle())
             .accessibilityHidden(true)
     }
 

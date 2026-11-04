@@ -276,9 +276,9 @@ struct InmoGo3View: View {
     private func quickLabel(_ title: String, _ icon: String) -> some View {
         VStack(spacing: 8) {
             JcIcon(icon, size: 22)
-                .foregroundStyle(JcTheme.accent)
+                .foregroundStyle(JcButton.label)
                 .frame(width: 62, height: 62)
-                .jcLiquidGlass(in: Circle())
+                .jcButtonSurface(in: Circle())
             Text(title).font(.caption.weight(.medium)).foregroundStyle(JcTheme.text)
         }
         .frame(maxWidth: .infinity)

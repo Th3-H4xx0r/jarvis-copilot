@@ -28,5 +28,7 @@ struct RootView: View {
         // would flicker between native and web screens.
         .preferredColorScheme(.dark)
         .tint(JcTheme.accent)
+        // White accent: the system switch would put a white knob on a white track.
+        .toggleStyle(.jcSwitch)
     }
 }

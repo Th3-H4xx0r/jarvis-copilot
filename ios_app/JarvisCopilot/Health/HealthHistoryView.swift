@@ -207,7 +207,7 @@ struct HealthHistoryView: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.subheadline)
-                .foregroundStyle(bucket == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+                .foregroundStyle(bucket == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcMetric.activity))
             Text(revealed ? value : value.odometerZero)
                 .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()
@@ -281,7 +281,7 @@ struct HealthHistoryView: View {
             }
         }
         .chartXScale(domain: xDomain(history))
-        .chartForegroundStyleScale(["Deep": JcTheme.primaryBlue, "Light": JcTheme.accent,
+        .chartForegroundStyleScale(["Deep": JcMetric.activityDeep, "Light": JcMetric.activity,
                                     "REM": JcTheme.accentAlt, "Awake": JcTheme.amber])
         .chartLegend(metric == .sleep ? .visible : .hidden)
         .chartXAxis { xAxis }

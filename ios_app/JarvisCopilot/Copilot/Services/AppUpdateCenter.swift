@@ -382,7 +382,7 @@ struct AppIconImage: View {
             } else {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(JcAccent.onColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(JcTheme.accent)
             }

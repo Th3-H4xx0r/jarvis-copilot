@@ -253,8 +253,8 @@ struct BatteryCard: View {
     /// Band colours from the app's own tokens — never a per-file literal.
     static func tint(_ band: String) -> Color {
         switch band {
-        case "High": return JcTheme.accent
-        case "Medium": return JcTheme.blue
+        case "High": return JcMetric.activity
+        case "Medium": return JcMetric.activitySoft
         case "Low": return JcTheme.amber
         case "Very low": return JcTheme.danger
         default: return .secondary
@@ -292,7 +292,7 @@ struct BatteryGauge: View {
                     .geometryGroup()
                 Text(caption)
                     .font(.subheadline.weight(highlighted ? .medium : .regular))
-                    .foregroundStyle(highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(highlighted ? AnyShapeStyle(JcMetric.activity) : AnyShapeStyle(.secondary))
             }
             Spacer(minLength: 0)
         }

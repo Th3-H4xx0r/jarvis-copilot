@@ -75,11 +75,12 @@ struct VoiceMicButton: View {
             VStack(spacing: VoiceControlMetrics.stackSpacing) {
                 JcIcon(active ? "xmark" : "mic.fill")
                     .font(.system(size: VoiceControlMetrics.micIcon, weight: .medium))
-                    .foregroundStyle(active ? JcTheme.text : JcTheme.accent)
+                    .foregroundStyle(JcButton.label)
                     .frame(width: VoiceControlMetrics.micDiameter,
                            height: VoiceControlMetrics.micDiameter)
-                    // Clear glass, not a tinted disc: the accent is the glyph.
-                    .jcLiquidGlass(in: Circle())
+                    // Grey, like the screen's other buttons (his pick: "the buttons
+                    // look better when gray"); the orb is the bright thing here.
+                    .jcButtonSurface(in: Circle())
                 Text(active ? "End" : "Start")
                     .font(.system(size: VoiceControlMetrics.labelSize, weight: .medium))
                     .foregroundStyle(JcTheme.text)
@@ -111,10 +112,10 @@ struct VoiceGhostCircle: View {
             VStack(spacing: VoiceControlMetrics.stackSpacing) {
                 JcIcon(symbol)
                     .font(.system(size: VoiceControlMetrics.ghostIcon, weight: .medium))
-                    .foregroundStyle(highlighted ? JcTheme.cyan : JcTheme.text)
+                    .foregroundStyle(JcButton.label)
                     .frame(width: VoiceControlMetrics.ghostDiameter,
                            height: VoiceControlMetrics.ghostDiameter)
-                    .jcLiquidGlass(in: Circle(), tint: highlighted ? JcTheme.cyan.opacity(0.25) : .clear)
+                    .jcButtonSurface(in: Circle(), selected: highlighted)
                 Text(label)
                     .font(.system(size: VoiceControlMetrics.labelSize, weight: .medium))
                     .foregroundStyle(JcTheme.muted)

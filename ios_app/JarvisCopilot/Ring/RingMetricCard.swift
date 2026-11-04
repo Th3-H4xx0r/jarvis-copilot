@@ -117,7 +117,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                     }
                     Text(shown.label)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(JcTheme.muted))
+                        .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcMetric.activity) : AnyShapeStyle(JcTheme.muted))
                         .lineLimit(1)
                 }
                 // The same rolling digits whether a finger is scrubbing or the

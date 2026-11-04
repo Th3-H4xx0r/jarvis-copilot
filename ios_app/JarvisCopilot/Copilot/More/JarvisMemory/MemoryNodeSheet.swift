@@ -118,7 +118,7 @@ struct MemoryNodeSheet: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(JcTheme.text)
                     }
-                    .toggleStyle(.switch)
+                    .toggleStyle(.jcSwitch)
                     .tint(JcTheme.accent)
                 }
             }

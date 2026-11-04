@@ -184,7 +184,7 @@ struct ServerLogsControls: View {
         Toggle(isOn: isOn) {
             Text(label).font(.system(size: 13)).foregroundStyle(JcTheme.text)
         }
-        .toggleStyle(.switch)
+        .toggleStyle(.jcSwitch)
         .tint(JcTheme.accent)
         .fixedSize()
     }
@@ -230,7 +230,7 @@ struct ServerLogsMenuChip: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 8)
-            .background(.white.opacity(0.045), in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
         }
         .menuStyle(.button)
         .buttonStyle(.plain)

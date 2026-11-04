@@ -661,7 +661,7 @@ struct MacScreenRail: View {
                 .font(.system(size: symbol == nil ? 14 : 16, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
                 .frame(width: 44, height: 44)
-                .jcLiquidGlass(in: Circle())
+                .jcButtonSurface(in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

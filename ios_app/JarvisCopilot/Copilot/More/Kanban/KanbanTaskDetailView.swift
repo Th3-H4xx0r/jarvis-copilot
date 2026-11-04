@@ -151,14 +151,14 @@ struct KanbanTaskDetailView: View {
                     }
                 } else {
                     HStack(spacing: 6) {
-                        JcIcon("play.fill", size: 17).foregroundStyle(JcTheme.accent)
+                        JcIcon("play.fill", size: 17).foregroundStyle(JcAccent.onFill)
                         Text("Run").font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(JcTheme.accent)
+                            .foregroundStyle(JcAccent.onFill)
                     }
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 48)
-            .jcLiquidGlass(in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: true)
         }
         .buttonStyle(.plain)
         .disabled(store.isBusy)
@@ -233,7 +233,7 @@ struct KanbanSheetAction: View {
             .foregroundStyle(danger ? JcTheme.danger : JcTheme.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .jcLiquidGlass(in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
         }
         .buttonStyle(.plain)
     }

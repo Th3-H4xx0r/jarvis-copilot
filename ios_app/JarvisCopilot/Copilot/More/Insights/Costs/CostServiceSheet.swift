@@ -305,10 +305,10 @@ struct CostServiceDetailView: View {
                     .font(.system(size: 12.5).monospacedDigit())
                     .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
             }
-            .foregroundStyle(selected ? JcTheme.accent : JcTheme.text)
+            .foregroundStyle(JcButton.label)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .jcLiquidGlass(in: Capsule(), tint: selected ? JcTheme.accent.opacity(0.35) : .clear)
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: selected)
         }
         .buttonStyle(.plain)
     }

@@ -129,7 +129,7 @@ struct Esp32ChatView: View {
                     .font(.footnote.weight(.medium))
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Color.white.opacity(0.08), in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
         }
     }
 
@@ -214,7 +214,7 @@ struct Esp32ChatView: View {
                 JcIcon("arrow.up.left").font(.caption2).foregroundStyle(JcTheme.muted.opacity(0.7))
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -397,9 +397,9 @@ struct Esp32ChatView: View {
             } label: {
                 JcIcon(sending ? "stop.fill" : "arrow.up")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(sending ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
+                    .foregroundStyle(sending ? JcTheme.text : (canSend ? JcAccent.onFill : JcTheme.muted))
                     .frame(width: 30, height: 30)
-                    .jcLiquidGlass(in: Circle())
+                    .jcButtonSurface(in: Circle(), prominent: canSend && !sending)
             }
             .disabled(!sending && !canSend)
             .animation(.smooth(duration: 0.2), value: sending)

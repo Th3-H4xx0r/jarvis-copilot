@@ -311,7 +311,7 @@ struct CarLightSettingsSheet: View {
                                         .font(.caption.weight(.semibold))
                                         .frame(maxWidth: .infinity, minHeight: 32)
                                         .foregroundStyle(on ? Color.white : .secondary)
-                                        .background(on ? JcTheme.accent.opacity(0.55) : Color.white.opacity(0.06), in: Capsule())
+                                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: on)
                                 }
                                 .buttonStyle(.plain)
                             }

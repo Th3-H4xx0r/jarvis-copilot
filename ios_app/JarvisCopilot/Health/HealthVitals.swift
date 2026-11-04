@@ -36,7 +36,7 @@ struct HealthReferenceBar: Codable, Equatable {
 
     static func color(_ status: String) -> Color {
         switch status {
-        case "low": return JcTheme.blue
+        case "low": return JcMetric.activitySoft
         case "normal": return JcTheme.success
         case "elevated": return JcTheme.amber
         case "high": return JcTheme.danger

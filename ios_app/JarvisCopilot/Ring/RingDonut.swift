@@ -97,8 +97,8 @@ enum StressBand: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .relax: return JcTheme.primaryBlue
-        case .normal: return JcTheme.accent
+        case .relax: return JcMetric.activityDeep
+        case .normal: return JcMetric.activity
         case .medium: return JcTheme.amber
         case .high: return .orange
         }

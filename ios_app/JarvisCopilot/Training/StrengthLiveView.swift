@@ -93,7 +93,7 @@ struct StrengthLiveView: View {
                     }
                     .foregroundStyle(left <= 10 ? Color.black : JcTheme.accent)
                     .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(left <= 10 ? JcTheme.amber : JcTheme.accent.opacity(0.16), in: Capsule())
+                    .background(left <= 10 ? JcTheme.amber : JcTheme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                     .animation(.snappy, value: left)
                 }
             }
@@ -110,7 +110,7 @@ struct StrengthLiveView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(JcTheme.accent)
                     .frame(width: 38, height: 32)
-                    .background(JcTheme.accent.opacity(0.14), in: Capsule())
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
             }
             .accessibilityLabel("Start a rest timer")
         }

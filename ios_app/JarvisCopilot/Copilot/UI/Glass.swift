@@ -181,9 +181,9 @@ struct GlassIconButton: View {
     var body: some View {
         Button(action: action) {
             JcIcon(symbol, size: iconSize)
-                .foregroundStyle(tint ?? JcTheme.accent)
+                .foregroundStyle(tint ?? JcButton.label)
                 .frame(width: size, height: size)
-                .jcLiquidGlass(in: Circle())
+                .jcButtonSurface(in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -205,11 +205,11 @@ struct GlassButton: View {
                 }
                 Text(title).font(JcText.body.weight(.semibold))
             }
-            .foregroundStyle(ghost ? JcTheme.text : JcTheme.accent)
+            .foregroundStyle(ghost ? JcButton.label : JcAccent.onFill)
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: !ghost)
         }
         .buttonStyle(.plain)
         .opacity(action == nil ? 0.5 : 1)

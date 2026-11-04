@@ -379,10 +379,10 @@ struct BandMeasureSheet: View {
             Button { flow.cancel() } label: {
                 Text(flow.running ? "Cancel" : "Done")
                     .font(JcText.body.weight(.semibold))
-                    .foregroundStyle(JcTheme.text)
+                    .foregroundStyle(JcButton.label)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .jcLiquidGlass(in: Capsule(), tint: .clear)
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -392,10 +392,10 @@ struct BandMeasureSheet: View {
         Button(action: action) {
             Label(title, systemImage: icon)
                 .font(JcText.body.weight(.semibold))
-                .foregroundStyle(JcTheme.accent)
+                .foregroundStyle(JcAccent.onFill)
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .jcLiquidGlass(in: Capsule())
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: true)
         }
         .buttonStyle(.plain)
     }
@@ -473,10 +473,10 @@ struct BandMeasureSheet: View {
                 Button { calibrating = false } label: {
                     Text("Cancel")
                         .font(JcText.body.weight(.semibold))
-                        .foregroundStyle(JcTheme.text)
+                        .foregroundStyle(JcButton.label)
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
-                        .jcLiquidGlass(in: Capsule(), tint: .clear)
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -489,7 +489,7 @@ struct BandMeasureSheet: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(JcTheme.text)
                 .frame(width: 50, height: 50)
-                .jcLiquidGlass(in: Circle(), tint: .clear)
+                .jcButtonSurface(in: Circle())
         }
         .buttonStyle(.plain)
         .buttonRepeatBehavior(.enabled)

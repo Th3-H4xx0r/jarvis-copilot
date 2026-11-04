@@ -295,7 +295,7 @@ struct CostServiceRow: View {
                         .foregroundStyle(JcTheme.amber)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .jcLiquidGlass(in: Capsule())
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                 } else {
                     Text(CostsUI.money(service.periodTotal, estimated: service.isEstimate))
                         .font(.system(size: 14.5, weight: .semibold).monospacedDigit())

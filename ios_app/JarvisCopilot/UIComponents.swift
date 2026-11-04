@@ -126,12 +126,12 @@ struct ActionChip: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(isOn ? Color.white : tint)
+            .foregroundStyle(isOn ? JcButton.label : tint)
             .padding(.horizontal, 14)
             // 44pt tall: the platform's minimum target, met by the control
             // itself rather than by the space around it.
             .frame(height: 44)
-            .jcLiquidGlass(in: Capsule(), tint: isOn ? tint.opacity(0.75) : .clear)
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: isOn)
         }
         .buttonStyle(.plain)
     }
@@ -149,9 +149,9 @@ struct ActionButton: View {
             VStack(spacing: 8) {
                 JcIcon(icon)
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isOn ? .white : tint)
+                    .foregroundStyle(isOn ? JcButton.label : tint)
                     .frame(width: 56, height: 56)
-                    .jcLiquidGlass(in: Circle(), tint: isOn ? tint.opacity(0.6) : .clear)
+                    .jcButtonSurface(in: Circle(), selected: isOn)
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(JcTheme.muted)

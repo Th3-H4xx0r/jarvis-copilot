@@ -87,7 +87,7 @@ struct ToyotaRoundFace: View {
                 }
             }
             .frame(width: 64, height: 64)
-            .jcLiquidGlass(in: Circle(), tint: busy ? JcTheme.accent.opacity(0.35) : .clear)
+            .jcButtonSurface(in: Circle(), selected: busy)
             Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)

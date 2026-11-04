@@ -182,6 +182,51 @@ final class ShellPolishSnapshotTests: XCTestCase {
         return (CGFloat(top), CGFloat(bottom + 1))
     }
 
+    /// The `skipping`+1-th run of near-white rows above `cutoff` within `xs`
+    /// (bottom up), bridging gaps of a few points inside one shape.
+    private func polishBrightRun(in image: UIImage, above cutoff: CGFloat, xs: Range<Int>,
+                                 skipping: Int) -> (top: CGFloat, bottom: CGFloat)? {
+        guard let pixels = polishPixels(image) else { return nil }
+        let width = Int(Self.deviceSize.width)
+        let limit = min(Int(Self.deviceSize.height), max(0, Int(cutoff)))
+        func bright(_ y: Int) -> Bool {
+            xs.contains { x in
+                let i = (y * width + x) * 4
+                return pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200
+            }
+        }
+        var runs: [(Int, Int)] = []
+        var bottom: Int?, top = 0, gap = 0
+        for y in stride(from: limit - 1, through: 0, by: -1) {
+            if bright(y) {
+                if bottom == nil { bottom = y }
+                top = y; gap = 0
+            } else if let b = bottom {
+                gap += 1
+                if gap > 4 {
+                    runs.append((top, b)); bottom = nil
+                    if runs.count > skipping { break }
+                }
+            }
+        }
+        guard runs.count > skipping else { return nil }
+        let run = runs[skipping]
+        return (CGFloat(run.0), CGFloat(run.1 + 1))
+    }
+
+    /// The bottom edge of the button fill (a dark neutral grey, not black)
+    /// nearest above `cutoff` in column `x`.
+    private func polishGreyBottom(in image: UIImage, above cutoff: CGFloat, x: Int) -> CGFloat? {
+        guard let pixels = polishPixels(image) else { return nil }
+        let width = Int(Self.deviceSize.width)
+        for y in stride(from: Int(cutoff) - 1, through: 0, by: -1) {
+            let i = (y * width + x) * 4
+            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+            if (12...60).contains(r) && abs(r - g) < 6 && abs(r - b) < 6 { return CGFloat(y + 1) }
+        }
+        return nil
+    }
+
     private func polishPixels(_ image: UIImage) -> [UInt8]? {
         guard let cg = image.cgImage else { return nil }
         let width = Int(Self.deviceSize.width)
@@ -220,15 +265,17 @@ final class ShellPolishSnapshotTests: XCTestCase {
         harness.settle(0.8)
         let image = harness.snapshot("voice-in-shell")
 
-        // The mic is clear glass with an accent glyph centred in it, so the circle's
-        // edge is found from the glyph: its centre plus half the button.
+        // The mic is a grey disc (black and white since 2026-11-04) with its white
+        // "Start" label under it: up from the pill, the first white run in the
+        // mic's columns is the label, and the disc's bottom edge is the first
+        // grey pixel above that in the centre column.
         let mid = Int(Self.deviceSize.width / 2)
         let half = Int(VoiceControlMetrics.micDiameter / 2)
-        guard let glyph = polishTealRun(in: image, above: harness.pillTop,
-                                        xs: (mid - half)..<(mid + half)) else {
+        guard let label = polishBrightRun(in: image, above: harness.pillTop,
+                                          xs: (mid - half)..<(mid + half), skipping: 0),
+              let micBottom = polishGreyBottom(in: image, above: label.top, x: mid) else {
             return XCTFail("no mic button found above the pill — did the Voice tab paint?")
         }
-        let micBottom = (glyph.top + glyph.bottom) / 2 + VoiceControlMetrics.micDiameter / 2
         let clearance = harness.pillTop - micBottom
         XCTAssertGreaterThan(clearance, 0, "the mic overlaps the nav pill")
         XCTAssertLessThan(clearance, Self.maxClearance,

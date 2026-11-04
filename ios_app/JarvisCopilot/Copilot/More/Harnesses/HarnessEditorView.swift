@@ -110,7 +110,7 @@ struct HarnessEditorView: View {
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(edgeHasProblem(index) ? JcTheme.danger : JcTheme.accent)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(JcTheme.surface))
+                            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .position(x: (a.x + b.x) / 2 + w / 2, y: (a.y + h + b.y) / 2 + nudge)
@@ -229,7 +229,7 @@ struct HarnessEditorView: View {
                 .font(JcText.small)
                 .foregroundStyle(JcTheme.text)
                 .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Capsule().fill(JcTheme.surfaceAlt))
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                 .padding(.top, 8)
                 .onTapGesture { self.banner = nil }
         }

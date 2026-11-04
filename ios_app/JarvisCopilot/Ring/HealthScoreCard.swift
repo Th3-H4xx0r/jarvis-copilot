@@ -148,7 +148,7 @@ struct HealthScoreCard: View {
     /// Band colours from the app's own tokens — never a per-file literal.
     private func tint(_ part: ScorePart) -> Color {
         switch part.band {
-        case "Excellent": return JcTheme.accent
+        case "Excellent": return JcMetric.activity
         case "Good": return JcTheme.accentAlt
         case "Fair": return JcTheme.amber
         case "Low": return .orange

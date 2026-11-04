@@ -217,10 +217,10 @@ struct Esp32DeviceView: View {
                                 Text(resetting ? "Resetting…" : "Reset")
                                     .font(.system(size: 15, weight: .semibold))
                             }
-                            .foregroundStyle(JcTheme.accent)
+                            .foregroundStyle(JcButton.label)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .jcLiquidGlass(in: Capsule())
+                            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(resetting || manager.connected?.id != board.id)

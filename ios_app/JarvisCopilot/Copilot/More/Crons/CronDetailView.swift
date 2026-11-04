@@ -149,7 +149,7 @@ struct CronActionButton: View {
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, minHeight: 48)
-            .jcLiquidGlass(in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
         }
         .buttonStyle(.plain)
     }

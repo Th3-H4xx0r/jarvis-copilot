@@ -595,9 +595,9 @@ struct AgentComposer: View {
 
     private var sendIcon: some View {
         JcIcon("arrow.up", size: 16, weight: .semibold)
-            .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)
+            .foregroundStyle(canSend ? JcAccent.onFill : JcTheme.muted)
             .frame(width: 40, height: 40)
-            .jcLiquidGlass(in: Circle())
+            .jcButtonSurface(in: Circle(), prominent: canSend)
     }
 
     private func send(now: Bool) {

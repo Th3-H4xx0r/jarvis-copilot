@@ -46,7 +46,7 @@ enum WidgetTemplates {
         WidgetLayout(rows: rows.map { WidgetRow(blocks: $0) })
     }
 
-    private static let accent = "#3EC7C7"
+    private static let accent = JcAccent.css   // the one accent variable
     private static let heart = "#FF453A"
     private static let sleep = "#BF5AF2"
 

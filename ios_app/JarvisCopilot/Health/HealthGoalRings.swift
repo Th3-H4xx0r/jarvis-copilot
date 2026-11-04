@@ -28,7 +28,7 @@ struct HealthGoalRings: View {
                                         size: 30, revealed: revealed)
                             Text(bucket.startDate.formatted(.dateTime.weekday(.narrow)))
                                 .font(.caption2.weight(.medium))
-                                .foregroundStyle(bucket.start == today ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
+                                .foregroundStyle(bucket.start == today ? AnyShapeStyle(JcMetric.activity) : AnyShapeStyle(.secondary))
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -98,7 +98,7 @@ struct GoalDayRing: View {
     var revealed = true
 
     private var met: Bool { (progress ?? 0) >= 1 }
-    private var tint: Color { met ? JcTheme.success : (inProgress ? JcTheme.accent : JcTheme.amber) }
+    private var tint: Color { met ? JcTheme.success : (inProgress ? JcMetric.activity : JcTheme.amber) }
     private var line: CGFloat { max(3, size * 0.13) }
 
     var body: some View {

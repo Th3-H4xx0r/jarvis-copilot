@@ -125,8 +125,7 @@ struct CarClimateScreen: View {
             }
             .foregroundStyle(on ? tint : JcTheme.muted)
             .frame(maxWidth: .infinity, minHeight: 64)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous),
-                           tint: on ? tint.opacity(0.25) : .clear)
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: on)
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -139,7 +138,7 @@ struct CarClimateScreen: View {
             JcIcon(symbol, size: 18)
                 .foregroundStyle(enabled ? Color.white : JcTheme.muted)
                 .frame(width: 44, height: 44)
-                .jcLiquidGlass(in: Circle())
+                .jcButtonSurface(in: Circle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -196,7 +195,7 @@ struct DefrostSpot: View {
                 JcIcon(front ? "windshield.front.and.heat.waves" : "windshield.rear.and.heat.waves", size: 18)
                     .foregroundStyle(on ? JcTheme.amber : Color.white.opacity(0.7))
                     .frame(width: 40, height: 40)
-                    .jcLiquidGlass(in: Circle(), tint: on ? JcTheme.amber.opacity(0.3) : .clear)
+                    .jcButtonSurface(in: Circle(), selected: on)
             }
             .contentShape(Circle().inset(by: -10))
         }

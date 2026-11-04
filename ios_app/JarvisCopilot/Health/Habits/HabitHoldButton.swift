@@ -30,9 +30,9 @@ struct HabitHoldButton: View {
             }
             Image(systemName: "arrow.counterclockwise")
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(pressing ? JcTheme.amber : JcTheme.accent)
+                .foregroundStyle(pressing ? JcTheme.amber : JcButton.label)
                 .frame(width: 50, height: 50)
-                .jcLiquidGlass(in: Circle(), tint: pressing ? JcTheme.amber.opacity(0.25) : .clear)
+                .jcButtonSurface(in: Circle(), selected: pressing)
                 .overlay {
                     Circle()
                         .trim(from: 0, to: fill)

@@ -106,7 +106,7 @@ struct RingMeasureList: View {
             .foregroundStyle(mode.selected > 0 ? JcTheme.accent : JcTheme.muted)
             .padding(.horizontal, 7)
             .frame(height: 20)
-            .background(Capsule().fill(mode.selected > 0 ? JcTheme.accent.opacity(0.14) : Color.white.opacity(0.07)))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: mode.selected > 0)
             .fixedSize()
         }
         .accessibilityLabel("Mode: \(mode.options[mode.selected])")

@@ -60,10 +60,10 @@ struct RingWearPrompt: View {
             Button(action: onDismiss) {
                 Text("Not now")
                     .font(JcText.body.weight(.semibold))
-                    .foregroundStyle(JcTheme.text)
+                    .foregroundStyle(JcButton.label)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .jcLiquidGlass(in: Capsule(), tint: .clear)
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 20)

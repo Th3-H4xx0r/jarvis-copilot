@@ -585,7 +585,7 @@ private struct IntegrationUIPicker: View {
                 .foregroundStyle(JcTheme.text)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(Color.white.opacity(0.06), in: Capsule())
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
             }
             .disabled(store.running != nil)
         } else {

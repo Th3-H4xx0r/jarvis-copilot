@@ -165,7 +165,7 @@ struct FormChipMulti: View {
                         .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(on ? JcTheme.accent.opacity(0.3) : JcTheme.surfaceAlt, in: Capsule())
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: on)
                     }
                     .buttonStyle(.plain)
                 }

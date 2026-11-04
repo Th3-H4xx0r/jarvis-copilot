@@ -378,7 +378,7 @@ struct IMessageMemoryView: View {
                             .foregroundStyle(JcTheme.accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
-                            .background(JcTheme.accent.opacity(0.12), in: Capsule())
+                            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                             .buttonStyle(.plain)
                         }
                     }

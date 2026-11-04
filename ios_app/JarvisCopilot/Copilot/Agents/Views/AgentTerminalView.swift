@@ -124,7 +124,7 @@ struct AgentTerminalKeyBar: View {
                         .foregroundStyle(JcTheme.text)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
-                        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(!enabled)

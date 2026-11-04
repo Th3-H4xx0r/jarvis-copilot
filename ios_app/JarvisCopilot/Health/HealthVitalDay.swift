@@ -278,7 +278,7 @@ struct HealthVitalDayView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text((slot.map { "\($0.count > 1 ? "Average" : "Reading") · \(span($0))" } ?? "Average"))
                 .font(.subheadline)
-                .foregroundStyle(picked == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+                .foregroundStyle(picked == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcMetric.activity))
             Text(slot.map { text($0.value, $0.low) } ?? "—")
                 .font(.system(size: 34, weight: .semibold, design: .rounded))
                 .monospacedDigit()

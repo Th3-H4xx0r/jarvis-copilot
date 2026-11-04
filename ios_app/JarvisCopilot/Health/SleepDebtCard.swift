@@ -106,7 +106,7 @@ struct SleepDebtCard: View {
     static func tint(_ band: String) -> Color {
         switch band {
         case "None": return JcTheme.success
-        case "Low": return JcTheme.accent
+        case "Low": return JcMetric.activity
         case "Medium": return JcTheme.amber
         case "High": return JcTheme.danger
         default: return .secondary

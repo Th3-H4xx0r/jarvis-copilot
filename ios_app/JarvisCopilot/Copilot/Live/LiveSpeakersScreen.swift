@@ -195,7 +195,7 @@ struct LiveSpeakersScreen: View {
                             JcIcon("arrow.left.arrow.right", size: 15)
                                 .foregroundStyle(JcTheme.accent)
                                 .frame(width: 40, height: 40)
-                                .jcLiquidGlass(in: Circle())
+                                .jcButtonSurface(in: Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Keep “\(pair.folded.displayName)” instead")
@@ -212,10 +212,10 @@ struct LiveSpeakersScreen: View {
                 Button { confirming = true } label: {
                     Text("Merge")
                         .font(JcText.body.weight(.semibold))
-                        .foregroundStyle(pair == nil ? JcTheme.muted : JcTheme.accent)
+                        .foregroundStyle(pair == nil ? JcTheme.muted : JcAccent.onFill)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
-                        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: pair != nil)
                 }
                 .buttonStyle(.plain)
                 .disabled(pair == nil)

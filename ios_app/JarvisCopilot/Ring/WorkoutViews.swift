@@ -69,7 +69,7 @@ struct WorkoutPicker: View {
                                     HStack(spacing: 14) {
                                         Image(systemName: sport.symbol)
                                             .font(.system(size: 18, weight: .semibold))
-                                            .foregroundStyle(JcTheme.accent)
+                                            .foregroundStyle(JcMetric.activity)
                                             .frame(width: 28)
                                         Text(sport.name)
                                         Spacer()
@@ -230,7 +230,7 @@ struct WorkoutLiveView: View {
         return VStack(spacing: 26) {
             HStack(spacing: 10) {
                 Image(systemName: workout.sport?.symbol ?? "figure.mixed.cardio")
-                    .foregroundStyle(JcTheme.accent)
+                    .foregroundStyle(JcMetric.activity)
                 Text(workout.sport?.name ?? "Workout").font(JcText.body.weight(.semibold))
                 if workout.phase == .paused {
                     Text("Paused")
@@ -440,8 +440,8 @@ struct WorkoutLiveView: View {
     /// Zones in the app's tokens, calm to hard.
     static func zoneTint(_ zone: Int) -> Color {
         switch zone {
-        case 1: return JcTheme.blue
-        case 2: return JcTheme.accent
+        case 1: return JcMetric.activitySoft
+        case 2: return JcMetric.activity
         case 3: return JcTheme.success
         case 4: return JcTheme.amber
         default: return JcTheme.danger
@@ -468,7 +468,7 @@ struct WorkoutSummaryView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(workout.sportName, systemImage: RingSport.withID(workout.sport).symbol)
                         .font(JcText.body.weight(.semibold))
-                        .foregroundStyle(JcTheme.accent)
+                        .foregroundStyle(JcMetric.activity)
                     Text(WorkoutLiveView.clock(workout.activeSeconds))
                         .font(.system(size: 56, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -611,7 +611,7 @@ struct WorkoutInProgressCard: View {
                 Button { workout.showsLive = true } label: {
                     Row(minHeight: 76) {
                         HStack(spacing: 14) {
-                            RingMetricSymbol(name: sport.symbol, tint: JcTheme.accent,
+                            RingMetricSymbol(name: sport.symbol, tint: JcMetric.activity,
                                              pulsing: workout.phase == .running, size: 22)
                                 .frame(width: 30)
                             VStack(alignment: .leading, spacing: 2) {
@@ -722,7 +722,7 @@ struct HealthWorkoutsCard: View {
                             } else {
                                 Image(systemName: RingSport.withID(workout.sport).symbol)
                                     .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(JcTheme.accent)
+                                    .foregroundStyle(JcMetric.activity)
                                     .frame(width: 30)
                             }
                             VStack(alignment: .leading, spacing: 2) {

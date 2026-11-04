@@ -381,9 +381,9 @@ private struct FlowChips: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 Text(item.0)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(item.1 ? Color.black : JcTheme.text)
+                    .foregroundStyle(JcButton.label)
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(item.1 ? JcTheme.accent : Color.white.opacity(0.1), in: Capsule())
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: item.1)
             }
         }
     }

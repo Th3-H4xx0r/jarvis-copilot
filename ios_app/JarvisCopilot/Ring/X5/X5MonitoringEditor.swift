@@ -132,8 +132,8 @@ struct X5MonitoringEditor: View {
                     Text(Calendar.current.veryShortWeekdaySymbols[day])
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 36)
-                        .foregroundStyle(on ? Color.black : JcTheme.muted)
-                        .background(on ? JcAccent.color : Color.white.opacity(0.08), in: Circle())
+                        .foregroundStyle(on ? JcButton.label : JcTheme.muted)
+                        .jcButtonSurface(in: Circle(), selected: on)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Calendar.current.weekdaySymbols[day])

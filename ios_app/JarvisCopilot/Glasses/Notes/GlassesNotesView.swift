@@ -220,7 +220,7 @@ struct GlassesNoteDetailView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(JcTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
     }
 
     private func run(_ job: String, _ body: @escaping () async -> Void) {

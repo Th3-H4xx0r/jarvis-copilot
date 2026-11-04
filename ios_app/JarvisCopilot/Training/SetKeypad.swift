@@ -109,7 +109,7 @@ struct SetKeypad: View {
                         .font(.system(size: 17, weight: .semibold))
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .foregroundStyle(JcTheme.accent)
-                        .background(JcTheme.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: true)
                 }
                 .buttonStyle(.plain)
             }
@@ -121,7 +121,7 @@ struct SetKeypad: View {
             Text(digit)
                 .font(.system(size: 24, weight: .medium, design: .rounded))
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
                 .foregroundStyle(.primary)
         }
         .buttonStyle(KeyPress())
@@ -138,7 +138,7 @@ struct SetKeypad: View {
             }
             .frame(maxWidth: .infinity, minHeight: 48)
             .foregroundStyle(JcTheme.accent)
-            .background(JcTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: true)
         }
         .buttonStyle(KeyPress())
         .accessibilityLabel(label)
@@ -162,9 +162,8 @@ struct SetKeypad: View {
                         Text(TrainingUnit.number(value))
                             .font(.system(size: 17, weight: .semibold, design: .rounded))
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .foregroundStyle(chosen ? .black : .primary)
-                            .background(chosen ? JcTheme.accent : Color.white.opacity(0.09),
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .foregroundStyle(JcButton.label)
+                            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: chosen)
                     }
                     .buttonStyle(KeyPress())
                 }
@@ -173,7 +172,7 @@ struct SetKeypad: View {
                         .font(.system(size: 17, weight: .semibold))
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .foregroundStyle(JcTheme.accent)
-                        .background(JcTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: true)
                 }
                 .buttonStyle(KeyPress())
                 .accessibilityLabel("Back to numbers")

@@ -148,9 +148,9 @@ struct PairPage: View {
             // The arrow is pinned to the bottom, outside the centred group.
             Button { go(to: .connect) } label: {
                 JcIcon("arrow.right", size: 22, weight: .semibold)
-                    .foregroundStyle(JcTheme.accent)
+                    .foregroundStyle(JcAccent.onFill)
                     .frame(width: 64, height: 64)
-                    .jcLiquidGlass(in: Circle())
+                    .jcButtonSurface(in: Circle(), prominent: true)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Next")

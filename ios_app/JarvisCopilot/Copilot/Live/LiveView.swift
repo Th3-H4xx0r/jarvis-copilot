@@ -684,10 +684,10 @@ struct LiveView: View {
                         Text("Back to live").font(JcText.body.weight(.semibold))
                             .lineLimit(1).minimumScaleFactor(0.85)
                     }
-                    .foregroundStyle(JcTheme.accent)
+                    .foregroundStyle(JcButton.label)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
                 }
                 .buttonStyle(.plain)
             } else {
@@ -703,10 +703,10 @@ struct LiveView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                     }
-                    .foregroundStyle(store.capturing ? JcTheme.danger : JcTheme.accent)
+                    .foregroundStyle(store.capturing ? JcTheme.danger : JcButton.label)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(store.halt != nil)
@@ -744,10 +744,9 @@ struct LiveView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(store.checkingConversation
-                             ? JcTheme.accent : JcTheme.text.opacity(0.82))
+            .foregroundStyle(JcButton.label)
             .frame(width: Self.tileWidth, height: 52)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), selected: store.checkingConversation)
             .overlay {
                 // A visible ring while it runs, so the control itself reads as
                 // busy from across the room and not only by its label.
@@ -781,9 +780,9 @@ struct LiveView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundStyle(JcTheme.text.opacity(0.82))
+            .foregroundStyle(JcButton.label)
             .frame(width: Self.tileWidth, height: 52)
-            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -803,7 +802,7 @@ struct LiveView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(JcTheme.surfaceAlt, in: Capsule())
+            .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
             .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)

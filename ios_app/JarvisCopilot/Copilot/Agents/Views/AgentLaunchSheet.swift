@@ -225,11 +225,11 @@ struct AgentLaunchSheet: View {
                     Text(launching ? "Starting…" : "Start session")
                 }
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(JcTheme.accent)
+                .foregroundStyle(JcAccent.onFill)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .jcLiquidGlass(in: Capsule())
-                .contentShape(Capsule())
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous), prominent: true)
+                .contentShape(RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(launching)
@@ -318,7 +318,7 @@ private struct LaunchTile<Icon: View>: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .jcLiquidGlass(in: shape, tint: selected ? JcTheme.accent.opacity(0.16) : .clear)
+            .jcButtonSurface(in: shape, selected: selected)
             .overlay(shape.strokeBorder(selected ? JcTheme.accent.opacity(0.7) : JcTheme.glassBorder,
                                         lineWidth: selected ? 1.5 : 1))
             .contentShape(shape)

@@ -119,8 +119,8 @@ struct WidgetEditor: View {
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
-                        .foregroundStyle(size == s ? Color.black : Color.primary)
-                        .background(size == s ? JcAccent.color : Color.white.opacity(0.08), in: Capsule())
+                        .foregroundStyle(JcButton.label)
+                        .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous), selected: size == s)
                     }
                     .buttonStyle(.plain)
                 }

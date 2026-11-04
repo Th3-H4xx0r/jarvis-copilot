@@ -160,7 +160,7 @@ struct AgentsMacPowerCard: View {
         Button { run(action) } label: {
             HStack(spacing: 7) {
                 if busy && pending == action {
-                    ProgressView().controlSize(.small).tint(prominent ? .white : JcTheme.text)
+                    ProgressView().controlSize(.small).tint(prominent ? JcAccent.onFill : JcButton.label)
                 } else {
                     Image(systemName: symbol).font(.subheadline.weight(.semibold))
                 }
@@ -184,8 +184,9 @@ struct AgentsMacPowerCard: View {
     }
 }
 
-/// The card's (and the password sheet's) full-width rounded buttons: the
-/// filled teal for the one thing to do, a quiet grey fill for the rest.
+/// The card's (and the password sheet's) full-width rounded buttons — the look
+/// every button in the app now has (`JcButton`): the main-button fill for the
+/// one thing to do, a quiet grey fill for the rest.
 struct MacActionButtonStyle: ButtonStyle {
     var prominent = false
     var height: CGFloat = 44
@@ -202,13 +203,14 @@ struct MacActionButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.body.weight(.semibold))
-                .foregroundStyle(style.prominent ? Color.white : JcTheme.text)
+                .foregroundStyle(style.prominent ? JcAccent.onFill : JcButton.label)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, minHeight: style.height)
-                .background(style.prominent ? JcTheme.primaryBlue : Color.white.opacity(0.09),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .opacity(isEnabled ? (configuration.isPressed ? 0.72 : 1) : 0.45)
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.radius, style: .continuous),
+                                 prominent: style.prominent)
+                .opacity(isEnabled ? (configuration.isPressed ? JcButton.pressedOpacity : 1)
+                                   : JcButton.disabledOpacity)
                 .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
