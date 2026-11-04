@@ -25,3 +25,9 @@
 - [x] (shipped 9c467a0baf + 1f9e47ef07, confirmed on his phone: question card fits with margins) Claude / agent Live Activity + in-app request card black and white: no state rings, pills, fleet bar or amber; "Allow Bash?" over the command; white Allow with black text. Tick when he sees one on the phone.
 - [x] (fixed 6d6a5e8895, webui restarted 05:30 UTC; confirmed: test 3 question came up in the new island, build 263080538) Agent Live Activity stopped starting: swiping the broken cards away (or the app update ending them) suppressed Claude for the whole episode, which never ends while he's working. Now hidden only until the agent's next turn or wait on you. Tick when he sees it come back on its own.
 - [ ] (shipped af00ab171f, iPhone 263080632) Whole app black and white: JcAccent.hex white + role tokens (JcButton, JcMetric, onFill/control); Agents-style grey buttons with one radius system; white fill only for a screen's one main action; Voice buttons grey; Health colours kept. Mac app not rebuilt yet (shares JcAccent). Tick when he's looked through the app on the phone.
+
+## Small UI fixes (Nov 4 morning)
+
+- [ ] (shipped 965eea0e52) Settings: switch rows no longer squeeze their text (the B&W switch stretched under labelsHidden); header redone as one left-aligned This device card (name edited in place + "● Connected · host"). Tick when he's seen it.
+- [ ] (shipped 965eea0e52) Icon colours back on Devices / Smart Band / Health: status, battery, heart, steps pills, measure list, band readings. Tick when he's seen it.
+- [ ] (shipped 965eea0e52) Chat + Voice harness chip shows only the harness symbol. Tick when he's seen it.
