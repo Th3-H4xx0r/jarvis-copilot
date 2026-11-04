@@ -164,6 +164,10 @@ def load_all(allow_shell: bool = False) -> None:
             import jc_client.skills.island  # noqa: F401 (the Jarvis Mac app's island)
         except Exception as exc:
             log.warning("Failed to load island skill: %s", exc)
+        try:
+            import jc_client.skills.vscode  # noqa: F401 (run commands in VS Code's terminal)
+        except Exception as exc:
+            log.warning("Failed to load vscode skill: %s", exc)
 
     # Browser skills (chrome_*): drive the user's real Chrome via a local
     # Playwright MCP. Only advertise them if npx is available (the engine).

@@ -41,6 +41,13 @@ _MAX_ANCESTORS = 8
 _NEW_SHELL_WAIT = 8.0
 _SHELL_SETTLE = 3.0
 
+# The bridge this jc-client is running, for skills that reach VS Code.
+_current: Optional["VSCodeBridge"] = None
+
+
+def current() -> Optional["VSCodeBridge"]:
+    return _current
+
 
 def default_socket_path() -> str:
     from jc_client.logger import state_dir
@@ -108,10 +115,15 @@ class VSCodeBridge:
         sock.listen(16)
         self._stop.clear()
         self._sock = sock
+        global _current
+        _current = self
         threading.Thread(target=self._accept_loop, daemon=True, name="vscode-accept").start()
         log.info("vscode bridge listening on %s", self.path)
 
     def stop(self) -> None:
+        global _current
+        if _current is self:
+            _current = None
         self._stop.set()
         if self._sock is not None:
             try:
