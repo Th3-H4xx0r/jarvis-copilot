@@ -54,9 +54,9 @@ struct DashcamDrivesView: View {
         return CardGroup("Last 7 days") {
             Row {
                 HStack(spacing: 8) {
-                    MetricPill(icon: "car.fill", label: "Drives", value: "\(week.count)", tint: JcTheme.accent)
+                    MetricPill(icon: "car.fill", label: "Drives", value: "\(week.count)", tint: JcMetric.activity)
                     MetricPill(icon: "road.lanes", label: "Distance", value: DashcamSpeed.miles(week.distanceM),
-                               tint: JcTheme.accent)
+                               tint: JcMetric.activity)
                     MetricPill(icon: "gauge.with.dots.needle.67percent", label: "Top",
                                value: "\(DashcamSpeed.text(week.topMps)) mph", tint: JcTheme.amber)
                 }

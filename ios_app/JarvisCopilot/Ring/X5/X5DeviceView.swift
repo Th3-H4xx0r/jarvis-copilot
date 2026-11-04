@@ -139,10 +139,10 @@ struct X5DeviceView: View {
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.live.flatMap { $0.heartRate > 0 ? $0.heartRate : nil } ?? today?.heartRateLatest)
                                .map { "\($0) bpm" } ?? "—",
-                           tint: JcTheme.muted)
+                           tint: JcMetric.heart)
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: (session.live?.steps ?? today?.steps).map { "\($0)" } ?? "—",
-                           tint: JcTheme.accent)
+                           tint: JcMetric.activity)
             }
         }
     }
@@ -327,7 +327,7 @@ struct X5Card: View {
                         DisconnectedPill()
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(ring.rssi) dBm", tint: JcTheme.accent)
+                                   value: "\(ring.rssi) dBm", tint: JcMetric.activity)
                     }
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",

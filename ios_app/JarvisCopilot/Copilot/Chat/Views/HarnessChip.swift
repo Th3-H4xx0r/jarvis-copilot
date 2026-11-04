@@ -115,17 +115,15 @@ struct HarnessSheet: View {
 }
 
 /// Chip label: the harness, or for Single the model it runs.
+/// The harness button in the Chat and Voice headers: the symbol alone (his
+/// call, 2026-11-04 — the name crowded the header). The name stays in the
+/// button's accessibility label and in the sheet it opens.
 private struct HarnessChipLabel: View {
-    let text: String
     let symbol: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            JcIcon(symbol).foregroundStyle(JcTheme.accent)
-            Text(text).lineLimit(1)
-        }
-        .font(JcText.body)
-        .frame(maxWidth: 140)
+        JcIcon(symbol).foregroundStyle(JcTheme.accent)
+            .font(JcText.body)
     }
 }
 
@@ -145,7 +143,7 @@ struct ChatHarnessChip: View {
 
     var body: some View {
         Button { picking = true } label: {
-            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "flowchart")
+            HarnessChipLabel(symbol: current == "single" ? "sparkles" : "flowchart")
         }
         .buttonStyle(.plain)
         .foregroundStyle(JcTheme.text)
@@ -185,7 +183,7 @@ struct VoiceHarnessChip: View {
 
     var body: some View {
         Button { picking = true } label: {
-            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "flowchart")
+            HarnessChipLabel(symbol: current == "single" ? "sparkles" : "flowchart")
         }
         .accessibilityLabel("Voice harness: \(label)")
         .sheet(isPresented: $picking) {

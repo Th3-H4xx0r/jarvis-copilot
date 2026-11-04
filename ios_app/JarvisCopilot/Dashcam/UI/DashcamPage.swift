@@ -134,7 +134,7 @@ struct DashcamPage: View {
                         }
                         if let free = sync.sd?.freeBytes {
                             MetricPill(icon: "sdcard", label: "SD free", value: String(format: "%.1f GB", Double(free) / 1e9),
-                                       tint: JcTheme.accent)
+                                       tint: JcMetric.activity)
                         }
                     }
                 }

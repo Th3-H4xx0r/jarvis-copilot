@@ -174,10 +174,10 @@ struct RingDeviceView: View {
                            tint: batteryTint(session.battery?.percent ?? 100) ?? JcTheme.success)
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.liveHeartRate.map { Int($0.value) } ?? today?.heartRateLatest).map { "\($0) bpm" } ?? "—",
-                           tint: JcTheme.muted)
+                           tint: JcMetric.heart)
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: (session.liveActivity?.steps ?? today?.steps).map { "\($0)" } ?? "—",
-                           tint: JcTheme.accent)
+                           tint: JcMetric.activity)
             }
         }
     }
@@ -317,7 +317,7 @@ struct RingCard: View {
                         DisconnectedPill()
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(ring.rssi) dBm", tint: JcTheme.accent)
+                                   value: "\(ring.rssi) dBm", tint: JcMetric.activity)
                     }
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
@@ -368,11 +368,11 @@ extension RingMeasurementType {
         switch self {
         case .heartRate: return JcTheme.danger
         case .bloodPressure: return JcTheme.accentAlt
-        case .spo2: return JcTheme.accent
+        case .spo2: return JcMetric.oxygen
         case .healthCheck: return JcTheme.speakers[5]   // lime
         case .stress: return JcTheme.amber
         case .bloodSugar: return JcTheme.speakers[3]   // sky
-        case .hrv: return JcTheme.blue
+        case .hrv: return JcMetric.rhythm
         case .temperature: return JcTheme.speakers[4]   // peach
         }
     }

@@ -53,7 +53,7 @@ struct GlassesCard: View {
                                    tint: battery <= 20 ? JcTheme.danger : JcTheme.success)
                     } else if route.connected {
                         MetricPill(icon: "speaker.wave.2.fill", label: "Audio",
-                                   value: route.speakers ? "Glasses" : "iPhone", tint: JcTheme.accent)
+                                   value: route.speakers ? "Glasses" : "iPhone", tint: JcMetric.activity)
                     }
                 }
             }

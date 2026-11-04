@@ -103,6 +103,14 @@ enum JcMetric {
     static let activitySoft = mix(activityHex, toward: 1, 0.55)
     /// A deep step of it (deep sleep, relaxed).
     static let activityDeep = mix(activityHex, toward: 0, 0.25)
+    /// Heart rate: the coral red the heart glyphs always had.
+    static let heartHex: UInt32 = 0xFF5966
+    static let heart = rgb(heartHex)
+    /// Blood oxygen: the activity teal.
+    static let oxygen = activity
+    /// HRV and ECG: a light blue, apart from the teal beside it.
+    static let rhythmHex: UInt32 = 0x7CB7FF
+    static let rhythm = rgb(rhythmHex)
 
     private static func rgb(_ hex: UInt32) -> Color { mix(hex, toward: 0, 0) }
 

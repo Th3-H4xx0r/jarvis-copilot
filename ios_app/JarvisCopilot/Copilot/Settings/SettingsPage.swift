@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings, ported from `pages/settings_page.dart`.
 ///
-/// The connection hero, the assistant toggles, the navigation rows and the
+/// The device card (name + link), the assistant toggles, the navigation rows and the
 /// unpair. The two settings screens another area owns (on-device AI, Code
 /// Master) are placeholders here — swapping one is a one-line change.
 struct SettingsPage: View {
@@ -12,6 +12,7 @@ struct SettingsPage: View {
     /// label, otherwise the default would keep reappearing under the cursor.
     @State private var deviceNameDraft = ""
     @State private var confirmUnpair = false
+    @FocusState private var nameFocused: Bool
 
     /// See `PairPage.init` — a view's `init` isn't main-actor-isolated, so the
     /// store can't be a default argument.
@@ -30,7 +31,6 @@ struct SettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                hero
                 identity
                 assistant
                 battery
@@ -60,38 +60,6 @@ struct SettingsPage: View {
         }
     }
 
-    // MARK: Hero
-
-    /// The Voice tab's register without the orb: a quiet status pill, a headline
-    /// and one muted line — instead of a gradient card.
-    private var hero: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 7) {
-                Circle().fill(JcTheme.success).frame(width: 6, height: 6)
-                Text(store.deviceName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(JcTheme.text.opacity(0.85))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8)
-            .background(.white.opacity(0.045), in: Capsule())
-            .padding(.top, 10)
-            .padding(.bottom, 18)
-            Text("Connected")
-                .font(.system(size: 25, weight: .medium))
-                .tracking(-0.6)
-                .foregroundStyle(JcTheme.text)
-            Text(serverHost)
-                .font(.system(size: 14))
-                .foregroundStyle(JcTheme.muted)
-                .lineLimit(1)
-                .padding(.top, 8)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 4)
-    }
-
     /// Just the host: the scheme and path are noise in a status line.
     private var serverHost: String {
         guard !store.serverURL.isEmpty else { return "No server" }
@@ -100,20 +68,45 @@ struct SettingsPage: View {
 
     // MARK: Identity
 
+    /// The page's first card, left-aligned like every section under it (2026-11-04:
+    /// the centred pill + "Connected" headline sat out of place under the large
+    /// title). One row: the phone, its name — edited in place — and the link.
     private var identity: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("This device")
             GlassGroup {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Device name").font(JcText.small).foregroundStyle(JcTheme.muted)
-                    TextField("My iPhone", text: $deviceNameDraft)
-                        .font(JcText.body)
-                        .foregroundStyle(JcTheme.text)
-                        .textFieldStyle(.plain)
-                        .onChange(of: deviceNameDraft) { _, new in store.setDeviceName(new) }
+                HStack(spacing: 12) {
+                    JcIconSquare(symbol: "iphone")
+                    VStack(alignment: .leading, spacing: 3) {
+                        TextField("My iPhone", text: $deviceNameDraft)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(JcTheme.text)
+                            .textFieldStyle(.plain)
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .onChange(of: deviceNameDraft) { _, new in store.setDeviceName(new) }
+                        HStack(spacing: 6) {
+                            Circle().fill(JcTheme.success).frame(width: 6, height: 6)
+                            Text("Connected · \(serverHost)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(JcTheme.muted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    Spacer(minLength: 0)
+                    Button { nameFocused = true } label: {
+                        JcIcon("pencil", size: 14)
+                            .foregroundStyle(JcTheme.muted)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Rename this device")
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, JcUnified.cardPadding)
+                .padding(.vertical, 14)
             }
         }
     }

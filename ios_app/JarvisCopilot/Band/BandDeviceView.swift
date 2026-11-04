@@ -36,7 +36,7 @@ struct BandCard: View {
                     }
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
-                                   value: "\(battery.percent)%", tint: JcTheme.accent)
+                                   value: "\(battery.percent)%", tint: JcMetric.activity)
                     }
                 }
             }
@@ -202,9 +202,9 @@ struct BandDeviceView: View {
                 .accessibilityHint("Opens the band's battery history")
                 MetricPill(icon: "heart.fill", label: "Heart rate",
                            value: (session.liveHeartRate ?? today?.heartRateLatest).map { "\($0) bpm" } ?? "—",
-                           tint: JcTheme.muted)
+                           tint: JcMetric.heart)
                 MetricPill(icon: "figure.walk", label: "Steps",
-                           value: today?.steps.map { "\($0)" } ?? "—", tint: JcTheme.accent)
+                           value: today?.steps.map { "\($0)" } ?? "—", tint: JcMetric.activity)
             }
         }
     }

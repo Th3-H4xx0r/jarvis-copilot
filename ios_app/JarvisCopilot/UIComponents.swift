@@ -173,16 +173,17 @@ struct MetricPill: View {
     let value: String
     var tint: Color
 
-    /// A status colour (amber, danger) still shows on the glyph; anything else is chrome and
-    /// drawn in the text colours — metric colours belong to the data, not the pill.
-    private var glyph: Color { tint == JcTheme.amber || tint == JcTheme.danger ? tint : JcTheme.muted }
+    /// The glyph wears its reading's colour (2026-11-04, his ask: "bring the color back to
+    /// the icons"); a muted tint is a quiet grey glyph on grey.
+    private var glyph: Color { tint }
+    private var muted: Bool { tint == JcTheme.muted }
 
     var body: some View {
         HStack(spacing: 9) {
             JcIcon(icon, size: 13)
                 .foregroundStyle(glyph)
                 .frame(width: 26, height: 26)
-                .background(Color.white.opacity(0.08), in: Circle())
+                .background(muted ? Color.white.opacity(0.08) : tint.opacity(0.16), in: Circle())
 
             VStack(alignment: .leading, spacing: -1) {
                 Text(label)

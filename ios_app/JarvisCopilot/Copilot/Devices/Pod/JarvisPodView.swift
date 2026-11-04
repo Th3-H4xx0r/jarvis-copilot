@@ -23,7 +23,7 @@ struct JarvisPodCard: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if pod.bridgeConnected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected", tint: JcTheme.accent)
+                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected", tint: JcTheme.success)
                         if let level = status?.battery {
                             MetricPill(icon: status?.charging == true ? "bolt.fill" : "battery.75", label: "Battery",
                                        value: "\(level)%", tint: JcTheme.success)

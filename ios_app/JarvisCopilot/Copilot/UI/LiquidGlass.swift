@@ -100,19 +100,40 @@ extension ButtonStyle where Self == JcGlassButtonStyle {
 /// grey track with a white knob. A white accent would hide the system switch's
 /// white knob on a white track, so every Toggle gets this (set at the root).
 struct JcSwitchStyle: ToggleStyle {
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
-        Switch(configuration: configuration)
+        if #available(iOS 18.0, macOS 15.0, *) {
+            LabelAware(configuration: configuration)
+        } else {
+            Switch(configuration: configuration, showsLabel: true)
+        }
+    }
+
+    /// `labelsHidden()` — a switch at the end of a settings row — must leave the
+    /// switch its own fixed width. With the label's spacer it stretched and took
+    /// half the row from the title and subtitle beside it (2026-11-04).
+    @available(iOS 18.0, macOS 15.0, *)
+    private struct LabelAware: View {
+        let configuration: Configuration
+        @Environment(\.labelsVisibility) private var labels
+
+        var body: some View {
+            Switch(configuration: configuration, showsLabel: labels != .hidden)
+        }
     }
 
     private struct Switch: View {
         let configuration: Configuration
+        let showsLabel: Bool
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
             Button { configuration.isOn.toggle() } label: {
                 HStack(spacing: 12) {
-                    configuration.label
-                    Spacer(minLength: 0)
+                    if showsLabel {
+                        configuration.label
+                        Spacer(minLength: 0)
+                    }
                     ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                         Capsule()
                             .fill(configuration.isOn ? JcAccent.control : Color.white.opacity(0.18))

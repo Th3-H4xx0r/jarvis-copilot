@@ -137,13 +137,13 @@ extension BandMeasure: Identifiable {
         switch self {
         case .heartRate: return JcTheme.danger
         case .bloodPressure: return JcTheme.accentAlt
-        case .bloodOxygen: return JcTheme.accent
+        case .bloodOxygen: return JcMetric.oxygen
         case .temperature: return JcTheme.speakers[4]   // peach
         case .stress: return JcTheme.amber
         case .bloodGlucose: return JcTheme.speakers[3]   // sky
         case .bloodComponent: return JcTheme.speakers[2]   // violet
         case .bodyComposition: return JcTheme.speakers[5]   // lime
-        case .ecg: return JcTheme.blue
+        case .ecg: return JcMetric.rhythm
         }
     }
 

@@ -53,8 +53,7 @@ struct RingMeasureList: View {
     private func row(_ item: Item) -> some View {
         Row(minHeight: 58) {
             HStack(spacing: 12) {
-                // The metric's colour only while its number is coming in; at rest the glyph is chrome.
-                RingMetricSymbol(name: item.icon, tint: isMeasuring(item) ? item.tint : JcTheme.muted,
+                RingMetricSymbol(name: item.icon, tint: item.tint,
                                  pulsing: isMeasuring(item))
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {

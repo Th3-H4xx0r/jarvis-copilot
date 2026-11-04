@@ -382,7 +382,7 @@ struct HealthVitalsCard: View {
         let entry = vitals.metrics[metric.rawValue]
         return Row(minHeight: 64) {
             HStack(spacing: 12) {
-                JcIconSquare(symbol: group.symbol)
+                JcIconSquare(symbol: group.symbol, tint: group.tint)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(group.title).font(.body.weight(.medium))
