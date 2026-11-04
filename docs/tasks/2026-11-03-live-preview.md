@@ -31,3 +31,4 @@
 - [ ] (shipped 965eea0e52) Settings: switch rows no longer squeeze their text (the B&W switch stretched under labelsHidden); header redone as one left-aligned This device card (name edited in place + "● Connected · host"). Tick when he's seen it.
 - [ ] (shipped 965eea0e52) Icon colours back on Devices / Smart Band / Health: status, battery, heart, steps pills, measure list, band readings. Tick when he's seen it.
 - [ ] (shipped 965eea0e52) Chat + Voice harness chip shows only the harness symbol. Tick when he's seen it.
+- [ ] Integration setup runs the picked model alone, never the default harness (the harness turned setup into a background job he couldn't answer; the top model picker was ignored). Server-side, 9ec4fc8239, webui restarted 20:46 UTC; no app update needed. Tick when a real setup chat answers on the picked model.
