@@ -98,6 +98,7 @@ final class AgentActivityRenderTests: XCTestCase {
                         Spacer(minLength: 0)
                         AgentIslandTrailing(st: s.1)
                     }
+                    AgentIslandCenter(agent: s.0, st: s.1)
                     AgentIslandBottom(st: s.1)
                 }
                 .padding(14)
@@ -109,6 +110,17 @@ final class AgentActivityRenderTests: XCTestCase {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.85))
         try RenderHarness.write(view, size: CGSize(width: 390, height: 1240), name: "agent-la-island")
+    }
+
+    /// iOS cuts a Lock Screen activity off at 160 pt (the buttons lost their
+    /// bottom margin on his phone, 2026-11-03): every state must fit, at a
+    /// narrow phone's activity width.
+    func testEveryLockScreenStateFitsUnderTheCap() {
+        for (agent, st) in samples {
+            let host = UIHostingController(rootView: AgentLockScreenView(agent: agent, st: st))
+            let size = host.sizeThatFits(in: CGSize(width: 350, height: 1000))
+            XCTAssertLessThanOrEqual(size.height, 158, "\(agent) \(st.state): \(size.height) pt")
+        }
     }
 
     /// The in-app request card (Agents list and session screen).

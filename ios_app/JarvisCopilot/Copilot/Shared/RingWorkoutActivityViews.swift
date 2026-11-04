@@ -196,20 +196,33 @@ struct WorkoutHeading: View {
 }
 
 /// The big number on the right: a rest counting down, else the workout's time.
+///
+/// Always in a FIXED-width box: in a widget a timer `Text` is sized for the widest
+/// value its range could reach — a workout's runs to `distantFuture`, so given
+/// room (`fixedSize`) it pushed the whole Lock Screen row off the card on his
+/// phone (2026-11-03). The width fits "1:02:05" past 50 min, "24:15" before.
 struct WorkoutClock: View {
     let state: RingWorkoutAttributes.ContentState
     let rest: RestWindow?
     var size: CGFloat = 34
 
+    /// Rounded tabular digits are ~0.6 em, a colon ~0.3 em.
+    static func width(_ size: CGFloat, hours: Bool) -> CGFloat { (size * (hours ? 3.75 : 2.85)).rounded(.up) }
+
     var body: some View {
-        if let rest {
-            Text(timerInterval: rest.range, countsDown: true)
-                .font(WorkoutLA.figures(size))
-                .multilineTextAlignment(.trailing)
-                .foregroundStyle(WorkoutLA.primary)
-        } else {
-            WorkoutTimerText(state: state, font: WorkoutLA.figures(size))
+        Group {
+            if let rest {
+                Text(timerInterval: rest.range, countsDown: true)
+                    .font(WorkoutLA.figures(size))
+                    .foregroundStyle(WorkoutLA.primary)
+            } else {
+                WorkoutTimerText(state: state, font: WorkoutLA.figures(size))
+            }
         }
+        .multilineTextAlignment(.trailing)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .frame(width: Self.width(size, hours: rest == nil && state.frozenElapsed >= 3000), alignment: .trailing)
     }
 }
 
@@ -343,11 +356,10 @@ struct WorkoutLockScreenView: View {
         let rest = RestWindow(state, isStale: isStale)
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
-                WorkoutSportDisc(symbol: symbol, size: 40)
+                WorkoutSportDisc(symbol: symbol, size: 36)
                 WorkoutHeading(sport: sport, state: state, resting: rest != nil)
                 Spacer(minLength: 8)
-                WorkoutClock(state: state, rest: rest, size: 34)
-                    .fixedSize()
+                WorkoutClock(state: state, rest: rest, size: 32)
             }
             if state.detail == nil && (state.heartRate != nil || state.distanceKm != nil) {
                 WorkoutMetricsRow(state: state)
@@ -355,7 +367,9 @@ struct WorkoutLockScreenView: View {
             WorkoutControls(state: state, rest: rest)
             if let rest { WorkoutRestBar(rest: rest) }
         }
-        .padding(16)
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
     }
 }
 
@@ -387,7 +401,6 @@ struct WorkoutIslandTrailing: View {
 
     var body: some View {
         WorkoutClock(state: state, rest: RestWindow(state, isStale: isStale), size: 30)
-            .frame(maxWidth: 120, alignment: .trailing)
             .padding(.trailing, 4)
     }
 }
@@ -431,7 +444,17 @@ struct WorkoutCompactTrailing: View {
     var isStale = false
 
     var body: some View {
-        WorkoutClock(state: state, rest: RestWindow(state, isStale: isStale), size: 15)
-            .frame(maxWidth: 60, alignment: .trailing)
+        // The pre-redesign compact timer, which iOS draws: plain timer text capped at
+        // 56 pt (the shared clock's fixed box + scale factor left the pill blank).
+        if let rest = RestWindow(state, isStale: isStale) {
+            Text(timerInterval: rest.range, countsDown: true)
+                .font(WorkoutLA.figures(14))
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(WorkoutLA.primary)
+                .frame(maxWidth: 56)
+        } else {
+            WorkoutTimerText(state: state, font: WorkoutLA.figures(14))
+                .frame(maxWidth: 56)
+        }
     }
 }

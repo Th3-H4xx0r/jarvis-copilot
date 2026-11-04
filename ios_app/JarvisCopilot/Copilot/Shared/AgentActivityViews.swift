@@ -103,6 +103,8 @@ struct AgentStatePill: View {
                 .foregroundStyle(AgentLA.secondary)
                 .lineLimit(1)
         }
+        // The island's trailing slot squeezed "Working" to "…" beside the center text.
+        .fixedSize()
     }
 }
 
@@ -192,21 +194,25 @@ struct AgentLockScreenView: View {
     let st: AgentActivityAttributes.ContentState
 
     var body: some View {
+        // iOS cuts a Lock Screen activity off at 160 pt: the waiting card is
+        // budgeted to ≤ 152 (14 + 26 + 8 + two lines + 8 + 34 + 18).
         Group {
             if st.waitsOnYou {
                 AgentWaitingView(agent: agent, st: st)
+                    .padding(.top, 14)
+                    .padding(.bottom, 18)
             } else {
-                working
+                working.padding(.vertical, 16)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 20)
     }
 
     private var working: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                AgentLogoMark(agent: agent, state: st.state, size: 40)
-                AgentHeaderText(agent: agent, st: st)
+                AgentLogoMark(agent: agent, state: st.state, size: 36)
+                AgentHeaderText(agent: agent, st: st, titleSize: 15)
                 Spacer(minLength: 8)
                 AgentStatePill(state: st.state)
             }
@@ -218,20 +224,24 @@ struct AgentLockScreenView: View {
 
 // MARK: - Dynamic Island
 
-/// Expanded, leading: the logo with the agent and project beside it.
+/// Expanded, leading: the logo. (Beside the camera there's no room for the
+/// name: it read "Claude…" in the simulator; the name goes in `.center`.)
 struct AgentIslandLeading: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        HStack(spacing: 10) {
-            AgentLogoMark(agent: agent, state: st.state, size: st.waitsOnYou ? 32 : 36)
-            if st.waitsOnYou {
-                AgentWaitingWho(agent: agent, st: st, nameSize: 14)
-            } else {
-                AgentHeaderText(agent: agent, st: st, titleSize: 14)
-            }
-        }
-        .padding(.leading, 4)
+        AgentLogoMark(agent: agent, state: st.state, size: 32)
+            .padding(.leading, 4)
+    }
+}
+
+/// Expanded, center (under the camera): "Claude Code · jarvis-copilot".
+struct AgentIslandCenter: View {
+    let agent: String
+    let st: AgentActivityAttributes.ContentState
+    var body: some View {
+        AgentWaitingWho(agent: agent, st: st, nameSize: 14, oneLine: true)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -256,12 +266,13 @@ struct AgentIslandBottom: View {
     var body: some View {
         Group {
             if st.waitsOnYou {
-                VStack(alignment: .leading, spacing: 10) {
-                    AgentWaitingMessage(st: st, size: 15, heading: false)
-                    AgentWaitingButtons(st: st, height: 40)
+                // The expanded island stops at ~144 pt: one line of command, 36 pt buttons.
+                VStack(alignment: .leading, spacing: 8) {
+                    AgentWaitingMessage(st: st, size: 15, commandLines: 1)
+                    AgentWaitingButtons(st: st, height: 36)
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 6)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     AgentDetailRow(st: st)
@@ -330,26 +341,27 @@ struct AgentMinimal: View {
 
 // MARK: - Waiting on you
 
-/// "Waiting on you" on the Lock Screen: who asks (logo, agent, project) and how
-/// long it has waited, then what it wants — "Allow Bash?" over the command in a
-/// dark well, or the question — then the buttons. The update that brings this on
+/// "Waiting on you" on the Lock Screen: who asks (logo, "agent · project") and
+/// how long it has waited, then what it wants — the command in a dark well, or
+/// the question — then the buttons. The update that brings this on
 /// carries an alert, so the island pops open on it with a sound; the expanded
 /// island lays the same parts around the camera. No Face ID (`AgentLiveIntents`).
 struct AgentWaitingView: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
-    var logoSize: CGFloat = 40
+    var logoSize: CGFloat = 26
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
                 AgentLogoMark(agent: agent, state: st.state, size: logoSize)
-                AgentWaitingWho(agent: agent, st: st)
+                AgentWaitingWho(agent: agent, st: st, nameSize: 15, oneLine: true)
                 Spacer(minLength: 8)
                 AgentWaitingBadge(st: st)
             }
-            AgentWaitingMessage(st: st)
-            AgentWaitingButtons(st: st)
+            AgentWaitingMessage(st: st, size: 15)
+            AgentWaitingButtons(st: st, height: 34)
+                .padding(.top, 2)
         }
     }
 }
@@ -359,8 +371,24 @@ struct AgentWaitingWho: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var nameSize: CGFloat = 16
+    /// "Claude Code · jarvis-copilot" on one line (the Lock Screen's height budget).
+    var oneLine = false
 
     var body: some View {
+        if oneLine {
+            (Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
+                .font(.system(size: nameSize, weight: .semibold))
+                .foregroundColor(AgentLA.primary)
+             + Text(st.project.isEmpty ? "" : " · \(st.project)")
+                .font(.system(size: nameSize - 2))
+                .foregroundColor(AgentLA.secondary))
+                .lineLimit(1)
+        } else {
+            twoLines
+        }
+    }
+
+    private var twoLines: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
                 .font(.system(size: nameSize, weight: .semibold))
@@ -403,40 +431,32 @@ struct AgentWaitingBadge: View {
     }
 }
 
-/// What it asks: the question, or "Allow Bash?" over the command it wants to
-/// run (without the engine's "Needs approval:" prefix), in mono on a dark well.
+/// What it asks: the question, or the command it wants to run (without the
+/// engine's "Needs approval:" prefix) in mono on a dark well, its tool ("Bash")
+/// in grey before it.
 struct AgentWaitingMessage: View {
     let st: AgentActivityAttributes.ContentState
-    var size: CGFloat = 16
-    /// "Allow Bash?" above the command (the island has no room for it).
-    var heading = true
+    var size: CGFloat = 15
+    var commandLines = 2
 
     var body: some View {
         if let request = commandRequest {
-            VStack(alignment: .leading, spacing: 8) {
-                if heading {
-                    Text(request.tool.isEmpty ? "Allow this?" : "Allow \(request.tool)?")
-                        .font(.system(size: size, weight: .semibold))
-                        .foregroundStyle(AgentLA.primary)
-                }
-                Text(request.command)
-                    .font(.system(size: size - 2, design: .monospaced))
-                    .foregroundStyle(AgentLA.primary)
-                    .lineLimit(heading ? 3 : 2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AgentLA.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(AgentLA.hairline, lineWidth: 0.5))
-            }
+            (Text(request.tool.isEmpty ? "" : "\(request.tool)  ").foregroundColor(AgentLA.secondary)
+             + Text(request.command).foregroundColor(AgentLA.primary))
+                .font(.system(size: size - 2, design: .monospaced))
+                .lineLimit(commandLines)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AgentLA.well, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(AgentLA.hairline, lineWidth: 0.5))
         } else {
             Text(text)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(AgentLA.primary)
-                .lineSpacing(2)
-                .lineLimit(3)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

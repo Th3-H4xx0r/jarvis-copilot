@@ -88,6 +88,15 @@ final class WorkoutActivityRenderTests: XCTestCase {
         try RenderHarness.write(view, size: CGSize(width: 390, height: 1000), name: "workout-la-island")
     }
 
+    /// iOS cuts a Lock Screen activity off at 160 pt: every state must fit.
+    func testEveryLockScreenStateFitsUnderTheCap() {
+        for s in samples {
+            let host = UIHostingController(rootView: WorkoutLockScreenView(sport: s.sport, symbol: s.symbol, state: s.state))
+            let size = host.sizeThatFits(in: CGSize(width: 350, height: 1000))
+            XCTAssertLessThanOrEqual(size.height, 158, "\(s.sport): \(size.height) pt")
+        }
+    }
+
     func testNextSetSplitsTheExerciseFromTheSet() {
         let next = WorkoutNextSet("Bench Press · set 3 · 60 kg × 8")
         XCTAssertEqual(next?.exercise, "Bench Press")
