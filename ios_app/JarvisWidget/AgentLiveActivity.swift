@@ -33,7 +33,7 @@ struct AgentLiveActivity: Widget {
             } minimal: {
                 AgentMinimal(agent: agent, st: st)
             }
-            .keylineTint(jcAgentStateColor(st.state))
+            .keylineTint(.white)
             .widgetURL(jcAgentWidgetURL(st))
         }
     }

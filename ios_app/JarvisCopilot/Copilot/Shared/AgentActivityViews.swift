@@ -6,15 +6,27 @@ import UIKit
 // them through `AgentLiveActivity`) and the app (its settings rows and render
 // tests).
 //
+// Black and white, like the system's own activities (his pick, 2026-11-03: "more
+// black and white and less colorful"): the agent's logo on a quiet glass disc,
+// white and grey text, the state as a word with a small dot, solid buttons —
+// grey, and white with black text for the one that goes ahead. No accent, no amber.
+//
 // The Dynamic Island's compact / minimal slots must hold only plain shapes,
 // images and text at a FIXED size. An indeterminate `ProgressView` there left the
 // whole island a full-width EMPTY black bar on iOS 27 (iPhone 17 Pro Max) while
-// the Lock Screen view, which has none, rendered fine — so "busy" is the static
-// `AgentBusyRing` below, never a spinner.
+// the Lock Screen view, which has none, rendered fine — never put a spinner there.
 
-/// "Working", drawn as a still arc — the island's compact slots can't host an
-/// indeterminate `ProgressView` (see above). Fixed size, so it can never claim
-/// the slot's full width.
+/// Text roles on the activity's dark glass.
+enum AgentLA {
+    static let primary = Color.white
+    static let secondary = Color.white.opacity(0.62)
+    static let tertiary = Color.white.opacity(0.4)
+    static let well = Color.white.opacity(0.08)
+    static let hairline = Color.white.opacity(0.1)
+}
+
+/// "Working", drawn as a still arc at a fixed size (the Jarvis voice activity's
+/// coding mode uses it; an indeterminate `ProgressView` breaks the island).
 struct AgentBusyRing: View {
     let color: Color
     var size: CGFloat = 16
@@ -29,17 +41,16 @@ struct AgentBusyRing: View {
     }
 }
 
-/// The agent's logo on a glass disc, ringed in its state colour.
+/// The agent's logo on a quiet glass disc.
 struct AgentLogoMark: View {
     let agent: String
     var state: String = "idle"
     var size: CGFloat = 40
-    /// The state ring (off in the cramped compact island).
+    /// The disc (off in the cramped compact island: the bare mark).
     var ring: Bool = true
     /// Overrides the mark's white (amber while it waits on you, compact).
     var tint: Color? = nil
-    /// The state-coloured rim; off keeps the glass disc alone (the waiting
-    /// card says "needs you" with its badge instead).
+    /// Kept for callers; the state is said in words now, not with a coloured rim.
     var stateRing: Bool = true
 
     var body: some View {
@@ -47,12 +58,8 @@ struct AgentLogoMark: View {
             if AgentBrand.mark(for: agent) == .orb {
                 orb
             } else {
-                Circle().fill(Color.white.opacity(ring ? 0.10 : 0))
-                mark.frame(width: size * (ring ? 0.52 : 0.78), height: size * (ring ? 0.52 : 0.78))
-            }
-            if ring && stateRing {
-                Circle().strokeBorder(jcAgentStateColor(state).opacity(state == "idle" ? 0.45 : 0.95),
-                                      lineWidth: max(1.5, size * 0.055))
+                if ring { Circle().fill(Color.white.opacity(0.12)) }
+                mark.frame(width: size * (ring ? 0.5 : 0.78), height: size * (ring ? 0.5 : 0.78))
             }
         }
         .frame(width: size, height: size)
@@ -76,39 +83,25 @@ struct AgentLogoMark: View {
     @ViewBuilder private var orb: some View {
         if let ui = jarvisOrbUIImage {
             Image(uiImage: ui).resizable().scaledToFill()
-                .frame(width: size * (ring ? 0.84 : 1), height: size * (ring ? 0.84 : 1))
+                .frame(width: size, height: size)
                 .clipShape(Circle())
         } else {
             Circle().fill(JcAccent.color)
-                .frame(width: size * 0.84, height: size * 0.84)
         }
     }
 }
 
-/// The state, as a tinted capsule: "Needs you" in amber, "Working" in the accent.
+/// The state as a word with a small dot: "Working", "Idle", "Failed".
 struct AgentStatePill: View {
     let state: String
     var body: some View {
-        let c = jcAgentStateColor(state)
-        Text(jcAgentStateLabel(state))
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(c)
-            .lineLimit(1)
-            .padding(.vertical, 5).padding(.horizontal, 10)
-            .background(Capsule().fill(c.opacity(0.16)))
-    }
-}
-
-/// One small capsule per session, most urgent first — the whole group at a glance.
-struct AgentFleetBar: View {
-    let states: [String]
-    var segment: CGSize = CGSize(width: 10, height: 4)
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(states.enumerated()), id: \.offset) { _, s in
-                Capsule().fill(jcAgentBarColor(s))
-                    .frame(width: segment.width, height: segment.height)
-            }
+        HStack(spacing: 6) {
+            Circle().fill(state == "working" || state == "thinking" ? AgentLA.primary : AgentLA.tertiary)
+                .frame(width: 6, height: 6)
+            Text(jcAgentStateLabel(state))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(AgentLA.secondary)
+                .lineLimit(1)
         }
     }
 }
@@ -121,26 +114,25 @@ struct AgentHeaderText: View {
     var titleSize: CGFloat = 16
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
                 .font(.system(size: titleSize, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(AgentLA.primary)
                 .lineLimit(1)
             subtitle
-                .font(.system(size: titleSize - 4, weight: .regular))
+                .font(.system(size: titleSize - 3))
                 .lineLimit(1)
         }
     }
 
     private var subtitle: Text {
         let moreWaiting = st.waiting - (st.waitsOnYou ? 1 : 0)
-        var line = Text(st.project.isEmpty ? "session" : st.project)
-            .foregroundColor(.white.opacity(0.62))
+        var line = Text(st.project.isEmpty ? "Session" : st.project).foregroundColor(AgentLA.secondary)
         if st.others > 0 {
-            line = line + Text(" · +\(st.others) more").foregroundColor(.white.opacity(0.45))
+            line = line + Text(" · \(st.others) more").foregroundColor(AgentLA.secondary)
         }
         if moreWaiting > 0 {
-            line = line + Text(" · \(moreWaiting) waiting").foregroundColor(JcState.amber)
+            line = line + Text(" · \(moreWaiting) waiting").foregroundColor(AgentLA.primary)
         }
         return line
     }
@@ -153,8 +145,8 @@ struct AgentDetailRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(st.step.isEmpty ? placeholder : st.step)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(st.step.isEmpty ? 0.45 : 0.8))
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(st.step.isEmpty ? AgentLA.tertiary : AgentLA.secondary)
                 .lineLimit(1)
             Spacer(minLength: 4)
             clock
@@ -162,47 +154,34 @@ struct AgentDetailRow: View {
     }
 
     private var placeholder: String {
-        st.waitsOnYou ? "Waiting on you" : (st.isWorking ? "Working…" : "Ready for the next prompt")
+        st.waitsOnYou ? "Waiting on you" : (st.isWorking ? "Working" : "Ready for the next prompt")
     }
 
     @ViewBuilder private var clock: some View {
         if st.isWorking && st.since > 0 {
             Text(Date(timeIntervalSince1970: st.since), style: .timer)
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.55))
+                .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
+                .foregroundStyle(AgentLA.secondary)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 56, alignment: .trailing)
         } else if !st.isWorking && !st.waitsOnYou && st.last > 0 {
             Text(Date(timeIntervalSince1970: st.last), style: .relative)
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.45))
+                .font(.system(size: 13, design: .rounded).monospacedDigit())
+                .foregroundStyle(AgentLA.tertiary)
                 .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 84, alignment: .trailing)
+                .frame(maxWidth: 96, alignment: .trailing)
         }
     }
 }
 
 /// Deny / Allow for a request the phone can answer (no unlock needed), or
-/// the nudge to answer a question in the app.
+/// the button to answer a question in the app.
 struct AgentActionsRow: View {
     let st: AgentActivityAttributes.ContentState
 
     var body: some View {
-        if st.showsButtons {
-            HStack(spacing: 8) {
-                Button(intent: AgentDenyIntent(fingerprint: st.fingerprint)) {
-                    AgentGlassButtonLabel(text: "Deny", height: 34)
-                }
-                .buttonStyle(.plain)
-                Button(intent: AgentAllowIntent(fingerprint: st.fingerprint)) {
-                    AgentGlassButtonLabel(text: "Allow", tint: JcAccent.color, height: 34)
-                }
-                .buttonStyle(.plain)
-            }
-        } else if st.kind == "question" && st.actions {
-            Text("Tap to answer in Jarvis")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(JcState.amber)
+        if st.showsButtons || st.showsOptions || (st.kind == "question" && st.actions) {
+            AgentWaitingButtons(st: st, height: 36)
         }
     }
 }
@@ -213,32 +192,27 @@ struct AgentLockScreenView: View {
     let st: AgentActivityAttributes.ContentState
 
     var body: some View {
-        if st.waitsOnYou {
-            AgentWaitingView(agent: agent, st: st)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 16)
-        } else {
-            working
+        Group {
+            if st.waitsOnYou {
+                AgentWaitingView(agent: agent, st: st)
+            } else {
+                working
+            }
         }
+        .padding(16)
     }
 
     private var working: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                AgentLogoMark(agent: agent, state: st.state, size: 44)
+                AgentLogoMark(agent: agent, state: st.state, size: 40)
                 AgentHeaderText(agent: agent, st: st)
-                Spacer(minLength: 6)
-                VStack(alignment: .trailing, spacing: 6) {
-                    AgentStatePill(state: st.state)
-                    if st.count > 1 { AgentFleetBar(states: st.barStates) }
-                }
+                Spacer(minLength: 8)
+                AgentStatePill(state: st.state)
             }
             AgentDetailRow(st: st)
             AgentActionsRow(st: st)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
     }
 }
 
@@ -249,36 +223,30 @@ struct AgentIslandLeading: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        if st.waitsOnYou {
-            // Waiting: who asks, beside the camera; the ask itself is below.
-            HStack(spacing: 8) {
-                AgentLogoMark(agent: agent, state: st.state, size: 28, stateRing: false)
-                AgentWaitingWho(agent: agent, st: st, nameSize: 13)
-            }
-            .padding(.leading, 4)
-        } else {
-            HStack(spacing: 9) {
-                AgentLogoMark(agent: agent, state: st.state, size: 38)
+        HStack(spacing: 10) {
+            AgentLogoMark(agent: agent, state: st.state, size: st.waitsOnYou ? 32 : 36)
+            if st.waitsOnYou {
+                AgentWaitingWho(agent: agent, st: st, nameSize: 14)
+            } else {
                 AgentHeaderText(agent: agent, st: st, titleSize: 14)
             }
-            .padding(.leading, 4)
         }
+        .padding(.leading, 4)
     }
 }
 
-/// Expanded, trailing: the state and the fleet bar.
+/// Expanded, trailing: the state, or how long it has waited on you.
 struct AgentIslandTrailing: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        if st.waitsOnYou {
-            AgentWaitingBadge(st: st, label: false).padding(.trailing, 4)
-        } else {
-            VStack(alignment: .trailing, spacing: 6) {
+        Group {
+            if st.waitsOnYou {
+                AgentWaitingBadge(st: st, label: false)
+            } else {
                 AgentStatePill(state: st.state)
-                if st.count > 1 { AgentFleetBar(states: st.barStates) }
             }
-            .padding(.trailing, 4)
         }
+        .padding(.trailing, 4)
     }
 }
 
@@ -288,9 +256,8 @@ struct AgentIslandBottom: View {
     var body: some View {
         Group {
             if st.waitsOnYou {
-                // Inset from the island's round bottom corners.
-                VStack(alignment: .leading, spacing: 12) {
-                    AgentWaitingMessage(st: st, size: 15)
+                VStack(alignment: .leading, spacing: 10) {
+                    AgentWaitingMessage(st: st, size: 15, heading: false)
                     AgentWaitingButtons(st: st, height: 40)
                 }
                 .padding(.top, 4)
@@ -306,58 +273,56 @@ struct AgentIslandBottom: View {
     }
 }
 
-/// Collapsed, leading: just the logo — amber while it waits on you.
+/// Collapsed, leading: just the logo.
 struct AgentCompactLeading: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        AgentLogoMark(agent: agent, state: st.state, size: 22, ring: false,
-                      tint: st.waitsOnYou ? JcState.amber : nil)
+        AgentLogoMark(agent: agent, state: st.state, size: 22, ring: false)
             .frame(width: 24, height: 24)
     }
 }
 
-/// Collapsed, trailing: the state at a glance, and the session count when > 1.
+/// Collapsed, trailing: how long it has waited or worked, or how it ended.
 struct AgentCompactTrailing: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        HStack(spacing: 5) {
-            glyph.frame(width: 18, height: 18)
-            if st.count > 1 {
-                Text("\(min(st.count, 99))")
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.8))
-                    .lineLimit(1)
+        Group {
+            if st.waitsOnYou {
+                timer(from: st.waitingStart, color: AgentLA.primary)
+            } else if st.isWorking && st.since > 0 {
+                timer(from: st.since, color: AgentLA.primary)
+            } else if st.isWorking {
+                Circle().fill(AgentLA.primary).frame(width: 7, height: 7)
+            } else if st.state == "error" {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AgentLA.primary)
+            } else {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AgentLA.secondary)
             }
         }
+        .frame(width: 44, alignment: .trailing)
     }
 
-    @ViewBuilder private var glyph: some View {
-        if st.waitsOnYou {
-            Image(systemName: st.state == "question" ? "questionmark.bubble.fill" : "hand.raised.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(JcState.amber)
-        } else if st.isWorking {
-            AgentBusyRing(color: JcAccent.color, size: 15)
-        } else if st.state == "error" {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(JcState.danger)
-        } else {
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(jcAgentStateColor("idle"))
-        }
+    private func timer(from start: Double, color: Color) -> some View {
+        Text(Date(timeIntervalSince1970: start), style: .timer)
+            .font(.system(size: 14, weight: .medium, design: .rounded).monospacedDigit())
+            .foregroundStyle(color)
+            .multilineTextAlignment(.trailing)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 }
 
-/// Minimal (another activity holds the island): the logo inside its state ring.
+/// Minimal (another activity holds the island): the logo.
 struct AgentMinimal: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        AgentLogoMark(agent: agent, state: st.state, size: 24,
-                      tint: st.waitsOnYou ? JcState.amber : nil)
+        AgentLogoMark(agent: agent, state: st.state, size: 22, ring: false)
             .frame(width: 24, height: 24)
     }
 }
@@ -365,20 +330,20 @@ struct AgentMinimal: View {
 
 // MARK: - Waiting on you
 
-/// "Needs you" on the Lock Screen: who asks (logo, agent, project) with an amber
-/// badge — what it needs and how long it has waited, counting up — then the
-/// question or command in full, then the buttons. The update that brings this on
+/// "Waiting on you" on the Lock Screen: who asks (logo, agent, project) and how
+/// long it has waited, then what it wants — "Allow Bash?" over the command in a
+/// dark well, or the question — then the buttons. The update that brings this on
 /// carries an alert, so the island pops open on it with a sound; the expanded
 /// island lays the same parts around the camera. No Face ID (`AgentLiveIntents`).
 struct AgentWaitingView: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
-    var logoSize: CGFloat = 38
+    var logoSize: CGFloat = 40
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 11) {
-                AgentLogoMark(agent: agent, state: st.state, size: logoSize, stateRing: false)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                AgentLogoMark(agent: agent, state: st.state, size: logoSize)
                 AgentWaitingWho(agent: agent, st: st)
                 Spacer(minLength: 8)
                 AgentWaitingBadge(st: st)
@@ -393,75 +358,100 @@ struct AgentWaitingView: View {
 struct AgentWaitingWho: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
-    var nameSize: CGFloat = 15
+    var nameSize: CGFloat = 16
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(st.name.isEmpty ? AgentBrand.title(for: agent) : st.name)
                 .font(.system(size: nameSize, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(AgentLA.primary)
                 .lineLimit(1)
             if !st.project.isEmpty {
                 Text(st.project)
-                    .font(.system(size: nameSize - 3, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .font(.system(size: nameSize - 3))
+                    .foregroundStyle(AgentLA.secondary)
                     .lineLimit(1)
             }
         }
     }
 }
 
-/// Amber capsule: what it needs ("Question" / "Needs OK") and the wait so far.
+/// "Waiting 0:13": how long it has waited on you, counting up.
 struct AgentWaitingBadge: View {
     let st: AgentActivityAttributes.ContentState
-    /// The word beside the icon (the island's camera row has room for the timer only).
+    /// The word before the timer (the island's camera row has room for the timer only).
     var label = true
 
-    private var isQuestion: Bool { st.kind == "question" || st.state == "question" }
-
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: isQuestion ? "questionmark.bubble.fill" : "hand.raised.fill")
-                .font(.system(size: 11, weight: .semibold))
+        HStack(spacing: 4) {
             if label {
-                Text(isQuestion ? "Question" : "Needs OK")
-                    .font(.system(size: 12, weight: .medium))
+                Text("Waiting")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(AgentLA.secondary)
                     .lineLimit(1)
                     .fixedSize()
             }
             // A timer Text takes all the width it's offered — pin it.
             Text(Date(timeIntervalSince1970: st.waitingStart), style: .timer)
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 38, alignment: .trailing)
+                .foregroundStyle(AgentLA.primary)
         }
-        .foregroundStyle(JcState.amber)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(JcState.amber.opacity(0.16)))
     }
 }
 
-/// What it asks: the question, or the command it wants to run (without the
-/// engine's "Needs approval:" prefix) in mono.
+/// What it asks: the question, or "Allow Bash?" over the command it wants to
+/// run (without the engine's "Needs approval:" prefix), in mono on a dark well.
 struct AgentWaitingMessage: View {
     let st: AgentActivityAttributes.ContentState
-    var size: CGFloat = 15
+    var size: CGFloat = 16
+    /// "Allow Bash?" above the command (the island has no room for it).
+    var heading = true
 
     var body: some View {
-        Text(text)
-            .font(isCommand ? .system(size: size - 1.5, weight: .medium, design: .monospaced)
-                            : .system(size: size, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.95))
-            .lineSpacing(1.5)
-            .lineLimit(3)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        if let request = commandRequest {
+            VStack(alignment: .leading, spacing: 8) {
+                if heading {
+                    Text(request.tool.isEmpty ? "Allow this?" : "Allow \(request.tool)?")
+                        .font(.system(size: size, weight: .semibold))
+                        .foregroundStyle(AgentLA.primary)
+                }
+                Text(request.command)
+                    .font(.system(size: size - 2, design: .monospaced))
+                    .foregroundStyle(AgentLA.primary)
+                    .lineLimit(heading ? 3 : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AgentLA.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(AgentLA.hairline, lineWidth: 0.5))
+            }
+        } else {
+            Text(text)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(AgentLA.primary)
+                .lineSpacing(2)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
-    private var isCommand: Bool { st.question.isEmpty && st.kind == "approval" && !command.isEmpty }
+    /// "Bash: rm -rf build" → ("Bash", "rm -rf build"); a bare command keeps an empty tool.
+    private var commandRequest: (tool: String, command: String)? {
+        guard st.question.isEmpty, st.kind == "approval", !command.isEmpty else { return nil }
+        if let colon = command.range(of: ": ") {
+            let tool = String(command[..<colon.lowerBound])
+            let rest = String(command[colon.upperBound...]).trimmingCharacters(in: .whitespaces)
+            if !tool.isEmpty, tool.count <= 24, !tool.contains(" "), !rest.isEmpty { return (tool, rest) }
+        }
+        return ("", command)
+    }
 
     private var command: String {
         var what = st.step
@@ -473,7 +463,6 @@ struct AgentWaitingMessage: View {
 
     private var text: String {
         if !st.question.isEmpty { return st.question }
-        if !command.isEmpty { return command }
         return st.kind == "question" || st.state == "question" ? "It has a question for you" : "It needs your OK to go on"
     }
 }
@@ -481,58 +470,55 @@ struct AgentWaitingMessage: View {
 /// Deny / Allow, a question's options, or one Answer button that opens Jarvis.
 struct AgentWaitingButtons: View {
     let st: AgentActivityAttributes.ContentState
-    var height: CGFloat = 42
+    var height: CGFloat = 44
 
     var body: some View {
         if st.showsButtons {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Button(intent: AgentDenyIntent(fingerprint: st.fingerprint)) {
                     AgentGlassButtonLabel(text: "Deny", height: height)
                 }
                 .buttonStyle(.plain)
                 Button(intent: AgentAllowIntent(fingerprint: st.fingerprint)) {
-                    AgentGlassButtonLabel(text: "Allow", tint: JcAccent.color, height: height)
+                    AgentGlassButtonLabel(text: "Allow", tint: .white, height: height)
                 }
                 .buttonStyle(.plain)
             }
         } else if st.showsOptions {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(Array(st.options.prefix(3).enumerated()), id: \.offset) { _, option in
                     Button(intent: AgentAnswerIntent(fingerprint: st.fingerprint,
                                                      question: st.question, option: option)) {
-                        AgentGlassButtonLabel(text: option, tint: JcAccent.color, height: height)
+                        AgentGlassButtonLabel(text: option, height: height)
                     }
                     .buttonStyle(.plain)
                 }
             }
         } else if st.kind == "question" || st.state == "question" {
             Link(destination: jcAgentWidgetURL(st)) {
-                AgentGlassButtonLabel(text: "Answer in Jarvis", tint: JcAccent.color, height: height)
+                AgentGlassButtonLabel(text: "Answer in Jarvis", tint: .white, height: height)
             }
         }
     }
 }
 
-/// The app's liquid-glass button (`JcGlassButtonStyle`) redrawn for a Live
-/// Activity, where `glassEffect` isn't available: the label in its colour on a
-/// flat clear-glass capsule with a hairline rim — no gradients. `tint` (the one
-/// accent) colours the label and faintly washes the glass; nil is the neutral
-/// button.
+/// A Live Activity button, drawn the way the system draws its own (a call's
+/// Decline / Accept, a timer's Pause): a solid capsule. Nil `tint` is the grey
+/// button with white text; a tint (white, for the action that goes ahead) fills
+/// it, with black text.
 struct AgentGlassButtonLabel: View {
     let text: String
     var tint: Color? = nil
-    var height: CGFloat = 42
+    var height: CGFloat = 44
 
     var body: some View {
         Text(text)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(tint ?? .white.opacity(0.92))
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(tint == nil ? Color.white : Color.black)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: height)
-            .background(Capsule().fill(Color.white.opacity(0.11)))
-            .background(Capsule().fill((tint ?? .clear).opacity(0.12)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.5))
+            .background(Capsule().fill(tint ?? Color.white.opacity(0.16)))
     }
 }

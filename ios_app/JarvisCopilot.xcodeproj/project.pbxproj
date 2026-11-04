@@ -191,6 +191,7 @@
 		25FABE7122FDAB8877E0137C /* JCPulse4.otf in Resources */ = {isa = PBXBuildFile; fileRef = 1FDCD47A9CAE1556D3DDB3C5 /* JCPulse4.otf */; };
 		263D6A3434FDD92FFC4E4030 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F73CE69C2D4FA1FF002D908 /* CarPlaySceneDelegate.swift */; };
 		26651A70BF7067AD9CAA4F7D /* GlassesNoteWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56538D9E7ADE4F6CF39B634F /* GlassesNoteWire.swift */; };
+		268DE107A0477CC0C6CC6496 /* RingWorkoutActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */; };
 		26A87DEE1276CE7429D29A1A /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */; };
 		2705BB8AEBCCAAA34B25AD89 /* AppleFMEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A2FA671760513674F72292 /* AppleFMEngine.swift */; };
 		2745DE46AB58EF90B08F0241 /* JarvisWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -373,6 +374,7 @@
 		472F6F7C24F577900210C74B /* ConnectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B474480B73EBC2CA872FFAC3 /* ConnectionMonitor.swift */; };
 		4766958456B42573BBC6EB43 /* HabitRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2CEB6249AE39EE47DCA065 /* HabitRenderTests.swift */; };
 		47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
+		477EDB1B03231104CC9B7CCD /* RingWorkoutActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */; };
 		479CBC19AEF9985CDFD7EF56 /* IOSSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A4E3847E7B8475E457549C /* IOSSkills.swift */; };
 		47F2CB1D9E0845EE10135C18 /* DevicePairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */; };
 		480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */; };
@@ -779,6 +781,7 @@
 		9DB4F673B8C5784D269D94DF /* AgentBrand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C0998844A4F29E81101966 /* AgentBrand.swift */; };
 		9DFFA6948F912885BD771AAF /* AudioQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8762A5A1DFE2B6DD0E005A /* AudioQueueTests.swift */; };
 		9E7268EEFF6816A1E31ED383 /* InmoGo3Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D90A02CB8AC56AC8C815B2 /* InmoGo3Model.swift */; };
+		9E7EC845D01FFE96829C8956 /* WorkoutActivityRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6955E6F49FF77ADA0A0F7E05 /* WorkoutActivityRenderTests.swift */; };
 		9EB9D44293B49E0CA44FA29B /* ChatMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1FEF8EE3C4BA6BAD6F6C0B /* ChatMediaTests.swift */; };
 		9EBBF20EF739EAF216C30835 /* PodSetupCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90E1D05DBCB57D4A986B917 /* PodSetupCode.swift */; };
 		9ED2957ECDFE2C0E0C7917B1 /* LoadErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC349768DB1466D704F3107B /* LoadErrorBanner.swift */; };
@@ -1540,6 +1543,7 @@
 		3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduling.swift; sourceTree = "<group>"; };
 		312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatModelsLoadTests.swift; sourceTree = "<group>"; };
 		3147B0BDFA2874440C835FA2 /* JarvisPulse.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPulse.swift; sourceTree = "<group>"; };
+		317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkoutActivityViews.swift; sourceTree = "<group>"; };
 		31CAD7EF9E5947CE7346F991 /* IMessageFactCardRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactCardRenderTests.swift; sourceTree = "<group>"; };
 		31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToyotaTests.swift; sourceTree = "<group>"; };
 		31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmTests.swift; sourceTree = "<group>"; };
@@ -1782,6 +1786,7 @@
 		68AA6C21EF2F12B8AD1D080C /* ChatTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatTestSupport.swift; sourceTree = "<group>"; };
 		68C4F458740DA9262A8E2C82 /* DoorAlarmDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmDevice.swift; sourceTree = "<group>"; };
 		68E47505B4129BAAF9A3D2A4 /* CarLights.json */ = {isa = PBXFileReference; includeInIndex = 1; path = CarLights.json; sourceTree = "<group>"; };
+		6955E6F49FF77ADA0A0F7E05 /* WorkoutActivityRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutActivityRenderTests.swift; sourceTree = "<group>"; };
 		695DF5E83265D57DABAD99BB /* TrainingStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingStore.swift; sourceTree = "<group>"; };
 		6998747AD0EC6B5B3EB2EA90 /* AppleFoundationModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleFoundationModel.swift; sourceTree = "<group>"; };
 		69C0D975BD69E363B9954EE9 /* BandEcgTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcgTests.swift; sourceTree = "<group>"; };
@@ -3060,6 +3065,7 @@
 				2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */,
 				3615258119AB33C6105C323F /* ContextSnapshotTests.swift */,
 				F888EA028DB146174D674117 /* AppUpdateCenterTests.swift */,
+				6955E6F49FF77ADA0A0F7E05 /* WorkoutActivityRenderTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4397,6 +4403,7 @@
 				C596CD05FC6348EEDCDBB35D /* JarvisVoiceActivityViews.swift */,
 				1AB267A6EA889793B608DA7B /* TalkHereIntent.swift */,
 				3147B0BDFA2874440C835FA2 /* JarvisPulse.swift */,
+				317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -5032,6 +5039,7 @@
 				BCC90A3A148211203CC781E0 /* JarvisVoiceActivityViews.swift in Sources */,
 				BD1DF43D95E8AA20A82227C1 /* TalkHereIntent.swift in Sources */,
 				0B5A97E10165C18B029D628C /* JarvisPulse.swift in Sources */,
+				268DE107A0477CC0C6CC6496 /* RingWorkoutActivityViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5389,6 +5397,7 @@
 				A3E3BC62CF05761F613DBC05 /* LivePreviewCardTests.swift in Sources */,
 				40406621A7236D68B689B3B8 /* MacCommandCenterTests.swift in Sources */,
 				F50E177FBFCD2BD6CE0AD63E /* MacCommandCenterRenderTests.swift in Sources */,
+				9E7EC845D01FFE96829C8956 /* WorkoutActivityRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6213,6 +6222,7 @@
 				0B2320C2918493E9D81485B1 /* BrowserSessionCard.swift in Sources */,
 				0D34BCA299E7CD069B564644 /* MacScreenViewer.swift in Sources */,
 				3FF3C31292D1CD92C5B30CBE /* MacCommandCenter.swift in Sources */,
+				477EDB1B03231104CC9B7CCD /* RingWorkoutActivityViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

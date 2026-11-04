@@ -111,6 +111,20 @@ final class AgentActivityRenderTests: XCTestCase {
         try RenderHarness.write(view, size: CGSize(width: 390, height: 1240), name: "agent-la-island")
     }
 
+    /// The in-app request card (Agents list and session screen).
+    func testRenderTheRequestCard() throws {
+        let store = AgentsStore()
+        let ask = AgentRequest(requestId: "r1", fingerprint: "fp", kind: .approval, tool: "Bash",
+                               summary: "", command: "rm -rf build && npm run build", project: "jarvis-copilot",
+                               key: "d|claude|s", agent: "claude", canAlways: true, questions: [], created: Date())
+        let view = VStack(spacing: 16) {
+            AgentRequestCard(request: ask, store: store)
+        }
+        .padding(.vertical, 24)
+        .frame(maxHeight: .infinity, alignment: .top)
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 360), name: "agent-request-card")
+    }
+
     func testRenderTheSettingsSection() throws {
         let (client, _) = JarvisAPI.mocked()
         let store = CodeMasterSettingsStore(api: CodingSessionsAPI(api: client))

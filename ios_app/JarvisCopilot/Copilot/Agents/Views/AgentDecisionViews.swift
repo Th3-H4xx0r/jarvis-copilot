@@ -20,17 +20,18 @@ struct AgentRequestCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 9) {
-                PulsingDot(color: JcTheme.amber, size: 7)
-                    .padding(.top, 7)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle().fill(JcTheme.text).frame(width: 6, height: 6)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] + 1 }
+                    .accessibilityHidden(true)
                 Text(AgentsPresentation.approvalTitle(request))
-                    .font(.system(size: 15.5, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if showsProject && !request.project.isEmpty {
                     Text(request.project)
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 13))
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
                 }
@@ -43,7 +44,7 @@ struct AgentRequestCard: View {
         }
         .padding(16)
         .background(JcTheme.surface, in: shape)
-        .overlay(shape.strokeBorder(JcTheme.amber.opacity(0.35), lineWidth: 1))
+        .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
         .disabled(busy)
         .padding(.horizontal, inset)
     }
@@ -51,7 +52,7 @@ struct AgentRequestCard: View {
     @ViewBuilder private var approvalBody: some View {
         Text(AgentToolPhrase.detail(tool: request.tool,
                                     summary: request.command.isEmpty ? request.summary : request.command))
-            .font(.system(size: 13, design: .monospaced))
+            .font(.system(size: 14, design: .monospaced))
             .foregroundStyle(AgentPane.paneText)
             .lineLimit(10)
             .padding(12)
@@ -59,27 +60,28 @@ struct AgentRequestCard: View {
             .background(AgentPane.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .textSelection(.enabled)
         if denying {
-            TextField("Tell it what to do instead (optional)", text: $note, axis: .vertical)
+            TextField("What to do instead (optional)", text: $note, axis: .vertical)
                 .font(.system(size: 15))
                 .lineLimit(1...4)
                 .padding(12)
                 .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             HStack(spacing: 10) {
                 Button("Back") { denying = false }
-                    .buttonStyle(.jcGlass(tint: JcTheme.muted, full: true))
+                    .buttonStyle(.jcGlass(tint: JcTheme.text, full: true))
                 Button("Deny") { decide(.deny, message: note) }
-                    .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
+                    .buttonStyle(.jcGlass(tint: JcTheme.text, full: true))
             }
         } else {
+            // Deny · Always · Allow: black and white; the one that goes ahead last, filled white.
             HStack(spacing: 10) {
-                Button("Allow") { decide(.allow, authenticate: true) }
-                    .buttonStyle(.jcGlass(tint: JcTheme.success, full: true))
+                Button("Deny") { denying = true }
+                    .buttonStyle(.jcGlass(tint: JcTheme.text, full: true))
                 if request.canAlways {
                     Button("Always") { decide(.always, authenticate: true) }
-                        .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+                        .buttonStyle(.jcGlass(tint: JcTheme.text, full: true))
                 }
-                Button("Deny") { denying = true }
-                    .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
+                Button("Allow") { decide(.allow, authenticate: true) }
+                    .buttonStyle(.jcFilled)
             }
             terminalButton { decide(.ask) }
         }
@@ -154,7 +156,7 @@ struct AgentQuestionForm: View {
                         }
                     }
                     .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    TextField("Something else…", text: Binding(
+                    TextField("Something else", text: Binding(
                         get: { other[q.question] ?? "" },
                         set: { other[q.question] = $0 }))
                         .font(.system(size: 15))
@@ -164,7 +166,7 @@ struct AgentQuestionForm: View {
                 }
             }
             Button("Send answer") { send(collect()) }
-                .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+                .buttonStyle(.jcFilled)
                 .disabled(!complete || busy)
             terminalButton { send(nil) }
         }
@@ -184,7 +186,7 @@ struct AgentQuestionForm: View {
             HStack(alignment: .top, spacing: 12) {
                 JcIcon(q.multiSelect ? (chosen ? "checkmark.circle.fill" : "circle")
                                      : (chosen ? "largecircle.fill.circle" : "circle"), size: 17)
-                    .foregroundStyle(chosen ? JcTheme.accent : JcTheme.muted)
+                    .foregroundStyle(chosen ? JcTheme.text : JcTheme.muted)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.label).font(.system(size: 15, weight: .medium))
@@ -224,4 +226,27 @@ struct AgentQuestionForm: View {
             }
         }
     }
+}
+
+/// A solid white capsule with black text: the one button that goes ahead on a
+/// black-and-white approval card (Allow, Send answer).
+struct JcFilledButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.black)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(Color.white.opacity(isEnabled ? 1 : 0.35)))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == JcFilledButtonStyle {
+    static var jcFilled: JcFilledButtonStyle { JcFilledButtonStyle() }
 }
