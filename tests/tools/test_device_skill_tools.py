@@ -88,7 +88,7 @@ def test_handler_resolves_named_device_and_invokes_in_process(monkeypatch):
     handler = tools["device_open_app"]["handler"]
     out = json.loads(handler(args={"device": "mac", "name": "Safari"}))
 
-    assert out == {"ok": True, "result": "done"}
+    assert out == {"ok": True, "result": "done", "ran_on": "Mac"}
     assert calls == [("dev2", "open_app", {"name": "Safari"})]
 
 
@@ -111,7 +111,7 @@ def test_handler_falls_back_to_http_when_not_in_process(monkeypatch):
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     out = json.loads(tools["device_vibrate"]["handler"](args={}))
 
-    assert out == {"ok": True, "result": "buzzed"}
+    assert out == {"ok": True, "result": "buzzed", "ran_on": "Phone"}
     assert calls == [("dev1", "vibrate", {})]
 
 
@@ -254,7 +254,7 @@ def test_vision_failure_still_returns_the_saved_image(monkeypatch, tmp_path):
 def test_non_image_results_are_untouched(monkeypatch, tmp_path):
     handler, calls = _image_skill(monkeypatch, tmp_path, {"cancelled": True})
     out = json.loads(handler({}))
-    assert out == {"cancelled": True}
+    assert out == {"cancelled": True, "ran_on": "Phone"}
     assert not calls
 
 
@@ -530,3 +530,57 @@ def test_device_image_without_a_chat_keeps_the_cache_and_media_token(monkeypatch
     out = json.loads(handler({}))
     assert Path(out["image_path"]).parent == tmp_path
     assert out["show_with"] == f"MEDIA:{out['image_path']}"
+
+
+def _two_open_url(monkeypatch):
+    _reset(monkeypatch, [
+        {"device_id": "phone-1", "device_name": "Pranav's iPhone", "name": "open_url",
+         "description": "Open a link.", "input_schema": {}},
+        {"device_id": "mac-1", "device_name": "Pranav's Macbook", "name": "open_url",
+         "description": "Open a link.", "input_schema": {}},
+    ])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "reachable_device_ids", lambda: {"phone-1", "mac-1"})
+    calls = []
+    monkeypatch.setattr(device_bridge, "invoke_skill",
+                        lambda d, s, a, timeout=30.0: calls.append(d) or {"ok": True})
+    # The Mac link is his own browser: allowed for these tests.
+    import agent.mac_browser_gate as gate
+    monkeypatch.setattr(gate, "allowed", lambda task_id: True)
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    return tools["device_open_url"]["handler"], calls
+
+
+def test_several_devices_and_none_named_is_an_error_not_a_silent_pick(monkeypatch):
+    """Live 2026-10-03: no device given, it went to the phone and the reply said MacBook."""
+    handler, calls = _two_open_url(monkeypatch)
+    out = json.loads(handler(args={"url": "https://x.com"}, task_id="no-such-chat"))
+    assert out["ok"] is False
+    assert "device" in out["error"] and "Pranav's Macbook" in out["error"] and "Pranav's iPhone" in out["error"]
+    assert calls == []
+
+
+def test_the_device_he_named_in_his_words_wins(monkeypatch):
+    import agent.mac_browser_gate as gate
+    handler, calls = _two_open_url(monkeypatch)
+    monkeypatch.setattr(device_skill_tools, "_origin_device", lambda task_id: "phone-1")
+    monkeypatch.setattr(gate, "turn_text", lambda task_id: "open kayak on my MacBook")
+    out = json.loads(handler(args={"url": "https://kayak.com"}, task_id="chat"))
+    assert calls == ["mac-1"] and out["ran_on"] == "Pranav's Macbook"
+    monkeypatch.setattr(gate, "turn_text", lambda task_id: "directions to taco bell on my phone")
+    out = json.loads(handler(args={"url": "https://maps.apple.com"}, task_id="chat"))
+    assert calls[-1] == "phone-1" and out["ran_on"] == "Pranav's iPhone"
+
+
+def test_the_device_he_talks_from_is_the_default_and_is_reported(monkeypatch):
+    handler, calls = _two_open_url(monkeypatch)
+    monkeypatch.setattr(device_skill_tools, "_origin_device", lambda task_id: "phone-1")
+    out = json.loads(handler(args={"url": "https://x.com"}, task_id="chat"))
+    assert calls == ["phone-1"] and out["ran_on"] == "Pranav's iPhone"
+
+
+def test_the_schema_tells_the_model_to_name_the_device(monkeypatch):
+    _two_open_url(monkeypatch)
+    tool = {t["name"]: t for t in device_skill_tools.get_device_tools()}["device_open_url"]
+    desc = tool["schema"]["parameters"]["properties"]["device"]["description"]
+    assert "ran_on" in desc and "named" in desc

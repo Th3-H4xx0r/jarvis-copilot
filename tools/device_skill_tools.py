@@ -448,12 +448,42 @@ def _origin_device(session_id: Optional[str]) -> Optional[str]:
         return None
 
 
-def _resolve_device(args: dict, candidates: list[dict],
-                    preferred: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+_MAC_WORDS = re.compile(r"\b(?:mac(?:book)?|laptop|computer|desktop)\b", re.I)
+_PHONE_WORDS = re.compile(r"\b(?:i?phone)\b", re.I)
+
+
+def _is_mac(c: dict) -> bool:
+    return bool(_MAC_WORDS.search(c.get("device_name") or "")) or _device_offers(c["device_id"], "ui_look") \
+        or _device_offers(c["device_id"], "chrome_navigate")
+
+
+def _named_device(task_id, candidates: list[dict]) -> Optional[str]:
+    """The device the user named in this turn ("on my MacBook", "on my phone") when
+    exactly one candidate fits, else None."""
+    try:
+        from agent.mac_browser_gate import turn_text
+        text = turn_text(task_id)
+    except Exception:
+        return None
+    mac, phone = bool(_MAC_WORDS.search(text)), bool(_PHONE_WORDS.search(text))
+    if mac == phone:
+        return None
+    if mac:
+        fits = [c for c in candidates if _is_mac(c)]
+    else:
+        fits = [c for c in candidates if _PHONE_WORDS.search(c.get("device_name") or "") and not _is_mac(c)]
+    return fits[0]["device_id"] if len(fits) == 1 else None
+
+
+def _resolve_device(args: dict, candidates: list[dict], preferred: Optional[str] = None,
+                    named: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
     """Return ``(device_id, error)`` for a skill offered by one or more devices.
 
-    With no ``device`` argument, ``preferred`` (the device the user is talking
-    from) wins when it offers the skill.
+    With no ``device`` argument: the device the user named in their words
+    (``named``), else the device they are talking from (``preferred``) when it
+    offers the skill. With several devices and neither, it's an error asking for
+    ``device`` — never a silent pick (live 2026-10-03: a link "opened on your
+    MacBook" went to the phone).
     """
     if not candidates:
         return None, "no device currently offers this skill"
@@ -461,12 +491,12 @@ def _resolve_device(args: dict, candidates: list[dict],
         return candidates[0]["device_id"], None
     wanted = str((args or {}).get("device") or "").strip()
     if not wanted:
-        if preferred and any(c["device_id"] == preferred for c in candidates):
-            return preferred, None
-        # No preference given — default to the first connected match rather
-        # than erroring, so the common single-relevant-device case still works
-        # without forcing the model to always pass `device`.
-        return candidates[0]["device_id"], None
+        for choice in (named, preferred):
+            if choice and any(c["device_id"] == choice for c in candidates):
+                return choice, None
+        names = ", ".join(f'{c.get("device_name") or "device"} (id {c["device_id"]})' for c in candidates)
+        return None, (f"Several devices can do this: {names}. Call again with `device` set to the one the "
+                      "user named; if they didn't say, ask them which.")
     wanted_l = wanted.lower()
     for c in candidates:
         if c["device_id"] == wanted or wanted_l in (c.get("device_name") or "").lower():
@@ -540,7 +570,8 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             names = ", ".join(sorted({c.get("device_name") or "device" for c in candidates}))
             return json.dumps({"ok": False, "error": f"{names} is offline right now."})
         # task_id is the chat session id for webui turns.
-        device_id, err = _resolve_device(args or {}, reachable, _origin_device(_kw.get("task_id")))
+        device_id, err = _resolve_device(args or {}, reachable, _origin_device(_kw.get("task_id")),
+                                         _named_device(_kw.get("task_id"), reachable))
         if err:
             return json.dumps({"ok": False, "error": err})
         # Opening a link on the user's Mac drives its browser: only when asked
@@ -566,6 +597,10 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             # tool result carrying the image itself.
             return result
         result = _with_page_reference(skill_name, _trim_result(result, skill_name))
+        if result.get("ok", True):
+            # Where it really ran, so the reply can't say "on your MacBook" for the phone.
+            result["ran_on"] = next((c.get("device_name") for c in reachable if c["device_id"] == device_id),
+                                    None) or device_id
         return json.dumps(result, ensure_ascii=False)
 
     return _handler
@@ -606,8 +641,10 @@ def _build_schema(skill_name: str, candidates: list[dict]) -> tuple[dict, str]:
             "type": "string",
             "description": (
                 "Which device to target, by id or a substring of its name. "
-                f"Available: {', '.join(device_names)}. Defaults to the device "
-                "the user is talking from, else the first connected match."
+                f"Available: {', '.join(device_names)}. Pass the device the user named; "
+                "without it the call goes to the device the user is talking from, and "
+                "fails when that can't be told. The result's `ran_on` is where it ran: "
+                "name that device in your reply."
             ),
         }
         description = f"{base_description} (available on: {', '.join(device_names)})"

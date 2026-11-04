@@ -74,6 +74,8 @@ _allowed: "OrderedDict[str, bool]" = OrderedDict()
 # Mac on a Mac turn's say-so (2026-10-21 00:01).
 _asked_from: "OrderedDict[str, Optional[str]]" = OrderedDict()
 _pinned: set = set()
+# This turn's words, for tools that pick a device from what he said ("on my MacBook").
+_turn_text: "OrderedDict[str, str]" = OrderedDict()
 
 BLOCK_MESSAGE = (
     "Blocked: this tool drives the user's own Mac browser, which is only used when the user "
@@ -178,6 +180,12 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None, history=None
     if not task_id:
         return
     parent = str(task_id).split("~", 1)[0] if "~" in str(task_id) else None
+    if not parent:
+        with _lock:
+            _turn_text[task_id] = _text(text)[:2000]
+            _turn_text.move_to_end(task_id)
+            while len(_turn_text) > _MAX_TURNS:
+                _turn_text.popitem(last=False)
     if parent:
         # A harness background job ("<chat>~<node>"): its text is model-written, so it
         # follows the chat turn that started it and never unlocks the Mac itself.
@@ -232,6 +240,13 @@ def pin(task_id: Optional[str], allowed: bool) -> None:
     with _lock:
         _pinned.add(task_id)
         _remember(task_id, bool(allowed))
+
+
+def turn_text(task_id: Optional[str]) -> str:
+    """The user's words for this chat's current turn (a background job: its chat's)."""
+    key = str(task_id or "").split("~", 1)[0]
+    with _lock:
+        return _turn_text.get(key, "")
 
 
 def allowed(task_id: Optional[str]) -> bool:
@@ -293,3 +308,4 @@ def reset_for_tests() -> None:
         _allowed.clear()
         _pinned.clear()
         _asked_from.clear()
+        _turn_text.clear()

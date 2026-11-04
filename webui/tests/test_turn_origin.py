@@ -77,11 +77,14 @@ def test_device_tool_defaults_to_the_device_the_user_is_on(monkeypatch):
     turn_origin.note_turn("sess-phone", {"device_id": "phone1", "name": "iPhone", "kind": "mobile-ios"})
     try:
         json.loads(handler(args={"url": "maps://?q=taco+bell"}, task_id="sess-phone"))
-        json.loads(handler(args={"url": "https://x"}, task_id="sess-other"))  # unknown session: first match
-        json.loads(handler(args={"url": "https://x", "device": "mac"}, task_id="sess-phone"))  # named wins
+        # unknown session and no device named: an error asking which, never a silent pick
+        unknown = json.loads(handler(args={"url": "https://x"}, task_id="sess-other"))
+        named = json.loads(handler(args={"url": "https://x", "device": "mac"}, task_id="sess-phone"))  # named wins
     finally:
         turn_origin.note_turn("sess-phone", None)
-    assert calls == ["phone1", "mac1", "mac1"]
+    assert calls == ["phone1", "mac1"]
+    assert unknown["ok"] is False and "device" in unknown["error"]
+    assert named["ran_on"] == "Mac"
 
 
 def test_a_turn_from_the_mac_knows_it_can_see_the_screen(monkeypatch):
