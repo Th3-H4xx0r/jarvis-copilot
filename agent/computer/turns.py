@@ -77,6 +77,12 @@ def clean_steps(steps) -> Optional[list]:
     return out or None
 
 
+def _copy_asked(task_id) -> bool:
+    """Whether the user's own words this turn ask to copy / paste (never the model's goal)."""
+    from agent.mac_browser_gate import clipboard_asked, turn_text
+    return clipboard_asked(turn_text(task_id))
+
+
 def run_task(goal, steps, task_id, app=None) -> tuple:
     """``(Result, None)`` or ``(None, error)``: find the Mac, run the loop (on ``app`` when named)."""
     from agent.computer import mac
@@ -88,7 +94,8 @@ def run_task(goal, steps, task_id, app=None) -> tuple:
     share = screen.start(goal, task_id)  # the chat's live view; ending it makes the Mac upload the replay
     try:
         result = _loop.run(goal, clean_steps(steps), config_for(b.node, b.own_ref), device=device, device_name=name,
-                           should_stop=b.should_stop, app=str(app or "").strip() or None)
+                           should_stop=b.should_stop, app=str(app or "").strip() or None,
+                           allow_copy=_copy_asked(task_id))
     finally:
         screen.end(share)
     if share:

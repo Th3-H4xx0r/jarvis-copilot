@@ -136,6 +136,24 @@ def test_blocked_key_combo_refused():
     assert r.status == "stuck" and "cmd+shift+q" in r.reason and mac.acts == []
 
 
+def test_copying_is_refused_unless_he_asked():
+    """Live 2026-10-09: cmd+A, cmd+C in the wrong window put an API key into the chat."""
+    def run(allow_copy):
+        mac = FakeMac()
+        decide = _decider(Move({"action": "key", "keys": "cmd+c"}, 0.9, "decision", 1))
+
+        def fallback(*a, **k):
+            return Move({"action": "key", "keys": "cmd+c"}, None, "fallback", 1)
+
+        return L.run("copy the price", [{"do": "copy the price"}], _cfg(), device="m", decide=decide,
+                     fallback=fallback, mac=mac, allow_copy=allow_copy), mac
+
+    r, mac = run(False)
+    assert r.status == "stuck" and "copy" in r.reason and mac.acts == []
+    r, mac = run(True)
+    assert mac.acts  # he asked: the key goes through
+
+
 def test_no_steps_plans_first():
     mac = FakeMac()
     seen = {}

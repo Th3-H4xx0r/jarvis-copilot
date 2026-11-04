@@ -15,6 +15,7 @@ so it follows his own words too.
 """
 from __future__ import annotations
 
+import json
 import re
 import threading
 from collections import OrderedDict
@@ -289,8 +290,52 @@ def _plays_spotify(args) -> bool:
     return "spotify" in text.lower() and bool(_PLAY_WORDS.search(text))
 
 
+# The clipboard can hold passwords and API keys: it is copied or read only when he asks
+# (live 2026-10-09: cmd+A, cmd+C in the wrong window, then clipboard_read put an API key
+# into the chat).
+CLIPBOARD_BLOCK_MESSAGE = (
+    "Blocked: the user's clipboard is only copied to or read when they ask for it (it can hold passwords "
+    "and keys). Read the text from the screen instead."
+)
+_CLIPBOARD_ASK = re.compile(r"\b(?:clipboard|pasteboard|copy|copied|copying|paste|pasted|pasting)\b", re.I)
+_CLIPBOARD_SHELL = re.compile(r"\bpbpaste\b|\bthe\s+clipboard\b|NSPasteboard|\bpbcopy\b", re.I)
+_SHELL_TOOLS = ("device_run_shell", "device_system_command", "device_applescript", "device_osascript")
+_COPY_MODIFIERS = {"cmd", "command", "⌘", "meta", "super"}
+
+
+def clipboard_asked(text) -> bool:
+    """Whether the user's words ask for copying / pasting / the clipboard."""
+    return bool(_CLIPBOARD_ASK.search(_text(text)))
+
+
+def is_copy_combo(keys) -> bool:
+    """cmd+C / cmd+X in any spelling ("cmd+c", ["command", "c"], "⌘C")."""
+    if isinstance(keys, (list, tuple)):
+        parts = [str(k) for k in keys]
+    else:
+        parts = re.split(r"[+\s,-]+", str(keys or "").replace("⌘", "⌘+"))
+    parts = {p.strip().lower() for p in parts if p and p.strip()}
+    return bool(parts & _COPY_MODIFIERS) and bool(parts & {"c", "x"})
+
+
+def _clipboard_use(tool_name: str, args) -> bool:
+    """Whether this call copies to or reads the clipboard."""
+    name = str(tool_name or "")
+    if "clipboard" in name and not name.endswith(("_write", "_set")):
+        return True
+    if not isinstance(args, dict):
+        return False
+    if name.startswith(("device_key_", "device_ui_do")) and is_copy_combo(args.get("keys")):
+        return True
+    if name.startswith(_SHELL_TOOLS):
+        return bool(_CLIPBOARD_SHELL.search(json.dumps(args, ensure_ascii=False)))
+    return False
+
+
 def block_message(tool_name: str, task_id: Optional[str], args=None) -> Optional[str]:
     """The reason to refuse ``tool_name`` this turn, or None to let it run."""
+    if _clipboard_use(tool_name, args) and not clipboard_asked(turn_text(task_id)):
+        return CLIPBOARD_BLOCK_MESSAGE
     if is_mac_browser_tool(tool_name):
         return None if allowed(task_id) else BLOCK_MESSAGE
     if tool_name == "computer_do" and _plays_spotify(args):

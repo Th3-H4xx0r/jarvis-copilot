@@ -79,10 +79,14 @@ class Result:
         return "\n".join(lines)
 
 
-def _blocked(action: dict) -> str | None:
+def _blocked(action: dict, allow_copy: bool = False) -> str | None:
     from tools.computer_use.tool import _BLOCKED_KEY_COMBOS, _canon_key_combo, _is_blocked_type
+    from agent.mac_browser_gate import is_copy_combo
     if action.get("action") == "key" and _canon_key_combo(str(action.get("keys") or "")) in _BLOCKED_KEY_COMBOS:
         return f"refused the key combo {action['keys']}"
+    if action.get("action") == "key" and is_copy_combo(action.get("keys")) and not allow_copy:
+        # The clipboard can hold passwords and keys: copy only when he asked to.
+        return f"refused to copy ({action['keys']}): the user didn't ask to copy anything"
     if action.get("action") == "fill" and _is_blocked_type(str(action.get("text") or "")):
         return "refused to type a dangerous command"
     return None
@@ -125,7 +129,7 @@ def _with_values(step: dict, values: dict) -> dict:
 
 
 def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, should_stop=None,
-        decide=None, fallback=None, mac=None, plan=None, app=None, read=None) -> Result:
+        decide=None, fallback=None, mac=None, plan=None, app=None, read=None, allow_copy=False) -> Result:
     read = read or _decide_mod.read_value
     decide = decide or _decide_mod.decide
     fallback = fallback or _decide_mod.fallback_step
@@ -319,7 +323,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 action = {"action": "fill", "element": field["i"], "text": step["text"]}
             if action.get("text") and out.values:  # a model may echo {price}: type the value read
                 action = {**action, "text": _with_values({"text": action["text"]}, out.values)["text"]}
-            refused = _blocked(action)
+            refused = _blocked(action, allow_copy)
             if refused:
                 out.status, out.reason = "stuck", refused[0].upper() + refused[1:] + "."
                 break

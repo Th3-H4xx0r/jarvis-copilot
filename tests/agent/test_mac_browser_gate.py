@@ -350,3 +350,39 @@ def test_reading_the_screen_is_allowed_for_a_turn_from_the_mac(monkeypatch):
     assert gate.block_message("device_mouse_click", "mac-turn") is not None
     gate.note_turn("phone-turn", "what does this error mean?")
     assert gate.block_message("device_ui_look", "phone-turn") is not None
+
+
+# ── the clipboard: copied or read only when he asks (live 2026-10-09: an API key leaked) ──
+
+@pytest.mark.parametrize("keys", ["cmd+c", "Command+C", "⌘C", ["cmd", "c"], ["command", "x"], "cmd-x"])
+def test_copy_combos_are_recognised(keys):
+    assert gate.is_copy_combo(keys)
+
+
+@pytest.mark.parametrize("keys", ["cmd+a", "ctrl+c", "cmd+t", ["cmd", "v"], "c", ""])
+def test_other_keys_are_not_copy(keys):
+    assert not gate.is_copy_combo(keys)
+
+
+def test_reading_the_clipboard_needs_his_ask():
+    gate.note_turn("leak", "on my mac open the IntelliStock repo in a new tab")
+    assert gate.block_message("device_clipboard_read", "leak", {}) == gate.CLIPBOARD_BLOCK_MESSAGE
+    assert gate.block_message("device_key_press", "leak", {"keys": ["cmd", "c"]}) == gate.CLIPBOARD_BLOCK_MESSAGE
+    assert gate.block_message("device_ui_do", "leak", {"action": "key", "keys": "cmd+c"}) \
+        == gate.CLIPBOARD_BLOCK_MESSAGE
+    assert gate.block_message("device_run_shell", "leak", {"command": "pbpaste"}) == gate.CLIPBOARD_BLOCK_MESSAGE
+    assert gate.block_message("device_key_press", "leak", {"keys": ["cmd", "t"]}) is None
+    assert gate.block_message("device_clipboard_write", "leak", {"text": "x"}) is None
+
+
+def test_he_can_ask_for_the_clipboard():
+    gate.note_turn("ok", "on my mac, what's on my clipboard?")
+    assert gate.block_message("device_clipboard_read", "ok", {}) is None
+    gate.note_turn("ok2", "on my mac copy that link and paste it in notes")
+    assert gate.block_message("device_key_press", "ok2", {"keys": "cmd+c"}) is None
+
+
+def test_a_background_job_follows_its_chats_words_for_the_clipboard():
+    gate.note_turn("chat9", "find me a gaming pc on my mac")
+    gate.note_turn("chat9~background-1", "copy the price from the page")  # model-written
+    assert gate.block_message("device_clipboard_read", "chat9~background-1", {}) == gate.CLIPBOARD_BLOCK_MESSAGE
