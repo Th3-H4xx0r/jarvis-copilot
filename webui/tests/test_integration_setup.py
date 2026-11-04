@@ -199,3 +199,24 @@ def test_a_reloaded_edit_ui_session_keeps_its_space():
                           "integration_ui_space": "shop"})
     assert reloaded.integration_ui_space == "shop"
     assert '"shop"' in setup.directive_for(reloaded)
+
+
+def test_a_setup_session_always_runs_the_picked_model_alone():
+    """Setting an integration up is a back-and-forth: a harness hands it to a
+    background job he cannot answer. So every turn runs Single, on the model
+    the sheet's picker sent, whatever harness the client or the defaults name."""
+    from types import SimpleNamespace
+
+    from agent.harness.planner import resolve_harness
+    from api.routes import _apply_turn_harness
+
+    for body in ({"harness_id": ""}, {"harness_id": "fast-claude"}, {}):
+        s = SimpleNamespace(harness_id=None, integration_setup=True)
+        _apply_turn_harness(s, dict(body, model="claude-sonnet-5-5"), "claude-sonnet-5-5", "anthropic")
+        assert s._turn_harness_id is None
+        assert s._turn_explicit_model == ("claude-sonnet-5-5", "anthropic")
+        assert s.harness_id is None  # nothing stored that would outlive the sheet
+        doc, _ = resolve_harness(SimpleNamespace(effective=lambda _s: "router", get=lambda _h: None),
+                                 session=s, surface="chat", requested_id=s._turn_harness_id,
+                                 explicit_model=s._turn_explicit_model)
+        assert doc["id"] == "single"

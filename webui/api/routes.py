@@ -9762,7 +9762,15 @@ def _apply_turn_harness(s, body, model, model_provider):
       saved, so a later default change still reaches this chat.
     * no ``harness_id`` key — an older client: its model runs as Single, exactly
       as before harnesses existed.
+
+    An integration-setup session always runs Single on the model its picker
+    sent (2026-11-04, his call): setup is a back-and-forth of questions and
+    forms, and a harness hands it to a background job he cannot answer.
     """
+    if getattr(s, "integration_setup", False):
+        s._turn_harness_id = None
+        s._turn_explicit_model = (model, model_provider)
+        return
     if "harness_id" in body:
         hid = body.get("harness_id")
         hid = hid.strip() if isinstance(hid, str) else ""
