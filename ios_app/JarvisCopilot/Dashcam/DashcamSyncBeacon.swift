@@ -80,6 +80,10 @@ final class DashcamSyncBeacon {
             s.uploadFraction = u.total > 0 ? Double(u.done) / Double(u.total) : 0
             s.toUpload = max(1, sync.pendingUploads)
         }
+        if sync.rulesLoaded, let used = sync.phoneBytes {
+            s.phoneUsed = used
+            s.phoneCap = sync.rules.phoneCapBytes
+        }
         push(s)
         return true
     }

@@ -153,6 +153,22 @@ final class DashcamSync: ObservableObject {
     @Published private(set) var queuedDownloads = 0
     @Published private(set) var pendingUploads = 0
     @Published var rules = DashcamRules()
+    /// What counts against "Phone space" (normal footage + the MP4 copies), nil until first measured.
+    /// Measured off the main thread (thousands of files) at launch, foreground and after a pass or a
+    /// clean-up; a pass keeps it current as normal clips land.
+    @Published private(set) var phoneBytes: Int64?
+    private var measuringPhone = false
+
+    func measurePhoneSpace() {
+        guard !measuringPhone, let cameraID = setupProvider()?.cameraID else { return }
+        measuringPhone = true
+        let storage = storage
+        Task {
+            let normal = await Task.detached(priority: .utility) { storage.normalBytes(camera: cameraID) }.value
+            phoneBytes = normal + cacheBytes()
+            measuringPhone = false
+        }
+    }
 
     // Dependencies (swapped in tests).
     var setupProvider: () -> DashcamSetup? = { DashcamSetupStore.load() }
@@ -217,6 +233,7 @@ final class DashcamSync: ObservableObject {
         wireTopics()
         cleanUpDue = true                       // what reached its destinations while the app was closed
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
+        measurePhoneSpace()
         Task { await pushLocalDeletes() }
         // What earlier runs left in the caches, even with cloud backup paused (then no upload run sweeps).
         Task.detached(priority: .utility) { DashcamPlayable.sweep() }
@@ -229,6 +246,7 @@ final class DashcamSync: ObservableObject {
         guard setupProvider() != nil else { return }
         cleanUpDue = true
         DashcamSyncBeacon.shared.poke()           // an activity can only start now, in the foreground
+        measurePhoneSpace()
         Task { await uploader.invalidateDestinations(); kickUploads() }
     }
 
@@ -668,6 +686,7 @@ final class DashcamSync: ObservableObject {
         if case .syncing = phase { phase = .idle }
         lastSync = now()
         await refreshCounts()
+        measurePhoneSpace()
         kickUploads()
         return report
     }
@@ -724,6 +743,7 @@ final class DashcamSync: ObservableObject {
         // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
         // The cap also covers the MP4 copies made for Drive and the player: they once took 130 GB on their own.
         var normalOnPhone = storage.normalBytes(camera: cameraID) + cacheBytes()
+        phoneBytes = normalOnPhone
         // A clip he tagged comes off the camera whatever the rules (the camera records over old footage) — but
         // not one he deleted from the phone on purpose. Read once a pass, not once a listed clip.
         let tagged = DashcamTagged.ids(defaults: defaults)
@@ -828,7 +848,7 @@ final class DashcamSync: ObservableObject {
             guard !storage.exists(camera: cameraID, file: f) else { continue }
             if !isForced(f), !isTagged(f), !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
-            if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size }
+            if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size; phoneBytes = normalOnPhone }
             if !onCameraProvider() { break }
         }
         queuedDownloads = 0
@@ -1116,6 +1136,7 @@ final class DashcamSync: ObservableObject {
         }
         relaying = count
         if requeued { kickUploads() }
+        measurePhoneSpace()                     // uploaded clips just left the phone
         return count
     }
 

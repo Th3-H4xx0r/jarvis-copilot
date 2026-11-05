@@ -13,6 +13,10 @@ struct DashcamSyncAttributes: ActivityAttributes {
         var uploading: Bool = false
         var uploadFraction: Double = 0
         var toUpload: Int = 0
+        /// The phone's clip space: what counts against "Phone space" (normal footage + MP4 copies) and that
+        /// allowance, in bytes. phoneCap 0 = not known yet (the rules haven't loaded): nothing is shown.
+        var phoneUsed: Int64 = 0
+        var phoneCap: Int64 = 0
     }
 
     /// "HUAXIN A4".

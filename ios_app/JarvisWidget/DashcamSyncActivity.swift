@@ -13,7 +13,7 @@ struct DashcamSyncActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading, priority: 1) {
-                    DashcamIslandLeading(cameraName: context.attributes.cameraName)
+                    DashcamIslandLeading(cameraName: context.attributes.cameraName, state: context.state)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     DashcamIslandTrailing(state: context.state)

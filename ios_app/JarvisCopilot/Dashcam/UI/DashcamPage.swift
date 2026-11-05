@@ -27,6 +27,9 @@ struct DashcamPage: View {
         ScrollView {
             VStack(spacing: 16) {
                 header
+                if sync.rulesLoaded, let used = sync.phoneBytes {
+                    DashcamPhoneSpaceCard(used: used, cap: sync.rules.phoneCapBytes) { tab = .settings }
+                }
                 if wifi.onCamera { DashcamControlsCard(live: $live) }
                 JcSegmented(items: Tab.allCases, selection: $tab, label: \.rawValue)
                 .padding(.horizontal, 20)
@@ -171,5 +174,76 @@ struct DashcamPage: View {
             }
             ProgressView(value: total > 0 ? Double(done) / Double(total) : 0).tint(JcTheme.accent)
         }
+    }
+}
+
+/// How much of "Phone space" (Settings → Sync rules) the clips take, as a ring: normal footage and the MP4
+/// copies count; events, parking clips and photos always come down and don't. Tapping it opens Settings,
+/// where the allowance is set. Black and white; amber only once it's full.
+struct DashcamPhoneSpaceCard: View {
+    let used: Int64
+    let cap: Int64
+    var openSettings: () -> Void = {}
+
+    private var fraction: Double { DashcamPhoneSpace.fraction(used: used, cap: cap) }
+    private var full: Bool { cap > 0 && used >= cap }
+    private var tint: Color { full ? JcTheme.amber : JcTheme.text }
+
+    var body: some View {
+        Button(action: openSettings) {
+            JcCard(padding: 0) { content }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, JcUnified.pageInset)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Phone space: \(DashcamPhoneSpace.text(used: used, cap: cap) ?? "") used. \(detail)")
+        .accessibilityHint("Opens the dashcam settings")
+    }
+
+    private var content: some View {
+            HStack(spacing: 16) {
+                ring
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Phone space").font(.system(size: 13, weight: .medium)).foregroundStyle(JcTheme.muted)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text("\(DashcamPhoneSpace.gb(used)) GB")
+                            .font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(JcTheme.text)
+                        Text("of \(DashcamPhoneSpace.gb(cap)) GB")
+                            .font(.system(size: 15, weight: .medium).monospacedDigit())
+                            .foregroundStyle(JcTheme.muted)
+                    }
+                    Text(detail).font(.system(size: 12)).foregroundStyle(full ? JcTheme.amber : JcTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcTheme.muted.opacity(0.7))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+    }
+
+    private var detail: String {
+        if full { return "Full: driving footage waits for room" }
+        return "\(DashcamPhoneSpace.gb(max(0, cap - used))) GB left for driving footage"
+    }
+
+    /// The share taken, as a ring with the percentage inside.
+    private var ring: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.1), lineWidth: 6)
+            Circle()
+                .trim(from: 0, to: max(0.005, fraction))
+                .stroke(tint, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(Int((fraction * 100).rounded(.down)))%")
+                .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(JcTheme.text)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+        }
+        .frame(width: 64, height: 64)
     }
 }

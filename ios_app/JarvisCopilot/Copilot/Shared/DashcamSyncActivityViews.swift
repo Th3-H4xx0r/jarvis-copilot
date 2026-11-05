@@ -36,6 +36,19 @@ struct DashcamClipLabel {
     }
 }
 
+/// The phone's clip space against its allowance ("Phone space" in the dashcam settings), in GB like the setting.
+enum DashcamPhoneSpace {
+    static func gb(_ bytes: Int64) -> String {
+        let v = Double(max(0, bytes)) / 1_073_741_824
+        return v >= 100 || v == v.rounded() ? "\(Int(v.rounded()))" : String(format: "%.1f", v)
+    }
+    /// "12.4 of 20 GB"; nil while the allowance isn't known.
+    static func text(used: Int64, cap: Int64) -> String? { cap > 0 ? "\(gb(used)) of \(gb(cap)) GB" : nil }
+    /// "12.4/20 GB", for the island's narrow column.
+    static func short(used: Int64, cap: Int64) -> String? { cap > 0 ? "\(gb(used))/\(gb(cap)) GB" : nil }
+    static func fraction(used: Int64, cap: Int64) -> Double { cap > 0 ? min(1, Double(max(0, used)) / Double(cap)) : 0 }
+}
+
 /// One transfer: camera → phone, or phone → cloud.
 struct DashcamLane: Identifiable, Equatable {
     enum Kind { case download, upload }
@@ -135,7 +148,22 @@ struct DashcamLockScreenView: View {
                 WorkoutSportDisc(symbol: "car.rear.fill", size: 38)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(cameraName).font(.system(size: 16, weight: .semibold)).foregroundStyle(WorkoutLA.primary)
-                    Text("Syncing").font(.system(size: 13, weight: .medium)).foregroundStyle(WorkoutLA.secondary)
+                    if let space = DashcamPhoneSpace.text(used: state.phoneUsed, cap: state.phoneCap) {
+                        // How full the phone's clip space is: a phone, a short bar and "12.4 of 20 GB" (the words
+                        // "on phone" truncated beside a three-figure count).
+                        HStack(spacing: 5) {
+                            Image(systemName: "iphone").font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(WorkoutLA.secondary)
+                            DashcamBar(fraction: DashcamPhoneSpace.fraction(used: state.phoneUsed, cap: state.phoneCap))
+                                .frame(width: 24)
+                            Text(space).font(.system(size: 13, weight: .medium).monospacedDigit())
+                                .foregroundStyle(WorkoutLA.secondary)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(space) of phone space used")
+                    } else {
+                        Text("Syncing").font(.system(size: 13, weight: .medium)).foregroundStyle(WorkoutLA.secondary)
+                    }
                 }
                 .lineLimit(1)
                 Spacer(minLength: 8)
@@ -158,6 +186,7 @@ struct DashcamLockScreenView: View {
 /// width first and the name may shrink a little before it truncates.
 struct DashcamIslandLeading: View {
     let cameraName: String
+    var state = DashcamSyncAttributes.ContentState()
 
     var body: some View {
         HStack(spacing: 6) {
@@ -165,7 +194,10 @@ struct DashcamIslandLeading: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(cameraName).font(.system(size: 14, weight: .semibold)).foregroundStyle(WorkoutLA.primary)
                     .minimumScaleFactor(0.75)
-                Text("Syncing").font(.system(size: 12, weight: .medium)).foregroundStyle(WorkoutLA.secondary)
+                // The phone's clip space when known ("12.4/20 GB"), else what it is doing.
+                Text(DashcamPhoneSpace.short(used: state.phoneUsed, cap: state.phoneCap) ?? "Syncing")
+                    .font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(WorkoutLA.secondary)
+                    .minimumScaleFactor(0.8)
             }
             .lineLimit(1)
         }

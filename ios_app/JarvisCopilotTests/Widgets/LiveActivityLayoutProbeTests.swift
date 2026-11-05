@@ -92,10 +92,13 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
         if env["JC_LA_SET"] == "dashcam" {
             typealias DS = DashcamSyncAttributes.ContentState
             let clip = "2026_11_04_19_19_20_b.ts"
+            let gb: Int64 = 1_073_741_824
             let syncs: [(String, DS)] = [
                 ("dc-both", DS(downloadName: clip, downloadFraction: 0.26, toDownload: 77,
-                               uploading: true, uploadFraction: 0.65, toUpload: 155)),
-                ("dc-up", DS(uploading: true, uploadFraction: 0.01, toUpload: 155)),
+                               uploading: true, uploadFraction: 0.65, toUpload: 155,
+                               phoneUsed: gb * 124 / 10, phoneCap: 20 * gb)),
+                ("dc-up", DS(uploading: true, uploadFraction: 0.01, toUpload: 155,
+                             phoneUsed: gb * 1234 / 10, phoneCap: 512 * gb)),
                 ("dc-last", DS(uploading: true, uploadFraction: 1, toUpload: 1)),
             ]
             for (name, st) in syncs where only == nil || only == name {

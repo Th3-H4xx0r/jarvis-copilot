@@ -16,12 +16,13 @@ final class DashcamSyncActivityRenderTests: XCTestCase {
         let stamp = Date().addingTimeInterval(-1260).formatted(.verbatim(
             "\(year: .defaultDigits)_\(month: .twoDigits)_\(day: .twoDigits)_\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased))_\(minute: .twoDigits)_\(second: .twoDigits)",
             timeZone: .current, calendar: .current))
+        let gb: Int64 = 1_073_741_824
         return [
             CS(downloadName: "\(stamp)_b.ts", downloadFraction: 0.26, toDownload: 77,
-               uploading: true, uploadFraction: 0.65, toUpload: 155),
-            CS(uploading: true, uploadFraction: 0.63, toUpload: 155),
-            CS(downloadName: "\(stamp)_f.ts", downloadFraction: 0.01, toDownload: 12),
-            CS(uploading: true, uploadFraction: 1, toUpload: 1),
+               uploading: true, uploadFraction: 0.65, toUpload: 155, phoneUsed: gb * 124 / 10, phoneCap: 20 * gb),
+            CS(uploading: true, uploadFraction: 0.63, toUpload: 155, phoneUsed: gb * 197 / 10, phoneCap: 20 * gb),
+            CS(downloadName: "\(stamp)_f.ts", downloadFraction: 0.01, toDownload: 12),   // rules not loaded yet
+            CS(uploading: true, uploadFraction: 1, toUpload: 1, phoneUsed: gb * 3, phoneCap: 512 * gb),
         ]
     }
 
@@ -64,7 +65,7 @@ final class DashcamSyncActivityRenderTests: XCTestCase {
                 let s = samples[i]
                 VStack(spacing: 0) {
                     HStack(alignment: .center, spacing: 10) {
-                        DashcamIslandLeading(cameraName: camera)
+                        DashcamIslandLeading(cameraName: camera, state: s)
                         Spacer(minLength: 0)
                         Capsule().fill(Color(white: 0.12)).frame(width: 90, height: 30)   // the camera
                         Spacer(minLength: 0)
@@ -81,6 +82,29 @@ final class DashcamSyncActivityRenderTests: XCTestCase {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(white: 0.85))
         try RenderHarness.write(view, size: CGSize(width: 390, height: 900), name: "dashcam-la-island")
+    }
+
+    /// The Dashcam page's "Phone space" card: part full, nearly full, over the allowance.
+    func testRenderThePhoneSpaceRow() throws {
+        let gb: Int64 = 1_073_741_824
+        let view = VStack(spacing: 12) {
+            ForEach([(gb * 124 / 10, 20 * gb), (gb * 197 / 10, 20 * gb), (gb * 213 / 10, 20 * gb)], id: \.0) { used, cap in
+                DashcamPhoneSpaceCard(used: used, cap: cap)
+            }
+        }
+        .padding(.vertical, 12)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(JcTheme.bg)
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 400), name: "dashcam-phone-space")
+    }
+
+    func testPhoneSpaceReadsInGBLikeTheSetting() {
+        let gb: Int64 = 1_073_741_824
+        XCTAssertEqual(DashcamPhoneSpace.text(used: gb * 124 / 10, cap: 20 * gb), "12.4 of 20 GB")
+        XCTAssertEqual(DashcamPhoneSpace.short(used: gb * 3, cap: 512 * gb), "3/512 GB")
+        XCTAssertNil(DashcamPhoneSpace.text(used: gb, cap: 0))                  // allowance unknown: nothing shown
+        XCTAssertEqual(DashcamPhoneSpace.fraction(used: 25 * gb, cap: 20 * gb), 1)   // over the cap: a full bar
+        XCTAssertEqual(DashcamPhoneSpace.gb(gb * 1234 / 10), "123")
     }
 
     /// iOS cuts a Lock Screen activity off at 160 pt: every state must fit.
