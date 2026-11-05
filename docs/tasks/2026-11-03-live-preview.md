@@ -37,3 +37,4 @@
 - [ ] Dashcam clip page overflow (2026-11-04): "Not on the phone yet…" ran past the card edge (CardEmptyBlock had no side inset; fixed everywhere it is used) and the full camera path wrapped (now the file name). Tick once he sees it.
 - [ ] Dashcam Both: one play/pause + seek bar under the front and rear videos, kept in sync by clip start time (2026-11-04). Tick once he plays a pair.
 - [ ] Dashcam Library: lone Select button no longer drawn inside a second capsule (2026-11-04). Tick once he sees it.
+- [ ] Dashcam status card (2026-11-04): title on one line, the one button that applies (Reconnect away, Sync now on the camera) full width under it. Tick once he sees it.

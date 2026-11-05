@@ -75,32 +75,40 @@ struct DashcamPage: View {
     private var header: some View {
         CardGroup {
             Row {
-                HStack(spacing: 12) {
-                    JcIcon(wifi.onCamera ? "wifi" : "wifi.slash", size: 20)
-                        .foregroundStyle(wifi.onCamera ? JcTheme.success : JcTheme.muted)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(wifi.onCamera ? sync.phase.label : "Away from the camera")
-                            .font(.body.weight(.semibold))
-                        Text(subtitle).font(.caption).foregroundStyle(JcTheme.muted)
+                // The status reads on one line and the one button that applies sits under it, full width: the
+                // title, Reconnect and a greyed-out Sync now in one row wrapped "Away from / the camera" onto
+                // three lines (2026-11-04). Sync now only works on the camera's Wi‑Fi, Reconnect only away from it.
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        JcIcon(wifi.onCamera ? "wifi" : "wifi.slash", size: 20)
+                            .foregroundStyle(wifi.onCamera ? JcTheme.success : JcTheme.muted)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(wifi.onCamera ? sync.phase.label : "Away from the camera")
+                                .font(.body.weight(.semibold))
+                            Text(subtitle).font(.caption).foregroundStyle(JcTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer()
-                    if !wifi.onCamera {
+                    if wifi.onCamera {
+                        Button {
+                            syncing = true
+                            Task { await sync.syncNow(); syncing = false }
+                        } label: {
+                            if syncing || sync.passActive { ProgressView() } else { Text("Sync now") }
+                        }
+                        .buttonStyle(.jcGlass(compact: true, full: true))
+                        .disabled(syncing)
+                    } else {
                         Button {
                             Task { await reconnect(nil) }
                         } label: {
                             if reconnecting { ProgressView() } else { Text("Reconnect") }
                         }
-                        .buttonStyle(.jcGlass(compact: true))
+                        .buttonStyle(.jcGlass(compact: true, full: true))
                         .disabled(reconnecting)
                     }
-                    Button {
-                        syncing = true
-                        Task { await sync.syncNow(); syncing = false }
-                    } label: {
-                        if syncing || sync.passActive { ProgressView() } else { Text("Sync now") }
-                    }
-                    .buttonStyle(.jcGlass(compact: true))
-                    .disabled(!wifi.onCamera || syncing)
                 }
             }
             if let d = sync.downloading {
