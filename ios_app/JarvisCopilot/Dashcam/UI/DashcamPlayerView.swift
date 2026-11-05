@@ -251,6 +251,20 @@ struct DashcamPlayerView: View {
     @StateObject private var second: DashcamPlayerModel
     @State private var mode: LensMode
     @StateObject private var sharing = DashcamShareFlow()
+    /// Both: one play/pause and seek bar for the two videos (DashcamDualPlayback.swift).
+    @StateObject private var clock = DashcamDualClock()
+
+    /// Changes whenever Both gains or loses a player (either lens loads, reloads for HD, or Both is left).
+    private var dualKey: String {
+        guard mode == .both, let a = model.player, let b = second.player else { return "" }
+        return "\(ObjectIdentifier(a).hashValue)-\(ObjectIdentifier(b).hashValue)"
+    }
+
+    private func attachClock() {
+        guard mode == .both, let lead = model.player, let follow = second.player else { clock.detach(); return }
+        clock.attach(lead: lead, follow: follow, offset: model.clip.start.timeIntervalSince(second.clip.start),
+                     fallbackDuration: Double(model.clip.durationS))
+    }
 
     /// What Save to Photos and Share… take: the clip on screen, or both lenses in Both.
     private var shared: [DashcamPlayerModel] { mode == .both && second.player != nil ? [model, second] : [model] }
@@ -315,10 +329,13 @@ struct DashcamPlayerView: View {
                 }
                 media
                 if mode == .both, let player = second.player {
-                    VideoPlayer(player: player)
+                    DashcamVideoSurface(player: player)
                         .aspectRatio(16 / 9, contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contentShape(Rectangle())
+                        .onTapGesture { clock.toggle() }
                         .padding(.horizontal, 16)
+                    if model.player != nil { DashcamDualControls(clock: clock) }
                 } else if mode == .both, second.error == nil {
                     RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05))
                         .aspectRatio(16 / 9, contentMode: .fit).overlay { ProgressView() }.padding(.horizontal, 16)
@@ -352,7 +369,8 @@ struct DashcamPlayerView: View {
             ToolbarItem(placement: .topBarTrailing) { DashcamShareButton(flow: sharing, models: shared) }
         }
         .task { await model.load(seekTo: startOffset) }
-        .onDisappear { if !fullscreen { model.stop(); second.stop(); sharing.cancel() } }
+        .onChange(of: dualKey, initial: true) { _, _ in attachClock() }
+        .onDisappear { if !fullscreen { clock.detach(); model.stop(); second.stop(); sharing.cancel() } }
         .fullScreenCover(isPresented: $fullscreen) {
             DashcamFullscreenMedia(player: model.player, photo: model.photo, sharing: sharing, shared: [model])
         }
@@ -361,7 +379,14 @@ struct DashcamPlayerView: View {
     @ViewBuilder private var media: some View {
         ZStack(alignment: .topLeading) {
             if let player = model.player {
-                VideoPlayer(player: player)
+                if mode == .both {
+                    // No controls of its own: the shared bar under both videos runs it.
+                    DashcamVideoSurface(player: player)
+                        .contentShape(Rectangle())
+                        .onTapGesture { clock.toggle() }
+                } else {
+                    VideoPlayer(player: player)
+                }
             } else if let photo = model.photo {
                 Image(uiImage: photo).resizable().scaledToFit()
             } else {
@@ -400,7 +425,7 @@ struct DashcamPlayerView: View {
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.jcGlass(tint: model.hd ? JcTheme.accent : JcTheme.muted, compact: true))
                     .padding(10)
-                    .padding(.bottom, 44)               // above the player's own controls
+                    .padding(.bottom, mode == .both ? 0 : 44)   // above the player's own controls (none in Both)
             }
         }
         .overlay(alignment: .topTrailing) {

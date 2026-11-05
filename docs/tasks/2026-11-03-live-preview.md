@@ -35,3 +35,5 @@
 - [ ] Dashcam sync Live Activity redone black and white like the workout/Claude ones (his pick from mockups): compact = arrow + percentage in a box wide enough for 100% (it clipped "1%"), expanded = car disc + camera name, big "clips left", a row + white bar per transfer, clip names as "Rear · 7:19 PM". Checked as real activities in the sim (16e Lock Screen, 17 Pro island expanded + compact). Tick when he sees it during a real sync.
 - [ ] Dashcam phone space (2026-11-04): clip space used out of "Phone space" on the sync Lock Screen + island, and a ring card on the Dashcam page (tap → Settings). Tick once he sees it on his phone.
 - [ ] Dashcam clip page overflow (2026-11-04): "Not on the phone yet…" ran past the card edge (CardEmptyBlock had no side inset; fixed everywhere it is used) and the full camera path wrapped (now the file name). Tick once he sees it.
+- [ ] Dashcam Both: one play/pause + seek bar under the front and rear videos, kept in sync by clip start time (2026-11-04). Tick once he plays a pair.
+- [ ] Dashcam Library: lone Select button no longer drawn inside a second capsule (2026-11-04). Tick once he sees it.

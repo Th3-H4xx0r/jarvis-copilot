@@ -68,6 +68,7 @@
 		0C68C195636647769102A20A /* LocalCommandMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9842E7C2B666413BF841A0CB /* LocalCommandMatcher.swift */; };
 		0C6AF9B4B9E130E0F14D8A2E /* MoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E028C31FBB80B7691BCAA529 /* MoreSupport.swift */; };
 		0C983E0CB12FB6F10BDC8DA3 /* WorkoutLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35274254A5BF3CA97E33C1D6 /* WorkoutLocation.swift */; };
+		0CD2572AC5CFA35C3811771A /* DashcamDualPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCDFFD88A384C48ECF4BF9E /* DashcamDualPlaybackTests.swift */; };
 		0CFA9BA82173D4CE263AA6EF /* ControlPushTokensTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89A01645D4173B418D4DF9C /* ControlPushTokensTests.swift */; };
 		0D1A5926568E663AD4DF4BBB /* ProfilesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419A48CB3F0A5BBA8E2741CA /* ProfilesModels.swift */; };
 		0D34BCA299E7CD069B564644 /* MacScreenViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4807E0AC37BBD0359CC852DD /* MacScreenViewer.swift */; };
@@ -878,6 +879,7 @@
 		B00E1EC3B64FBA5A11D33ADA /* DashcamModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67EB054531689897A7EDDCC8 /* DashcamModels.swift */; };
 		B0209E955CF01B7D1994DEC6 /* RingHand.bin in Resources */ = {isa = PBXBuildFile; fileRef = 92D3CD2A60E7E33865C04CFF /* RingHand.bin */; };
 		B079336A1EA7B57B8EAD0866 /* OutdoorWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90955E444C718E5493C81D0D /* OutdoorWorkoutTests.swift */; };
+		B098EE16F564C212F45E8CF9 /* DashcamDualPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6493FA3276BE159E7E5021FB /* DashcamDualPlayback.swift */; };
 		B117A25A21128DD7555608F1 /* JcUnified.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51B9B9ECE349E04BA2068FA /* JcUnified.swift */; };
 		B13550069E805888DEB90DB6 /* RingFirmwareUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A934815D6CF5D882A1864B41 /* RingFirmwareUpdateTests.swift */; };
 		B1A48C98CB91A20B50E943A9 /* GlassesTranslateWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2C1F4FE59B3E43C5DA5EE /* GlassesTranslateWire.swift */; };
@@ -1619,6 +1621,7 @@
 		3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3F95C9BCD02B03D23E8450F1 /* X5Model.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Model.swift; sourceTree = "<group>"; };
 		3FAA9F4D73DF9067DDDEF836 /* AgentsListModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsListModels.swift; sourceTree = "<group>"; };
+		3FCDFFD88A384C48ECF4BF9E /* DashcamDualPlaybackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDualPlaybackTests.swift; sourceTree = "<group>"; };
 		3FF95237B907D876EF1A5A5B /* ButtonActivityController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonActivityController.swift; sourceTree = "<group>"; };
 		400D1D3E686018E364B71D53 /* JarvisCarTalkWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisCarTalkWidget.swift; path = JarvisWidget/JarvisCarTalkWidget.swift; sourceTree = "<group>"; };
 		400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = net.daringfireball.markdown; path = "RingHand-LICENSE.md"; sourceTree = "<group>"; };
@@ -1771,6 +1774,7 @@
 		63EC0A1F1264D5B4FE16464F /* ChatAttachmentsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatAttachmentsTests.swift; sourceTree = "<group>"; };
 		641D4DF40BBF76B7DFCFB923 /* AgentConversationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentConversationTests.swift; sourceTree = "<group>"; };
 		64226045049E492743BEB4C5 /* AgentsMacPowerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsMacPowerTests.swift; sourceTree = "<group>"; };
+		6493FA3276BE159E7E5021FB /* DashcamDualPlayback.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDualPlayback.swift; sourceTree = "<group>"; };
 		64E725F35A376638C38E264E /* HarnessAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessAPI.swift; sourceTree = "<group>"; };
 		64F6B43B3A58A8CCC4A489D3 /* RingWorkoutController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkoutController.swift; sourceTree = "<group>"; };
 		6531F8C4C3530070F63F1369 /* CarPlayVoiceScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayVoiceScreen.swift; sourceTree = "<group>"; };
@@ -4149,6 +4153,7 @@
 				552F654E35D124E5717BD55E /* DashcamTombstoneTests.swift */,
 				73DD265319271BA771FCD710 /* DashcamExportTests.swift */,
 				9EC44852464F60BE374CB330 /* DashcamTagsTests.swift */,
+				3FCDFFD88A384C48ECF4BF9E /* DashcamDualPlaybackTests.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -4374,6 +4379,7 @@
 				3C9CC8B708217A4A53D93AD3 /* DashcamFullscreen.swift */,
 				4677EEC94EFD9C78159311E7 /* DashcamShare.swift */,
 				EF0DD739FDD6E939A19F6893 /* DashcamTagViews.swift */,
+				6493FA3276BE159E7E5021FB /* DashcamDualPlayback.swift */,
 			);
 			name = UI;
 			path = UI;
@@ -5416,6 +5422,7 @@
 				9E7EC845D01FFE96829C8956 /* WorkoutActivityRenderTests.swift in Sources */,
 				015922DF92DDFE62D34C9176 /* LiveActivityLayoutProbeTests.swift in Sources */,
 				FF4485E0E0420868B9C92D95 /* DashcamSyncActivityRenderTests.swift in Sources */,
+				0CD2572AC5CFA35C3811771A /* DashcamDualPlaybackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6243,6 +6250,7 @@
 				477EDB1B03231104CC9B7CCD /* RingWorkoutActivityViews.swift in Sources */,
 				03D42E253260BD1941E2AA37 /* WorkoutLiveIntents.swift in Sources */,
 				E981E3402B5B53B6B0C3F2E7 /* DashcamSyncActivityViews.swift in Sources */,
+				B098EE16F564C212F45E8CF9 /* DashcamDualPlayback.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

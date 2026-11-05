@@ -415,8 +415,12 @@ struct DashcamSelectionBar: View {
                     .buttonStyle(.jcGlass(compact: true))
             }
         }
-        .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
+        // The tray only while selecting, where it holds several buttons: around the lone Select button it drew
+        // a second capsule round the button's own ("two buttons within each other", 2026-11-04).
+        .padding(model.selecting ? 6 : 0)
+        .background {
+            if model.selecting { Capsule().fill(.ultraThinMaterial) }
+        }
         .overlay(alignment: .top) {
             if let problem {
                 Text(problem).font(.caption).foregroundStyle(JcTheme.danger)
