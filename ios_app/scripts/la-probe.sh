@@ -1,8 +1,8 @@
 #!/bin/bash
 # Real Live Activities in the simulator, screenshotted — the widget's own renderer,
 # which in-app render tests are not (LiveActivityLayoutProbeTests).
-#   scripts/la-probe.sh <sim-id> <workout|agent> [state]
-#     states: run rest lift cycle-paused yoga | approval question question-open working
+#   scripts/la-probe.sh <sim-id> <workout|agent|dashcam> [state]
+#     states: run rest lift cycle-paused yoga | approval question question-open working | dc-both dc-up dc-last
 # Each state comes up with an alert over the home screen: an iPhone 16e (no island)
 # draws the Lock Screen layout as a banner; an island iPhone draws the expanded
 # island. simctl screenshots miss the island: open Xcode's DeviceHub and pass its

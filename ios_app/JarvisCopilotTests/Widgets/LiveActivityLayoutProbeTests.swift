@@ -10,7 +10,7 @@ import XCTest
 /// far-future end pushed the Lock Screen row off the card on his phone
 /// (2026-11-03), and only a real activity shows that.
 ///
-/// Opt-in: TEST_RUNNER_JC_LA_PROBE=1, TEST_RUNNER_JC_LA_SET=workout|agent, or TEST_RUNNER_JC_LA_ONLY=<name> for one state (iOS drops alerts that come close together). It
+/// Opt-in: TEST_RUNNER_JC_LA_PROBE=1, TEST_RUNNER_JC_LA_SET=workout|agent|dashcam, or TEST_RUNNER_JC_LA_ONLY=<name> for one state (iOS drops alerts that come close together). It
 /// prints "PROBE ready" (send the app to the background then, e.g. launch
 /// Settings) and "PROBE shot <name>" as each one is up (screenshot then).
 @MainActor
@@ -23,6 +23,7 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
         try XCTSkipUnless(env["JC_LA_PROBE"] == "1", "opt-in probe")
         for a in Activity<RingWorkoutAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
         for a in Activity<AgentActivityAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
+        for a in Activity<DashcamSyncAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
 
         // The app ends a workout activity with no workout behind it 20 s after
         // launch (RingWorkoutController's crash cleanup): to see the compact
@@ -32,7 +33,7 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
         // iOS drops alerts that come too close together: one state per run.
         let only = env["JC_LA_ONLY"]
         let now = Date()
-        if env["JC_LA_SET"] != "agent" {
+        if env["JC_LA_SET"] == nil || env["JC_LA_SET"] == "workout" {
             let workouts: [(String, String, String, WS)] = [
                 ("run", "Run", "figure.run",
                  WS(running: true, reference: now.addingTimeInterval(-1453), frozenElapsed: 1453,
@@ -60,7 +61,7 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
                 }))
             }
         }
-        if env["JC_LA_SET"] != "workout" {
+        if env["JC_LA_SET"] == nil || env["JC_LA_SET"] == "agent" {
             let t = now.timeIntervalSince1970
             let agents: [(String, String, AS)] = [
                 ("approval", "claude", AS(count: 1, waiting: 1, name: "Claude Code", project: "jarvis-copilot",
@@ -88,6 +89,24 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
                 }))
             }
         }
+        if env["JC_LA_SET"] == "dashcam" {
+            typealias DS = DashcamSyncAttributes.ContentState
+            let clip = "2026_11_04_19_19_20_b.ts"
+            let syncs: [(String, DS)] = [
+                ("dc-both", DS(downloadName: clip, downloadFraction: 0.26, toDownload: 77,
+                               uploading: true, uploadFraction: 0.65, toUpload: 155)),
+                ("dc-up", DS(uploading: true, uploadFraction: 0.01, toUpload: 155)),
+                ("dc-last", DS(uploading: true, uploadFraction: 1, toUpload: 1)),
+            ]
+            for (name, st) in syncs where only == nil || only == name {
+                let activity = try Activity.request(attributes: DashcamSyncAttributes(cameraName: "HUAXIN A4"),
+                                                    content: ActivityContent(state: st, staleDate: nil))
+                shows.append((name, {
+                    await activity.update(ActivityContent(state: st, staleDate: nil), alertConfiguration:
+                        AlertConfiguration(title: "Dashcam", body: LocalizedStringResource(stringLiteral: name), sound: .default))
+                }))
+            }
+        }
         print("PROBE ready")
         try await Task.sleep(nanoseconds: 10_000_000_000)   // time to leave the app
         for (name, show) in shows {
@@ -100,5 +119,6 @@ final class LiveActivityLayoutProbeTests: XCTestCase {
         }
         for a in Activity<RingWorkoutAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
         for a in Activity<AgentActivityAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
+        for a in Activity<DashcamSyncAttributes>.activities { await a.end(nil, dismissalPolicy: .immediate) }
     }
 }
