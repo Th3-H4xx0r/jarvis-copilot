@@ -66,6 +66,9 @@ struct CardEmptyBlock: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
+        // Cards hold it at no padding: a long message ran to the card's edge (the dashcam player's "Not on
+        // the phone yet…", 2026-11-04). The row inset keeps it inside.
+        .padding(.horizontal, 16)
     }
 }
 

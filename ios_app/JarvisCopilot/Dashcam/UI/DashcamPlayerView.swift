@@ -442,7 +442,8 @@ struct DashcamPlayerView: View {
                 row(d.name, d.state == "done" ? "Uploaded" : (d.error.map { "Failed: \($0)" } ?? d.state.capitalized))
             }
             RowDivider()
-            row("On camera", model.clip.path)
+            // The file name alone: the full card path ("/mnt/card/video_front/…") wrapped past the row.
+            row("On camera", (model.clip.path as NSString).lastPathComponent)
         }
     }
 
