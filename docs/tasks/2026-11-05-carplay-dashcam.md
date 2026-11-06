@@ -14,6 +14,12 @@ Tick only when he confirms it live.
 - [ ] No mic symbol on the dash / Spotify normal when CarPlay connects. Cause: since "Talk to JARVIS
       here" was first used (Oct 27) the background keepalive held a recordable (play-and-record)
       session, which opens the car's voice channel. With CarPlay as the route it now holds plain playback.
+      2026-11-06: still on his dash (photo, build 263100415). The plan said playback but Jarvis
+      is in the background when the phone plugs in, and iOS refuses a backgrounded app a category
+      switch on an active session ('!int'); the arbiter kept the recording session (it "serves"
+      playback). Same after a car-screen talk ends in the background. Fix: the arbiter reports a
+      keepalive left recording; the keepalive stops its silence, takes the session down, sets
+      playback, brings it up, restarts the silence. Logged as `[keepalive] …` in voice_log.
 - [ ] Opening Jarvis in the car doesn't pause the music (same cause: the keepalive re-activating its
       recordable session on open).
 - [ ] After a CarPlay voice turn the app stays connected and the dashcam keeps syncing. Cause: iOS
@@ -23,3 +29,9 @@ Tick only when he confirms it live.
       never noticed CarPlay — location wakes (every ~5 min on a drive) now re-check the car and the
       camera's Wi‑Fi; (b) the camera's Wi‑Fi was only re-checked with the app open — now also in the
       background while in the car or for 2 min after a Wi‑Fi change.
+- [ ] CarPlay mic starts quickly again (his report: ~5 s from tap to Listening). Likely cause: since
+      the play-only car keepalive each tap switches the car to its voice channel (the recordable
+      keepalive used to hold it open). 263100415: car-screen one-shots skip the ~0.6 s
+      echo-cancelling unit; new `voice_log` phone skill lets the server read the startup timings
+      (`startup: … session=+ mic=+ total=`). Next: after his next CarPlay tap, read voice_log and
+      fix where the rest of the time goes.

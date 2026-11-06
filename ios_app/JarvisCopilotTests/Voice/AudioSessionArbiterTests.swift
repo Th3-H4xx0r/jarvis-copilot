@@ -355,6 +355,69 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertTrue(applier.isActive)
     }
 
+    /// A refused background switch that leaves the keepalive alone on a recording session
+    /// (the car's voice channel open, a mic on his dash, 2026-11-06) is reported, and
+    /// `resettleKeepalive` takes the session down and up again on plain playback.
+    func testAKeepaliveLeftRecordingByARefusedSwitchIsReportedAndResettled() throws {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        var car = false
+        AudioSessionArbiter.keepaliveAvoidsRecording = { car }
+        defer {
+            AudioSessionArbiter.keepaliveRecordReady = { false }
+            AudioSessionArbiter.keepaliveAvoidsRecording = { false }
+        }
+        let (arbiter, applier) = makeArbiter()
+        var reported = 0
+        arbiter.onKeepaliveLeftRecording = { reported += 1 }
+        try arbiter.hold(.keepalive)
+        XCTAssertEqual(applier.category, .playAndRecord)
+        applier.refusesSwitchWhileActive = true
+        car = true
+        XCTAssertNoThrow(try arbiter.hold(.keepalive))
+        XCTAssertEqual(applier.category, .playAndRecord, "the background refused the switch")
+        XCTAssertEqual(reported, 1)
+        XCTAssertTrue(arbiter.keepaliveNeedsResettle)
+
+        try arbiter.resettleKeepalive()
+        XCTAssertEqual(applier.category, .playback)
+        XCTAssertTrue(applier.isActive)
+        XCTAssertFalse(arbiter.keepaliveNeedsResettle)
+        XCTAssertEqual(Array(applier.calls.suffix(3)), [
+            .active(false, [.notifyOthersOnDeactivation]),
+            .category(.playback, .default, [.mixWithOthers]),
+            .active(true, []),
+        ])
+    }
+
+    /// A voice turn ending in the background (the car's screen) leaves the keepalive on the
+    /// turn's recording session the same way.
+    func testAVoiceTurnEndingInTheBackgroundReportsTheKeepaliveLeftRecording() throws {
+        let (arbiter, applier) = makeArbiter()
+        var reported = 0
+        arbiter.onKeepaliveLeftRecording = { reported += 1 }
+        try arbiter.hold(.keepalive)
+        try arbiter.hold(.voice)
+        applier.refusesSwitchWhileActive = true
+        XCTAssertNoThrow(try arbiter.release(.voice))
+        XCTAssertEqual(applier.category, .playAndRecord)
+        XCTAssertEqual(reported, 1)
+        try arbiter.resettleKeepalive()
+        XCTAssertEqual(applier.category, .playback)
+        XCTAssertEqual(applier.mode, .default)
+    }
+
+    /// Nothing to resettle while a talk holds the session, or when it already plays.
+    func testResettleLeavesATalksSessionAlone() throws {
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)
+        XCTAssertFalse(arbiter.keepaliveNeedsResettle)
+        try arbiter.hold(.voice)
+        let before = applier.calls
+        try arbiter.resettleKeepalive()
+        XCTAssertEqual(applier.calls, before)
+        XCTAssertEqual(applier.category, .playAndRecord)
+    }
+
     /// Any other refusal still fails the claim — only a session that already serves
     /// the plan is kept.
     func testARefusedSwitchToAnUnservedCategoryStillFails() throws {
@@ -591,11 +654,17 @@ final class MockAudioSessionApplying: AudioSessionApplying {
 
     var categoryError: Error?
     var activateError: Error?
+    /// The background's rule: an active session's category can't be switched ('!int'), an
+    /// inactive one's can.
+    var refusesSwitchWhileActive = false
 
     func setCategory(_ category: AVAudioSession.Category,
                      mode: AVAudioSession.Mode,
                      options: AVAudioSession.CategoryOptions) throws {
         if let categoryError { throw categoryError }
+        if refusesSwitchWhileActive, isActive, category != self.category || mode != self.mode {
+            throw NSError(domain: NSOSStatusErrorDomain, code: 560557684)
+        }
         calls.append(.category(category, mode, options))
         self.category = category
         self.mode = mode

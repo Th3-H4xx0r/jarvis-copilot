@@ -217,6 +217,50 @@ final class BackgroundKeepaliveArbiterTests: XCTestCase {
         XCTAssertTrue(rig.keepalive.isRunning)
     }
 
+    /// The same, with Jarvis in the background as it is when the phone plugs in: iOS refuses the
+    /// switch on the live session (his mic symbol, 2026-11-06), so the keepalive stops its
+    /// silence, takes the session down, sets playback and brings both back.
+    func testTheCarConnectingInTheBackgroundStillMovesTheArmedKeepaliveToPlayback() async {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        var car = false
+        AudioSessionArbiter.keepaliveAvoidsRecording = { car }
+        defer {
+            AudioSessionArbiter.keepaliveRecordReady = { false }
+            AudioSessionArbiter.keepaliveAvoidsRecording = { false }
+        }
+        let rig = makeRig()
+        rig.keepalive.sync(active: true)
+        XCTAssertEqual(rig.applier.category, .playAndRecord)
+        rig.applier.refusesSwitchWhileActive = true
+        car = true
+        rig.center.post(name: AVAudioSession.routeChangeNotification, object: nil)
+        await settle()
+        XCTAssertEqual(rig.applier.category, .playback)
+        XCTAssertTrue(rig.applier.isActive)
+        XCTAssertTrue(rig.engine.isRunning)
+        XCTAssertTrue(rig.keepalive.isRunning)
+        XCTAssertEqual(rig.engine.stopCount, 1, "the silence stops before the session goes down")
+    }
+
+    /// A car-screen talk ending with Jarvis in the background leaves its recording session to
+    /// the keepalive; it goes back to playback the same way.
+    func testAVoiceTurnEndingInTheBackgroundPutsTheKeepaliveBackOnPlayback() async throws {
+        let rig = makeRig()
+        rig.keepalive.sync(active: true)
+        try rig.arbiter.hold(.voice)
+        rig.applier.refusesSwitchWhileActive = true
+        try rig.arbiter.release(.voice)
+        await settle()
+        XCTAssertEqual(rig.applier.category, .playback)
+        XCTAssertTrue(rig.applier.isActive)
+        XCTAssertTrue(rig.engine.isRunning)
+    }
+
+    /// The resettle runs a turn later, off the arbiter's own call.
+    private func settle() async {
+        for _ in 0..<5 { await Task.yield() }
+    }
+
     func testNotificationsAfterAStopAreIgnored() {
         let rig = makeRig()
         rig.keepalive.sync(active: true)

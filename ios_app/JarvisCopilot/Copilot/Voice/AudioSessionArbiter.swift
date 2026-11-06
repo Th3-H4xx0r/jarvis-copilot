@@ -345,6 +345,32 @@ final class AudioSessionArbiter {
     func holds(_ client: AudioSessionClient) -> Bool { holders.contains(client) }
 
     #if os(iOS)
+    /// Told (inside the apply, so the listener must not call back in synchronously) when a
+    /// refused background switch left the live session recording under nothing but the keepalive's
+    /// playback claim: a CarPlay connect under the armed keepalive, or a car-screen talk ending
+    /// with Jarvis in the background. A recording session there is the car's voice channel held
+    /// open — the mic on his dash, his music squeezed through it (2026-11-06, after the plan
+    /// already said playback). The keepalive answers with `resettleKeepalive`.
+    var onKeepaliveLeftRecording: (@MainActor () -> Void)?
+
+    /// The keepalive alone holds an active session its plain-playback plan doesn't match. Only
+    /// ever down to playback: the armed keepalive's recordable plan is one the background would
+    /// refuse to bring back up, and a leftover talk session already records for it.
+    var keepaliveNeedsResettle: Bool {
+        isActive && holders == [.keepalive] && plan == Self.keepalivePlan && !matches(plan)
+    }
+
+    /// Puts the keepalive's session on its plan the one way the background allows: down, category,
+    /// up. iOS refuses a backgrounded app a category switch on an active session ('!int') but not
+    /// on an inactive one, and a mixing playback session may be activated from the background.
+    /// The caller stops its own audio first — a session with I/O running won't go down.
+    func resettleKeepalive() throws {
+        guard keepaliveNeedsResettle else { return }
+        try session.setActive(false, options: [.notifyOthersOnDeactivation])
+        isActive = false
+        try apply()
+    }
+
     /// The claims, our belief about activation, and the live session — one log line,
     /// for telling a background mic start iOS allows from one it refuses.
     var summary: String {
@@ -440,6 +466,7 @@ final class AudioSessionArbiter {
             try session.setActive(true, options: [])
         }
         isActive = true
+        if kept, keepaliveNeedsResettle { onKeepaliveLeftRecording?() }
     }
 
     /// '!int' (560557684): iOS won't let a backgrounded app switch to audio that

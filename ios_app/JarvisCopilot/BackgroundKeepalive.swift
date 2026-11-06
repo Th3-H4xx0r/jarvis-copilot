@@ -77,12 +77,17 @@ final class BackgroundKeepalive {
         installObservers()
         isRunning = true
         EnergyLedger.shared.set(.keepalive, true)
+        // Called from inside the arbiter's apply: hop a turn before touching it again.
+        arbiter.onKeepaliveLeftRecording = { [weak self] in
+            Task { @MainActor in self?.resettle() }
+        }
     }
 
     private func stop() {
         guard isRunning else { return }
         isRunning = false
         EnergyLedger.shared.set(.keepalive, false)
+        arbiter.onKeepaliveLeftRecording = nil
         removeObservers()
         engine.stop()
         // Only a release, never a deactivation: a voice turn may be holding the same
@@ -118,6 +123,29 @@ final class BackgroundKeepalive {
         guard isRunning, arbiter.holds(.keepalive) else { return }
         try? arbiter.hold(.keepalive)
         if !engine.isRunning { resume() }
+    }
+
+    /// What the voice log gets (the phone's, read over the bridge): a resettle is rare and is
+    /// the evidence for a mic on his dash.
+    var log: (String) -> Void = { VoiceLogFile.shared.append("[keepalive] " + $0) }
+
+    /// The background refused to switch the live session off recording, so the car's voice
+    /// channel stayed open under a playback-only claim (the mic on his dash, 2026-11-06). Silence
+    /// off (a session with I/O running won't go down), session down, playback, up, silence on.
+    private func resettle() {
+        guard isRunning, arbiter.keepaliveNeedsResettle else { return }
+        engine.stop()
+        do {
+            try arbiter.resettleKeepalive()
+            EnergyLedger.shared.count("keepalive.resettle")
+            log("recording session left under the keepalive; put back on playback")
+        } catch {
+            EnergyLedger.shared.count("keepalive.resettle_failed")
+            log("recording session left under the keepalive; playback refused: \(error)")
+            // Whatever iOS will still give: the claim's own plan, re-activated.
+            try? arbiter.hold(.keepalive, reassert: true)
+        }
+        if !engine.start() { EnergyLedger.shared.count("keepalive.restart_failed") }
     }
 
     // MARK: - Observers
