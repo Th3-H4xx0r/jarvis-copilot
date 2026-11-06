@@ -24,6 +24,7 @@ final class AudioSessionArbiterTests: XCTestCase {
         // The host app points this at its saved "armed" flag, which a simulator that
         // ever ran the Action-button talk has on; tests that want it say so.
         AudioSessionArbiter.keepaliveRecordReady = { false }
+        AudioSessionArbiter.keepaliveAvoidsRecording = { false }
     }
 
     private func makeArbiter() -> (AudioSessionArbiter, MockAudioSessionApplying) {
@@ -222,6 +223,44 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertEqual(held.mode, talk.mode)
         XCTAssertEqual(held.options, talk.options)
         XCTAssertEqual(held.sampleRate, talk.sampleRate)
+    }
+
+    /// CarPlay (2026-11-05): an armed keepalive's recordable session made the car open its voice
+    /// channel — a mic on the dash, Spotify squeezed through it — and iOS wouldn't restart it from
+    /// the background after a voice turn, so the app was suspended. With the car's audio up the
+    /// keepalive holds plain playback, armed or not.
+    func testWithTheCarsAudioTheArmedKeepaliveOnlyPlays() {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        AudioSessionArbiter.keepaliveAvoidsRecording = { true }
+        defer {
+            AudioSessionArbiter.keepaliveRecordReady = { false }
+            AudioSessionArbiter.keepaliveAvoidsRecording = { false }
+        }
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.keepalive]), AudioSessionArbiter.keepalivePlan)
+        // A turn taken on the car's screen still records.
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.keepalive, .voice]), AudioSessionArbiter.voicePlan)
+    }
+
+    /// The car connecting under a held, armed keepalive: holding it again moves the live session
+    /// off the recordable category, without deactivating it (that would cost the background).
+    func testTheCarConnectingMovesTheHeldKeepaliveToPlayback() throws {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        var car = false
+        AudioSessionArbiter.keepaliveAvoidsRecording = { car }
+        defer {
+            AudioSessionArbiter.keepaliveRecordReady = { false }
+            AudioSessionArbiter.keepaliveAvoidsRecording = { false }
+        }
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)
+        XCTAssertEqual(applier.category, .playAndRecord)
+        car = true
+        try arbiter.hold(.keepalive)
+        XCTAssertEqual(applier.category, .playback)
+        XCTAssertTrue(applier.isActive)
+        car = false
+        try arbiter.hold(.keepalive)
+        XCTAssertEqual(applier.category, .playAndRecord, "out of the car, armed again")
     }
 
     /// The whole truth table over every client, so another one cannot be added

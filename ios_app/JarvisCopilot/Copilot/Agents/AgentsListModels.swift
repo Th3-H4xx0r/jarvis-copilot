@@ -239,6 +239,8 @@ struct AgentProjectGroup: Identifiable, Equatable {
     let projectId: String?
     let name: String
     let sessions: [AgentConv]
+    /// How many runs the server has when it listed only the newest (an integration's group).
+    var total: Int?
 
     /// Stable across pushes: the project id, else (a folder with no project
     /// record) its name — what the collapsed state is kept under.
@@ -256,6 +258,7 @@ struct AgentProjectGroup: Identifiable, Equatable {
         self.init(projectId: CodingJSON.str(json["id"]),
                   name: name.isEmpty ? (sessions.first?.project ?? "Other") : name,
                   sessions: sessions)
+        total = CodingJSON.double(json["total"]).map(Int.init)
     }
 }
 
@@ -265,6 +268,8 @@ struct AgentIntegrationGroup: Identifiable, Equatable {
     let name: String
     /// Newest first.
     let sessions: [AgentConv]
+    /// All its runs, the listed ones and the older ones the server left out.
+    let total: Int
 
     /// What its open state is kept under — never a project id.
     var id: String { "integration:\(name)" }
@@ -272,9 +277,10 @@ struct AgentIntegrationGroup: Identifiable, Equatable {
     /// When the newest of its runs last did something.
     var latestActivity: Date { sessions.map(\.lastEventAt).max() ?? Date(timeIntervalSince1970: 0) }
 
-    init(name: String, sessions: [AgentConv]) {
+    init(name: String, sessions: [AgentConv], unlisted: Int = 0) {
         self.name = name
         self.sessions = sessions.sorted { $0.lastEventAt > $1.lastEventAt }
+        total = sessions.count + max(0, unlisted)
     }
 }
 
@@ -341,6 +347,7 @@ struct AgentsList: Equatable {
         -> (projects: [AgentProjectGroup], integrations: [AgentIntegrationGroup]) {
         var projects: [AgentProjectGroup] = []
         var byName: [String: [AgentConv]] = [:]
+        var unlisted: [String: Int] = [:]
         for group in groups {
             var kept: [AgentConv] = []
             for session in group.sessions {
@@ -350,6 +357,10 @@ struct AgentsList: Equatable {
                     kept.append(session)
                 }
             }
+            // An integration's group the server trimmed to its newest runs: the rest still count.
+            if let total = group.total, let name = group.sessions.first?.integration {
+                unlisted[name, default: 0] += total - group.sessions.count
+            }
             if kept.count == group.sessions.count {
                 projects.append(group)
             } else if !kept.isEmpty {
@@ -357,7 +368,7 @@ struct AgentsList: Equatable {
             }
         }
         let integrations = byName
-            .map { AgentIntegrationGroup(name: $0.key, sessions: $0.value) }
+            .map { AgentIntegrationGroup(name: $0.key, sessions: $0.value, unlisted: unlisted[$0.key] ?? 0) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         return (projects, integrations)
     }

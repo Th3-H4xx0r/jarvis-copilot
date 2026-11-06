@@ -715,7 +715,7 @@
       '<button type="button" class="agents-group-head" data-act="toggle-group" data-gid="' + esc(gid) + '" ' +
       'aria-expanded="' + open + '"><span class="agents-chev" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
       '<span class="agents-group-name">' + esc(name) + '</span>' +
-      '<span class="agents-group-count">' + g.sessions.length + '</span>' +
+      '<span class="agents-group-count">' + (g.total || g.sessions.length) + '</span>' +
       (waiting ? '<span class="agents-group-badge">● ' + waiting + ' needs you</span>' : '') + '</button>' +
       (open ? '<div class="agents-group-body">' +
         g.sessions.map((c) => rowHtml(c, { showsProject: false })).join('') + '</div>' : '') +

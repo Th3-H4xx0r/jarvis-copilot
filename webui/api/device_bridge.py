@@ -1387,10 +1387,18 @@ _RECV_POLL = 5.0       # how long the pump waits for inbound data before looping
                        # blocking forever in recv() and showing the device online
 
 
+_PHONE_MESSAGE_LIMIT = 1_048_576
+
+
 def _ws_send_text(conn: _DeviceConn, text: str) -> None:
     """Send a text frame thread-safely."""
     if conn.closed:
         raise RuntimeError("device closed")
+    if len(text) > _PHONE_MESSAGE_LIMIT:
+        # The iPhone's socket fails on a message past 1 MiB ("Message too long") and reconnects:
+        # name the frame, or the only trace is a phone dropping every few seconds (2026-11-05).
+        print(f"[bridge] {conn.name} ({conn.device_id[:8]}) sent a {len(text)}-byte frame: {text[:80]}",
+              flush=True)
     from wsproto.events import TextMessage
     data = conn.conn.send(TextMessage(data=text))
     with conn.send_lock:

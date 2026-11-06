@@ -26,6 +26,11 @@ final class DashcamWiFi: ObservableObject {
     private var lastRejoin: Date?
     static let rejoinWindow: TimeInterval = 600
     static let rejoinEvery: TimeInterval = 20
+    /// When the Wi‑Fi path last changed.
+    private var pathChangedAt: Date?
+    /// How long after a Wi‑Fi change the background keeps looking (a joined camera's name and
+    /// address can come later than the path update).
+    static let settleWindow: TimeInterval = 120
 
     private init() {}
 
@@ -63,6 +68,7 @@ final class DashcamWiFi: ObservableObject {
         m.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 self?.lastPath = path
+                self?.pathChangedAt = Date()
                 await self?.refresh()
             }
         }
@@ -76,16 +82,28 @@ final class DashcamWiFi: ObservableObject {
     /// While the app is open: re-check every few seconds (a path update can land before the SSID is
     /// readable, which left it "Away" on the camera's own Wi‑Fi), and after a drop rejoin the camera —
     /// iOS falls back to a network with internet and won't leave it for the camera on its own.
+    /// In the background it re-checks too (joining needs the app open), while the app is awake for
+    /// the car or the Wi‑Fi just changed: it only ever looked with the app open, so a camera joined
+    /// mid-drive stayed "Away" and nothing synced until he opened Jarvis (2026-11-05).
     private func startWatchdog() {
         watchdog?.cancel()
         watchdog = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(8))
-                guard let self, UIApplication.shared.applicationState == .active else { continue }
+                guard let self else { continue }
+                let open = UIApplication.shared.applicationState == .active
+                let sinceChange = self.pathChangedAt.map { Date().timeIntervalSince($0) }
+                guard open || Self.looksInBackground(inCar: CarPresence.shared.inCar, sinceWiFiChange: sinceChange)
+                else { continue }
                 await self.refresh()
-                await self.rejoinAfterDrop()
+                if open { await self.rejoinAfterDrop() }
             }
         }
+    }
+
+    /// Whether the backgrounded watchdog re-checks: with the car, or just after the Wi‑Fi changed.
+    static func looksInBackground(inCar: Bool, sinceWiFiChange: TimeInterval?) -> Bool {
+        inCar || (sinceWiFiChange.map { $0 < settleWindow } ?? false)
     }
 
     private func rejoinAfterDrop(now: Date = Date()) async {

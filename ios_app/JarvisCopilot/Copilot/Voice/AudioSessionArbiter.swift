@@ -180,6 +180,13 @@ final class AudioSessionArbiter {
     /// True once "Talk to JARVIS here" has been pressed (set by the app on iOS).
     static var keepaliveRecordReady: @MainActor () -> Bool = { false }
 
+    /// True while the keepalive must not hold a recordable session even armed: the car's
+    /// audio (CarPlay) is the route (set by the app on iOS). There an active `.playAndRecord`
+    /// session opens the car's voice channel — a mic on his dash, Spotify squeezed through it —
+    /// and after a voice turn iOS refused to restart it from the background, so the app was
+    /// suspended mid-drive (2026-11-05). Talks in the car start on the car's screen anyway.
+    static var keepaliveAvoidsRecording: @MainActor () -> Bool = { false }
+
     /// The rate the silent engine renders at, so its buffer matches the hardware
     /// and the mixer has no rate conversion to do.
     static let keepaliveSampleRate: Double = 8_000
@@ -306,7 +313,9 @@ final class AudioSessionArbiter {
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientAvoidsCallMic() ? ambientPlanWithoutCallMic : ambientPlan }
         if holders.contains(.playback) { return playbackPlan }
-        if holders.contains(.keepalive) { return keepaliveRecordReady() ? keepaliveRecordReadyPlan : keepalivePlan }
+        if holders.contains(.keepalive) {
+            return keepaliveRecordReady() && !keepaliveAvoidsRecording() ? keepaliveRecordReadyPlan : keepalivePlan
+        }
         return idlePlan
     }
 

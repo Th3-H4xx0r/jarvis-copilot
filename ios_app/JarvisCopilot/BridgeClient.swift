@@ -385,6 +385,8 @@ final class BridgeClient: NSObject, ObservableObject {
 
     // MARK: Connection
 
+    static let maximumMessageSize = 16 * 1024 * 1024
+
     func connect() {
         syncKeepalive()
         guard enabled, isPaired, let base = apiBaseURL() else { return }
@@ -414,6 +416,10 @@ final class BridgeClient: NSObject, ObservableObject {
         self.session = session
 
         let task = session.webSocketTask(with: request)
+        // The default 1 MiB limit fails the socket on any bigger message ("Message too long",
+        // bridge.drop.NSPOSIX.40) and it reconnects into the same message: the 1.2 MB Agents list
+        // dropped it every few seconds while the tab was open (2026-11-05).
+        task.maximumMessageSize = Self.maximumMessageSize
         socket = task
         task.resume()
         receive()

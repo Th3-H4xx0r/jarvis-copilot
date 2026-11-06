@@ -630,3 +630,19 @@ def test_recent_deliveries_come_from_one_query(tmp_path):
     assert [len(got["claude|a"]), len(got["claude|b"])] == [3, 1]
     assert got["claude|a"][0]["text"] if "text" in got["claude|a"][0] else True
     assert d.recent_since(now[0] + 10) == {}
+
+
+def test_an_integration_lists_only_its_newest_runs_with_the_total():
+    # 1,575 iMessage-memory runs made the pushed list 1.2 MB, past the iPhone socket's 1 MB
+    # message limit: every push dropped the phone's bridge (2026-11-05).
+    runs = [{"ckey": f"jarvis|r{i}", "integration": "iMessage memory"} for i in range(300)]
+    chats = [{"ckey": f"claude|c{i}"} for i in range(80)]
+    projects = [{"id": None, "name": "iMessage memory", "integration": "iMessage memory", "sessions": runs},
+                {"id": "p1", "name": "app", "sessions": chats}]
+    agents_core.cap_integration_runs(projects)
+    imsg, app = projects
+    assert len(imsg["sessions"]) == agents_core.INTEGRATION_RUNS_LISTED
+    assert imsg["sessions"][0]["ckey"] == "jarvis|r0"        # newest first, kept in order
+    assert imsg["total"] == 300
+    assert len(app["sessions"]) == 80 and "total" not in app  # his own chats are never trimmed
+

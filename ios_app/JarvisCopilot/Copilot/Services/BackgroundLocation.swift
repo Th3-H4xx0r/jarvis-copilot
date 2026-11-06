@@ -122,8 +122,13 @@ final class BackgroundLocationService: LocationTracking {
         return earth * (x * x + y * y).squareRoot()
     }
 
+    /// Every fix while tracking, posted or not: a fix is also iOS waking a suspended Jarvis, and
+    /// on a drive Jarvis slept through it is the first chance to notice the car (`AppServices`).
+    var onWake: (() -> Void)?
+
     private func received(_ fix: LocationFix) {
         guard enabled else { return }
+        onWake?()
         guard Self.shouldReport(fix, lastReported: lastReported,
                                 lastReportAt: lastReportAt, now: now()) else { return }
         lastReported = fix

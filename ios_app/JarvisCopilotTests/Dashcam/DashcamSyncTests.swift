@@ -1170,3 +1170,16 @@ final class DashcamUploaderTests: XCTestCase {
         XCTAssertEqual(server.destinationCalls, 2)
     }
 }
+
+/// The camera's Wi‑Fi joined with Jarvis in the background: its name can come after the path
+/// update, so the watchdog keeps looking — it used to only with the app open (2026-11-05).
+@MainActor
+final class DashcamWiFiBackgroundTests: XCTestCase {
+    func testTheBackgroundKeepsLookingWithTheCarOrJustAfterAWiFiChange() {
+        XCTAssertTrue(DashcamWiFi.looksInBackground(inCar: true, sinceWiFiChange: nil))
+        XCTAssertTrue(DashcamWiFi.looksInBackground(inCar: false, sinceWiFiChange: 30))
+        XCTAssertFalse(DashcamWiFi.looksInBackground(inCar: false, sinceWiFiChange: DashcamWiFi.settleWindow + 1),
+                       "at home, long after: the pocket stays quiet")
+        XCTAssertFalse(DashcamWiFi.looksInBackground(inCar: false, sinceWiFiChange: nil))
+    }
+}

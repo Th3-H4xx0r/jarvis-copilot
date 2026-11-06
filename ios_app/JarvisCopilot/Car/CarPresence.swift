@@ -60,8 +60,21 @@ final class CarPresence: ObservableObject {
         update()
     }
 
+    /// The phone's audio goes to the car (CarPlay).
+    static var carAudioRoute: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+    }
+
+    /// Look again now: a woken app heard nothing of a route change made while it was suspended
+    /// (CarPlay plugged in on a drive Jarvis slept through), and a location wake is the first
+    /// chance to notice it.
+    func recheck() {
+        guard started else { return }
+        readRoute()
+    }
+
     private func readRoute() {
-        carAudio = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+        carAudio = Self.carAudioRoute
         update()
     }
 

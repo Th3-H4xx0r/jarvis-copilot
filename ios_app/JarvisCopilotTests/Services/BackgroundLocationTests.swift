@@ -165,6 +165,22 @@ final class BackgroundLocationTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 1)
     }
 
+    /// Every fix is a wake, posted or not: Jarvis asleep on cellular is woken by these on a drive
+    /// and must look for the car then — the dashcam synced only once he opened the app (2026-11-05).
+    func testEveryFixWakesTheCarCheckEvenWhenNotPosted() async {
+        let monitor = FakeLocationMonitor()
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/devices/mobile/location", json: ["ok": true])
+        let service = BackgroundLocationService(api: api, preferences: MemoryKeyValueStore(),
+                                                monitor: monitor, now: { self.base })
+        var wakes = 0
+        service.onWake = { wakes += 1 }
+        _ = await service.setEnabled(true)
+        monitor.emit(fix(lat: 51.5, lng: -0.12))
+        monitor.emit(fix(lat: 51.5001, lng: -0.12))     // jitter: not posted
+        XCTAssertEqual(wakes, 2)
+    }
+
     // MARK: - Authorization deadline (swift-correctness C4)
 
     /// iOS silently NO-OPS an authorization request it considers already

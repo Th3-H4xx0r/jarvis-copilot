@@ -181,6 +181,24 @@ final class AgentsListTests: XCTestCase {
         XCTAssertEqual(im.latestActivity, Date(timeIntervalSince1970: 1781000400))
     }
 
+    /// The server lists an integration's newest 50 runs and says how many there are in all
+    /// (1,575 iMessage-memory runs made the pushed list too big for the phone's socket).
+    func testAnIntegrationCountsAllItsRunsWhenTheServerListsOnlyTheNewest() {
+        let list = AgentsList(json: Self.fixture { json in
+            var projects = json["projects"] as? [[String: Any]] ?? []
+            projects.append(["id": NSNull(), "name": "iMessage memory", "integration": "iMessage memory",
+                             "total": 1575, "sessions": [
+                                Self.integrationRun("im-1", "iMessage memory", at: 1781000200),
+                                Self.integrationRun("im-2", "iMessage memory", at: 1781000400),
+                             ]])
+            json["projects"] = projects
+        })
+        let im = list.integrations.first { $0.name == "iMessage memory" }
+        XCTAssertEqual(im?.sessions.count, 2)
+        XCTAssertEqual(im?.total, 1575)
+        XCTAssertEqual(Self.integrationList.integrations.map(\.total), [1, 2], "without a total, the runs listed")
+    }
+
     func testAWaitingIntegrationRunStaysUnderNeedsYou() {
         let list = Self.integrationList
         let needs = AgentsListLayout.needsYou(list)

@@ -197,6 +197,26 @@ final class BackgroundKeepaliveArbiterTests: XCTestCase {
         XCTAssertTrue(rig.keepalive.isRunning)
     }
 
+    /// CarPlay plugged in under the armed keepalive: the route change moves it to plain playback
+    /// at once, rather than leaving the car's voice channel open until the next claim.
+    func testTheCarConnectingMovesTheArmedKeepaliveToPlayback() {
+        AudioSessionArbiter.keepaliveRecordReady = { true }
+        var car = false
+        AudioSessionArbiter.keepaliveAvoidsRecording = { car }
+        defer {
+            AudioSessionArbiter.keepaliveRecordReady = { false }
+            AudioSessionArbiter.keepaliveAvoidsRecording = { false }
+        }
+        let rig = makeRig()
+        rig.keepalive.sync(active: true)
+        XCTAssertEqual(rig.applier.category, .playAndRecord)
+        car = true
+        rig.center.post(name: AVAudioSession.routeChangeNotification, object: nil)
+        XCTAssertEqual(rig.applier.category, .playback)
+        XCTAssertTrue(rig.applier.isActive)
+        XCTAssertTrue(rig.keepalive.isRunning)
+    }
+
     func testNotificationsAfterAStopAreIgnored() {
         let rig = makeRig()
         rig.keepalive.sync(active: true)

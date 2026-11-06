@@ -448,6 +448,7 @@ class AgentsCore:
         projects = sorted(groups.values(), key=lambda g: -g["last"])
         for g in projects:
             g.pop("last", None)
+        cap_integration_runs(projects)
         card = self.presence.card()
         if card:
             by = {c["ckey"]: c for c in convs}
@@ -805,6 +806,21 @@ class AgentsCore:
 
 
 _PUBLISH_GAP = 0.25
+
+# An integration's background runs listed per push, newest first. 1,575 iMessage-memory runs made
+# the pushed list 1.2 MB, past the iPhone socket's 1 MB message limit, so every push dropped the
+# phone's bridge and it reconnected over and over (2026-11-05). Clients show the group collapsed.
+INTEGRATION_RUNS_LISTED = 50
+
+
+def cap_integration_runs(projects: list, limit: int = INTEGRATION_RUNS_LISTED) -> None:
+    """Trim each integration group to its newest ``limit`` runs (already newest first) and say
+    how many there are in ``total``. Ordinary project groups, his own chats, are left whole."""
+    for g in projects:
+        sessions = g.get("sessions") or []
+        if g.get("integration") and len(sessions) > limit:
+            g["total"] = len(sessions)
+            g["sessions"] = sessions[:limit]
 
 
 def _device_home(cwd: str) -> str:

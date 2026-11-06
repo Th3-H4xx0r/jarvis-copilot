@@ -170,7 +170,7 @@ struct AgentsIntegrationHeader: View {
     let toggle: () -> Void
 
     private var countLabel: String {
-        "\(group.sessions.count) run\(group.sessions.count == 1 ? "" : "s")"
+        "\(group.total) run\(group.total == 1 ? "" : "s")"
     }
 
     var body: some View {

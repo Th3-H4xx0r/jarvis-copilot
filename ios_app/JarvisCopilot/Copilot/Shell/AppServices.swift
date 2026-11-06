@@ -284,6 +284,14 @@ final class AppServices {
 
         // 7. Background location, if the user left it on.
         location.startIfEnabled()
+        // Each fix wakes a suspended Jarvis, every few minutes on a drive: look for the car then.
+        // Asleep on cellular when CarPlay was plugged in, it heard no route change and the dashcam
+        // didn't sync until he opened the app (2026-11-05). In the car the keepalive takes over.
+        BackgroundLocationService.shared.onWake = {
+            CarPresence.shared.recheck()
+            Task { await DashcamWiFi.shared.refresh() }
+            SmartKeepalive.shared.refresh()
+        }
         // 7b. Calendar / reminders / time zone for the server's now brief: re-sent on every edit.
         ContextSnapshot.shared.start()
 
@@ -332,6 +340,8 @@ final class AppServices {
         // to switch the mic on — the one thing iOS lets a backgrounded app do.
         let armedKey = "jc.talkHere.armed"
         AudioSessionArbiter.keepaliveRecordReady = { UserDefaults.standard.bool(forKey: armedKey) }
+        // Never with CarPlay: a recordable session there opens the car's voice channel.
+        AudioSessionArbiter.keepaliveAvoidsRecording = { CarPresence.carAudioRoute }
         let talkHere = TalkHere(voice: VoiceStore.shared,
                                 isForeground: { UIApplication.shared.applicationState == .active },
                                 island: liveActivity, log: talkLog,

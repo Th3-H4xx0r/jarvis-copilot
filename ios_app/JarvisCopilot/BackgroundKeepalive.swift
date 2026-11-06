@@ -112,6 +112,14 @@ final class BackgroundKeepalive {
         EnergyLedger.shared.count(engine.start() ? "keepalive.restart" : "keepalive.restart_failed")
     }
 
+    /// Re-hold the claim so the live session follows the plan for the new route. No forced
+    /// re-activation: the session is up, and the background refuses more than it needs to.
+    private func routeChanged() {
+        guard isRunning, arbiter.holds(.keepalive) else { return }
+        try? arbiter.hold(.keepalive)
+        if !engine.isRunning { resume() }
+    }
+
     // MARK: - Observers
 
     /// Phone calls, Siri and alarms interrupt the session and stop the engine. Once the
@@ -149,6 +157,15 @@ final class BackgroundKeepalive {
             forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil
         ) { [weak self] _ in
             Self.onMain { self?.resume() }
+        })
+
+        // The car's audio came or went: the plan depends on it (an armed keepalive only plays
+        // while CarPlay is the route), so the held session follows. Our own category switch
+        // posts one too; by then the session matches and holding again changes nothing.
+        observers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            Self.onMain { self?.routeChanged() }
         })
 
         // Belt and braces: re-assert on return to foreground in case an interruption
