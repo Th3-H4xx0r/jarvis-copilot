@@ -36,6 +36,32 @@ final class VoiceLogFile: @unchecked Sendable {
     /// Returns once every line appended so far is on disk.
     func flush() { queue.sync {} }
 
+    /// The most lines `tail` hands back in one go (a few hundred KB of text).
+    static let maxTailLines = 3000
+
+    /// The newest `lines` lines, oldest first, reaching back into the rolled-over file;
+    /// with `containing`, only lines that include it. What the server reads over the
+    /// bridge (`voice_log`) when the phone isn't on the cable.
+    func tail(lines: Int, containing filter: String? = nil) -> [String] {
+        let wanted = max(0, min(lines, Self.maxTailLines))
+        guard wanted > 0 else { return [] }
+        return queue.sync {
+            var kept: [String] = []
+            for url in [current, previous] {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                var older: [String] = []
+                for line in text.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
+                    if let filter, !filter.isEmpty, !line.contains(filter) { continue }
+                    older.append(String(line))
+                    if kept.count + older.count == wanted { break }
+                }
+                kept = older.reversed() + kept
+                if kept.count == wanted { break }
+            }
+            return kept
+        }
+    }
+
     /// The ring's stamps carry only the time of day; the file is read days later.
     static func dayStamp(_ date: Date) -> String { dayFormatter.string(from: date) }
 

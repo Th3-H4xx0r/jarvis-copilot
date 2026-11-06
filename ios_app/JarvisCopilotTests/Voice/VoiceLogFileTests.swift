@@ -56,4 +56,44 @@ final class VoiceLogFileTests: XCTestCase {
         let text = read(again.current)
         XCTAssertTrue(text.contains("before") && text.contains("after"), "appends, never truncates on launch")
     }
+
+    /// The newest lines, oldest first, reaching back into the rolled-over file — what the
+    /// server reads over the bridge when the phone isn't on the cable.
+    func testTailReturnsTheNewestLinesAcrossTheRollover() throws {
+        let dir = try makeDir()
+        let log = VoiceLogFile(directory: dir, maxBytes: 200)
+        for i in 0..<40 { log.append("line \(i)") }
+        let tail = log.tail(lines: 12)
+        XCTAssertEqual(tail.count, 12)
+        XCTAssertTrue(tail.last?.hasSuffix("line 39") == true)
+        XCTAssertTrue(tail.first?.hasSuffix("line 28") == true, "\(tail)")
+    }
+
+    func testTailKeepsOnlyLinesWithTheFilter() throws {
+        let dir = try makeDir()
+        let log = VoiceLogFile(directory: dir, maxBytes: 10_000)
+        log.append("[voice] startup: total=4900ms")
+        log.append("[spotify] play")
+        log.append("[voice] mic started")
+        XCTAssertEqual(log.tail(lines: 10, containing: "[voice]").count, 2)
+        XCTAssertEqual(log.tail(lines: 1, containing: "[voice]").first?.hasSuffix("mic started"), true)
+    }
+
+    /// `voice_log`: the server reads the newest lines, capped, filtered when asked.
+    func testTheVoiceLogSkillReturnsTheNewestLinesCapped() async throws {
+        let dir = try makeDir()
+        let log = VoiceLogFile(directory: dir, maxBytes: 100_000)
+        for i in 0..<50 { log.append("[voice] line \(i)") }
+        log.append("[cp-diag] overlay presented=true")
+        let skill = VoiceLogFile.skill(log)
+        XCTAssertEqual(skill.name, "voice_log")
+        XCTAssertFalse(skill.requiresForeground, "readable with Jarvis in the background")
+        let all = try await skill.run(["lines": 5])
+        XCTAssertEqual((all["lines"] as? [String])?.count, 5)
+        XCTAssertEqual((all["lines"] as? [String])?.last?.hasSuffix("overlay presented=true"), true)
+        let voice = try await skill.run(["lines": 3, "contains": "[voice]"])
+        XCTAssertEqual((voice["lines"] as? [String])?.last?.hasSuffix("line 49"), true)
+        let huge = try await skill.run(["lines": 1_000_000])
+        XCTAssertLessThanOrEqual((huge["lines"] as? [String])?.count ?? 0, VoiceLogFile.maxTailLines)
+    }
 }

@@ -809,6 +809,7 @@
 		A100000000000000000000A4 /* Esp32DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B4 /* Esp32DeviceView.swift */; };
 		A100000000000000000000A6 /* Esp32ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B6 /* Esp32ChatView.swift */; };
 		A16ADFA87A057B84FE5355A1 /* SendConfirmations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98C18A24786223E46B58DF2 /* SendConfirmations.swift */; };
+		A1A076BD0A0ED30595802F71 /* VoiceLogSkill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B023B15024DA9F85F330480 /* VoiceLogSkill.swift */; };
 		A232FB4A9EAAC92C04B88763 /* DashcamTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E8DB2A0DA3FC6E2999C01FC /* DashcamTestSupport.swift */; };
 		A24FF31DB478F35628428FDB /* DashcamTombstoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552F654E35D124E5717BD55E /* DashcamTombstoneTests.swift */; };
 		A2A76BEEB38C3EEE474836CC /* DevicesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95AC21F22B83E0AFEF9A9BBA /* DevicesStore.swift */; };
@@ -1527,6 +1528,7 @@
 		2A05B100C9A51FF4BBD2A939 /* LiveActivityLayoutProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityLayoutProbeTests.swift; sourceTree = "<group>"; };
 		2A4872C584ECD913DE33F627 /* InmoEvent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoEvent.swift; sourceTree = "<group>"; };
 		2A8EDB517D89B29E58364D2E /* RouteRecordingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRecordingTests.swift; sourceTree = "<group>"; };
+		2B023B15024DA9F85F330480 /* VoiceLogSkill.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLogSkill.swift; sourceTree = "<group>"; };
 		2B95871CA93FF456CB5A4E83 /* BandTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandTransport.swift; sourceTree = "<group>"; };
 		2B95FAC3E42EB619BE42672E /* HealthUnits.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthUnits.swift; sourceTree = "<group>"; };
 		2BD0A95997264D8485F52BC0 /* JarvisPodAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodAPITests.swift; sourceTree = "<group>"; };
@@ -3969,6 +3971,7 @@
 				C7D94BB5169588CC83EA64E9 /* SendConfirmCard.swift */,
 				B98C18A24786223E46B58DF2 /* SendConfirmations.swift */,
 				2131295D6C8DC5C1BF8B911B /* SpotifyRemote.swift */,
+				2B023B15024DA9F85F330480 /* VoiceLogSkill.swift */,
 			);
 			path = Skills;
 			sourceTree = "<group>";
@@ -6251,6 +6254,7 @@
 				03D42E253260BD1941E2AA37 /* WorkoutLiveIntents.swift in Sources */,
 				E981E3402B5B53B6B0C3F2E7 /* DashcamSyncActivityViews.swift in Sources */,
 				B098EE16F564C212F45E8CF9 /* DashcamDualPlayback.swift in Sources */,
+				A1A076BD0A0ED30595802F71 /* VoiceLogSkill.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

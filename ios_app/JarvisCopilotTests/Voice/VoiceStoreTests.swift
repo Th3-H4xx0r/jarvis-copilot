@@ -1812,6 +1812,18 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(skips.last, false)
     }
 
+    /// A one-shot from the car's screen takes no talk-over either, so it skips the ~0.6 s
+    /// echo-cancelling unit too; the turn's end puts it back.
+    func testACarScreenOneShotSkipsEchoCancellationUntilItEnds() async {
+        let rig = makeRig(mode: .quality)
+        var skips: [Bool] = []
+        rig.store.skipEchoCancellation = { skips.append($0) }
+        _ = await rig.store.startOneShotTurn()
+        XCTAssertEqual(skips.first, true)
+        await rig.store.stopAll()
+        XCTAssertEqual(skips.last, false)
+    }
+
     /// The glasses' talk builds its engine with no phone mic; back on the phone, with one.
     func testTheGlassesTalkBuildsAPlaybackOnlyEngine() async {
         let rig = makeRig(mode: .quality)

@@ -351,8 +351,8 @@ final class VoiceStore {
     private(set) var mixedAudio = false
     /// The audio session's claims and live state, for the voice log. Set by the app.
     var audioDiagnostics: () -> String = { "" }
-    /// Builds the next mic without echo cancellation (true) or with it again. A talk
-    /// started in the background takes none: its unit took ~0.6 s to build on his
+    /// Builds the next mic without echo cancellation (true) or with it again. A one-shot
+    /// (background or the car's screen) takes none: its unit took ~0.6 s to build on his
     /// phone — most of the wait before Listening — and leaves the session in
     /// VoiceChat mode, which the next background talk then can't switch back
     /// ('!int'). A one-shot takes no talk-over, so it has no use for it. Set by the app.
@@ -832,7 +832,10 @@ final class VoiceStore {
         for car in order {
             carAudio = car
             mixedAudio = !car
-            skipEchoCancellation(inBackground)
+            // No one-shot takes talk-over (`bargeInAllowed`), so none builds the ~0.6 s
+            // echo-cancelling unit — the car's screen's too, which kept it and paid for it
+            // on every tap (2026-11-05, 5 s CarPlay starts).
+            skipEchoCancellation(true)
             do {
                 try acquireAudioSession()
                 note("one-shot on the \(car ? "car (ducking)" : "mixing-only") session")

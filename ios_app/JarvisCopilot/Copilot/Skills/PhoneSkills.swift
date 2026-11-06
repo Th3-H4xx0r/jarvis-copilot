@@ -83,6 +83,7 @@ enum PhoneSkills {
             IOSSkills.phoneControl(b.shortcuts, contacts: b.contacts, sms: b.sms),
             IOSSkills.phoneCapabilities(),
             WidgetSkills.refresh(),
+            VoiceLogFile.skill(),
         ]
     }
 
