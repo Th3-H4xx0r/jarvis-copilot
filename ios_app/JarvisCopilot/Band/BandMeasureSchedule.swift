@@ -44,9 +44,11 @@ struct BandMeasurePlan: Codable, Equatable {
     /// What the phone can ask for (the optical readings; ECG and body composition need a finger).
     static let types: [BandMeasure] = [.heartRate, .bloodOxygen, .bloodPressure, .stress, .temperature,
                                        .bloodGlucose, .bloodComponent]
+    /// His pick after the 2026-11-06 battery study: heart rate, stress and blood pressure by day;
+    /// each reading runs the sensor ~75 s, and ~12 an hour cost about as much as all-day sensing.
     static let defaultIntervals: [String: Int] = [
-        "heart_rate": 30, "spo2": 60, "blood_pressure": 120, "stress": 60, "temperature": 60,
-        "blood_glucose": 60, "blood_component": 0, BandMeasurePlan.hrv: 60,
+        "heart_rate": 60, "spo2": 0, "blood_pressure": 240, "stress": 120, "temperature": 0,
+        "blood_glucose": 0, "blood_component": 0, BandMeasurePlan.hrv: 120,
     ]
     /// The interval key for HRV, which the phone gets by turning the band's HRV switch on.
     static let hrv = "hrv"
@@ -135,6 +137,9 @@ final class BandMeasureScheduler: ObservableObject {
     /// The reading most overdue at `date`, if any (one that just failed waits its retry).
     func due(at date: Date) -> BandMeasure? {
         guard plan.control == .phone else { return nil }
+        // Overnight the band measures every minute itself; a reading on top only costs battery
+        // (his were ~12 an hour all night, the 2026-11-06 battery study).
+        guard !plan.inNight(date, calendar: calendar) else { return nil }
         if let lastEnded, date.timeIntervalSince(lastEnded) < settle { return nil }
         let overdue = BandMeasurePlan.types.compactMap { m -> (BandMeasure, TimeInterval)? in
             let minutes = plan.interval(m)
@@ -188,19 +193,39 @@ final class BandMeasureScheduler: ObservableObject {
         return out
     }
 
-    /// Writes the sensing switches when the band's differ from `sensing(at:)`.
+    /// The band's switches as phone-managed measuring wants them at `date`: its own automatic
+    /// measuring all off, pulse/HRV per `sensing`; and the names that had to change.
+    static func corrected(_ settings: BandSettings, plan: BandMeasurePlan, hrvOn: Bool, at date: Date,
+                          calendar: Calendar) -> (BandSettings, [String]) {
+        var next = settings
+        var changed: [String] = []
+        for name in BandMeasurePlan.autoSwitches where settings.isOn(name) == true {
+            next.set(name, false)
+            changed.append(name)
+        }
+        for (name, on) in sensing(plan, hrvOn: hrvOn, at: date, calendar: calendar).sorted(by: { $0.key < $1.key })
+        where settings.isOn(name).map({ $0 != on }) ?? false {
+            next.set(name, on)
+            changed.append(name)
+        }
+        return (next, changed)
+    }
+
+    /// Writes the band's switches when they differ from `corrected`: the night window's pulse/HRV,
+    /// and its own automatic measuring back off if anything turned it on (a reset, the band's own
+    /// app) — 2026-11-03 on it ran BP, glucose and components every 10 minutes unnoticed.
     func reconcile() async {
         guard let manager, plan.control == .phone, !applying, manager.session.measuring == nil,
               !manager.holdsLinkForWorkout, let settings = manager.session.settings else { return }
-        var next = settings
-        for (name, on) in sensing(at: now()) where settings.isOn(name).map({ $0 != on }) ?? false {
-            next.set(name, on)
-        }
+        let (next, changed) = Self.corrected(settings, plan: plan, hrvOn: hrvUntil.map { now() < $0 } ?? false,
+                                             at: now(), calendar: calendar)
         guard next != settings else { return }
         if manager.state != .ready {
             guard await manager.ensureConnected() else { return }
         }
-        try? await manager.session.writeSettings(next)
+        guard (try? await manager.session.writeSettings(next)) != nil else { return }
+        let autos = changed.filter { BandMeasurePlan.autoSwitches.contains($0) }
+        if !autos.isEmpty { manager.battery.note(.switchesCorrected, detail: autos.joined(separator: ",")) }
     }
 
     func runDue() async {
@@ -252,7 +277,9 @@ final class BandMeasureScheduler: ObservableObject {
 
     /// Hands measuring to the phone (the band's switches off, the link held) or back to the band
     /// (its switches and Keep Alive as they were). Needs the band connected to change its switches.
-    func setControl(_ control: BandMeasureControl) async throws {
+    /// `source` (app, jarvis) goes in the battery log with the change: the Nov 3 switch to Band
+    /// couldn't be traced.
+    func setControl(_ control: BandMeasureControl, source: String) async throws {
         guard control != plan.control, let manager else { return }
         applying = true
         defer { applying = false }
@@ -303,6 +330,15 @@ final class BandMeasureScheduler: ObservableObject {
         next.control = control
         plan = next
         save()
+        manager.battery.note(control == .phone ? .phoneManaged : .bandManaged, detail: source)
+        JcLog.devices.notice("band: measuring now managed by \(control.rawValue, privacy: .public) (\(source, privacy: .public))")
+    }
+
+    /// The battery log learns who manages measuring when it has never been told (logs from before
+    /// the change events), so the drain by mode has a start.
+    func noteControlIfUnlogged(in log: BandBatteryLog) {
+        guard log.loggedControl == nil else { return }
+        log.note(plan.control == .phone ? .phoneManaged : .bandManaged, detail: "start")
     }
 
     /// Starts `name`'s next interval from when this one was due, so the cadence holds (counted

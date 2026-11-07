@@ -185,6 +185,14 @@ struct BandBatteryView: View {
         return VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Activity, \(span.label)")
             GlassGroup {
+                // Measured per way of managing (the drain while each was set), when followed long enough.
+                ForEach([BandMeasureControl.phone, .band], id: \.self) { control in
+                    if let rate = r.perDay(managedBy: control, since: f.since) {
+                        BatteryStatRow(symbol: control == .phone ? "iphone" : "applewatch",
+                                       title: control == .phone ? "Drain, managed by Phone" : "Drain, managed by Band",
+                                       value: "\(Int(rate.rounded()))% a day")
+                    }
+                }
                 BatteryStatRow(symbol: "waveform.path.ecg", title: "Spot readings",
                                value: ecgs > 0 ? "\(readings.count) (\(ecgs) ECG)" : "\(readings.count)")
                 BatteryStatRow(symbol: "figure.run", title: "Workouts",

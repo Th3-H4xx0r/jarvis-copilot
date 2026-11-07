@@ -70,6 +70,7 @@ final class BandMonitorTests: XCTestCase {
         var plan = BandMeasurePlan()
         plan.control = .phone
         plan.intervals = ["heart_rate": 30, "spo2": 60, "blood_pressure": 0]
+        plan.nightTracking = false   // a fixed instant that may fall in the night window; cadence only here
         // Heart rate is 10 min overdue, SpO2 50 min; blood pressure is off.
         scheduler.seedForTests(plan, lastRuns: ["heart_rate": now.addingTimeInterval(-40 * 60),
                                                 "spo2": now.addingTimeInterval(-110 * 60),
@@ -95,6 +96,7 @@ final class BandMonitorTests: XCTestCase {
         var plan = BandMeasurePlan()
         plan.control = .phone
         plan.intervals = ["heart_rate": 15]
+        plan.nightTracking = false   // a fixed instant that may fall in the night window; cadence only here
         scheduler.seedForTests(plan, lastRuns: ["heart_rate": start.addingTimeInterval(-15 * 60)])
         XCTAssertEqual(scheduler.due(at: clock), .heartRate)
         scheduler.finished(.heartRate, done: false)
@@ -141,7 +143,7 @@ final class BandMonitorTests: XCTestCase {
         let plan = try JSONDecoder().decode(BandMeasurePlan.self, from: Data(old.utf8))
         XCTAssertEqual(plan.control, .phone)
         XCTAssertEqual(plan.interval(.heartRate), 15)
-        XCTAssertEqual(plan.interval(BandMeasurePlan.hrv), 60, "HRV takes its default")
+        XCTAssertEqual(plan.interval(BandMeasurePlan.hrv), BandMeasurePlan.defaultIntervals[BandMeasurePlan.hrv], "HRV takes its default")
         XCTAssertTrue(plan.nightTracking)
         XCTAssertEqual(plan.nightStart, 21 * 60)
         XCTAssertEqual(plan.nightEnd, 11 * 60)
@@ -198,6 +200,51 @@ final class BandMonitorTests: XCTestCase {
         plan.intervals = [BandMeasurePlan.hrv: 60]
         scheduler.seedForTests(plan)
         XCTAssertFalse(scheduler.hrvDue(at: at(15, 0)))
+    }
+
+    /// The battery study (2026-11-06): the phone's readings ran ~12 an hour all night, on top of
+    /// the band's own every-minute sensing in the night window. Inside the window it asks for none.
+    func testThePhoneAsksForNoReadingInsideTheNightWindow() {
+        let defaults = UserDefaults(suiteName: "BandMeasureNightTests")!
+        defaults.removePersistentDomain(forName: "BandMeasureNightTests")
+        let scheduler = BandMeasureScheduler(defaults: defaults)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        scheduler.calendar = utc
+        func at(_ h: Int) -> Date { utc.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: h))! }
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        plan.intervals = ["heart_rate": 60]
+        scheduler.seedForTests(plan)
+        XCTAssertNil(scheduler.due(at: at(23)), "overnight the band measures every minute itself")
+        XCTAssertNil(scheduler.due(at: at(3)), "across midnight")
+        XCTAssertEqual(scheduler.due(at: at(14)), .heartRate)
+        plan.nightTracking = false
+        scheduler.seedForTests(plan)
+        XCTAssertEqual(scheduler.due(at: at(23)), .heartRate, "no sleep tracking: the phone's readings go on")
+    }
+
+    /// Managed by phone, every one of the band's own automatic measurements stays off — not just
+    /// the pulse/HRV pair. From Nov 3 the band ran BP, glucose and components every 10 minutes and
+    /// nothing put them back off.
+    func testThePhoneKeepsEveryOneOfTheBandsAutoSwitchesOff() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let noon = utc.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        let on = BandSettings(json: ["auto_blood_pressure": true, "auto_blood_glucose": true, "auto_stress": true,
+                                     "auto_ppg": true, "auto_hrv": true], base: .e910Default)!
+        let (next, changed) = BandMeasureScheduler.corrected(on, plan: plan, hrvOn: false, at: noon, calendar: utc)
+        for name in ["auto_blood_pressure", "auto_blood_glucose", "auto_stress", "auto_ppg", "auto_hrv"] {
+            XCTAssertEqual(next.isOn(name), false, name)
+        }
+        // The band's stock settings have its heart-rate monitor on too.
+        XCTAssertEqual(Set(changed), ["auto_heart_rate", "auto_blood_pressure", "auto_blood_glucose", "auto_stress",
+                                      "auto_ppg", "auto_hrv"])
+        let (again, none) = BandMeasureScheduler.corrected(next, plan: plan, hrvOn: false, at: noon, calendar: utc)
+        XCTAssertEqual(again, next)
+        XCTAssertTrue(none.isEmpty, "nothing to write once they're off")
     }
 
     /// His 2026-10-13 day: every blood pressure / glucose / blood components reading twice — the

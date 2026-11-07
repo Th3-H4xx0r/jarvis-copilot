@@ -118,6 +118,7 @@ final class BandManager: NSObject, ObservableObject {
                         "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral"])
         session.attach(self)
         measureScheduler.attach(self)
+        measureScheduler.noteControlIfUnlogged(in: battery)
         onDaysChanged = { [weak self] keys in
             guard let self else { return }
             self.uploads.changed(keys, urgent: self.screenIsOpen || self.healthIsOpen)
@@ -361,6 +362,7 @@ final class BandManager: NSObject, ObservableObject {
             .sink { [weak self] level in
                 self?.lastBatteryRead = Date()
                 log.record(percent: level.percent, charging: level.charging)
+                if !level.charging { self?.checkDrain() }
             }
             .store(in: &batteryWatch)
         $state.map { $0 == .ready }.removeDuplicates()
@@ -397,6 +399,19 @@ final class BandManager: NSObject, ObservableObject {
                 await self.session.refreshBattery()
             }
         }
+    }
+
+    /// Over `BandDrainAlert.threshold` points a day across the last day: one notification a day
+    /// saying the likely cause (2026-11-06: four days at 23–29% went unnoticed).
+    private func checkDrain() {
+        let defaults = UserDefaults.standard
+        if let last = defaults.object(forKey: BandDrainAlert.lastKey) as? Date,
+           Date().timeIntervalSince(last) < BandDrainAlert.every { return }
+        let autos = BandMeasurePlan.autoSwitches.filter { session.settings?.isOn($0) == true }
+        guard let text = BandDrainAlert.message(battery.report(), control: measureScheduler.plan.control,
+                                                autosOn: autos) else { return }
+        defaults.set(Date(), forKey: BandDrainAlert.lastKey)
+        Task { _ = try? await DefaultNotifier().post(LocalNotificationRequest(title: "Band battery draining fast", body: text)) }
     }
 
     private var isWorking: Bool {

@@ -81,6 +81,55 @@ final class BandBatteryTests: XCTestCase {
         XCTAssertNil(uses["reading"])
     }
 
+    /// Who managed measuring is logged with what changed it, and the drain is measured per mode
+    /// (the Nov 3 switch to Band couldn't be traced, nor its cost told apart).
+    func testTheDrainIsMeasuredForEachWayOfManaging() {
+        let log = BandBatteryLog(file: nil)
+        var clock = t0
+        log.now = { clock }
+        log.note(.phoneManaged, detail: "app")
+        log.record(percent: 90, charging: false)
+        clock = at(24)
+        log.record(percent: 80, charging: false)
+        log.note(.bandManaged, detail: "jarvis")
+        clock = at(48)
+        log.record(percent: 55, charging: false)
+        let report = log.report()
+        XCTAssertEqual(report.perDay(managedBy: .phone, since: t0) ?? -1, 10, accuracy: 0.01)
+        XCTAssertEqual(report.perDay(managedBy: .band, since: t0) ?? -1, 25, accuracy: 0.01)
+        XCTAssertEqual(report.managedBy(at: at(30)), .band)
+        XCTAssertNil(report.managedBy(at: at(-1)), "before the first change: unknown")
+        XCTAssertEqual(log.events.last?.detail, "jarvis")
+    }
+
+    /// A log written before events had details still loads.
+    func testALogFromBeforeEventDetailsLoads() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("log.json")
+        try Data(#"{"samples":[],"spans":[],"events":[{"kind":"sync","date":0}],"open":{}}"#.utf8).write(to: file)
+        let log = BandBatteryLog(file: file)
+        XCTAssertEqual(log.events.count, 1)
+        XCTAssertNil(log.events.first?.detail)
+    }
+
+    /// Over 12 points a day across the last day followed → one alert naming the likely cause.
+    func testTheDrainAlertNamesTheLikelyCause() {
+        func report(_ samples: [BandBatteryLog.Sample], now: Double) -> BandBatteryReport {
+            BandBatteryReport(samples: samples, spans: [], now: at(now))
+        }
+        let heavy = report([sample(0, 100), sample(12, 85), sample(24, 70)], now: 24)
+        let band = BandDrainAlert.message(heavy, control: .band, autosOn: [])
+        XCTAssertNotNil(band)
+        XCTAssertTrue(band?.contains("Managed by Band") == true, band ?? "")
+        let autos = BandDrainAlert.message(heavy, control: .phone, autosOn: ["auto_blood_pressure"])
+        XCTAssertTrue(autos?.contains("blood pressure") == true, autos ?? "")
+        XCTAssertNil(BandDrainAlert.message(report([sample(0, 100), sample(24, 92)], now: 24),
+                                            control: .band, autosOn: []), "8 a day is fine")
+        XCTAssertNil(BandDrainAlert.message(report([sample(16, 100), sample(24, 90)], now: 24),
+                                            control: .band, autosOn: []), "8 h followed isn't a day")
+    }
+
     func testTheLogKeepsChangesAndSpansAndSkipsRepeats() {
         let log = BandBatteryLog(file: nil)
         var clock = t0

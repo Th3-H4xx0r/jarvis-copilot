@@ -9,6 +9,11 @@ struct BandMonitorSettings: View {
     @ObservedObject var session: BandSession
     @ObservedObject var scheduler: BandMeasureScheduler
     @State private var controlError: String?
+    /// Switching to Band waits for a yes: the band then measures all day (2026-11-06: an unnoticed
+    /// switch on Nov 3 ran it at 23–29% a day).
+    @State private var confirmBand = false
+    /// For what each way of managing measured on this band.
+    var batteryLog: BandBatteryLog? = nil
     /// A switch, through the same skill Jarvis uses.
     let invoke: (String, [String: Any]) -> Void
 
@@ -90,17 +95,34 @@ struct BandMonitorSettings: View {
     private var control: Binding<BandMeasureControl> {
         Binding(get: { scheduler.plan.control }, set: { next in
             controlError = nil
-            Task {
-                do { try await scheduler.setControl(next) } catch {
-                    controlError = "Connect the band to change this — \(error.localizedDescription)"
-                }
-            }
+            guard next != .band else { return confirmBand = true }
+            apply(next)
         })
+    }
+
+    private func apply(_ next: BandMeasureControl) {
+        Task {
+            do { try await scheduler.setControl(next, source: "app") } catch {
+                controlError = "Connect the band to change this — \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// What switching to Band costs, measured on this band when there's enough of each.
+    private var bandCost: String {
+        let report = batteryLog?.report()
+        let since = Date().addingTimeInterval(-30 * 86_400)
+        if let band = report?.perDay(managedBy: .band, since: since),
+           let phone = report?.perDay(managedBy: .phone, since: since) {
+            return "On this band: about \(Int(band.rounded()))% a day managed by Band, "
+                + "\(Int(phone.rounded()))% by Phone."
+        }
+        return "The band then measures every minute, all day and night — the most battery it can use."
     }
 
     private var measuring: some View {
         CardGroup("Measurements", footer: controlError ?? (phoneManaged
-            ? "The phone keeps the band connected and asks it for each reading when it's due; the band's own every-minute measuring is off, which saves most of its battery. HRV has no reading of its own: the phone turns the band's HRV on for one 5-minute record each interval. Overnight, the band measures on its own so it can track sleep."
+            ? "The phone keeps the band connected and asks it for each reading when it's due; the band's own every-minute measuring is off, which saves most of its battery. HRV has no reading of its own: the phone turns the band's HRV on for one 5-minute record each interval. Overnight, the band measures on its own so it can track sleep, and the phone asks for nothing."
             : "The band measures on its own all day. Managed by phone, it measures only when the phone asks, on the intervals you set.")) {
             Row(minHeight: 52) {
                 HStack {
@@ -128,6 +150,12 @@ struct BandMonitorSettings: View {
                 RowDivider()
                 nightRows
             }
+        }
+        .confirmationDialog("Let the band measure on its own?", isPresented: $confirmBand, titleVisibility: .visible) {
+            Button("Managed by Band") { apply(.band) }
+            Button("Keep Phone", role: .cancel) {}
+        } message: {
+            Text(bandCost)
         }
     }
 

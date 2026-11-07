@@ -27,11 +27,16 @@ final class BandBatteryLog: ObservableObject {
         var detail: String?
     }
 
-    enum Event: String, Codable { case sync, find }
+    /// `phoneManaged` / `bandManaged`: who measures from then on, `detail` saying what changed it
+    /// (app, jarvis, start). `switchesCorrected`: the phone found the band's own automatic measuring
+    /// back on and put it off, `detail` naming the switches. (2026-11-06: the Nov 3 switch to Band
+    /// left no trace.)
+    enum Event: String, Codable { case sync, find, phoneManaged, bandManaged, switchesCorrected }
 
     struct Stamp: Codable, Equatable {
         var kind: Event
         var date: Date
+        var detail: String?
     }
 
     private struct Stored: Codable {
@@ -111,9 +116,18 @@ final class BandBatteryLog: ObservableObject {
         save()
     }
 
-    func note(_ event: Event) {
-        events.append(Stamp(kind: event, date: now()))
+    func note(_ event: Event, detail: String? = nil) {
+        events.append(Stamp(kind: event, date: now(), detail: detail))
         save()
+    }
+
+    /// Who manages measuring as last logged (nil: never logged).
+    var loggedControl: BandMeasureControl? {
+        for stamp in events.reversed() {
+            if stamp.kind == .phoneManaged { return .phone }
+            if stamp.kind == .bandManaged { return .band }
+        }
+        return nil
     }
 
     /// Everything so far, spans under way counted up to now.
@@ -263,6 +277,34 @@ struct BandBatteryReport {
         return within.reduce(0) { $0 + $1.points } / seconds * 86_400
     }
 
+    /// Who managed measuring at `date`, from the logged changes (nil before the first).
+    func managedBy(at date: Date) -> BandMeasureControl? {
+        for stamp in events.reversed() where stamp.date <= date {
+            if stamp.kind == .phoneManaged { return .phone }
+            if stamp.kind == .bandManaged { return .band }
+        }
+        return nil
+    }
+
+    /// Points a day while `control` managed measuring, from the stretches followed since `since`
+    /// (each drain counted for whoever managed at its middle).
+    func perDay(managedBy control: BandMeasureControl, since: Date) -> Double? {
+        let within = drains(since: since).filter {
+            managedBy(at: $0.start.addingTimeInterval($0.end.timeIntervalSince($0.start) / 2)) == control
+        }
+        let seconds = within.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
+        guard seconds >= 6 * 3600 else { return nil }
+        return within.reduce(0) { $0 + $1.points } / seconds * 86_400
+    }
+
+    /// Points a day over the last 24 h, when at least `followed` of it was followed.
+    func lastDay(followed: TimeInterval) -> Double? {
+        let within = drains(since: now.addingTimeInterval(-86_400))
+        let seconds = within.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
+        guard seconds >= followed else { return nil }
+        return within.reduce(0) { $0 + $1.points } / seconds * 86_400
+    }
+
     /// Points an hour lately: the last three days, else the last week.
     var recentPerHour: Double? {
         let rate = perDay(since: now.addingTimeInterval(-3 * 86_400)) ?? perDay(since: now.addingTimeInterval(-7 * 86_400))
@@ -402,6 +444,13 @@ struct BandBatteryReport {
             out["battery_drain_per_day_percent"] = (rate * 10).rounded() / 10
         }
         if let left = timeLeft { out["battery_hours_left"] = Int((left / 3600).rounded()) }
+        var byMode: [String: Double] = [:]
+        for control in [BandMeasureControl.phone, .band] {
+            if let rate = perDay(managedBy: control, since: now.addingTimeInterval(-30 * 86_400)) {
+                byMode[control.rawValue] = (rate * 10).rounded() / 10
+            }
+        }
+        if !byMode.isEmpty { out["battery_drain_per_day_by_managed_by"] = byMode }
         if let charge = lastCharge {
             out["last_charged"] = ISO8601DateFormatter().string(from: charge.end)
             out["last_charged_from_percent"] = charge.from
@@ -416,5 +465,39 @@ struct BandBatteryReport {
             }
         }
         return out
+    }
+}
+
+/// A warning when the band's battery goes much faster than it should: over `threshold` points a day
+/// across the last day followed, naming the likely cause. (2026-11-06: 23–29 a day for four days,
+/// the band managing its own measuring again with every automatic switch on, and nothing said so.)
+enum BandDrainAlert {
+    static let threshold = 12.0
+    /// At least this much of the last day must have been followed for its rate to count.
+    static let followed: TimeInterval = 18 * 3600
+    /// One alert a day at most.
+    static let every: TimeInterval = 86_400
+    static let lastKey = "band.drainAlertAt"
+
+    /// The band's own switch names, as the alert says them.
+    static let names: [String: String] = [
+        "auto_heart_rate": "heart rate", "auto_blood_pressure": "blood pressure", "auto_temperature": "temperature",
+        "auto_blood_glucose": "glucose", "auto_stress": "stress", "auto_blood_component": "blood components",
+    ]
+
+    /// The alert's text, or nil when the drain is fine or not followed long enough to tell.
+    static func message(_ report: BandBatteryReport, control: BandMeasureControl, autosOn: [String]) -> String? {
+        guard let rate = report.lastDay(followed: followed), rate > threshold else { return nil }
+        let days = rate > 0 ? Int((100 / rate).rounded()) : 0
+        let head = "The band used \(Int(rate.rounded()))% in the last day (about \(days) days a charge). "
+        if control == .band {
+            return head + "It's set to Managed by Band, so it measures every minute all day — switch Monitoring → "
+                + "Measurements to Phone."
+        }
+        let on = autosOn.compactMap { names[$0] }
+        if !on.isEmpty {
+            return head + "Its own automatic \(on.joined(separator: ", ")) measuring is on; Jarvis is turning it off."
+        }
+        return head + "Fewer readings (Monitoring → Measurements) would save the most."
     }
 }

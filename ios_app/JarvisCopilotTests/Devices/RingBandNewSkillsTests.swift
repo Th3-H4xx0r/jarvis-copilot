@@ -196,6 +196,23 @@ final class RingBandNewSkillsTests: XCTestCase {
         }
         XCTAssertEqual(scheduler.plan, before)
     }
+
+    /// The raw battery history for the server to analyse (2026-11-06: only a summary could be read,
+    /// and not who was managing measuring).
+    func testTheBatteryHistoryHasTheLevelsTheChangesAndThePlan() async throws {
+        let device = band()
+        let log = try XCTUnwrap(bandBackend?.batteryLog)
+        log.record(percent: 80, charging: false)
+        log.note(.bandManaged, detail: "app")
+        let out = try await device.invoke("band_battery_history", args: ["days": 2])
+        let samples = try XCTUnwrap(out["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.first?["percent"] as? Int, 80)
+        let events = try XCTUnwrap(out["events"] as? [[String: Any]])
+        XCTAssertEqual(events.last?["kind"] as? String, "bandManaged")
+        XCTAssertEqual(events.last?["detail"] as? String, "app")
+        XCTAssertEqual((out["plan"] as? [String: Any])?["managed_by"] as? String, "band")
+        await expectBadArgument { _ = try await device.invoke("band_battery_history", args: ["days": 0]) }
+    }
 }
 
 /// A band that never connects, with a measuring plan.
@@ -210,6 +227,7 @@ private final class UnitFakeBandBackend: BandBackend {
     let store: RingHistoryStore? = nil
     let workouts: RingWorkoutController? = nil
     let scheduler: BandMeasureScheduler?
+    let batteryLog: BandBatteryLog? = BandBatteryLog(file: nil)
 
     init(scheduler: BandMeasureScheduler) {
         self.scheduler = scheduler

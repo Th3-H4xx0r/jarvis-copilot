@@ -186,6 +186,13 @@ final class BandDevice: WearableDevice {
                 inputSchema: DeviceCapability.schema(["confirm": ["type": "boolean", "description": "Must be true"]],
                                                      required: ["confirm"])),
             DeviceCapability(
+                name: "band_battery_history",
+                description: "The band's battery history for diagnosing drain: each level read (time, percent, "
+                    + "charging), what it was doing (workout, reading, all-day sensing, linked), changes of who "
+                    + "manages measuring and switches the phone put back off, the measuring plan and the band's "
+                    + "switches now.",
+                inputSchema: DeviceCapability.schema(["days": ["type": "integer", "minimum": 1, "maximum": 30]])),
+            DeviceCapability(
                 name: "band_get_log",
                 description: "The band's raw command log (hex frames both ways), newest first.",
                 inputSchema: DeviceCapability.schema(["limit": ["type": "integer", "minimum": 1, "maximum": 200]])),
@@ -363,6 +370,7 @@ final class BandDevice: WearableDevice {
                 return ["ok": true]
             }
         case "band_get_log": return recentLog(args)
+        case "band_battery_history": return try batteryHistory(args)
         case "band_set_units": return try await setUnits(args)
         case "band_night_tracking":
             guard let on = args["on"] as? Bool else { throw DeviceError.badArgument("'on' is required") }
@@ -787,7 +795,7 @@ final class BandDevice: WearableDevice {
             throw DeviceError.badArgument("give managed_by, an interval, night_start or night_end")
         }
         if let control, control != scheduler.plan.control {
-            do { try await scheduler.setControl(control) } catch BandError.notConnected { throw DeviceError.notConnected }
+            do { try await scheduler.setControl(control, source: "jarvis") } catch BandError.notConnected { throw DeviceError.notConnected }
             guard scheduler.plan.control == control else { throw DeviceError.notConnected }
         }
         for (name, minutes) in intervals { scheduler.setInterval(minutes, named: name) }
@@ -801,6 +809,33 @@ final class BandDevice: WearableDevice {
     private func measureScheduler() throws -> BandMeasureScheduler {
         guard let scheduler = backend.scheduler else { throw DeviceError.notConnected }
         return scheduler
+    }
+
+    /// `band_battery_history`: the battery log's raw record for the last `days` days (default 7).
+    private func batteryHistory(_ args: [String: Any]) throws -> [String: Any] {
+        let days = args["days"] == nil ? 7 : (args["days"] as? Int) ?? 0
+        guard (1...30).contains(days) else { throw DeviceError.badArgument("'days' is 1 to 30") }
+        guard let log = backend.batteryLog else { throw DeviceError.notConnected }
+        let since = Date().addingTimeInterval(-Double(days) * 86_400)
+        var out: [String: Any] = [
+            "samples": log.samples.filter { $0.date >= since }.map {
+                ["at": iso($0.date), "percent": $0.percent, "charging": $0.charging] as [String: Any]
+            },
+            "spans": log.report().spans.filter { $0.end >= since }.map { span -> [String: Any] in
+                var s: [String: Any] = ["kind": span.kind.rawValue, "start": iso(span.start), "end": iso(span.end)]
+                if let detail = span.detail { s["detail"] = detail }
+                return s
+            },
+            "events": log.events.filter { $0.date >= since }.map { stamp -> [String: Any] in
+                var e: [String: Any] = ["kind": stamp.kind.rawValue, "at": iso(stamp.date)]
+                if let detail = stamp.detail { e["detail"] = detail }
+                return e
+            },
+        ]
+        if let scheduler = backend.scheduler { out["plan"] = planJSON(scheduler.plan) }
+        if let settings = session.settings { out["settings"] = settings.json }
+        out.merge(log.report().json) { a, _ in a }
+        return out
     }
 
     private func planJSON(_ plan: BandMeasurePlan) -> [String: Any] {

@@ -447,7 +447,8 @@ struct BandSettingsView: View {
                 }
                 alertsCard
                 alarmsCard
-                BandMonitorSettings(session: session, scheduler: manager.measureScheduler) { name, args in invoke(name, args) }
+                BandMonitorSettings(session: session, scheduler: manager.measureScheduler,
+                                    batteryLog: manager.battery) { name, args in invoke(name, args) }
                 remindersCard
                 unitsCard
                 syncCard
