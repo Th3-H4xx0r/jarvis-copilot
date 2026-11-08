@@ -65,3 +65,56 @@ def test_query_memory_reads_local_files(tmp_path, monkeypatch):
     monkeypatch.setattr(cms.os.path, "expanduser", lambda p: str(tmp_path) if p == "~" else p)
     out = cms._query_memory("alpha")
     assert "alpha fact" in out
+
+
+# ── one definition, shared with the desktop's jc-client mcp-serve ─────────────
+
+def _fake_fastmcp(monkeypatch):
+    """A stand-in for mcp.server.fastmcp that records the tools offered."""
+    import sys
+    import types
+
+    class FastMCP:
+        def __init__(self, name):
+            self.name, self.tools = name, {}
+
+        def tool(self):
+            def deco(fn):
+                self.tools[fn.__name__] = fn
+                return fn
+            return deco
+
+    pkg = types.ModuleType("mcp")
+    server = types.ModuleType("mcp.server")
+    fast = types.ModuleType("mcp.server.fastmcp")
+    fast.FastMCP = FastMCP
+    monkeypatch.setitem(sys.modules, "mcp", pkg)
+    monkeypatch.setitem(sys.modules, "mcp.server", server)
+    monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fast)
+
+
+def test_server_offers_the_shared_tool_definitions(monkeypatch, temp_store):
+    from agent.agent_engine_shim import load_code_assist_mcp
+    shared = load_code_assist_mcp()
+    _fake_fastmcp(monkeypatch)
+    server = cms.build_server()
+    assert server.name == "jarviscopilot-code-assist"
+    assert set(server.tools) == set(shared.REQUIRED_TOOLS)  # no ask / run_skill here
+    # the descriptions Claude reads are the shared ones
+    assert server.tools["store_code_knowledge"].__doc__.startswith("Store ONE durable coding fact")
+    assert "error" not in server.tools["store_code_knowledge"]("bug", "via the shared tool", "proj")
+    assert "via the shared tool" in cms._get_code_knowledge(
+        [code_memory.search("proj", "knowledge", query="shared")[0]["id"]])
+
+
+def test_server_and_desktop_compute_the_same_slug():
+    """Both load desktop_client/jc_client/code_memory_slug.py; if the rule forked,
+    desktop and server sessions would write to different project memories."""
+    from pathlib import Path
+    from agent.agent_engine_shim import load_code_memory_slug
+    shared = load_code_memory_slug()
+    jc_file = Path(__file__).resolve().parents[1] / "desktop_client" / "jc_client" / "code_memory_slug.py"
+    assert Path(shared.__file__).resolve() == jc_file
+    assert code_memory.project_slug is shared.project_slug
+    assert code_memory._sanitize is shared.sanitize
+    assert cms.code_memory_slug is shared

@@ -52,6 +52,16 @@ def load_hook_install():
     return _load_sibling("jarvis_hook_install", "hook_install.py")
 
 
+def load_code_memory_slug():
+    """jc-client's code-memory slug rule: which project memory a folder uses."""
+    return _load_sibling("jarvis_code_memory_slug", "code_memory_slug.py")
+
+
+def load_code_assist_mcp():
+    """jc-client's code-assist MCP tool definitions (build_server(backend))."""
+    return _load_sibling("jarvis_code_assist_mcp", "code_assist_mcp.py")
+
+
 def load_instruction_delivery():
     """jc-client's phone-message delivery: owns the Stop-hook PHONE_PREFIX."""
     return _load_sibling("jarvis_instruction_delivery", "instruction_delivery.py")

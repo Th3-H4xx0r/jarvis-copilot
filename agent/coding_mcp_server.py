@@ -1,11 +1,12 @@
 """Server-side ``jarviscopilot-code-assist`` MCP server (stdio).
 
 This is the SERVER-host counterpart to the desktop's ``jc-client mcp-serve``
-(``desktop_client/jc_client/mcp_server.py``). It exposes the SAME code-assist
-tools to a launched ``claude`` session, but instead of reaching hermes over the
-desktop's paired pinned connection it talks to the LOCAL code-memory store
-(``agent.code_memory``) directly — because a server-host session's claude is
-already running ON hermes.
+(``desktop_client/jc_client/mcp_server.py``). It offers the SAME code-assist
+tools — one definition, ``desktop_client/jc_client/code_assist_mcp.py``, loaded
+by path — to a launched ``claude`` session, but instead of reaching hermes over
+the desktop's paired pinned connection its implementations talk to the LOCAL
+code-memory store (``agent.code_memory``) directly — because a server-host
+session's claude is already running ON hermes.
 
 Why this exists
 ---------------
@@ -22,31 +23,24 @@ repo root so ``agent`` is importable).
 from __future__ import annotations
 
 import os
-import subprocess
 
 from agent import code_memory
+from agent.agent_engine_shim import load_code_assist_mcp, load_code_memory_slug
+
+code_memory_slug = load_code_memory_slug()
 
 
 # ── project-slug resolution (cwd-based, like the desktop client) ──────────────
 
 def _git_remote(root: str) -> str:
-    try:
-        out = subprocess.run(
-            ["git", "-C", root, "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=5)
-        if out.returncode == 0:
-            return (out.stdout or "").strip()
-    except Exception:
-        pass
-    return ""
+    return code_memory_slug.git_remote(root)
 
 
 def _current_slug(project: str = "") -> str:
     """Slug for the project: explicit ``project`` wins, else derive from cwd."""
     if project:
         return project
-    root = os.getcwd()
-    return code_memory.project_slug(root, _git_remote(root))
+    return code_memory_slug.current_slug()
 
 
 # ── tool implementations (plain functions, unit-testable) ─────────────────────
@@ -165,72 +159,24 @@ def _query_memory(query: str = "") -> str:
 
 # ── MCP server assembly ───────────────────────────────────────────────────────
 
+# The tool names, arguments and descriptions are jc-client's code_assist_mcp
+# (loaded by path), shared with the desktop's ``jc-client mcp-serve``. This host
+# has no ``ask`` / ``run_skill``, so those tools are not offered here.
+SERVER_BACKEND = {
+    "register_project": _register_project,
+    "store_code_knowledge": _store_code_knowledge,
+    "recall_code_knowledge": _recall_code_knowledge,
+    "get_code_knowledge": _get_code_knowledge,
+    "edit_code_memory": _edit_code_memory,
+    "delete_code_memory": _delete_code_memory,
+    "store_session_handoff": _store_session_handoff,
+    "recall_session_handoff": _recall_session_handoff,
+    "query_memory": _query_memory,
+}
+
+
 def build_server():
-    from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP("jarviscopilot-code-assist")
-
-    @mcp.tool()
-    def register_project(name: str, root: str = "", remote: str = "") -> dict:
-        """Register the current project with JarvisCopilot's code-memory (by git remote/dir slug)."""
-        return _register_project(name, root, remote)
-
-    @mcp.tool()
-    def store_code_knowledge(entry_type: str, content: str, project: str = "") -> dict:
-        """Store ONE durable coding fact for this project. entry_type: bug|fix|repo_structure|gotcha|decision|note.
-
-        Keep it SHORT — a 1-3 sentence declarative fact (~400 chars), one fact per call.
-        Store proactively when you fix a non-obvious bug, learn repo structure, hit a
-        gotcha, make a decision, or find an approach works/fails. Do NOT store run-specific
-        results, dated verdicts, PR/commit SHAs, or anything stale within a week — those go
-        in a session handoff, not knowledge. Returns a `warning` if the entry is too long."""
-        return _store_code_knowledge(entry_type, content, project)
-
-    @mcp.tool()
-    def recall_code_knowledge(project: str = "", query: str = "", limit: int = 20) -> str:
-        """Search this project's durable coding knowledge. Returns COMPACT ranked rows
-        (id + type + one-line summary), token-cheap. Pass `query` to rank by relevance.
-        Then call get_code_knowledge(ids=[...]) to read the full body of only the few you
-        need. Prefer this over dumping everything."""
-        return _recall_code_knowledge(project, query, limit)
-
-    @mcp.tool()
-    def get_code_knowledge(ids: list[str]) -> str:
-        """Fetch the FULL bodies of specific knowledge entries by their ids (from
-        recall_code_knowledge). Fetch only the ids you actually need."""
-        return _get_code_knowledge(ids)
-
-    @mcp.tool()
-    def edit_code_memory(id: str, content: str, entry_type: str = "") -> dict:
-        """Edit an existing entry IN PLACE by its id (ids come from
-        recall_code_knowledge / recall_session_handoff). Replaces its content — and
-        entry_type if given (knowledge: bug|fix|repo_structure|gotcha|decision|note) —
-        while preserving its timestamp. Prefer this over storing a near-duplicate when
-        correcting or shortening a fact."""
-        return _edit_code_memory(id, content, entry_type)
-
-    @mcp.tool()
-    def delete_code_memory(id: str) -> dict:
-        """Delete a single code-memory entry by its id (from recall_code_knowledge /
-        recall_session_handoff). Precise — removes only that entry. Use for stale,
-        wrong, or duplicate entries."""
-        return _delete_code_memory(id)
-
-    @mcp.tool()
-    def store_session_handoff(content: str, project: str = "") -> dict:
-        """Store a session handoff (what was done, current state, open threads)."""
-        return _store_session_handoff(content, project)
-
-    @mcp.tool()
-    def recall_session_handoff(project: str = "", limit: int = 3) -> str:
-        """Recall the latest session handoff(s) for this project."""
-        return _recall_session_handoff(project, limit)
-
-    @mcp.tool()
-    def query_memory(query: str = "") -> str:
-        """Read JarvisCopilot's general memory (MEMORY.md / USER.md)."""
-        return _query_memory(query)
-
-    return mcp
+    return load_code_assist_mcp().build_server(SERVER_BACKEND)
 
 
 def main() -> None:

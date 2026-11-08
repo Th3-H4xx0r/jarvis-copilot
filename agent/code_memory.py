@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent.agent_engine_shim import load_code_memory_slug
+
 KINDS = ("knowledge", "sessions")
 KNOWLEDGE_TYPES = ("bug", "fix", "repo_structure", "gotcha", "decision", "note")
 SESSION_SURFACES = ("claude", "jarviscopilot")
@@ -41,28 +43,12 @@ def _root(home: Any = None) -> Path:
     return _home(home) / "code_memory"
 
 
-def _sanitize(seg: str) -> str:
-    seg = seg.strip().lower()
-    # convert spaces to hyphens for readability
-    seg = seg.replace(" ", "-")
-    seg = re.sub(r"[^a-z0-9._-]+", "_", seg).strip("_.")
-    return seg
-
-
-def slugify_remote(remote: str) -> str:
-    r = remote.strip()
-    r = re.sub(r"^[a-z]+://", "", r, flags=re.I)      # strip scheme
-    r = re.sub(r"^[^@/]+@", "", r)                     # strip user@
-    r = r.replace(":", "/")                            # scp-style host:path -> host/path
-    r = re.sub(r"\.git$", "", r, flags=re.I)
-    parts = [p for p in r.split("/") if p]
-    return _sanitize("_".join(parts))
-
-
-def project_slug(root: str, remote: str | None) -> str:
-    if remote and slugify_remote(remote):
-        return slugify_remote(remote)
-    return _sanitize(Path(root).name) or "project"
+# The slug rule is jc-client's code_memory_slug.py, loaded by path: desktop and
+# server sessions must agree on it or they write to different project memories.
+_slug = load_code_memory_slug()
+_sanitize = _slug.sanitize
+slugify_remote = _slug.slugify_remote
+project_slug = _slug.project_slug
 
 
 def register_project(slug, name, root, remote, home: Any = None) -> dict:

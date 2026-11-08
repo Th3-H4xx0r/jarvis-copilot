@@ -2,43 +2,15 @@
 paired pinned connection. Shared by the MCP server and the `code-memory` CLI."""
 from __future__ import annotations
 
-import os
-import re
-import subprocess
 from urllib.parse import quote
 
 from jc_client import credentials
+from jc_client.code_memory_slug import current_slug, project_slug as slug_for  # noqa: F401
 from jc_client.protocol import HttpClient
 
 
 class NotPaired(RuntimeError):
     pass
-
-
-def _slugify(seg: str) -> str:
-    s = seg.strip().lower().replace(" ", "-")
-    return re.sub(r"[^a-z0-9._-]+", "_", s).strip("_.")
-
-
-def slug_for(root: str, remote: str | None) -> str:
-    if remote:
-        r = re.sub(r"^[a-z]+://", "", remote.strip(), flags=re.I)
-        r = re.sub(r"^[^@/]+@", "", r).replace(":", "/")
-        r = re.sub(r"\.git$", "", r, flags=re.I)
-        slug = _slugify("_".join(p for p in r.split("/") if p))
-        if slug:
-            return slug
-    return _slugify(os.path.basename(os.path.normpath(root))) or "project"
-
-
-def current_slug(root: str | None = None) -> str:
-    root = root or os.getcwd()
-    try:
-        remote = subprocess.run(["git", "-C", root, "remote", "get-url", "origin"],
-                                capture_output=True, text=True, timeout=5).stdout.strip() or None
-    except Exception:
-        remote = None
-    return slug_for(root, remote)
 
 
 def _http() -> HttpClient:
