@@ -138,6 +138,40 @@ def _try_keyring_set_user(user: str, value: str) -> bool:
         return False
 
 
+def _parse_config(raw: str):
+    """The config text parsed, or None when it is neither JSON nor YAML.
+
+    We write JSON despite the .yaml name (simpler stdlib; valid YAML). A
+    hand-edited YAML file still parses (PyYAML is an optional dep)."""
+    try:
+        return json.loads(raw)
+    except Exception:
+        try:
+            import yaml  # optional dep; only needed for hand-edited files
+            return yaml.safe_load(raw) or {}
+        except Exception:
+            return None
+
+
+MISSING = object()  # config_value default that tells "absent" from null
+
+
+def config_value(key: str, default=None):
+    """One key of the config file, or ``default`` when the file is missing,
+    unreadable, not a mapping, or has no such key. Never raises.
+
+    For the hand-set, non-credential flags (``playwright_extension``,
+    ``browser_relay_mcp``, ``playwright_extension_token``): this module owns
+    the file, so every reader goes through here."""
+    try:
+        data = _parse_config(_CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+    if not isinstance(data, dict):
+        return default
+    return data.get(key, default)
+
+
 def load() -> Credentials:
     """Read config from disk. Returns an empty Credentials if no file
     exists yet — caller checks ``.paired``."""
@@ -145,21 +179,14 @@ def load() -> Credentials:
         return Credentials()
     try:
         raw = _CONFIG_FILE.read_text(encoding="utf-8")
-        # We use JSON despite the .yaml name (simpler stdlib; valid YAML).
-        # If a user hand-edited it as YAML, we fall through with a warning.
-        try:
-            data = json.loads(raw)
-        except Exception:
-            try:
-                import yaml  # optional dep; only needed for hand-edited files
-                data = yaml.safe_load(raw) or {}
-            except Exception:
-                log.warning("Could not parse %s — starting fresh", _CONFIG_FILE)
-                return Credentials()
-        if not isinstance(data, dict):
-            return Credentials()
     except OSError as exc:
         log.warning("Could not read %s: %s", _CONFIG_FILE, exc)
+        return Credentials()
+    data = _parse_config(raw)
+    if data is None:
+        log.warning("Could not parse %s — starting fresh", _CONFIG_FILE)
+        return Credentials()
+    if not isinstance(data, dict):
         return Credentials()
 
     # Pull secrets from keyring first; the in-file copy is a fallback.

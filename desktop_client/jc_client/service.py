@@ -701,11 +701,12 @@ class Service:
         self._relay = None
         if _relay_mcp_enabled():
             try:
+                from jc_client.browser_mcp import _config_extension_token
                 from jc_client.mcp_relay import McpRelayManager, find_npx
                 self._relay = McpRelayManager(
                     send=ws.send_text,
                     extension=_playwright_extension_enabled(),
-                    extension_token=_playwright_extension_token(),
+                    extension_token=_config_extension_token(),
                 )
                 if find_npx():
                     ws.send_text(json.dumps(
@@ -1105,14 +1106,9 @@ def _playwright_extension_enabled() -> bool:
     otherwise auto-enable when the extension is actually installed (its token is
     readable from Chrome) — so the user just installs the extension and the rest
     is automatic, no flag or token to set."""
-    try:
-        import yaml
-        from jc_client.logger import state_dir
-        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
-        if "playwright_extension" in raw:
-            return bool(raw.get("playwright_extension"))
-    except Exception:
-        pass
+    explicit = credentials.config_value("playwright_extension", credentials.MISSING)
+    if explicit is not credentials.MISSING:
+        return bool(explicit)
     try:
         from jc_client.mcp_relay import read_extension_token_from_chrome
         return read_extension_token_from_chrome() is not None
@@ -1124,27 +1120,7 @@ def _relay_mcp_enabled() -> bool:
     """Whether to announce the MCP-over-bridge relay (A1). Default False — A2
     (chrome_* device skills) is the supported path. Opt back in with
     ``browser_relay_mcp: true`` in ~/.jarviscopilot-client/config.yaml."""
-    try:
-        import yaml
-        from jc_client.logger import state_dir
-        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
-        return bool(raw.get("browser_relay_mcp"))
-    except Exception:
-        return False
-
-
-def _playwright_extension_token() -> Optional[str]:
-    """The Playwright Extension's connection token (from its status page), used
-    to auto-connect the --extension server without the interactive dialog. Read
-    from ~/.jarviscopilot-client/config.yaml `playwright_extension_token`."""
-    try:
-        import yaml
-        from jc_client.logger import state_dir
-        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
-        tok = raw.get("playwright_extension_token")
-        return str(tok) if tok else None
-    except Exception:
-        return None
+    return bool(credentials.config_value("browser_relay_mcp"))
 
 
 def _platform_summary() -> dict:

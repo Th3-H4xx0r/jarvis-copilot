@@ -80,16 +80,14 @@ def _truncate_snapshot(text: str, max_chars: Optional[int] = None) -> str:
 
 
 def _config_extension_token() -> Optional[str]:
-    """Configured Playwright extension token — stable fallback when the live
-    read from Chrome's leveldb fails (it gets compacted into .ldb)."""
-    try:
-        import yaml
-        from jc_client.logger import state_dir
-        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
-        tok = raw.get("playwright_extension_token")
-        return str(tok) if tok else None
-    except Exception:
-        return None
+    """The Playwright Extension's connection token (from its status page), set
+    as ``playwright_extension_token`` in ~/.jarviscopilot-client/config.yaml.
+    Auto-connects the --extension server without the interactive dialog, and
+    is the stable fallback when the live read from Chrome's leveldb fails (it
+    gets compacted into .ldb)."""
+    from jc_client import credentials
+    tok = credentials.config_value("playwright_extension_token")
+    return str(tok) if tok else None
 
 
 class _BrowserMcp:
