@@ -971,32 +971,11 @@ def _normalize_codex_response(response: Any) -> tuple[Any, str]:
                             raw_summary.append({"type": "summary_text", "text": text})
                     raw_item["summary"] = raw_summary
                 reasoning_items_raw.append(raw_item)
-        elif item_type == "function_call":
-            if item_status in {"queued", "in_progress", "incomplete"}:
+        elif item_type in {"function_call", "custom_tool_call"}:
+            if item_type == "function_call" and item_status in {"queued", "in_progress", "incomplete"}:
                 continue
             fn_name = getattr(item, "name", "") or ""
-            arguments = getattr(item, "arguments", "{}")
-            if not isinstance(arguments, str):
-                arguments = json.dumps(arguments, ensure_ascii=False)
-            raw_call_id = getattr(item, "call_id", None)
-            raw_item_id = getattr(item, "id", None)
-            embedded_call_id, _ = _split_responses_tool_id(raw_item_id)
-            call_id = raw_call_id if isinstance(raw_call_id, str) and raw_call_id.strip() else embedded_call_id
-            if not isinstance(call_id, str) or not call_id.strip():
-                call_id = _deterministic_call_id(fn_name, arguments, len(tool_calls))
-            call_id = call_id.strip()
-            response_item_id = raw_item_id if isinstance(raw_item_id, str) else None
-            response_item_id = _derive_responses_function_call_id(call_id, response_item_id)
-            tool_calls.append(SimpleNamespace(
-                id=call_id,
-                call_id=call_id,
-                response_item_id=response_item_id,
-                type="function",
-                function=SimpleNamespace(name=fn_name, arguments=arguments),
-            ))
-        elif item_type == "custom_tool_call":
-            fn_name = getattr(item, "name", "") or ""
-            arguments = getattr(item, "input", "{}")
+            arguments = getattr(item, "arguments" if item_type == "function_call" else "input", "{}")
             if not isinstance(arguments, str):
                 arguments = json.dumps(arguments, ensure_ascii=False)
             raw_call_id = getattr(item, "call_id", None)
