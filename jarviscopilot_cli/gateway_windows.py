@@ -686,6 +686,39 @@ def _install_startup_fallback(script_path: Path, start_now: bool, detail: str) -
     _print_next_steps()
 
 
+def _start_unless_running() -> None:
+    running_pids = _gateway_pids()
+    if running_pids:
+        print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
+    else:
+        pid = _spawn_detached()
+        _report_gateway_start(f"direct spawn (PID {pid})")
+
+
+def _offer_elevated_install(why: str, *, force: bool, start_now: bool, start_on_login: bool) -> bool:
+    """Offer a UAC prompt to install the Scheduled Task elevated.
+
+    True when the elevated install was launched (the caller is done);
+    False means the caller should fall back to the Startup folder.
+    """
+    from jarviscopilot_cli.setup import prompt_yes_no
+
+    print(f"↻ Scheduled Task install {why}")
+    print("  UAC is Windows' admin approval prompt; it is needed to create/update the Scheduled Task.")
+    if not prompt_yes_no("  Open the UAC prompt now?", False):
+        print("  Skipped elevation. Falling back to Startup folder.")
+        return False
+    if _launch_elevated_install(force=force, start_now=start_now, start_on_login=start_on_login):
+        print("✓ Launched elevated JarvisCopilot gateway install prompt.")
+        if start_now:
+            print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
+        else:
+            print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+        return True
+    print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
+    return False
+
+
 def install(
     force: bool = False,
     *,
@@ -705,12 +738,7 @@ def install(
     if not start_on_login:
         print("ℹ Skipped Windows login auto-start install.")
         if start_now:
-            running_pids = _gateway_pids()
-            if running_pids:
-                print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
-            else:
-                pid = _spawn_detached()
-                _report_gateway_start(f"direct spawn (PID {pid})")
+            _start_unless_running()
         else:
             print("ℹ Gateway not started and no auto-start service installed.")
             print("  Run later with: hermes gateway start")
@@ -724,21 +752,11 @@ def install(
     # Access Denied. We already collected all intent questions above, so avoid
     # a mysterious post-question pause: ask for UAC before touching schtasks.
     if not _is_running_as_admin() and not elevated_handoff:
-        from jarviscopilot_cli.setup import prompt_yes_no
-
-        print("↻ Scheduled Task install may need administrator approval on this Windows account.")
-        print("  UAC is Windows' admin approval prompt; it is needed to create/update the Scheduled Task.")
-        if prompt_yes_no("  Open the UAC prompt now?", False):
-            if _launch_elevated_install(force=force, start_now=start_now, start_on_login=start_on_login):
-                print("✓ Launched elevated JarvisCopilot gateway install prompt.")
-                if start_now:
-                    print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
-                else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
-                return
-            print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
-        else:
-            print("  Skipped elevation. Falling back to Startup folder.")
+        if _offer_elevated_install(
+            "may need administrator approval on this Windows account",
+            force=force, start_now=start_now, start_on_login=start_on_login,
+        ):
+            return
         _install_startup_fallback(script_path, start_now, "administrator approval was not used")
         return
 
@@ -748,12 +766,7 @@ def install(
         print(f"  Task script: {script_path}")
         print("ℹ Gateway auto-start installed for Windows login.")
         if start_now:
-            running_pids = _gateway_pids()
-            if running_pids:
-                print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
-            else:
-                pid = _spawn_detached()
-                _report_gateway_start(f"direct spawn (PID {pid})")
+            _start_unless_running()
         else:
             print("ℹ Gateway not started now.")
             print("  Start manually with: hermes gateway start")
@@ -765,21 +778,11 @@ def install(
     # users a UAC prompt instead of silently installing a less reliable login
     # item, and keeps the fallback for locked-down boxes / cancelled prompts.
     if _is_access_denied(detail) and not _is_running_as_admin():
-        from jarviscopilot_cli.setup import prompt_yes_no
-
-        print(f"↻ Scheduled Task install needs administrator approval ({detail.splitlines()[0]})")
-        print("  UAC is Windows' admin approval prompt; it is needed to create/update the Scheduled Task.")
-        if prompt_yes_no("  Open the UAC prompt now?", False):
-            if _launch_elevated_install(force=force, start_now=start_now, start_on_login=start_on_login):
-                print("✓ Launched elevated JarvisCopilot gateway install prompt.")
-                if start_now:
-                    print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
-                else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
-                return
-            print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
-        else:
-            print("  Skipped elevation. Falling back to Startup folder.")
+        if _offer_elevated_install(
+            f"needs administrator approval ({detail.splitlines()[0]})",
+            force=force, start_now=start_now, start_on_login=start_on_login,
+        ):
+            return
 
     # schtasks create didn't work. See if it's a "fall back to startup" case.
     if _should_fall_back(1, detail):
