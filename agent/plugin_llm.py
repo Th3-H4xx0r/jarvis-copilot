@@ -595,6 +595,58 @@ def _resolve_attribution(
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _PlannedCall:
+    """One trust-checked request, and how to turn its response into a result."""
+
+    plugin_id: str
+    request: Dict[str, Any]  # kwargs for PluginLlm._invoke_sync / _invoke_async
+    agent_id: str
+    profile: str
+    structured: Optional[Dict[str, Any]] = None  # json_mode / json_schema / schema_name
+
+    def result(self, invoked: tuple, purpose: Optional[str]):
+        real_provider, real_model, response = invoked
+        text = _extract_text(response)
+        usage = _extract_usage(response)
+        common = dict(
+            text=text,
+            provider=real_provider,
+            model=real_model,
+            agent_id=self.agent_id,
+            usage=usage,
+        )
+        audit = {
+            "plugin_id": self.plugin_id,
+            "purpose": purpose or "",
+            "profile": self.profile,
+        }
+        if self.structured is None:
+            logger.info(
+                "plugin_llm.complete plugin=%s provider=%s model=%s purpose=%s "
+                "tokens=%d",
+                self.plugin_id, real_provider, real_model, purpose or "",
+                usage.total_tokens,
+            )
+            return PluginLlmCompleteResult(**common, audit=audit)
+
+        parsed, content_type = _parse_structured_text(
+            text=text,
+            json_mode=self.structured["json_mode"],
+            json_schema=self.structured["json_schema"],
+        )
+        audit["schema_name"] = self.structured["schema_name"] or ""
+        logger.info(
+            "plugin_llm.complete_structured plugin=%s provider=%s model=%s "
+            "purpose=%s content_type=%s tokens=%d",
+            self.plugin_id, real_provider, real_model, purpose or "",
+            content_type, usage.total_tokens,
+        )
+        return PluginLlmStructuredResult(
+            **common, parsed=parsed, content_type=content_type, audit=audit,
+        )
+
+
 class PluginLlm:
     """Host-owned LLM access for one trusted plugin.
 
@@ -641,44 +693,12 @@ class PluginLlm:
         ``plugins.entries.<id>.llm.allow_*_override`` (see module
         docstring).
         """
-        policy = self._policy_loader(self._plugin_id)
-        eff_provider, eff_model, eff_agent, eff_profile = _check_overrides(
-            policy,
-            requested_provider=provider,
-            requested_model=model,
-            requested_agent_id=agent_id,
-            requested_profile=profile,
-        )
-        real_provider, real_model, response = self._invoke_sync(
-            messages=messages,
-            provider_override=eff_provider,
-            model_override=eff_model,
-            profile_override=eff_profile,
-            temperature=temperature,
-            max_tokens=max_tokens,
+        call = self._plan(
+            messages, provider=provider, model=model, agent_id=agent_id,
+            profile=profile, temperature=temperature, max_tokens=max_tokens,
             timeout=timeout,
         )
-        text = _extract_text(response)
-        usage = _extract_usage(response)
-        result = PluginLlmCompleteResult(
-            text=text,
-            provider=real_provider,
-            model=real_model,
-            agent_id=eff_agent or "default",
-            usage=usage,
-            audit={
-                "plugin_id": self._plugin_id,
-                "purpose": purpose or "",
-                "profile": eff_profile or "",
-            },
-        )
-        logger.info(
-            "plugin_llm.complete plugin=%s provider=%s model=%s purpose=%s "
-            "tokens=%d",
-            self._plugin_id, real_provider, real_model, purpose or "",
-            usage.total_tokens,
-        )
-        return result
+        return call.result(self._invoke_sync(**call.request), purpose)
 
     def complete_structured(
         self,
@@ -710,67 +730,15 @@ class PluginLlm:
         isn't installed, JSON mode still works but schema enforcement is
         skipped with a debug log.
         """
-        if not instructions or not instructions.strip():
-            raise ValueError("complete_structured requires non-empty instructions")
-        if not input:
-            raise ValueError("complete_structured requires at least one input block")
-
-        policy = self._policy_loader(self._plugin_id)
-        eff_provider, eff_model, eff_agent, eff_profile = _check_overrides(
-            policy,
-            requested_provider=provider,
-            requested_model=model,
-            requested_agent_id=agent_id,
-            requested_profile=profile,
+        call = self._plan_structured(
+            "complete_structured",
+            instructions=instructions, input=input, json_schema=json_schema,
+            json_mode=json_mode, schema_name=schema_name,
+            system_prompt=system_prompt, provider=provider, model=model,
+            agent_id=agent_id, profile=profile, temperature=temperature,
+            max_tokens=max_tokens, timeout=timeout,
         )
-
-        messages = _build_structured_messages(
-            instructions=instructions,
-            inputs=list(input),
-            json_mode=json_mode,
-            json_schema=json_schema,
-            schema_name=schema_name,
-            system_prompt=system_prompt,
-        )
-        extra_body = self._json_response_format(json_mode=json_mode, json_schema=json_schema)
-
-        real_provider, real_model, response = self._invoke_sync(
-            messages=messages,
-            provider_override=eff_provider,
-            model_override=eff_model,
-            profile_override=eff_profile,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            extra_body=extra_body,
-        )
-        text = _extract_text(response)
-        usage = _extract_usage(response)
-        parsed, content_type = _parse_structured_text(
-            text=text, json_mode=json_mode, json_schema=json_schema
-        )
-        result = PluginLlmStructuredResult(
-            text=text,
-            provider=real_provider,
-            model=real_model,
-            agent_id=eff_agent or "default",
-            usage=usage,
-            parsed=parsed,
-            content_type=content_type,
-            audit={
-                "plugin_id": self._plugin_id,
-                "purpose": purpose or "",
-                "profile": eff_profile or "",
-                "schema_name": schema_name or "",
-            },
-        )
-        logger.info(
-            "plugin_llm.complete_structured plugin=%s provider=%s model=%s "
-            "purpose=%s content_type=%s tokens=%d",
-            self._plugin_id, real_provider, real_model, purpose or "",
-            content_type, usage.total_tokens,
-        )
-        return result
+        return call.result(self._invoke_sync(**call.request), purpose)
 
     # -- public async API ---------------------------------------------------
 
@@ -788,37 +756,12 @@ class PluginLlm:
         purpose: Optional[str] = None,
     ) -> PluginLlmCompleteResult:
         """Async sibling of :meth:`complete`."""
-        policy = self._policy_loader(self._plugin_id)
-        eff_provider, eff_model, eff_agent, eff_profile = _check_overrides(
-            policy,
-            requested_provider=provider,
-            requested_model=model,
-            requested_agent_id=agent_id,
-            requested_profile=profile,
-        )
-        real_provider, real_model, response = await self._invoke_async(
-            messages=messages,
-            provider_override=eff_provider,
-            model_override=eff_model,
-            profile_override=eff_profile,
-            temperature=temperature,
-            max_tokens=max_tokens,
+        call = self._plan(
+            messages, provider=provider, model=model, agent_id=agent_id,
+            profile=profile, temperature=temperature, max_tokens=max_tokens,
             timeout=timeout,
         )
-        text = _extract_text(response)
-        usage = _extract_usage(response)
-        return PluginLlmCompleteResult(
-            text=text,
-            provider=real_provider,
-            model=real_model,
-            agent_id=eff_agent or "default",
-            usage=usage,
-            audit={
-                "plugin_id": self._plugin_id,
-                "purpose": purpose or "",
-                "profile": eff_profile or "",
-            },
-        )
+        return call.result(await self._invoke_async(**call.request), purpose)
 
     async def acomplete_structured(
         self,
@@ -839,11 +782,31 @@ class PluginLlm:
         purpose: Optional[str] = None,
     ) -> PluginLlmStructuredResult:
         """Async sibling of :meth:`complete_structured`."""
-        if not instructions or not instructions.strip():
-            raise ValueError("acomplete_structured requires non-empty instructions")
-        if not input:
-            raise ValueError("acomplete_structured requires at least one input block")
+        call = self._plan_structured(
+            "acomplete_structured",
+            instructions=instructions, input=input, json_schema=json_schema,
+            json_mode=json_mode, schema_name=schema_name,
+            system_prompt=system_prompt, provider=provider, model=model,
+            agent_id=agent_id, profile=profile, temperature=temperature,
+            max_tokens=max_tokens, timeout=timeout,
+        )
+        return call.result(await self._invoke_async(**call.request), purpose)
 
+    # -- internals ---------------------------------------------------------
+
+    def _plan(
+        self,
+        messages: Optional[List[Dict[str, Any]]],
+        *,
+        provider: Optional[str],
+        model: Optional[str],
+        agent_id: Optional[str],
+        profile: Optional[str],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        timeout: Optional[float],
+    ) -> _PlannedCall:
+        """Apply the trust gate and lay out the request for the caller."""
         policy = self._policy_loader(self._plugin_id)
         eff_provider, eff_model, eff_agent, eff_profile = _check_overrides(
             policy,
@@ -852,7 +815,41 @@ class PluginLlm:
             requested_agent_id=agent_id,
             requested_profile=profile,
         )
-        messages = _build_structured_messages(
+        return _PlannedCall(
+            plugin_id=self._plugin_id,
+            request=dict(
+                messages=messages,
+                provider_override=eff_provider,
+                model_override=eff_model,
+                profile_override=eff_profile,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                extra_body=None,
+            ),
+            agent_id=eff_agent or "default",
+            profile=eff_profile or "",
+        )
+
+    def _plan_structured(
+        self,
+        method: str,
+        *,
+        instructions: str,
+        input: Sequence[PluginLlmInput],
+        json_schema: Optional[Any],
+        json_mode: bool,
+        schema_name: Optional[str],
+        system_prompt: Optional[str],
+        **call: Any,
+    ) -> _PlannedCall:
+        if not instructions or not instructions.strip():
+            raise ValueError(f"{method} requires non-empty instructions")
+        if not input:
+            raise ValueError(f"{method} requires at least one input block")
+
+        planned = self._plan(None, **call)
+        planned.request["messages"] = _build_structured_messages(
             instructions=instructions,
             inputs=list(input),
             json_mode=json_mode,
@@ -860,39 +857,15 @@ class PluginLlm:
             schema_name=schema_name,
             system_prompt=system_prompt,
         )
-        extra_body = self._json_response_format(json_mode=json_mode, json_schema=json_schema)
-        real_provider, real_model, response = await self._invoke_async(
-            messages=messages,
-            provider_override=eff_provider,
-            model_override=eff_model,
-            profile_override=eff_profile,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            extra_body=extra_body,
+        planned.request["extra_body"] = self._json_response_format(
+            json_mode=json_mode, json_schema=json_schema,
         )
-        text = _extract_text(response)
-        usage = _extract_usage(response)
-        parsed, content_type = _parse_structured_text(
-            text=text, json_mode=json_mode, json_schema=json_schema
-        )
-        return PluginLlmStructuredResult(
-            text=text,
-            provider=real_provider,
-            model=real_model,
-            agent_id=eff_agent or "default",
-            usage=usage,
-            parsed=parsed,
-            content_type=content_type,
-            audit={
-                "plugin_id": self._plugin_id,
-                "purpose": purpose or "",
-                "profile": eff_profile or "",
-                "schema_name": schema_name or "",
-            },
-        )
-
-    # -- internals ---------------------------------------------------------
+        planned.structured = {
+            "json_mode": json_mode,
+            "json_schema": json_schema,
+            "schema_name": schema_name,
+        }
+        return planned
 
     @staticmethod
     def _json_response_format(
@@ -916,96 +889,56 @@ class PluginLlm:
             return {"response_format": {"type": "json_object"}}
         return None
 
-    def _invoke_sync(
-        self,
-        *,
-        messages: List[Dict[str, Any]],
-        provider_override: Optional[str],
-        model_override: Optional[str],
-        profile_override: Optional[str],
-        temperature: Optional[float],
-        max_tokens: Optional[int],
-        timeout: Optional[float],
-        extra_body: Optional[Dict[str, Any]] = None,
-    ) -> tuple[str, str, Any]:
-        """Invoke the host's ``call_llm``. Lazy-imports
-        ``agent.auxiliary_client`` to avoid circular deps at plugin
-        discovery time."""
+    def _invoke_sync(self, **request: Any) -> tuple[str, str, Any]:
+        """Invoke the host's ``call_llm`` (or the injected caller)."""
         if self._sync_caller is not None:
-            return self._sync_caller(
-                messages=messages,
-                provider_override=provider_override,
-                model_override=model_override,
-                profile_override=profile_override,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
-                extra_body=extra_body,
-            )
+            return self._sync_caller(**request)
+        # Lazy import: avoids circular deps at plugin discovery time.
         from agent.auxiliary_client import call_llm
-        merged_extra = dict(extra_body or {})
-        if profile_override:
-            merged_extra.setdefault("metadata", {})["auth_profile"] = profile_override
-        response = call_llm(
-            task=None,
-            provider=provider_override,
-            model=model_override,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            extra_body=merged_extra or None,
-        )
-        provider, model = _resolve_attribution(
-            provider_override=provider_override,
-            model_override=model_override,
-            response=response,
-        )
-        return provider, model, response
+        return _attributed(request, call_llm(**_host_call_kwargs(**request)))
 
-    async def _invoke_async(
-        self,
-        *,
-        messages: List[Dict[str, Any]],
-        provider_override: Optional[str],
-        model_override: Optional[str],
-        profile_override: Optional[str],
-        temperature: Optional[float],
-        max_tokens: Optional[int],
-        timeout: Optional[float],
-        extra_body: Optional[Dict[str, Any]] = None,
-    ) -> tuple[str, str, Any]:
+    async def _invoke_async(self, **request: Any) -> tuple[str, str, Any]:
+        """Invoke the host's ``async_call_llm`` (or the injected caller)."""
         if self._async_caller is not None:
-            return await self._async_caller(
-                messages=messages,
-                provider_override=provider_override,
-                model_override=model_override,
-                profile_override=profile_override,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
-                extra_body=extra_body,
-            )
+            return await self._async_caller(**request)
         from agent.auxiliary_client import async_call_llm
-        merged_extra = dict(extra_body or {})
-        if profile_override:
-            merged_extra.setdefault("metadata", {})["auth_profile"] = profile_override
-        response = await async_call_llm(
-            task=None,
-            provider=provider_override,
-            model=model_override,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            extra_body=merged_extra or None,
-        )
-        provider, model = _resolve_attribution(
-            provider_override=provider_override,
-            model_override=model_override,
-            response=response,
-        )
-        return provider, model, response
+        return _attributed(request, await async_call_llm(**_host_call_kwargs(**request)))
+
+
+def _host_call_kwargs(
+    *,
+    messages: List[Dict[str, Any]],
+    provider_override: Optional[str],
+    model_override: Optional[str],
+    profile_override: Optional[str],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    timeout: Optional[float],
+    extra_body: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Map a planned request onto ``call_llm`` / ``async_call_llm`` kwargs."""
+    merged_extra = dict(extra_body or {})
+    if profile_override:
+        merged_extra.setdefault("metadata", {})["auth_profile"] = profile_override
+    return dict(
+        task=None,
+        provider=provider_override,
+        model=model_override,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        extra_body=merged_extra or None,
+    )
+
+
+def _attributed(request: Dict[str, Any], response: Any) -> tuple[str, str, Any]:
+    provider, model = _resolve_attribution(
+        provider_override=request["provider_override"],
+        model_override=request["model_override"],
+        response=response,
+    )
+    return provider, model, response
 
 
 # ---------------------------------------------------------------------------
