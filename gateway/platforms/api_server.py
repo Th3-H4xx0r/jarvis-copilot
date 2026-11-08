@@ -628,6 +628,23 @@ except ImportError:
     _cron_trigger = None
 
 
+async def _stop_agent_for_disconnect(agent_ref, agent_task) -> None:
+    """The SSE client went away: interrupt the agent so it stops making LLM
+    calls at its next loop iteration, then cancel the task wrapping it."""
+    agent = agent_ref[0] if agent_ref else None
+    if agent is not None:
+        try:
+            agent.interrupt("SSE client disconnected")
+        except Exception:
+            logger.debug("agent.interrupt failed after SSE disconnect", exc_info=True)
+    if not agent_task.done():
+        agent_task.cancel()
+        try:
+            await agent_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 class APIServerAdapter(BasePlatformAdapter):
     """
     OpenAI-compatible HTTP API server adapter.
@@ -1341,6 +1358,29 @@ class APIServerAdapter(BasePlatformAdapter):
 
         return web.json_response(response_data, headers=response_headers)
 
+    async def _start_sse(
+        self, request: "web.Request", session_id: str = None, gateway_session_key: str = None,
+    ) -> "web.StreamResponse":
+        """Open a text/event-stream response.  CORS middleware can't inject
+        headers into a StreamResponse after prepare() flushes them, so the
+        CORS headers are resolved here up front."""
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+        origin = request.headers.get("Origin", "")
+        cors = self._cors_headers_for_origin(origin) if origin else None
+        if cors:
+            headers.update(cors)
+        if session_id:
+            headers["X-Hermes-Session-Id"] = session_id
+        if gateway_session_key:
+            headers["X-Hermes-Session-Key"] = gateway_session_key
+        response = web.StreamResponse(status=200, headers=headers)
+        await response.prepare(request)
+        return response
+
     async def _write_sse_chat_completion(
         self, request: "web.Request", completion_id: str, model: str,
         created: int, stream_q, agent_task, agent_ref=None, session_id: str = None,
@@ -1354,23 +1394,7 @@ class APIServerAdapter(BasePlatformAdapter):
         """
         import queue as _q
 
-        sse_headers = {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-        # CORS middleware can't inject headers into StreamResponse after
-        # prepare() flushes them, so resolve CORS headers up front.
-        origin = request.headers.get("Origin", "")
-        cors = self._cors_headers_for_origin(origin) if origin else None
-        if cors:
-            sse_headers.update(cors)
-        if session_id:
-            sse_headers["X-Hermes-Session-Id"] = session_id
-        if gateway_session_key:
-            sse_headers["X-Hermes-Session-Key"] = gateway_session_key
-        response = web.StreamResponse(status=200, headers=sse_headers)
-        await response.prepare(request)
+        response = await self._start_sse(request, session_id, gateway_session_key)
 
         try:
             last_activity = time.monotonic()
@@ -1439,7 +1463,7 @@ class APIServerAdapter(BasePlatformAdapter):
             # Get usage from completed agent
             usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
             try:
-                result, agent_usage = await agent_task
+                _, agent_usage = await agent_task
                 usage = agent_usage or usage
             except Exception as exc:
                 logger.warning("Agent task %s failed, usage data lost: %s", completion_id, exc)
@@ -1458,21 +1482,7 @@ class APIServerAdapter(BasePlatformAdapter):
             await response.write(f"data: {json.dumps(finish_chunk)}\n\n".encode())
             await response.write(b"data: [DONE]\n\n")
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
-            # Client disconnected mid-stream.  Interrupt the agent so it
-            # stops making LLM API calls at the next loop iteration, then
-            # cancel the asyncio task wrapper.
-            agent = agent_ref[0] if agent_ref else None
-            if agent is not None:
-                try:
-                    agent.interrupt("SSE client disconnected")
-                except Exception:
-                    pass
-            if not agent_task.done():
-                agent_task.cancel()
-                try:
-                    await agent_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+            await _stop_agent_for_disconnect(agent_ref, agent_task)
             logger.info("SSE client disconnected; interrupted agent task %s", completion_id)
         except Exception as _exc:
             # Agent crashed mid-stream.  Try to emit an error chunk
@@ -1540,21 +1550,7 @@ class APIServerAdapter(BasePlatformAdapter):
         """
         import queue as _q
 
-        sse_headers = {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-        origin = request.headers.get("Origin", "")
-        cors = self._cors_headers_for_origin(origin) if origin else None
-        if cors:
-            sse_headers.update(cors)
-        if session_id:
-            sse_headers["X-Hermes-Session-Id"] = session_id
-        if gateway_session_key:
-            sse_headers["X-Hermes-Session-Key"] = gateway_session_key
-        response = web.StreamResponse(status=200, headers=sse_headers)
-        await response.prepare(request)
+        response = await self._start_sse(request, session_id, gateway_session_key)
 
         # State accumulated during the stream
         final_text_parts: List[str] = []
@@ -2031,20 +2027,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
             _persist_incomplete_if_needed()
-            # Client disconnected — interrupt the agent so it stops
-            # making upstream LLM calls, then cancel the task.
-            agent = agent_ref[0] if agent_ref else None
-            if agent is not None:
-                try:
-                    agent.interrupt("SSE client disconnected")
-                except Exception:
-                    pass
-            if not agent_task.done():
-                agent_task.cancel()
-                try:
-                    await agent_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+            await _stop_agent_for_disconnect(agent_ref, agent_task)
             logger.info("SSE client disconnected; interrupted agent task %s", response_id)
         except asyncio.CancelledError:
             # Server-side cancellation (e.g. shutdown, request timeout) —
@@ -2214,15 +2197,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 if delta is not None:
                     _stream_q.put(delta)
 
-            def _on_tool_progress(event_type, name, preview, args, **kwargs):
-                """Queue non-start tool progress events if needed in future.
-
-                The structured Responses stream uses ``tool_start_callback``
-                and ``tool_complete_callback`` for exact call-id correlation,
-                so progress events are currently ignored here.
-                """
-                return
-
             def _on_tool_start(tool_call_id, function_name, function_args):
                 """Queue a started tool for live function_call streaming."""
                 _stream_q.put(("__tool_started__", {
@@ -2247,7 +2221,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 ephemeral_system_prompt=instructions,
                 session_id=session_id,
                 stream_delta_callback=_on_delta,
-                tool_progress_callback=_on_tool_progress,
                 tool_start_callback=_on_tool_start,
                 tool_complete_callback=_on_tool_complete,
                 agent_ref=agent_ref,
@@ -3188,15 +3161,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         q = self._run_streams[run_id]
 
-        response = web.StreamResponse(
-            status=200,
-            headers={
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
-        await response.prepare(request)
+        response = await self._start_sse(request)
 
         try:
             while True:
