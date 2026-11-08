@@ -1346,6 +1346,9 @@ class BasePlatformAdapter(ABC):
             "HERMES_GATEWAY_BUSY_TEXT_HARD_CAP_SECONDS", 1.0
         )
         self._text_debounce: dict[str, TextDebounceState] = {}
+        # Client-split text batching (see _enqueue_text_event).
+        self._pending_text_batches: Dict[str, MessageEvent] = {}
+        self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
         # Background message-processing tasks spawned by handle_message().
         # Gateway shutdown cancels these so an old gateway instance doesn't keep
         # working on a task after --replace or manual restarts.
@@ -2718,6 +2721,95 @@ class BasePlatformAdapter(ABC):
         if new_text.strip() not in existing_captions:
             return f"{existing_text}\n\n{new_text}".strip()
         return existing_text
+
+    # ------------------------------------------------------------------
+    # Client-split text batching
+    # ------------------------------------------------------------------
+    # Messaging clients split a long user message at the platform's length
+    # limit and the chunks arrive a few hundred milliseconds apart.  An
+    # adapter that opts in sets ``_SPLIT_THRESHOLD`` (a chunk at least this
+    # long is almost certainly followed by a continuation),
+    # ``_text_batch_delay_seconds`` and ``_text_batch_split_delay_seconds``,
+    # then routes plain text through ``_enqueue_text_event``.
+
+    _SPLIT_THRESHOLD: int = 0  # 0 = no split detection
+    # Adaptive delay tiers: short messages reach the agent fast.  Each tier
+    # is clamped to ``_text_batch_delay_seconds`` so an operator can lower
+    # the cap further.
+    _TEXT_BATCH_FAST_LEN = 320
+    _TEXT_BATCH_FAST_DELAY_S = 0.18
+    _TEXT_BATCH_SHORT_LEN = 1024
+    _TEXT_BATCH_SHORT_DELAY_S = 0.24
+
+    def _text_batch_key(self, event: MessageEvent) -> str:
+        """Session-scoped key for text message batching."""
+        from gateway.session import build_session_key
+
+        return build_session_key(
+            event.source,
+            group_sessions_per_user=self.config.extra.get("group_sessions_per_user", True),
+            thread_sessions_per_user=self.config.extra.get("thread_sessions_per_user", False),
+        )
+
+    def _enqueue_text_event(self, event: MessageEvent) -> None:
+        """Buffer a text event and restart the flush timer for its session."""
+        key = self._text_batch_key(event)
+        existing = self._pending_text_batches.get(key)
+        chunk_len = len(event.text or "")
+        if existing is None:
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            self._pending_text_batches[key] = event
+        else:
+            if event.text:
+                existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
+            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            if event.media_urls:
+                existing.media_urls.extend(event.media_urls)
+                existing.media_types.extend(event.media_types)
+
+        prior_task = self._pending_text_batch_tasks.get(key)
+        if prior_task and not prior_task.done():
+            prior_task.cancel()
+        self._pending_text_batch_tasks[key] = asyncio.create_task(
+            self._flush_text_batch(key)
+        )
+
+    def _text_batch_delay_for(self, pending: Optional[MessageEvent]) -> float:
+        """Quiet period to wait before dispatching ``pending``."""
+        last_len = getattr(pending, "_last_chunk_len", 0) if pending else 0
+        total_len = len(getattr(pending, "text", "") or "") if pending else 0
+        if self._SPLIT_THRESHOLD and last_len >= self._SPLIT_THRESHOLD:
+            return self._text_batch_split_delay_seconds
+        if total_len <= self._TEXT_BATCH_FAST_LEN:
+            return min(self._text_batch_delay_seconds, self._TEXT_BATCH_FAST_DELAY_S)
+        if total_len <= self._TEXT_BATCH_SHORT_LEN:
+            return min(self._text_batch_delay_seconds, self._TEXT_BATCH_SHORT_DELAY_S)
+        return self._text_batch_delay_seconds
+
+    async def _flush_text_batch(self, key: str) -> None:
+        """Wait for the quiet period, then dispatch the aggregated text."""
+        current_task = asyncio.current_task()
+        try:
+            await asyncio.sleep(self._text_batch_delay_for(self._pending_text_batches.get(key)))
+            event = self._pending_text_batches.pop(key, None)
+            if not event:
+                return
+            label = getattr(getattr(self, "platform", None), "value", type(self).__name__)
+            logger.info(
+                "[%s] Flushing text batch %s (%d chars)",
+                str(label).title(), key, len(event.text or ""),
+            )
+            # A new chunk cancels this task; the shield keeps that cancel from
+            # reaching handle_message and aborting the agent turn already
+            # under way.  The new chunk gets its own flush task.
+            await asyncio.shield(self.handle_message(event))
+        except asyncio.CancelledError:
+            # Cancelled during the quiet period (or while the shielded
+            # dispatch runs, which carries on regardless): exit cleanly.
+            pass
+        finally:
+            if self._pending_text_batch_tasks.get(key) is current_task:
+                self._pending_text_batch_tasks.pop(key, None)
 
     def _text_debounce_store(self) -> dict[str, TextDebounceState]:
         store = getattr(self, "_text_debounce", None)
