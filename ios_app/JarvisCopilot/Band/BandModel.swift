@@ -528,14 +528,7 @@ enum BandModel {
             leds.append(node)
         }
 
-        let glow = SCNNode()
-        let light = SCNLight()
-        light.type = .omni
-        light.color = UIColor(red: 0.3, green: 1, blue: 0.45, alpha: 1)
-        light.intensity = 0
-        light.attenuationStartDistance = 0
-        light.attenuationEndDistance = 0.9
-        glow.light = light
+        let glow = WearableStage.makeGlow()
         glow.position = SCNVector3(0, Float(podMiddle) * unit, Float(podBack - 5) * unit)
 
         let spinner = SCNNode()

@@ -156,16 +156,6 @@ struct X5Monitoring: Equatable, Codable {
     var type: X5MonitorType
 }
 
-private func u16LE(_ value: Int) -> [UInt8] {
-    let v = max(0, min(0xFFFF, value))
-    return [UInt8(v & 0xFF), UInt8(v >> 8)]
-}
-
-private func u32LE(_ value: Int) -> [UInt8] {
-    let v = UInt32(clamping: max(0, value))
-    return [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF), UInt8((v >> 16) & 0xFF), UInt8(v >> 24)]
-}
-
 private func byte(_ value: Int) -> UInt8 { UInt8(max(0, min(255, value))) }
 
 extension RingRequest {

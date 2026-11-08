@@ -129,6 +129,29 @@ class ModelStage {
 class WearableStage: ModelStage {
     static let idleLED: CGFloat = 0.15
 
+    /// The measurement glow: a green omni light, dark until a measurement pulses it. The model
+    /// places it.
+    static func makeGlow() -> SCNNode {
+        let light = SCNLight()
+        light.type = .omni
+        light.color = UIColor(red: 0.3, green: 1, blue: 0.45, alpha: 1)
+        light.intensity = 0
+        light.attenuationStartDistance = 0
+        light.attenuationEndDistance = 0.9
+        let glow = SCNNode()
+        glow.light = light
+        return glow
+    }
+
+    /// `root` under a spinner (which turns) under a pivot (which is posed).
+    static func rig(_ root: SCNNode) -> (pivot: SCNNode, spinner: SCNNode) {
+        let spinner = SCNNode()
+        spinner.addChildNode(root)
+        let pivot = SCNNode()
+        pivot.addChildNode(spinner)
+        return (pivot, spinner)
+    }
+
     let leds: [SCNNode]
     let glow: SCNNode
     /// Whether a measurement wants the LEDs pulsing, so a find flash can hand back to it.

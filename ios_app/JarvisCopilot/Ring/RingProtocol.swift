@@ -288,9 +288,16 @@ struct RingRequest: Equatable {
 
 // MARK: - Builders
 
-private func u16LE(_ value: Int) -> [UInt8] {
+/// Little-endian 16 bits, clamped: the R12, X5 and band wire formats all pack this way.
+func u16LE(_ value: Int) -> [UInt8] {
     let v = max(0, min(0xFFFF, value))
     return [UInt8(v & 0xFF), UInt8(v >> 8)]
+}
+
+/// Little-endian 32 bits, clamped at zero.
+func u32LE(_ value: Int) -> [UInt8] {
+    let v = UInt32(clamping: max(0, value))
+    return [UInt8(v & 0xFF), UInt8((v >> 8) & 0xFF), UInt8((v >> 16) & 0xFF), UInt8(v >> 24)]
 }
 
 private func u24LE(_ value: Int) -> [UInt8] {

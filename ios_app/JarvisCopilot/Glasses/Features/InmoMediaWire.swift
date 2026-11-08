@@ -15,21 +15,13 @@ struct InmoMediaFrame {
     var sub: UInt8 = 0
     var payload = Data()
 
-    static func crc(_ data: Data) -> UInt16 {
-        var result: UInt16 = 0xffff
-        for byte in data {
-            result ^= UInt16(byte) << 8
-            for _ in 0..<8 { result = result & 0x8000 != 0 ? (result &<< 1) ^ 0x1021 : result &<< 1 }
-        }
-        return result
-    }
     func encoded() throws -> Data {
         guard (1...65535).contains(total), (0..<total).contains(index), payload.count <= 8192 else {
             throw InmoMediaError(message: "Invalid media frame dimensions.")
         }
         var bytes = Data([0xaa, 0x55, id, UInt8(total >> 8), UInt8(total & 255), UInt8(index >> 8), UInt8(index & 255), main, sub, UInt8(payload.count >> 8), UInt8(payload.count & 255)])
         bytes.append(payload)
-        let checksum = Self.crc(bytes)
+        let checksum = InmoBluetoothFrameCodec.crc(bytes)
         bytes.append(contentsOf: [UInt8(checksum >> 8), UInt8(checksum & 255)])
         return bytes
     }
@@ -49,7 +41,7 @@ struct InmoMediaFrameParser {
             guard buffer.count >= length + 13 else { break }
             let raw = Data(buffer.prefix(length + 13))
             let tail = [UInt8](raw.suffix(2))
-            guard InmoMediaFrame.crc(Data(raw.dropLast(2))) == UInt16(tail[0]) << 8 | UInt16(tail[1]) else {
+            guard InmoBluetoothFrameCodec.crc(Data(raw.dropLast(2))) == UInt16(tail[0]) << 8 | UInt16(tail[1]) else {
                 throw InmoMediaError(message: "Media checksum failed. Restart this download.")
             }
             let total = Int(b[3]) << 8 | Int(b[4]), index = Int(b[5]) << 8 | Int(b[6])

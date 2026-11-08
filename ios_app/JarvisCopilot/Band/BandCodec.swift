@@ -19,11 +19,6 @@ enum BandRequest {
         return [UInt8(v >> 8), UInt8(v & 0xFF)]
     }
 
-    private static func le16(_ value: Int) -> [UInt8] {
-        let v = max(0, min(0xFFFF, value))
-        return [UInt8(v & 0xFF), UInt8(v >> 8)]
-    }
-
     // MARK: Session
 
     /// `A1`: the PIN check, carrying the phone's clock (year big-endian) and its UTC offset in
@@ -91,7 +86,7 @@ enum BandRequest {
 
     /// `DF <package+1 LE> <day>`: day 0 today … 2 two days ago; package 1 reads from the start.
     static func readDaily(day: Int, package: Int) -> [UInt8] {
-        frame([BandOp.daily] + le16(package + 1) + [byte(day), 0x00])
+        frame([BandOp.daily] + u16LE(package + 1) + [byte(day), 0x00])
     }
 
     /// `E0 <day>`: precise sleep for day 0 today … 2.
@@ -137,13 +132,13 @@ enum BandRequest {
     /// `DA 01 <sport type LE> <op>` — the Android SDK's setSportControlInfo; the type is its
     /// `ESportType` (25 weightlifting, 1 outdoor run…).
     static func sport(_ op: BandSportOp, mode: Int = 0) -> [UInt8] {
-        frame([BandOp.sportControl, 0x01] + le16(mode) + [op.rawValue])
+        frame([BandOp.sportControl, 0x01] + u16LE(mode) + [op.rawValue])
     }
 
     /// `DA 02 <mode LE> 02`: the live status (time, distance, heart rate, energy, pace) — the SDK
     /// polls it every 3 s while a sport runs.
     static func sportStatus(mode: Int = 0) -> [UInt8] {
-        frame([BandOp.sportControl, 0x02] + le16(mode) + [0x02])
+        frame([BandOp.sportControl, 0x02] + u16LE(mode) + [0x02])
     }
 
     // MARK: Controls
@@ -259,7 +254,7 @@ enum BandRequest {
     /// `8A 02 01 on` + uric acid ×10, then total cholesterol, triglycerides, HDL and LDL ×100,
     /// each little-endian.
     static func bloodComponentCalibration(_ c: BandBloodComponentCalibration) -> [UInt8] {
-        func scaled(_ v: Double, _ by: Double) -> [UInt8] { le16(Int((v * by).rounded())) }
+        func scaled(_ v: Double, _ by: Double) -> [UInt8] { u16LE(Int((v * by).rounded())) }
         return frame([BandOp.bloodComponent, 0x02, 0x01, c.enabled ? 1 : 0] + scaled(c.uricAcid, 10)
                      + scaled(c.cholesterol, 100) + scaled(c.triglycerides, 100) + scaled(c.hdl, 100) + scaled(c.ldl, 100))
     }
@@ -270,7 +265,7 @@ enum BandRequest {
     /// `89 02 01 mmol×100 (LE) on`.
     static func glucoseCalibration(_ c: BandGlucoseCalibration) -> [UInt8] {
         let value = c.meals.first?.before ?? 0
-        return frame([BandOp.glucoseStress, 0x02, 0x01] + le16(Int((value * 100).rounded())) + [c.enabled ? 1 : 0])
+        return frame([BandOp.glucoseStress, 0x02, 0x01] + u16LE(Int((value * 100).rounded())) + [c.enabled ? 1 : 0])
     }
 
     /// `89 03 02 01 01`: the meal references.
@@ -287,8 +282,8 @@ enum BandRequest {
         var payload: [UInt8] = [c.enabled ? 1 : 0]
         for i in 0..<3 {
             let m = i < c.meals.count ? c.meals[i] : BandGlucoseCalibration.Meal()
-            payload += clock(m.beforeMinute, m.before) + le16(Int(((m.before ?? 0) * 100).rounded()))
-            payload += clock(m.afterMinute, m.after) + le16(Int(((m.after ?? 0) * 100).rounded()))
+            payload += clock(m.beforeMinute, m.before) + u16LE(Int(((m.before ?? 0) * 100).rounded()))
+            payload += clock(m.afterMinute, m.after) + u16LE(Int(((m.after ?? 0) * 100).rounded()))
         }
         return [frame([BandOp.glucoseStress, 0x03, 0x01, 0x01, 0x02] + payload[0..<15]),
                 frame([BandOp.glucoseStress, 0x03, 0x01, 0x02, 0x02] + payload[15..<25])]

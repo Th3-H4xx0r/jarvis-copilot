@@ -7,6 +7,7 @@ final class InmoBluetoothFrameCodec {
     private var streams: [String: Stream] = [:]
     private var assemblies: [String: Assembly] = [:]
     private(set) var counters = InmoProtocolCounters()
+    /// CRC-16/CCITT-FALSE: the glasses check every control and media frame with it.
     static func crc(_ data: Data) -> UInt16 {
         var crc: UInt16 = 0xffff
         for byte in data { crc ^= UInt16(byte) << 8; for _ in 0..<8 { crc = (crc & 0x8000 != 0) ? (crc << 1) ^ 0x1021 : crc << 1 } }

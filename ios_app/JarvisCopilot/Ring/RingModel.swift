@@ -397,21 +397,11 @@ enum RingModel {
             leds.append(node)
         }
 
-        let glow = SCNNode()
-        let light = SCNLight()
-        light.type = .omni
-        light.color = UIColor(red: 0.3, green: 1, blue: 0.45, alpha: 1)
-        light.intensity = 0
-        light.attenuationStartDistance = 0
-        light.attenuationEndDistance = 0.9
-        glow.light = light
+        let glow = WearableStage.makeGlow()
         glow.position = SCNVector3(0, 0, Float(-(innerRadius - 0.12)))
         root.addChildNode(glow)
 
-        let spinner = SCNNode()
-        spinner.addChildNode(root)
-        let pivot = SCNNode()
-        pivot.addChildNode(spinner)
+        let (pivot, spinner) = WearableStage.rig(root)
         return Parts(pivot: pivot, spinner: spinner, leds: leds, glow: glow)
     }
 
