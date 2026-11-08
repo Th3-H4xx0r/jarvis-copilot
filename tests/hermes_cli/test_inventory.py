@@ -1,8 +1,7 @@
 """Behavior tests for jarviscopilot_cli.inventory.
 
-Locks the invariants the three migrated consumers (web_server.py
-/api/model/options, tui_gateway model.options, tui_gateway model.save_key)
-depend on:
+Locks the invariants the migrated consumers (tui_gateway model.options,
+tui_gateway model.save_key) depend on:
 
 - load_picker_context() reproduces the inline 17-LOC config-slice exactly.
 - with_overrides() is truthy-only (empty agent attrs must not clobber).

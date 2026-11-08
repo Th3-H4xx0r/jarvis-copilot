@@ -85,7 +85,7 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # prefix (HERMES_SPOTIFY_CLIENT_ID, ...). The denylist is name-by-name so it
 # cannot break provider setup wizards. Enforced on *write* only: pre-existing or
 # hand-edited .env values keep working; only the writable surface (the
-# dashboard's PUT /api/env, setup flows, plugin adapters) cannot escalate.
+# setup flows, plugin adapters) cannot escalate.
 
 # Whole families matched by prefix, because enumeration cannot cover unbounded
 # names (GIT_CONFIG_KEY_17 / GIT_CONFIG_VALUE_17).
@@ -145,72 +145,6 @@ _ENV_VAR_NAME_DENYLIST: frozenset = frozenset({
     "HERMES_GIT_BASH_PATH",
     "HERMES_RPC_DIR",
 })
-
-
-# config.yaml keys that decide whether the agent asks before doing something,
-# or what it executes commands with. Denying HERMES_YOLO_MODE in .env is
-# decorative if the same actor can just write `approvals: {mode: off}` here --
-# tools/approval.py honours that identically. Guarded on the remote write
-# surface only (the dashboard's PUT /api/config); a local edit of config.yaml,
-# the setup wizard and the CLI are unaffected.
-_CONFIG_WRITE_PROTECTED_PATHS: tuple = (
-    "approvals.mode",
-    "approvals.cron_mode",
-    "approvals.timeout",
-    "approvals.destructive_slash_confirm",
-    "approvals.mcp_reload_confirm",
-    "command_allowlist",
-    "security.allow_lazy_installs",
-    "security.allow_private_urls",
-    "security.redact_secrets",
-    "security.tirith_enabled",
-    "security.tirith_fail_open",
-    "security.tirith_path",
-    "security.website_blocklist",
-    "terminal.backend",
-    "terminal.cwd",
-    "terminal.env_passthrough",
-    "terminal.shell_init_files",
-    "terminal.auto_source_bashrc",
-    "terminal.docker_forward_env",
-    "skills.guard_agent_created",
-    "skills.external_dirs",
-    "skills.inline_shell",
-)
-
-
-def _dig(mapping: Any, dotted: str) -> Any:
-    """Value at ``dotted`` in a nested mapping, or a sentinel when absent."""
-    node = mapping
-    for part in dotted.split("."):
-        if not isinstance(node, dict) or part not in node:
-            return _MISSING
-        node = node[part]
-    return node
-
-
-_MISSING = object()
-
-
-def validate_config_write(new_config: dict, current_config: Optional[dict] = None) -> None:
-    """Raise ``ValueError`` if a remote write would CHANGE a protected key.
-
-    Compares against the config on disk rather than rejecting the keys
-    outright, because the dashboard round-trips the whole document on every
-    save -- sending a protected key back unchanged has to keep working.
-    """
-    if current_config is None:
-        current_config = load_config()
-    for dotted in _CONFIG_WRITE_PROTECTED_PATHS:
-        incoming = _dig(new_config, dotted)
-        if incoming is _MISSING:
-            continue
-        if _dig(current_config, dotted) != incoming:
-            raise ValueError(
-                f"{dotted!r} decides what runs without asking, so it cannot be "
-                "changed through the dashboard. Edit config.yaml directly, or "
-                "use the CLI."
-            )
 
 
 def _env_var_policy_name(key: str, is_windows: Optional[bool] = None) -> str:
@@ -550,8 +484,8 @@ def _is_container() -> bool:
     """Detect if we're running inside a Docker/Podman/LXC container.
 
     When JarvisCopilot runs in a container with volume-mounted config files, forcing
-    0o600 permissions breaks multi-process setups where the gateway and
-    dashboard run as different UIDs or the volume mount requires broader
+    0o600 permissions breaks multi-process setups where processes run as
+    different UIDs or the volume mount requires broader
     permissions.
     """
     # Explicit opt-out
@@ -1195,8 +1129,7 @@ DEFAULT_CONFIG = {
         },
         # Profile describer — auto-generates a 1-2 sentence description
         # of what a profile is good at. Invoked by
-        # ``jarviscopilot profile describe <name> --auto`` and the dashboard's
-        # auto-generate button. Short, cheap call.
+        # ``jarviscopilot profile describe <name> --auto``. Short, cheap call.
         "profile_describer": {
             "provider": "auto",
             "model": "",
@@ -1285,26 +1218,6 @@ DEFAULT_CONFIG = {
             "fields": ["model", "context_pct", "cwd"],  # Order shown; drop any to hide
         },
         "copy_shortcut": "auto",  # "auto" (platform default) | "ctrl_c" | "ctrl_shift_c" | "disabled"
-    },
-
-    # Web dashboard settings
-    "dashboard": {
-        "theme": "default",  # Dashboard visual theme: "default", "midnight", "ember", "mono", "cyberpunk", "rose"
-        # Hide the token/cost analytics surfaces (Analytics page, token bars and
-        # cost figures on the Models page) by default.  The numbers shown there
-        # are a local debug estimate: they only count successful main-agent
-        # responses with a usable ``response.usage``, and silently exclude every
-        # auxiliary call (context compression, title generation, vision,
-        # session search, web extract, smart approval, MCP routing, plugin LLM
-        # access) plus provider-side retries, fallback attempts, and any call
-        # whose usage block didn't come back.  Cache writes are also missing
-        # from the API response.  On models with heavy auxiliary traffic
-        # (Kimi K2.6, MiniMax M2.7) the local total can be 10x-100x lower than
-        # the provider bill, which is worse than hiding the numbers entirely
-        # because they look precise enough to compare against the provider.
-        # Set this to True to re-enable the surfaces with the understanding
-        # that the numbers are a local lower-bound estimate, not billing.
-        "show_token_analytics": False,
     },
 
     # Privacy settings
@@ -1780,8 +1693,7 @@ DEFAULT_CONFIG = {
         "default_assignee": "",
         # When true, the kanban dispatcher auto-runs the decomposer on
         # tasks that land in Triage (every dispatcher tick). When false,
-        # decomposition is manual via `jarviscopilot kanban decompose <id>` or
-        # the dashboard's Decompose button.
+        # decomposition is manual via `jarviscopilot kanban decompose <id>`.
         "auto_decompose": True,
         # Max triage tasks to decompose per dispatcher tick. Prevents a
         # large bulk-load of triage tasks from spending a burst of aux

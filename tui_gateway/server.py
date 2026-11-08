@@ -2066,7 +2066,7 @@ def _init_session(sid: str, key: str, agent, history: list, cols: int = 80):
         "edit_snapshots": {},
         "tool_started_at": {},
         # Pin async event emissions to whichever transport created the
-        # session (stdio for Ink, JSON-RPC WS for the dashboard sidebar).
+        # session.
         "transport": current_transport() or _stdio_transport,
     }
     try:
@@ -5540,8 +5540,8 @@ def _(rid, params: dict) -> dict:
         os.environ[env_var] = api_key
 
         # Refresh provider data via the shared inventory builder so this
-        # surface stays in lock-step with model.options + dashboard
-        # /api/model/options. picker_hints=True ensures the returned row
+        # surface stays in lock-step with model.options. picker_hints=True
+        # ensures the returned row
         # carries `authenticated` for the TUI frontend.
         session = _sessions.get(params.get("session_id", ""))
         agent = session.get("agent") if session else None

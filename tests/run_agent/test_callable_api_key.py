@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -146,40 +145,6 @@ class TestNormalizeMainRuntimePreservesCallable:
         assert "secret_field_we_dont_want" not in normalized
         # auth_mode IS in the field allowlist (rubber-duck blocker fix).
         assert "auth_mode" in _MAIN_RUNTIME_FIELDS
-
-
-# ---------------------------------------------------------------------------
-# Display surfaces never invoke the callable
-# ---------------------------------------------------------------------------
-
-
-class TestTruncateTokenCallable:
-    def test_callable_returns_placeholder(self):
-        """Dashboard preview must render the Entra placeholder, NOT
-        ``"<function ...>"``."""
-        from jarviscopilot_cli.web_server import _truncate_token
-
-        invoked = {"count": 0}
-
-        def provider():
-            invoked["count"] += 1
-            return "should-not-appear-in-ui"
-
-        token_provider = cast(str | None, provider)
-        rendered = _truncate_token(token_provider)
-        assert rendered == "<entra-id-bearer>"
-        assert invoked["count"] == 0
-
-    def test_string_jwt_still_truncated_to_signature_tail(self):
-        from jarviscopilot_cli.web_server import _truncate_token
-        # JWT shape: header.payload.signature → only signature tail shown.
-        out = _truncate_token("aaaa.bbbb.cccccccsig", visible=4)
-        assert out == "…csig"
-
-    def test_empty_returns_empty(self):
-        from jarviscopilot_cli.web_server import _truncate_token
-        assert _truncate_token(None) == ""
-        assert _truncate_token("") == ""
 
 
 # ---------------------------------------------------------------------------

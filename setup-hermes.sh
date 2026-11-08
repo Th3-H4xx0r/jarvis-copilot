@@ -216,7 +216,7 @@ else
     _ALL_EXTRAS=(
         modal daytona vercel messaging cron cli dev tts-premium slack
         pty honcho mcp homeassistant sms acp voice google
-        bedrock web youtube
+        bedrock youtube
     )
     _SAFE_EXTRAS=()
     for _e in "${_ALL_EXTRAS[@]}"; do

@@ -96,11 +96,9 @@ class FakeWebSocket {
 describe('GatewayClient websocket attach mode', () => {
   const originalWebSocket = globalThis.WebSocket
   let originalGatewayUrl: string | undefined
-  let originalSidecarUrl: string | undefined
 
   beforeEach(() => {
     originalGatewayUrl = process.env.HERMES_TUI_GATEWAY_URL
-    originalSidecarUrl = process.env.HERMES_TUI_SIDECAR_URL
     FakeWebSocket.reset()
     ;(globalThis as { WebSocket?: unknown }).WebSocket = FakeWebSocket as unknown as typeof WebSocket
   })
@@ -110,12 +108,6 @@ describe('GatewayClient websocket attach mode', () => {
       delete process.env.HERMES_TUI_GATEWAY_URL
     } else {
       process.env.HERMES_TUI_GATEWAY_URL = originalGatewayUrl
-    }
-
-    if (originalSidecarUrl === undefined) {
-      delete process.env.HERMES_TUI_SIDECAR_URL
-    } else {
-      process.env.HERMES_TUI_SIDECAR_URL = originalSidecarUrl
     }
 
     FakeWebSocket.reset()
@@ -144,39 +136,6 @@ describe('GatewayClient websocket attach mode', () => {
 
     gatewaySocket.message(JSON.stringify({ id: frame.id, jsonrpc: '2.0', result: { ok: true } }))
     await expect(req).resolves.toEqual({ ok: true })
-
-    gw.kill()
-  })
-
-  it('mirrors event frames to sidecar websocket when configured', async () => {
-    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
-    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
-
-    const gw = new GatewayClient()
-    const seen: string[] = []
-
-    gw.on('event', ev => seen.push(ev.type))
-    gw.start()
-
-    const gatewaySocket = FakeWebSocket.instances[0]!
-    gatewaySocket.open()
-    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
-
-    const sidecarSocket = FakeWebSocket.instances[1]!
-
-    sidecarSocket.open()
-    gw.drain()
-
-    const eventFrame = JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'event',
-      params: { type: 'tool.start', payload: { tool_id: 't1' } }
-    })
-
-    gatewaySocket.message(eventFrame)
-
-    expect(seen).toContain('tool.start')
-    expect(sidecarSocket.sent).toContain(eventFrame)
 
     gw.kill()
   })
@@ -317,37 +276,6 @@ describe('GatewayClient websocket attach mode', () => {
     expect(tail).not.toContain('channel=secret')
     expect(tail).not.toContain(secretUrl)
     expect(tail).toContain('ws://gateway.test/api/ws?***')
-
-    gw.kill()
-  })
-
-  it('redacts sidecar URL secrets when the WebSocket constructor throws', async () => {
-    const sidecarUrl = 'ws://gateway.test/api/pub?token=hunter2&channel=secret'
-
-    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
-    process.env.HERMES_TUI_SIDECAR_URL = sidecarUrl
-    ;(globalThis as { WebSocket?: unknown }).WebSocket = class ThrowingSidecarWebSocket extends FakeWebSocket {
-      constructor(url: string) {
-        if (url.includes('/api/pub')) {
-          throw new TypeError(`Invalid URL: ${url}`)
-        }
-
-        super(url)
-      }
-    } as unknown as typeof WebSocket
-
-    const gw = new GatewayClient()
-
-    gw.start()
-    const gatewaySocket = FakeWebSocket.instances[0]!
-    gatewaySocket.open()
-    await vi.waitFor(() => expect(gw.getLogTail(20)).toContain('[sidecar] failed to connect'))
-
-    const tail = gw.getLogTail(20)
-    expect(tail).not.toContain('hunter2')
-    expect(tail).not.toContain('channel=secret')
-    expect(tail).not.toContain(sidecarUrl)
-    expect(tail).toContain('ws://gateway.test/api/pub?***')
 
     gw.kill()
   })

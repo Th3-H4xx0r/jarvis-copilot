@@ -14,7 +14,6 @@ import pytest
 
 from jarviscopilot_cli.config import (
     _env_var_policy_name,
-    validate_config_write,
     load_env,
     save_env_value,
     save_env_value_secure,
@@ -146,36 +145,3 @@ class TestEscalationNamesFoundByReview:
             with pytest.raises(ValueError):
                 save_env_value(name, "/tmp/evil")
             assert not (tmp_path / ".env").exists()
-
-
-class TestConfigWriteIsGatedToo:
-    """The env denylist is decorative if the same token can write
-    `approvals.mode: off` through PUT /api/config instead."""
-
-    CURRENT = {
-        "approvals": {"mode": "manual"},
-        "terminal": {"backend": "local"},
-        "security": {"redact_secrets": True},
-        "display": {"skin": "default"},
-    }
-
-    @pytest.mark.parametrize(
-        "incoming",
-        [
-            {"approvals": {"mode": "off"}},
-            {"approvals": {"cron_mode": "approve"}},
-            {"terminal": {"backend": "docker"}},
-            {"security": {"redact_secrets": False}},
-            {"skills": {"inline_shell": True}},
-        ],
-    )
-    def test_changing_a_protected_key_is_refused(self, incoming):
-        with pytest.raises(ValueError):
-            validate_config_write(incoming, self.CURRENT)
-
-    def test_unchanged_round_trip_is_allowed(self):
-        """The dashboard PUTs the whole document on every save."""
-        validate_config_write(dict(self.CURRENT), self.CURRENT)
-
-    def test_ordinary_settings_still_writable(self):
-        validate_config_write({"display": {"skin": "ares"}}, self.CURRENT)

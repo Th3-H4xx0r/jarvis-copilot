@@ -70,9 +70,6 @@ Examples:
     jarviscopilot logs --since 1h        Lines from the last hour
     jarviscopilot debug share             Upload debug report for support
     jarviscopilot update                 Update to latest version
-    jarviscopilot dashboard              Start web UI dashboard (port 9119)
-    jarviscopilot dashboard --stop       Stop running dashboard processes
-    jarviscopilot dashboard --status     List running dashboard processes
 
 For more help on a command:
     jarviscopilot <command> --help

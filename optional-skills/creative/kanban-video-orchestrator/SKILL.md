@@ -117,7 +117,6 @@ Run `setup.sh`. Then provide the user with monitoring commands:
 ```bash
 jarviscopilot kanban watch --tenant <project-tenant>     # live events
 jarviscopilot kanban list  --tenant <project-tenant>     # board snapshot
-jarviscopilot dashboard                                   # visual board UI
 ```
 
 The director profile takes over from here, decomposing the work and routing

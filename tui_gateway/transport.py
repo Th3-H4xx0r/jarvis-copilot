@@ -1,9 +1,9 @@
 """Transport abstraction for the tui_gateway JSON-RPC server.
 
 Historically the gateway wrote every JSON frame directly to real stdout.  This
-module decouples the I/O sink from the handler logic so the same dispatcher
-can be driven over stdio (``tui_gateway.entry``) or WebSocket
-(``tui_gateway.ws``) without duplicating code.
+module decouples the I/O sink from the handler logic so the dispatcher can
+be driven over stdio (``tui_gateway.entry``) or any other peer without
+duplicating code.
 
 A :class:`Transport` is anything that can accept a JSON-serialisable dict and
 forward it to its peer.  The active transport for the current request is
@@ -181,39 +181,3 @@ class StdioTransport:
 
     def close(self) -> None:
         return None
-
-
-class TeeTransport:
-    """Mirrors writes to one primary plus N best-effort secondaries.
-
-    The primary's return value (and exceptions) determine the result —
-    secondaries swallow failures so a wedged sidecar never stalls the
-    main IO path.  Used by the PTY child so every dispatcher emit lands
-    on stdio (Ink) AND on a back-WS feeding the dashboard sidebar.
-    """
-
-    __slots__ = ("_primary", "_secondaries")
-
-    def __init__(self, primary: "Transport", *secondaries: "Transport") -> None:
-        self._primary = primary
-        self._secondaries = secondaries
-
-    def write(self, obj: dict) -> bool:
-        # Primary first so a slow sidecar (WS publisher) never delays Ink/stdio.
-        ok = self._primary.write(obj)
-        for sec in self._secondaries:
-            try:
-                sec.write(obj)
-            except Exception:
-                pass
-        return ok
-
-    def close(self) -> None:
-        try:
-            self._primary.close()
-        finally:
-            for sec in self._secondaries:
-                try:
-                    sec.close()
-                except Exception:
-                    pass

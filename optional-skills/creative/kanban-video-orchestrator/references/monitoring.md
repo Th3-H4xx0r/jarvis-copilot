@@ -17,9 +17,6 @@ jarviscopilot kanban list --tenant <project-slug> --json     # machine-readable
 # Per-status counts + oldest-ready age
 jarviscopilot kanban stats --tenant <project-slug>
 
-# Visual dashboard (browser)
-jarviscopilot dashboard
-
 # Inspect a specific task (includes comments + events)
 jarviscopilot kanban show <task-id>
 

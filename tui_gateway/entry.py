@@ -16,29 +16,7 @@ import signal
 import time
 import traceback
 
-from tui_gateway import server
 from tui_gateway.server import _CRASH_LOG, dispatch, resolve_skin, write_json
-from tui_gateway.transport import TeeTransport
-
-
-def _install_sidecar_publisher() -> None:
-    """Mirror every dispatcher emit to the dashboard sidebar via WS.
-
-    Activated by `HERMES_TUI_SIDECAR_URL`, set by the dashboard's
-    ``/api/pty`` endpoint when a chat tab passes a ``channel`` query param.
-    Best-effort: connect failure or runtime drop falls back to stdio-only.
-    """
-    url = os.environ.get("HERMES_TUI_SIDECAR_URL")
-
-    if not url:
-        return
-
-    from tui_gateway.event_publisher import WsPublisherTransport
-
-    server._stdio_transport = TeeTransport(
-        server._stdio_transport, WsPublisherTransport(url)
-    )
-
 
 # How long to wait for orderly shutdown (atexit + finalisers) before
 # falling back to ``os._exit(0)`` so a wedged worker mid-flush can't
@@ -185,8 +163,6 @@ def _log_exit(reason: str) -> None:
 
 
 def main():
-    _install_sidecar_publisher()
-
     # MCP tool discovery — inline is safe here: TUI entry is a plain
     # sync loop with no asyncio event loop to block.  Previously ran as
     # a model_tools.py module-level side effect; moved to explicit

@@ -1,8 +1,8 @@
-"""Provider/model inventory context — shared substrate for the dashboard
-``/api/model/options``, the TUI ``model.options``/``model.save_key``
-JSON-RPC handlers, and the interactive picker.
+"""Provider/model inventory context — shared substrate for the TUI
+``model.options``/``model.save_key`` JSON-RPC handlers and the interactive
+picker.
 
-Before this module the three call-sites each duplicated:
+Before this module the call-sites each duplicated:
 
 1. The 17-LOC config-slice that pulls ``model.{default,name,provider,base_url}``,
    ``providers:``, and ``custom_providers:`` out of ``load_config()``;
@@ -11,12 +11,9 @@ Before this module the three call-sites each duplicated:
    unconfigured ``CANONICAL_PROVIDERS`` rows and emits ``authenticated``/
    ``auth_type``/``key_env``/``warning`` hints for the picker UI.
 
-Consolidating those three steps into one entry point eliminates two bugs
-the duplicates were hiding:
+Consolidating those three steps into one entry point eliminates a bug the
+duplicates were hiding:
 
-- The dashboard read ``cfg.get("custom_providers")`` directly, missing the
-  v12+ keyed ``providers:`` form (which the TUI handled via
-  ``get_compatible_custom_providers``).
 - The TUI's canonical-merge keyed on ``is_user_defined`` to decide
   ordering. Section 3 of ``list_authenticated_providers`` sets
   ``is_user_defined=True`` even for canonical slugs that appear in the
@@ -79,8 +76,8 @@ class ConfigContext:
 def load_picker_context() -> ConfigContext:
     """Load the disk-config snapshot every consumer needs.
 
-    Replaces the inline 17-LOC config-slice that ``web_server.py`` and
-    ``tui_gateway/server.py`` (×2 sites) used to do.
+    Replaces the inline 17-LOC config-slice that ``tui_gateway/server.py``
+    (×2 sites) used to do.
     """
     from jarviscopilot_cli.config import get_compatible_custom_providers, load_config
 

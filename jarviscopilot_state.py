@@ -80,7 +80,7 @@ def _set_last_init_error(msg: Optional[str]) -> None:
     Thread-safe via _last_init_error_lock.  Callers pass a message to
     record a failure or None to clear.  SessionDB.__init__ only calls
     this to SET on failure — it deliberately does NOT clear on success,
-    because in a multi-threaded caller (e.g. gateway / web_server per-
+    because in a multi-threaded caller (e.g. gateway per-
     request SessionDB() instantiation), a concurrent successful open
     racing past a different thread's failure would erase the cause
     string that thread's /resume handler is about to format.  Explicit
@@ -383,7 +383,7 @@ class SessionDB:
             #
             # Note: we deliberately do NOT clear _last_init_error on the
             # success path (no else branch).  In multi-threaded callers
-            # (gateway, web_server per-request SessionDB()), a concurrent
+            # (gateway per-request SessionDB()), a concurrent
             # successful open racing past this failure would erase the
             # cause that another thread's /resume is about to format.
             # Tests that need to reset the state can call

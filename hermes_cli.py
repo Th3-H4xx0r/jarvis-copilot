@@ -44,8 +44,7 @@ for _info in _pkgutil.iter_modules(_real.__path__):
     except BaseException:
         # Some submodules legitimately fail at import time on the
         # current platform (e.g. gateway_windows on Linux) or when
-        # heavy optional deps are missing (web_server hard-exits if
-        # fastapi isn't installed). Skip them — they aren't reachable
+        # heavy optional deps are missing. Skip them — they aren't reachable
         # via the legacy name either, since they'd fail the same way
         # under jarviscopilot_cli. BaseException catches SystemExit /
         # KeyboardInterrupt from over-eager hard-exits at module

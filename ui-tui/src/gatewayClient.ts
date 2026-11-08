@@ -35,12 +35,6 @@ const resolveGatewayAttachUrl = () => {
   return raw ? raw : null
 }
 
-const resolveSidecarUrl = () => {
-  const raw = process.env.HERMES_TUI_SIDECAR_URL?.trim()
-
-  return raw ? raw : null
-}
-
 const resolvePython = (root: string) => {
   const configured = process.env.HERMES_PYTHON?.trim() || process.env.PYTHON?.trim()
 
@@ -95,7 +89,7 @@ const asWireText = (raw: unknown): string | null => {
 // scrubbed from log lines even when the URL is unparseable.
 const _USERINFO_FALLBACK_RE = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i
 
-// Connection URLs (gateway, sidecar) often carry bearer tokens in the query
+// Connection URLs often carry bearer tokens in the query
 // string. We surface them in user-facing log lines and the
 // `gateway.start_timeout` payload, so always strip the query string and any
 // embedded user-info before logging.
@@ -133,9 +127,7 @@ export class GatewayClient extends EventEmitter {
   private proc: ChildProcess | null = null
   private ws: WebSocket | null = null
   private wsConnectPromise: Promise<void> | null = null
-  private sidecarWs: WebSocket | null = null
   private attachUrl: null | string = null
-  private sidecarUrl: null | string = null
   private reqId = 0
   private logs = new CircularBuffer<string>(MAX_GATEWAY_LOG_LINES)
   private pending = new Map<string, Pending>()
@@ -175,16 +167,6 @@ export class GatewayClient extends EventEmitter {
     if (this.readyTimer) {
       clearTimeout(this.readyTimer)
       this.readyTimer = null
-    }
-  }
-
-  private closeSidecarSocket() {
-    try {
-      this.sidecarWs?.close()
-    } catch {
-      // best effort
-    } finally {
-      this.sidecarWs = null
     }
   }
 
@@ -247,7 +229,6 @@ export class GatewayClient extends EventEmitter {
 
   private handleTransportExit(code: null | number, reason?: string) {
     this.clearReadyTimer()
-    this.closeSidecarSocket()
     this.pushLog(`[lifecycle] transport exit code=${code ?? 'null'} reason=${reason ?? 'none'}`)
     this.rejectPending(new Error(reason || `gateway exited${code === null ? '' : ` (${code})`}`))
 
@@ -255,51 +236,6 @@ export class GatewayClient extends EventEmitter {
       this.emit('exit', code)
     } else {
       this.pendingExit = code
-    }
-  }
-
-  private connectSidecarMirror() {
-    this.closeSidecarSocket()
-
-    if (!this.sidecarUrl) {
-      return
-    }
-
-    if (typeof WebSocket === 'undefined') {
-      this.pushLog(`[sidecar] WebSocket unavailable; skipping mirror to ${redactUrl(this.sidecarUrl)}`)
-
-      return
-    }
-
-    try {
-      const ws = new WebSocket(this.sidecarUrl)
-
-      this.sidecarWs = ws
-      ws.addEventListener('close', () => {
-        if (this.sidecarWs === ws) {
-          this.sidecarWs = null
-        }
-      })
-      ws.addEventListener('error', () => {
-        this.pushLog('[sidecar] mirror connection error')
-      })
-    } catch (err) {
-      this.pushLog(`[sidecar] failed to connect ${redactUrl(this.sidecarUrl)} (constructor error)`)
-      this.sidecarWs = null
-    }
-  }
-
-  private mirrorEventToSidecar(rawFrame: string) {
-    const ws = this.sidecarWs
-
-    if (!ws || ws.readyState !== WS_OPEN) {
-      return
-    }
-
-    try {
-      ws.send(rawFrame)
-    } catch {
-      // best effort
     }
   }
 
@@ -312,10 +248,6 @@ export class GatewayClient extends EventEmitter {
 
     try {
       const frame = JSON.parse(text) as Record<string, unknown>
-
-      if (frame.method === 'event') {
-        this.mirrorEventToSidecar(text)
-      }
 
       this.dispatch(frame)
     } catch {
@@ -429,8 +361,6 @@ export class GatewayClient extends EventEmitter {
               settled = true
               resolve()
             }
-
-            this.connectSidecarMirror()
           },
           { once: true }
         )
@@ -500,10 +430,8 @@ export class GatewayClient extends EventEmitter {
   start() {
     const root = process.env.HERMES_PYTHON_SRC_ROOT ?? resolve(import.meta.dirname, '../../')
     const attachUrl = resolveGatewayAttachUrl()
-    const sidecarUrl = resolveSidecarUrl()
 
     this.attachUrl = attachUrl
-    this.sidecarUrl = sidecarUrl
     this.resetStartupState()
 
     if (this.proc && !this.proc.killed && this.proc.exitCode === null) {
@@ -513,7 +441,6 @@ export class GatewayClient extends EventEmitter {
 
     this.proc = null
     this.closeGatewaySocket()
-    this.closeSidecarSocket()
 
     if (attachUrl) {
       this.startAttachedGateway(attachUrl)
@@ -719,7 +646,6 @@ export class GatewayClient extends EventEmitter {
 
     this.pushLog(`[lifecycle] GatewayClient.kill reason=${reason} ${describeChild(proc)} killResult=${killed ?? 'none'}`)
     this.closeGatewaySocket()
-    this.closeSidecarSocket()
     this.clearReadyTimer()
     // The ws 'close' handler is identity-gated on `this.ws === ws`
     // and we just nulled `this.ws`, so it will short-circuit and

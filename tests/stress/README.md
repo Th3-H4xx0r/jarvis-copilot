@@ -35,7 +35,7 @@ Run manually:
   attempts, cycles, self-parents, wide fan-in/out, clock skew,
   HERMES_HOME with spaces/unicode/symlinks, 1000 runs on one
   task, idempotency-key race across processes, terminal-state
-  resurrection attempts, dashboard REST with weird JSON.
+  resurrection attempts.
 - **test_benchmarks.py** — latency at 100/1k/10k tasks for dispatch,
   recompute_ready, list_tasks, build_worker_context, etc. Results saved
   to JSON for regression diffing.
