@@ -100,7 +100,6 @@ def test_node_tool_setting_no_longer_changes_the_toolsets():
     import api.streaming as st
     src = inspect.getsource(st._run_agent_streaming)
     assert "load_all_deferred" not in src
-    assert "_refresh_device_tools(agent)" not in src
 
 
 def test_only_real_harness_claude_nodes_are_kept_warm():

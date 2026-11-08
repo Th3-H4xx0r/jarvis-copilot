@@ -272,28 +272,6 @@ def test_the_sweep_ignores_files_it_already_knows_and_unknown_sessions():
     assert live_store.storage_summary()["total_bytes"] == 100
 
 
-def test_deleting_a_day_takes_every_session_recorded_that_day():
-    """The storage panel groups by day, so the day rows need to be actionable."""
-    a = live_store.start_session()["id"]
-    b = live_store.start_session()["id"]
-    _chunk(a, "a.opus", 300)
-    _chunk(b, "b.opus", 200)
-    day = live_store.storage_summary()["per_day"][0]["day"]
-
-    result = live_store.delete_day(day)
-
-    assert result["sessions_deleted"] == 2
-    assert result["freed_bytes"] == 500
-    assert live_store.storage_summary()["total_bytes"] == 0
-    assert live_store.get_session(a) is None and live_store.get_session(b) is None
-
-
-def test_deleting_a_day_with_nothing_on_it_is_a_no_op():
-    live_store.start_session()
-    assert live_store.delete_day("1999-01-01") == {
-        "day": "1999-01-01", "sessions_deleted": 0, "freed_bytes": 0}
-
-
 def test_a_deleted_utterance_is_not_still_legible_in_the_database_file():
     """Unlinking a row leaves its bytes in SQLite's free pages, so `strings`
     prints a "deleted" conversation straight back. For a store of other

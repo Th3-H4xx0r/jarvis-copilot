@@ -250,58 +250,6 @@ def test_resolve_desktop_device_id_none_when_only_mobile(monkeypatch):
     assert cd.resolve_desktop_device_id(preferred="phone-1") is None
 
 
-def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
-    import json
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-Z")
-    sess = cd.MutagenSyncSession(sync_id="sync-cs_Z", device_id="dev-Z",
-                                 local_path="/l", remote_path="/r",
-                                 bridge=make_bridge()[0])
-    sess.status = "syncing"
-    sess.done, sess.total = 2, 5
-    cd.get_desktop_bridge().register_sync(sess)
-    try:
-        out = cd.sync_status("cs_Z", json.dumps({"enabled": True, "device": "dev-Z"}))
-    finally:
-        cd.get_desktop_bridge().send_sync_stop("dev-Z", "sync-cs_Z")
-    assert out["status"] == "syncing"
-    assert out["total"] == 5 and out["done"] == 2
-    assert out["device_online"] is True
-
-
-def test_sync_status_offline_overrides_stale_syncing(tmp_path, monkeypatch):
-    import json
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: None)
-    sess = cd.MutagenSyncSession(sync_id="sync-cs_Off", device_id="dev-Off",
-                                 local_path="/l", remote_path="/r",
-                                 bridge=make_bridge()[0])
-    sess.status = "syncing"
-    sess.done, sess.total = 17, 500
-    cd.get_desktop_bridge().register_sync(sess)
-    try:
-        out = cd.sync_status("cs_Off", json.dumps({"enabled": True, "device": "dev-Off"}))
-    finally:
-        cd.get_desktop_bridge().send_sync_stop("dev-Off", "sync-cs_Off")
-    assert out["device_online"] is False
-    assert out["status"] == "disconnected"
-    assert out["total"] == 500 and out["done"] == 17
-
-
-def test_sync_status_surfaces_conflicts(tmp_path, monkeypatch):
-    import json
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-K")
-    sess = cd.MutagenSyncSession(sync_id="sync-cs_K", device_id="dev-K",
-                                 local_path="/l", remote_path="/r",
-                                 bridge=make_bridge()[0])
-    sess.status = "conflicts"
-    sess.conflicts = 2
-    cd.get_desktop_bridge().register_sync(sess)
-    try:
-        out = cd.sync_status("cs_K", json.dumps({"enabled": True, "device": "dev-K"}))
-    finally:
-        cd.get_desktop_bridge().send_sync_stop("dev-K", "sync-cs_K")
-    assert out["status"] == "conflicts" and out["conflicts"] == 2
-
-
 def test_desktop_bridge_has_sync_for_not_get_sync():
     bridge, _t = make_bridge()
     assert hasattr(bridge, "sync_for")

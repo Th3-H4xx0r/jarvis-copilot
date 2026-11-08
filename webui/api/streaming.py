@@ -2939,62 +2939,6 @@ def _ensure_canonical_tools(agent) -> None:
     agent._canonical_tools_done = True
 
 
-def _refresh_device_tools(agent) -> None:
-    """plan 3.1 — merge the CURRENT native ``device_<skill>`` tools into a warm agent.
-
-    ``tools/device_skill_tools`` only registers its tools when imported, and the
-    per-session agent cache builds ``agent.tools`` once at construction — so a
-    device that connected later (or the module never being imported, as on the
-    first deploy) left the model with no device tools and 12 rounds of guessing.
-    Cheap: ``get_tool_definitions`` is cached on the registry generation.
-    """
-    try:
-        import tools.device_skill_tools  # noqa: F401  registers + subscribes on first import
-        from model_tools import get_tool_definitions
-        fresh = get_tool_definitions(enabled_toolsets=["devices"], quiet_mode=True) or []
-    except Exception:
-        return
-    try:
-        def _name(t):
-            return ((t.get("function") or {}).get("name") or t.get("name") or "") if isinstance(t, dict) else ""
-        current = list(getattr(agent, "tools", None) or [])
-        fresh = list(fresh)
-        # Drop the stale device_* tools AND anything the refreshed `devices`
-        # toolset is about to re-supply. `notify_phone` lives in that toolset
-        # but is not named device_*, so keeping it here and appending the
-        # toolset's copy sent the declaration twice — which Gemini rejects
-        # outright ("Duplicate function declaration found: notify_phone").
-        fresh_names = {_name(t) for t in fresh}
-        fresh_names.discard("")
-        base = [t for t in current
-                if not _name(t).startswith("device_") and _name(t) not in fresh_names]
-        if len(base) == len(current) and not fresh:
-            return
-        merged = base + fresh
-        # Belt and braces: never advertise the same name twice, whatever the source.
-        seen, deduped = set(), []
-        for tool in merged:
-            name = _name(tool)
-            if name and name in seen:
-                continue
-            if name:
-                seen.add(name)
-            deduped.append(tool)
-        agent.tools = deduped
-        # The executor validates calls against valid_tool_names; a tool that is
-        # advertised but not valid fails with "does not exist" — which is what
-        # every device_* call did on a warm agent.
-        names = {_name(t) for t in agent.tools}
-        names.discard("")
-        valid = set(getattr(agent, "valid_tool_names", None) or set())
-        valid = {n for n in valid if not n.startswith("device_")} | names
-        agent.valid_tool_names = valid
-        if getattr(agent, "_lazy_all_tool_names", None) is not None:
-            agent._lazy_all_tool_names = set(agent._lazy_all_tool_names) | names
-    except Exception:
-        pass
-
-
 def _run_agent_streaming(
     session_id,
     msg_text,

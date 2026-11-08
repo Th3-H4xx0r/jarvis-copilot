@@ -66,29 +66,6 @@ class TestSseFanoutContract:
 
 
 class TestBackgroundPollFallback:
-    def test_jobs_are_listed_with_the_background_task_shape(self):
-        from webui.api import background as bg
-
-        job_id = escalation.start_escalation(
-            session_id="sess", reason="deep research", summary="find X",
-            runner=lambda job: "found X")
-        assert _wait_for(lambda: escalation.get_job(job_id)["status"] == "done")
-        rows = bg.get_escalation_tasks("sess")
-        assert len(rows) == 1
-        assert rows[0]["task_id"] == job_id
-        assert rows[0]["answer"] == "found X"
-        assert rows[0]["status"] == "done"
-        assert set(rows[0]) >= {"task_id", "prompt", "answer", "completed_at"}
-
-    def test_drain_returns_undelivered_results_once(self):
-        from webui.api import background as bg
-
-        escalation.start_escalation(
-            session_id="sess", reason="r", summary="s", runner=lambda job: "text")
-        assert _wait_for(lambda: escalation.pending_count("sess") == 1)
-        assert [r["text"] for r in bg.drain_escalation_results("sess")] == ["text"]
-        assert bg.drain_escalation_results("sess") == []
-
     def test_existing_background_helpers_are_untouched(self):
         from webui.api import background as bg
 

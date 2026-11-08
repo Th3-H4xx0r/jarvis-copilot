@@ -1604,45 +1604,6 @@ def test_a_segment_nobody_attributed_reads_as_the_device_label(cfg):
     assert "] Unknown: and a line with nothing at all on it" in block
 
 
-# ── the header a person actually reads ─────────────────────────────────────
-
-
-def test_the_session_header_is_the_name_the_time_and_the_mic():
-    """Verbatim, because the user read the old one and said: "I don't want to
-    see all this ramdom crap"."""
-    started = time.mktime((2026, 9, 21, 23, 31, 0, 0, 0, -1))
-
-    header = live_watchers.render_session_header(
-        title="Live — 21 Sep, 23:31", source_label="iPhone Microphone",
-        started_at=started)
-
-    assert header == ("**Live session** — Live — 21 Sep, 23:31\n"
-                      "Started 21 Sep at 23:31 · iPhone Microphone")
-
-
-def test_the_session_header_carries_no_machine_noise():
-    """No device UUID, no live-transcript id, no paragraph about prompt
-    prefixes, no instruction to use a tool. The id lives in
-    `live_session.chat_session_id` and the chat's `source_tag`, which is where
-    machines read it from anyway."""
-    header = live_watchers.render_session_header(
-        title="Standup", source_label="iPhone Microphone",
-        started_at=time.mktime((2026, 9, 21, 23, 31, 0, 0, 0, -1)))
-
-    lowered = header.lower()
-    for noise in ("device", "transcript id", "live_transcript", "prompt",
-                  "tool", "participants are labelled"):
-        assert noise not in lowered, f"the header still says {noise!r}"
-    assert len(header.splitlines()) == 2
-
-
-def test_the_session_header_survives_a_nameless_recording():
-    header = live_watchers.render_session_header(
-        source_label="", started_at=time.mktime((2026, 9, 21, 23, 31, 0, 0, 0, -1)))
-
-    assert header == "**Live session**\nStarted 21 Sep at 23:31 · unspecified mic"
-
-
 def test_the_rollup_names_the_speakers_so_forgetting_a_voice_can_find_it(
         cfg, events, model, chat):
     """`summary` is deliberately full of names, so a rollup that listed no

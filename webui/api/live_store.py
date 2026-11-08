@@ -1063,18 +1063,6 @@ def sessions_on_day(day: str) -> list:
         return [r["id"] for r in cur.fetchall()]
 
 
-def delete_day(day: str) -> dict:
-    """Exact: every session started on that local day, audio and transcript.
-
-    §3.1 offers this next to per-session delete, and it is the one the storage
-    panel's per-day rows need in order to be actionable rather than decorative.
-    """
-    freed, ids = 0, sessions_on_day(day)
-    for sid in ids:
-        freed += int(delete_session(sid)["freed_bytes"])
-    return {"day": day, "sessions_deleted": len(ids), "freed_bytes": freed}
-
-
 def forget_speaker(speaker_id: str) -> dict:
     """Drop a voiceprint, that voice's transcript rows, and any digest naming
     them. Audio is KEPT.

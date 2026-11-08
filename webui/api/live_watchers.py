@@ -1567,35 +1567,6 @@ def _render_artifact_message(summary: str, decisions: list, actions: list,
 # ── the paired chat ────────────────────────────────────────────────────────
 
 
-def render_session_header(*, title: str = "", source_label: str = "",
-                          started_at: float = 0.0) -> str:
-    """The first message in a live session's paired chat.
-
-    Three facts, because they are the three a person wants: what the recording
-    is called, when it started, which microphone. Called by
-    `live_ws._chat_header_text`.
-
-    Deliberately NOT here, all of it removed after the user read it and said
-    "I don't want to see all this ramdom crap":
-
-    * the device UUID and the live-transcript id — neither means anything to a
-      reader, and neither is needed for machine use: `live_session` already
-      stores `chat_session_id` (chat → recording) and the chat itself is marked
-      `source_tag="live"`, which is what every machine reader actually keys on.
-      An id in prose was a third copy, in the one place that costs a human
-      something.
-    * "the full transcript is deliberately NOT streamed into this chat" — now
-      false as well as noisy. It is streamed, one block per window.
-    * the instruction to use the `live_transcript` tool. The user is reading a
-      chat, not operating one.
-    """
-    stamp = time.localtime(started_at or time.time())
-    when = f"{stamp.tm_mday} {time.strftime('%b at %H:%M', stamp)}"
-    name = str(title or "").strip()
-    return (f"**Live session** — {name}\n" if name else "**Live session**\n") + \
-        f"Started {when} · {str(source_label or '').strip() or 'unspecified mic'}"
-
-
 def _load_chat_session(chat_session_id: str):
     """The webui Session object for the paired chat, or None."""
     try:
