@@ -630,6 +630,26 @@ def _custom_provider_request_overrides(custom_provider: Dict[str, Any]) -> Dict[
     return {"extra_body": dict(extra_body)}
 
 
+def _requested_provider_norm(requested_provider: Optional[str]) -> str:
+    """Lower-cased requested provider, with aliases of "custom" folded in.
+
+    GitHub #27132: aliases that resolve to "custom" (ollama, vllm,
+    llamacpp, …) follow the same base_url trust and routing rules as a bare
+    ``provider: custom``, so a ``provider: ollama`` with a LAN base_url
+    doesn't silently fall through to OpenRouter.
+    """
+    requested_norm = (requested_provider or "").strip().lower()
+    if requested_norm and requested_norm != "custom":
+        try:
+            from jarviscopilot_cli.auth import resolve_provider as _resolve_provider
+
+            if _resolve_provider(requested_norm) == "custom":
+                return "custom"
+        except Exception:
+            pass
+    return requested_norm
+
+
 def _resolve_named_custom_runtime(
     *,
     requested_provider: str,
@@ -640,19 +660,7 @@ def _resolve_named_custom_runtime(
     # from a `model_aliases:` direct-alias resolution) — build a runtime
     # directly so the alias's base_url actually takes effect.
     #
-    # GitHub #27132: provider aliases that resolve to "custom" at runtime
-    # (ollama, vllm, llamacpp, …) are treated identically here, so a YAML
-    # `provider: ollama` with a LAN/WireGuard `base_url` doesn't silently
-    # fall through to OpenRouter.
-    requested_norm = (requested_provider or "").strip().lower()
-    if requested_norm and requested_norm != "custom":
-        try:
-            from jarviscopilot_cli.auth import resolve_provider as _resolve_provider
-
-            if _resolve_provider(requested_norm) == "custom":
-                requested_norm = "custom"
-        except Exception:
-            pass
+    requested_norm = _requested_provider_norm(requested_provider)
     if requested_norm == "custom" and explicit_base_url:
         base_url = explicit_base_url.strip().rstrip("/")
         # Check credential pool first — mirrors the named-custom-provider path
@@ -764,21 +772,8 @@ def _resolve_openrouter_runtime(
         if isinstance(v, str) and v.strip():
             cfg_api_key = v.strip()
             break
-    requested_norm = (requested_provider or "").strip().lower()
+    requested_norm = _requested_provider_norm(requested_provider)
     cfg_provider = cfg_provider.strip().lower()
-    # GitHub #27132: provider aliases that resolve to "custom" (ollama,
-    # vllm, llamacpp, …) follow the same base_url trust + routing rules
-    # as a bare `provider: custom`. Normalising here keeps every check
-    # below — `requested_norm == "custom"`, the trust check, the pool
-    # gate up the stack — alias-aware without duplicating the alias map.
-    if requested_norm and requested_norm != "custom":
-        try:
-            from jarviscopilot_cli.auth import resolve_provider as _resolve_provider
-
-            if _resolve_provider(requested_norm) == "custom":
-                requested_norm = "custom"
-        except Exception:
-            pass
 
     env_openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "").strip()
     env_custom_base_url = os.getenv("CUSTOM_BASE_URL", "").strip()
