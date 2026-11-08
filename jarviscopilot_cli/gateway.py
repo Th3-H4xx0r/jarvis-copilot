@@ -2171,47 +2171,25 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
         working_dir = _remap_path_for_user(working_dir, home_dir)
         venv_dir = _remap_path_for_user(venv_dir, home_dir)
         path_entries = [_remap_path_for_user(p, home_dir) for p in path_entries]
-        path_entries.extend(_build_user_local_paths(Path(home_dir), path_entries))
-        path_entries.extend(_build_wsl_interop_paths(path_entries))
-        path_entries.extend(common_bin_paths)
-        sane_path = ":".join(path_entries)
-        return f"""[Unit]
-Description={SERVICE_DESCRIPTION}
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=0
+        user_home = Path(home_dir)
+        identity = (
+            f"User={username}\n"
+            f"Group={group_name}\n"
+        )
+        identity_env = (
+            f'Environment="HOME={home_dir}"\n'
+            f'Environment="USER={username}"\n'
+            f'Environment="LOGNAME={username}"\n'
+        )
+        wanted_by = "multi-user.target"
+    else:
+        hermes_home = str(get_hermes_home().resolve())
+        profile_arg = _profile_arg(hermes_home)
+        user_home = Path.home()
+        identity = identity_env = ""
+        wanted_by = "default.target"
 
-[Service]
-Type=simple
-User={username}
-Group={group_name}
-ExecStart={python_path} -m jarviscopilot_cli.main{f" {profile_arg}" if profile_arg else ""} gateway run --replace
-WorkingDirectory={working_dir}
-Environment="HOME={home_dir}"
-Environment="USER={username}"
-Environment="LOGNAME={username}"
-Environment="PATH={sane_path}"
-Environment="VIRTUAL_ENV={venv_dir}"
-Environment="HERMES_HOME={hermes_home}"
-Restart=always
-RestartSec=5
-RestartMaxDelaySec=300
-RestartSteps=5
-RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
-KillMode=mixed
-KillSignal=SIGTERM
-ExecReload=/bin/kill -USR1 $MAINPID
-TimeoutStopSec={restart_timeout}
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-"""
-
-    hermes_home = str(get_hermes_home().resolve())
-    profile_arg = _profile_arg(hermes_home)
-    path_entries.extend(_build_user_local_paths(Path.home(), path_entries))
+    path_entries.extend(_build_user_local_paths(user_home, path_entries))
     path_entries.extend(_build_wsl_interop_paths(path_entries))
     path_entries.extend(common_bin_paths)
     sane_path = ":".join(path_entries)
@@ -2223,9 +2201,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart={python_path} -m jarviscopilot_cli.main{f" {profile_arg}" if profile_arg else ""} gateway run --replace
+{identity}ExecStart={python_path} -m jarviscopilot_cli.main{f" {profile_arg}" if profile_arg else ""} gateway run --replace
 WorkingDirectory={working_dir}
-Environment="PATH={sane_path}"
+{identity_env}Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
 Environment="HERMES_HOME={hermes_home}"
 Restart=always
@@ -2241,8 +2219,9 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=default.target
+WantedBy={wanted_by}
 """
+
 
 def _normalize_service_definition(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.strip().splitlines())
