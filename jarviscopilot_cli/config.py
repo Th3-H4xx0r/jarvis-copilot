@@ -4143,6 +4143,19 @@ def _preserve_env_ref_templates(current, raw, loaded_expanded=None):
     return current
 
 
+def model_section(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Return ``config["model"]`` as a dict, upgrading the legacy string form.
+
+    A bare model-name string becomes ``{"default": name}``; the dict is
+    stored back on ``config`` so callers can edit it in place.
+    """
+    model = config.get("model")
+    if not isinstance(model, dict):
+        model = {"default": model} if model else {}
+        config["model"] = model
+    return model
+
+
 def _normalize_root_model_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """Move stale root-level provider/base_url/context_length into model section.
 
@@ -4159,10 +4172,7 @@ def _normalize_root_model_keys(config: Dict[str, Any]) -> Dict[str, Any]:
         return config
 
     config = dict(config)
-    model = config.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if model else {}
-        config["model"] = model
+    model = model_section(config)
 
     for key in ("provider", "base_url", "context_length"):
         root_val = config.get(key)

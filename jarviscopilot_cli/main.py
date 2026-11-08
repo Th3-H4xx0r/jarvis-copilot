@@ -190,7 +190,7 @@ _apply_profile_override()
 
 # Load .env from ~/.jarviscopilot/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from jarviscopilot_cli.config import get_hermes_home
+from jarviscopilot_cli.config import get_hermes_home, model_section
 from jarviscopilot_cli.env_loader import load_hermes_dotenv
 
 load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
@@ -2448,10 +2448,7 @@ def _model_flow_openrouter(config, current_model=""):
         from jarviscopilot_cli.config import load_config, save_config
 
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "openrouter"
         model["base_url"] = OPENROUTER_BASE_URL
         model["api_mode"] = "chat_completions"
@@ -2500,10 +2497,7 @@ def _model_flow_ai_gateway(config, current_model=""):
         from jarviscopilot_cli.config import load_config, save_config
 
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "ai-gateway"
         model["base_url"] = AI_GATEWAY_BASE_URL
         model["api_mode"] = "chat_completions"
@@ -3215,10 +3209,7 @@ def _model_flow_custom(config):
 
         # Update config and deactivate any OAuth provider
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "custom"
         model["base_url"] = effective_url
         if effective_key:
@@ -3242,9 +3233,7 @@ def _model_flow_custom(config):
             deactivate_provider()
         # Even without a model name, persist the custom endpoint on the
         # caller's config dict so the setup wizard doesn't lose it.
-        _caller_model = config.get("model")
-        if not isinstance(_caller_model, dict):
-            _caller_model = {"default": _caller_model} if _caller_model else {}
+        _caller_model = model_section(config)
         _caller_model["provider"] = "custom"
         _caller_model["base_url"] = effective_url
         if effective_key:
@@ -3746,10 +3735,7 @@ def _model_flow_azure_foundry(config, current_model=""):
         save_env_value("AZURE_FOUNDRY_API_KEY", effective_key)
 
     cfg = load_config()
-    model = cfg.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if model else {}
-        cfg["model"] = model
+    model = model_section(cfg)
 
     model["provider"] = "azure-foundry"
     model["base_url"] = effective_url
@@ -3974,10 +3960,7 @@ def _model_flow_named_custom(config, provider_info):
     _save_model_choice(model_name)
 
     cfg = load_config()
-    model = cfg.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if model else {}
-        cfg["model"] = model
+    model = model_section(cfg)
     if provider_key:
         model["provider"] = provider_key
         model.pop("base_url", None)
@@ -4307,10 +4290,7 @@ def _model_flow_copilot(config, current_model=""):
         _save_model_choice(selected)
 
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = provider_id
         model["base_url"] = effective_base
         model["api_mode"] = copilot_model_api_mode(
@@ -4433,10 +4413,7 @@ def _model_flow_copilot_acp(config, current_model=""):
     _save_model_choice(selected)
 
     cfg = load_config()
-    model = cfg.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if model else {}
-        cfg["model"] = model
+    model = model_section(cfg)
     model["provider"] = provider_id
     model["base_url"] = effective_base
     model["api_mode"] = "chat_completions"
@@ -4596,10 +4573,7 @@ def _model_flow_claude_code(config, current_model=""):
     _save_model_choice(selected)
 
     cfg = load_config()
-    model = cfg.get("model")
-    if not isinstance(model, dict):
-        model = {"default": model} if model else {}
-        cfg["model"] = model
+    model = model_section(cfg)
     model["provider"] = provider_id
     model["base_url"] = effective_base
     model["api_mode"] = "chat_completions"
@@ -4769,10 +4743,7 @@ def _model_flow_kimi(config, current_model=""):
 
         # Update config with provider and base URL
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = provider_id
         model["base_url"] = effective_base
         model.pop("api_mode", None)  # let runtime auto-detect from URL
@@ -4896,10 +4867,7 @@ def _model_flow_stepfun(config, current_model=""):
         _save_model_choice(selected)
 
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = provider_id
         model["base_url"] = effective_base
         model.pop("api_mode", None)
@@ -4972,10 +4940,7 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
 
         # Save as custom provider pointing to bedrock-mantle
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "custom"
         model["base_url"] = mantle_base_url
         model.pop("api_mode", None)  # chat_completions is the default
@@ -5161,10 +5126,7 @@ def _model_flow_bedrock(config, current_model=""):
         _save_model_choice(selected)
 
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "bedrock"
         model["base_url"] = f"https://bedrock-runtime.{region}.amazonaws.com"
         model.pop("api_mode", None)  # bedrock_converse is auto-detected
@@ -5448,10 +5410,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
 
         # Update config with provider, base URL, and provider-specific API mode
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = provider_id
         model["base_url"] = effective_base
         if provider_id in {"opencode-zen", "opencode-go"}:
@@ -5683,10 +5642,7 @@ def _model_flow_anthropic(config, current_model=""):
         # Leaving a stale base_url in config can contaminate other
         # providers if the user switches without running 'jarviscopilot model'.
         cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
+        model = model_section(cfg)
         model["provider"] = "anthropic"
         model.pop("base_url", None)
         save_config(cfg)
