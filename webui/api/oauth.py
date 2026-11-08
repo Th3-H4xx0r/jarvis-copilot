@@ -106,6 +106,36 @@ def resolve_runtime_provider_with_anthropic_env_lock(resolver, *args, **kwargs):
         return resolver(*args, **kwargs)
 
 
+def credentials_from_runtime(runtime, provider, base_url):
+    """``(api_key, provider, base_url)``: the resolved runtime's key, with its
+    provider and base URL filling the blanks; a named ``custom:`` provider that
+    the runtime resolver can't place falls back to config.yaml custom_providers."""
+    runtime = runtime or {}
+    api_key = runtime.get("api_key")
+    provider = provider or runtime.get("provider")
+    base_url = base_url or runtime.get("base_url")
+    if isinstance(provider, str) and provider.startswith("custom:"):
+        from api.config import resolve_custom_provider_connection
+        custom_key, custom_base = resolve_custom_provider_connection(provider)
+        if not api_key and custom_key:
+            api_key = custom_key
+        if not base_url and custom_base:
+            base_url = custom_base
+    return api_key, provider, base_url
+
+
+def runtime_credentials(provider, base_url, *, what: str):
+    """``credentials_from_runtime`` after resolving ``provider`` the way the
+    gateway does; a resolver failure is logged and leaves only the config."""
+    runtime = {}
+    try:
+        from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
+        runtime = resolve_runtime_provider_with_anthropic_env_lock(resolve_runtime_provider, requested=provider)
+    except Exception as exc:
+        logger.warning("resolve_runtime_provider failed for %s: %s", what, exc)
+    return credentials_from_runtime(runtime, provider, base_url)
+
+
 def _normalize_onboarding_oauth_provider(provider: str) -> str:
     provider = str(provider or "").strip().lower()
     if provider in _ANTHROPIC_PROVIDER_ALIASES:

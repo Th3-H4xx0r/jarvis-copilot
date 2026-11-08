@@ -3504,11 +3504,7 @@ def handle_post(handler, parsed) -> bool:
                 "update summary",
                 logger_override=logger,
             ):
-                from api.config import (
-                    get_effective_default_model,
-                    resolve_model_provider,
-                    resolve_custom_provider_connection,
-                )
+                from api.config import get_effective_default_model, resolve_model_provider
 
                 messages = [
                     {"role": "system", "content": system_prompt},
@@ -3516,28 +3512,9 @@ def handle_post(handler, parsed) -> bool:
                 ]
 
                 _main_model, _main_provider, _main_base_url = resolve_model_provider(get_effective_default_model())
-                _main_api_key = None
-                try:
-                    from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-                    from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
-
-                    _rt = resolve_runtime_provider_with_anthropic_env_lock(
-                        resolve_runtime_provider,
-                        requested=_main_provider,
-                    )
-                    _main_api_key = _rt.get("api_key")
-                    if not _main_provider:
-                        _main_provider = _rt.get("provider")
-                    if not _main_base_url:
-                        _main_base_url = _rt.get("base_url")
-                except Exception as _e:
-                    logger.debug("update summary runtime provider resolution failed: %s", _e)
-                if isinstance(_main_provider, str) and _main_provider.startswith("custom:"):
-                    _cp_key, _cp_base = resolve_custom_provider_connection(_main_provider)
-                    if not _main_api_key and _cp_key:
-                        _main_api_key = _cp_key
-                    if not _main_base_url and _cp_base:
-                        _main_base_url = _cp_base
+                from api.oauth import runtime_credentials
+                _main_api_key, _main_provider, _main_base_url = runtime_credentials(
+                    _main_provider, _main_base_url, what="update summary")
 
                 main_runtime = {
                     "provider": _main_provider,
@@ -5600,42 +5577,13 @@ def _handle_chat_sync(handler, body):
         from run_agent import AIAgent
 
         with CHAT_LOCK:
-            from api.config import (
-                resolve_model_provider,
-                route_anthropic_via_claude_code,
-                resolve_custom_provider_connection,
-            )
+            from api.config import resolve_model_provider, route_anthropic_via_claude_code
 
             _model, _provider, _base_url = route_anthropic_via_claude_code(*resolve_model_provider(
                 model_with_provider_context(s.model, getattr(s, "model_provider", None))
             ))
-            # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour)
-            _api_key = None
-            try:
-                from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-                from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
-
-                _rt = resolve_runtime_provider_with_anthropic_env_lock(
-                    resolve_runtime_provider,
-                    requested=_provider,
-                )
-                _api_key = _rt.get("api_key")
-                # Also use runtime provider/base_url if the webui config didn't resolve them
-                if not _provider:
-                    _provider = _rt.get("provider")
-                if not _base_url:
-                    _base_url = _rt.get("base_url")
-            except Exception as _e:
-                print(
-                    f"[webui] WARNING: resolve_runtime_provider failed: {_e}",
-                    flush=True,
-                )
-            if isinstance(_provider, str) and _provider.startswith("custom:"):
-                _cp_key, _cp_base = resolve_custom_provider_connection(_provider)
-                if not _api_key and _cp_key:
-                    _api_key = _cp_key
-                if not _base_url and _cp_base:
-                    _base_url = _cp_base
+            from api.oauth import runtime_credentials
+            _api_key, _provider, _base_url = runtime_credentials(_provider, _base_url, what="a side chat")
             agent = AIAgent(
                 model=_model,
                 provider=_provider,

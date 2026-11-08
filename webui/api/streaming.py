@@ -19,7 +19,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from api import sse
+from api.oauth import credentials_from_runtime
 from api.session_model import context_length_for
 from api.turn_options import TurnOptions
 from api.config import (
@@ -35,7 +35,6 @@ from api.config import (
     SESSION_AGENT_LOCKS, SESSION_AGENT_LOCKS_LOCK,
     resolve_model_provider,
     route_anthropic_via_claude_code,
-    resolve_custom_provider_connection,
     model_with_provider_context,
     load_settings,
 )
@@ -584,7 +583,6 @@ def _aiagent_import_error_detail() -> str:
     lines.append('  Full troubleshooting: docs/troubleshooting.md ("AIAgent not available")')
     return "\n".join(lines)
 from api.models import get_session, title_from
-from api.workspace import set_last_workspace
 
 # Fields that are safe to send to LLM provider APIs.
 # Everything else (attachments, timestamp, _ts, etc.) is display-only
@@ -3758,7 +3756,7 @@ def _run_agent_streaming(
 
             # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour).
             # Pass the resolved provider so non-default providers get their own credentials.
-            resolved_api_key = None
+            _rt = {}
             try:
                 from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
                 from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
@@ -3766,11 +3764,6 @@ def _run_agent_streaming(
                     resolve_runtime_provider,
                     requested=resolved_provider,
                 )
-                resolved_api_key = _rt.get("api_key")
-                if not resolved_provider:
-                    resolved_provider = _rt.get("provider")
-                if not resolved_base_url:
-                    resolved_base_url = _rt.get("base_url")
             except Exception as _e:
                 # No key / no Claude account: tell the user rather than build
                 # an agent with no credential that fails somewhere less clear.
@@ -3778,15 +3771,8 @@ def _run_agent_streaming(
                     raise
                 print(f"[webui] WARNING: resolve_runtime_provider failed: {_e}", flush=True)
 
-            # Named custom providers (custom:slug) may not be resolvable by
-            # jarviscopilot_cli.runtime_provider directly. Fall back to config.yaml
-            # custom_providers[] so WebUI can pass explicit creds/base_url.
-            if isinstance(resolved_provider, str) and resolved_provider.startswith("custom:"):
-                _cp_key, _cp_base = resolve_custom_provider_connection(resolved_provider)
-                if not resolved_api_key and _cp_key:
-                    resolved_api_key = _cp_key
-                if not resolved_base_url and _cp_base:
-                    resolved_base_url = _cp_base
+            resolved_api_key, resolved_provider, resolved_base_url = credentials_from_runtime(
+                _rt, resolved_provider, resolved_base_url)
 
             # Read per-profile config at call time (not module-level snapshot)
             from api.config import get_config as _get_config
@@ -4496,17 +4482,8 @@ def _run_agent_streaming(
                         if _heal_rt is not None:
                             logger.info('[webui] self-heal: retrying stream after credential refresh')
                             _rt = _heal_rt
-                            resolved_api_key = _heal_rt.get('api_key')
-                            if not resolved_provider:
-                                resolved_provider = _heal_rt.get('provider')
-                            if not resolved_base_url:
-                                resolved_base_url = _heal_rt.get('base_url')
-                            if isinstance(resolved_provider, str) and resolved_provider.startswith('custom:'):
-                                _cp_key, _cp_base = resolve_custom_provider_connection(resolved_provider)
-                                if not resolved_api_key and _cp_key:
-                                    resolved_api_key = _cp_key
-                                if not resolved_base_url and _cp_base:
-                                    resolved_base_url = _cp_base
+                            resolved_api_key, resolved_provider, resolved_base_url = credentials_from_runtime(
+                                _heal_rt, resolved_provider, resolved_base_url)
                             _agent_kwargs['api_key'] = resolved_api_key
                             _agent_kwargs['base_url'] = resolved_base_url
                             _agent_kwargs['model'] = resolved_model
@@ -5231,17 +5208,8 @@ def _run_agent_streaming(
                     logger.info('[webui] self-heal (except path): retrying stream after credential refresh')
                     _self_healed = True
                     _rt = _heal_rt
-                    resolved_api_key = _heal_rt.get('api_key')
-                    if not resolved_provider:
-                        resolved_provider = _heal_rt.get('provider')
-                    if not resolved_base_url:
-                        resolved_base_url = _heal_rt.get('base_url')
-                    if isinstance(resolved_provider, str) and resolved_provider.startswith('custom:'):
-                        _cp_key, _cp_base = resolve_custom_provider_connection(resolved_provider)
-                        if not resolved_api_key and _cp_key:
-                            resolved_api_key = _cp_key
-                        if not resolved_base_url and _cp_base:
-                            resolved_base_url = _cp_base
+                    resolved_api_key, resolved_provider, resolved_base_url = credentials_from_runtime(
+                        _heal_rt, resolved_provider, resolved_base_url)
                     _heal_kwargs = dict(_agent_kwargs) if '_agent_kwargs' in dir() else {}
                     _heal_kwargs['api_key'] = resolved_api_key
                     _heal_kwargs['base_url'] = resolved_base_url

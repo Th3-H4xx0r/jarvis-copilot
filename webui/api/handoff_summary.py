@@ -464,8 +464,7 @@ def _handle_handoff_summary(handler, body):
 
     try:
         import api.config as _cfg
-        from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-        import jarviscopilot_cli.runtime_provider as _runtime_provider
+        from api.oauth import runtime_credentials
         import run_agent as _run_agent
 
         # Try to resolve model from an existing session, fall back to default.
@@ -483,26 +482,8 @@ def _handle_handoff_summary(handler, body):
             *_cfg.resolve_model_provider(resolved_model)
         )
 
-        resolved_api_key = None
-        try:
-            _rt = resolve_runtime_provider_with_anthropic_env_lock(
-                _runtime_provider.resolve_runtime_provider,
-                requested=resolved_provider,
-            )
-            resolved_api_key = _rt.get("api_key")
-            if not resolved_provider:
-                resolved_provider = _rt.get("provider")
-            if not resolved_base_url:
-                resolved_base_url = _rt.get("base_url")
-        except Exception as _e:
-            logger.warning("resolve_runtime_provider failed for handoff summary: %s", _e)
-
-        if isinstance(resolved_provider, str) and resolved_provider.startswith("custom:"):
-            _cp_key, _cp_base = _cfg.resolve_custom_provider_connection(resolved_provider)
-            if not resolved_api_key and _cp_key:
-                resolved_api_key = _cp_key
-            if not resolved_base_url and _cp_base:
-                resolved_base_url = _cp_base
+        resolved_api_key, resolved_provider, resolved_base_url = runtime_credentials(
+            resolved_provider, resolved_base_url, what="handoff summary")
 
         if not resolved_api_key:
             summary_text = _fallback_handoff_summary(msgs)
