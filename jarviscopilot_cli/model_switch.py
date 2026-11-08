@@ -279,17 +279,6 @@ class ModelSwitchResult:
     is_global: bool = False
 
 
-@dataclass
-class CustomAutoResult:
-    """Result of switching to bare 'custom' provider with auto-detect."""
-
-    success: bool
-    model: str = ""
-    base_url: str = ""
-    api_key: str = ""
-    error_message: str = ""
-
-
 # ---------------------------------------------------------------------------
 # Flag parsing
 # ---------------------------------------------------------------------------

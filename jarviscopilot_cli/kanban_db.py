@@ -1175,42 +1175,6 @@ def _attempt_db_rebuild(path: Path) -> bool:
         return False
 
 
-@contextlib.contextmanager
-def _heal_lock(path: Path):
-    """Cross-process exclusive lock around DB repair.
-
-    The integrity guard runs on EVERY connect, across many webui threads and
-    worker processes. Without serialization, several of them would REINDEX /
-    dump-rebuild / ``os.replace`` the SAME file at once — and those concurrent
-    in-place rewrites are what escalate a recoverable index inconsistency into
-    unrecoverable page corruption. Hold this lock so exactly one process repairs
-    at a time; the rest wait, then re-check (it's already healed) and move on.
-
-    Best-effort: a no-op if ``fcntl`` is unavailable (Windows).
-    """
-    lock_path = Path(str(path) + ".heal.lock")
-    fh = None
-    try:
-        try:
-            fh = open(lock_path, "w")
-            import fcntl
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            fh = None  # locking unavailable — proceed unserialized (best-effort)
-        yield
-    finally:
-        if fh is not None:
-            try:
-                import fcntl
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-            try:
-                fh.close()
-            except Exception:
-                pass
-
-
 def _integrity_ok(path: Path) -> bool:
     """Quick ``PRAGMA integrity_check`` — True only when the DB is clean."""
     try:
@@ -2147,21 +2111,6 @@ def child_ids(conn: sqlite3.Connection, task_id: str) -> list[str]:
         (task_id,),
     ).fetchall()
     return [r["child_id"] for r in rows]
-
-
-def parent_results(conn: sqlite3.Connection, task_id: str) -> list[tuple[str, Optional[str]]]:
-    """Return ``(parent_id, result)`` for every done parent of ``task_id``."""
-    rows = conn.execute(
-        """
-        SELECT t.id AS id, t.result AS result
-        FROM tasks t
-        JOIN task_links l ON l.parent_id = t.id
-        WHERE l.child_id = ? AND t.status = 'done'
-        ORDER BY t.completed_at ASC
-        """,
-        (task_id,),
-    ).fetchall()
-    return [(r["id"], r["result"]) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -4582,10 +4531,8 @@ def detect_stale_running(
     if stale_timeout_seconds <= 0:
         return []
 
-    import signal as _signal_mod
 
     now = int(time.time())
-    host_prefix = f"{_claimer_id().split(':', 1)[0]}:"
     reclaimed: list[str] = []
 
     rows = conn.execute(
@@ -4669,21 +4616,6 @@ def detect_stale_running(
         # spawn_failed / timed_out / crashed counters.
 
     return reclaimed
-
-
-def set_max_runtime(
-    conn: sqlite3.Connection,
-    task_id: str,
-    seconds: Optional[int],
-) -> bool:
-    """Set or clear the per-task max_runtime_seconds. Returns True on
-    success."""
-    with write_txn(conn):
-        cur = conn.execute(
-            "UPDATE tasks SET max_runtime_seconds = ? WHERE id = ?",
-            (int(seconds) if seconds is not None else None, task_id),
-        )
-    return cur.rowcount == 1
 
 
 def _error_fingerprint(error_text: str) -> str:
@@ -4891,7 +4823,6 @@ def _record_task_failure(
         if row is None:
             return False
         failures = int(row["consecutive_failures"]) + 1
-        cur_status = row["status"]
 
         # Per-task override wins over both caller-supplied and default
         # thresholds. None (the common case) falls through.
@@ -6352,7 +6283,7 @@ def _to_epoch(val) -> Optional[int]:
         pass
     # ISO-8601 fallback (e.g. '2026-05-10T15:00:00Z')
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
         return int(dt.timestamp())
     except (ValueError, OSError):
@@ -6799,16 +6730,6 @@ def list_runs(
 def get_run(conn: sqlite3.Connection, run_id: int) -> Optional[Run]:
     row = conn.execute(
         "SELECT * FROM task_runs WHERE id = ?", (int(run_id),),
-    ).fetchone()
-    return Run.from_row(row) if row else None
-
-
-def active_run(conn: sqlite3.Connection, task_id: str) -> Optional[Run]:
-    """Return the currently-open run for ``task_id`` (``ended_at IS NULL``)."""
-    row = conn.execute(
-        "SELECT * FROM task_runs WHERE task_id = ? AND ended_at IS NULL "
-        "ORDER BY started_at DESC LIMIT 1",
-        (task_id,),
     ).fetchone()
     return Run.from_row(row) if row else None
 

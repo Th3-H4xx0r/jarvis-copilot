@@ -560,14 +560,6 @@ class GoalManager:
         save_goal(self.session_id, self._state)
         self._state = None
 
-    def mark_done(self, reason: str) -> None:
-        if not self._state:
-            return
-        self._state.status = "done"
-        self._state.last_verdict = "done"
-        self._state.last_reason = reason
-        save_goal(self.session_id, self._state)
-
     # --- /subgoal user controls ---------------------------------------
 
     def add_subgoal(self, text: str) -> str:

@@ -175,42 +175,6 @@ def _get_available_providers() -> list:
 # Setup wizard
 # ---------------------------------------------------------------------------
 
-def cmd_setup_provider(provider_name: str) -> None:
-    """Run memory setup for a specific provider, skipping the picker."""
-    from jarviscopilot_cli.config import load_config, save_config
-
-    providers = _get_available_providers()
-    match = None
-    for name, desc, provider in providers:
-        if name == provider_name:
-            match = (name, desc, provider)
-            break
-
-    if not match:
-        print(f"\n  Memory provider '{provider_name}' not found.")
-        print("  Run 'jarviscopilot memory setup' to see available providers.\n")
-        return
-
-    name, _, provider = match
-
-    _install_dependencies(name)
-
-    config = load_config()
-    if not isinstance(config.get("memory"), dict):
-        config["memory"] = {}
-
-    if hasattr(provider, "post_setup"):
-        hermes_home = str(get_hermes_home())
-        provider.post_setup(hermes_home, config)
-        return
-
-    # Fallback: generic schema-based setup (same as cmd_setup)
-    config["memory"]["provider"] = name
-    save_config(config)
-    print(f"\n  Memory provider: {name}")
-    print(f"  Activation saved to config.yaml\n")
-
-
 def cmd_setup(args) -> None:
     """Interactive memory provider setup wizard."""
     from jarviscopilot_cli.config import load_config, save_config

@@ -211,24 +211,6 @@ def _copy_example_files(plugin_dir: Path, console) -> None:
                 )
 
 
-def _missing_requires_env_names(manifest: dict) -> list[str]:
-    """Return declared ``requires_env`` names that are unset in ``~/.jarviscopilot/.env``."""
-    requires_env = manifest.get("requires_env") or []
-    if not requires_env:
-        return []
-
-    from jarviscopilot_cli.config import get_env_value
-
-    env_specs: list[dict] = []
-    for entry in requires_env:
-        if isinstance(entry, str):
-            env_specs.append({"name": entry})
-        elif isinstance(entry, dict) and entry.get("name"):
-            env_specs.append(entry)
-
-    return [s["name"] for s in env_specs if s.get("name") and not get_env_value(s["name"])]
-
-
 def _prompt_plugin_env_vars(manifest: dict, console) -> None:
     """Prompt for required environment variables declared in plugin.yaml.
 
@@ -1339,52 +1321,6 @@ def _get_plugin_toolset_key(name: str) -> Optional[str]:
 
     return None
 
-
-def _toggle_plugin_toolset(name: str, *, enable: bool) -> None:
-    """Add or remove a plugin's toolset from platform_toolsets for all platforms.
-
-    Only acts if the plugin actually provides tools (has a toolset key).
-    """
-    toolset_key = _get_plugin_toolset_key(name)
-    if not toolset_key:
-        return
-
-    from jarviscopilot_cli.config import load_config, save_config
-
-    config = load_config()
-    platform_toolsets = config.get("platform_toolsets")
-    if not isinstance(platform_toolsets, dict):
-        platform_toolsets = {}
-        config["platform_toolsets"] = platform_toolsets
-
-    changed = False
-    for platform, ts_list in platform_toolsets.items():
-        if not isinstance(ts_list, list):
-            continue
-        if enable:
-            if toolset_key not in ts_list:
-                ts_list.append(toolset_key)
-                changed = True
-        elif toolset_key in ts_list:
-            ts_list.remove(toolset_key)
-            changed = True
-
-    # If enabling and no platforms have toolset lists yet, add to "cli" at minimum
-    if enable and not changed and not platform_toolsets:
-        platform_toolsets["cli"] = [toolset_key]
-        changed = True
-
-    if changed:
-        save_config(config)
-
-def _user_installed_plugin_dir(name: str) -> Optional[Path]:
-    """Resolved path under ``~/.jarviscopilot/plugins/<name>`` if it exists."""
-    plugins_dir = _plugins_dir()
-    try:
-        target = _sanitize_plugin_name(name, plugins_dir, allow_subdir=True)
-    except ValueError:
-        return None
-    return target if target.is_dir() else None
 
 def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
     git_exe = _resolve_git_executable()

@@ -6633,36 +6633,6 @@ class HermesCLI:
         remaining = len(self.conversation_history)
         print(f"  {remaining} message(s) remaining in history.")
     
-    def _run_curses_picker(self, title: str, items: list[str], default_index: int = 0) -> int | None:
-        """Run curses_single_select via run_in_terminal so prompt_toolkit handles terminal ownership cleanly."""
-        import threading
-        from jarviscopilot_cli.curses_ui import curses_single_select
-
-        result = [None]
-
-        def _pick():
-            result[0] = curses_single_select(title, items, default_index=default_index)
-
-        # run_in_terminal requires an asyncio event loop — only exists in the
-        # main prompt_toolkit thread.  If we're in a background thread (e.g.
-        # process_loop), fall back to direct curses call.
-        in_main_thread = threading.current_thread() is threading.main_thread()
-
-        if self._app and in_main_thread:
-            from prompt_toolkit.application import run_in_terminal
-            was_visible = self._status_bar_visible
-            self._status_bar_visible = False
-            self._app.invalidate()
-            try:
-                run_in_terminal(_pick)
-            finally:
-                self._status_bar_visible = was_visible
-                self._app.invalidate()
-        else:
-            _pick()
-
-        return result[0]
-
     def _prompt_text_input(self, prompt_text: str) -> str | None:
         """Prompt for free-text input safely inside or outside prompt_toolkit.
 

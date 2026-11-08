@@ -45,7 +45,6 @@ from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
-import yaml
 
 from jarviscopilot_cli.config import get_hermes_home, get_config_path, read_raw_config
 from jarviscopilot_constants import OPENROUTER_BASE_URL, secure_parent_dir
@@ -5784,11 +5783,6 @@ def resolve_claude_code_oauth_token() -> Optional[str]:
 def has_claude_code_setup_token() -> bool:
     """True when a Claude Code setup-token is stored in the credential pool."""
     return bool(resolve_claude_code_oauth_token())
-
-
-def clear_claude_code_setup_token() -> Path:
-    """Remove any stored Claude Code setup-token."""
-    return write_credential_pool("claude-code", [])
 
 
 def _claude_code_command() -> str:

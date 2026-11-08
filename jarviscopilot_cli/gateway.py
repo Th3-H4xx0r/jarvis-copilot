@@ -338,7 +338,6 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
             # PowerShell's Get-CimInstance.  Any OSError here (FileNotFoundError
             # on missing wmic) trips the fallback.
             wmic_path = shutil.which("wmic")
-            used_fallback = False
             result = None
             if wmic_path is not None:
                 try:
@@ -377,7 +376,6 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
                     )
                 except (OSError, subprocess.TimeoutExpired):
                     return []
-                used_fallback = True
             if result.returncode != 0 or result.stdout is None:
                 return []
             current_cmd = ""
@@ -3699,18 +3697,6 @@ def _setup_whatsapp():
     from jarviscopilot_cli.main import cmd_whatsapp
     import argparse
     cmd_whatsapp(argparse.Namespace())
-
-
-def _setup_email():
-    """Configure Email via the standard platform setup."""
-    email_platform = next(p for p in _PLATFORMS if p["key"] == "email")
-    _setup_standard_platform(email_platform)
-
-
-def _setup_sms():
-    """Configure SMS (Twilio) via the standard platform setup."""
-    sms_platform = next(p for p in _PLATFORMS if p["key"] == "sms")
-    _setup_standard_platform(sms_platform)
 
 
 def _is_service_installed() -> bool:

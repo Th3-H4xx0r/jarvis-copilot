@@ -1340,68 +1340,6 @@ def _format_price_per_mtok(per_token_str: str) -> str:
     return f"${per_m:.2f}"
 
 
-def format_model_pricing_table(
-    models: list[tuple[str, str]],
-    pricing_map: dict[str, dict[str, str]],
-    current_model: str = "",
-    indent: str = "      ",
-) -> list[str]:
-    """Build a column-aligned model+pricing table for terminal display.
-
-    Returns a list of pre-formatted lines ready to print.
-    *models* is ``[(model_id, description), ...]``.
-    """
-    if not models:
-        return []
-
-    # Build rows: (model_id, input_price, output_price, cache_price, is_current)
-    rows: list[tuple[str, str, str, str, bool]] = []
-    has_cache = False
-    for mid, _desc in models:
-        is_cur = mid == current_model
-        p = pricing_map.get(mid)
-        if p:
-            inp = _format_price_per_mtok(p.get("prompt", ""))
-            out = _format_price_per_mtok(p.get("completion", ""))
-            cache_read = p.get("input_cache_read", "")
-            cache = _format_price_per_mtok(cache_read) if cache_read else ""
-            if cache:
-                has_cache = True
-        else:
-            inp, out, cache = "", "", ""
-        rows.append((mid, inp, out, cache, is_cur))
-
-    name_col = max(len(r[0]) for r in rows) + 2
-    # Compute price column widths from the actual data so decimals align
-    price_col = max(
-        max((len(r[1]) for r in rows if r[1]), default=4),
-        max((len(r[2]) for r in rows if r[2]), default=4),
-        3,  # minimum: "In" / "Out" header
-    )
-    cache_col = max(
-        max((len(r[3]) for r in rows if r[3]), default=4),
-        5,  # minimum: "Cache" header
-    ) if has_cache else 0
-    lines: list[str] = []
-
-    # Header
-    if has_cache:
-        lines.append(f"{indent}{'Model':<{name_col}} {'In':>{price_col}}  {'Out':>{price_col}}  {'Cache':>{cache_col}}  /Mtok")
-        lines.append(f"{indent}{'-' * name_col} {'-' * price_col}  {'-' * price_col}  {'-' * cache_col}")
-    else:
-        lines.append(f"{indent}{'Model':<{name_col}} {'In':>{price_col}}  {'Out':>{price_col}}  /Mtok")
-        lines.append(f"{indent}{'-' * name_col} {'-' * price_col}  {'-' * price_col}")
-
-    for mid, inp, out, cache, is_cur in rows:
-        marker = "  ← current" if is_cur else ""
-        if has_cache:
-            lines.append(f"{indent}{mid:<{name_col}} {inp:>{price_col}}  {out:>{price_col}}  {cache:>{cache_col}}{marker}")
-        else:
-            lines.append(f"{indent}{mid:<{name_col}} {inp:>{price_col}}  {out:>{price_col}}{marker}")
-
-    return lines
-
-
 def fetch_models_with_pricing(
     api_key: str | None = None,
     base_url: str = "https://openrouter.ai/api",
