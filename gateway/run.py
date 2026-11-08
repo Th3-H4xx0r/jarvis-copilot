@@ -51,7 +51,6 @@ from typing import Dict, Optional, Any, List, Union
 # preserving the established test-patch surface.
 from agent.account_usage import fetch_account_usage, render_account_usage_lines
 from agent.async_utils import safe_schedule_threadsafe
-from agent.i18n import t
 from jarviscopilot_cli.config import cfg_get
 
 # --- Agent cache tuning ---------------------------------------------------
@@ -6249,7 +6248,7 @@ class GatewayRunner:
                     invalidation_reason="stop_command",
                 )
                 logger.info("STOP for session %s — agent interrupted, session lock released", _quick_key)
-                return EphemeralReply(t("gateway.stop.stopped"))
+                return EphemeralReply("⚡ Stopped. You can continue this session.")
 
             # /reset and /new must bypass the running-agent guard so they
             # actually dispatch as commands instead of being queued as user
@@ -8497,11 +8496,11 @@ class GatewayRunner:
             session_info = ""
 
         if new_entry:
-            header = self._telegram_topic_new_header(source) or t("gateway.reset.header_default")
+            header = self._telegram_topic_new_header(source) or "✨ Session reset! Starting fresh."
         else:
             # No existing session, just create one
             new_entry = self.session_store.get_or_create_session(source, force_new=True)
-            header = self._telegram_topic_new_header(source) or t("gateway.reset.header_new")
+            header = self._telegram_topic_new_header(source) or "✨ New session started!"
 
         # Set session title if provided with /new <title>
         _title_arg = event.get_command_args().strip()
@@ -8512,18 +8511,18 @@ class GatewayRunner:
                 sanitized = SessionDB.sanitize_title(_title_arg)
             except ValueError as e:
                 sanitized = None
-                _title_note = t("gateway.reset.title_rejected", error=str(e))
+                _title_note = f"\n⚠️ Title rejected: {str(e)}"
             if sanitized:
                 try:
                     self._session_db.set_session_title(new_entry.session_id, sanitized)
-                    header = t("gateway.reset.header_titled", title=sanitized)
+                    header = f"✨ New session started: {sanitized}"
                 except ValueError as e:
-                    _title_note = t("gateway.reset.title_error_untitled", error=str(e))
+                    _title_note = f"\n⚠️ {str(e)} — session started untitled."
                 except Exception:
                     pass
             elif not _title_note:
                 # sanitize_title returned empty (whitespace-only / unprintable)
-                _title_note = t("gateway.reset.title_empty_untitled")
+                _title_note = "\n⚠️ Title is empty after cleanup — session started untitled."
         header = header + _title_note
 
         # When /new runs inside a Telegram DM topic lane, rewrite the
@@ -8549,7 +8548,7 @@ class GatewayRunner:
         # Append a random tip to the reset message
         try:
             from jarviscopilot_cli.tips import get_random_tip
-            _tip_line = t("gateway.reset.tip", tip=get_random_tip())
+            _tip_line = f"\n✦ Tip: {get_random_tip()}"
         except Exception:
             _tip_line = ""
 
@@ -8566,8 +8565,8 @@ class GatewayRunner:
         profile_name = get_active_profile_name()
 
         lines = [
-            t("gateway.profile.header", profile=profile_name),
-            t("gateway.profile.home", home=display),
+            f"👤 **Profile:** `{profile_name}`",
+            f"📂 **Home:** `{display}`",
         ]
 
         return "\n".join(lines)
@@ -8718,7 +8717,7 @@ class GatewayRunner:
         try:
             output = await asyncio.to_thread(run_slash, text)
         except Exception as exc:  # pragma: no cover - defensive
-            return t("gateway.kanban.error_prefix", error=exc)
+            return f"⚠ kanban error: {exc}"
 
         # Auto-subscribe on create. Parse the task id from the CLI's standard
         # success line ("Created t_abcd  (ready, assignee=...)"). If the user
@@ -8755,7 +8754,7 @@ class GatewayRunner:
                         output = (
                             output.rstrip()
                             + "\n"
-                            + t("gateway.kanban.subscribed_suffix", task_id=task_id)
+                            + f"(subscribed — you'll be notified when {task_id} completes or blocks)"
                         )
                 except Exception as exc:
                     logger.warning("kanban create auto-subscribe failed: %s", exc)
@@ -8763,8 +8762,8 @@ class GatewayRunner:
         # Gateway messages have practical length caps; truncate long
         # listings to keep the UX reasonable.
         if len(output) > 3800:
-            output = output[:3800] + "\n" + t("gateway.kanban.truncated_suffix")
-        return output or t("gateway.kanban.no_output")
+            output = output[:3800] + "\n… (truncated; use `jarviscopilot kanban …` in your terminal for full output)"
+        return output or "(no output)"
 
     async def _handle_status_command(self, event: MessageEvent) -> str:
         """Handle /status command."""
@@ -8808,23 +8807,23 @@ class GatewayRunner:
                 db_total_tokens = 0
 
         lines = [
-            t("gateway.status.header"),
+            "📊 **JarvisCopilot Gateway Status**",
             "",
-            t("gateway.status.session_id", session_id=session_entry.session_id),
+            f"**Session ID:** `{session_entry.session_id}`",
         ]
         if title:
-            lines.append(t("gateway.status.title", title=title))
+            lines.append(f"**Title:** {title}")
         lines.extend([
-            t("gateway.status.created", timestamp=session_entry.created_at.strftime('%Y-%m-%d %H:%M')),
-            t("gateway.status.last_activity", timestamp=session_entry.updated_at.strftime('%Y-%m-%d %H:%M')),
-            t("gateway.status.tokens", tokens=f"{db_total_tokens:,}"),
-            t("gateway.status.agent_running", state=t("gateway.status.state_yes") if is_running else t("gateway.status.state_no")),
+            f"**Created:** {session_entry.created_at.strftime('%Y-%m-%d %H:%M')}",
+            f"**Last Activity:** {session_entry.updated_at.strftime('%Y-%m-%d %H:%M')}",
+            "**Tokens:** {tokens}".format(tokens=f"{db_total_tokens:,}"),
+            "**Agent Running:** {state}".format(state="Yes ⚡" if is_running else "No"),
         ])
         if queue_depth:
-            lines.append(t("gateway.status.queued", count=queue_depth))
+            lines.append(f"**Queued follow-ups:** {queue_depth}")
         lines.extend([
             "",
-            t("gateway.status.platforms", platforms=', '.join(connected_platforms)),
+            f"**Connected Platforms:** {', '.join(connected_platforms)}",
         ])
 
         # Session recap — what was this session ABOUT? Pure local compute,
@@ -8866,7 +8865,7 @@ class GatewayRunner:
                 {
                     "session_key": session_key,
                     "elapsed": elapsed,
-                    "state": t("gateway.agents.state_starting") if is_pending else t("gateway.agents.state_running"),
+                    "state": "starting" if is_pending else "running",
                     "session_id": "" if is_pending else str(getattr(agent, "session_id", "") or ""),
                     "model": "" if is_pending else str(getattr(agent, "model", "") or ""),
                 }
@@ -8889,14 +8888,14 @@ class GatewayRunner:
         ]
 
         lines = [
-            t("gateway.agents.header"),
+            "🤖 **Active Agents & Tasks**",
             "",
-            t("gateway.agents.active_agents", count=len(agent_rows)),
+            f"**Active agents:** {len(agent_rows)}",
         ]
 
         if agent_rows:
             for idx, row in enumerate(agent_rows[:12], 1):
-                current = t("gateway.agents.this_chat") if row["session_key"] == current_session_key else ""
+                current = " · this chat" if row["session_key"] == current_session_key else ""
                 sid = f" · `{row['session_id']}`" if row["session_id"] else ""
                 model = f" · `{row['model']}`" if row["model"] else ""
                 lines.append(
@@ -8904,12 +8903,12 @@ class GatewayRunner:
                     f"{format_uptime_short(row['elapsed'])}{sid}{model}{current}"
                 )
             if len(agent_rows) > 12:
-                lines.append(t("gateway.agents.more", count=len(agent_rows) - 12))
+                lines.append(f"... and {len(agent_rows) - 12} more")
 
         lines.extend(
             [
                 "",
-                t("gateway.agents.running_processes", count=len(running_processes)),
+                f"**Running background processes:** {len(running_processes)}",
             ]
         )
         if running_processes:
@@ -8922,18 +8921,18 @@ class GatewayRunner:
                     f"{format_uptime_short(int(proc.get('uptime_seconds', 0)))} · `{cmd}`"
                 )
             if len(running_processes) > 12:
-                lines.append(t("gateway.agents.more", count=len(running_processes) - 12))
+                lines.append(f"... and {len(running_processes) - 12} more")
 
         lines.extend(
             [
                 "",
-                t("gateway.agents.async_jobs", count=len(background_tasks)),
+                f"**Gateway async jobs:** {len(background_tasks)}",
             ]
         )
 
         if not agent_rows and not running_processes and not background_tasks:
             lines.append("")
-            lines.append(t("gateway.agents.none"))
+            lines.append("No active agents or running tasks.")
 
         return "\n".join(lines)
 
@@ -9039,7 +9038,7 @@ class GatewayRunner:
                 invalidation_reason="stop_command_pending",
             )
             logger.info("STOP (pending) for session %s — sentinel cleared", session_key)
-            return EphemeralReply(t("gateway.stop.stopped_pending"))
+            return EphemeralReply("⚡ Stopped. The agent hadn't started yet — you can continue this session.")
         if agent:
             # Force-clean the session lock so a truly hung agent doesn't
             # keep it locked forever.
@@ -9049,9 +9048,9 @@ class GatewayRunner:
                 interrupt_reason=_INTERRUPT_REASON_STOP,
                 invalidation_reason="stop_command_handler",
             )
-            return EphemeralReply(t("gateway.stop.stopped"))
+            return EphemeralReply("⚡ Stopped. You can continue this session.")
         else:
-            return t("gateway.stop.no_active")
+            return "No active task to stop."
 
     async def _handle_platform_command(self, event: MessageEvent) -> str:
         """Handle ``/platform list|pause|resume [name]`` — surface and
@@ -9171,8 +9170,8 @@ class GatewayRunner:
         if self._restart_requested or self._draining:
             count = self._running_agent_count()
             if count:
-                return t("gateway.draining", count=count)
-            return EphemeralReply(t("gateway.restart.in_progress"))
+                return f"⏳ Draining {count} active agent(s) before restart..."
+            return EphemeralReply("⏳ Gateway restart already in progress...")
 
         # Save the requester's routing info so the new gateway process can
         # notify them once it comes back online.
@@ -9225,8 +9224,8 @@ class GatewayRunner:
         else:
             self.request_restart(detached=True, via_service=False)
         if active_agents:
-            return t("gateway.draining", count=active_agents)
-        return EphemeralReply(t("gateway.restart.restarting"))
+            return f"⏳ Draining {active_agents} active agent(s) before restart..."
+        return EphemeralReply("♻ Restarting gateway. If you aren't notified within 60 seconds, restart from the console with `jarviscopilot gateway restart`.")
 
     def _is_stale_restart_redelivery(self, event: MessageEvent) -> bool:
         """Return True if this /restart is a Telegram re-delivery we already handled.
@@ -9282,20 +9281,20 @@ class GatewayRunner:
         """Handle /help command - list available commands."""
         from jarviscopilot_cli.commands import gateway_help_lines
         lines = [
-            t("gateway.help.header"),
+            "📖 **JarvisCopilot Commands**\n",
             *gateway_help_lines(),
         ]
         try:
             from agent.skill_commands import get_skill_commands
             skill_cmds = get_skill_commands()
             if skill_cmds:
-                lines.append(t("gateway.help.skill_header", count=len(skill_cmds)))
+                lines.append(f"\n⚡ **Skill Commands** ({len(skill_cmds)} active):")
                 # Show first 10, then point to /commands for the rest
                 sorted_cmds = sorted(skill_cmds)
                 for cmd in sorted_cmds[:10]:
                     lines.append(f"`{cmd}` — {skill_cmds[cmd]['description']}")
                 if len(sorted_cmds) > 10:
-                    lines.append(t("gateway.help.more_use_commands", count=len(sorted_cmds) - 10))
+                    lines.append(f"\n... and {len(sorted_cmds) - 10} more. Use `/commands` for the full paginated list.")
         except Exception:
             pass
         return _telegramize_command_mentions(
@@ -9312,7 +9311,7 @@ class GatewayRunner:
             try:
                 requested_page = int(raw_args)
             except ValueError:
-                return t("gateway.commands.usage")
+                return "Usage: `/commands [page]`"
         else:
             requested_page = 1
 
@@ -9323,15 +9322,15 @@ class GatewayRunner:
             skill_cmds = get_skill_commands()
             if skill_cmds:
                 entries.append("")
-                entries.append(t("gateway.commands.skill_header"))
+                entries.append("⚡ **Skill Commands**:")
                 for cmd in sorted(skill_cmds):
-                    desc = skill_cmds[cmd].get("description", "").strip() or t("gateway.commands.default_desc")
+                    desc = skill_cmds[cmd].get("description", "").strip() or "Skill command"
                     entries.append(f"`{cmd}` — {desc}")
         except Exception:
             pass
 
         if not entries:
-            return t("gateway.commands.none")
+            return "No commands available."
 
         from gateway.config import Platform
         page_size = 15 if event.source.platform == Platform.TELEGRAM else 20
@@ -9341,19 +9340,19 @@ class GatewayRunner:
         page_entries = entries[start:start + page_size]
 
         lines = [
-            t("gateway.commands.header", total=len(entries), page=page, total_pages=total_pages),
+            f"📚 **Commands** ({len(entries)} total, page {page}/{total_pages})",
             "",
             *page_entries,
         ]
         if total_pages > 1:
             nav_parts = []
             if page > 1:
-                nav_parts.append(t("gateway.commands.nav_prev", page=page - 1))
+                nav_parts.append(f"`/commands {page - 1}` ← prev")
             if page < total_pages:
-                nav_parts.append(t("gateway.commands.nav_next", page=page + 1))
+                nav_parts.append(f"next → `/commands {page + 1}`")
             lines.extend(["", " | ".join(nav_parts)])
         if page != requested_page:
-            lines.append(t("gateway.commands.out_of_range", requested=requested_page, page=page))
+            lines.append(f"_(Requested page {requested_page} was out of range, showing page {page}.)_")
         return _telegramize_command_mentions(
             "\n".join(lines),
             getattr(getattr(event, "source", None), "platform", None),
@@ -9465,7 +9464,7 @@ class GatewayRunner:
                             custom_providers=custom_provs,
                         )
                         if not result.success:
-                            return t("gateway.model.error_prefix", error=result.error_message)
+                            return f"Error: {result.error_message}"
 
                         # Update cached agent in-place
                         cached_entry = None
@@ -9509,8 +9508,8 @@ class GatewayRunner:
 
                         # Build confirmation text
                         plabel = result.provider_label or result.target_provider
-                        lines = [t("gateway.model.switched", model=result.new_model)]
-                        lines.append(t("gateway.model.provider_label", provider=plabel))
+                        lines = [f"Model switched to `{result.new_model}`"]
+                        lines.append(f"Provider: {plabel}")
                         mi = result.model_info
                         from jarviscopilot_cli.model_switch import resolve_display_context_length
                         _sw_config_ctx = None
@@ -9533,14 +9532,14 @@ class GatewayRunner:
                             config_context_length=_sw_config_ctx,
                         )
                         if ctx:
-                            lines.append(t("gateway.model.context_label", tokens=f"{ctx:,}"))
+                            lines.append("Context: {tokens} tokens".format(tokens=f"{ctx:,}"))
                         if mi:
                             if mi.max_output:
-                                lines.append(t("gateway.model.max_output_label", tokens=f"{mi.max_output:,}"))
+                                lines.append("Max output: {tokens} tokens".format(tokens=f"{mi.max_output:,}"))
                             if mi.has_cost_data():
-                                lines.append(t("gateway.model.cost_label", cost=mi.format_cost()))
-                            lines.append(t("gateway.model.capabilities_label", capabilities=mi.format_capabilities()))
-                        lines.append(t("gateway.model.session_only_hint"))
+                                lines.append(f"Cost: {mi.format_cost()}")
+                            lines.append(f"Capabilities: {mi.format_capabilities()}")
+                        lines.append("_(session only — add `--global` to persist)_")
                         return "\n".join(lines)
 
                     metadata = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
@@ -9558,7 +9557,7 @@ class GatewayRunner:
 
             # Fallback: text list (for platforms without picker or if picker failed)
             provider_label = get_label(current_provider)
-            lines = [t("gateway.model.current_label", model=current_model or "unknown", provider=provider_label), ""]
+            lines = ["Current: `{model}` on {provider}".format(model=current_model or "unknown", provider=provider_label), ""]
 
             try:
                 providers = list_authenticated_providers(
@@ -9570,11 +9569,11 @@ class GatewayRunner:
                     max_models=5,
                 )
                 for p in providers:
-                    tag = t("gateway.model.current_tag") if p["is_current"] else ""
+                    tag = " (current)" if p["is_current"] else ""
                     lines.append(f"**{p['name']}** `--provider {p['slug']}`{tag}:")
                     if p["models"]:
                         model_strs = ", ".join(f"`{m}`" for m in p["models"])
-                        extra = t("gateway.model.more_models_suffix", count=p["total_models"] - len(p["models"])) if p["total_models"] > len(p["models"]) else ""
+                        extra = " (+{count} more)".format(count=p["total_models"] - len(p["models"])) if p["total_models"] > len(p["models"]) else ""
                         lines.append(f"  {model_strs}{extra}")
                     elif p.get("api_url"):
                         lines.append(f"  `{p['api_url']}`")
@@ -9582,9 +9581,9 @@ class GatewayRunner:
             except Exception:
                 pass
 
-            lines.append(t("gateway.model.usage_switch_model"))
-            lines.append(t("gateway.model.usage_switch_provider"))
-            lines.append(t("gateway.model.usage_persist"))
+            lines.append("`/model <name>` — switch model")
+            lines.append("`/model <name> --provider <slug>` — switch provider")
+            lines.append("`/model <name> --global` — persist")
             return "\n".join(lines)
 
         # Perform the switch
@@ -9601,7 +9600,7 @@ class GatewayRunner:
         )
 
         if not result.success:
-            return t("gateway.model.error_prefix", error=result.error_message)
+            return f"Error: {result.error_message}"
 
         # If there's a cached agent, update it in-place
         cached_entry = None
@@ -9666,8 +9665,8 @@ class GatewayRunner:
 
         # Build confirmation message with full metadata
         provider_label = result.provider_label or result.target_provider
-        lines = [t("gateway.model.switched", model=result.new_model)]
-        lines.append(t("gateway.model.provider_label", provider=provider_label))
+        lines = [f"Model switched to `{result.new_model}`"]
+        lines.append(f"Provider: {provider_label}")
 
         # Context: always resolve via the provider-aware chain so Codex OAuth,
         # Copilot, and Nous-enforced caps win over the raw models.dev entry.
@@ -9693,13 +9692,13 @@ class GatewayRunner:
             config_context_length=_sw2_config_ctx,
         )
         if ctx:
-            lines.append(t("gateway.model.context_label", tokens=f"{ctx:,}"))
+            lines.append("Context: {tokens} tokens".format(tokens=f"{ctx:,}"))
         if mi:
             if mi.max_output:
-                lines.append(t("gateway.model.max_output_label", tokens=f"{mi.max_output:,}"))
+                lines.append("Max output: {tokens} tokens".format(tokens=f"{mi.max_output:,}"))
             if mi.has_cost_data():
-                lines.append(t("gateway.model.cost_label", cost=mi.format_cost()))
-            lines.append(t("gateway.model.capabilities_label", capabilities=mi.format_capabilities()))
+                lines.append(f"Cost: {mi.format_cost()}")
+            lines.append(f"Capabilities: {mi.format_capabilities()}")
 
         # Cache notice
         cache_enabled = (
@@ -9707,15 +9706,15 @@ class GatewayRunner:
             or result.api_mode == "anthropic_messages"
         )
         if cache_enabled:
-            lines.append(t("gateway.model.prompt_caching_enabled"))
+            lines.append("Prompt caching: enabled")
 
         if result.warning_message:
-            lines.append(t("gateway.model.warning_prefix", warning=result.warning_message))
+            lines.append(f"Warning: {result.warning_message}")
 
         if persist_global:
-            lines.append(t("gateway.model.saved_global"))
+            lines.append("Saved to config.yaml (`--global`)")
         else:
-            lines.append(t("gateway.model.session_only_hint"))
+            lines.append("_(session only — add `--global` to persist)_")
 
         return "\n".join(lines)
 
@@ -9779,18 +9778,18 @@ class GatewayRunner:
             personalities = {}
 
         if not personalities:
-            return t("gateway.personality.none_configured", path=display_hermes_home())
+            return f"No personalities configured in `{display_hermes_home()}/config.yaml`"
 
         if not args:
-            lines = [t("gateway.personality.header")]
-            lines.append(t("gateway.personality.none_option"))
+            lines = ["🎭 **Available Personalities**\n"]
+            lines.append("• `none` — (no personality overlay)")
             for name, prompt in personalities.items():
                 if isinstance(prompt, dict):
                     preview = prompt.get("description") or prompt.get("system_prompt", "")[:50]
                 else:
                     preview = prompt[:50] + "..." if len(prompt) > 50 else prompt
-                lines.append(t("gateway.personality.item", name=name, preview=preview))
-            lines.append(t("gateway.personality.usage"))
+                lines.append(f"• `{name}` — {preview}")
+            lines.append("\nUsage: `/personality <name>`")
             return "\n".join(lines)
 
         def _resolve_prompt(value):
@@ -9810,9 +9809,9 @@ class GatewayRunner:
                 config["agent"]["system_prompt"] = ""
                 atomic_yaml_write(config_path, config)
             except Exception as e:
-                return t("gateway.personality.save_failed", error=str(e))
+                return f"⚠️ Failed to save personality change: {str(e)}"
             self._ephemeral_system_prompt = ""
-            return t("gateway.personality.cleared")
+            return "🎭 Personality cleared — using base agent behavior.\n_(takes effect on next message)_"
         elif args in personalities:
             new_prompt = _resolve_prompt(personalities[args])
 
@@ -9823,15 +9822,15 @@ class GatewayRunner:
                 config["agent"]["system_prompt"] = new_prompt
                 atomic_yaml_write(config_path, config)
             except Exception as e:
-                return t("gateway.personality.save_failed", error=str(e))
+                return f"⚠️ Failed to save personality change: {str(e)}"
 
             # Update in-memory so it takes effect on the very next message.
             self._ephemeral_system_prompt = new_prompt
 
-            return t("gateway.personality.set_to", name=args)
+            return f"🎭 Personality set to **{args}**\n_(takes effect on next message)_"
 
         available = "`none`, " + ", ".join(f"`{n}`" for n in personalities)
-        return t("gateway.personality.unknown", name=args, available=available)
+        return f"Unknown personality: `{args}`\n\nAvailable: {available}"
 
     async def _handle_retry_command(self, event: MessageEvent) -> str:
         """Handle /retry command - re-send the last user message."""
@@ -9849,7 +9848,7 @@ class GatewayRunner:
                 break
         
         if not last_user_msg:
-            return t("gateway.retry.no_previous")
+            return "No previous message to retry."
         
         # Truncate history to before the last user message and persist
         truncated = history[:last_user_idx]
@@ -9931,7 +9930,7 @@ class GatewayRunner:
 
         mgr, session_entry = self._get_goal_manager_for_event(event)
         if mgr is None:
-            return t("gateway.goal.unavailable")
+            return "Goals unavailable on this session."
 
         if not args or lower == "status":
             return mgr.status_line()
@@ -9939,7 +9938,7 @@ class GatewayRunner:
         if lower == "pause":
             state = mgr.pause(reason="user-paused")
             if state is None:
-                return t("gateway.goal.no_goal_set")
+                return "No goal set."
             try:
                 adapter = self.adapters.get(event.source.platform) if event.source else None
                 _quick_key = self._session_key_for_source(event.source) if event.source else None
@@ -9947,13 +9946,13 @@ class GatewayRunner:
                     self._clear_goal_pending_continuations(_quick_key, adapter)
             except Exception as exc:
                 logger.debug("goal pause: pending continuation cleanup failed: %s", exc)
-            return t("gateway.goal.paused", goal=state.goal)
+            return f"⏸ Goal paused: {state.goal}"
 
         if lower == "resume":
             state = mgr.resume()
             if state is None:
-                return t("gateway.goal.no_resume")
-            return t("gateway.goal.resumed", goal=state.goal)
+                return "No goal to resume."
+            return f"▶ Goal resumed: {state.goal}\nSend any message to continue, or wait — I'll take the next step on the next turn."
 
         if lower in {"clear", "stop", "done"}:
             had = mgr.has_goal()
@@ -9965,13 +9964,13 @@ class GatewayRunner:
                     self._clear_goal_pending_continuations(_quick_key, adapter)
             except Exception as exc:
                 logger.debug("goal clear: pending continuation cleanup failed: %s", exc)
-            return t("gateway.goal_cleared") if had else t("gateway.no_active_goal")
+            return "✓ Goal cleared." if had else "No active goal."
 
         # Otherwise — treat the remaining text as the new goal.
         try:
             state = mgr.set(args)
         except ValueError as exc:
-            return t("gateway.goal.invalid", error=str(exc))
+            return f"Invalid goal: {str(exc)}"
 
         # Queue the goal text as an immediate first turn so the agent
         # starts making progress. The post-turn hook takes over after.
@@ -9990,7 +9989,7 @@ class GatewayRunner:
             except Exception as exc:
                 logger.debug("goal kickoff enqueue failed: %s", exc)
 
-        return t("gateway.goal.set", budget=state.max_turns, goal=state.goal)
+        return f"⊙ Goal set ({state.max_turns}-turn budget): {state.goal}\nI'll keep working until the goal is done, you pause/clear it, or the budget is exhausted.\nControls: /goal status · /goal pause · /goal resume · /goal clear"
 
     async def _handle_subgoal_command(self, event: "MessageEvent") -> str:
         """Handle /subgoal for gateway platforms (mirror of CLI handler).
@@ -10002,7 +10001,7 @@ class GatewayRunner:
         args = (event.get_command_args() or "").strip()
         mgr, _session_entry = self._get_goal_manager_for_event(event)
         if mgr is None:
-            return t("gateway.goal.unavailable")
+            return "Goals unavailable on this session."
         if not mgr.has_goal():
             return "No active goal. Set one with /goal <text>."
 
@@ -10188,7 +10187,7 @@ class GatewayRunner:
                 break
         
         if last_user_idx is None:
-            return t("gateway.undo.nothing")
+            return "Nothing to undo."
         
         removed_msg = history[last_user_idx].get("content", "")
         removed_count = len(history) - last_user_idx
@@ -10197,7 +10196,7 @@ class GatewayRunner:
         session_entry.last_prompt_tokens = 0
         
         preview = removed_msg[:40] + "..." if len(removed_msg) > 40 else removed_msg
-        return t("gateway.undo.removed", count=removed_count, preview=preview)
+        return f"↩️ Undid {removed_count} message(s).\nRemoved: \"{preview}\""
 
     async def _handle_set_home_command(self, event: MessageEvent) -> str:
         """Handle /sethome command -- set the current chat as the platform's home channel."""
@@ -10218,7 +10217,7 @@ class GatewayRunner:
             # /sethome is run from the parent chat instead of a thread.
             save_env_value(thread_env_key, str(thread_id or ""))
         except Exception as e:
-            return t("gateway.set_home.save_failed", error=e)
+            return f"Failed to save home channel: {e}"
 
         # Keep the running gateway config in sync too. The pre-restart
         # notification path reads self.config before the process reloads env.
@@ -10234,7 +10233,7 @@ class GatewayRunner:
                 thread_id=str(thread_id) if thread_id else None,
             )
 
-        return t("gateway.set_home.success", name=chat_name, chat_id=chat_id)
+        return f"✅ Home channel set to **{chat_name}** (ID: {chat_id}).\nCron jobs and cross-platform messages will be delivered here."
 
     @staticmethod
     def _get_guild_id(event: MessageEvent) -> Optional[int]:
@@ -10264,19 +10263,19 @@ class GatewayRunner:
             self._save_voice_modes()
             if adapter:
                 self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-            return t("gateway.voice.enabled_voice_only")
+            return "Voice mode enabled.\nI'll reply with voice when you send voice messages.\nUse /voice tts to get voice replies for all messages."
         elif args in {"off", "disable"}:
             self._voice_mode[voice_key] = "off"
             self._save_voice_modes()
             if adapter:
                 self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-            return t("gateway.voice.disabled_text")
+            return "Voice mode disabled. Text-only replies."
         elif args == "tts":
             self._voice_mode[voice_key] = "all"
             self._save_voice_modes()
             if adapter:
                 self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-            return t("gateway.voice.tts_enabled")
+            return "Auto-TTS enabled.\nAll replies will include a voice message."
         elif args in {"channel", "join"}:
             return await self._handle_voice_channel_join(event)
         elif args == "leave":
@@ -10284,9 +10283,9 @@ class GatewayRunner:
         elif args == "status":
             mode = self._voice_mode.get(voice_key, "off")
             labels = {
-                "off": t("gateway.voice.label_off"),
-                "voice_only": t("gateway.voice.label_voice_only"),
-                "all": t("gateway.voice.label_all"),
+                "off": "Off (text only)",
+                "voice_only": "On (voice reply to voice messages)",
+                "all": "TTS (voice reply to all messages)",
             }
             # Append voice channel info if connected
             adapter = self.adapters.get(event.source.platform)
@@ -10295,15 +10294,15 @@ class GatewayRunner:
                 info = adapter.get_voice_channel_info(guild_id)
                 if info:
                     lines = [
-                        t("gateway.voice.status_mode", label=labels.get(mode, mode)),
-                        t("gateway.voice.status_channel", channel=info['channel_name']),
-                        t("gateway.voice.status_participants", count=info['member_count']),
+                        f"Voice mode: {labels.get(mode, mode)}",
+                        f"Voice channel: #{info['channel_name']}",
+                        f"Participants: {info['member_count']}",
                     ]
                     for m in info["members"]:
-                        status = t("gateway.voice.speaking") if m.get("is_speaking") else ""
-                        lines.append(t("gateway.voice.status_member", name=m['display_name'], status=status))
+                        status = " (speaking)" if m.get("is_speaking") else ""
+                        lines.append(f"  - {m['display_name']}{status}")
                     return "\n".join(lines)
-            return t("gateway.voice.status_mode", label=labels.get(mode, mode))
+            return f"Voice mode: {labels.get(mode, mode)}"
         else:
             # Toggle: off → on, on/all → off
             current = self._voice_mode.get(voice_key, "off")
@@ -10312,13 +10311,13 @@ class GatewayRunner:
                 self._save_voice_modes()
                 if adapter:
                     self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-                return t("gateway.voice.enabled_short")
+                return "Voice mode enabled."
             else:
                 self._voice_mode[voice_key] = "off"
                 self._save_voice_modes()
                 if adapter:
                     self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-                return t("gateway.voice.disabled_short")
+                return "Voice mode disabled."
 
     async def _handle_voice_channel_join(self, event: MessageEvent) -> str:
         """Join the user's current Discord voice channel."""
@@ -10758,7 +10757,7 @@ class GatewayRunner:
             pass
 
         if not cp_cfg.get("enabled", False):
-            return t("gateway.rollback.not_enabled")
+            return "Checkpoints are not enabled.\nEnable in config.yaml:\n```\ncheckpoints:\n  enabled: true\n```"
 
         mgr = CheckpointManager(
             enabled=True,
@@ -10777,7 +10776,7 @@ class GatewayRunner:
         # Restore by number or hash
         checkpoints = mgr.list_checkpoints(cwd)
         if not checkpoints:
-            return t("gateway.rollback.none_found", cwd=cwd)
+            return f"No checkpoints found for {cwd}"
 
         target_hash = None
         try:
@@ -10785,18 +10784,14 @@ class GatewayRunner:
             if 0 <= idx < len(checkpoints):
                 target_hash = checkpoints[idx]["hash"]
             else:
-                return t("gateway.rollback.invalid_number", max=len(checkpoints))
+                return f"Invalid checkpoint number. Use 1-{len(checkpoints)}."
         except ValueError:
             target_hash = arg
 
         result = mgr.restore(cwd, target_hash)
         if result["success"]:
-            return t(
-                "gateway.rollback.restored",
-                hash=result["restored_to"],
-                reason=result["reason"],
-            )
-        return t("gateway.rollback.restore_failed", error=result["error"])
+            return "✅ Restored to checkpoint {hash}: {reason}\nA pre-rollback snapshot was saved automatically.".format(hash=result["restored_to"], reason=result["reason"])
+        return "❌ {error}".format(error=result["error"])
 
     async def _handle_background_command(self, event: MessageEvent) -> str:
         """Handle /background <prompt> — run a prompt in a separate background session.
@@ -10807,7 +10802,7 @@ class GatewayRunner:
         """
         prompt = event.get_command_args().strip()
         if not prompt:
-            return t("gateway.background.usage")
+            return "Usage: /background <prompt>\nExample: /background Summarize the top HN stories today\n\nRuns the prompt in a separate session. You can keep chatting — the result will appear here when done."
 
         source = event.source
         task_id = f"bg_{datetime.now().strftime('%H%M%S')}_{os.urandom(3).hex()}"
@@ -10833,7 +10828,7 @@ class GatewayRunner:
         _task.add_done_callback(self._background_tasks.discard)
 
         preview = prompt[:60] + ("..." if len(prompt) > 60 else "")
-        return t("gateway.background.started", preview=preview, task_id=task_id)
+        return f"🔄 Background task started: \"{preview}\"\nTask ID: {task_id}\nYou can keep chatting — results will appear when done."
 
     async def _run_background_task(
         self,
@@ -11054,73 +11049,65 @@ class GatewayRunner:
             # Show current state
             rc = self._reasoning_config
             if rc is None:
-                level = t("gateway.reasoning.level_default")
+                level = "medium (default)"
             elif rc.get("enabled") is False:
-                level = t("gateway.reasoning.level_disabled")
+                level = "none (disabled)"
             else:
                 level = rc.get("effort", "medium")
             display_state = (
-                t("gateway.reasoning.display_on")
+                "on ✓"
                 if self._show_reasoning
-                else t("gateway.reasoning.display_off")
+                else "off"
             )
             has_session_override = session_key in (getattr(self, "_session_reasoning_overrides", {}) or {})
             scope = (
-                t("gateway.reasoning.scope_session")
+                "session override"
                 if has_session_override
-                else t("gateway.reasoning.scope_global")
+                else "global config"
             )
-            return t(
-                "gateway.reasoning.status",
-                level=level,
-                scope=scope,
-                display=display_state,
-            )
+            return f"🧠 **Reasoning Settings**\n\n**Effort:** `{level}`\n**Scope:** {scope}\n**Display:** {display_state}\n\n_Usage:_ `/reasoning <none|minimal|low|medium|high|xhigh|reset|show|hide> [--global]`"
 
         # Display toggle (per-platform)
         platform_key = _platform_config_key(event.source.platform)
         if args in {"show", "on"}:
             self._show_reasoning = True
             _save_config_key(f"display.platforms.{platform_key}.show_reasoning", True)
-            return t("gateway.reasoning.display_set_on", platform=platform_key)
+            return f"🧠 ✓ Reasoning display: **ON**\nModel thinking will be shown before each response on **{platform_key}**."
 
         if args in {"hide", "off"}:
             self._show_reasoning = False
             _save_config_key(f"display.platforms.{platform_key}.show_reasoning", False)
-            return t("gateway.reasoning.display_set_off", platform=platform_key)
+            return f"🧠 ✓ Reasoning display: **OFF** for **{platform_key}**"
 
         # Effort level change
         effort = args.strip()
         if effort == "reset":
             if persist_global:
-                return t("gateway.reasoning.reset_global_unsupported")
+                return "⚠️ `/reasoning reset --global` is not supported. Use `/reasoning <level> --global` to change the global default."
             self._set_session_reasoning_override(session_key, None)
             self._reasoning_config = self._load_reasoning_config()
             self._evict_cached_agent(session_key)
-            return t("gateway.reasoning.reset_done")
+            return "🧠 ✓ Session reasoning override cleared; falling back to global config."
         if effort == "none":
             parsed = {"enabled": False}
         elif effort in {"minimal", "low", "medium", "high", "xhigh"}:
             parsed = {"enabled": True, "effort": effort}
         else:
-            return t(
-                "gateway.reasoning.unknown_arg",
-                arg=effort or raw_args.lower(),
-            )
+            return f"⚠️ Unknown argument: `{effort or raw_args.lower()}`\n\n**Valid levels:** none, minimal, low, medium, high, xhigh\n**Display:** show, hide\n**Persist:** add `--global` to save beyond this session"
 
         self._reasoning_config = parsed
         if persist_global:
             if _save_config_key("agent.reasoning_effort", effort):
                 self._set_session_reasoning_override(session_key, None)
                 self._evict_cached_agent(session_key)
-                return t("gateway.reasoning.set_global", effort=effort)
+                return f"🧠 ✓ Reasoning effort set to `{effort}` (saved to config)\n_(takes effect on next message)_"
             self._set_session_reasoning_override(session_key, parsed)
             self._evict_cached_agent(session_key)
-            return t("gateway.reasoning.set_global_save_failed", effort=effort)
+            return f"🧠 ✓ Reasoning effort set to `{effort}` (session only — config save failed)\n_(takes effect on next message)_"
 
         self._set_session_reasoning_override(session_key, parsed)
         self._evict_cached_agent(session_key)
-        return t("gateway.reasoning.set_session", effort=effort)
+        return f"🧠 ✓ Reasoning effort set to `{effort}` (session only — add `--global` to persist)\n_(takes effect on next message)_"
 
     async def _handle_fast_command(self, event: MessageEvent) -> str:
         """Handle /fast — mirror the CLI Priority Processing toggle in gateway chats."""
@@ -11134,7 +11121,7 @@ class GatewayRunner:
         user_config = _load_gateway_config()
         model = _resolve_gateway_model(user_config)
         if not model_supports_fast_mode(model):
-            return t("gateway.fast.not_supported")
+            return "⚡ /fast is only available for OpenAI models that support Priority Processing."
 
         def _save_config_key(key_path: str, value):
             """Save a dot-separated key to config.yaml."""
@@ -11157,23 +11144,23 @@ class GatewayRunner:
                 return False
 
         if not args or args == "status":
-            status = t("gateway.fast.status_fast") if self._service_tier == "priority" else t("gateway.fast.status_normal")
-            return t("gateway.fast.status", mode=status)
+            status = "fast" if self._service_tier == "priority" else "normal"
+            return f"⚡ Priority Processing\n\nCurrent mode: `{status}`\n\n_Usage:_ `/fast <normal|fast|status>`"
 
         if args in {"fast", "on"}:
             self._service_tier = "priority"
             saved_value = "fast"
-            label = t("gateway.fast.label_fast")
+            label = "FAST"
         elif args in {"normal", "off"}:
             self._service_tier = None
             saved_value = "normal"
-            label = t("gateway.fast.label_normal")
+            label = "NORMAL"
         else:
-            return t("gateway.fast.unknown_arg", arg=args)
+            return f"⚠️ Unknown argument: `{args}`\n\n**Valid options:** normal, fast, status"
 
         if _save_config_key("agent.service_tier", saved_value):
-            return t("gateway.fast.saved", label=label)
-        return t("gateway.fast.session_only", label=label)
+            return f"⚡ ✓ Priority Processing: **{label}** (saved to config)\n_(takes effect on next message)_"
+        return f"⚡ ✓ Priority Processing: **{label}** (this session only)"
 
     async def _handle_yolo_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /yolo — toggle dangerous command approval bypass for this session only."""
@@ -11187,10 +11174,10 @@ class GatewayRunner:
         current = is_session_yolo_enabled(session_key)
         if current:
             disable_session_yolo(session_key)
-            return EphemeralReply(t("gateway.yolo.disabled"))
+            return EphemeralReply("⚠️ YOLO mode **OFF** for this session — dangerous commands will require approval.")
         else:
             enable_session_yolo(session_key)
-            return EphemeralReply(t("gateway.yolo.enabled"))
+            return EphemeralReply("⚡ YOLO mode **ON** for this session — all commands auto-approved. Use with caution.")
 
     async def _handle_verbose_command(self, event: MessageEvent) -> str:
         """Handle /verbose command — cycle tool progress display mode.
@@ -11216,15 +11203,15 @@ class GatewayRunner:
             gate_enabled = False
 
         if not gate_enabled:
-            return t("gateway.verbose.not_enabled")
+            return "The `/verbose` command is not enabled for messaging platforms.\n\nEnable it in `config.yaml`:\n```yaml\ndisplay:\n  tool_progress_command: true\n```"
 
         # --- cycle mode (per-platform) ----------------------------------------
         cycle = ["off", "new", "all", "verbose"]
         descriptions = {
-            "off": t("gateway.verbose.mode_off"),
-            "new": t("gateway.verbose.mode_new"),
-            "all": t("gateway.verbose.mode_all"),
-            "verbose": t("gateway.verbose.mode_verbose"),
+            "off": "⚙️ Tool progress: **OFF** — no tool activity shown.",
+            "new": "⚙️ Tool progress: **NEW** — shown when tool changes (preview length: `display.tool_preview_length`, default 40).",
+            "all": "⚙️ Tool progress: **ALL** — every tool call shown (preview length: `display.tool_preview_length`, default 40).",
+            "verbose": "⚙️ Tool progress: **VERBOSE** — every tool call with full arguments.",
         }
 
         # Read current effective mode for this platform via the resolver
@@ -11248,11 +11235,11 @@ class GatewayRunner:
             atomic_yaml_write(config_path, user_config)
             return (
                 f"{descriptions[new_mode]}\n"
-                + t("gateway.verbose.saved_suffix", platform=platform_key)
+                + f"_(saved for **{platform_key}** — takes effect on next message)_"
             )
         except Exception as e:
             logger.warning("Failed to save tool_progress mode: %s", e)
-            return f"{descriptions[new_mode]}\n" + t("gateway.verbose.save_failed", error=e)
+            return f"{descriptions[new_mode]}\n" + f"_(could not save to config: {e})_"
 
     async def _handle_footer_command(self, event: MessageEvent) -> str:
         """Handle /footer command — toggle the runtime-metadata footer.
@@ -11288,19 +11275,14 @@ class GatewayRunner:
         try:
             user_config: dict = _load_gateway_config()
         except Exception as e:
-            return t("gateway.config_read_failed", error=e)
+            return f"⚠️ Could not read config.yaml: {e}"
 
         effective = resolve_footer_config(user_config, platform_key)
 
         if arg in {"status", "?"}:
-            state = t("gateway.footer.state_on") if effective["enabled"] else t("gateway.footer.state_off")
+            state = "ON" if effective["enabled"] else "OFF"
             fields = ", ".join(effective.get("fields") or [])
-            return t(
-                "gateway.footer.status",
-                state=state,
-                fields=fields,
-                platform=platform_key,
-            )
+            return f"📎 Runtime footer: **{state}**\nFields: `{fields}`\nPlatform: `{platform_key}`"
 
         if arg in {"on", "enable", "true", "1"}:
             new_state = True
@@ -11309,7 +11291,7 @@ class GatewayRunner:
         elif arg == "":
             new_state = not effective["enabled"]
         else:
-            return t("gateway.footer.usage")
+            return "Usage: `/footer [on|off|status]`"
 
         # --- write global flag ---------------------------------------------
         try:
@@ -11322,9 +11304,9 @@ class GatewayRunner:
             atomic_yaml_write(config_path, user_config)
         except Exception as e:
             logger.warning("Failed to save runtime_footer.enabled: %s", e)
-            return t("gateway.config_save_failed", error=e)
+            return f"⚠️ Could not save config: {e}"
 
-        state = t("gateway.footer.state_on") if new_state else t("gateway.footer.state_off")
+        state = "ON" if new_state else "OFF"
         example = ""
         if new_state:
             # Show a preview using current agent state if available.
@@ -11336,8 +11318,8 @@ class GatewayRunner:
                 fields=effective.get("fields") or ["model", "context_pct", "cwd"],
             )
             if preview:
-                example = t("gateway.footer.example_line", preview=preview)
-        return t("gateway.footer.saved", state=state, example=example)
+                example = f"\nExample: `{preview}`"
+        return f"📎 Runtime footer: **{state}**{example}\n_(saved globally — takes effect on next message)_"
 
     async def _handle_compress_command(self, event: MessageEvent) -> str:
         """Handle /compress command -- manually compress conversation context.
@@ -11351,7 +11333,7 @@ class GatewayRunner:
         history = self.session_store.load_transcript(session_entry.session_id)
 
         if not history or len(history) < 4:
-            return t("gateway.compress.not_enough")
+            return "Not enough conversation to compress (need at least 4 messages)."
 
         # Extract optional focus topic from command args
         focus_topic = (event.get_command_args() or "").strip() or None
@@ -11367,7 +11349,7 @@ class GatewayRunner:
                 session_key=session_key,
             )
             if not runtime_kwargs.get("api_key"):
-                return t("gateway.compress.no_provider")
+                return "No provider configured -- cannot compress."
 
             msgs = [
                 {"role": m.get("role"), "content": m.get("content")}
@@ -11399,7 +11381,7 @@ class GatewayRunner:
 
                 compressor = tmp_agent.context_compressor
                 if not compressor.has_content_to_compress(msgs):
-                    return t("gateway.compress.nothing_to_do")
+                    return "Nothing to compress yet (the transcript is still all protected context)."
 
                 loop = asyncio.get_running_loop()
                 compressed, _ = await loop.run_in_executor(
@@ -11451,29 +11433,22 @@ class GatewayRunner:
                 self._cleanup_agent_resources(tmp_agent)
             lines = [f"🗜️ {summary['headline']}"]
             if focus_topic:
-                lines.append(t("gateway.compress.focus_line", topic=focus_topic))
+                lines.append(f"Focus: \"{focus_topic}\"")
             lines.append(summary["token_line"])
             if summary["note"]:
                 lines.append(summary["note"])
             if _summary_aborted:
                 lines.append(
-                    t(
-                        "gateway.compress.aborted",
-                        error=(_summary_err or "unknown error"),
-                    )
+                    "⚠️ Compression aborted ({error}). No messages were dropped — conversation is unchanged. Run /compress to retry, /reset for a clean session, or check your auxiliary.compression model configuration.".format(error=_summary_err or "unknown error")
                 )
             elif _aux_fail_model:
                 lines.append(
-                    t(
-                        "gateway.compress.aux_failed",
-                        model=_aux_fail_model,
-                        error=(_aux_fail_err or "unknown error"),
-                    )
+                    "ℹ️ Configured compression model `{model}` failed ({error}). Recovered using your main model — context is intact — but you may want to check `auxiliary.compression.model` in config.yaml.".format(model=_aux_fail_model, error=_aux_fail_err or "unknown error")
                 )
             return "\n".join(lines)
         except Exception as e:
             logger.warning("Manual compress failed: %s", e)
-            return t("gateway.compress.failed", error=e)
+            return f"Compression failed: {e}"
 
     async def _get_telegram_topic_capabilities(self, source: SessionSource) -> dict:
         """Read Telegram private-topic capability flags via Bot API getMe."""
@@ -11733,7 +11708,7 @@ class GatewayRunner:
         """Cleanly disable topic mode for a chat via /topic off."""
         if not self._session_db:
             from jarviscopilot_state import format_session_db_unavailable
-            return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+            return format_session_db_unavailable(prefix="Session database not available")
         chat_id = str(source.chat_id or "")
         if not chat_id:
             return "Could not determine chat ID."
@@ -11769,10 +11744,10 @@ class GatewayRunner:
         """Handle /topic for Telegram DM user-managed topic sessions."""
         source = event.source
         if source.platform != Platform.TELEGRAM or source.chat_type != "dm":
-            return t("gateway.topic.not_telegram_dm")
+            return "The /topic command is only available in Telegram private chats."
         if not self._session_db:
             from jarviscopilot_state import format_session_db_unavailable
-            return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+            return format_session_db_unavailable(prefix="Session database not available")
 
         # Authorization: /topic activates multi-session mode and mutates
         # SQLite side tables. Unauthorized senders (not in allowlist) must
@@ -11782,7 +11757,7 @@ class GatewayRunner:
         if callable(auth_fn):
             try:
                 if not auth_fn(source):
-                    return t("gateway.topic.unauthorized")
+                    return "You are not authorized to use /topic on this bot."
             except Exception:
                 logger.debug("Topic auth check failed", exc_info=True)
 
@@ -11798,7 +11773,7 @@ class GatewayRunner:
 
         if args:
             if not source.thread_id:
-                return t("gateway.topic.restore_needs_topic")
+                return "To restore a session, first create or open a Telegram topic, then send /topic <session-id> inside that topic. To create a new topic, open All Messages and send any message there."
             return await self._restore_telegram_topic_session(event, args)
 
         capabilities = await self._get_telegram_topic_capabilities(source)
@@ -11808,11 +11783,11 @@ class GatewayRunner:
                 # /topic while threads are still disabled.
                 if self._should_send_telegram_capability_hint(source):
                     await self._send_telegram_topic_setup_image(source)
-                return t("gateway.topic.topics_disabled")
+                return "Telegram topics are not enabled for this bot yet.\n\nHow to enable them:\n1. Open @BotFather.\n2. Choose your bot.\n3. Open Bot Settings → Threads Settings.\n4. Turn on Threaded Mode and make sure users are allowed to create new threads.\n\nThen send /topic again."
             if capabilities.get("allows_users_to_create_topics") is False:
                 if self._should_send_telegram_capability_hint(source):
                     await self._send_telegram_topic_setup_image(source)
-                return t("gateway.topic.topics_user_disallowed")
+                return "Telegram topics are enabled, but users are not allowed to create topics.\n\nOpen @BotFather → choose your bot → Bot Settings → Threads Settings, then turn off 'Disallow users to create new threads'.\n\nThen send /topic again."
 
         try:
             self._session_db.enable_telegram_topic_mode(
@@ -11823,7 +11798,7 @@ class GatewayRunner:
             )
         except Exception as exc:
             logger.exception("Failed to enable Telegram topic mode")
-            return t("gateway.topic.enable_failed", error=exc)
+            return f"Failed to enable Telegram topic mode: {exc}"
 
         if not source.thread_id:
             await self._ensure_telegram_system_topic(source)
@@ -11844,13 +11819,9 @@ class GatewayRunner:
                     title = self._session_db.get_session_title(session_id)
                 except Exception:
                     title = None
-                session_label = title or t("gateway.topic.untitled_session")
-                return t(
-                    "gateway.topic.bound_status",
-                    label=session_label,
-                    session_id=session_id,
-                )
-            return t("gateway.topic.thread_ready")
+                session_label = title or "Untitled session"
+                return f"This topic is linked to:\nSession: {session_label}\nID: {session_id}\n\nUse /new to replace this topic with a fresh session.\nFor parallel work, open All Messages and send a message there to create another topic."
+            return "Telegram multi-session topics are enabled.\n\nThis topic will be used as an independent JarvisCopilot session. Use /new to replace this topic's current session. For parallel work, open All Messages and send a message there to create another topic."
 
         return self._telegram_topic_root_status_message(source)
 
@@ -11962,7 +11933,7 @@ class GatewayRunner:
 
         if not self._session_db:
             from jarviscopilot_state import format_session_db_unavailable
-            return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+            return format_session_db_unavailable(prefix="Session database not available")
 
         # Ensure session exists in SQLite DB (it may only exist in session_store
         # if this is the first command in a new session)
@@ -11984,30 +11955,30 @@ class GatewayRunner:
             try:
                 sanitized = self._session_db.sanitize_title(title_arg)
             except ValueError as e:
-                return t("gateway.shared.warn_passthrough", error=e)
+                return f"⚠️ {e}"
             if not sanitized:
-                return t("gateway.title.empty_after_clean")
+                return "⚠️ Title is empty after cleanup. Please use printable characters."
             # Set the title
             try:
                 if self._session_db.set_session_title(session_id, sanitized):
-                    return t("gateway.title.set_to", title=sanitized)
+                    return f"✏️ Session title set: **{sanitized}**"
                 else:
-                    return t("gateway.title.not_found")
+                    return "Session not found in database."
             except ValueError as e:
-                return t("gateway.shared.warn_passthrough", error=e)
+                return f"⚠️ {e}"
         else:
             # Show the current title and session ID
             title = self._session_db.get_session_title(session_id)
             if title:
-                return t("gateway.title.current_with_title", session_id=session_id, title=title)
+                return f"📌 Session: `{session_id}`\nTitle: **{title}**"
             else:
-                return t("gateway.title.current_no_title", session_id=session_id)
+                return f"📌 Session: `{session_id}`\nNo title set. Usage: `/title My Session Name`"
 
     async def _handle_resume_command(self, event: MessageEvent) -> str:
         """Handle /resume command — switch to a previously-named session."""
         if not self._session_db:
             from jarviscopilot_state import format_session_db_unavailable
-            return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+            return format_session_db_unavailable(prefix="Session database not available")
 
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -12022,23 +11993,23 @@ class GatewayRunner:
                 )
                 titled = [s for s in sessions if s.get("title")]
                 if not titled:
-                    return t("gateway.resume.no_named_sessions")
-                lines = [t("gateway.resume.list_header")]
+                    return "No named sessions found.\nUse `/title My Session` to name your current session, then `/resume My Session` to return to it later."
+                lines = ["📋 **Named Sessions**\n"]
                 for s in titled[:10]:
                     title = s["title"]
                     preview = s.get("preview", "")[:40]
-                    preview_part = t("gateway.resume.list_preview_suffix", preview=preview) if preview else ""
-                    lines.append(t("gateway.resume.list_item", title=title, preview_part=preview_part))
-                lines.append(t("gateway.resume.list_footer"))
+                    preview_part = f" — _{preview}_" if preview else ""
+                    lines.append(f"• **{title}**{preview_part}")
+                lines.append("\nUsage: `/resume <session name>`")
                 return "\n".join(lines)
             except Exception as e:
                 logger.debug("Failed to list titled sessions: %s", e)
-                return t("gateway.resume.list_failed", error=e)
+                return f"Could not list sessions: {e}"
 
         # Resolve the name to a session ID.
         target_id = self._session_db.resolve_session_by_title(name)
         if not target_id:
-            return t("gateway.resume.not_found", name=name)
+            return f"No session found matching '**{name}**'.\nUse `/resume` with no arguments to see available sessions."
         # Compression creates child continuations that hold the live transcript.
         # Follow that chain so gateway /resume matches CLI behavior (#15000).
         try:
@@ -12049,7 +12020,7 @@ class GatewayRunner:
         # Check if already on that session
         current_entry = self.session_store.get_or_create_session(source)
         if current_entry.session_id == target_id:
-            return t("gateway.resume.already_on", name=name)
+            return f"📌 Already on session **{name}**."
 
         # Clear any running agent for this session key
         self._release_running_agent_state(session_key)
@@ -12057,7 +12028,7 @@ class GatewayRunner:
         # Switch the session entry to point at the old session
         new_entry = self.session_store.switch_session(session_key, target_id)
         if not new_entry:
-            return t("gateway.resume.switch_failed")
+            return "Failed to switch session."
         self._clear_session_boundary_security_state(session_key)
 
         # Evict any cached agent for this session so the next message
@@ -12074,10 +12045,10 @@ class GatewayRunner:
         history = self.session_store.load_transcript(target_id)
         msg_count = len([m for m in history if m.get("role") == "user"]) if history else 0
         if not msg_count:
-            return t("gateway.resume.resumed_no_count", title=title)
+            return f"↻ Resumed session **{title}**. Conversation restored."
         if msg_count == 1:
-            return t("gateway.resume.resumed_one", title=title, count=msg_count)
-        return t("gateway.resume.resumed_many", title=title, count=msg_count)
+            return f"↻ Resumed session **{title}** ({msg_count} message). Conversation restored."
+        return f"↻ Resumed session **{title}** ({msg_count} messages). Conversation restored."
 
     async def _handle_branch_command(self, event: MessageEvent) -> str:
         """Handle /branch [name] — fork the current session into a new independent copy.
@@ -12090,7 +12061,7 @@ class GatewayRunner:
 
         if not self._session_db:
             from jarviscopilot_state import format_session_db_unavailable
-            return format_session_db_unavailable(prefix=t("gateway.shared.session_db_unavailable_prefix"))
+            return format_session_db_unavailable(prefix="Session database not available")
 
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -12099,7 +12070,7 @@ class GatewayRunner:
         current_entry = self.session_store.get_or_create_session(source)
         history = self.session_store.load_transcript(current_entry.session_id)
         if not history:
-            return t("gateway.branch.no_conversation")
+            return "No conversation to branch — send a message first."
 
         branch_name = event.get_command_args().strip()
 
@@ -12130,7 +12101,7 @@ class GatewayRunner:
             )
         except Exception as e:
             logger.error("Failed to create branch session: %s", e)
-            return t("gateway.branch.create_failed", error=e)
+            return f"Failed to create branch: {e}"
 
         # Copy conversation history to the new session
         for msg in history:
@@ -12161,15 +12132,20 @@ class GatewayRunner:
         # Switch the session store entry to the new session
         new_entry = self.session_store.switch_session(session_key, new_session_id)
         if not new_entry:
-            return t("gateway.branch.switch_failed")
+            return "Branch created but failed to switch to it."
         self._clear_session_boundary_security_state(session_key)
 
         # Evict any cached agent for this session
         self._evict_cached_agent(session_key)
 
         msg_count = len([m for m in history if m.get("role") == "user"])
-        key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
-        return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
+        noun = "message" if msg_count == 1 else "messages"
+        return (
+            f"⑂ Branched to **{branch_title}** ({msg_count} {noun} copied)\n"
+            f"Original: `{parent_session_id}`\n"
+            f"Branch: `{new_session_id}`\n"
+            "Use `/resume` to switch back to the original."
+        )
 
     async def _handle_usage_command(self, event: MessageEvent) -> str:
         """Handle /usage command -- show token usage for the current session.
@@ -12231,7 +12207,7 @@ class GatewayRunner:
             rl_state = agent.get_rate_limit_state()
             if rl_state and rl_state.has_data:
                 from agent.rate_limit_tracker import format_rate_limit_compact
-                lines.append(t("gateway.usage.rate_limits", state=format_rate_limit_compact(rl_state)))
+                lines.append(f"⏱️ **Rate Limits:** {format_rate_limit_compact(rl_state)}")
                 lines.append("")
 
             # Session token usage — detailed breakdown matching CLI
@@ -12240,16 +12216,16 @@ class GatewayRunner:
             cache_read = getattr(agent, "session_cache_read_tokens", 0) or 0
             cache_write = getattr(agent, "session_cache_write_tokens", 0) or 0
 
-            lines.append(t("gateway.usage.header_session"))
-            lines.append(t("gateway.usage.label_model", model=agent.model))
-            lines.append(t("gateway.usage.label_input_tokens", count=f"{input_tokens:,}"))
+            lines.append("📊 **Session Token Usage**")
+            lines.append(f"Model: `{agent.model}`")
+            lines.append("Input tokens: {count}".format(count=f"{input_tokens:,}"))
             if cache_read:
-                lines.append(t("gateway.usage.label_cache_read", count=f"{cache_read:,}"))
+                lines.append("Cache read tokens: {count}".format(count=f"{cache_read:,}"))
             if cache_write:
-                lines.append(t("gateway.usage.label_cache_write", count=f"{cache_write:,}"))
-            lines.append(t("gateway.usage.label_output_tokens", count=f"{output_tokens:,}"))
-            lines.append(t("gateway.usage.label_total", count=f"{agent.session_total_tokens:,}"))
-            lines.append(t("gateway.usage.label_api_calls", count=agent.session_api_calls))
+                lines.append("Cache write tokens: {count}".format(count=f"{cache_write:,}"))
+            lines.append("Output tokens: {count}".format(count=f"{output_tokens:,}"))
+            lines.append("Total: {count}".format(count=f"{agent.session_total_tokens:,}"))
+            lines.append(f"API calls: {agent.session_api_calls}")
 
             # Cost estimation
             try:
@@ -12267,9 +12243,9 @@ class GatewayRunner:
                 )
                 if cost_result.amount_usd is not None:
                     prefix = "~" if cost_result.status == "estimated" else ""
-                    lines.append(t("gateway.usage.label_cost", prefix=prefix, amount=f"{float(cost_result.amount_usd):.4f}"))
+                    lines.append("Cost: {prefix}${amount}".format(prefix=prefix, amount=f"{float(cost_result.amount_usd):.4f}"))
                 elif cost_result.status == "included":
-                    lines.append(t("gateway.usage.label_cost_included"))
+                    lines.append("Cost: included")
             except Exception:
                 pass
 
@@ -12277,9 +12253,9 @@ class GatewayRunner:
             ctx = agent.context_compressor
             if ctx.last_prompt_tokens:
                 pct = min(100, ctx.last_prompt_tokens / ctx.context_length * 100) if ctx.context_length else 0
-                lines.append(t("gateway.usage.label_context", used=f"{ctx.last_prompt_tokens:,}", total=f"{ctx.context_length:,}", pct=f"{pct:.0f}"))
+                lines.append("Context: {used} / {total} ({pct}%)".format(used=f"{ctx.last_prompt_tokens:,}", total=f"{ctx.context_length:,}", pct=f"{pct:.0f}"))
             if ctx.compression_count:
-                lines.append(t("gateway.usage.label_compressions", count=ctx.compression_count))
+                lines.append(f"Compressions: {ctx.compression_count}")
 
             if account_lines:
                 lines.append("")
@@ -12295,10 +12271,10 @@ class GatewayRunner:
             msgs = [m for m in history if m.get("role") in {"user", "assistant"} and m.get("content")]
             approx = estimate_messages_tokens_rough(msgs)
             lines = [
-                t("gateway.usage.header_session_info"),
-                t("gateway.usage.label_messages", count=len(msgs)),
-                t("gateway.usage.label_estimated_context", count=f"{approx:,}"),
-                t("gateway.usage.detailed_after_first"),
+                "📊 **Session Info**",
+                f"Messages: {len(msgs)}",
+                "Estimated context: ~{count} tokens".format(count=f"{approx:,}"),
+                "_(Detailed usage available after the first agent response)_",
             ]
             if account_lines:
                 lines.append("")
@@ -12306,7 +12282,7 @@ class GatewayRunner:
             return "\n".join(lines)
         if account_lines:
             return "\n".join(account_lines)
-        return t("gateway.usage.no_data")
+        return "No usage data available for this session."
 
     async def _handle_insights_command(self, event: MessageEvent) -> str:
         """Handle /insights command -- show usage insights and analytics."""
@@ -12327,7 +12303,7 @@ class GatewayRunner:
                     try:
                         days = int(parts[i + 1])
                     except ValueError:
-                        return t("gateway.insights.invalid_days", value=parts[i + 1])
+                        return f"Invalid --days value: {parts[i + 1]}"
                     i += 2
                 elif parts[i] == "--source" and i + 1 < len(parts):
                     source = parts[i + 1]
@@ -12355,7 +12331,7 @@ class GatewayRunner:
             return await loop.run_in_executor(None, _run_insights)
         except Exception as e:
             logger.error("Insights command error: %s", e, exc_info=True)
-            return t("gateway.insights.error", error=e)
+            return f"Error generating insights: {e}"
 
     async def _handle_reload_mcp_command(self, event: MessageEvent) -> Optional[str]:
         """Handle /reload-mcp — reconnect MCP servers and rebuild the cached agent.
@@ -12393,7 +12369,7 @@ class GatewayRunner:
         # chosen outcome.
         async def _on_confirm(choice: str) -> Optional[str]:
             if choice == "cancel":
-                return t("gateway.reload_mcp.cancelled")
+                return "🟡 /reload-mcp cancelled. MCP tools unchanged."
             if choice == "always":
                 # Persist the opt-out and run the reload.
                 try:
@@ -12408,10 +12384,10 @@ class GatewayRunner:
             # once / always → run the reload
             result = await self._execute_mcp_reload(event)
             if choice == "always":
-                return f"{result}\n\n" + t("gateway.reload_mcp.always_followup")
+                return f"{result}\n\n" + "ℹ️ Future `/reload-mcp` calls will run without confirmation. Re-enable via `approvals.mcp_reload_confirm: true` in config.yaml."
             return result
 
-        prompt_message = t("gateway.reload_mcp.confirm_prompt")
+        prompt_message = "⚠️ **Confirm /reload-mcp**\n\nReloading MCP servers rebuilds the tool set for this session and **invalidates the provider prompt cache** — the next message will re-send full input tokens.  On long-context or high-reasoning models this can be expensive.\n\nChoose:\n• **Approve Once** — reload now\n• **Always Approve** — reload now and silence this prompt permanently\n• **Cancel** — leave MCP tools unchanged\n\n_Text fallback: reply `/approve`, `/always`, or `/cancel`._"
         return await self._request_slash_confirm(
             event=event,
             command="reload-mcp",
@@ -12450,17 +12426,17 @@ class GatewayRunner:
             removed = old_servers - connected_servers
             reconnected = connected_servers & old_servers
 
-            lines = [t("gateway.reload_mcp.header")]
+            lines = ["🔄 **MCP Servers Reloaded**\n"]
             if reconnected:
-                lines.append(t("gateway.reload_mcp.reconnected", names=", ".join(sorted(reconnected))))
+                lines.append("♻️ Reconnected: {names}".format(names=", ".join(sorted(reconnected))))
             if added:
-                lines.append(t("gateway.reload_mcp.added", names=", ".join(sorted(added))))
+                lines.append("➕ Added: {names}".format(names=", ".join(sorted(added))))
             if removed:
-                lines.append(t("gateway.reload_mcp.removed", names=", ".join(sorted(removed))))
+                lines.append("➖ Removed: {names}".format(names=", ".join(sorted(removed))))
             if not connected_servers:
-                lines.append(t("gateway.reload_mcp.none_connected"))
+                lines.append("No MCP servers connected.")
             else:
-                lines.append(t("gateway.reload_mcp.tools_available", tools=len(new_tools), servers=len(connected_servers)))
+                lines.append(f"\n🔧 {len(new_tools)} tool(s) available from {len(connected_servers)} server(s)")
 
             # Inject a message at the END of the session history so the
             # model knows tools changed on its next turn.  Appended after
@@ -12490,7 +12466,7 @@ class GatewayRunner:
 
         except Exception as e:
             logger.warning("MCP reload failed: %s", e)
-            return t("gateway.reload_mcp.failed", error=e)
+            return f"❌ MCP reload failed: {e}"
 
     async def _handle_reload_skills_command(self, event: MessageEvent) -> str:
         """Handle /reload-skills — rescan skills dir, queue a note for next turn.
@@ -12538,28 +12514,28 @@ class GatewayRunner:
                         getattr(adapter, "name", adapter), exc,
                     )
 
-            lines = [t("gateway.reload_skills.header")]
+            lines = ["🔄 **Skills Reloaded**\n"]
             if not added and not removed:
-                lines.append(t("gateway.reload_skills.no_new"))
-                lines.append(t("gateway.reload_skills.total", count=total))
+                lines.append("No new skills detected.")
+                lines.append(f"\n📚 {total} skill(s) available")
                 return "\n".join(lines)
 
             def _fmt_line(item: dict) -> str:
                 nm = item.get("name", "")
                 desc = item.get("description", "")
                 if desc:
-                    return t("gateway.reload_skills.item_with_desc", name=nm, desc=desc)
-                return t("gateway.reload_skills.item_no_desc", name=nm)
+                    return f"    - {nm}: {desc}"
+                return f"    - {nm}"
 
             if added:
-                lines.append(t("gateway.reload_skills.added_header"))
+                lines.append("➕ **Added Skills:**")
                 for item in added:
                     lines.append(_fmt_line(item))
             if removed:
-                lines.append(t("gateway.reload_skills.removed_header"))
+                lines.append("➖ **Removed Skills:**")
                 for item in removed:
                     lines.append(_fmt_line(item))
-            lines.append(t("gateway.reload_skills.total", count=total))
+            lines.append(f"\n📚 {total} skill(s) available")
 
             # Queue the one-shot note for the next user turn in this session.
             # Format matches how the system prompt renders pre-existing
@@ -12590,7 +12566,7 @@ class GatewayRunner:
 
         except Exception as e:
             logger.warning("Skills reload failed: %s", e)
-            return t("gateway.reload_skills.failed", error=e)
+            return f"❌ Skills reload failed: {e}"
 
     # ------------------------------------------------------------------
     # Slash-command confirmation primitive (generic)
@@ -12844,8 +12820,8 @@ class GatewayRunner:
         if not has_blocking_approval(session_key):
             if session_key in self._pending_approvals:
                 self._pending_approvals.pop(session_key)
-                return t("gateway.approval_expired")
-            return t("gateway.approve.no_pending")
+                return "⚠️ Approval expired (agent is no longer waiting). Ask the agent to try again."
+            return "No pending command to approve."
 
         # Parse args: support "all", "all session", "all always", "session", "always"
         args = event.get_command_args().strip().lower().split()
@@ -12861,7 +12837,7 @@ class GatewayRunner:
 
         count = resolve_gateway_approval(session_key, choice, resolve_all=resolve_all)
         if not count:
-            return t("gateway.approve.no_pending")
+            return "No pending command to approve."
 
         # Resume typing indicator — agent is about to continue processing.
         _adapter = self.adapters.get(source.platform)
@@ -12869,8 +12845,14 @@ class GatewayRunner:
             _adapter.resume_typing_for_chat(source.chat_id)
 
         logger.info("User approved %d dangerous command(s) via /approve (%s)", count, choice)
-        plural = "plural" if count > 1 else "singular"
-        return t(f"gateway.approve.{choice}_{plural}", count=count)
+        scope = {
+            "once": "",
+            "session": " (pattern approved for this session)",
+            "always": " (pattern approved permanently)",
+        }[choice]
+        if count > 1:
+            return f"✅ Commands approved{scope} ({count} commands). The agent is resuming..."
+        return f"✅ Command approved{scope}. The agent is resuming..."
 
     async def _handle_deny_command(self, event: MessageEvent) -> str:
         """Handle /deny command — reject pending dangerous command(s).
@@ -12890,15 +12872,15 @@ class GatewayRunner:
         if not has_blocking_approval(session_key):
             if session_key in self._pending_approvals:
                 self._pending_approvals.pop(session_key)
-                return t("gateway.deny.stale")
-            return t("gateway.deny.no_pending")
+                return "❌ Command denied (approval was stale)."
+            return "No pending command to deny."
 
         args = event.get_command_args().strip().lower()
         resolve_all = "all" in args
 
         count = resolve_gateway_approval(session_key, "deny", resolve_all=resolve_all)
         if not count:
-            return t("gateway.deny.no_pending")
+            return "No pending command to deny."
 
         # Resume typing indicator — agent continues (with BLOCKED result).
         _adapter = self.adapters.get(source.platform)
@@ -12907,8 +12889,8 @@ class GatewayRunner:
 
         logger.info("User denied %d dangerous command(s) via /deny", count)
         if count > 1:
-            return t("gateway.deny.denied_plural", count=count)
-        return t("gateway.deny.denied_singular")
+            return f"❌ Commands denied ({count} commands)."
+        return "❌ Command denied."
 
     # Platforms where /update is allowed.  ACP, API server, and webhooks are
     # programmatic interfaces that should not trigger system updates.
@@ -12944,20 +12926,20 @@ class GatewayRunner:
             try:
                 urls["Report"] = upload_to_pastebin(report)
             except Exception as exc:
-                return t("gateway.debug.upload_failed", error=exc)
+                return f"✗ Failed to upload debug report: {exc}"
 
             # Schedule auto-deletion after 6 hours
             _schedule_auto_delete(list(urls.values()))
 
-            lines = [_GATEWAY_PRIVACY_NOTICE, "", t("gateway.debug.header"), ""]
+            lines = [_GATEWAY_PRIVACY_NOTICE, "", "**Debug report uploaded:**", ""]
             label_width = max(len(k) for k in urls)
             for label, url in urls.items():
                 lines.append(f"`{label:<{label_width}}`  {url}")
 
             lines.append("")
-            lines.append(t("gateway.debug.auto_delete"))
-            lines.append(t("gateway.debug.full_logs_hint"))
-            lines.append(t("gateway.debug.share_hint"))
+            lines.append("⏱ Pastes will auto-delete in 6 hours.")
+            lines.append("For full log uploads, use `jarviscopilot debug share` from the CLI.")
+            lines.append("Share these links with the JarvisCopilot team for support.")
             return "\n".join(lines)
 
         return await loop.run_in_executor(None, _collect_and_upload)
@@ -12985,9 +12967,9 @@ class GatewayRunner:
                 from gateway.platform_registry import platform_registry
                 entry = platform_registry.get(platform.value)
                 if not entry or not entry.allow_update_command:
-                    return t("gateway.update.platform_not_messaging")
+                    return "✗ /update is only available from messaging platforms. Run `jarviscopilot update` from the terminal."
             except Exception:
-                return t("gateway.update.platform_not_messaging")
+                return "✗ /update is only available from messaging platforms. Run `jarviscopilot update` from the terminal."
 
         if is_managed():
             return f"✗ {format_managed_message('update JarvisCopilot')}"
@@ -12996,11 +12978,11 @@ class GatewayRunner:
         git_dir = project_root / '.git'
 
         if not git_dir.exists():
-            return t("gateway.update.not_git_repo")
+            return "✗ Not a git repository — cannot update."
 
         hermes_cmd = _resolve_hermes_bin()
         if not hermes_cmd:
-            return t("gateway.update.hermes_cmd_not_found")
+            return "✗ Could not locate the `jarviscopilot` command. JarvisCopilot is running, but the update command could not find the executable on PATH or via the current Python interpreter. Try running `jarviscopilot update` manually in your terminal."
 
         pending_path = _hermes_home / ".update_pending.json"
         output_path = _hermes_home / ".update_output.txt"
@@ -13107,10 +13089,10 @@ class GatewayRunner:
         except Exception as e:
             pending_path.unlink(missing_ok=True)
             exit_code_path.unlink(missing_ok=True)
-            return t("gateway.update.start_failed", error=e)
+            return f"✗ Failed to start update: {e}"
 
         self._schedule_update_notification_watch()
-        return t("gateway.update.starting")
+        return "⚕ Starting JarvisCopilot update… I'll stream progress here."
 
     def _schedule_update_notification_watch(self) -> None:
         """Ensure a background task is watching for update completion."""

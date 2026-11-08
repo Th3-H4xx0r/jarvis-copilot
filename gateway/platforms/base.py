@@ -409,7 +409,7 @@ def proxy_kwargs_for_aiohttp(proxy_url: str | None) -> tuple[dict, dict]:
       - None → ``({}, {})``.
 
     Prefer the connector path: it works transparently with libraries
-    (like mautrix) that call ``session.request()`` without forwarding
+    that call ``session.request()`` without forwarding
     per-request ``proxy=`` kwargs.
 
     Usage::
