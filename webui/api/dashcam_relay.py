@@ -108,10 +108,6 @@ def _tell_phone_clips() -> None:
         pass
 
 
-def default_state_dir() -> Path:
-    root = os.environ.get("HERMES_WEBUI_STATE_DIR")
-    return Path(root) if root else Path.home() / ".jarviscopilot" / "webui"
-
 
 def local_allowed() -> bool:
     """``local`` destinations exist for tests only."""
@@ -357,7 +353,8 @@ class Relay:
 
     def __init__(self, state_dir=None, binary: str | None = None, *, url: str | None = None,
                  user: str | None = None, password: str | None = None):
-        self.state_dir = Path(state_dir) if state_dir else default_state_dir()
+        from api.config import state_dir as webui_state_dir
+        self.state_dir = Path(state_dir) if state_dir else webui_state_dir()
         self.dir = self.state_dir / "dashcam"
         self.config_path = self.dir / "rclone.conf"
         self._binary = binary

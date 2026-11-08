@@ -10,7 +10,6 @@ can be duplicated but never overwritten or deleted. Every design write bumps
 """
 from __future__ import annotations
 
-import os
 import threading
 import time
 from pathlib import Path
@@ -87,11 +86,5 @@ class HarnessStore(_ReadOnlyStore):
 
 
 def store_for_request() -> HarnessStore:
-    """A store rooted at the webui state dir for the active profile."""
-    root = os.environ.get("HERMES_WEBUI_STATE_DIR") or str(Path.home() / ".jarviscopilot" / "webui")
-    try:
-        from api.profiles import get_active_profile_name
-        profile = get_active_profile_name()
-    except Exception:
-        profile = "default"
-    return HarnessStore(root, profile)
+    from api.config import store_for_active_profile
+    return store_for_active_profile(HarnessStore)

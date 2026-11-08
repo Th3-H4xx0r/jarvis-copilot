@@ -6,15 +6,14 @@ key, exactly as the devices skill script does.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
-import time
 import logging
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import jarviscopilot_host_sig as host_sig
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -24,10 +23,7 @@ _signing_key: dict[str, Optional[bytes]] = {"key": None}
 
 
 def state_dir() -> Path:
-    env = os.environ.get("HERMES_WEBUI_STATE_DIR")
-    if env:
-        return Path(env).expanduser().resolve()
-    return (Path.home() / ".jarviscopilot" / "webui").resolve()
+    return host_sig.webui_state_dir()
 
 
 def base_url() -> str:
@@ -65,28 +61,17 @@ def _tls_enabled() -> bool:
 
 def _key() -> Optional[bytes]:
     if _signing_key["key"] is None:
-        try:
-            _signing_key["key"] = (state_dir() / ".signing_key").read_bytes()
-        except OSError:
-            return None
+        _signing_key["key"] = host_sig.read_key(state_dir())
     return _signing_key["key"]
 
 
 def _headers(method: str, path: str, body: bytes) -> dict[str, str]:
-    """The host carve-out header, exactly as `webui/api/auth.py` verifies it.
-
-    `X-JC-Host-Sig: <unix_ts>.<hex hmac>` over `METHOD\nPATH\nTIMESTAMP` with
-    the webui's signing key, from loopback, within a ±60s skew. The body is not
-    part of the message — signing it here would fail every request.
-    """
+    """The host carve-out header (jarviscopilot_host_sig)."""
     headers = {"Content-Type": "application/json"}
     key = _key()
     if not key:
         return headers
-    stamp = int(time.time())
-    message = f"{method}\n{path}\n{stamp}".encode("utf-8")
-    signature = hmac.new(key, message, hashlib.sha256).hexdigest()
-    headers["X-JC-Host-Sig"] = f"{stamp}.{signature}"
+    headers[host_sig.HEADER] = host_sig.signature(key, method, path)
     return headers
 
 

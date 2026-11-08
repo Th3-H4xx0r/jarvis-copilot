@@ -20,11 +20,8 @@ then drives Chrome with direct tool calls — no terminal, no SKILL.md round-tri
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -96,18 +93,10 @@ def _get_signing_key() -> Optional[bytes]:
 
 
 def _host_signature(method: str, path: str) -> Optional[str]:
-    """``<ts>.<hmac>`` host signature (matches webui auth.check_host_signature).
-    None if the signing key isn't readable."""
-    try:
-        sk = _get_signing_key()
-        if sk is None:
-            return None
-        ts = int(time.time())
-        msg = f"{method.upper()}\n{path}\n{ts}".encode("utf-8")
-        sig = hmac.new(sk, msg, hashlib.sha256).hexdigest()
-        return f"{ts}.{sig}"
-    except Exception:
-        return None
+    """The host signature (jarviscopilot_host_sig); None if the key isn't readable."""
+    import jarviscopilot_host_sig as host_sig
+    sk = _get_signing_key()
+    return host_sig.signature(sk, method, path) if sk is not None else None
 
 
 def _api_request(method: str, path: str, body: Optional[dict] = None,

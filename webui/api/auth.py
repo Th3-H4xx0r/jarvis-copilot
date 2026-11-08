@@ -519,10 +519,7 @@ def check_auth(handler, parsed) -> bool:
 def check_host_signature(handler) -> bool:
     """Validate an X-JC-Host-Sig HMAC for the current request.
 
-    The header carries ``<unix_ts>.<hex_hmac>``. The HMAC is computed
-    with the webui's signing key (``STATE_DIR/.signing_key``, mode
-    0600) over ``METHOD\\nPATH\\nTIMESTAMP``. Accepts a ±60s skew and
-    only honours connections originating from 127.0.0.1 / ::1.
+    The protocol is jarviscopilot_host_sig; only loopback connections are honoured.
 
     Returns True on a fresh valid signature, False otherwise. False is
     the safe default — falling through to the normal auth flow.
@@ -533,22 +530,9 @@ def check_host_signature(handler) -> bool:
         return False
     if peer not in ("127.0.0.1", "::1"):
         return False
-    raw = handler.headers.get("X-JC-Host-Sig", "")
-    if not raw or "." not in raw:
-        return False
-    try:
-        ts_str, sig = raw.split(".", 1)
-        ts = int(ts_str)
-    except Exception:
-        return False
-    now = int(time.time())
-    if abs(now - ts) > 60:
-        return False
-    method = (handler.command or "GET").upper()
-    path = handler.path or "/"
-    msg = f"{method}\n{path}\n{ts}".encode("utf-8")
-    expected = hmac.new(_signing_key(), msg, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig.strip(), expected)
+    import jarviscopilot_host_sig as host_sig
+    return host_sig.verify(_signing_key(), handler.command or "GET", handler.path or "/",
+                           handler.headers.get(host_sig.HEADER, ""))
 
 
 def _is_secure_context(handler=None) -> bool:

@@ -421,8 +421,8 @@ def _local_post(path: str, size: int = 0, body=None):
     from api.auth import _signing_key
     from api.config import PORT
 
-    ts = int(time.time())
-    sig = hmac.new(_signing_key(), f"POST\n{path}\n{ts}".encode(), hashlib.sha256).hexdigest()
+    import jarviscopilot_host_sig as host_sig
+    sig = host_sig.signature(_signing_key(), "POST", path)
     # The WebUI serves its own self-signed TLS when the service sets a cert (an env
     # this shell may not have), so try TLS on localhost first, then plain HTTP.
     conn = http.client.HTTPSConnection("127.0.0.1", PORT, timeout=600,
@@ -434,7 +434,7 @@ def _local_post(path: str, size: int = 0, body=None):
     conn.putrequest("POST", path)
     conn.putheader("Content-Length", str(size))
     conn.putheader("Content-Type", "application/octet-stream")
-    conn.putheader("X-JC-Host-Sig", f"{ts}.{sig}")
+    conn.putheader(host_sig.HEADER, sig)
     conn.endheaders()
     return conn
 

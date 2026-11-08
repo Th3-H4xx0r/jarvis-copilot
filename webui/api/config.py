@@ -47,6 +47,24 @@ STATE_DIR = (
 )
 
 SESSION_DIR = STATE_DIR / "sessions"
+
+
+def state_dir() -> Path:
+    """The webui state dir as the environment says *now* (STATE_DIR is fixed at import;
+    tests point HERMES_WEBUI_STATE_DIR at a temp dir per test)."""
+    root = os.environ.get("HERMES_WEBUI_STATE_DIR")
+    return Path(root) if root else Path.home() / ".jarviscopilot" / "webui"
+
+
+def store_for_active_profile(store_cls):
+    """``store_cls(state_dir, profile)`` for the profile this request runs as."""
+    try:
+        from api.profiles import get_active_profile_name
+        profile = get_active_profile_name()
+    except Exception:
+        profile = "default"
+    return store_cls(str(state_dir()), profile)
+
 WORKSPACES_FILE = STATE_DIR / "workspaces.json"
 SESSION_INDEX_FILE = SESSION_DIR / "_index.json"
 SETTINGS_FILE = STATE_DIR / "settings.json"

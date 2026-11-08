@@ -348,13 +348,5 @@ def _write_json(path: Path, obj) -> None:
 
 
 def store_for_request() -> IslandStore:
-    """Build a store rooted at the webui state dir for the active profile."""
-    root = os.environ.get("HERMES_WEBUI_STATE_DIR")
-    if not root:
-        root = str(Path.home() / ".jarviscopilot" / "webui")
-    try:
-        from api.profiles import get_active_profile_name
-        profile = get_active_profile_name()
-    except Exception:
-        profile = "default"
-    return IslandStore(root, profile)
+    from api.config import store_for_active_profile
+    return store_for_active_profile(IslandStore)
