@@ -1908,53 +1908,32 @@ def setup_agent_settings(config: dict):
 
     reset_idx = prompt_choice("Session reset mode:", reset_choices, default_reset)
 
-    config.setdefault("session_reset", {})
-
-    if reset_idx == 0:  # Both
-        config["session_reset"]["mode"] = "both"
-        idle_str = prompt("  Inactivity timeout (minutes)", str(current_idle))
-        try:
-            idle_val = int(idle_str)
-            if idle_val > 0:
-                config["session_reset"]["idle_minutes"] = idle_val
-        except ValueError:
-            pass
-        hour_str = prompt("  Daily reset hour (0-23, local time)", str(current_hour))
-        try:
-            hour_val = int(hour_str)
-            if 0 <= hour_val <= 23:
-                config["session_reset"]["at_hour"] = hour_val
-        except ValueError:
-            pass
-        print_success(
-            f"Sessions reset after {config['session_reset'].get('idle_minutes', 1440)} min idle or daily at {config['session_reset'].get('at_hour', 4)}:00"
-        )
-    elif reset_idx == 1:  # Idle only
-        config["session_reset"]["mode"] = "idle"
-        idle_str = prompt("  Inactivity timeout (minutes)", str(current_idle))
-        try:
-            idle_val = int(idle_str)
-            if idle_val > 0:
-                config["session_reset"]["idle_minutes"] = idle_val
-        except ValueError:
-            pass
-        print_success(
-            f"Sessions reset after {config['session_reset'].get('idle_minutes', 1440)} min of inactivity"
-        )
-    elif reset_idx == 2:  # Daily only
-        config["session_reset"]["mode"] = "daily"
-        hour_str = prompt("  Daily reset hour (0-23, local time)", str(current_hour))
-        try:
-            hour_val = int(hour_str)
-            if 0 <= hour_val <= 23:
-                config["session_reset"]["at_hour"] = hour_val
-        except ValueError:
-            pass
-        print_success(
-            f"Sessions reset daily at {config['session_reset'].get('at_hour', 4)}:00"
-        )
+    policy = config.setdefault("session_reset", {})
+    if reset_idx in (0, 1, 2):
+        policy["mode"] = ("both", "idle", "daily")[reset_idx]
+        if reset_idx in (0, 1):
+            try:
+                idle_val = int(prompt("  Inactivity timeout (minutes)", str(current_idle)))
+                if idle_val > 0:
+                    policy["idle_minutes"] = idle_val
+            except ValueError:
+                pass
+        if reset_idx in (0, 2):
+            try:
+                hour_val = int(prompt("  Daily reset hour (0-23, local time)", str(current_hour)))
+                if 0 <= hour_val <= 23:
+                    policy["at_hour"] = hour_val
+            except ValueError:
+                pass
+        idle = policy.get("idle_minutes", 1440)
+        hour = policy.get("at_hour", 4)
+        print_success({
+            0: f"Sessions reset after {idle} min idle or daily at {hour}:00",
+            1: f"Sessions reset after {idle} min of inactivity",
+            2: f"Sessions reset daily at {hour}:00",
+        }[reset_idx])
     elif reset_idx == 3:  # None
-        config["session_reset"]["mode"] = "none"
+        policy["mode"] = "none"
         print_info(
             "Sessions will never auto-reset. Context is managed only by compression."
         )
