@@ -44,7 +44,7 @@ class _Unreadable:
 
 @pytest.fixture
 def recorded(monkeypatch):
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     seen = []
 
     def recorder(module):
@@ -72,14 +72,14 @@ def test_a_sibling_path_is_not_swallowed_by_a_prefix(recorded):
 
 
 def test_raw_body_routes_run_before_any_json_parse(monkeypatch):
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     import api.screen_share as screen_share
     monkeypatch.setattr(screen_share, "handle_post", lambda handler, parsed: True)
     assert routes.handle_post(_Handler(raw_only=True), urlparse("/api/screen/replay")) is True
 
 
 def test_the_body_is_read_once_and_shared_with_the_rest_of_the_router(monkeypatch):
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     import api.browser_routes as browser_routes
     monkeypatch.setattr(browser_routes, "handle_post", lambda handler, parsed, body: False)
     handler = _Handler({"session_id": ""})
@@ -90,7 +90,7 @@ def test_the_body_is_read_once_and_shared_with_the_rest_of_the_router(monkeypatc
 
 @pytest.mark.parametrize("method", ["GET", "POST", "PATCH", "DELETE"])
 def test_unknown_kanban_endpoint_names_the_stale_bundle_for_every_method(monkeypatch, method):
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     import api.kanban_bridge as kanban
     monkeypatch.setattr(kanban, "handle_kanban_get", lambda handler, parsed: False)
     for verb in ("POST", "PATCH", "DELETE"):

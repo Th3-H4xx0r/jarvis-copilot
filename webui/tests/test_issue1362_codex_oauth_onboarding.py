@@ -522,7 +522,7 @@ def test_anthropic_link_clears_the_token_keeps_the_api_key_and_writes_secret_fre
 def test_anthropic_env_clear_waits_for_chat_env_read_lock(monkeypatch, tmp_path):
     import api.oauth as oauth
     import api.providers as providers
-    from api.streaming import _ENV_LOCK
+    from api.config import ENV_LOCK
 
     monkeypatch.setenv("ANTHROPIC_TOKEN", "old-token")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "old-key")
@@ -545,7 +545,7 @@ def test_anthropic_env_clear_waits_for_chat_env_read_lock(monkeypatch, tmp_path)
         finally:
             done.set()
 
-    with _ENV_LOCK:
+    with ENV_LOCK:
         worker = threading.Thread(target=_onboarding_clear)
         worker.start()
         assert started.wait(timeout=1)

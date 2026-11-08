@@ -208,15 +208,15 @@ def test_a_setup_session_always_runs_the_picked_model_alone():
     from types import SimpleNamespace
 
     from agent.harness.planner import resolve_harness
-    from api.routes import _apply_turn_harness
+    from api.chat_turns import turn_options_for_chat
 
     for body in ({"harness_id": ""}, {"harness_id": "fast-claude"}, {}):
         s = SimpleNamespace(harness_id=None, integration_setup=True)
-        _apply_turn_harness(s, dict(body, model="claude-sonnet-5-5"), "claude-sonnet-5-5", "anthropic")
-        assert s._turn_harness_id is None
-        assert s._turn_explicit_model == ("claude-sonnet-5-5", "anthropic")
+        turn = turn_options_for_chat(s, dict(body, model="claude-sonnet-5-5"), "claude-sonnet-5-5", "anthropic")
+        assert turn.harness_id is None
+        assert turn.explicit_model == ("claude-sonnet-5-5", "anthropic")
         assert s.harness_id is None  # nothing stored that would outlive the sheet
         doc, _ = resolve_harness(SimpleNamespace(effective=lambda _s: "router", get=lambda _h: None),
-                                 session=s, surface="chat", requested_id=s._turn_harness_id,
-                                 explicit_model=s._turn_explicit_model)
+                                 session=s, surface="chat", requested_id=turn.harness_id,
+                                 explicit_model=turn.explicit_model)
         assert doc["id"] == "single"

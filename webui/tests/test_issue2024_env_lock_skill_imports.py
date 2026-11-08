@@ -1,7 +1,7 @@
 """Regression test for issue #2024.
 
 tools.skills_tool / tools.skill_manager_tool imports must NOT appear
-inside an ``_ENV_LOCK`` body in api/streaming.py.  First-time module
+inside an ``ENV_LOCK`` body in api/streaming.py.  First-time module
 imports can be slow (disk I/O, transitive deps, plugin discovery) and
 holding the lock during them serialises every concurrent session behind
 the slowest import.
@@ -30,21 +30,21 @@ def _read_streaming() -> str:
 
 # ---------------------------------------------------------------------------
 # AST-level check: walk every ``with`` statement whose context-expression
-# references ``_ENV_LOCK`` and ensure no ``Import`` or ``ImportFrom``
+# references ``ENV_LOCK`` and ensure no ``Import`` or ``ImportFrom``
 # node for the two target modules exists in its body.
 # ---------------------------------------------------------------------------
 
 def _find_env_lock_with_bodies(source: str) -> list[list[ast.stmt]]:
-    """Return the statement-list bodies of all ``with _ENV_LOCK:`` blocks."""
+    """Return the statement-list bodies of all ``with ENV_LOCK:`` blocks."""
     tree = ast.parse(source)
     bodies: list[list[ast.stmt]] = []
 
     class _Visitor(ast.NodeVisitor):
         def visit_With(self, node: ast.With):
-            # Check whether any context-expression is a simple Name `_ENV_LOCK`
+            # Check whether any context-expression is a simple Name `ENV_LOCK`
             for item in node.items:
                 ctx = item.context_expr
-                if isinstance(ctx, ast.Name) and ctx.id == "_ENV_LOCK":
+                if isinstance(ctx, ast.Name) and ctx.id == "ENV_LOCK":
                     bodies.append(node.body)
                     break
             self.generic_visit(node)
@@ -72,16 +72,16 @@ _TARGET_MODULES = {"tools.skills_tool", "tools.skill_manager_tool"}
 
 class TestNoSkillToolImportsInsideEnvLock:
     """AST-level: no ``import tools.skills_tool`` or ``import tools.skill_manager_tool``
-    inside any ``with _ENV_LOCK:`` block."""
+    inside any ``with ENV_LOCK:`` block."""
 
     def test_no_skill_imports_in_env_lock(self):
         source = _read_streaming()
         bodies = _find_env_lock_with_bodies(source)
-        assert bodies, "Expected at least one `with _ENV_LOCK:` block in streaming.py"
+        assert bodies, "Expected at least one `with ENV_LOCK:` block in streaming.py"
         for body in bodies:
             found = _imports_in_body(body, _TARGET_MODULES)
             assert found == [], (
-                f"Found import(s) of {found} inside an `_ENV_LOCK` with-block. "
+                f"Found import(s) of {found} inside an `ENV_LOCK` with-block. "
                 "Move them to _prewarm_skill_tool_modules() outside the lock (#2024)."
             )
 
@@ -116,7 +116,7 @@ class TestPrewarmHelperExists:
 
     def test_prewarm_called_before_env_lock(self):
         """_prewarm_skill_tool_modules() must be called before the first
-        ``with _ENV_LOCK:`` in _run_agent_streaming."""
+        ``with ENV_LOCK:`` in _run_agent_streaming."""
         source = _read_streaming()
         lines = source.splitlines()
         prewarm_line = None
@@ -124,13 +124,13 @@ class TestPrewarmHelperExists:
         for i, line in enumerate(lines, 1):
             if "_prewarm_skill_tool_modules()" in line and prewarm_line is None:
                 prewarm_line = i
-            if "with _ENV_LOCK:" in line and first_env_lock_line is None:
+            if "with ENV_LOCK:" in line and first_env_lock_line is None:
                 first_env_lock_line = i
         assert prewarm_line is not None, "_prewarm_skill_tool_modules() call not found"
-        assert first_env_lock_line is not None, "with _ENV_LOCK: not found"
+        assert first_env_lock_line is not None, "with ENV_LOCK: not found"
         assert prewarm_line < first_env_lock_line, (
             f"_prewarm_skill_tool_modules() (line {prewarm_line}) must appear "
-            f"before the first `with _ENV_LOCK:` (line {first_env_lock_line})"
+            f"before the first `with ENV_LOCK:` (line {first_env_lock_line})"
         )
 
 
@@ -140,7 +140,7 @@ class TestSysModulesLookupInEnvLock:
     def test_shared_skill_home_patch_helper_used_in_env_lock(self):
         source = _read_streaming()
         bodies = _find_env_lock_with_bodies(source)
-        assert bodies, "Expected at least one `with _ENV_LOCK:` block"
+        assert bodies, "Expected at least one `with ENV_LOCK:` block"
 
         lines = source.splitlines()
         in_lock = False
@@ -148,7 +148,7 @@ class TestSysModulesLookupInEnvLock:
         depth = 0
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith("with _ENV_LOCK:"):
+            if stripped.startswith("with ENV_LOCK:"):
                 in_lock = True
                 depth = 0
                 continue
@@ -166,7 +166,7 @@ class TestSysModulesLookupInEnvLock:
 
         lock_source = "\n".join(lock_lines)
         assert "patch_skill_home_modules" in lock_source, (
-            "Inside `_ENV_LOCK`, streaming must use the shared skill module "
+            "Inside `ENV_LOCK`, streaming must use the shared skill module "
             "cache patch helper instead of duplicating module-specific logic "
             "(#2023/#2024)"
         )
@@ -208,7 +208,7 @@ class TestSysModulesLookupInEnvLock:
         depth = 0
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith("with _ENV_LOCK:"):
+            if stripped.startswith("with ENV_LOCK:"):
                 in_lock = True
                 depth = 0
                 continue
@@ -225,6 +225,6 @@ class TestSysModulesLookupInEnvLock:
                     # Match both `import tools.skills_tool` and `import tools.skills_tool as _sk`
                     if f"import {mod}" in stripped:
                         raise AssertionError(
-                            f"Found `import {mod}` inside `_ENV_LOCK` body — "
+                            f"Found `import {mod}` inside `ENV_LOCK` body — "
                             f"use sys.modules.get() instead (#2024). Line: {stripped}"
                         )

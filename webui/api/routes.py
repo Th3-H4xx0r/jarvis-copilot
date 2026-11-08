@@ -33,18 +33,6 @@ from api.compression_anchor import visible_messages_for_anchor
 
 logger = logging.getLogger(__name__)
 
-# Treat stalled/closed HTTP clients as normal disconnects.  Long-lived SSE
-# connections often end this way when a browser tab sleeps, a phone switches
-# networks, or Tailscale leaves the socket half-closed.  If these bubble to the
-# request handler, the server logs 500s and can leave CLOSE-WAIT sockets around
-# until the OS-level timeout fires.
-_CLIENT_DISCONNECT_ERRORS = (
-    BrokenPipeError,
-    ConnectionResetError,
-    ConnectionAbortedError,
-    TimeoutError,
-    OSError,
-)
 
 # ── Cron run tracking ────────────────────────────────────────────────────────
 # Track job IDs currently being executed so the frontend can poll status.
@@ -89,6 +77,10 @@ _CSP_REPORT_MAX_BODY_BYTES = 64 * 1024
 # Re-exported here so existing `_profiles_match(...)` call sites in this
 # module keep resolving without per-call-site refactors.
 from api.profiles import _profiles_match  # noqa: F401, E402  (re-export)
+from api.session_model import clean_session_provider, resolve_session_model_state, _split_provider_qualified_model
+from api.chat_turns import turn_options_for_chat, clear_stale_stream_state, _resolve_chat_workspace_with_recovery, start_turn
+from api.auth import check_csrf
+from api.helpers import serve_file_bytes
 
 
 def _all_profiles_query_flag(parsed_url) -> bool:
@@ -440,7 +432,6 @@ def _skill_view_from_active_dir(name: str) -> dict:
 # Cost: ~12 bytes per heartbeat * 12 extra heartbeats/min = ~150B/min idle.
 # Trivial; many production SSE deployments run 5-15s heartbeats specifically
 # to handle proxies and mobile NAT.
-_SSE_HEARTBEAT_INTERVAL_SECONDS = 5
 
 
 def _normalize_messaging_source(raw_source) -> str:
@@ -835,12 +826,6 @@ def _run_cron_tracked(job, profile_home=None):
     finally:
         _mark_cron_done(job_id)
 
-_PROVIDER_ALIASES = {
-    "claude": "anthropic",
-    "gpt": "openai",
-    "gemini": "google",
-    "openai-codex": "openai",
-}
 
 # OpenAI-compatible /v1/models endpoints for live model discovery.
 # Used as fallback when jarviscopilot_cli.provider_model_ids() is unavailable or
@@ -953,6 +938,7 @@ from api.helpers import (
     _redact_text,
 )
 from api.agent_health import build_agent_health_payload
+from api import sse
 from api.mounts import Request, dispatch as dispatch_mount
 from api.request_diagnostics import RequestDiagnostics
 from api.system_health import build_system_health_payload
@@ -1046,144 +1032,6 @@ def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
 
 
 
-def _clear_stale_stream_state(session) -> bool:
-    """Clear persisted streaming flags when the in-memory stream no longer exists.
-
-    A server restart or worker crash can leave active_stream_id/pending_* in the
-    session JSON while STREAMS is empty. The frontend then keeps reconnecting to
-    a dead stream and shows a permanent running/thinking state.
-
-    SAFETY (#1558): If ``session`` was loaded with ``metadata_only=True``, its
-    ``messages`` array is empty by design and calling ``save()`` would
-    atomically overwrite the on-disk JSON, wiping the conversation. In that
-    case we re-load the full session before mutating, so the persisted
-    write carries the real messages forward.
-    """
-    stream_id = getattr(session, "active_stream_id", None)
-    if not stream_id:
-        return False
-    with STREAMS_LOCK:
-        stream_alive = stream_id in STREAMS
-    if stream_alive:
-        return False
-
-    # ── #1558 P0 safety: if we were handed a metadata-only stub, reload the
-    # full session before touching persisted state. The original
-    # metadata-only object is left untouched so the caller's read path is
-    # unaffected.
-    original_stub = session  # SHOULD-FIX #1 (Opus): keep reference so we can
-                             # patch the caller's in-memory copy after a
-                             # successful clear, avoiding one ghost SSE
-                             # reconnect on the very next /api/session GET.
-    if getattr(session, "_loaded_metadata_only", False):
-        try:
-            from api.models import get_session as _get_session
-            session = _get_session(session.session_id, metadata_only=False)
-        except Exception:
-            # If we cannot upgrade to a full load (file gone, decode error,
-            # etc.) bail without clearing — better to leave a stale
-            # active_stream_id than to wipe the conversation.
-            logger.warning(
-                "_clear_stale_stream_state: refused to clear stale stream %s "
-                "for session %s — full reload failed and we will not save a "
-                "metadata-only stub. See #1558.",
-                stream_id, getattr(session, "session_id", "?"),
-            )
-            return False
-        if session is None:
-            return False
-        # The full-load path may have already repaired stale pending fields
-        # via _repair_stale_pending(); only re-assert if still set.
-        if not getattr(session, "active_stream_id", None):
-            # Patch the caller's stub so its read path also sees the cleared
-            # field (matches the Opus SHOULD-FIX #1 — without this, /api/session
-            # would briefly return the stale active_stream_id and the frontend
-            # would attempt one ghost SSE reconnect before recovering).
-            try:
-                original_stub.active_stream_id = None
-                if hasattr(original_stub, "pending_user_message"):
-                    original_stub.pending_user_message = None
-                if hasattr(original_stub, "pending_attachments"):
-                    original_stub.pending_attachments = []
-                if hasattr(original_stub, "pending_started_at"):
-                    original_stub.pending_started_at = None
-            except Exception:
-                pass
-            return False
-
-    # ── #1533 race fix: acquire the per-session lock and re-read
-    # active_stream_id under it. A concurrent chat_start may have already
-    # registered a new stream after our STREAMS_LOCK check above; in that
-    # case we must NOT clobber its session.active_stream_id.
-    with _get_session_agent_lock(session.session_id):
-        if getattr(session, "active_stream_id", None) != stream_id:
-            return False
-        if getattr(session, "pending_user_message", None):
-            try:
-                from api.models import _apply_core_sync_or_error_marker, _get_profile_home
-                profile_home = _get_profile_home(getattr(session, "profile", None))
-                core_path = profile_home / "sessions" / f"session_{session.session_id}.json"
-                repaired = _apply_core_sync_or_error_marker(
-                    session,
-                    core_path,
-                    stream_id_for_recheck=stream_id,
-                    touch_updated_at=False,
-                )
-            except Exception:
-                logger.exception(
-                    "_clear_stale_stream_state: failed to repair stale pending stream %s "
-                    "for session %s",
-                    stream_id, getattr(session, "session_id", "?"),
-                )
-                repaired = False
-            if repaired:
-                if original_stub is not session:
-                    try:
-                        original_stub.active_stream_id = None
-                        if hasattr(original_stub, "pending_user_message"):
-                            original_stub.pending_user_message = None
-                        if hasattr(original_stub, "pending_attachments"):
-                            original_stub.pending_attachments = []
-                        if hasattr(original_stub, "pending_started_at"):
-                            original_stub.pending_started_at = None
-                    except Exception:
-                        pass
-                return True
-            if getattr(session, "active_stream_id", None) != stream_id:
-                return False
-        _materialize_pending_user_turn_before_error(session)
-        session.active_stream_id = None
-        if hasattr(session, "pending_user_message"):
-            session.pending_user_message = None
-        if hasattr(session, "pending_attachments"):
-            session.pending_attachments = []
-        if hasattr(session, "pending_started_at"):
-            session.pending_started_at = None
-        try:
-            # Runtime cleanup is not user activity; do not bubble old sessions
-            # to the top of the sidebar just because a stale stream flag was
-            # repaired during a read/list path.
-            session.save(touch_updated_at=False)
-        except Exception:
-            logger.exception(
-                "_clear_stale_stream_state: save() failed for session %s",
-                getattr(session, "session_id", "?"),
-            )
-    # Patch the caller's stub (if different from the full-load object) so
-    # its in-memory active_stream_id matches what just got persisted.
-    if original_stub is not session:
-        try:
-            original_stub.active_stream_id = None
-            if hasattr(original_stub, "pending_user_message"):
-                original_stub.pending_user_message = None
-            if hasattr(original_stub, "pending_attachments"):
-                original_stub.pending_attachments = []
-            if hasattr(original_stub, "pending_started_at"):
-                original_stub.pending_started_at = None
-        except Exception:
-            pass
-    return True
-
 
 def _run_journal_status_payload(summary: dict, *, active: bool = False) -> dict:
     terminal = bool(summary.get("terminal"))
@@ -1244,120 +1092,12 @@ def _reconcile_stale_stream_state_for_session_rows(session_rows) -> bool:
             continue
         if session is None:
             continue
-        changed = _clear_stale_stream_state(session) or changed
+        changed = clear_stale_stream_state(session) or changed
     return changed
 
 # ── CSRF: validate Origin/Referer on POST ────────────────────────────────────
 import re as _re
 
-
-def _normalize_host_port(value: str) -> tuple[str, str | None]:
-    """Split a host or host:port string into (hostname, port|None).
-    Handles IPv6 bracket notation, e.g. [::1]:8080."""
-    value = value.strip().lower()
-    if not value:
-        return '', None
-    if value.startswith('['):
-        end = value.find(']')
-        if end != -1:
-            host = value[1:end]
-            rest = value[end + 1 :]
-            if rest.startswith(':') and rest[1:].isdigit():
-                return host, rest[1:]
-            return host, None
-    if value.count(':') == 1:
-        host, port = value.rsplit(':', 1)
-        if port.isdigit():
-            return host, port
-    return value, None
-
-
-def _ports_match(origin_scheme: str, origin_port: str | None, allowed_port: str | None) -> bool:
-    """Return True when two ports should be considered equivalent, scheme-aware.
-
-    Treats an absent port as the scheme default: port 80 for http, port 443 for https.
-    Port 80 is NOT treated as equivalent to 443 (different protocols = different origins).
-    """
-    if origin_port == allowed_port:
-        return True
-    # Determine the default port for the origin's scheme
-    default = '443' if origin_scheme == 'https' else '80'
-    if not origin_port and allowed_port == default:
-        return True
-    if not allowed_port and origin_port == default:
-        return True
-    return False
-
-
-def _allowed_public_origins() -> set[str]:
-    """Parse HERMES_WEBUI_ALLOWED_ORIGINS env var (comma-separated) into a set.
-
-    Each entry must include the scheme, e.g. https://myapp.example.com:8000.
-    Entries without a scheme are silently skipped and a warning is printed.
-    """
-    raw = os.getenv('HERMES_WEBUI_ALLOWED_ORIGINS', '')
-    result = set()
-    for value in raw.split(','):
-        value = value.strip().rstrip('/').lower()
-        if not value:
-            continue
-        if not (value.startswith('http://') or value.startswith('https://')):
-            import sys
-            print(
-                f"[webui] WARNING: HERMES_WEBUI_ALLOWED_ORIGINS entry {value!r} is missing "
-                f"the scheme (expected https://hostname or http://hostname). Entry ignored.",
-                flush=True, file=sys.stderr,
-            )
-            continue
-        result.add(value)
-    return result
-
-
-def _check_csrf(handler) -> bool:
-    """Reject cross-origin POST requests. Returns True if OK."""
-    origin = handler.headers.get("Origin", "")
-    referer = handler.headers.get("Referer", "")
-    host = handler.headers.get("Host", "")
-    if not origin and not referer:
-        return True  # non-browser clients (curl, agent) have no Origin
-    target = origin or referer
-    # Extract host:port from origin/referer
-    m = _re.match(r"^https?://([^/]+)", target)
-    if not m:
-        return False
-    origin_host = m.group(1)
-    origin_scheme = m.group(0).split('://')[0].lower()  # 'http' or 'https'
-    origin_name, origin_port = _normalize_host_port(origin_host)
-    # Check against explicitly allowed public origins (env var)
-    origin_value = m.group(0).rstrip('/').lower()
-    if origin_value in _allowed_public_origins():
-        return True
-    # Allow same-origin against the real connection Host header.
-    #
-    # SECURITY: X-Forwarded-Host / X-Real-Host are client-controllable and must
-    # NOT be trusted by default. Behind a Cloudflare tunnel every request appears
-    # to originate from localhost, so honoring a forged X-Forwarded-Host would let
-    # any internet origin pass the same-origin check (CSRF bypass). When the WebUI
-    # genuinely sits behind a trusted reverse proxy that rewrites these headers,
-    # the operator opts in with HERMES_WEBUI_TRUST_FORWARDED_HOST=1 (the nginx
-    # vhost rendered by webui/edge strips inbound forwarded headers first, so this
-    # is only ever set when a vetted proxy is in front). Public origins should be
-    # whitelisted explicitly via HERMES_WEBUI_ALLOWED_ORIGINS instead.
-    allowed_hosts = [host.strip()] if host.strip() else []
-    if os.getenv("HERMES_WEBUI_TRUST_FORWARDED_HOST", "").strip().lower() in ("1", "true", "yes"):
-        allowed_hosts.extend(
-            h.strip()
-            for h in [
-                handler.headers.get("X-Forwarded-Host", ""),
-                handler.headers.get("X-Real-Host", ""),
-            ]
-            if h.strip()
-        )
-    for allowed in allowed_hosts:
-        allowed_name, allowed_port = _normalize_host_port(allowed)
-        if origin_name == allowed_name and _ports_match(origin_scheme, origin_port, allowed_port):
-            return True
-    return False
 
 
 def _client_ip_for_rate_limit(handler) -> str:
@@ -1423,304 +1163,13 @@ def _handle_csp_report(handler) -> bool:
     return _send_no_content(handler)
 
 
-def _normalize_provider_id(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return ""
-    if raw in _PROVIDER_ALIASES:
-        return _PROVIDER_ALIASES[raw]
-    for prefix, normalized in (
-        ("openai-codex", "openai"),
-        ("openai", "openai"),
-        ("anthropic", "anthropic"),
-        ("claude", "anthropic"),
-        ("google", "google"),
-        ("gemini", "google"),
-        ("openrouter", "openrouter"),
-        ("custom", "custom"),
-    ):
-        if raw.startswith(prefix):
-            return normalized
-    # Unknown prefix — return empty so callers treat it as "no match" and pass
-    # the model through unchanged rather than incorrectly stripping it.
-    return "" 
-
-
-def _catalog_provider_id_sets(catalog: dict) -> tuple[set[str], set[str]]:
-    raw_provider_ids: set[str] = set()
-    normalized_provider_ids: set[str] = set()
-    for group in catalog.get("groups") or []:
-        raw = str(group.get("provider_id") or "").strip().lower()
-        if not raw:
-            continue
-        raw_provider_ids.add(raw)
-        normalized = _normalize_provider_id(raw)
-        if normalized:
-            normalized_provider_ids.add(normalized)
-    return raw_provider_ids, normalized_provider_ids
-
-
-def _catalog_has_provider(
-    provider_raw: str,
-    provider_normalized: str,
-    raw_provider_ids: set[str],
-    normalized_provider_ids: set[str],
-) -> bool:
-    return (
-        provider_raw in raw_provider_ids
-        or (provider_normalized and provider_normalized in raw_provider_ids)
-        or (provider_normalized and provider_normalized in normalized_provider_ids)
-    )
-
-
-def _model_matches_active_provider_family(
-    model: str,
-    active_provider: str,
-) -> bool:
-    model_lower = model.lower()
-    for bare_prefix in ("gpt", "claude", "gemini"):
-        if model_lower.startswith(bare_prefix):
-            return _normalize_provider_id(bare_prefix) == active_provider
-    return False
-
-
-def _catalog_model_id_matches(candidate: str, model: str) -> bool:
-    candidate = str(candidate or "").strip()
-    if candidate.startswith("@") and ":" in candidate:
-        candidate = candidate.rsplit(":", 1)[1]
-    if "/" in candidate:
-        candidate = candidate.split("/", 1)[1]
-    return candidate.replace("-", ".").lower() == model.replace("-", ".").lower()
-
-
-def _clean_session_model_provider(value: str | None) -> str | None:
-    provider = str(value or "").strip().lower()
-    if not provider or provider == "default":
-        return None
-    if provider.startswith("@"):
-        provider = provider[1:]
-    return provider or None
-
-
-def _split_provider_qualified_model(model: str) -> tuple[str, str | None]:
-    """(bare_model, provider) for ``@provider:model``; (model, None) otherwise.
-
-    Delegates to config.split_provider_qualified_model so the session
-    normaliser and the runtime router agree on where the provider ends —
-    splitting on the last colon here turned ``@ollama-cloud:gemma4:31b`` into
-    provider "ollama-cloud:gemma4" and swapped in the default model.
-    """
-    model = str(model or "").strip()
-    from api.config import split_provider_qualified_model as _split_qualified
-    parts = _split_qualified(model)
-    if parts:
-        provider = _clean_session_model_provider(parts[0])
-        bare = parts[1].strip()
-        if provider and bare:
-            return bare, provider
-    return model, None
-
-
-def _should_attach_codex_provider_context(model: str, raw_active_provider: str, catalog: dict) -> bool:
-    """Return True when a bare Codex model needs separate provider context.
-
-    OpenAI, OpenAI Codex, Copilot, and OpenRouter can all expose GPT-looking
-    bare names. If a session stores only ``gpt-...`` while Codex is active, a
-    later provider-list/default-model round trip can lose the user's Codex
-    choice. Store the provider separately instead of converting the persisted
-    model to ``@openai-codex:model``.
-    """
-    if raw_active_provider != "openai-codex":
-        return False
-    if not model.lower().startswith("gpt"):
-        return False
-    for group in catalog.get("groups") or []:
-        if str(group.get("provider_id") or "").strip().lower() != "openai-codex":
-            continue
-        return any(
-            _catalog_model_id_matches(entry.get("id"), model)
-            for entry in group.get("models", [])
-            if isinstance(entry, dict)
-        )
-    return False
-
-
-def _resolve_compatible_session_model_state(
-    model_id: str | None,
-    model_provider: str | None = None,
-) -> tuple[str, str | None, bool]:
-    """Return (effective_model, effective_provider, model_was_normalized).
-
-    Sessions can outlive provider changes. When an older session still points at
-    a different provider namespace (for example `gemini/...` after switching the
-    agent to OpenAI Codex), reusing that stale model causes chat startup to hit
-    the wrong backend and fail. Normalize only obvious cross-provider mismatches.
-    When a model has an explicit provider context, keep the model string itself
-    in its picker/API shape and carry the provider as separate state.
-    """
-    catalog = get_available_models()
-    default_model = str(catalog.get("default_model") or DEFAULT_MODEL or "").strip()
-    model = str(model_id or "").strip()
-    requested_provider = _clean_session_model_provider(model_provider)
-    if not model:
-        return default_model, requested_provider, bool(default_model)
-
-    active_provider = _normalize_provider_id(catalog.get("active_provider"))
-    # Also keep the raw active_provider slug for cross-provider detection with
-    # non-listed providers (ollama-cloud, deepseek, xai, etc.) that _normalize_provider_id
-    # returns "" for. If the raw provider is set but normalization returned "", we still
-    # want to detect that a session model from a known provider (e.g. openai/gpt-5.4-mini)
-    # is stale relative to this unknown active provider. (#1023)
-    raw_active_provider = str(catalog.get("active_provider") or "").strip().lower()
-    if not active_provider and not raw_active_provider:
-        bare_model, explicit_provider = _split_provider_qualified_model(model)
-        return model, explicit_provider or requested_provider, False
-
-    bare_for_context, explicit_provider = _split_provider_qualified_model(model)
-    if requested_provider and not explicit_provider:
-        return model, requested_provider, False
-
-    if model.startswith("@") and ":" in model:
-        provider_raw = explicit_provider or ""
-        provider_normalized = _normalize_provider_id(provider_raw)
-        bare_model = bare_for_context.strip()
-        if not provider_raw or not bare_model:
-            return model, requested_provider, False
-
-        raw_provider_ids, normalized_provider_ids = _catalog_provider_id_sets(catalog)
-        hint_matches_active = (
-            provider_raw == raw_active_provider
-            or provider_raw == active_provider
-            or (provider_normalized and provider_normalized == active_provider)
-        )
-        if hint_matches_active:
-            # The @provider:model hint explicitly names the active provider, so this
-            # selection is intentional — not a stale cross-provider artifact. Return
-            # the full @provider:model string unchanged so downstream (resolve_model_provider
-            # in config.py) can route through the correct provider. Stripping the prefix
-            # here would collapse duplicate model IDs from different providers back to the
-            # bare ID, causing the first matching provider to win on the next UI render
-            # and the wrong provider to be used for the agent run. (#1253)
-            return model, provider_raw, False
-
-        if _catalog_has_provider(
-            provider_raw,
-            provider_normalized,
-            raw_provider_ids,
-            normalized_provider_ids,
-        ):
-            return model, provider_raw, False
-
-        if _model_matches_active_provider_family(bare_model, active_provider):
-            provider_context = (
-                raw_active_provider
-                if _should_attach_codex_provider_context(bare_model, raw_active_provider, catalog)
-                else None
-            )
-            return bare_model, provider_context, True
-        if default_model:
-            provider_context = (
-                raw_active_provider
-                if _should_attach_codex_provider_context(default_model, raw_active_provider, catalog)
-                else None
-            )
-            return default_model, provider_context, True
-        return model, provider_raw, False
-
-    slash = model.find("/")
-    if slash < 0:
-        model_lower = model.lower()
-        for bare_prefix in ("gpt", "claude", "gemini"):
-            if model_lower.startswith(bare_prefix):
-                model_provider = _normalize_provider_id(bare_prefix)
-                if model_provider and model_provider != active_provider and default_model:
-                    provider_context = (
-                        raw_active_provider
-                        if _should_attach_codex_provider_context(default_model, raw_active_provider, catalog)
-                        else None
-                    )
-                    return default_model, provider_context, True
-                provider_context = (
-                    raw_active_provider
-                    if _should_attach_codex_provider_context(model, raw_active_provider, catalog)
-                    else requested_provider
-                )
-                return model, provider_context, False
-        return model, requested_provider, False
-
-    model_provider = _normalize_provider_id(model[:slash])
-
-    # For custom/openrouter active providers: only skip normalization when the
-    # model's namespace prefix is actually routable by a group in the catalog.
-    # A user who only has custom_providers configured (active_provider="custom")
-    # with a stale session model like "openai/gpt-5.4-mini" would otherwise
-    # never get cleaned up, causing "(unavailable)" to appear in the picker.
-    if active_provider in {"custom", "openrouter"}:
-        # These namespaces are always routable as-is — preserve them.
-        if model_provider in {"", "custom", "openrouter"}:
-            return model, requested_provider, False
-        # Check if any catalog group can actually route this model's prefix.
-        groups = catalog.get("groups") or []
-        routable_provider_ids = {
-            _normalize_provider_id(g.get("provider_id") or "") for g in groups
-        }
-        # openrouter group can route any provider/model namespace
-        has_openrouter_group = any(
-            (g.get("provider_id") or "") == "openrouter" for g in groups
-        )
-        if model_provider in routable_provider_ids or has_openrouter_group:
-            return model, requested_provider, False
-        # Model prefix is not routable — stale cross-provider reference, clear it.
-        if default_model:
-            return default_model, requested_provider, True
-        return model, requested_provider, False
-
-    # Skip normalization for models on custom/openrouter namespaces — these are
-    # user-controlled and should never be silently replaced.
-    #
-    # OpenAI Codex is intentionally normalized to the OpenAI family above so bare
-    # GPT IDs survive provider switches. Slash-qualified OpenAI IDs are different:
-    # ``openai/gpt-...`` is the OpenRouter shape for OpenAI models, and
-    # resolve_model_provider() routes that through OpenRouter when Codex is the
-    # configured provider. Legacy sessions can carry that stale slash ID without
-    # a saved model_provider, so repair it to the active Codex default unless the
-    # session/request explicitly says it is an OpenRouter selection. (#1734)
-    if (
-        raw_active_provider == "openai-codex"
-        and model_provider == "openai"
-        and requested_provider is None
-        and default_model
-    ):
-        # Persist provider_context = "openai-codex" unconditionally on this
-        # repair path so the resolved shape is stable across resolutions
-        # (Opus stage-303 SHOULD-FIX: avoid redundant repair-writes per
-        # chat-start when the catalog-coverage check fails — e.g. if a
-        # future Codex default is itself slash-prefixed). Once we've
-        # decided the session belongs to Codex, persist that decision.
-        return default_model, raw_active_provider, True
-
-    # Also normalize when the model is from a known provider but the active provider
-    # is an unlisted one (e.g. ollama-cloud) — active_provider is "" in that case
-    # but raw_active_provider is set. If model_provider doesn't start with the raw
-    # active provider name, the session model is stale. (#1023)
-    _active_for_compare = active_provider or raw_active_provider
-    if model_provider and model_provider not in {"", "custom", "openrouter"} and model_provider != _active_for_compare and default_model:
-        return default_model, requested_provider, True
-    return model, requested_provider, False
-
-
-def _resolve_compatible_session_model(model_id: str | None) -> tuple[str, bool]:
-    """Return (effective_model, model_was_normalized) for legacy callers."""
-    effective_model, _provider, changed = _resolve_compatible_session_model_state(model_id)
-    return effective_model, changed
-
 
 def _normalize_session_model_in_place(session) -> str:
     original_model = getattr(session, "model", None) or ""
-    original_provider = _clean_session_model_provider(
+    original_provider = clean_session_provider(
         getattr(session, "model_provider", None)
     )
-    effective_model, effective_provider, changed = _resolve_compatible_session_model_state(
+    effective_model, effective_provider, changed = resolve_session_model_state(
         original_model or None,
         original_provider,
     )
@@ -1746,7 +1195,7 @@ def _resolve_effective_session_model_for_display(session) -> str:
     effective model for the response payload only and leave disk state alone.
     """
     original_model = getattr(session, "model", None) or ""
-    effective_model, _provider, _changed = _resolve_compatible_session_model_state(
+    effective_model, _provider, _changed = resolve_session_model_state(
         original_model or None,
         getattr(session, "model_provider", None),
     )
@@ -1754,7 +1203,7 @@ def _resolve_effective_session_model_for_display(session) -> str:
 
 def _resolve_effective_session_model_provider_for_display(session) -> str | None:
     original_model = getattr(session, "model", None) or ""
-    _model, provider, _changed = _resolve_compatible_session_model_state(
+    _model, provider, _changed = resolve_session_model_state(
         original_model or None,
         getattr(session, "model_provider", None),
     )
@@ -1819,7 +1268,7 @@ def _session_model_state_from_request(
 ) -> tuple[str | None, str | None]:
     model_value = str(model).strip() if model is not None else None
     provider = (
-        _clean_session_model_provider(requested_provider)
+        clean_session_provider(requested_provider)
         if requested_provider is not None
         else None
     )
@@ -1828,8 +1277,8 @@ def _session_model_state_from_request(
         if explicit_provider:
             provider = explicit_provider
         elif requested_provider is None:
-            provider = _clean_session_model_provider(current_provider)
-        model_value, provider, _changed = _resolve_compatible_session_model_state(
+            provider = clean_session_provider(current_provider)
+        model_value, provider, _changed = resolve_session_model_state(
             model_value,
             provider,
         )
@@ -2241,7 +1690,6 @@ from api.workspace import (
 )
 from api.upload import handle_upload, handle_upload_extract, handle_transcribe
 from api.streaming import (
-    _sse,
     _run_agent_streaming,
     cancel_stream,
     _materialize_pending_user_turn_before_error,
@@ -3996,7 +3444,7 @@ def handle_get(handler, parsed) -> bool:
             _t1 = _time.monotonic()
             s = get_session(sid, metadata_only=(not load_messages))
             original_stream_id = getattr(s, "active_stream_id", None)
-            _clear_stale_stream_state(s)
+            clear_stale_stream_state(s)
             cli_meta = _lookup_cli_session_metadata(sid) if _session_requires_cli_metadata_lookup(s) else {}
             is_messaging_session = _is_messaging_session_record(s) or _is_messaging_session_record(cli_meta)
             cli_messages = []
@@ -4218,7 +3666,7 @@ def handle_get(handler, parsed) -> bool:
             return bad(handler, "Missing session_id")
         try:
             from api.session_ops import session_status
-            _clear_stale_stream_state(get_session(sid, metadata_only=True))
+            clear_stale_stream_state(get_session(sid, metadata_only=True))
             return j(handler, session_status(sid))
         except KeyError:
             return bad(handler, "Session not found", 404)
@@ -4857,7 +4305,7 @@ def handle_post(handler, parsed) -> bool:
     # CSRF: reject cross-origin browser requests
     if diag:
         diag.stage("csrf")
-    if not _check_csrf(handler):
+    if not check_csrf(handler):
         try:
             return j(handler, {"error": "Cross-origin request rejected"}, status=403)
         finally:
@@ -6827,7 +6275,7 @@ def handle_post(handler, parsed) -> bool:
 
 def handle_patch(handler, parsed) -> bool:
     """Handle all PATCH routes. Returns True if handled, False for 404."""
-    if not _check_csrf(handler):
+    if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     return dispatch_mount(Request(handler, parsed, "PATCH"))
 
@@ -6893,7 +6341,7 @@ def delete_chat_session(sid: str) -> None:
 
 def handle_put(handler, parsed) -> bool:
     """Handle all PUT routes. Returns True if handled, False for 404."""
-    if not _check_csrf(handler):
+    if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     req = Request(handler, parsed, "PUT")
     if dispatch_mount(req):
@@ -6907,7 +6355,7 @@ def handle_put(handler, parsed) -> bool:
 
 def handle_delete(handler, parsed) -> bool:
     """Handle all DELETE routes. Returns True if handled, False for 404."""
-    if not _check_csrf(handler):
+    if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     req = Request(handler, parsed, "DELETE")
     if dispatch_mount(req):
@@ -7182,7 +6630,7 @@ def _handle_list_dir(handler, parsed):
 def _sse_with_id(handler, event, data, event_id=None):
     if event_id:
         handler.wfile.write(f"id: {event_id}\n".encode("utf-8"))
-    _sse(handler, event, data)
+    sse.send(handler, event, data)
 
 
 def _parse_run_journal_after_seq(qs: dict) -> int | None:
@@ -7233,32 +6681,22 @@ def _handle_sse_stream(handler, parsed):
             journal_available = False
         if not journal_available:
             return j(handler, {"error": "stream not found"}, status=404)
-        handler.send_response(200)
-        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        handler.send_header("Cache-Control", "no-cache")
-        handler.send_header("X-Accel-Buffering", "no")
-        handler.send_header("Connection", "keep-alive")
-        handler.end_headers()
+        sse.open_stream(handler)
         try:
             _replay_run_journal(handler, stream_id, _parse_run_journal_after_seq(qs))
-        except _CLIENT_DISCONNECT_ERRORS:
+        except sse.CLIENT_GONE:
             pass
         return True
     _send_sse_headers(handler)
     try:
         _pump_sse_stream(handler, stream_id, stream)
-    except _CLIENT_DISCONNECT_ERRORS:
+    except sse.CLIENT_GONE:
         pass
     return True
 
 
 def _send_sse_headers(handler) -> None:
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-    handler.send_header("Cache-Control", "no-cache")
-    handler.send_header("X-Accel-Buffering", "no")
-    handler.send_header("Connection", "keep-alive")
-    handler.end_headers()
+    sse.open_stream(handler)
 
 
 def _pump_sse_stream(handler, stream_id: str, stream) -> None:
@@ -7273,7 +6711,7 @@ def _pump_sse_stream(handler, stream_id: str, stream) -> None:
     try:
         while True:
             try:
-                event, data = subscriber.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                event, data = subscriber.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
@@ -7286,7 +6724,7 @@ def _pump_sse_stream(handler, stream_id: str, stream) -> None:
             if event_id:
                 _sse_with_id(handler, event, data, event_id)
             else:
-                _sse(handler, event, data)
+                sse.send(handler, event, data)
             if event in ("stream_end", "error", "cancel"):
                 break
     finally:
@@ -7313,10 +6751,10 @@ def _stream_chat_start_response(handler, response: dict) -> bool:
     stream = STREAMS.get(stream_id) if stream_id else None
     _send_sse_headers(handler)
     try:
-        _sse(handler, "chat_start", response)
+        sse.send(handler, "chat_start", response)
         if stream is not None:
             _pump_sse_stream(handler, stream_id, stream)
-    except _CLIENT_DISCONNECT_ERRORS:
+    except sse.CLIENT_GONE:
         pass
     return True
 
@@ -7416,16 +6854,11 @@ def _handle_terminal_output(handler, parsed):
     if term is None:
         return j(handler, {"error": "terminal not running"}, status=404)
 
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-    handler.send_header("Cache-Control", "no-cache")
-    handler.send_header("X-Accel-Buffering", "no")
-    handler.send_header("Connection", "keep-alive")
-    handler.end_headers()
+    sse.open_stream(handler)
     try:
         while True:
             try:
-                event, data = term.output.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                event, data = term.output.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
                 handler.wfile.write(b": terminal heartbeat\n\n")
                 handler.wfile.flush()
@@ -7434,7 +6867,7 @@ def _handle_terminal_output(handler, parsed):
                     reason = getattr(term, "close_reason", None)
                     if reason:
                         payload["reason"] = reason
-                    _sse(handler, "terminal_closed", payload)
+                    sse.send(handler, "terminal_closed", payload)
                     break
                 continue
             # COALESCE a burst of consecutive output frames into ONE SSE write. A
@@ -7456,13 +6889,13 @@ def _handle_terminal_output(handler, parsed):
                     else:
                         ctrl = (ev2, d2)
                         break
-                _sse(handler, "output", {"text": "".join(texts)})
+                sse.send(handler, "output", {"text": "".join(texts)})
                 if ctrl is not None:
-                    _sse(handler, ctrl[0], ctrl[1])
+                    sse.send(handler, ctrl[0], ctrl[1])
                     if ctrl[0] in ("terminal_closed", "terminal_error"):
                         break
                 continue
-            _sse(handler, event, data)
+            sse.send(handler, event, data)
             if event in ("terminal_closed", "terminal_error"):
                 break
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -7523,31 +6956,25 @@ def _handle_gateway_sse_stream(handler, parsed):
     if not _probe_body['watcher_running']:
         return j(handler, {'error': 'watcher not started'}, status=503)
 
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
+    sse.open_stream(handler)
 
     q = watcher.subscribe()
     try:
         # Send initial snapshot immediately
         from api.models import get_cli_sessions
         initial = get_cli_sessions()
-        _sse(handler, 'sessions_changed', {'sessions': initial})
+        sse.send(handler, 'sessions_changed', {'sessions': initial})
 
         while True:
             try:
-                event_data = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                event_data = q.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
+                sse.keepalive(handler)
                 continue
             if event_data is None:
                 break  # watcher is stopping
-            _sse(handler, event_data.get('type', 'sessions_changed'), event_data)
-    except _CLIENT_DISCONNECT_ERRORS:
+            sse.send(handler, event_data.get('type', 'sessions_changed'), event_data)
+    except sse.CLIENT_GONE:
         pass
     finally:
         watcher.unsubscribe(q)
@@ -7583,7 +7010,7 @@ def _session_events_snapshot(session_id: str) -> dict:
     with STREAMS_LOCK:
         live = stream_id in STREAMS
     if not live:
-        # active_stream_id outlives a worker that died; _clear_stale_stream_state
+        # active_stream_id outlives a worker that died; clear_stale_stream_state
         # repairs it lazily elsewhere, and announcing it here would send the
         # client chasing a stream that is never going to produce another event.
         return snap
@@ -7611,141 +7038,26 @@ def _handle_session_events_sse(handler, parsed):
     if not session_id:
         return j(handler, {'error': 'session_id required'}, status=400)
 
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
+    sse.open_stream(handler)
 
     # Subscribe BEFORE the snapshot: a run starting in between is then delivered
     # as an event rather than falling into the gap between the two.
     q = SESSION_EVENTS.subscribe(session_id)
     try:
-        _sse(handler, 'snapshot', _session_events_snapshot(session_id))
+        sse.send(handler, 'snapshot', _session_events_snapshot(session_id))
         while True:
             try:
-                event, data = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                event, data = q.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
+                sse.keepalive(handler)
                 continue
-            _sse(handler, event, data)
-    except _CLIENT_DISCONNECT_ERRORS:
+            sse.send(handler, event, data)
+    except sse.CLIENT_GONE:
         pass
     finally:
         SESSION_EVENTS.unsubscribe(session_id, q)
     return True
 
-
-def _content_disposition_value(disposition: str, filename: str) -> str:
-    """Build a latin-1-safe Content-Disposition value with RFC 5987 filename*."""
-    import urllib.parse as _up
-
-    safe_name = Path(filename).name.replace("\r", "").replace("\n", "")
-    ascii_fallback = "".join(
-        ch if 32 <= ord(ch) < 127 and ch not in {'"', '\\'} else "_"
-        for ch in safe_name
-    ).strip(" .")
-    if not ascii_fallback:
-        suffix = Path(safe_name).suffix
-        ascii_suffix = "".join(
-            ch if 32 <= ord(ch) < 127 and ch not in {'"', '\\'} else "_"
-            for ch in suffix
-        )
-        ascii_fallback = f"download{ascii_suffix}" if ascii_suffix else "download"
-    quoted_name = _up.quote(safe_name, safe="")
-    return (
-        f'{disposition}; filename="{ascii_fallback}"; '
-        f"filename*=UTF-8''{quoted_name}"
-    )
-
-
-def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int] | None:
-    """Parse a single HTTP bytes range into inclusive start/end offsets."""
-    if not range_header or not range_header.startswith("bytes=") or file_size < 1:
-        return None
-    spec = range_header.split("=", 1)[1].strip()
-    if "," in spec or "-" not in spec:
-        return None
-    start_s, end_s = spec.split("-", 1)
-    try:
-        if start_s == "":
-            # suffix range: bytes=-500
-            suffix_len = int(end_s)
-            if suffix_len <= 0:
-                return None
-            start = max(0, file_size - suffix_len)
-            end = file_size - 1
-        else:
-            start = int(start_s)
-            end = int(end_s) if end_s else file_size - 1
-            if start < 0:
-                return None
-            end = min(end, file_size - 1)
-        if start > end or start >= file_size:
-            return None
-        return start, end
-    except ValueError:
-        return None
-
-
-def _serve_file_bytes(handler, target: Path, mime: str, disposition: str, cache_control: str, *, csp: str | None = None):
-    """Serve a file with correct MIME/disposition and optional byte-range support."""
-    try:
-        file_size = target.stat().st_size
-    except PermissionError:
-        return bad(handler, "Permission denied", 403)
-    except Exception:
-        return bad(handler, "Could not stat file", 500)
-
-    byte_range = _parse_range_header(handler.headers.get("Range", ""), file_size)
-    if handler.headers.get("Range") and byte_range is None:
-        handler.send_response(416)
-        handler.send_header("Content-Range", f"bytes */{file_size}")
-        handler.send_header("Accept-Ranges", "bytes")
-        _security_headers(handler)
-        handler.end_headers()
-        return True
-
-    start, end = byte_range if byte_range else (0, max(0, file_size - 1))
-    content_length = end - start + 1 if file_size else 0
-    handler.send_response(206 if byte_range else 200)
-    handler.send_header("Content-Type", mime)
-    handler.send_header("Content-Length", str(content_length))
-    handler.send_header("Accept-Ranges", "bytes")
-    if byte_range:
-        handler.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-    handler.send_header("Cache-Control", cache_control)
-    handler.send_header("Content-Disposition", _content_disposition_value(disposition, target.name))
-    if csp:
-        # Sandboxed inline HTML must remain frameable for workspace previews;
-        # X-Frame-Options: DENY would block the iframe before CSP sandbox applies.
-        handler.send_header("Content-Security-Policy", csp)
-        handler.send_header("X-Content-Type-Options", "nosniff")
-        handler.send_header("Referrer-Policy", "same-origin")
-        handler.send_header(
-            "Permissions-Policy",
-            "camera=(), microphone=(self), geolocation=(), clipboard-write=(self)",
-        )
-    else:
-        _security_headers(handler)
-    handler.end_headers()
-
-    if content_length:
-        try:
-            with target.open("rb") as f:
-                f.seek(start)
-                remaining = content_length
-                while remaining:
-                    chunk = f.read(min(1024 * 1024, remaining))
-                    if not chunk:
-                        break
-                    handler.wfile.write(chunk)
-                    remaining -= len(chunk)
-        except PermissionError:
-            return True
-    return True
 
 
 def _handle_media(handler, parsed):
@@ -7854,9 +7166,9 @@ def _handle_media(handler, parsed):
             or html_inline_ok
         )
     ) else "attachment"
-    # _serve_file_bytes sends Content-Security-Policy when csp is set.
+    # serve_file_bytes sends Content-Security-Policy when csp is set.
     csp = "sandbox allow-scripts" if html_inline_ok else None
-    return _serve_file_bytes(handler, target, mime, disposition, "private, max-age=3600", csp=csp)
+    return serve_file_bytes(handler, target, mime, disposition, "private, max-age=3600", csp=csp)
 
 
 def _file_raw_target(session, sid: str, rel: str) -> Path | None:
@@ -7914,8 +7226,8 @@ def _handle_file_raw(handler, parsed):
     # allow-same-origin, the document is treated as a unique opaque origin and
     # cannot read WebUI cookies, localStorage, or postMessage to the parent.
     csp = "sandbox allow-scripts" if html_inline_ok else None
-    # _serve_file_bytes sends Content-Security-Policy when csp is set.
-    return _serve_file_bytes(handler, target, mime, disposition, "no-store", csp=csp)
+    # serve_file_bytes sends Content-Security-Policy when csp is set.
+    return serve_file_bytes(handler, target, mime, disposition, "no-store", csp=csp)
 
 
 def _handle_file_read(handler, parsed):
@@ -7985,31 +7297,24 @@ def _handle_approval_sse_stream(handler, parsed):
             initial_pending = dict(q_list)
             initial_count = 1
 
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
+    sse.open_stream(handler)
 
-    from api.streaming import _sse
 
     # Push initial state immediately so the client doesn't miss anything.
-    _sse(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
+    sse.send(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
 
     try:
         while True:
             try:
-                payload = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                payload = q.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
                 # Keepalive — SSE comment line prevents proxy/CDN timeout.
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
+                sse.keepalive(handler)
                 continue
             if payload is None:
                 break  # signal to close
-            _sse(handler, 'approval', payload)
-    except _CLIENT_DISCONNECT_ERRORS:
+            sse.send(handler, 'approval', payload)
+    except sse.CLIENT_GONE:
         pass  # client went away — normal for long-lived connections
     finally:
         _approval_sse_unsubscribe(sid, q)
@@ -8086,30 +7391,23 @@ def _handle_clarify_sse_stream(handler, parsed):
                 initial_pending = dict(_legacy)
                 initial_count = 1
 
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
+    sse.open_stream(handler)
 
-    from api.streaming import _sse
 
     # Push initial state immediately so the client doesn't miss anything.
-    _sse(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
+    sse.send(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
 
     try:
         while True:
             try:
-                payload = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                payload = q.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
+                sse.keepalive(handler)
                 continue
             if payload is None:
                 break
-            _sse(handler, 'clarify', payload)
-    except _CLIENT_DISCONNECT_ERRORS:
+            sse.send(handler, 'clarify', payload)
+    except sse.CLIENT_GONE:
         pass
     finally:
         clarify_sse_unsubscribe(sid, q)
@@ -8890,235 +8188,6 @@ def _handle_background(handler, body):
     return j(handler, {"task_id": task_id, "stream_id": stream_id, "session_id": bg.session_id})
 
 
-def _checkpoint_user_message_for_eager_session_save(s, msg: str, attachments, started_at: float | None) -> None:
-    """Materialize the current user turn for eager first-turn persistence.
-
-    The streaming thread still receives ``pending_user_message`` so existing
-    cancel/recovery/final-merge paths keep their current contract. Eager mode
-    only adds a durable display-message checkpoint before the agent launches.
-    """
-    if not msg:
-        return
-    existing = list(getattr(s, "messages", None) or [])
-    if existing:
-        latest = existing[-1]
-        if isinstance(latest, dict) and latest.get("role") == "user":
-            latest_text = " ".join(str(latest.get("content") or "").split())
-            msg_text = " ".join(str(msg or "").split())
-            if latest_text == msg_text:
-                return
-    user_msg = {"role": "user", "content": msg}
-    if isinstance(started_at, (int, float)) and started_at > 0:
-        user_msg["timestamp"] = int(started_at)
-    if attachments:
-        user_msg["attachments"] = list(attachments)
-    s.messages.append(user_msg)
-
-
-def _is_default_or_empty_session_title(title) -> bool:
-    return str(title or "").strip() in ("", "Untitled", "New Chat")
-
-
-def _provisional_title_from_prompt(prompt: str, fallback: str = "Untitled") -> str:
-    text = str(prompt or "").strip()
-    if not text:
-        return fallback
-    return title_from([{"role": "user", "content": text}], fallback) or fallback
-
-
-def _prepare_chat_start_session_for_stream(
-    s,
-    *,
-    msg: str,
-    attachments,
-    workspace: str,
-    model: str,
-    model_provider,
-    stream_id: str,
-    started_at: float | None = None,
-    persist: bool = True,
-):
-    """Persist chat-start state according to webui.session_save_mode.
-
-    ``deferred`` keeps the existing sidecar/WAL-backed behaviour: save pending
-    fields but leave the display transcript empty until the agent merges the
-    result. ``eager`` additionally writes the current user turn into messages so
-    a process restart immediately after /api/chat/start preserves the prompt as
-    a normal session message. Empty sessions are never saved here because this
-    helper only runs after a non-empty message is validated.
-
-    ``persist=False`` (plan 1.2) sets all the in-memory pending-state fields
-    on ``s`` but skips the disk write — the caller starts the agent worker
-    thread first and writes the session afterward with
-    ``s.save(skip_index=True)`` so the SESSION_DIR glob in
-    ``_write_session_index`` never sits on the chat/start request path.
-    """
-    s.workspace = workspace
-    s.model = model
-    s.model_provider = model_provider
-    s.active_stream_id = stream_id
-    s.pending_user_message = msg
-    s.pending_attachments = attachments
-    s.pending_started_at = started_at if started_at is not None else time.time()
-    current_title = getattr(s, "title", None)
-    if _is_default_or_empty_session_title(current_title):
-        provisional_title = _provisional_title_from_prompt(msg, current_title or "Untitled")
-        if provisional_title and not _is_default_or_empty_session_title(provisional_title):
-            s.title = provisional_title
-    if get_webui_session_save_mode() == "eager":
-        _checkpoint_user_message_for_eager_session_save(
-            s,
-            msg,
-            attachments,
-            s.pending_started_at,
-        )
-    if persist:
-        s.save()
-
-
-def _start_chat_stream_for_session(
-    s,
-    *,
-    msg: str,
-    attachments=None,
-    workspace: str,
-    model: str,
-    model_provider=None,
-    normalized_model: bool = False,
-    diag=None,
-    goal_related: bool = False,
-):
-    """Persist pending state, register an SSE channel, and start an agent turn."""
-    attachments = attachments or []
-    # Prevent duplicate runs in the same session while a stream is still active.
-    # This commonly happens after page refresh/reconnect races and can produce
-    # duplicated clarify cards for what appears to be a single user request.
-    diag.stage("active_stream_check") if diag else None
-    current_stream_id = getattr(s, "active_stream_id", None)
-    if current_stream_id:
-        diag.stage("active_stream_lock_wait") if diag else None
-        with STREAMS_LOCK:
-            current_active = current_stream_id in STREAMS
-        if current_active:
-            diag.stage("response_write") if diag else None
-            return {
-                "error": "session already has an active stream",
-                "active_stream_id": current_stream_id,
-                "_status": 409,
-            }
-        # Stale stream id from a previous run; clear and continue.
-        diag.stage("stale_stream_cleanup") if diag else None
-        _clear_stale_stream_state(s)
-
-    # #1932: check if this session has a pending goal continuation flag.
-    # The streaming hook sets PENDING_GOAL_CONTINUATION when goal_continue fires,
-    # so the next chat/start for this session is automatically treated as goal-related.
-    if not goal_related and s.session_id in PENDING_GOAL_CONTINUATION:
-        goal_related = True
-        PENDING_GOAL_CONTINUATION.discard(s.session_id)
-
-    stream_id = uuid.uuid4().hex
-    session_lock = _get_session_agent_lock(s.session_id)
-    diag.stage("session_lock_wait") if diag else None
-    with session_lock:
-        diag.stage("save_pending_state") if diag else None
-        # plan 1.2 — set the pending-state fields on `s` now (cheap, in-memory)
-        # but defer the disk write (persist=False) until after the worker
-        # thread has been started below, and skip the SESSION_DIR-globbing
-        # index rewrite on that write entirely (skip_index=True) in favor of
-        # a debounced background refresh.
-        _prepare_chat_start_session_for_stream(
-            s,
-            msg=msg,
-            attachments=attachments,
-            workspace=workspace,
-            model=model,
-            model_provider=model_provider,
-            stream_id=stream_id,
-            persist=False,
-        )
-    diag.stage("turn_journal_submitted") if diag else None
-    journal_event = {}
-    try:
-        from api.turn_journal import append_turn_journal_event
-        journal_event = append_turn_journal_event(
-            s.session_id,
-            {
-                "event": "submitted",
-                "stream_id": stream_id,
-                "role": "user",
-                "content": msg,
-                "attachments": attachments,
-                "workspace": workspace,
-                "model": model,
-                "model_provider": model_provider,
-                "created_at": s.pending_started_at,
-            },
-        )
-    except Exception:
-        logger.warning("Failed to append submitted turn journal event", exc_info=True)
-    diag.stage("set_last_workspace") if diag else None
-    set_last_workspace(workspace)
-    diag.stage("stream_registration") if diag else None
-    stream = create_stream_channel()
-    with STREAMS_LOCK:
-        STREAMS[stream_id] = stream
-    # Tell every OTHER device with this chat open that a run just started, and
-    # which stream to attach to. The run stream already broadcasts to every
-    # subscriber; until now nobody else was ever told the stream_id, so the
-    # fan-out had an audience of one.
-    #
-    # Published here -- after the stream is registered, before the worker starts
-    # -- rather than at the end of this function. A run that fails instantly can
-    # otherwise reach the worker's finally and publish run_ended FIRST, leaving
-    # the other device holding a stream_id that is already gone and spinning on
-    # it forever: exactly the case run_ended exists to prevent, inverted.
-    try:
-        SESSION_EVENTS.publish(s.session_id, "run_started", {
-            "session_id": s.session_id,
-            "stream_id": stream_id,
-            "title": s.title,
-        })
-    except Exception:
-        # An announcement is a nicety; never fail the turn the user asked for.
-        logger.warning("Failed to announce run_started", exc_info=True)
-    # #1932: mark stream as goal-related so the streaming hook evaluates the goal.
-    if goal_related:
-        STREAM_GOAL_RELATED[stream_id] = True
-    diag.stage("worker_thread_start") if diag else None
-    thr = threading.Thread(
-        target=_run_agent_streaming,
-        args=(s.session_id, msg, model, workspace, stream_id, attachments),
-        kwargs={"model_provider": model_provider, "goal_related": goal_related},
-        daemon=True,
-    )
-    thr.start()
-    # plan 1.2 — persist the pending state to disk only after the worker
-    # thread has been kicked off, with skip_index=True so this write never
-    # does the SESSION_DIR glob (see models._write_session_index). The
-    # session index is refreshed shortly after via a debounced background
-    # call so /api/sessions listings still pick up the new/updated session.
-    diag.stage("save_pending_state_disk") if diag else None
-    with session_lock:
-        s.save(skip_index=True)
-    try:
-        from api.models import schedule_session_index_refresh
-        schedule_session_index_refresh(s)
-    except Exception:
-        logger.warning("Failed to schedule session index refresh", exc_info=True)
-    response = {
-        "stream_id": stream_id,
-        "session_id": s.session_id,
-        "pending_started_at": s.pending_started_at,
-        "turn_id": journal_event.get("turn_id"),
-        "title": s.title,
-    }
-    if normalized_model:
-        response["effective_model"] = model
-    if model_provider:
-        response["effective_model_provider"] = model_provider
-    return response
-
 
 def _handle_goal_command(handler, body):
     """Handle WebUI /goal command controls and optional kickoff stream."""
@@ -9155,7 +8224,7 @@ def _handle_goal_command(handler, body):
         with STREAMS_LOCK:
             stream_running = current_stream_id in STREAMS
         if not stream_running:
-            _clear_stale_stream_state(s)
+            clear_stale_stream_state(s)
 
     try:
         from api.profiles import get_hermes_home_for_profile
@@ -9186,7 +8255,7 @@ def _handle_goal_command(handler, body):
             if "model_provider" in body
             else getattr(s, "model_provider", None)
         )
-        model, model_provider, normalized_model = _resolve_compatible_session_model_state(
+        model, model_provider, normalized_model = resolve_session_model_state(
             requested_model,
             requested_provider,
         )
@@ -9216,11 +8285,11 @@ def _handle_goal_command(handler, body):
                 if "model_provider" in body
                 else getattr(s, "model_provider", None)
             )
-            model, model_provider, normalized_model = _resolve_compatible_session_model_state(
+            model, model_provider, normalized_model = resolve_session_model_state(
                 requested_model,
                 requested_provider,
             )
-        stream_response = _start_chat_stream_for_session(
+        stream_response = start_turn(
             s,
             msg=kickoff_prompt,
             attachments=[],
@@ -9239,51 +8308,6 @@ def _handle_goal_command(handler, body):
 
     return j(handler, payload)
 
-
-def _apply_turn_harness(s, body, model, model_provider):
-    """Mark which agent harness this chat turn runs (api/harness_runner.py; the
-    streaming thread consumes the markers).
-
-    * ``harness_id`` non-empty — the chat's own harness: run it, and the chat
-      keeps it.
-    * ``harness_id`` present but empty — a harness-aware client with no chat
-      harness: follow the chat's stored one, else the Chat default. Nothing is
-      saved, so a later default change still reaches this chat.
-    * no ``harness_id`` key — an older client: its model runs as Single, exactly
-      as before harnesses existed.
-
-    An integration-setup session always runs Single on the model its picker
-    sent (2026-11-04, his call): setup is a back-and-forth of questions and
-    forms, and a harness hands it to a background job he cannot answer.
-    """
-    if getattr(s, "integration_setup", False):
-        s._turn_harness_id = None
-        s._turn_explicit_model = (model, model_provider)
-        return
-    if "harness_id" in body:
-        hid = body.get("harness_id")
-        hid = hid.strip() if isinstance(hid, str) else ""
-        if hid:
-            s.harness_id = hid
-        s._turn_harness_id = hid or None
-        s._turn_explicit_model = None
-    else:
-        s._turn_harness_id = None
-        s._turn_explicit_model = (model, model_provider)
-
-
-def start_chat_turn(session_id: str, message: str) -> dict:
-    """Start a chat turn in an existing session from the server itself (the
-    phone's Agents tab replying to a Jarvis chat). Same model, harness and
-    workspace resolution as POST /api/chat/start. KeyError: no such session.
-    Returns the start response ({stream_id, …} or {error, _status})."""
-    s = get_session(session_id)
-    workspace = _resolve_chat_workspace_with_recovery(s, None)
-    model, model_provider, normalized_model = _resolve_compatible_session_model_state(
-        s.model, getattr(s, "model_provider", None))
-    _apply_turn_harness(s, {}, model, model_provider)
-    return _start_chat_stream_for_session(s, msg=message, workspace=workspace, model=model,
-                                          model_provider=model_provider, normalized_model=normalized_model)
 
 
 def _handle_chat_start(handler, body, diag=None, stream=False):
@@ -9356,7 +8380,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             else getattr(s, "model_provider", None)
         )
         diag.stage("resolve_model_provider") if diag else None
-        model, model_provider, normalized_model = _resolve_compatible_session_model_state(
+        model, model_provider, normalized_model = resolve_session_model_state(
             requested_model,
             requested_provider,
         )
@@ -9366,21 +8390,22 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             runtime_adapter_enabled,
         )
 
-        # Which paired device sent this (api/turn_origin.py): system text for this
-        # call, consumed by the streaming thread, and the default device-tool target.
+        # Which paired device sent this (api/turn_origin.py): a note to the model for
+        # this call, and the default target for device tools.
+        origin_note = ""
         try:
             from api import turn_origin
             _origin = turn_origin.origin_for_handler(handler)
-            s._turn_origin_directive = turn_origin.directive(_origin, "chat") or None
+            origin_note = turn_origin.directive(_origin, "chat") or ""
             turn_origin.note_turn(s.session_id, _origin)
         except Exception:
-            pass
+            logger.debug("chat start: sending device not noted", exc_info=True)
 
-        _apply_turn_harness(s, body, model, model_provider)
+        turn = turn_options_for_chat(s, body, model, model_provider, context=origin_note)
 
         if runtime_adapter_enabled():
             def _legacy_start_run(request: StartRunRequest) -> dict:
-                return _start_chat_stream_for_session(
+                return start_turn(
                     s,
                     msg=request.message,
                     attachments=request.attachments,
@@ -9389,6 +8414,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
                     model_provider=request.provider or model_provider,
                     normalized_model=normalized_model,
                     diag=diag,
+                    turn=turn,
                 )
 
             adapter = LegacyJournalRuntimeAdapter(start_run_delegate=_legacy_start_run)
@@ -9409,7 +8435,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             response.setdefault("stream_id", result.stream_id)
             response.setdefault("session_id", result.session_id)
         else:
-            response = _start_chat_stream_for_session(
+            response = start_turn(
                 s,
                 msg=msg,
                 attachments=attachments,
@@ -9418,6 +8444,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
                 model_provider=model_provider,
                 normalized_model=normalized_model,
                 diag=diag,
+                turn=turn,
             )
         status = int(response.pop("_status", 200) or 200)
         diag.stage("response_write") if diag else None
@@ -9429,23 +8456,6 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             diag.finish()
 
 
-
-def _resolve_chat_workspace_with_recovery(s, requested_workspace) -> str:
-    """Recover stale implicit session workspaces without hiding explicit errors."""
-    explicit = requested_workspace not in (None, "")
-    candidate = requested_workspace if explicit else getattr(s, "workspace", None)
-    try:
-        return str(resolve_trusted_workspace(candidate))
-    except ValueError:
-        if explicit:
-            raise
-    fallback = str(resolve_trusted_workspace(get_last_workspace()))
-    s.workspace = fallback
-    try:
-        s.save()
-    except Exception:
-        pass
-    return fallback
 
 
 def _normalize_chat_attachments(raw_attachments):
@@ -9490,15 +8500,15 @@ def _handle_chat_sync(handler, body):
         return bad(handler, str(e))
     with _get_session_agent_lock(s.session_id):
         s.workspace = workspace
-        model, model_provider = _resolve_compatible_session_model_state(
+        model, model_provider = resolve_session_model_state(
             body.get("model") or s.model,
             body.get("model_provider") if "model_provider" in body else getattr(s, "model_provider", None),
         )[:2]
         s.model = model
         s.model_provider = model_provider
-    from api.streaming import _ENV_LOCK
+    from api.config import ENV_LOCK
 
-    with _ENV_LOCK:
+    with ENV_LOCK:
         old_cwd = os.environ.get("TERMINAL_CWD")
         os.environ["TERMINAL_CWD"] = str(workspace)
         old_exec_ask = os.environ.get("HERMES_EXEC_ASK")
@@ -9588,7 +8598,7 @@ def _handle_chat_sync(handler, body):
                 persist_user_message=msg,
             )
     finally:
-        with _ENV_LOCK:
+        with ENV_LOCK:
             if old_cwd is None:
                 os.environ.pop("TERMINAL_CWD", None)
             else:

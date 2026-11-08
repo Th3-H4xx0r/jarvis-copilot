@@ -375,7 +375,7 @@ def test_stale_stream_cleanup_materializes_pending_turn_before_clearing_state():
     agent merges the user turn, /api/session stale cleanup must not clear that
     pending field without first appending a durable user message.
     """
-    from api.routes import _clear_stale_stream_state
+    from api.chat_turns import clear_stale_stream_state
 
     sid = "test_pending_error_d3_stale"
     s = _make_session(
@@ -387,7 +387,7 @@ def test_stale_stream_cleanup_materializes_pending_turn_before_clearing_state():
     s.pending_attachments = [{"name": "visible-state.png"}]
     # No matching STREAMS entry: this simulates a dead worker/server restart.
 
-    cleared = _clear_stale_stream_state(s)
+    cleared = clear_stale_stream_state(s)
 
     assert cleared is True
     assert s.active_stream_id is None
@@ -411,7 +411,7 @@ def test_stale_stream_cleanup_recovers_journaled_visible_output():
     """The /api/session stale cleanup path can run before a full chat reload;
     it must preserve journaled partial output instead of only clearing runtime
     flags."""
-    from api.routes import _clear_stale_stream_state
+    from api.chat_turns import clear_stale_stream_state
 
     sid = "test_pending_error_d4_journal"
     s = _make_session(
@@ -438,7 +438,7 @@ def test_stale_stream_cleanup_recovers_journaled_visible_output():
         {"name": "terminal", "duration": 0.4, "is_error": False},
     )
 
-    cleared = _clear_stale_stream_state(s)
+    cleared = clear_stale_stream_state(s)
 
     assert cleared is True
     assert any("I will check GitHub first." in (m.get("content") or "") for m in s.messages)

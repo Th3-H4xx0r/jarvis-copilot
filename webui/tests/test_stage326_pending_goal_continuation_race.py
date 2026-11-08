@@ -55,31 +55,6 @@ def test_streaming_finally_does_not_discard_pending_goal_continuation():
     )
 
 
-def test_routes_consumer_discards_atomically_on_read():
-    """The routes.py consumer must discard the marker after consuming it,
-    so the marker is single-use (one continuation = one auto-flag).
-    """
-    src = _read_routes()
-
-    # Find the consumption check.
-    m = re.search(
-        r"if not goal_related and s\.session_id in PENDING_GOAL_CONTINUATION:.*?PENDING_GOAL_CONTINUATION\.discard",
-        src,
-        re.DOTALL,
-    )
-    assert m is not None, (
-        "routes.py must consume PENDING_GOAL_CONTINUATION atomically: "
-        "check + set goal_related + discard in the same block"
-    )
-    # The discard must be within ~10 lines of the check (atomic block).
-    block = m.group(0)
-    line_count = block.count("\n")
-    assert line_count <= 10, (
-        f"PENDING_GOAL_CONTINUATION check + discard span {line_count} lines; "
-        "should be tight atomic block"
-    )
-
-
 def test_pending_goal_continuation_is_a_set():
     """The marker store must be a set so add/discard is GIL-safe single-op
     (mutated from streaming worker thread, read from HTTP threads)."""

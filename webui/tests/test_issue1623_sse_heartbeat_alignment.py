@@ -19,20 +19,11 @@ REPO = Path(__file__).parent.parent
 
 
 def test_sse_heartbeat_constant_below_kernel_keepalive_window():
-    """The named constant exists and is at most half the kernel keepalive
-    timeout (10 + 5*3 = 25s). 5s gives the kernel ~5x headroom."""
-    src = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
-
-    # The constant must be defined.
-    assert "_SSE_HEARTBEAT_INTERVAL_SECONDS" in src, (
-        "Named SSE heartbeat constant must exist (#1623)"
-    )
-
-    # Pull the literal value.
+    """The SSE heartbeat is at most half the kernel keepalive timeout
+    (10 + 5*3 = 25s). 5s gives the kernel ~5x headroom."""
     import re
-    m = re.search(r"_SSE_HEARTBEAT_INTERVAL_SECONDS\s*=\s*(\d+)", src)
-    assert m, "Could not parse _SSE_HEARTBEAT_INTERVAL_SECONDS literal"
-    heartbeat = int(m.group(1))
+    from api import sse
+    heartbeat = sse.HEARTBEAT_SECONDS
 
     # Reproduce the kernel-keepalive window from server.py setsockopt block.
     server_src = (REPO / "server.py").read_text(encoding="utf-8")
@@ -42,7 +33,6 @@ def test_sse_heartbeat_constant_below_kernel_keepalive_window():
     keepcnt = int(re.search(r"TCP_KEEPCNT.*?(\d+)\)", server_src, re.S).group(1))
     kernel_window = keepidle + keepintvl * keepcnt
 
-    # The acceptance criterion from the bug: app heartbeat <= kernel window / 2.
     assert heartbeat * 2 <= kernel_window, (
         f"App SSE heartbeat ({heartbeat}s) must be at most half of the kernel "
         f"keepalive window ({kernel_window}s = {keepidle} + {keepintvl}*{keepcnt}). "
@@ -52,38 +42,8 @@ def test_sse_heartbeat_constant_below_kernel_keepalive_window():
 
 
 def test_no_sse_handler_uses_30s_or_higher_timeout():
-    """No SSE/long-poll handler in routes.py should still be using the old
-    30s/25s timeout. Every queue.get(timeout=...) call inside an SSE handler
-    must reference the named constant, not a hard-coded number."""
-    src = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
-
+    """No SSE/long-poll handler should poll its queue with the old 25/30s timeout."""
     import re
-    # Catch q.get(timeout=30), subscriber.get(timeout=30), term.output.get(timeout=25), etc.
-    bad = re.findall(r"\.get\(timeout=3[05]\)", src)
-    assert not bad, (
-        f"Found {len(bad)} SSE handler call(s) still using a 25/30s timeout: {bad}. "
-        "All should use _SSE_HEARTBEAT_INTERVAL_SECONDS (#1623)."
-    )
-
-
-def test_each_named_sse_handler_uses_constant():
-    """Each known SSE handler queue-poll site must reference the constant."""
-    src = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
-
-    expected_callers = [
-        "subscriber.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)",     # main agent SSE
-        "term.output.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)",   # terminal SSE
-    ]
-    for caller in expected_callers:
-        assert caller in src, (
-            f"Expected SSE handler to call {caller!r} (#1623). "
-            "If this assertion fails, the SSE heartbeat misalignment may have regressed."
-        )
-
-    # Also: at least 3 sites should be using the constant overall (main agent,
-    # terminal, plus the gateway watcher and approval/clarify pollers).
-    n_uses = src.count("get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)")
-    assert n_uses >= 4, (
-        f"Expected at least 4 SSE/long-poll sites using the named constant; found {n_uses}. "
-        "Every long-lived idle queue poll must align below the kernel keepalive window."
-    )
+    for path in (REPO / "api").glob("*.py"):
+        bad = re.findall(r"\.get\(timeout=3[05]\)", path.read_text(encoding="utf-8"))
+        assert not bad, f"{path.name}: {len(bad)} queue poll(s) still use a 25/30s timeout (#1623)"

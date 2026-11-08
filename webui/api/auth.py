@@ -15,6 +15,8 @@ import threading
 import time
 
 from api.config import STATE_DIR, load_settings
+import sys
+import re as _re
 
 logger = logging.getLogger(__name__)
 
@@ -641,3 +643,112 @@ def clear_auth_cookie(handler) -> None:
     cookie[COOKIE_NAME]['path'] = '/'
     cookie[COOKIE_NAME]['max-age'] = '0'
     handler.send_header('Set-Cookie', cookie[COOKIE_NAME].OutputString())
+
+
+def _normalize_host_port(value: str) -> tuple[str, str | None]:
+    """Split a host or host:port string into (hostname, port|None).
+    Handles IPv6 bracket notation, e.g. [::1]:8080."""
+    value = value.strip().lower()
+    if not value:
+        return '', None
+    if value.startswith('['):
+        end = value.find(']')
+        if end != -1:
+            host = value[1:end]
+            rest = value[end + 1 :]
+            if rest.startswith(':') and rest[1:].isdigit():
+                return host, rest[1:]
+            return host, None
+    if value.count(':') == 1:
+        host, port = value.rsplit(':', 1)
+        if port.isdigit():
+            return host, port
+    return value, None
+
+
+def _ports_match(origin_scheme: str, origin_port: str | None, allowed_port: str | None) -> bool:
+    """Return True when two ports should be considered equivalent, scheme-aware.
+
+    Treats an absent port as the scheme default: port 80 for http, port 443 for https.
+    Port 80 is NOT treated as equivalent to 443 (different protocols = different origins).
+    """
+    if origin_port == allowed_port:
+        return True
+    # Determine the default port for the origin's scheme
+    default = '443' if origin_scheme == 'https' else '80'
+    if not origin_port and allowed_port == default:
+        return True
+    if not allowed_port and origin_port == default:
+        return True
+    return False
+
+
+def _allowed_public_origins() -> set[str]:
+    """Parse HERMES_WEBUI_ALLOWED_ORIGINS env var (comma-separated) into a set.
+
+    Each entry must include the scheme, e.g. https://myapp.example.com:8000.
+    Entries without a scheme are silently skipped and a warning is printed.
+    """
+    raw = os.getenv('HERMES_WEBUI_ALLOWED_ORIGINS', '')
+    result = set()
+    for value in raw.split(','):
+        value = value.strip().rstrip('/').lower()
+        if not value:
+            continue
+        if not (value.startswith('http://') or value.startswith('https://')):
+            import sys
+            print(
+                f"[webui] WARNING: HERMES_WEBUI_ALLOWED_ORIGINS entry {value!r} is missing "
+                f"the scheme (expected https://hostname or http://hostname). Entry ignored.",
+                flush=True, file=sys.stderr,
+            )
+            continue
+        result.add(value)
+    return result
+
+
+def check_csrf(handler) -> bool:
+    """Reject cross-origin POST requests. Returns True if OK."""
+    origin = handler.headers.get("Origin", "")
+    referer = handler.headers.get("Referer", "")
+    host = handler.headers.get("Host", "")
+    if not origin and not referer:
+        return True  # non-browser clients (curl, agent) have no Origin
+    target = origin or referer
+    # Extract host:port from origin/referer
+    m = _re.match(r"^https?://([^/]+)", target)
+    if not m:
+        return False
+    origin_host = m.group(1)
+    origin_scheme = m.group(0).split('://')[0].lower()  # 'http' or 'https'
+    origin_name, origin_port = _normalize_host_port(origin_host)
+    # Check against explicitly allowed public origins (env var)
+    origin_value = m.group(0).rstrip('/').lower()
+    if origin_value in _allowed_public_origins():
+        return True
+    # Allow same-origin against the real connection Host header.
+    #
+    # SECURITY: X-Forwarded-Host / X-Real-Host are client-controllable and must
+    # NOT be trusted by default. Behind a Cloudflare tunnel every request appears
+    # to originate from localhost, so honoring a forged X-Forwarded-Host would let
+    # any internet origin pass the same-origin check (CSRF bypass). When the WebUI
+    # genuinely sits behind a trusted reverse proxy that rewrites these headers,
+    # the operator opts in with HERMES_WEBUI_TRUST_FORWARDED_HOST=1 (the nginx
+    # vhost rendered by webui/edge strips inbound forwarded headers first, so this
+    # is only ever set when a vetted proxy is in front). Public origins should be
+    # whitelisted explicitly via HERMES_WEBUI_ALLOWED_ORIGINS instead.
+    allowed_hosts = [host.strip()] if host.strip() else []
+    if os.getenv("HERMES_WEBUI_TRUST_FORWARDED_HOST", "").strip().lower() in ("1", "true", "yes"):
+        allowed_hosts.extend(
+            h.strip()
+            for h in [
+                handler.headers.get("X-Forwarded-Host", ""),
+                handler.headers.get("X-Real-Host", ""),
+            ]
+            if h.strip()
+        )
+    for allowed in allowed_hosts:
+        allowed_name, allowed_port = _normalize_host_port(allowed)
+        if origin_name == allowed_name and _ports_match(origin_scheme, origin_port, allowed_port):
+            return True
+    return False

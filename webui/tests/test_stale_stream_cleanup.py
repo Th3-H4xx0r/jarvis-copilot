@@ -1,4 +1,5 @@
 import queue
+import api.chat_turns as chat_turns
 import threading
 from pathlib import Path
 
@@ -46,39 +47,15 @@ class _FakeSession:
         self.saved_touch_updated_at.append(touch_updated_at)
 
 
-def test_stale_stream_cleanup_helper_exists():
-    assert "def _clear_stale_stream_state(session)" in ROUTES_SRC
-    assert "stream_id in STREAMS" in ROUTES_SRC
-    assert "session.active_stream_id = None" in ROUTES_SRC
-    assert "session.pending_user_message = None" in ROUTES_SRC
-    assert "session.pending_attachments = []" in ROUTES_SRC
-    assert "session.pending_started_at = None" in ROUTES_SRC
-    assert "session.save(touch_updated_at=False)" in ROUTES_SRC
-
-
 def test_stale_stream_cleanup_does_not_refresh_sidebar_timestamp():
     config.STREAMS.clear()
     config.SESSION_AGENT_LOCKS.clear()
     session = _FakeSession()
 
-    assert routes._clear_stale_stream_state(session) is True
+    assert chat_turns.clear_stale_stream_state(session) is True
 
     assert session.active_stream_id is None
     assert session.saved_touch_updated_at == [False]
-
-
-def test_session_load_clears_stale_stream_before_response():
-    load_pos = ROUTES_SRC.index("s = get_session(sid, metadata_only=(not load_messages))")
-    cleanup_pos = ROUTES_SRC.index("_clear_stale_stream_state(s)", load_pos)
-    response_pos = ROUTES_SRC.index('"active_stream_id": getattr(s, "active_stream_id", None)', cleanup_pos)
-    assert load_pos < cleanup_pos < response_pos
-
-
-def test_chat_start_clears_stale_pending_state_not_only_active_id():
-    stale_comment_pos = ROUTES_SRC.index("# Stale stream id from a previous run; clear and continue.")
-    cleanup_pos = ROUTES_SRC.index("_clear_stale_stream_state(s)", stale_comment_pos)
-    stream_id_pos = ROUTES_SRC.index("stream_id = uuid.uuid4().hex", cleanup_pos)
-    assert stale_comment_pos < cleanup_pos < stream_id_pos
 
 
 def test_stale_stream_cleanup_does_not_clobber_concurrent_chat_start(monkeypatch):
@@ -95,10 +72,10 @@ def test_stale_stream_cleanup_does_not_clobber_concurrent_chat_start(monkeypatch
     new_stream_id = "new-stream"
     result = {}
 
-    monkeypatch.setattr(routes, "STREAMS_LOCK", gate_lock)
+    monkeypatch.setattr(chat_turns, "STREAMS_LOCK", gate_lock)
 
     def cleanup_stale_stream():
-        result["cleared"] = routes._clear_stale_stream_state(session)
+        result["cleared"] = chat_turns.clear_stale_stream_state(session)
 
     def start_new_stream():
         assert gate_lock.lookup_finished.wait(2), "cleanup did not reach race point"

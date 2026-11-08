@@ -4,36 +4,37 @@ from types import SimpleNamespace
 
 import api.config as cfg
 from api.streaming import _plan_for_turn
+from api.turn_options import TurnOptions
 
 
 def _s(**kw):
-    base = dict(session_id="s1", harness_id=None, model="m", model_provider=None,
-                _turn_harness_id=None, _turn_explicit_model=None, _turn_surface=None)
+    base = dict(session_id="s1", harness_id=None, model="m", model_provider=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
 
 def test_plan_for_turn_voice_default(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
-    s = _s(_turn_surface="voice")
-    plan = _plan_for_turn(s, "hello", None)
-    assert plan.harness_id == "fast-claude" and plan.node_id == "fast" and s._turn_surface is None
+    plan = _plan_for_turn(_s(), "hello", None, TurnOptions(surface="voice"))
+    assert plan.harness_id == "fast-claude" and plan.node_id == "fast"
 
 
 def test_plan_for_turn_old_client_is_single(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
-    plan = _plan_for_turn(_s(harness_id="router", _turn_explicit_model=("@x:y", "x")), "fix my code", None)
+    plan = _plan_for_turn(_s(harness_id="router"), "fix my code", None,
+                          TurnOptions(explicit_model=("@x:y", "x")))
     assert plan.harness_id == "single" and plan.model == "@x:y"
 
 
 def test_plan_for_turn_requested_harness(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
-    assert _plan_for_turn(_s(_turn_harness_id="router"), "refactor this", None).node_id == "claude"
+    assert _plan_for_turn(_s(), "refactor this", None, TurnOptions(harness_id="router")).node_id == "claude"
 
 
 def test_plan_for_turn_chat_default_is_single_with_session_model(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
-    plan = _plan_for_turn(_s(model="@ollama-cloud:nemotron-3-ultra", model_provider="ollama-cloud"), "hi", None)
+    plan = _plan_for_turn(_s(model="@ollama-cloud:nemotron-3-ultra", model_provider="ollama-cloud"), "hi", None,
+                          TurnOptions())
     assert plan.harness_id == "single" and plan.model == "@ollama-cloud:nemotron-3-ultra"
 
 
@@ -66,7 +67,7 @@ def test_node_override_runs_the_background_nodes_own_settings(tmp_path, monkeypa
     monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
     node = {"id": "claude", "type": "background", "model": "@claude-code:claude-sonnet-5-5",
             "tools": ["web"], "instructions": "Be thorough."}
-    plan = _plan_for_turn(_s(_turn_node_override=node), "x", None)
+    plan = _plan_for_turn(_s(), "x", None, TurnOptions(node=node))
     assert plan.model == "@claude-code:claude-sonnet-5-5" and plan.tools == ["web"]
     assert plan.instructions == "Be thorough." and plan.harness_id != "single"
 

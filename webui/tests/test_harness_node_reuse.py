@@ -64,7 +64,7 @@ def chat(monkeypatch, tmp_path):
 
     def fake_run(sid, prompt, model, workspace, stream_id, attachments=None, **kw):
         s = models.get_session(sid)
-        plan = streaming._plan_for_turn(s, prompt, attachments)
+        plan = streaming._plan_for_turn(s, prompt, attachments, kw["turn"])
         key = plan.cache_key(sid)
         with cfg.SESSION_AGENT_CACHE_LOCK:
             entry = cfg.SESSION_AGENT_CACHE.get(key)

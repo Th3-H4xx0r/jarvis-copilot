@@ -14,6 +14,8 @@ import json
 import pathlib
 import re
 import urllib.request
+
+import api.session_model as session_model
 from tests.conftest import TEST_STATE_DIR
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
@@ -384,9 +386,7 @@ def test_active_codex_at_provider_session_model_preserved(monkeypatch):
     """@openai-codex:gpt-5.5 session selections must keep their provider hint."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -405,7 +405,7 @@ def test_active_codex_at_provider_session_model_preserved(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@openai-codex:gpt-5.5"
     )
 
@@ -417,9 +417,7 @@ def test_bare_codex_gpt_session_model_gets_separate_provider_context(monkeypatch
     """A bare GPT model under active Codex stays bare and carries model_provider."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -438,7 +436,7 @@ def test_bare_codex_gpt_session_model_gets_separate_provider_context(monkeypatch
         },
     )
 
-    effective, provider, changed = routes._resolve_compatible_session_model_state("gpt-5.5")
+    effective, provider, changed = session_model.resolve_session_model_state("gpt-5.5")
 
     assert changed is False
     assert effective == "gpt-5.5"
@@ -449,9 +447,7 @@ def test_session_model_normalizer_keeps_bare_codex_model_and_saves_provider(monk
     """Write-path normalization must persist model_provider without adding @."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -591,16 +587,14 @@ def test_bare_gemini_session_model_normalizes_to_active_provider_default(monkeyp
     """Persisted bare Gemini IDs must not survive a provider switch."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "gemini-3.1-pro-preview"
     )
 
@@ -612,16 +606,14 @@ def test_prefixed_google_session_model_normalizes_to_active_provider_default(mon
     """Persisted provider-prefixed Gemini IDs must normalize too."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "google/gemini-3.1-pro-preview"
     )
 
@@ -633,9 +625,7 @@ def test_legacy_at_provider_session_model_normalizes_when_provider_hidden(monkey
     """Old @provider:model session values must not bypass stale-model recovery."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -649,7 +639,7 @@ def test_legacy_at_provider_session_model_normalizes_when_provider_hidden(monkey
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@copilot:gpt-5.5"
     )
 
@@ -668,9 +658,7 @@ def test_active_at_provider_session_model_preserved_with_hint(monkeypatch):
     """
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -684,7 +672,7 @@ def test_active_at_provider_session_model_preserved_with_hint(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@openai-codex:gpt-5.4-mini"
     )
 
@@ -698,9 +686,7 @@ def test_routable_non_active_at_provider_session_model_is_preserved(monkeypatch)
     """Visible cross-provider dropdown selections must keep their provider hint."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -719,7 +705,7 @@ def test_routable_non_active_at_provider_session_model_is_preserved(monkeypatch)
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@copilot:gpt-5.4"
     )
 
@@ -742,9 +728,7 @@ def test_issue1253_duplicate_model_id_active_provider_hint_preserved(monkeypatch
     """
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "custom",
             "default_model": "gpt-5.4",
@@ -764,7 +748,7 @@ def test_issue1253_duplicate_model_id_active_provider_hint_preserved(monkeypatch
     )
 
     # User selected the custom:edith model — explicit @provider:model form.
-    effective, changed = routes._resolve_compatible_session_model("@custom:edith")
+    effective, changed = session_model.resolve_session_model("@custom:edith")
 
     # Must NOT be stripped to 'edith' — that would route to the default provider.
     assert changed is False, (
@@ -780,9 +764,7 @@ def test_named_custom_provider_hint_with_colon_is_preserved(monkeypatch):
     """@custom:name:model must survive chat/start normalization for WebUI routing."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "deepseek",
             "default_model": "deepseek-v4-pro",
@@ -811,7 +793,7 @@ def test_named_custom_provider_hint_with_colon_is_preserved(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@custom:sub2api:gpt-5.4-mini"
     )
 
@@ -823,9 +805,7 @@ def test_issue1734_stale_openai_slash_session_model_repairs_to_codex(monkeypatch
     """Legacy openai/... session IDs must not route to OpenRouter when Codex is active."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -844,7 +824,7 @@ def test_issue1734_stale_openai_slash_session_model_repairs_to_codex(monkeypatch
         },
     )
 
-    effective, provider, changed = routes._resolve_compatible_session_model_state(
+    effective, provider, changed = session_model.resolve_session_model_state(
         "openai/gpt-5.4-mini",
         None,
     )
@@ -861,9 +841,7 @@ def test_issue1734_chat_start_persists_repaired_codex_provider(monkeypatch):
     import json
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -957,9 +935,7 @@ def test_stale_at_provider_model_falls_back_when_family_mismatches(monkeypatch):
     """Unroutable @provider:model should not invent a bare model for another family."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.5",
@@ -973,7 +949,7 @@ def test_stale_at_provider_model_falls_back_when_family_mismatches(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "@copilot:claude-opus-4.6"
     )
 
@@ -985,16 +961,14 @@ def test_google_active_provider_keeps_valid_gemini_session_model(monkeypatch):
     """A Google-configured session must keep its Gemini model."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "google",
             "default_model": "gemini-3.1-pro-preview",
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "gemini-3.1-pro-preview"
     )
 
@@ -1006,9 +980,7 @@ def test_session_model_normalizer_persists_corrected_model(monkeypatch):
     """Write-path normalization should still persist corrected models."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
@@ -1036,9 +1008,7 @@ def test_session_model_display_resolver_is_read_only(monkeypatch):
     """Read-path model resolution must not mutate or save the session."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
@@ -1220,9 +1190,7 @@ def test_unknown_prefix_model_passes_through_unchanged(monkeypatch):
     """Models with unknown/custom prefixes must never be stripped — regression test for #751."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
@@ -1235,7 +1203,7 @@ def test_unknown_prefix_model_passes_through_unchanged(monkeypatch):
         "my-local-llm/variant-1",
         "lmstudio-community/Qwen2.5-Coder-7B-Instruct-GGUF",
     ):
-        effective, changed = routes._resolve_compatible_session_model(custom_model)
+        effective, changed = session_model.resolve_session_model(custom_model)
         assert changed is False, (
             f"Model '{custom_model}' has an unknown prefix and must pass through unchanged, "
             f"but _resolve_compatible_session_model returned changed=True (effective='{effective}')"
@@ -1249,9 +1217,7 @@ def test_empty_model_session_does_not_trigger_save(monkeypatch):
     """Sessions with no model stored must not trigger session.save() — index rebuild is expensive."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openai-codex",
             "default_model": "gpt-5.4-mini",
@@ -1285,9 +1251,7 @@ def test_stale_openai_model_cleared_for_custom_only_provider(monkeypatch):
     'custom' and no catalog group can route the openai prefix (#829)."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "custom",
             "default_model": "",
@@ -1298,7 +1262,7 @@ def test_stale_openai_model_cleared_for_custom_only_provider(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "openai/gpt-5.4-mini"
     )
 
@@ -1314,9 +1278,7 @@ def test_stale_openai_model_cleared_for_custom_provider_with_default(monkeypatch
     configured, stale openai/... model should be cleared to default (#829)."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "custom",
             "default_model": "agent37/default",
@@ -1327,7 +1289,7 @@ def test_stale_openai_model_cleared_for_custom_provider_with_default(monkeypatch
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "openai/gpt-5.4-mini"
     )
 
@@ -1340,9 +1302,7 @@ def test_openrouter_model_preserved_when_openrouter_group_present(monkeypatch):
     openai/... model IDs must pass through unchanged — they are routable (#829)."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "openrouter",
             "default_model": "openai/gpt-5.4-mini",
@@ -1353,7 +1313,7 @@ def test_openrouter_model_preserved_when_openrouter_group_present(monkeypatch):
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "openai/gpt-5.4-mini"
     )
 
@@ -1366,9 +1326,7 @@ def test_custom_namespace_model_always_preserved_on_custom_provider(monkeypatch)
     when active_provider='custom' (#829)."""
     import api.routes as routes
 
-    monkeypatch.setattr(
-        routes,
-        "get_available_models",
+    monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
             "active_provider": "custom",
             "default_model": "agent37/default",
@@ -1379,7 +1337,7 @@ def test_custom_namespace_model_always_preserved_on_custom_provider(monkeypatch)
         },
     )
 
-    effective, changed = routes._resolve_compatible_session_model(
+    effective, changed = session_model.resolve_session_model(
         "custom/my-local-llm"
     )
 

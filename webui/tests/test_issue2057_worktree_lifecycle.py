@@ -7,7 +7,7 @@ from api.models import SESSIONS, Session
 
 def _capture_post(monkeypatch, body):
     captured = {}
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: body)
     monkeypatch.setattr(
         routes,

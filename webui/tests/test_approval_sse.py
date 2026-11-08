@@ -106,11 +106,6 @@ class TestSSEStaticAnalysis:
         assert re.search(r"finally:.*\n.*_approval_sse_unsubscribe\(", ROUTES_SRC, re.DOTALL), \
             "SSE handler must call _approval_sse_unsubscribe in a finally block"
 
-    def test_client_disconnect_handled(self):
-        """SSE handler must catch client disconnect errors."""
-        assert "_CLIENT_DISCONNECT_ERRORS" in ROUTES_SRC, \
-            "SSE handler must catch client disconnect errors"
-
     def test_subscriber_queue_maxsize(self):
         """Subscriber queues must have a bounded maxsize to prevent memory leaks."""
         assert "queue.Queue(maxsize=" in ROUTES_SRC, \

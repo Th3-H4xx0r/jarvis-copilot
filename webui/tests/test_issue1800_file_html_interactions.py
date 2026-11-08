@@ -12,6 +12,7 @@ BOOT_JS = (REPO / "static" / "boot.js").read_text(encoding="utf-8")
 UI_JS = (REPO / "static" / "ui.js").read_text(encoding="utf-8")
 STYLE_CSS = (REPO / "static" / "style.css").read_text(encoding="utf-8")
 ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
+HELPERS_PY = (REPO / "api" / "helpers.py").read_text(encoding="utf-8")
 
 
 def _slice_after(source: str, needle: str, chars: int = 900) -> str:
@@ -80,7 +81,7 @@ def test_media_html_inline_keeps_csp_sandbox():
 
 def test_sandboxed_file_responses_do_not_send_x_frame_options():
     """X-Frame-Options: DENY would block the sandbox iframe preview."""
-    body = _slice_after(ROUTES_PY, "def _serve_file_bytes", 1800)
+    body = _slice_after(HELPERS_PY, "def serve_file_bytes", 1800)
     csp_branch = body[body.find("if csp:") : body.find("else:", body.find("if csp:"))]
     assert "Content-Security-Policy" in csp_branch
     assert 'send_header("X-Frame-Options"' not in csp_branch

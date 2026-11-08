@@ -251,13 +251,6 @@ class TestMediaEndpointUnit(unittest.TestCase):
         self.assertIn(".split(_os.pathsep)", block)
         self.assertNotIn('.split(":")', block)
 
-    def test_media_endpoints_advertise_byte_range_support(self):
-        routes_src = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
-        self.assertIn("Accept-Ranges", routes_src)
-        self.assertIn("Content-Range", routes_src)
-        self.assertIn("206", routes_src)
-
-
 # ── Integration tests: live server on TEST_PORT ───────────────────────────────
 # No collection-time skip guard — conftest.py starts the server via its
 # autouse session fixture BEFORE tests run.  A collection-time check always

@@ -542,24 +542,24 @@ class TestRuntimeRouteInjection(unittest.TestCase):
 
 
 class TestSessionDBAST(unittest.TestCase):
-    """AST-level checks: verify the try/except is not inside _ENV_LOCK (deadlock guard)."""
+    """AST-level checks: verify the try/except is not inside ENV_LOCK (deadlock guard)."""
 
     def setUp(self):
         self.tree = ast.parse(STREAMING_PY)
 
     def test_sessiondb_try_not_inside_env_lock(self):
-        """The try block that wraps SessionDB init must NOT be inside a 'with _ENV_LOCK:' block.
+        """The try block that wraps SessionDB init must NOT be inside a 'with ENV_LOCK:' block.
 
-        Putting a try/except inside _ENV_LOCK is the deadlock pattern caught by test_sprint34.
+        Putting a try/except inside ENV_LOCK is the deadlock pattern caught by test_sprint34.
         The SessionDB try/except is outside the lock scope, which is correct.
         """
-        # Find all 'with _ENV_LOCK:' nodes; check none of their bodies contain
+        # Find all 'with ENV_LOCK:' nodes; check none of their bodies contain
         # a Try node that also contains 'from jarviscopilot_state import SessionDB'
         for node in ast.walk(self.tree):
             if not isinstance(node, ast.With):
                 continue
             names = [getattr(item.context_expr, "id", "") for item in node.items]
-            if "_ENV_LOCK" not in names:
+            if "ENV_LOCK" not in names:
                 continue
             # Walk the with-body for Try nodes
             for stmt in node.body:
@@ -569,7 +569,7 @@ class TestSessionDBAST(unittest.TestCase):
                     self.assertNotIn(
                         "jarviscopilot_state",
                         src,
-                        "SessionDB try/except must NOT be inside _ENV_LOCK body (deadlock risk)",
+                        "SessionDB try/except must NOT be inside ENV_LOCK body (deadlock risk)",
                     )
 
 

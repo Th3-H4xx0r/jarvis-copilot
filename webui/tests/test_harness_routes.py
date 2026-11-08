@@ -42,19 +42,19 @@ def test_session_harness_field_round_trips():
     assert s.harness_id == "router" and s.compact()["harness_id"] == "router"
 
 
-def test_turn_harness_markers_from_chat_start_body():
+def test_turn_options_from_chat_start_body():
     from types import SimpleNamespace
-    from api.routes import _apply_turn_harness
+    from api.chat_turns import turn_options_for_chat
 
     s = SimpleNamespace(harness_id="router")
-    _apply_turn_harness(s, {"harness_id": "fast-checked"}, "m", "p")
-    assert s.harness_id == "fast-checked" and s._turn_harness_id == "fast-checked"
-    assert s._turn_explicit_model is None
+    turn = turn_options_for_chat(s, {"harness_id": "fast-checked"}, "m", "p")
+    assert s.harness_id == "fast-checked" and turn.harness_id == "fast-checked"
+    assert turn.explicit_model is None
 
     s = SimpleNamespace(harness_id="router")
-    _apply_turn_harness(s, {"harness_id": ""}, "m", "p")          # new client, follow defaults
-    assert s.harness_id == "router" and s._turn_harness_id is None and s._turn_explicit_model is None
+    turn = turn_options_for_chat(s, {"harness_id": ""}, "m", "p")    # new client, follow defaults
+    assert s.harness_id == "router" and turn.harness_id is None and turn.explicit_model is None
 
     s = SimpleNamespace(harness_id=None)
-    _apply_turn_harness(s, {"model": "m"}, "m", "p")               # older client: explicit model
-    assert s._turn_harness_id is None and s._turn_explicit_model == ("m", "p")
+    turn = turn_options_for_chat(s, {"model": "m"}, "m", "p")         # older client: explicit model
+    assert turn.harness_id is None and turn.explicit_model == ("m", "p")

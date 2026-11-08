@@ -1,9 +1,10 @@
 from pathlib import Path
+import api.chat_turns as chat_turns
 
 
 def test_prepare_chat_start_sets_provisional_title_for_default_session(tmp_path, monkeypatch):
     from api.models import Session
-    from api.routes import _prepare_chat_start_session_for_stream
+    from api.chat_turns import prepare_session_for_stream
 
     saved = []
 
@@ -19,7 +20,7 @@ def test_prepare_chat_start_sets_provisional_title_for_default_session(tmp_path,
     monkeypatch.setattr(Session, "save", fake_save)
 
     s = Session(session_id="test-early-title", title="Untitled")
-    _prepare_chat_start_session_for_stream(
+    prepare_session_for_stream(
         s,
         msg="Can you conclude whether early WebUI session titles are possible?",
         attachments=[],
@@ -47,10 +48,10 @@ def test_prepare_chat_start_sets_provisional_title_in_eager_save_mode(tmp_path, 
         saved.append({"title": self.title, "messages": list(self.messages)})
 
     monkeypatch.setattr(Session, "save", fake_save)
-    monkeypatch.setattr(routes, "get_webui_session_save_mode", lambda: "eager")
+    monkeypatch.setattr(chat_turns, "get_webui_session_save_mode", lambda: "eager")
 
     s = Session(session_id="test-eager-early-title", title="Untitled")
-    routes._prepare_chat_start_session_for_stream(
+    chat_turns.prepare_session_for_stream(
         s,
         msg="Can eager session save also get early titles?",
         attachments=[],
@@ -69,12 +70,12 @@ def test_prepare_chat_start_sets_provisional_title_in_eager_save_mode(tmp_path, 
 
 def test_prepare_chat_start_does_not_overwrite_manual_title(tmp_path, monkeypatch):
     from api.models import Session
-    from api.routes import _prepare_chat_start_session_for_stream
+    from api.chat_turns import prepare_session_for_stream
 
     monkeypatch.setattr(Session, "save", lambda self, *a, **k: None)
 
     s = Session(session_id="test-manual-title", title="My Manual Title")
-    _prepare_chat_start_session_for_stream(
+    prepare_session_for_stream(
         s,
         msg="This prompt should not replace the title",
         attachments=[],
@@ -93,9 +94,9 @@ def test_start_chat_stream_response_includes_provisional_title(tmp_path, monkeyp
     import api.routes as routes
 
     monkeypatch.setattr(Session, "save", lambda self, *a, **k: None)
-    monkeypatch.setattr(routes, "set_last_workspace", lambda workspace: None)
-    monkeypatch.setattr(routes, "create_stream_channel", lambda: object())
-    monkeypatch.setattr(routes, "_run_agent_streaming", lambda *a, **k: None)
+    monkeypatch.setattr(chat_turns, "set_last_workspace", lambda workspace: None)
+    monkeypatch.setattr(chat_turns, "create_stream_channel", lambda: object())
+    monkeypatch.setattr(chat_turns, "_run_agent_streaming", lambda *a, **k: None)
 
     class ImmediateThread:
         def __init__(self, *args, **kwargs):
@@ -108,7 +109,7 @@ def test_start_chat_stream_response_includes_provisional_title(tmp_path, monkeyp
     monkeypatch.setattr(routes.threading, "Thread", ImmediateThread)
 
     s = Session(session_id="test-start-response-title", title="Untitled")
-    response = routes._start_chat_stream_for_session(
+    response = chat_turns.start_turn(
         s,
         msg="Please design early session titles for JarvisCopilot WebUI",
         attachments=[],

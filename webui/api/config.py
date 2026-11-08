@@ -4363,6 +4363,12 @@ def _evict_session_agent(session_id: str) -> None:
 _thread_ctx = threading.local()
 
 
+# os.environ is process-wide. Two sessions running on different profiles must not
+# interleave their env writes, so every save/modify/restore of it holds this lock —
+# briefly, never for a whole agent run.
+ENV_LOCK = threading.Lock()
+
+
 def _set_thread_env(**kwargs):
     _thread_ctx.env = kwargs
 

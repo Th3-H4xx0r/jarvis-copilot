@@ -18,6 +18,7 @@ import time
 from dataclasses import asdict, is_dataclass
 from urllib.parse import parse_qs, unquote
 
+from api import sse
 from api.helpers import bad, j
 
 BOARD_COLUMNS = ["triage", "todo", "ready", "running", "blocked", "done"]
@@ -1018,12 +1019,7 @@ def _handle_events_sse_stream(handler, parsed):
     if cursor < 0:
         cursor = 0
 
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-    handler.send_header("Cache-Control", "no-cache")
-    handler.send_header("X-Accel-Buffering", "no")
-    handler.send_header("Connection", "keep-alive")
-    handler.end_headers()
+    sse.open_stream(handler)
 
     # Send an initial frame so the client knows the connection is open
     # and learns the current cursor (in case the server already had a
@@ -1060,8 +1056,7 @@ def _handle_events_sse_stream(handler, parsed):
                 # with `:`) are ignored by EventSource.
                 if (time.monotonic() - last_heartbeat) >= _KANBAN_SSE_HEARTBEAT_SECONDS:
                     try:
-                        handler.wfile.write(b": keepalive\n\n")
-                        handler.wfile.flush()
+                        sse.keepalive(handler)
                     except (BrokenPipeError, ConnectionResetError, ValueError, OSError):
                         return True
                     last_heartbeat = time.monotonic()

@@ -814,7 +814,6 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         seeded = len(worker.messages)
         stream_id = _uuid.uuid4().hex
         worker.active_stream_id = stream_id
-        worker._turn_node_override = node   # its own tools + instructions, not Single's
         with LOCK:
             SESSIONS[wid] = worker
         with STREAMS_LOCK:
@@ -842,8 +841,10 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         if _stop_requested(job_id):
             return ""
         _rewind_worker_agents(wid)
+        from api.turn_options import TurnOptions
+        # The node's own tools and instructions, not Single's.
         _run_agent_streaming(wid, prompt, model, parent.workspace, stream_id, None,
-                             model_provider=provider)
+                             model_provider=provider, turn=TurnOptions(node=node))
         # Only this run's messages: the seeded history ends with the chat's
         # previous answer, which must never come back as this node's reply.
         added = (worker.messages or [])[seeded:]

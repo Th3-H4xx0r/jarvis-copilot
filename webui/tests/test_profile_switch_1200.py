@@ -11,6 +11,7 @@ Bug 2: /api/models returned stale results after a profile switch because the
 These tests verify both fixes.
 """
 import os
+import api.chat_turns as chat_turns
 import json
 import tempfile
 import textwrap
@@ -478,14 +479,14 @@ def test_chat_start_retags_empty_session_to_request_profile(monkeypatch, tmp_pat
 
     fake = FakeSession()
     monkeypatch.setattr(routes, "get_session", lambda sid: fake)
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda path: tmp_path)
+    monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", lambda path: tmp_path)
     monkeypatch.setattr(
         routes,
-        "_resolve_compatible_session_model_state",
+        "resolve_session_model_state",
         lambda model, provider: (model, provider, False),
     )
-    monkeypatch.setattr(routes, "set_last_workspace", lambda workspace: None)
-    monkeypatch.setattr(routes, "create_stream_channel", lambda: object())
+    monkeypatch.setattr(chat_turns, "set_last_workspace", lambda workspace: None)
+    monkeypatch.setattr(chat_turns, "create_stream_channel", lambda: object())
 
     started_threads = []
 
@@ -550,14 +551,14 @@ def test_chat_start_does_not_retag_non_empty_session(monkeypatch, tmp_path):
 
     fake = FakeSession()
     monkeypatch.setattr(routes, "get_session", lambda sid: fake)
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda path: tmp_path)
+    monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", lambda path: tmp_path)
     monkeypatch.setattr(
         routes,
-        "_resolve_compatible_session_model_state",
+        "resolve_session_model_state",
         lambda model, provider: (model, provider, False),
     )
-    monkeypatch.setattr(routes, "set_last_workspace", lambda workspace: None)
-    monkeypatch.setattr(routes, "create_stream_channel", lambda: object())
+    monkeypatch.setattr(chat_turns, "set_last_workspace", lambda workspace: None)
+    monkeypatch.setattr(chat_turns, "create_stream_channel", lambda: object())
 
     class FakeThread:
         def __init__(self, *args, **kwargs):

@@ -184,7 +184,7 @@ class TestIssue1436BackendFallback:
             "model": "deepseek-v4-pro",
             "model_provider": "deepseek",
         }
-        with patch("api.routes._check_csrf", return_value=True), \
+        with patch("api.routes.check_csrf", return_value=True), \
              patch("api.helpers.read_body", return_value=body), \
              patch("api.routes.get_session", return_value=s), \
              patch("api.routes.resolve_trusted_workspace", return_value="/tmp"), \

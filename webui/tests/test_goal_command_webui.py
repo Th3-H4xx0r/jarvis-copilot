@@ -200,7 +200,7 @@ def test_goal_endpoint_sets_goal_and_starts_kickoff_stream(monkeypatch, tmp_path
     monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda workspace: tmp_path)
     monkeypatch.setattr(
         routes,
-        "_resolve_compatible_session_model_state",
+        "resolve_session_model_state",
         lambda model, provider: (model, provider, False),
     )
     started = []
@@ -209,7 +209,7 @@ def test_goal_endpoint_sets_goal_and_starts_kickoff_stream(monkeypatch, tmp_path
         started.append(kwargs)
         return {"stream_id": "goal-stream", "session_id": session.session_id, "pending_started_at": 123.0}
 
-    monkeypatch.setattr(routes, "_start_chat_stream_for_session", fake_start)
+    monkeypatch.setattr(routes, "start_turn", fake_start)
     monkeypatch.setattr(routes, "j", lambda handler, payload, status=200, **kwargs: {"status": status, "payload": payload})
 
     result = routes._handle_goal_command(
@@ -235,7 +235,7 @@ def test_routes_register_goal_endpoint_and_kickoff_stream():
     assert "return _handle_goal_command(handler, body)" in ROUTES_PY
     assert "goal_command_payload" in ROUTES_PY
     assert "kickoff_prompt" in ROUTES_PY
-    assert "_start_chat_stream_for_session" in ROUTES_PY
+    assert "start_turn" in ROUTES_PY
 
 
 def test_streaming_post_turn_goal_hook_surfaces_and_continues():

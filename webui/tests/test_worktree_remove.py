@@ -12,7 +12,7 @@ import api.worktrees as worktrees
 
 def _capture_post(monkeypatch, body):
     captured = {}
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: body)
     # Monkeypatch both helpers.j and routes.j — bad() lives in helpers but calls the module-global j
     import api.helpers as helpers

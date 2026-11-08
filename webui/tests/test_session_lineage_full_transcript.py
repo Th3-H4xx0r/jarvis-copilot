@@ -30,7 +30,7 @@ def test_session_endpoint_merges_sidecar_and_lineage_messages_for_cli_sessions(m
     captured = {}
 
     monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: DummySession())
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", lambda s: None)
+    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda s: None)
     monkeypatch.setattr(routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
     monkeypatch.setattr(routes, "_is_messaging_session_record", lambda s: True)
     monkeypatch.setattr(
@@ -92,7 +92,7 @@ def test_session_endpoint_preserves_distinct_messages_with_different_ids(monkeyp
     captured = {}
 
     monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: DummySession())
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", lambda s: None)
+    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda s: None)
     monkeypatch.setattr(routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
     monkeypatch.setattr(routes, "_is_messaging_session_record", lambda s: True)
     monkeypatch.setattr(

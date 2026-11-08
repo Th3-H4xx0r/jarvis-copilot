@@ -13,7 +13,7 @@ Covers:
   9. PBKDF2 password hashing — save_settings uses auth._hash_password
   10. Non-loopback startup warning (manual / integration test)
   11. SSRF DNS check logic (unit test on helper function)
-  12. ENV_LOCK export — _ENV_LOCK importable from streaming module
+  12. ENV_LOCK export — ENV_LOCK importable from config
 """
 import importlib
 import json
@@ -65,9 +65,9 @@ class TestCSRF:
     @staticmethod
     def _csrf_allowed(headers):
         from types import SimpleNamespace
-        from api.routes import _check_csrf
+        from api.auth import check_csrf
 
-        return _check_csrf(SimpleNamespace(headers=headers))
+        return check_csrf(SimpleNamespace(headers=headers))
 
     def test_no_origin_no_referer_allowed(self):
         """Curl-style request with no Origin/Referer must pass CSRF check."""
@@ -220,7 +220,7 @@ class TestCSRF:
     def test_allowed_origins_without_scheme_ignored(self, monkeypatch, capsys):
         """Allowlist entries missing the scheme are skipped and a warning is printed."""
         monkeypatch.setenv('HERMES_WEBUI_ALLOWED_ORIGINS', 'myapp.example.com:8000')
-        from api.routes import _allowed_public_origins
+        from api.auth import _allowed_public_origins
         result = _allowed_public_origins()
         assert len(result) == 0, 'entry without scheme must be ignored'
         captured = capsys.readouterr()
@@ -241,71 +241,71 @@ class TestCSRF:
 class TestCSRFHelpers:
     """Direct unit tests for _normalize_host_port and _ports_match."""
     def test_normalize_host_only(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('example.com') == ('example.com', None)
 
     def test_normalize_host_with_port(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('example.com:8000') == ('example.com', '8000')
 
     def test_normalize_ipv6_no_port(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('[::1]') == ('::1', None)
 
     def test_normalize_ipv6_with_port(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('[::1]:8080') == ('::1', '8080')
 
     def test_normalize_empty(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('') == ('', None)
 
     def test_normalize_whitespace_stripped(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('  example.com  ') == ('example.com', None)
 
     def test_normalize_lowercases(self):
-        from api.routes import _normalize_host_port
+        from api.auth import _normalize_host_port
         assert _normalize_host_port('EXAMPLE.COM:80') == ('example.com', '80')
 
     def test_ports_match_identical(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', '8000', '8000') is True
 
     def test_ports_match_both_absent(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', None, None) is True
 
     def test_ports_match_https_absent_vs_443(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', None, '443') is True
         assert _ports_match('https', '443', None) is True
 
     def test_ports_match_http_absent_vs_80(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('http', None, '80') is True
         assert _ports_match('http', '80', None) is True
 
     def test_ports_match_http_absent_vs_443_rejected(self):
         """http:// scheme: absent port is :80, not :443."""
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('http', None, '443') is False
         assert _ports_match('http', '443', None) is False
 
     def test_ports_match_https_absent_vs_80_rejected(self):
         """https:// scheme: absent port is :443, not :80."""
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', None, '80') is False
         assert _ports_match('https', '80', None) is False
 
     def test_ports_match_non_default_never_waived(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', None, '8000') is False
         assert _ports_match('https', '8000', None) is False
         assert _ports_match('http', None, '8080') is False
 
     def test_ports_match_different_non_default(self):
-        from api.routes import _ports_match
+        from api.auth import _ports_match
         assert _ports_match('https', '8000', '9000') is False
 
 
@@ -712,34 +712,34 @@ class TestSSRFCheck:
 
 class TestENVLock:
     def test_env_lock_importable_from_streaming(self):
-        """_ENV_LOCK must be an importable threading-style lock.
+        """ENV_LOCK must be an importable threading-style lock.
 
-        Stage-360 maintainer fix: _ENV_LOCK MUST be non-reentrant
+        Stage-360 maintainer fix: ENV_LOCK MUST be non-reentrant
         (threading.Lock, not RLock) — see QA test_env_lock_is_non_reentrant.
         RLock would mask the deadlock pattern that the lock is designed to
         catch. Background workers that need profile env should use the
         narrow-lock pattern in profile_env_for_background_worker() rather
         than relying on reentrance.
         """
-        from api.streaming import _ENV_LOCK
+        from api.config import ENV_LOCK
 
-        assert hasattr(_ENV_LOCK, "acquire"), "_ENV_LOCK must expose acquire()"
-        assert hasattr(_ENV_LOCK, "release"), "_ENV_LOCK must expose release()"
-        assert hasattr(_ENV_LOCK, "__enter__"), "_ENV_LOCK must support context manager use"
-        assert hasattr(_ENV_LOCK, "__exit__"), "_ENV_LOCK must support context manager use"
+        assert hasattr(ENV_LOCK, "acquire"), "ENV_LOCK must expose acquire()"
+        assert hasattr(ENV_LOCK, "release"), "ENV_LOCK must expose release()"
+        assert hasattr(ENV_LOCK, "__enter__"), "ENV_LOCK must support context manager use"
+        assert hasattr(ENV_LOCK, "__exit__"), "ENV_LOCK must support context manager use"
 
         # Verify non-reentrance: a same-thread second acquire(blocking=False)
         # while the lock is held must fail. This invariant matters because
         # it catches a class of deadlock bugs early.
-        with _ENV_LOCK:
-            acquired_again = _ENV_LOCK.acquire(False)
+        with ENV_LOCK:
+            acquired_again = ENV_LOCK.acquire(False)
             assert not acquired_again, (
-                "_ENV_LOCK must be non-reentrant (threading.Lock, not RLock). "
+                "ENV_LOCK must be non-reentrant (threading.Lock, not RLock). "
                 "See QA test_env_lock_is_non_reentrant for the architectural reason."
             )
 
     def test_env_lock_importable_in_routes(self):
-        """api.routes must be able to import _ENV_LOCK from api.streaming."""
+        """api.routes must be able to import ENV_LOCK from api.streaming."""
         # If routes.py fails to import, this will raise ImportError
         import importlib
         import api.routes  # noqa: F401 -- just checking import works

@@ -2,7 +2,7 @@
 turn's directive tells the model he is driving — directions on the car, apps
 and calls open on the car's screen after the reply, texts through the Mac.
 
-The note rides the per-call voice directive (session._voice_turn_directive →
+The note rides the turn's context (TurnOptions.context →
 agent._turn_user_context), never the cached system prompt. Without the flag
 nothing changes.
 """
@@ -126,17 +126,20 @@ def test_the_pipeline_passes_the_flag_to_the_turn(monkeypatch):
 
 @pytest.mark.parametrize("carplay", [True, False])
 def test_the_note_rides_the_per_call_directive(monkeypatch, carplay):
-    """End to end through _run_agent_turn_via_chat: the note lands on the
-    session's one-call voice directive (folded into the API-call user context),
-    and only on a CarPlay turn."""
-    from api import models, routes
+    """End to end through _run_agent_turn_via_chat: the note lands in the turn's
+    context (folded into the API-call user context), and only on a CarPlay turn."""
+    from api import chat_turns, models, session_model
 
     sess = types.SimpleNamespace(session_id="sess-car", model="m", model_provider="p",
                                  source_tag="voice", workspace="")
     monkeypatch.setattr(models, "get_session", lambda sid: sess)
-    monkeypatch.setattr(routes, "_resolve_compatible_session_model_state", lambda m, p: ("m", "p", False))
-    monkeypatch.setattr(routes, "_start_chat_stream_for_session",
-                        lambda s, **kw: {"error": "stop after the directive", "_status": 500})
+    monkeypatch.setattr(session_model, "resolve_session_model_state", lambda m, p: ("m", "p", False))
+    started = {}
+
+    def start_turn(s, **kw):
+        started.update(kw)
+        return {"error": "stop after the directive", "_status": 500}
+    monkeypatch.setattr(chat_turns, "start_turn", start_turn)
     monkeypatch.setattr(voice, "get_voice_lane_config", lambda: {})
 
     from api import turn_origin
@@ -146,8 +149,9 @@ def test_the_note_rides_the_per_call_directive(monkeypatch, carplay):
         with pytest.raises(voice._VoiceAgentError):
             list(voice._run_agent_turn_via_chat("sess-car", "play some music", origin=phone, carplay=carplay))
 
-        assert ("CarPlay" in sess._voice_turn_directive) is carplay
-        assert sess._voice_turn_directive.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())
+        context = started["turn"].context
+        assert ("CarPlay" in context) is carplay
+        assert context.startswith(voice._VOICE_REPLY_DIRECTIVE.rstrip())
         # Tools learn it too (a phone turn in the car vs. in his hand).
         assert turn_origin.is_carplay_session("sess-car") is carplay
         assert turn_origin.is_voice_session("sess-car")

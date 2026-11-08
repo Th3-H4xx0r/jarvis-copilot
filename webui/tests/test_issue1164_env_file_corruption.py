@@ -2,14 +2,14 @@
 Regression tests for #1164 — .env file corruption by WebUI.
 
 The WebUI's onboarding flow had a duplicate _write_env_file() without
-_ENV_LOCK protection. Concurrent writes (e.g. Telegram bot + WebUI) could
+ENV_LOCK protection. Concurrent writes (e.g. Telegram bot + WebUI) could
 corrupt the shared .env file. Additionally, both _write_env_file copies
 rewrote the entire file from a parsed dict, stripping comments and
 reordering keys alphabetically.
 
 Fix:
 - onboarding.py now imports _write_env_file from providers.py (which holds
-  _ENV_LOCK from api.streaming for the entire load→modify→write cycle).
+  ENV_LOCK from api.config for the entire load→modify→write cycle).
 - _write_env_file in providers.py now preserves comments, blank lines, and
   original key order instead of rebuilding from a sorted dict.
 
@@ -131,7 +131,7 @@ class TestEnvFileCommentPreservation(unittest.TestCase):
 
 class TestOnboardingUsesProviderWriteEnv(unittest.TestCase):
     """Verify that onboarding.py delegates to providers._write_env_file
-    (which holds _ENV_LOCK), eliminating the duplicate unprotected path."""
+    (which holds ENV_LOCK), eliminating the duplicate unprotected path."""
 
     def test_onboarding_imports_write_env_from_providers(self):
         """api.onboarding._write_env_file must be the same object as
@@ -144,14 +144,14 @@ class TestOnboardingUsesProviderWriteEnv(unittest.TestCase):
         )
 
     def test_providers_write_env_holds_env_lock(self):
-        """providers._write_env_file must acquire _ENV_LOCK from api.streaming."""
+        """providers._write_env_file must acquire ENV_LOCK from api.config."""
         import inspect
         from api.providers import _write_env_file
         source = inspect.getsource(_write_env_file)
-        self.assertIn("_ENV_LOCK", source,
-                      "_write_env_file must use _ENV_LOCK for concurrency safety")
-        self.assertIn("from api.streaming import _ENV_LOCK", source,
-                      "_ENV_LOCK must be imported from api.streaming")
+        self.assertIn("ENV_LOCK", source,
+                      "_write_env_file must use ENV_LOCK for concurrency safety")
+        self.assertIn("from api.config import ENV_LOCK", source,
+                      "ENV_LOCK must be imported from api.streaming")
 
     def test_providers_write_env_uses_atomic_rename(self):
         """providers._write_env_file must write atomically via tempfile +

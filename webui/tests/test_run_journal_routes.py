@@ -25,7 +25,7 @@ def test_dead_stream_sse_replays_journal_before_404_fallback():
     assert "stream not found" in block
     assert "_replay_run_journal" in block
     assert "_parse_run_journal_after_seq" in block
-    assert 'Content-Type", "text/event-stream; charset=utf-8"' in block
+    assert "sse.open_stream(handler)" in block
 
 
 def test_replay_emits_event_ids_and_stale_restart_diagnostic():

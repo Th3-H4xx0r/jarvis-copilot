@@ -148,7 +148,7 @@ def test_session_new_route_creates_worktree_backed_session(tmp_path, monkeypatch
     repo.mkdir()
     worktree.mkdir(parents=True)
 
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body",
         lambda handler: {
             "workspace": str(repo),
@@ -195,7 +195,7 @@ def test_session_new_worktree_fallback_workspace_is_resolved(tmp_path, monkeypat
     worktree.mkdir(parents=True)
     seen = {"resolved": []}
 
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body",
         lambda handler: {
             "worktree": True,

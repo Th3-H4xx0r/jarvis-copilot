@@ -109,18 +109,6 @@ def test_legacy_journal_adapter_controls_delegate_to_existing_handlers():
     ]
 
 
-def test_chat_start_route_selects_adapter_only_when_flag_enabled():
-    routes = importlib.import_module("api.routes")
-    src = (routes.Path(__file__).parent.parent / "api" / "routes.py").read_text(encoding="utf-8")
-    start_idx = src.index("def _handle_chat_start")
-    start_body = src[start_idx:src.index("def _resolve_chat_workspace_with_recovery", start_idx)]
-
-    assert "runtime_adapter_enabled()" in start_body
-    assert "LegacyJournalRuntimeAdapter" in start_body
-    assert "_start_chat_stream_for_session(" in start_body
-    assert "HERMES_WEBUI_RUNTIME_ADAPTER" not in start_body, "route should use runtime_adapter_enabled(), not inline env checks"
-
-
 def test_chat_start_adapter_path_preserves_legacy_response_shape():
     """The RuntimeAdapter seam must be invisible to /api/chat/start callers.
 

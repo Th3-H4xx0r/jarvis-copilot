@@ -1,7 +1,7 @@
 """
 P0 regression test for the metadata-only save-wipe (#1558).
 
-Before this fix, `_clear_stale_stream_state()` could be called on a session
+Before this fix, `clear_stale_stream_state()` could be called on a session
 loaded with `metadata_only=True` (which means messages=[]). That handler called
 `session.save()` to persist the cleared stream flags — but `save()` writes
 `self.messages` to disk verbatim, atomically overwriting the on-disk session
@@ -108,11 +108,11 @@ def test_clear_stale_stream_state_preserves_messages(temp_session_dir):
     # The SSE reconnect path calls /api/session/status, which loads metadata-only.
     s = get_session(sid, metadata_only=True)
 
-    from api.routes import _clear_stale_stream_state
+    from api.chat_turns import clear_stale_stream_state
     # We don't care about the return value — the post-fix path may return False
     # because _repair_stale_pending clears the stream during the metadata=False
     # reload. What we care about is the messages array surviving.
-    _clear_stale_stream_state(s)
+    clear_stale_stream_state(s)
 
     # The on-disk file MUST still have its 1000 messages (or more — the full-load
     # path in _repair_stale_pending may inject a stale-pending error marker pair
@@ -120,13 +120,13 @@ def test_clear_stale_stream_state_preserves_messages(temp_session_dir):
     # matters is that the existing conversation is not wiped).
     raw = json.loads((temp_session_dir / f"{sid}.json").read_text(encoding="utf-8"))
     assert len(raw["messages"]) >= 1000, (
-        f"_clear_stale_stream_state() shrank messages to {len(raw['messages'])} — "
+        f"clear_stale_stream_state() shrank messages to {len(raw['messages'])} — "
         "see #1558. It must clear the stream flags WITHOUT losing existing messages."
     )
     # And the stream flag must actually be cleared (whether by _repair_stale_pending
     # during the reload or by the explicit clear afterwards).
     assert raw["active_stream_id"] is None, (
-        "_clear_stale_stream_state() must clear the stale active_stream_id, "
+        "clear_stale_stream_state() must clear the stale active_stream_id, "
         "either directly or via the full-load _repair_stale_pending path."
     )
 
@@ -151,7 +151,7 @@ def test_archive_route_reloads_metadata_only_cached_session(temp_session_dir, mo
         SESSIONS[sid] = stub
 
     captured = {}
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: {"session_id": sid, "archived": True})
     monkeypatch.setattr(
         routes,
@@ -422,7 +422,7 @@ def test_metadata_only_cached_session_mutation_routes_reload_full_session(
         for key, value in body.items()
     }
     captured = {}
-    monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: request_body)
     monkeypatch.setattr(
         routes,

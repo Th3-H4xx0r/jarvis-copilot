@@ -285,7 +285,7 @@ def _terminal_name(terminal: dict) -> str:
 
 
 def _start_jarvis_turn(session_id: str, text: str) -> dict:
-    from api.routes import start_chat_turn
+    from api.chat_turns import start_chat_turn
     return start_chat_turn(session_id, text)
 
 

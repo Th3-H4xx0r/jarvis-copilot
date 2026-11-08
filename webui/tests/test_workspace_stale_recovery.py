@@ -1,4 +1,5 @@
 from pathlib import Path
+import api.chat_turns as chat_turns
 from types import SimpleNamespace
 
 import pytest
@@ -34,10 +35,10 @@ def test_resolve_chat_workspace_with_recovery_repairs_missing_implicit_workspace
 
     session = SimpleNamespace(session_id="sess-1", workspace=str(stale), save=fake_save)
 
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", fake_resolve)
-    monkeypatch.setattr(routes, "get_last_workspace", lambda: str(fallback))
+    monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", fake_resolve)
+    monkeypatch.setattr(chat_turns, "get_last_workspace", lambda: str(fallback))
 
-    resolved = routes._resolve_chat_workspace_with_recovery(session, None)
+    resolved = chat_turns._resolve_chat_workspace_with_recovery(session, None)
 
     assert resolved == str(fallback.resolve())
     assert session.workspace == str(fallback.resolve())
@@ -61,11 +62,11 @@ def test_resolve_chat_workspace_with_recovery_preserves_explicit_errors(monkeypa
 
     session = SimpleNamespace(session_id="sess-2", workspace=str(fallback), save=fake_save)
 
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", fake_resolve)
-    monkeypatch.setattr(routes, "get_last_workspace", lambda: str(fallback))
+    monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", fake_resolve)
+    monkeypatch.setattr(chat_turns, "get_last_workspace", lambda: str(fallback))
 
     with pytest.raises(ValueError, match="Path does not exist"):
-        routes._resolve_chat_workspace_with_recovery(session, str(stale))
+        chat_turns._resolve_chat_workspace_with_recovery(session, str(stale))
 
     assert session.workspace == str(fallback)
     assert saved["count"] == 0

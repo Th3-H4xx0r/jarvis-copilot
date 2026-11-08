@@ -1,5 +1,6 @@
 """Regression tests for config-driven first-turn session persistence (#1406)."""
 import json
+import api.chat_turns as chat_turns
 
 import pytest
 
@@ -56,7 +57,7 @@ def test_eager_mode_still_does_not_save_empty_new_sessions(_isolate_state, monke
 def test_deferred_chat_start_persists_pending_only_before_thread(_isolate_state, monkeypatch):
     monkeypatch.setattr(config, "cfg", {"webui": {"session_save_mode": "deferred"}})
     s = new_session(workspace=str(_isolate_state.parent))
-    routes._prepare_chat_start_session_for_stream(
+    chat_turns.prepare_session_for_stream(
         s,
         msg="hello deferred",
         attachments=[],
@@ -74,7 +75,7 @@ def test_deferred_chat_start_persists_pending_only_before_thread(_isolate_state,
 def test_eager_chat_start_checkpoints_first_user_message_before_thread(_isolate_state, monkeypatch):
     monkeypatch.setattr(config, "cfg", {"webui": {"session_save_mode": "eager"}})
     s = new_session(workspace=str(_isolate_state.parent))
-    routes._prepare_chat_start_session_for_stream(
+    chat_turns.prepare_session_for_stream(
         s,
         msg="hello eager",
         attachments=[{"name": "note.txt", "path": "", "mime": "text/plain"}],

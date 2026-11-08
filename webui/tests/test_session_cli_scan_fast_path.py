@@ -13,7 +13,7 @@ def test_webui_session_metadata_load_skips_cli_metadata_scan(monkeypatch):
     )
 
     monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
     monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
     monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
     monkeypatch.setattr(
@@ -45,7 +45,7 @@ def test_read_only_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
     looked_up = []
 
     monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
     monkeypatch.setattr(routes, "get_cli_session_messages", lambda _sid: [])
     monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
     monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
@@ -84,7 +84,7 @@ def test_messaging_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
     looked_up = []
 
     monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
     monkeypatch.setattr(routes, "get_cli_session_messages", lambda _sid: [])
     monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
     monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)

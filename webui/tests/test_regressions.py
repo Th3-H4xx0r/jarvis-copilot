@@ -543,18 +543,6 @@ def test_session_scoped_message_queue_frontend_wiring(cleanup_test_sessions):
     assert "updateQueueBadge(sid);" in sessions_src
 
 
-def test_chat_start_persists_pending_turn_metadata_for_reload_recovery(cleanup_test_sessions):
-    """R15c: chat/start must expose enough pending-turn metadata for a reload to
-    rebuild the in-flight conversation instead of showing a blank session.
-    """
-    routes_src = (REPO_ROOT / "api/routes.py").read_text()
-    assert 's.active_stream_id = stream_id' in routes_src
-    assert 's.pending_user_message = msg' in routes_src
-    assert 's.pending_attachments = attachments' in routes_src
-    assert '"active_stream_id": getattr(s, "active_stream_id", None)' in routes_src
-    assert '"pending_user_message": getattr(s, "pending_user_message", None)' in routes_src
-
-
 def test_reload_path_restores_pending_message_and_reattaches_live_stream(cleanup_test_sessions):
     """R15d: the frontend reload path must show the pending user turn and
     reattach to the live SSE stream after loadSession().

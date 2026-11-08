@@ -864,10 +864,10 @@ def _stream(handler, store, cid: str, relay) -> None:
     if up.get("state") == "staged" and up.get("upload_id"):
         target = store.staged_file(up["upload_id"])
         if target.is_file():
-            from api.routes import _serve_file_bytes
+            from api.helpers import serve_file_bytes
             # The file decides the type: a remuxed .mp4, else whatever the camera recorded.
             mime = "video/mp4" if target.suffix == ".mp4" else dashcam_relay._content_type(clip.get("name") or "")
-            _serve_file_bytes(handler, target, mime, "inline", "private, no-store")
+            serve_file_bytes(handler, target, mime, "inline", "private, no-store")
             return
     dests = store.destinations_by_id()
     for did, entry in (clip.get("destinations") or {}).items():

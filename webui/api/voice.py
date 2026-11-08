@@ -331,7 +331,7 @@ def get_or_create_voice_session():
             Session, get_session, all_sessions, get_last_workspace,
             LOCK, SESSIONS, SESSIONS_MAX,
         )
-        from api.routes import _resolve_compatible_session_model_state  # type: ignore
+        from api.session_model import resolve_session_model_state
     except Exception as exc:
         raise _VoiceAgentError(f"webui session store unavailable: {exc}", status=500)
     import uuid as _uuid
@@ -386,7 +386,7 @@ def get_or_create_voice_session():
         eff_model, eff_provider = _preferred_voice_model(all_sessions)
         if not eff_model:
             try:
-                eff_model, eff_provider, _ = _resolve_compatible_session_model_state(None, None)
+                eff_model, eff_provider, _ = resolve_session_model_state(None, None)
             except Exception:
                 eff_model, eff_provider = "", None
 
@@ -1264,21 +1264,35 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
     return True
 
 
-def _voice_harness_markers(s, harness_id, explicit_override) -> bool:
-    """Mark a voice turn for the agent-harness runner (api/streaming._plan_for_turn).
+def _voice_turn_options(session_id, heard_before_interrupt, client, carplay, unsure, origin, *,
+                        harness_id, explicit_model):
+    """A spoken turn: no extended thinking (every reasoning summary is seconds of
+    silence), the voice reply rules and the speaking device as this call's notes,
+    and the Pod's "[end]" kept out of the saved chat. Without a harness, an older
+    client's explicit voice model runs as Single with exactly that model."""
+    from api.turn_options import TurnOptions
+    context = _voice_turn_directive(heard_before_interrupt, client, carplay=carplay) + _unsure_note(unsure)
+    try:
+        # Which paired device is speaking (api/turn_origin.py): told to the model, and
+        # the default target for device tools this turn.
+        from api import turn_origin
+        origin_text = turn_origin.directive(origin, "voice")
+        if origin_text:
+            context = context.rstrip() + "\n\n" + origin_text
+        turn_origin.note_turn(session_id, origin, carplay=carplay, voice=True)
+    except Exception:
+        logger.debug("voice: speaking device not noted", exc_info=True)
+    return TurnOptions(surface="voice", harness_id=harness_id, explicit_model=explicit_model,
+                       reasoning_off=True, context=context, clean_messages=strip_end_tags)
 
-    New clients send ``harness_id`` (the Voice chip); a plain turn with no
+
+def _takes_harness_path(harness_id, explicit_override) -> bool:
+    """New clients send ``harness_id`` (the Voice chip); a plain turn with no
     explicit model runs the Voice default harness. Only an older client's
-    explicit model pick (no harness_id) keeps the pre-harness path. Returns
-    True when the harness path is taken."""
+    explicit model pick (no harness_id, or "single") keeps the pre-harness path,
+    its fast-lane fallback included."""
     hid = (harness_id or "").strip()
-    # "Single" with a picked voice model is the classic explicit pick: keep the
-    # old path (its fast-lane fallback included).
-    if explicit_override and (not hid or hid == "single"):
-        return False
-    s._turn_surface = "voice"
-    s._turn_harness_id = hid or None
-    return True
+    return not (explicit_override and (not hid or hid == "single"))
 
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
@@ -1307,10 +1321,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     _ensure_hermes_on_path()
     try:
         from api.models import get_session  # type: ignore
-        from api.routes import (  # type: ignore
-            _start_chat_stream_for_session,
-            _resolve_compatible_session_model_state,
-        )
+        from api.chat_turns import start_turn
+        from api.session_model import resolve_session_model_state
         from api.config import STREAMS, STREAMS_LOCK  # type: ignore
     except Exception as exc:
         raise _VoiceAgentError(f"webui chat bridge unavailable: {exc}", status=500)
@@ -1334,7 +1346,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         pass
 
     # Resolve the session's model/provider exactly like every normal chat turn
-    # does (routes._resolve_compatible_session_model_state). The voice bridge
+    # does (session_model.resolve_session_model_state). The voice bridge
     # used to pass the session's RAW model straight through — but a voice turn
     # can land on a session created with an empty model (model="") and a Codex
     # provider, and Codex's preflight rejects an empty model
@@ -1346,7 +1358,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # A per-turn override (model_override / provider_override) takes precedence
     # over the session default — the on-device escalation path may pick a
     # specific server model/provider for this single turn. It still flows
-    # through the SAME _resolve_compatible_session_model_state() the chat path
+    # through the SAME resolve_session_model_state() the chat path
     # uses, so an empty/stale/cross-provider override is normalized identically.
     prev_session_model = getattr(s, "model", None)
     prev_session_provider = getattr(s, "model_provider", None)
@@ -1356,7 +1368,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     explicit_override = bool(override_model or override_provider) and lane != "fast"
     # Agent harness: the harness (not this function) picks the model for the
     # turn, so the fast-lane / cooldown choice below only serves older clients.
-    harness_path = _voice_harness_markers(s, harness_id, explicit_override)
+    harness_path = _takes_harness_path(harness_id, explicit_override)
     if harness_path:
         explicit_override = False
     if explicit_override and fast_lane and _override_on_cooldown(override_model, override_provider):
@@ -1407,7 +1419,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         raw_model = getattr(s, "model", None)
         raw_provider = getattr(s, "model_provider", None)
     try:
-        eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
+        eff_model, eff_provider, was_normalized = resolve_session_model_state(
             raw_model,
             raw_provider,
         )
@@ -1421,43 +1433,19 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # preflight rejects it with a cryptic error. Fail clearly so the bridge
         # speaks a clean apology instead of crashing on an empty model.
         raise _VoiceAgentError("no model is configured for voice", status=503)
-    # Voice turns run without extended thinking / reasoning effort: the model
-    # only needs to pick a tool and phrase one sentence, and every reasoning
-    # summary is seconds of silence. Consumed (and cleared) by the streaming
-    # thread right before run_conversation.
-    try:
-        s._voice_turn_low_reasoning = True
-        # The voice rules ride in the SYSTEM prompt for this one call (consumed
-        # by the streaming thread) — not prefixed to the user message, which is
-        # what the Chats tab shows verbatim.
-        s._voice_turn_directive = (_voice_turn_directive(heard_before_interrupt, client, carplay=carplay)
-                                   + _unsure_note(unsure))
-        # Which paired device is speaking (api/turn_origin.py): in the system text,
-        # and the default target for device tools this turn.
-        from api import turn_origin
-        origin_text = turn_origin.directive(origin, "voice")
-        if origin_text:
-            s._voice_turn_directive = s._voice_turn_directive.rstrip() + "\n\n" + origin_text
-        turn_origin.note_turn(session_id, origin, carplay=carplay, voice=True)
-    except Exception:
-        pass
-    if not harness_path:
-        # An older client's explicit voice model (or Single + a picked model):
-        # it runs as Single with exactly that model, not the chat's harness.
-        try:
-            s._turn_explicit_model = (eff_model, eff_provider)
-            s._turn_surface = "voice"
-        except Exception:
-            pass
+    turn = _voice_turn_options(session_id, heard_before_interrupt, client, carplay, unsure, origin,
+                               harness_id=(harness_id or "").strip() or None if harness_path else None,
+                               explicit_model=None if harness_path else (eff_model, eff_provider))
     print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)} harness={(harness_id or 'voice-default') if harness_path else '-'}", flush=True)
     try:
-        response = _start_chat_stream_for_session(
+        response = start_turn(
             s,
             msg=user_text,
             workspace=getattr(s, "workspace", None) or "",
             model=eff_model,
             model_provider=eff_provider,
             normalized_model=was_normalized,
+            turn=turn,
         )
     except Exception as exc:
         raise _VoiceAgentError(f"failed to start chat turn: {exc}", status=500)

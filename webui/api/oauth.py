@@ -75,9 +75,9 @@ _ANTHROPIC_ENV_KEYS = ("ANTHROPIC_TOKEN",)
 
 def _clear_process_anthropic_env_values() -> None:
     """Clear Anthropic process env fallbacks under the streaming env lock."""
-    from api.streaming import _ENV_LOCK
+    from api.config import ENV_LOCK
 
-    with _ENV_LOCK:
+    with ENV_LOCK:
         for key in _ANTHROPIC_ENV_KEYS:
             os.environ.pop(key, None)
 
@@ -90,7 +90,7 @@ def resolve_runtime_provider_with_anthropic_env_lock(resolver, *args, **kwargs):
     the process-env lock prevents a chat stream from observing one stale
     Anthropic env value while onboarding has already cleared the other.
     """
-    from api.streaming import _ENV_LOCK
+    from api.config import ENV_LOCK
 
     # claude-code's login check runs `claude auth status` (≤2 s). Do it before
     # taking the lock every chat shares, so the check inside hits its cache.
@@ -102,7 +102,7 @@ def resolve_runtime_provider_with_anthropic_env_lock(resolver, *args, **kwargs):
         except Exception:
             logger.debug("claude-code login pre-check failed", exc_info=True)
 
-    with _ENV_LOCK:
+    with ENV_LOCK:
         return resolver(*args, **kwargs)
 
 

@@ -105,8 +105,8 @@ def handle_get(handler, parsed) -> bool:
         if path is None:
             j(handler, {"error": "no replay"}, status=404)
             return True
-        from api.routes import _serve_file_bytes
-        return _serve_file_bytes(handler, path, "video/mp4", "inline", "private, max-age=3600")
+        from api.helpers import serve_file_bytes
+        return serve_file_bytes(handler, path, "video/mp4", "inline", "private, max-age=3600")
     try:
         status, payload = handle_browser_request("GET", sub, None)
     except Exception:

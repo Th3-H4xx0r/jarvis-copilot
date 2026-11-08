@@ -705,7 +705,7 @@ def profile_env_for_background_worker(
     try:
         # Lazy imports avoid a module-load cycle: streaming imports this helper.
         from api.config import _clear_thread_env, _set_thread_env, _thread_ctx
-        from api.streaming import _ENV_LOCK
+        from api.config import ENV_LOCK
 
         profile_home_path = Path(get_hermes_home_for_profile(profile))
         runtime_env = get_profile_runtime_env(profile_home_path)
@@ -724,7 +724,7 @@ def profile_env_for_background_worker(
     # Hybrid profile routing: keep the broad runtime env in WebUI's thread-local
     # channel for WebUI helpers, and also mirror it into process env for the
     # worker body because several production JarvisCopilot readers still call
-    # os.getenv() directly for provider credentials.  Keep the _ENV_LOCK scope
+    # os.getenv() directly for provider credentials.  Keep the ENV_LOCK scope
     # narrow: serialize only setup/restore, not the whole worker body.
     skill_home_snapshot = None
     old_runtime_env: dict[str, Optional[str]] = {}
@@ -733,7 +733,7 @@ def profile_env_for_background_worker(
     previous_thread_env = getattr(_thread_ctx, "env", {}).copy()
     try:
         _set_thread_env(**thread_env)
-        with _ENV_LOCK:
+        with ENV_LOCK:
             old_runtime_env = {key: os.environ.get(key) for key in runtime_env}
             had_hermes_home = "HERMES_HOME" in os.environ
             old_hermes_home = os.environ.get("HERMES_HOME")
@@ -755,7 +755,7 @@ def profile_env_for_background_worker(
             _set_thread_env(**previous_thread_env)
         else:
             _clear_thread_env()
-        with _ENV_LOCK:
+        with ENV_LOCK:
             for key, old_value in old_runtime_env.items():
                 if old_value is None:
                     os.environ.pop(key, None)

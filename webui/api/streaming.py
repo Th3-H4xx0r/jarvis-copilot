@@ -19,7 +19,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+from api import sse
+from api.turn_options import TurnOptions
 from api.config import (
+    ENV_LOCK,
     get_config,
     STREAMS, STREAMS_LOCK, CANCEL_FLAGS, AGENT_INSTANCES, STREAM_PARTIAL_TEXT,
     STREAM_REASONING_TEXT, STREAM_LIVE_TOOL_CALLS,
@@ -41,15 +44,6 @@ from api.metering import meter
 from api.run_journal import RunJournalWriter, bounded_journal_payload
 from api.turn_journal import append_turn_journal_event_for_stream
 
-# Global lock for os.environ writes. Per-session locks (_agent_lock) prevent
-# concurrent runs of the SAME session, but two DIFFERENT sessions can still
-# interleave their os.environ writes. This global lock serializes the env
-# save/restore — held only briefly across the env-mutation critical section,
-# NOT for the entire agent run. The agent runs outside the lock; the finally
-# block re-acquires to atomically restore env vars. See narrow-lock pattern
-# in _run_agent_streaming (line ~2719) and profile_env_for_background_worker
-# (api/profiles.py:715).
-_ENV_LOCK = threading.Lock()
 
 
 def _prewarm_skill_tool_modules():
@@ -57,7 +51,7 @@ def _prewarm_skill_tool_modules():
 
     First-time module imports can trigger heavy initialisation (disk I/O,
     transitive imports, plugin discovery).  Performing those imports while
-    holding ``_ENV_LOCK`` serialises every concurrent session behind the
+    holding ``ENV_LOCK`` serialises every concurrent session behind the
     slowest import.  Prewarming ensures the modules are already in
     ``sys.modules`` before the lock is acquired, so the lock body only
     does lightweight attribute patching.
@@ -209,24 +203,11 @@ def _warm_memory_query(msg_text):
         pass
 
 
-def _plan_for_turn(s, msg_text, attachments):
-    """Which harness node answers this turn (api/harness_runner.py).
-
-    Consumes the per-turn markers chat/start and the voice bridge leave on the
-    session: ``_turn_harness_id`` (a client named a harness), ``_turn_explicit_model``
-    (an older client sent only a model → Single with that model) and
-    ``_turn_surface`` ("voice" | "chat", picks the surface default)."""
+def _plan_for_turn(s, msg_text, attachments, turn: TurnOptions):
+    """Which harness node answers this turn (api/harness_runner.py)."""
     from api.harness_runner import plan_turn, resolve_harness
     from api.harness_store import store_for_request
-    requested = getattr(s, "_turn_harness_id", None)
-    explicit = getattr(s, "_turn_explicit_model", None)
-    surface = getattr(s, "_turn_surface", None) or "chat"
-    node = getattr(s, "_turn_node_override", None)
-    for attr in ("_turn_harness_id", "_turn_explicit_model", "_turn_surface", "_turn_node_override"):
-        try:
-            setattr(s, attr, None)
-        except Exception:
-            pass
+    explicit, surface, node = turn.explicit_model, turn.surface, turn.node
     if isinstance(node, dict) and node.get("model"):
         # A background node's hidden turn: run that node with its own tools and
         # instructions (api.harness_runner._run_hidden_turn).
@@ -238,7 +219,7 @@ def _plan_for_turn(s, msg_text, attachments):
                         tools=node.get("tools", "all"), instructions=node.get("instructions", ""),
                         surface=surface, computer=node.get("_computer"))
     doc, note = resolve_harness(store_for_request(), session=s, surface=surface,
-                                requested_id=requested, explicit_model=explicit)
+                                requested_id=turn.harness_id, explicit_model=explicit)
     sess_model, sess_provider = explicit or (getattr(s, "model", None), getattr(s, "model_provider", None))
     plan = plan_turn(doc, session_model=sess_model, session_provider=sess_provider, text=msg_text or "",
                      surface=surface, has_attachments=bool(attachments))
@@ -2725,12 +2706,6 @@ def _extract_tool_calls_from_messages(messages, live_tool_calls=None):
     return tool_calls
 
 
-def _sse(handler, event, data):
-    """Write one SSE event to the response stream."""
-    payload = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-    handler.wfile.write(payload.encode('utf-8'))
-    handler.wfile.flush()
-
 
 def _materialize_pending_user_turn_before_error(session) -> bool:
     """Persist the pending user prompt before clearing runtime stream state.
@@ -3101,6 +3076,7 @@ def _run_agent_streaming(
     ephemeral=False,
     model_provider=None,
     goal_related=False,
+    turn: TurnOptions = TurnOptions(),
 ):
     """Run agent in background thread, writing SSE events to STREAMS[stream_id].
 
@@ -3376,7 +3352,7 @@ def _run_agent_streaming(
         _harness_plan = None
         if not ephemeral:
             try:
-                _harness_plan = _plan_for_turn(s, msg_text, attachments)
+                _harness_plan = _plan_for_turn(s, msg_text, attachments, turn)
                 put('turn_meta', {'phase': 'start', **_harness_plan.meta()})
             except Exception:
                 logger.warning("harness planning failed; running the session model", exc_info=True)
@@ -3434,13 +3410,13 @@ def _run_agent_streaming(
         _set_thread_env(**_thread_env)
         # Prewarm skill-tool imports *before* acquiring the lock so that
         # first-time module initialisation (which can be slow) does not
-        # block other concurrent sessions waiting on _ENV_LOCK (#2024).
+        # block other concurrent sessions waiting on ENV_LOCK (#2024).
         _prewarm_skill_tool_modules()
         # Still set process-level env as fallback for tools that bypass thread-local
         # Acquire lock only for the env mutation, then release before the agent runs.
         # The finally block re-acquires to restore — keeping critical sections short
         # and preventing a deadlock where the restore would re-enter the same lock.
-        with _ENV_LOCK:
+        with ENV_LOCK:
             old_profile_env = {key: os.environ.get(key) for key in _profile_runtime_env}
             old_cwd = os.environ.get('TERMINAL_CWD')
             old_exec_ask = os.environ.get('HERMES_EXEC_ASK')
@@ -4354,35 +4330,11 @@ def _run_agent_streaming(
             agent._harness_warm = (bool(_harness_plan) and _harness_plan.harness_id != "single"
                                    and resolved_provider == "claude-code")
             agent._context_cwd = str(workspace) if workspace else None
-            # Voice turn (webui/api/voice.py flags the session): no extended
-            # thinking / reasoning effort for this one call — restored below.
-            _voice_prev_reasoning = None
-            _voice_swap = False
-            _voice_directive = None
-            _origin_directive = None
+            # Restored after the call.
+            _prev_reasoning = getattr(agent, "reasoning_config", None)
+            if turn.reasoning_off:
+                agent.reasoning_config = {"enabled": False}
             _setup_directive = None
-            try:
-                from api.models import get_session as _voice_gs
-                _voice_sess = _voice_gs(session_id)
-                if getattr(_voice_sess, "_voice_turn_low_reasoning", False):
-                    _voice_sess._voice_turn_low_reasoning = False
-                    _voice_prev_reasoning = getattr(agent, "reasoning_config", None)
-                    agent.reasoning_config = {"enabled": False}
-                    _voice_swap = True
-                # Voice reply rules for this one call. They ride the API-call
-                # copy of the user message (agent._turn_user_context), never the
-                # system prompt — that stays byte-stable for the prompt cache — and
-                # the stored user message (what the Chats tab shows) stays the
-                # spoken words only.
-                _voice_directive = getattr(_voice_sess, "_voice_turn_directive", None)
-                if _voice_directive:
-                    _voice_sess._voice_turn_directive = None
-                # A chat turn's sender device (voice turns carry it in their directive).
-                _origin_directive = getattr(_voice_sess, "_turn_origin_directive", None)
-                if _origin_directive:
-                    _voice_sess._turn_origin_directive = None
-            except Exception:
-                _voice_swap = False
             # A session opened by the Integrations sheet is doing one job; tell it so.
             try:
                 from api.integration_setup import directive_for
@@ -4392,7 +4344,7 @@ def _run_agent_streaming(
                 logger.debug("integration setup directive not applied", exc_info=True)
             agent._turn_user_context = _collect_turn_context(
                 _harness_plan.instructions if _harness_plan else "", _node_tool_note, _handoff_rule,
-                _voice_directive, _origin_directive, _setup_directive)
+                turn.context, _setup_directive)
             _turn_started_wall = time.time()
             _turn_handed_off = False
             # The agent's token counters are running session totals; snapshot
@@ -4426,16 +4378,13 @@ def _run_agent_streaming(
                 'cache_read_tokens': max(0, _post_turn_usage[2] - _pre_turn_usage[2]),
                 'cache_write_tokens': max(0, _post_turn_usage[3] - _pre_turn_usage[3]),
             }
-            if _voice_swap:
-                agent.reasoning_config = _voice_prev_reasoning
-            if _voice_directive:
-                # The Pod's "[end]" (stop listening after this reply) is a signal to
-                # the voice server, not words: keep it out of the saved chat.
+            if turn.reasoning_off:
+                agent.reasoning_config = _prev_reasoning
+            if turn.clean_messages:
                 try:
-                    from api.voice import strip_end_tags
-                    strip_end_tags((result or {}).get("messages"))
+                    turn.clean_messages((result or {}).get("messages"))
                 except Exception:
-                    logger.debug("voice: could not strip [end] tags", exc_info=True)
+                    logger.warning("turn: messages not cleaned before save", exc_info=True)
             if cancel_event.is_set():
                 if _checkpoint_stop is not None:
                     _checkpoint_stop.set()
@@ -5394,7 +5343,7 @@ def _run_agent_streaming(
                     _unreg_clarify_notify(session_id)
                 except Exception:
                     logger.debug("Failed to unregister clarify callback")
-            with _ENV_LOCK:
+            with ENV_LOCK:
                 for _key, _old_value in old_profile_env.items():
                     if _old_value is None: os.environ.pop(_key, None)
                     else: os.environ[_key] = _old_value

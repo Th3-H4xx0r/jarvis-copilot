@@ -710,8 +710,8 @@ def handle_get(handler, parsed) -> bool:
         target = registry().replay_file(m.group(1))
         if target is None:
             return j(handler, {"error": "no replay"}, status=404) or True
-        from api.routes import _serve_file_bytes
-        _serve_file_bytes(handler, target, "video/mp4", "inline", "private, max-age=3600")
+        from api.helpers import serve_file_bytes
+        serve_file_bytes(handler, target, "video/mp4", "inline", "private, max-age=3600")
         return True
     return False
 

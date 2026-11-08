@@ -5,7 +5,7 @@ before the `HERMES_HOME` env mutation that stamps the per-session profile.
 Result: `_load_mcp_config()` always read the default profile's
 `~/.jarviscopilot/config.yaml`, never the non-default profile's MCP servers.
 
-The fix moves the call past the `_ENV_LOCK` env-mutation block so
+The fix moves the call past the `ENV_LOCK` env-mutation block so
 `discover_mcp_tools()` runs with the correct `HERMES_HOME` for the session's
 profile.
 
@@ -43,19 +43,19 @@ def test_discover_mcp_tools_called_after_hermes_home_mutation():
 
 
 def test_discover_mcp_tools_called_after_env_lock_release():
-    """`discover_mcp_tools()` should run AFTER the `_ENV_LOCK` block releases —
+    """`discover_mcp_tools()` should run AFTER the `ENV_LOCK` block releases —
     discovery itself can take up to 120s (per `_run_on_mcp_loop` timeout in
     jarviscopilot), and holding the env lock across that would serialize all
     concurrent sessions through MCP discovery.
 
     Lexical check: the discover call must come after the `# Lock released` marker
-    that follows the `with _ENV_LOCK:` block.
+    that follows the `with ENV_LOCK:` block.
     """
     lock_release_marker = _line_of(r"# Lock released — agent runs without holding it")
     discover_call_line = _line_of(r"discover_mcp_tools\(\)\s*$")
     assert discover_call_line > lock_release_marker, (
         f"discover_mcp_tools() at line {discover_call_line} should run AFTER "
-        f"the _ENV_LOCK release at line {lock_release_marker}, not inside the "
+        f"the ENV_LOCK release at line {lock_release_marker}, not inside the "
         "lock block (which would serialize MCP discovery across sessions)."
     )
 

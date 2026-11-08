@@ -84,7 +84,7 @@ def test_csp_report_endpoint_accepts_report_uri_payload_without_csrf(monkeypatch
     def fail_if_called(_handler):
         raise AssertionError("CSP reports must bypass the normal CSRF gate")
 
-    monkeypatch.setattr(routes, "_check_csrf", fail_if_called)
+    monkeypatch.setattr(routes, "check_csrf", fail_if_called)
 
     with caplog.at_level("INFO", logger="csp_report"):
         assert routes.handle_post(handler, SimpleNamespace(path="/api/csp-report")) is True

@@ -190,7 +190,7 @@ def test_agent_build_surfaces_missing_credential_instead_of_running_keyless(tmp_
 
 
 def test_claude_login_check_runs_before_the_shared_env_lock(monkeypatch):
-    """`claude auth status` can take up to 2 s — never while every chat waits on _ENV_LOCK."""
+    """`claude auth status` can take up to 2 s — never while every chat waits on ENV_LOCK."""
     import jarviscopilot_cli.auth as auth_mod
     from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
 

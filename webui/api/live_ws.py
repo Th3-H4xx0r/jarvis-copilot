@@ -58,6 +58,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs
 
 from api import live_config, live_deliver, live_store
+from api import sse
 from api.helpers import bad, j
 from api.session_events import SessionEventBus
 
@@ -196,16 +197,9 @@ _AUDIO_CHUNK_SECONDS = 300
 _AUDIO_GAP_ROLL_MS = 300
 _AUDIO_GAP_MIN_CHUNK_SECONDS = 1.0
 
-_SSE_HEARTBEAT_INTERVAL_SECONDS = 5
 _FANOUT_POLL_SECONDS = 1.0
 _TRANSCRIPT_LIMIT_MAX = 1000
 
-# Long-lived SSE and WS connections end this way whenever a tab sleeps or a
-# phone changes network. Not errors.
-_CLIENT_DISCONNECT_ERRORS = (
-    BrokenPipeError, ConnectionResetError, ConnectionAbortedError,
-    TimeoutError, OSError,
-)
 
 # The paired chat's marker. `Session` has no `kind` field and swallows unknown
 # kwargs, so a made-up attribute would be dropped on the first reload;
@@ -2919,13 +2913,13 @@ def _origin_allowed(handler) -> bool:
     request (one that sent an Origin) is refused rather than waved through.
     """
     try:
-        from api.routes import _check_csrf
+        from api.auth import check_csrf
     except Exception:
         logger.warning("live: cross-origin policy unavailable", exc_info=True)
         return not (handler.headers.get("Origin")
                     or handler.headers.get("Referer"))
     try:
-        return bool(_check_csrf(handler))
+        return bool(check_csrf(handler))
     except Exception:
         logger.warning("live: cross-origin check failed", exc_info=True)
         return False
@@ -3015,7 +3009,7 @@ def _run_live_ws(conn, sock) -> None:
         while not state["closed"]:
             try:
                 data = sock.recv(_WS_RECV_CHUNK)
-            except _CLIENT_DISCONNECT_ERRORS:
+            except sse.CLIENT_GONE:
                 break
             if not data:
                 break
@@ -3762,7 +3756,6 @@ def _live_events_sse(handler, parsed) -> bool:
     ``SSEParser`` drops ``id:`` lines, so a cursor there is invisible to the
     client that needs it.
     """
-    from api.streaming import _sse
 
     qs = parse_qs(parsed.query)
     sid = (qs.get("live_session_id", [""])[0] or "").strip()
@@ -3770,12 +3763,7 @@ def _live_events_sse(handler, parsed) -> bool:
         return bad(handler, "live_session_id required") or True
     after_seq = _as_int((qs.get("after_seq", ["0"])[0] or "0"), 0)
 
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
-    handler.send_header("Cache-Control", "no-cache")
-    handler.send_header("X-Accel-Buffering", "no")
-    handler.send_header("Connection", "keep-alive")
-    handler.end_headers()
+    sse.open_stream(handler)
 
     # Subscribe BEFORE the snapshot. The chat-mirror work proved the reverse
     # order loses whatever lands in the gap; the cost is that a segment can
@@ -3788,7 +3776,7 @@ def _live_events_sse(handler, parsed) -> bool:
         # same table today.
         segments = [segment_frame(row)
                     for row in live_store.segments_after(sid, after_seq)]
-        _sse(handler, "snapshot", {
+        sse.send(handler, "snapshot", {
             "live_session_id": sid,
             "session": session,
             "segments": segments,
@@ -3797,13 +3785,12 @@ def _live_events_sse(handler, parsed) -> bool:
         })
         while True:
             try:
-                event, data = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+                event, data = q.get(timeout=sse.HEARTBEAT_SECONDS)
             except queue.Empty:
-                handler.wfile.write(b": keepalive\n\n")
-                handler.wfile.flush()
+                sse.keepalive(handler)
                 continue
-            _sse(handler, event, data)
-    except _CLIENT_DISCONNECT_ERRORS:
+            sse.send(handler, event, data)
+    except sse.CLIENT_GONE:
         pass
     finally:
         unsubscribe(sid, q)
