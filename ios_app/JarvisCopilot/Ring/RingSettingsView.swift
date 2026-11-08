@@ -145,13 +145,7 @@ struct RingSettingsView: View {
         }
         CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
             Row {
-                WearableKeepAliveToggle(device: WearableKeepAlive.ring) { on in
-                    if on {
-                        Task { _ = await manager.ensureConnected(timeout: 10) }
-                    } else {
-                        manager.releaseIfIdle()
-                    }
-                }
+                WearableKeepAliveToggle(device: WearableKeepAlive.ring)
             }
         }
     }

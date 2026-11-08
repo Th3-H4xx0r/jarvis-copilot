@@ -6,7 +6,7 @@ import UIKit
 ///
 /// The bottle, the scale and the glasses are rendered once from their real SceneKit
 /// models — the same geometry, lights and materials as the Devices tab — and cached.
-/// The ring and the ESP32 boards have no model, so they get a symbol.
+/// The rest have no model here, so they get their symbol.
 @MainActor
 enum WearableArt {
     private static var cache: [String: UIImage] = [:]
@@ -33,15 +33,7 @@ enum WearableArt {
     }
 
     static func symbol(for kind: String) -> String {
-        switch kind {
-        case WearableKeepAlive.bottle: return "waterbottle"
-        case WearableKeepAlive.scale:  return "scalemass"
-        case WearableKeepAlive.ring:   return "circle.circle"
-        case WearableKeepAlive.x5ring: return "circle.circle"
-        case WearableKeepAlive.esp32:  return "cpu"
-        case WearableKeepAlive.glasses: return "eyeglasses"
-        default:                       return "dot.radiowaves.left.and.right"
-        }
+        WearableKind(rawValue: kind)?.symbol ?? "dot.radiowaves.left.and.right"
     }
 
     private static let renderSide: CGFloat = 132

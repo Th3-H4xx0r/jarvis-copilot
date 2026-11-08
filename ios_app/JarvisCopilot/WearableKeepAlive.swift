@@ -13,26 +13,20 @@ import Foundation
 /// Fewer reconnects means no repeated buzz from the bottle, and less battery
 /// burned on both sides.
 enum WearableKeepAlive {
-    /// Stable per-device keys. These are the wearables that have their own
-    /// settings screen, which is where the toggle lives.
-    static let bottle = "bottle"
-    static let scale = "scale"
-    static let esp32 = "esp32"
-    static let ring = "ring"
-    /// The X5 touch ring — a second ring with its own card, link and history.
-    static let x5ring = "x5ring"
-    /// The HBand (Veepoo) smart band — screenless, a workout wearable like the rings.
-    static let band = "band"
-    /// The roster kind for the INMO GO3. There is no link of ours to keep alive —
-    /// iOS holds its Bluetooth audio — so it never has a toggle.
-    static let glasses = "glasses"
+    /// Per-device keys (WearableKind holds the facts about each).
+    static let bottle = WearableKind.bottle.rawValue
+    static let scale = WearableKind.scale.rawValue
+    static let esp32 = WearableKind.esp32.rawValue
+    static let ring = WearableKind.ring.rawValue
+    static let x5ring = WearableKind.x5ring.rawValue
+    static let band = WearableKind.band.rawValue
+    static let glasses = WearableKind.glasses.rawValue
 
     private static func key(_ device: String) -> String { "jc.keepAlive.\(device)" }
 
     /// The wearables with a "Connection Keep Alive" switch, by key, as a button or Jarvis names them.
-    static let switchable: [(key: String, name: String)] = [
-        (ring, "R12 ring"), (x5ring, "X5 ring"), (band, "smart band"), (bottle, "bottle"), (scale, "scale"), (esp32, "ESP32 board"),
-    ]
+    static let switchable: [(key: String, name: String)] =
+        WearableKind.keepAliveSwitchable.map { ($0.rawValue, $0.keepAliveName ?? $0.rawValue) }
 
     /// Defaults to OFF, because holding a BLE link for a device nobody is using
     /// runs all day for the rare command that arrives — and with the background
@@ -58,26 +52,21 @@ enum WearableKeepAlive {
 
 import SwiftUI
 
-/// The "Connection Keep Alive" row, identical on every wearable's settings
-/// screen. `onChange` lets a manager act immediately (drop a held link, or
-/// bring one back) instead of waiting for the next event.
+/// The "Connection Keep Alive" row, identical on every wearable's settings screen. Flipping
+/// it acts at once (WearablesHub.setKeepAlive): on brings the link back, off releases one
+/// nothing is using.
 struct WearableKeepAliveToggle: View {
     let device: String
-    var onChange: ((Bool) -> Void)? = nil
     @State private var isOn: Bool
 
-    init(device: String, onChange: ((Bool) -> Void)? = nil) {
+    init(device: String) {
         self.device = device
-        self.onChange = onChange
         _isOn = State(initialValue: WearableKeepAlive.isOn(device))
     }
 
     var body: some View {
         Toggle("Connection Keep Alive", isOn: $isOn)
-            .onChange(of: isOn) { _, on in
-                WearableKeepAlive.set(on, for: device)
-                onChange?(on)
-            }
+            .onChange(of: isOn) { _, on in _ = WearablesHub.shared.setKeepAlive(on, for: device) }
     }
 
     static let footer = "On, the connection is held open and restored on its own, "

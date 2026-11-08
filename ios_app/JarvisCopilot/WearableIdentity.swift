@@ -14,7 +14,7 @@ import Foundation
 /// catalogue stay registered while the device is out of range.
 enum WearableIdentity {
     /// Ids that mean "we don't actually know yet". Never remembered.
-    private static let placeholders: Set<String> = ["unpaired", "esf551", "esp32", "ring", "x5ring", "unknown", ""]
+    private static let placeholders: Set<String> = Set(WearableKind.allCases.map(\.unknownID)).union(["unknown", ""])
 
     private static func key(_ device: String) -> String { "jc.deviceID.\(device)" }
 
@@ -71,13 +71,9 @@ enum WearableIdentity {
     /// Without this an upgrade would show no wearables until each one reconnected
     /// once — exactly the bug we're fixing.
     static func seedFromSharedRecords(_ records: [String: String], defaults: UserDefaults = .standard) {
-        let byModel: [String: String] = [
-            VsitooS1Pro.model: WearableKeepAlive.bottle,
-            Esf551Scale.model: WearableKeepAlive.scale,
-            Esp32Board.model: WearableKeepAlive.esp32,
-            ColmiR12.model: WearableKeepAlive.ring,
-            X5Ring.model: WearableKeepAlive.x5ring,
-        ]
+        let byModel = Dictionary(uniqueKeysWithValues: WearableKind.allCases.compactMap { kind in
+            kind.registryModel.map { ($0, kind.rawValue) }
+        })
         for (deviceID, model) in records {
             guard let kind = byModel[model], remembered(kind, defaults: defaults) == nil else { continue }
             remember(deviceID, for: kind, defaults: defaults)

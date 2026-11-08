@@ -1134,6 +1134,7 @@
 		E2C7F894BC46E2FA2DC7CC7D /* JarvisWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09A6D4A89AFA43BB8B0A8975 /* JarvisWidget.swift */; };
 		E319EBCCF685E0CD4B3E34F7 /* DoorAlarmAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F9CB2F05B216CB9DEA9EF8 /* DoorAlarmAlert.swift */; };
 		E3331A53F9E5805850E8F7DB /* MoreDestinationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC1A737C3A59A38264516752 /* MoreDestinationTests.swift */; };
+		E333D3A224E1D9DEA05C4412 /* WearableKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37933DDC2D6B1FBA467514D1 /* WearableKind.swift */; };
 		E3528E822980F30BE4D29608 /* CodeMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24551F3D8325E037F0A49CBB /* CodeMemoryTests.swift */; };
 		E39269A2BBD4F354C1A129E7 /* FormSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB6A3F88662D09F9B8BFE8C /* FormSheet.swift */; };
 		E3B5FF0D7B821BB2A5F75BCB /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25906B39897A80CF7446FD72 /* MarkdownBlocks.swift */; };
@@ -1590,6 +1591,7 @@
 		36F9CB2F05B216CB9DEA9EF8 /* DoorAlarmAlert.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmAlert.swift; sourceTree = "<group>"; };
 		3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAudioInput.swift; sourceTree = "<group>"; };
 		37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceHistoryTests.swift; sourceTree = "<group>"; };
+		37933DDC2D6B1FBA467514D1 /* WearableKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKind.swift; sourceTree = "<group>"; };
 		3797784518854B8FB0ABD75F /* RingMeasureController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureController.swift; sourceTree = "<group>"; };
 		37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebBrowserSettings.swift; sourceTree = "<group>"; };
 		38288B2F981AB571C6252036 /* AgentsPresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsPresentation.swift; sourceTree = "<group>"; };
@@ -4462,6 +4464,7 @@
 				F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */,
 				432A3387741D90798D1C21CB /* OnDemandWearable.swift */,
 				595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */,
+				37933DDC2D6B1FBA467514D1 /* WearableKind.swift */,
 			);
 			name = .;
 			path = .;
@@ -6267,6 +6270,7 @@
 				A1A076BD0A0ED30595802F71 /* VoiceLogSkill.swift in Sources */,
 				341F4224A525FAC122B25B1E /* OnDemandWearable.swift in Sources */,
 				C15B9CA5A697E047C5492A0F /* BLEWearableManager.swift in Sources */,
+				E333D3A224E1D9DEA05C4412 /* WearableKind.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

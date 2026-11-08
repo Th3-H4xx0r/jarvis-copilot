@@ -243,6 +243,18 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
         }
     }
 
+    /// Drops the link and its link-level traces: this session won't reconnect the device, and
+    /// the next launch won't reopen it. The device's own history stays.
+    func forgetLink(identity: String) {
+        if let id = connected?.id ?? peripheral?.identifier {
+            forgottenIDs.insert(id)
+            discovered.removeAll { $0.id == id }
+        }
+        disconnect()
+        WearableIdentity.forget(identity)
+        UserDefaults.standard.removeObject(forKey: lastPeripheralKey)
+    }
+
     // MARK: Foreground / background
 
     func enterBackground() {

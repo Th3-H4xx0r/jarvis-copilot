@@ -423,7 +423,6 @@ struct BandSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var alarms: [BandAlarm] = []
     @State private var error: String?
-    @State private var keepAlive = false
     @State private var confirmForget = false
     /// The app-wide units every band and Health value is drawn in (the band keeps a copy).
     @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
@@ -471,7 +470,6 @@ struct BandSettingsView: View {
             await session.refreshCalibrations()
             await loadAlarms()
         }
-        .onAppear { keepAlive = manager.keepAliveEnabled }
         .alert("Forget the band?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) {
                 Task { await manager.forget(); dismiss() }
@@ -662,11 +660,8 @@ struct BandSettingsView: View {
     }
 
     private var connectionCard: some View {
-        CardGroup("Connection", footer: "Keep Alive holds the link so readings and alerts arrive at once; off saves battery.") {
-            Toggle("Keep Alive", isOn: $keepAlive)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 50)
-                .onChange(of: keepAlive) { _, on in _ = WearablesHub.shared.setKeepAlive(on, for: WearableKeepAlive.band) }
+        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
+            Row { WearableKeepAliveToggle(device: WearableKeepAlive.band) }
         }
     }
 

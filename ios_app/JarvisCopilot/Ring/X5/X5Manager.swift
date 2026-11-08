@@ -220,15 +220,9 @@ final class X5Manager: BLEWearableManager {
     func forget() async {
         if state == .ready { await session.unbind() }
         let id = deviceID
-        if let ring = connected?.id ?? peripheral?.identifier {
-            forgottenIDs.insert(ring)
-            discovered.removeAll { $0.id == ring }
-        }
-        disconnect()
+        forgetLink(identity: WearableKeepAlive.x5ring)
         if let device = exposedDevice { DeviceRegistry.shared.remove(deviceID: device.deviceID) }
         exposedDevice = nil
-        WearableIdentity.forget(WearableKeepAlive.x5ring)
-        UserDefaults.standard.removeObject(forKey: Self.lastPeripheralKey)
         if let id { X5Cursors(deviceID: id).reset() }
     }
 

@@ -50,15 +50,7 @@ struct DeviceDetailsView: View {
         }
         CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
             Row {
-                WearableKeepAliveToggle(device: WearableKeepAlive.bottle) { on in
-                    // Turning it back on should reconnect now, not at the next
-                    // launch; turning it off releases a link nothing is using.
-                    if on {
-                        Task { _ = await manager.ensureConnected(timeout: 10) }
-                    } else {
-                        manager.releaseIfIdle()
-                    }
-                }
+                WearableKeepAliveToggle(device: WearableKeepAlive.bottle)
             }
         }
     }

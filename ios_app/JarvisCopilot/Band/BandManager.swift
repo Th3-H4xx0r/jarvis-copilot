@@ -267,16 +267,10 @@ final class BandManager: BLEWearableManager {
 
     /// Forgets the band: drops the link and every local trace of it but its history.
     func forget() async {
-        if let band = connected?.id ?? peripheral?.identifier {
-            forgottenIDs.insert(band)
-            discovered.removeAll { $0.id == band }
-        }
-        disconnect()
+        forgetLink(identity: WearableKeepAlive.band)
         session.forgetIdentity()
         if let device = exposedDevice { DeviceRegistry.shared.remove(deviceID: device.deviceID) }
         exposedDevice = nil
-        WearableIdentity.forget(WearableKeepAlive.band)
-        UserDefaults.standard.removeObject(forKey: Self.lastPeripheralKey)
     }
 
     private func becomeReady(_ p: CBPeripheral) {

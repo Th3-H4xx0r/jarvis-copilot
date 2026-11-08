@@ -68,81 +68,63 @@ struct ScanView: View {
                 .buttonStyle(.plain)
             }
             ForEach(manager.discovered) { bottle in
-                NavigationLink {
+                deviceCard(id: bottle.id) {
                     DeviceView(manager: manager, bottle: bottle)
-                        .zoomTransition(id: bottle.id, in: cardNamespace)
-                } label: {
+                } card: {
                     BottleCard(bottle: bottle,
                                connected: manager.connected?.id == bottle.id && manager.state == .ready,
                                lastSeen: lastSeen(WearableKeepAlive.bottle, in: entries))
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: bottle.id, in: cardNamespace)
             }
             ForEach(scaleManager.discovered) { scale in
-                NavigationLink {
+                deviceCard(id: scale.id) {
                     ScaleDeviceView(manager: scaleManager, scale: scale)
-                        .zoomTransition(id: scale.id, in: cardNamespace)
-                } label: {
+                } card: {
                     ScaleCard(scale: scale,
                               connected: scaleManager.connected?.id == scale.id && scaleManager.state == .ready,
                               lastSeen: lastSeen(WearableKeepAlive.scale, in: entries))
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: scale.id, in: cardNamespace)
             }
             ForEach(esp32Manager.discovered) { board in
-                NavigationLink {
+                deviceCard(id: board.id) {
                     Esp32DeviceView(manager: esp32Manager, board: board)
-                        .zoomTransition(id: board.id, in: cardNamespace)
-                } label: {
+                } card: {
                     Esp32Card(board: board,
                               activeLink: esp32Manager.connected?.id == board.id && esp32Manager.state == .ready
                                   ? esp32Manager.activeLink : nil,
                               // Per board: the remembered entry is one board's, not every board's.
                               lastSeen: entries.first { $0.kind == WearableKeepAlive.esp32 && $0.deviceID == board.stableID }?.lastSeen)
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: board.id, in: cardNamespace)
             }
             ForEach(ringManager.discovered) { ring in
-                NavigationLink {
+                deviceCard(id: ring.id) {
                     RingDeviceView(manager: ringManager, ring: ring)
-                        .zoomTransition(id: ring.id, in: cardNamespace)
-                } label: {
+                } card: {
                     RingCard(ring: ring,
                              battery: ringManager.connected?.id == ring.id ? ringManager.session.battery : nil,
                              connected: ringManager.connected?.id == ring.id && ringManager.state == .ready,
                              lastSeen: lastSeen(WearableKeepAlive.ring, in: entries))
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: ring.id, in: cardNamespace)
             }
             ForEach(x5Manager.discovered) { ring in
-                NavigationLink {
+                deviceCard(id: ring.id) {
                     X5DeviceView(manager: x5Manager, ring: ring)
-                        .zoomTransition(id: ring.id, in: cardNamespace)
-                } label: {
+                } card: {
                     X5Card(ring: ring,
                            battery: x5Manager.connected?.id == ring.id ? x5Manager.session.battery : nil,
                            connected: x5Manager.connected?.id == ring.id && x5Manager.state == .ready,
                            lastSeen: lastSeen(WearableKeepAlive.x5ring, in: entries))
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: ring.id, in: cardNamespace)
             }
             ForEach(bandManager.discovered) { band in
-                NavigationLink {
+                deviceCard(id: band.id) {
                     BandDeviceView(manager: bandManager, band: band)
-                        .zoomTransition(id: band.id, in: cardNamespace)
-                } label: {
+                } card: {
                     BandCard(band: band,
                              battery: bandManager.connected?.id == band.id ? bandManager.session.battery : nil,
                              connected: bandManager.connected?.id == band.id && bandManager.state == .ready,
                              lastSeen: lastSeen(WearableKeepAlive.band, in: entries))
                 }
-                .buttonStyle(.plain)
-                .zoomSource(id: band.id, in: cardNamespace)
             }
             glassesCard(entries)
             carCards
@@ -168,6 +150,19 @@ struct ScanView: View {
     /// into its manager's `discovered` list with no signal reading, which drew the full card
     /// AND an "Not found" row beneath it for the same device. The card carries the offline
     /// status now, and only a device with no card at all gets a row here.
+    /// A device's card, opening its page with the zoom from the card.
+    private func deviceCard<ID: Hashable, Destination: View, Card: View>(
+        id: ID, @ViewBuilder destination: () -> Destination, @ViewBuilder card: () -> Card
+    ) -> some View {
+        NavigationLink {
+            destination().zoomTransition(id: id, in: cardNamespace)
+        } label: {
+            card()
+        }
+        .buttonStyle(.plain)
+        .zoomSource(id: id, in: cardNamespace)
+    }
+
     private func absentDevices(from entries: [WearableEntry]) -> [WearableEntry] {
         entries.filter { !$0.connected && !$0.seenInLastScan && !$0.listed }
     }
