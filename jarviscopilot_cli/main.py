@@ -406,6 +406,8 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
     try:
         import curses
 
+        from jarviscopilot_cli.curses_ui import init_color_pairs
+
         result_holder = [None]
 
         def _format_row(s, max_x):
@@ -442,13 +444,7 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
 
         def _curses_browse(stdscr):
             curses.curs_set(0)
-            if curses.has_colors():
-                curses.start_color()
-                curses.use_default_colors()
-                curses.init_pair(1, curses.COLOR_GREEN, -1)  # selected
-                curses.init_pair(2, curses.COLOR_YELLOW, -1)  # header
-                curses.init_pair(3, curses.COLOR_CYAN, -1)  # search
-                curses.init_pair(4, 8, -1)  # dim
+            init_color_pairs(curses)
 
             cursor = 0
             scroll_offset = 0

@@ -1024,7 +1024,7 @@ def cmd_toggle() -> None:
 def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
                       disabled, categories, console):
     """Custom curses screen with checkboxes + category action rows."""
-    from jarviscopilot_cli.curses_ui import flush_stdin
+    from jarviscopilot_cli.curses_ui import flush_stdin, init_color_pairs
 
     chosen = set(plugin_selected)
     n_plugins = len(plugin_names)
@@ -1034,15 +1034,6 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
     total_items = n_plugins + n_categories  # navigable items
 
     result_holder = {"plugins_changed": False, "providers_changed": False}
-
-    def _init_colors():
-        if curses.has_colors():
-            curses.start_color()
-            curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_GREEN, -1)
-            curses.init_pair(2, curses.COLOR_YELLOW, -1)
-            curses.init_pair(3, curses.COLOR_CYAN, -1)
-            curses.init_pair(4, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)  # dim gray
 
     def _run_category(ci: int):
         """Leave curses for a provider category's own picker, then re-enter."""
@@ -1059,13 +1050,13 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
         curses.noecho()
         curses.cbreak()
         stdscr.keypad(True)
-        _init_colors()
+        init_color_pairs(curses)
         curses.curs_set(0)
         return stdscr
 
     def _draw(stdscr):
         curses.curs_set(0)
-        _init_colors()
+        init_color_pairs(curses)
         cursor = 0
         scroll_offset = 0
 

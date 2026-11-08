@@ -32,6 +32,23 @@ def flush_stdin() -> None:
         pass
 
 
+def init_color_pairs(curses) -> None:
+    """Start curses colors and define the shared pairs, when the terminal has color.
+
+    1 green (selection), 2 yellow (headers), 3 cyan, 4 dim gray. Color 8
+    (bright black) doesn't exist on 8-color terminals such as Docker's, where
+    ``init_pair`` would raise, so pair 4 falls back to white there.
+    """
+    if not curses.has_colors():
+        return
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_GREEN, -1)
+    curses.init_pair(2, curses.COLOR_YELLOW, -1)
+    curses.init_pair(3, curses.COLOR_CYAN, -1)
+    curses.init_pair(4, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)
+
+
 def curses_checklist(
     title: str,
     items: List[str],
@@ -66,12 +83,7 @@ def curses_checklist(
 
         def _draw(stdscr):
             curses.curs_set(0)
-            if curses.has_colors():
-                curses.start_color()
-                curses.use_default_colors()
-                curses.init_pair(1, curses.COLOR_GREEN, -1)
-                curses.init_pair(2, curses.COLOR_YELLOW, -1)
-                curses.init_pair(3, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)  # dim gray
+            init_color_pairs(curses)
             cursor = 0
             scroll_offset = 0
 
@@ -131,7 +143,7 @@ def curses_checklist(
                             sx = max(0, max_x - len(status_text) - 1)
                             sattr = curses.A_DIM
                             if curses.has_colors():
-                                sattr |= curses.color_pair(3)
+                                sattr |= curses.color_pair(4)
                             stdscr.addnstr(max_y - 1, sx, status_text, max_x - sx - 1, sattr)
                     except curses.error:
                         pass
@@ -162,6 +174,95 @@ def curses_checklist(
         return _numbered_fallback(title, items, selected, cancel_returns, status_fn)
 
 
+def _curses_pick(
+    title: str,
+    rows: List[str],
+    cursor: int,
+    *,
+    hint: str,
+    description_lines: List[str] = (),
+    select_space: bool = False,
+) -> Optional[int]:
+    """Full-screen single-choice list; returns the chosen row or None on ESC/q.
+
+    ENTER picks the row under the cursor (SPACE too when ``select_space``).
+    Raises whatever curses raises so callers can fall back to a numbered
+    prompt.
+    """
+    import curses
+
+    select_keys = {curses.KEY_ENTER, 10, 13} | ({ord(" ")} if select_space else set())
+    result_holder: list = [None]
+
+    def _draw(stdscr):
+        nonlocal cursor
+        curses.curs_set(0)
+        init_color_pairs(curses)
+        scroll_offset = 0
+
+        while True:
+            stdscr.clear()
+            max_y, max_x = stdscr.getmaxyx()
+
+            row = 0
+            try:
+                hattr = curses.A_BOLD
+                if curses.has_colors():
+                    hattr |= curses.color_pair(2)
+                stdscr.addnstr(row, 0, title, max_x - 1, hattr)
+                row += 1
+                for dline in description_lines:
+                    if row >= max_y - 1:
+                        break
+                    stdscr.addnstr(row, 0, dline, max_x - 1, curses.A_NORMAL)
+                    row += 1
+                stdscr.addnstr(row, 0, hint, max_x - 1, curses.A_DIM)
+                row += 1
+            except curses.error:
+                pass
+
+            items_start = row + 1
+            visible_rows = max_y - items_start - 1
+            if cursor < scroll_offset:
+                scroll_offset = cursor
+            elif cursor >= scroll_offset + visible_rows:
+                scroll_offset = cursor - visible_rows + 1
+
+            for draw_i, i in enumerate(
+                range(scroll_offset, min(len(rows), scroll_offset + visible_rows))
+            ):
+                y = draw_i + items_start
+                if y >= max_y - 1:
+                    break
+                arrow = "\u2192" if i == cursor else " "
+                attr = curses.A_NORMAL
+                if i == cursor:
+                    attr = curses.A_BOLD
+                    if curses.has_colors():
+                        attr |= curses.color_pair(1)
+                try:
+                    stdscr.addnstr(y, 0, f" {arrow} {rows[i]}", max_x - 1, attr)
+                except curses.error:
+                    pass
+
+            stdscr.refresh()
+            key = stdscr.getch()
+
+            if key in {curses.KEY_UP, ord("k")}:
+                cursor = (cursor - 1) % len(rows)
+            elif key in {curses.KEY_DOWN, ord("j")}:
+                cursor = (cursor + 1) % len(rows)
+            elif key in select_keys:
+                result_holder[0] = cursor
+                return
+            elif key in {27, ord("q")}:
+                return
+
+    curses.wrapper(_draw)
+    flush_stdin()
+    return result_holder[0]
+
+
 def curses_radiolist(
     title: str,
     items: List[str],
@@ -187,99 +288,16 @@ def curses_radiolist(
     if not sys.stdin.isatty():
         return cancel_returns
 
-    desc_lines: list[str] = []
-    if description:
-        desc_lines = description.splitlines()
-
     try:
-        import curses
-        result_holder: list = [None]
-
-        def _draw(stdscr):
-            curses.curs_set(0)
-            if curses.has_colors():
-                curses.start_color()
-                curses.use_default_colors()
-                curses.init_pair(1, curses.COLOR_GREEN, -1)
-                curses.init_pair(2, curses.COLOR_YELLOW, -1)
-            cursor = selected
-            scroll_offset = 0
-
-            while True:
-                stdscr.clear()
-                max_y, max_x = stdscr.getmaxyx()
-
-                row = 0
-
-                # Header
-                try:
-                    hattr = curses.A_BOLD
-                    if curses.has_colors():
-                        hattr |= curses.color_pair(2)
-                    stdscr.addnstr(row, 0, title, max_x - 1, hattr)
-                    row += 1
-
-                    # Description lines
-                    for dline in desc_lines:
-                        if row >= max_y - 1:
-                            break
-                        stdscr.addnstr(row, 0, dline, max_x - 1, curses.A_NORMAL)
-                        row += 1
-
-                    stdscr.addnstr(
-                        row, 0,
-                        "  \u2191\u2193 navigate  ENTER/SPACE select  ESC cancel",
-                        max_x - 1, curses.A_DIM,
-                    )
-                    row += 1
-                except curses.error:
-                    pass
-
-                # Scrollable item list
-                items_start = row + 1
-                visible_rows = max_y - items_start - 1
-                if cursor < scroll_offset:
-                    scroll_offset = cursor
-                elif cursor >= scroll_offset + visible_rows:
-                    scroll_offset = cursor - visible_rows + 1
-
-                for draw_i, i in enumerate(
-                    range(scroll_offset, min(len(items), scroll_offset + visible_rows))
-                ):
-                    y = draw_i + items_start
-                    if y >= max_y - 1:
-                        break
-                    radio = "\u25cf" if i == selected else "\u25cb"
-                    arrow = "\u2192" if i == cursor else " "
-                    line = f" {arrow} ({radio}) {items[i]}"
-                    attr = curses.A_NORMAL
-                    if i == cursor:
-                        attr = curses.A_BOLD
-                        if curses.has_colors():
-                            attr |= curses.color_pair(1)
-                    try:
-                        stdscr.addnstr(y, 0, line, max_x - 1, attr)
-                    except curses.error:
-                        pass
-
-                stdscr.refresh()
-                key = stdscr.getch()
-
-                if key in {curses.KEY_UP, ord("k")}:
-                    cursor = (cursor - 1) % len(items)
-                elif key in {curses.KEY_DOWN, ord("j")}:
-                    cursor = (cursor + 1) % len(items)
-                elif key in {ord(" "), curses.KEY_ENTER, 10, 13}:
-                    result_holder[0] = cursor
-                    return
-                elif key in {27, ord("q")}:
-                    result_holder[0] = cancel_returns
-                    return
-
-        curses.wrapper(_draw)
-        flush_stdin()
-        return result_holder[0] if result_holder[0] is not None else cancel_returns
-
+        idx = _curses_pick(
+            title,
+            [("(\u25cf) " if i == selected else "(\u25cb) ") + label for i, label in enumerate(items)],
+            selected,
+            hint="  \u2191\u2193 navigate  ENTER/SPACE select  ESC cancel",
+            description_lines=description.splitlines() if description else [],
+            select_space=True,
+        )
+        return cancel_returns if idx is None else idx
     except KeyboardInterrupt:
         return cancel_returns
     except Exception:
@@ -327,89 +345,19 @@ def curses_single_select(
     if not sys.stdin.isatty():
         return None
 
+    all_items = list(items) + [cancel_label]
+    cancel_idx = len(items)
     try:
-        import curses
-        result_holder: list = [None]
-
-        all_items = list(items) + [cancel_label]
-        cancel_idx = len(items)
-
-        def _draw(stdscr):
-            curses.curs_set(0)
-            if curses.has_colors():
-                curses.start_color()
-                curses.use_default_colors()
-                curses.init_pair(1, curses.COLOR_GREEN, -1)
-                curses.init_pair(2, curses.COLOR_YELLOW, -1)
-            cursor = min(default_index, len(all_items) - 1)
-            scroll_offset = 0
-
-            while True:
-                stdscr.clear()
-                max_y, max_x = stdscr.getmaxyx()
-
-                try:
-                    hattr = curses.A_BOLD
-                    if curses.has_colors():
-                        hattr |= curses.color_pair(2)
-                    stdscr.addnstr(0, 0, title, max_x - 1, hattr)
-                    stdscr.addnstr(
-                        1, 0,
-                        "  ↑↓ navigate  ENTER confirm  ESC/q cancel",
-                        max_x - 1, curses.A_DIM,
-                    )
-                except curses.error:
-                    pass
-
-                visible_rows = max_y - 3
-                if cursor < scroll_offset:
-                    scroll_offset = cursor
-                elif cursor >= scroll_offset + visible_rows:
-                    scroll_offset = cursor - visible_rows + 1
-
-                for draw_i, i in enumerate(
-                    range(scroll_offset, min(len(all_items), scroll_offset + visible_rows))
-                ):
-                    y = draw_i + 3
-                    if y >= max_y - 1:
-                        break
-                    arrow = "→" if i == cursor else " "
-                    line = f" {arrow} {all_items[i]}"
-                    attr = curses.A_NORMAL
-                    if i == cursor:
-                        attr = curses.A_BOLD
-                        if curses.has_colors():
-                            attr |= curses.color_pair(1)
-                    try:
-                        stdscr.addnstr(y, 0, line, max_x - 1, attr)
-                    except curses.error:
-                        pass
-
-                stdscr.refresh()
-                key = stdscr.getch()
-
-                if key in {curses.KEY_UP, ord("k")}:
-                    cursor = (cursor - 1) % len(all_items)
-                elif key in {curses.KEY_DOWN, ord("j")}:
-                    cursor = (cursor + 1) % len(all_items)
-                elif key in {curses.KEY_ENTER, 10, 13}:
-                    result_holder[0] = cursor
-                    return
-                elif key in {27, ord("q")}:
-                    result_holder[0] = None
-                    return
-
-        curses.wrapper(_draw)
-        flush_stdin()
-        if result_holder[0] is not None and result_holder[0] >= cancel_idx:
-            return None
-        return result_holder[0]
-
+        idx = _curses_pick(
+            title,
+            all_items,
+            min(default_index, len(all_items) - 1),
+            hint="  ↑↓ navigate  ENTER confirm  ESC/q cancel",
+        )
+        return None if idx is None or idx >= cancel_idx else idx
     except KeyboardInterrupt:
         return None
     except Exception:
-        all_items = list(items) + [cancel_label]
-        cancel_idx = len(items)
         return _numbered_single_fallback(title, all_items, cancel_idx)
 
 
