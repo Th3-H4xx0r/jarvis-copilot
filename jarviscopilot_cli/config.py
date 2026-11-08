@@ -236,44 +236,38 @@ from jarviscopilot_cli.default_soul import DEFAULT_SOUL_MD
 
 
 # =============================================================================
-# Managed mode (NixOS declarative config)
+# Managed mode (install owned by a package manager, e.g. Homebrew)
 # =============================================================================
 
 _MANAGED_TRUE_VALUES = ("true", "1", "yes")
 _MANAGED_SYSTEM_NAMES = {
     "brew": "Homebrew",
     "homebrew": "Homebrew",
-    "nix": "NixOS",
-    "nixos": "NixOS",
 }
+_GENERIC_MANAGER = "a package manager"
 
 
 def get_managed_system() -> Optional[str]:
-    """Return the package manager owning this install, if any."""
+    """Return the package manager owning this install, if any.
+
+    Signals: the HERMES_MANAGED env var (a manager name, or a true value
+    for an unnamed one), or a .managed marker file in HERMES_HOME.
+    """
     raw = os.getenv("HERMES_MANAGED", "").strip()
     if raw:
         normalized = raw.lower()
         if normalized in _MANAGED_TRUE_VALUES:
-            return "NixOS"
+            return _GENERIC_MANAGER
         return _MANAGED_SYSTEM_NAMES.get(normalized, raw)
 
-    managed_marker = get_hermes_home() / ".managed"
-    if managed_marker.exists():
-        return "NixOS"
+    if (get_hermes_home() / ".managed").exists():
+        return _GENERIC_MANAGER
     return None
 
 
 def is_managed() -> bool:
-    """Check if JarvisCopilot is running in package-manager-managed mode.
-
-    Two signals: the HERMES_MANAGED env var (set by the systemd service),
-    or a .managed marker file in HERMES_HOME (set by the NixOS activation
-    script, so interactive shells also see it).
-    """
+    """Check if JarvisCopilot is running in package-manager-managed mode."""
     return get_managed_system() is not None
-
-
-_NIX_UPDATE_MSG = "Update your Nix flake input and rebuild (e.g. nix flake update, nixos-rebuild, or home-manager switch)"
 
 
 def get_managed_update_command() -> Optional[str]:
@@ -281,17 +275,17 @@ def get_managed_update_command() -> Optional[str]:
     managed_system = get_managed_system()
     if managed_system == "Homebrew":
         return "brew upgrade jarviscopilot"
-    if managed_system == "NixOS":
-        return _NIX_UPDATE_MSG
+    if managed_system:
+        return "Use your package manager to upgrade JarvisCopilot."
     return None
 
 
 def detect_install_method(project_root: Optional[Path] = None) -> str:
-    """Detect how JarvisCopilot was installed: 'docker', 'nixos', 'homebrew', 'git', or 'pip'.
+    """Detect how JarvisCopilot was installed: 'docker', 'homebrew', 'managed', 'git', or 'pip'.
 
     Resolution order:
     1. Stamped ``~/.jarviscopilot/.install_method`` file (written by installers)
-    2. HERMES_MANAGED env / .managed marker (NixOS, Homebrew)
+    2. HERMES_MANAGED env / .managed marker
     3. Container detection (/.dockerenv, /run/.containerenv, cgroup)
     4. .git directory presence -> 'git'
     5. Fallback -> 'pip'
@@ -305,7 +299,7 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
         pass
     managed = get_managed_system()
     if managed:
-        return managed.lower().replace(" ", "-")
+        return "homebrew" if managed == "Homebrew" else "managed"
     from jarviscopilot_constants import is_container
     if is_container():
         return "docker"
@@ -328,8 +322,6 @@ def stamp_install_method(method: str) -> None:
 
 def recommended_update_command_for_method(method: str) -> str:
     """Return the update command or guidance for a given install method."""
-    if method == "nixos":
-        return _NIX_UPDATE_MSG
     if method == "homebrew":
         return "brew upgrade jarviscopilot"
     if method == "docker":
@@ -357,15 +349,6 @@ def format_managed_message(action: str = "modify this JarvisCopilot installation
     managed_system = get_managed_system() or "a package manager"
     raw = os.getenv("HERMES_MANAGED", "").strip().lower()
 
-    if managed_system == "NixOS":
-        env_hint = "true" if raw in _MANAGED_TRUE_VALUES else raw or "true"
-        return (
-            f"Cannot {action}: this JarvisCopilot installation is managed by NixOS "
-            f"(HERMES_MANAGED={env_hint}).\n"
-            "Edit services.jarviscopilot.settings in your configuration.nix and run:\n"
-            "  sudo nixos-rebuild switch"
-        )
-
     if managed_system == "Homebrew":
         env_hint = raw or "homebrew"
         return (
@@ -383,55 +366,6 @@ def format_managed_message(action: str = "modify this JarvisCopilot installation
 def managed_error(action: str = "modify configuration"):
     """Print user-friendly error for managed mode."""
     print(format_managed_message(action), file=sys.stderr)
-
-
-# =============================================================================
-# Container-aware CLI (NixOS container mode)
-# =============================================================================
-
-def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
-
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    or None if container mode is not active, we're already inside the
-    container, or HERMES_DEV=1 is set.
-
-    The .container-mode file is written by the NixOS activation script when
-    container.enable = true. It tells the host CLI to exec into the container
-    instead of running locally.
-    """
-    if os.environ.get("HERMES_DEV") == "1":
-        return None
-
-    from jarviscopilot_constants import is_container
-    if is_container():
-        return None
-
-    container_mode_file = get_hermes_home() / ".container-mode"
-
-    try:
-        info = {}
-        with open(container_mode_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, _, value = line.partition("=")
-                    info[key.strip()] = value.strip()
-    except FileNotFoundError:
-        return None
-    # All other exceptions (PermissionError, malformed data, etc.) propagate
-
-    backend = info.get("backend", "docker")
-    container_name = info.get("container_name", "jarviscopilot")
-    exec_user = info.get("exec_user", "jarviscopilot")
-    hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")
-
-    return {
-        "backend": backend,
-        "container_name": container_name,
-        "exec_user": exec_user,
-        "hermes_bin": hermes_bin,
-    }
 
 
 # =============================================================================
@@ -457,9 +391,7 @@ def get_project_root() -> Path:
 def _secure_dir(path):
     """Set directory to owner-only access (0700 by default). No-op on Windows.
 
-    Skipped in managed mode — the NixOS module sets group-readable
-    permissions (0750) so interactive users in the jarviscopilot group can
-    share state with the gateway service.
+    Skipped in managed mode — the package manager owns permissions there.
 
     The mode can be overridden via the HERMES_HOME_MODE environment variable
     (e.g. HERMES_HOME_MODE=0701) for deployments where a web server (nginx,
@@ -508,8 +440,7 @@ def _is_container() -> bool:
 def _secure_file(path):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
-    Skipped in managed mode — the NixOS activation script sets
-    group-readable permissions (0640) on config files.
+    Skipped in managed mode — the package manager owns permissions there.
 
     Skipped in containers — Docker/Podman volume mounts often need broader
     permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
@@ -535,18 +466,12 @@ def _ensure_default_soul_md(home: Path) -> None:
 def ensure_hermes_home():
     """Ensure ~/.jarviscopilot directory structure exists with secure permissions.
 
-    In managed mode (NixOS), dirs are created by the activation script with
-    setgid + group-writable (2770). We skip mkdir and set umask(0o007) so
-    any files created (e.g. SOUL.md) are group-writable (0660).
+    In managed mode the package manager owns permissions: directories are
+    not chmod-ed and files are created group-writable (umask 0o007).
     """
     home = get_hermes_home()
-    if is_managed():
-        old_umask = os.umask(0o007)
-        try:
-            _ensure_hermes_home_managed(home)
-        finally:
-            os.umask(old_umask)
-    else:
+    old_umask = os.umask(0o007) if is_managed() else None
+    try:
         home.mkdir(parents=True, exist_ok=True)
         _secure_dir(home)
         for subdir in (
@@ -557,28 +482,9 @@ def ensure_hermes_home():
             d.mkdir(parents=True, exist_ok=True)
             _secure_dir(d)
         _ensure_default_soul_md(home)
-
-
-def _ensure_hermes_home_managed(home: Path):
-    """Managed-mode variant: verify dirs exist (activation creates them), seed SOUL.md."""
-    if not home.is_dir():
-        raise RuntimeError(
-            f"HERMES_HOME {home} does not exist. "
-            "Run 'sudo nixos-rebuild switch' first."
-        )
-    for subdir in ("cron", "sessions", "logs", "memories"):
-        d = home / subdir
-        if not d.is_dir():
-            raise RuntimeError(
-                f"{d} does not exist. "
-                "Run 'sudo nixos-rebuild switch' first."
-            )
-    # Curator reports dir is a sub-path of logs/; create it if missing.
-    # In managed mode the activation script may not know about this subdir,
-    # so we mkdir it ourselves (it's inside an already-secured logs/ dir).
-    (home / "logs" / "curator").mkdir(parents=True, exist_ok=True)
-    # Inside umask(0o007) scope — SOUL.md will be created as 0660
-    _ensure_default_soul_md(home)
+    finally:
+        if old_umask is not None:
+            os.umask(old_umask)
 
 
 # =============================================================================

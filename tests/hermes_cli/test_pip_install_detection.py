@@ -24,11 +24,11 @@ def test_git_install_detected_when_git_dir_exists(tmp_path):
 def test_managed_install_takes_precedence(tmp_path):
     """When HERMES_MANAGED is set, that takes precedence over git detection."""
     (tmp_path / ".git").mkdir()
-    with patch("jarviscopilot_cli.config.get_managed_system", return_value="NixOS"), \
+    with patch("jarviscopilot_cli.config.get_managed_system", return_value="Homebrew"), \
          patch("jarviscopilot_cli.config.get_hermes_home", return_value=tmp_path):
         from jarviscopilot_cli.config import detect_install_method
         method = detect_install_method(project_root=tmp_path)
-        assert method == "nixos"
+        assert method == "homebrew"
 
 
 def test_recommended_update_command_pip():

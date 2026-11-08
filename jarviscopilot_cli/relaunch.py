@@ -5,7 +5,7 @@ Preserves critical flags (--tui, --dev, --profile, --model, etc.) across
 process replacement so that ``jarviscopilot sessions browse`` or post-setup relaunch
 doesn't silently drop the user's UI mode or other preferences.
 
-Also works when ``jarviscopilot`` is not on PATH (e.g. ``nix run`` or ``python -m``).
+Also works when ``jarviscopilot`` is not on PATH (e.g. ``python -m``).
 """
 
 import os
@@ -101,7 +101,7 @@ def resolve_hermes_bin() -> Optional[str]:
     def _is_python_script(p: str) -> bool:
         return p.lower().endswith((".py", ".pyc"))
 
-    # Absolute path to an executable (covers nix store, venv wrappers, etc.)
+    # Absolute path to an executable (covers venv wrappers, etc.)
     if os.path.isabs(argv0) and os.path.isfile(argv0) and os.access(argv0, os.X_OK):
         if not (_is_windows and _is_python_script(argv0)):
             return argv0

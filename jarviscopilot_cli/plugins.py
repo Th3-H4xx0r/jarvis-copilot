@@ -55,7 +55,7 @@ from jarviscopilot_cli.config import cfg_get
 def get_bundled_plugins_dir() -> Path:
     """Locate the bundled ``plugins/`` directory.
 
-    Honours ``HERMES_BUNDLED_PLUGINS`` (set by the Nix wrapper / packaged
+    Honours ``HERMES_BUNDLED_PLUGINS`` (set by packaged
     installs) so read-only store paths are consulted first.  Falls back to
     the in-repo path used during development.
     """
