@@ -289,7 +289,6 @@ class TestCheckTtsRequirementsPiper:
         monkeypatch.setattr(tts_tool, "_import_edge_tts", lambda: (_ for _ in ()).throw(ImportError()))
         monkeypatch.setattr(tts_tool, "_import_elevenlabs", lambda: (_ for _ in ()).throw(ImportError()))
         monkeypatch.setattr(tts_tool, "_import_openai_client", lambda: (_ for _ in ()).throw(ImportError()))
-        monkeypatch.setattr(tts_tool, "_import_mistral_client", lambda: (_ for _ in ()).throw(ImportError()))
         monkeypatch.setattr(tts_tool, "_check_neutts_available", lambda: False)
         monkeypatch.setattr(tts_tool, "_check_kittentts_available", lambda: False)
         monkeypatch.setattr(tts_tool, "_has_any_command_tts_provider", lambda: False)

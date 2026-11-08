@@ -7,7 +7,7 @@ Built-in TTS providers:
 - ElevenLabs (premium): High-quality voices, needs ELEVENLABS_API_KEY
 - OpenAI TTS: Good quality, needs OPENAI_API_KEY
 - MiniMax TTS: High-quality with voice cloning, needs MINIMAX_API_KEY
-- Mistral (Voxtral TTS): Multilingual, native Opus, needs MISTRAL_API_KEY
+- Mistral (Voxtral TTS): disabled while the `mistralai` PyPI package is quarantined
 - Google Gemini TTS: Controllable, 30 prebuilt voices, needs GEMINI_API_KEY
 - xAI TTS: Grok voices, uses xAI Grok OAuth credentials or XAI_API_KEY
 - NeuTTS (local, free, no API key): On-device TTS via neutts
@@ -115,11 +115,6 @@ def _import_openai_client():
     from openai import OpenAI as OpenAIClient
     return OpenAIClient
 
-def _import_mistral_client():
-    """Lazy import Mistral client. Returns the class or raises ImportError."""
-    from mistralai.client import Mistral
-    return Mistral
-
 def _import_sounddevice():
     """Lazy import sounddevice. Returns the module or raises ImportError/OSError."""
     import sounddevice as sd
@@ -161,8 +156,6 @@ DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MINIMAX_MODEL = "speech-02-hd"
 DEFAULT_MINIMAX_VOICE_ID = "English_expressive_narrator"
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1/t2a_v2"
-DEFAULT_MISTRAL_TTS_MODEL = "voxtral-mini-tts-2603"
-DEFAULT_MISTRAL_TTS_VOICE_ID = "c69964a6-ab8b-4f8a-9465-ec0925096ec8"  # Paul - Neutral
 DEFAULT_XAI_VOICE_ID = "eve"
 DEFAULT_XAI_LANGUAGE = "en"
 DEFAULT_XAI_SAMPLE_RATE = 24000
@@ -195,7 +188,6 @@ PROVIDER_MAX_TEXT_LENGTH: Dict[str, int] = {
     "openai": 4096,       # https://platform.openai.com/docs/guides/text-to-speech
     "xai": 15000,         # https://docs.x.ai/developers/model-capabilities/audio/text-to-speech
     "minimax": 10000,     # https://platform.minimax.io/docs/api-reference/speech-t2a-http (sync)
-    "mistral": 4000,      # conservative; no published per-request cap
     "gemini": 5000,       # Gemini TTS caps at ~8k input tokens / ~655s audio
     "elevenlabs": 10000,  # fallback when model-aware lookup can't resolve (multilingual_v2)
     "neutts": 2000,       # local model, quality falls off on long text
@@ -1170,55 +1162,6 @@ def _generate_minimax_tts(text: str, output_path: str, tts_config: Dict[str, Any
 
 
 # ===========================================================================
-# Provider: Mistral (Voxtral TTS)
-# ===========================================================================
-def _generate_mistral_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
-    """Generate audio using Mistral Voxtral TTS API.
-
-    The API returns base64-encoded audio; this function decodes it
-    and writes the raw bytes to *output_path*.
-    Supports native Opus output for Telegram voice bubbles.
-    """
-    api_key = (get_env_value("MISTRAL_API_KEY") or "")
-    if not api_key:
-        raise ValueError("MISTRAL_API_KEY not set. Get one at https://console.mistral.ai/")
-
-    mi_config = tts_config.get("mistral", {})
-    model = mi_config.get("model", DEFAULT_MISTRAL_TTS_MODEL)
-    voice_id = mi_config.get("voice_id") or DEFAULT_MISTRAL_TTS_VOICE_ID
-
-    if output_path.endswith(".ogg"):
-        response_format = "opus"
-    elif output_path.endswith(".wav"):
-        response_format = "wav"
-    elif output_path.endswith(".flac"):
-        response_format = "flac"
-    else:
-        response_format = "mp3"
-
-    Mistral = _import_mistral_client()
-    try:
-        with Mistral(api_key=api_key) as client:
-            response = client.audio.speech.complete(
-                model=model,
-                input=text,
-                voice_id=voice_id,
-                response_format=response_format,
-            )
-            audio_bytes = base64.b64decode(response.audio_data)
-    except ValueError:
-        raise
-    except Exception as e:
-        logger.error("Mistral TTS failed: %s", e, exc_info=True)
-        raise RuntimeError(f"Mistral TTS failed: {type(e).__name__}") from e
-
-    with open(output_path, "wb") as f:
-        f.write(audio_bytes)
-
-    return output_path
-
-
-# ===========================================================================
 # Provider: Google Gemini TTS
 # ===========================================================================
 def _wrap_pcm_as_wav(
@@ -1768,7 +1711,7 @@ def text_to_speech_tool(
             file_path = out_dir / f"tts_{timestamp}.{fmt}"
         # Use .ogg for Telegram with providers that support native Opus output,
         # otherwise fall back to .mp3 (Edge TTS will attempt ffmpeg conversion later).
-        elif want_opus and provider in {"openai", "elevenlabs", "mistral", "gemini"}:
+        elif want_opus and provider in {"openai", "elevenlabs", "gemini"}:
             file_path = out_dir / f"tts_{timestamp}.ogg"
         else:
             file_path = out_dir / f"tts_{timestamp}.mp3"
@@ -1934,7 +1877,7 @@ def text_to_speech_tool(
             if opus_path:
                 file_str = opus_path
                 voice_compatible = True
-        elif provider in {"elevenlabs", "openai", "mistral", "gemini"}:
+        elif provider in {"elevenlabs", "openai", "gemini"}:
             voice_compatible = want_opus and file_str.endswith(".ogg")
 
         file_size = os.path.getsize(file_str)
@@ -2015,12 +1958,6 @@ def check_tts_requirements() -> bool:
         pass
     if get_env_value("GEMINI_API_KEY") or get_env_value("GOOGLE_API_KEY"):
         return True
-    try:
-        _import_mistral_client()
-        if get_env_value("MISTRAL_API_KEY"):
-            return True
-    except ImportError:
-        pass
     if _check_neutts_available():
         return True
     if _check_kittentts_available():

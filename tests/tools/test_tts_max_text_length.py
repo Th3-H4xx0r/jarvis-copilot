@@ -31,9 +31,6 @@ class TestResolveMaxTextLength:
     def test_minimax_default_is_10000(self):
         assert _resolve_max_text_length("minimax", {}) == 10000
 
-    def test_mistral_default(self):
-        assert _resolve_max_text_length("mistral", {}) == PROVIDER_MAX_TEXT_LENGTH["mistral"]
-
     def test_gemini_default(self):
         assert _resolve_max_text_length("gemini", {}) == PROVIDER_MAX_TEXT_LENGTH["gemini"]
 
@@ -113,7 +110,7 @@ class TestResolveMaxTextLength:
     # --- Sanity: the table covers every provider listed in the schema ---
 
     def test_all_documented_providers_have_defaults(self):
-        expected = {"edge", "openai", "xai", "minimax", "mistral",
+        expected = {"edge", "openai", "xai", "minimax",
                     "gemini", "elevenlabs", "neutts", "kittentts"}
         assert expected.issubset(PROVIDER_MAX_TEXT_LENGTH.keys())
 

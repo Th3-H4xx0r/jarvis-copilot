@@ -101,29 +101,6 @@ class TestDotenvFallbackPerProvider:
 
         assert captured["headers"]["Authorization"] == "Bearer mm-dotenv-key"
 
-    def test_mistral_reads_dotenv_key(self, tmp_path):
-        import base64
-
-        from tools import tts_tool
-
-        seen_keys: list = []
-
-        def fake_mistral_factory(*, api_key=None):
-            seen_keys.append(api_key)
-            client = MagicMock()
-            client.__enter__ = MagicMock(return_value=client)
-            client.__exit__ = MagicMock(return_value=False)
-            client.audio.speech.complete.return_value = MagicMock(
-                audio_data=base64.b64encode(b"data").decode()
-            )
-            return client
-
-        with patch.object(tts_tool, "get_env_value", return_value="mistral-dotenv-key"), \
-             patch.object(tts_tool, "_import_mistral_client", return_value=fake_mistral_factory):
-            tts_tool._generate_mistral_tts("hi", str(tmp_path / "out.mp3"), {})
-
-        assert seen_keys == ["mistral-dotenv-key"]
-
     def test_gemini_reads_dotenv_key(self, tmp_path):
         from tools import tts_tool
 
