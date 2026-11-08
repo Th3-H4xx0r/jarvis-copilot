@@ -204,12 +204,12 @@ def test_get_plugin_auxiliary_tasks_empty_when_none_registered(patched_manager):
 def test_all_aux_tasks_includes_plugin_registered(patched_manager):
     from jarviscopilot_cli.main import _AUX_TASKS, _all_aux_tasks
 
-    manifest = PluginManifest(name="hindsight")
+    manifest = PluginManifest(name="example_memory")
     ctx = PluginContext(manifest, patched_manager)
     ctx.register_auxiliary_task(
         key="memory_retain_filter",
         display_name="Memory retain filter",
-        description="hindsight pre-retain dedup/extract",
+        description="pre-retain dedup/extract",
     )
 
     merged = _all_aux_tasks()
@@ -223,7 +223,7 @@ def test_all_aux_tasks_includes_plugin_registered(patched_manager):
     assert plugin_entry == (
         "memory_retain_filter",
         "Memory retain filter",
-        "hindsight pre-retain dedup/extract",
+        "pre-retain dedup/extract",
     )
 
 

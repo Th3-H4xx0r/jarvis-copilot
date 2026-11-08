@@ -1,6 +1,6 @@
 """Local OpenAI-compatible proxy that forwards to OAuth-authenticated upstreams.
 
-Lets external apps (OpenViking, Karakeep, Open WebUI, ...) ride the user's
+Lets external apps (Karakeep, Open WebUI, ...) ride the user's
 already-logged-in provider subscription instead of needing a static API key
 copy-pasted into each app's config.
 

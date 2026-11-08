@@ -517,12 +517,12 @@ class TestDiscoverAllPlugins:
         loaders; bundled entries inside them must not appear in the general
         list (matches the pre-refactor skip set)."""
         bundled, _, discover = self._entries_by_key(tmp_path, monkeypatch)
-        self._write_plugin(bundled, ["memory", "honcho"])
+        self._write_plugin(bundled, ["memory", "holographic"])
         self._write_plugin(bundled, ["context_engine", "compressor"])
         self._write_plugin(bundled, ["observability", "langfuse"])
 
         entries = discover()
-        assert "memory/honcho" not in entries
+        assert "memory/holographic" not in entries
         assert "context_engine/compressor" not in entries
         assert "observability/langfuse" in entries
 
@@ -769,9 +769,9 @@ class TestProviderDiscovery:
         config_file = tmp_path / "config.yaml"
         config_file.write_text("memory:\n  provider: ''\n")
         from jarviscopilot_cli.plugins_cmd import _save_memory_provider
-        _save_memory_provider("honcho")
+        _save_memory_provider("holographic")
         content = yaml.safe_load(config_file.read_text())
-        assert content["memory"]["provider"] == "honcho"
+        assert content["memory"]["provider"] == "holographic"
 
     def test_save_context_engine(self, tmp_path, monkeypatch):
         """Saving a context engine persists to config.yaml."""

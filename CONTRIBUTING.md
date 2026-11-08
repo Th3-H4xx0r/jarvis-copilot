@@ -51,7 +51,7 @@ If your skill is specialized, community-contributed, or niche, it's better suite
 
 ## Memory Providers: Ship as a Standalone Plugin
 
-**We are no longer accepting new memory providers into this repo.** The set of built-in providers under `plugins/memory/` (honcho, mem0, supermemory, byterover, hindsight, holographic, openviking, retaindb) is closed. If you want to add a new memory backend, publish it as a **standalone plugin repo** that users install into `~/.jarviscopilot/plugins/` (or via a pip entry point).
+**We are no longer accepting new memory providers into this repo.** The set of built-in providers under `plugins/memory/` is closed. If you want to add a new memory backend, publish it as a **standalone plugin repo** that users install into `~/.jarviscopilot/plugins/` (or via a pip entry point).
 
 Standalone memory plugins:
 
@@ -826,7 +826,6 @@ After the [litellm supply chain compromise](https://github.com/BerriAI/litellm/i
 # ✅ Correct — pre-1.0 (tight minor window)
 "asyncpg>=0.29,<0.32"
 "aiosqlite>=0.20,<0.23"
-"hindsight-client>=0.4.22,<0.5"
 
 # ❌ Rejected — no upper bound
 "some-package>=1.2.3"

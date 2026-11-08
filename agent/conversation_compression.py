@@ -448,7 +448,7 @@ def compress_context(
         logger.debug("context engine on_session_start (compression): %s", _ce_err)
 
     # Notify memory providers of the compression-driven session_id rotation
-    # so provider-cached per-session state (Hindsight's _document_id,
+    # so provider-cached per-session state (document ids,
     # accumulated turn buffers, counters) refreshes. reset=False because
     # the logical conversation continues; only the id and DB row rolled
     # over. See #6672.

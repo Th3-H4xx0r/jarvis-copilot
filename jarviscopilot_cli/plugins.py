@@ -392,7 +392,7 @@ class PluginContext:
         handler_fn: Callable | None = None,
         description: str = "",
     ) -> None:
-        """Register a CLI subcommand (e.g. ``jarviscopilot honcho ...``).
+        """Register a CLI subcommand (e.g. ``jarviscopilot <plugin> ...``).
 
         The *setup_fn* receives an argparse subparser and should add any
         arguments/sub-subparsers.  If *handler_fn* is provided it is set
@@ -747,7 +747,7 @@ class PluginContext:
             ctx.register_auxiliary_task(
                 key="memory_retain_filter",
                 display_name="Memory retain filter",
-                description="hindsight pre-retain dedup/extract",
+                description="pre-retain dedup/extract",
                 defaults={"provider": "auto", "timeout": 30},
             )
         """

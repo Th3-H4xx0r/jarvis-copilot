@@ -19,7 +19,7 @@ JarvisCopilot is an open-source AI agent framework by Nous Research that runs in
 What makes JarvisCopilot different:
 
 - **Self-improving through skills** — JarvisCopilot learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
-- **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends (built-in, Honcho, Mem0, and more) let you choose how memory works.
+- **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends (built-in, holographic, and plugins) let you choose how memory works.
 - **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, Signal, Email, and other platforms with full tool access, not just chat.
 - **Provider-agnostic** — swap models and providers mid-workflow without changing anything else. Credential pools rotate across multiple API keys automatically.
 - **Profiles** — run multiple independent JarvisCopilot instances with isolated configs, sessions, skills, and memory.
@@ -216,7 +216,6 @@ jarviscopilot insights [--days N]  Usage analytics
 jarviscopilot update               Update to latest version
 jarviscopilot pairing list/approve/revoke  DM authorization
 jarviscopilot plugins list/install/remove  Plugin management
-jarviscopilot honcho setup/status  Honcho memory integration (requires honcho plugin)
 jarviscopilot memory setup/status/off  Memory provider config
 jarviscopilot completion bash|zsh  Shell completions
 jarviscopilot acp                  ACP server (IDE integration)

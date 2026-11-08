@@ -1028,10 +1028,3 @@ def get_cute_tool_message(
 
     preview = build_tool_preview(tool_name, args) or ""
     return _wrap(f"┊ ⚡ {tool_name[:9]:9} {_trunc(preview, 35)}  {dur}")
-
-
-# =========================================================================
-# Honcho session line (one-liner with clickable OSC 8 hyperlink)
-# =========================================================================
-
-

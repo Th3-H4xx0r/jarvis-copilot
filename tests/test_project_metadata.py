@@ -38,7 +38,6 @@ def test_lazy_installable_extras_excluded_from_all():
         "voice",  # faster-whisper / sounddevice / numpy
         "modal", "daytona", "vercel",
         "messaging", "slack",
-        "honcho", "hindsight",
     }
     all_extra_specs = optional_dependencies["all"]
     for extra in lazy_covered_extras:

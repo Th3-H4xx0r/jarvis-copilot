@@ -499,8 +499,7 @@ def _run_review_in_thread(
             if _parent_api_mode == "codex_app_server":
                 _parent_api_mode = "codex_responses"
             # skip_memory=True keeps the review fork from
-            # touching external memory plugins (honcho, mem0,
-            # supermemory, etc.).  Without it, the fork's
+            # touching external memory plugins.  Without it, the fork's
             # __init__ rebuilds its own _memory_manager from
             # config, scoped to the parent's session_id, and
             # run_conversation() then leaks the harness prompt
@@ -638,8 +637,8 @@ def _run_review_in_thread(
                 clear_thread_tool_whitelist()
 
             # Tear down memory providers while stdout is still
-            # redirected so background thread teardown (Honcho flush,
-            # Hindsight sync, etc.) stays silent.  The finally block
+            # redirected so background thread teardown (provider flushes,
+            # syncs, etc.) stays silent.  The finally block
             # below is a safety net for the exception path.
             try:
                 review_agent.shutdown_memory_provider()
@@ -716,8 +715,8 @@ def _run_review_in_thread(
     finally:
         # Safety-net cleanup for the exception path.  Normal
         # completion already shut down inside redirect_stdout above.
-        # Re-open devnull here so any teardown output (Honcho flush,
-        # Hindsight sync, background thread joins) stays silent even
+        # Re-open devnull here so any teardown output (provider flushes,
+        # background thread joins) stays silent even
         # on the exception path where redirect_stdout already exited.
         if review_agent is not None:
             try:

@@ -18,22 +18,6 @@ Usage:
     jarviscopilot cron list           # List cron jobs
     jarviscopilot cron status         # Check if cron scheduler is running
     jarviscopilot doctor              # Check configuration and dependencies
-    jarviscopilot honcho setup                    # Configure Honcho AI memory integration
-    jarviscopilot honcho status                   # Show Honcho config and connection status
-    jarviscopilot honcho sessions                 # List directory → session name mappings
-    jarviscopilot honcho map <name>               # Map current directory to a session name
-    jarviscopilot honcho peer                     # Show peer names and dialectic settings
-    jarviscopilot honcho peer --user NAME         # Set user peer name
-    jarviscopilot honcho peer --ai NAME           # Set AI peer name
-    jarviscopilot honcho peer --reasoning LEVEL   # Set dialectic reasoning level
-    jarviscopilot honcho mode                     # Show current memory mode
-    jarviscopilot honcho mode [hybrid|honcho|local]  # Set memory mode
-    jarviscopilot honcho tokens                   # Show token budget settings
-    jarviscopilot honcho tokens --context N       # Set session.context() token cap
-    jarviscopilot honcho tokens --dialectic N     # Set dialectic result char cap
-    jarviscopilot honcho identity                 # Show AI peer identity representation
-    jarviscopilot honcho identity <file>          # Seed AI peer identity from a file (SOUL.md etc.)
-    jarviscopilot honcho migrate                  # Step-by-step migration guide: OpenClaw native → JarvisCopilot + Honcho
     jarviscopilot version             Show version
     jarviscopilot update              Update to latest version
     jarviscopilot uninstall           Uninstall JarvisCopilot
@@ -8280,16 +8264,6 @@ def _cmd_update_impl(args, gateway_mode: bool):
         except Exception:
             pass  # profiles module not available or no profiles
 
-        # Sync Honcho host blocks to all profiles
-        try:
-            from plugins.memory.honcho.cli import sync_honcho_profiles_quiet
-
-            synced = sync_honcho_profiles_quiet()
-            if synced:
-                print(f"\n-> Honcho: synced {synced} profile(s)")
-        except Exception:
-            pass  # honcho plugin not installed or not configured
-
         # Check for config migrations
         print()
         print("→ Checking configuration for new options...")
@@ -9020,7 +8994,6 @@ def _coalesce_session_name_args(argv: list) -> list:
         "update",
         "uninstall",
         "profile",
-        "honcho",
         "claw",
         "plugins",
         "acp",
@@ -9184,16 +9157,6 @@ def cmd_profile(args):
                     print(
                         f"Cloned config, .env, SOUL.md, and skills from {source_label}."
                     )
-
-            # Auto-clone Honcho config for the new profile (only with --clone/--clone-all)
-            if clone or clone_all:
-                try:
-                    from plugins.memory.honcho.cli import clone_honcho_for_profile
-
-                    if clone_honcho_for_profile(name):
-                        print(f"Honcho config cloned (peer: {name})")
-                except Exception:
-                    pass  # Honcho plugin not installed or not configured
 
             # Seed bundled skills (skip if --clone-all already copied them, or
             # if --no-skills was passed — in which case seed_profile_skills()
@@ -10104,7 +10067,7 @@ def main():
     # =========================================================================
     # proxy command — local OpenAI-compatible proxy that attaches the user's
     # OAuth-authenticated provider credentials to outbound requests. Lets
-    # external apps (OpenViking, Karakeep, Open WebUI, ...) ride a logged-in
+    # external apps (Karakeep, Open WebUI, ...) ride a logged-in
     # subscription without copy-pasting static API keys.
     # =========================================================================
     proxy_parser = subparsers.add_parser(
@@ -11440,8 +11403,7 @@ Examples:
         help="Configure external memory provider",
         description=(
             "Set up and manage external memory provider plugins.\n\n"
-            "Available providers: honcho, openviking, mem0, hindsight,\n"
-            "holographic, retaindb, byterover.\n\n"
+            "Available providers: holographic and any installed provider plugins.\n\n"
             "Only one external provider can be active at a time.\n"
             "Built-in memory (MEMORY.md/USER.md) is always active."
         ),

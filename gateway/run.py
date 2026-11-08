@@ -1324,12 +1324,6 @@ class GatewayRunner:
         import itertools as _itertools
         self._slash_confirm_counter = _itertools.count(1)
 
-        # Persistent Honcho managers keyed by gateway session key.
-        # This preserves write_frequency="session" semantics across short-lived
-        # per-message AIAgent instances.
-
-
-
         # Ensure tirith security scanner is available (downloads if needed)
         try:
             from tools.tirith_security import ensure_installed

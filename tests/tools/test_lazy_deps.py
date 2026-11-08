@@ -28,7 +28,7 @@ class TestSpecSafety:
     @pytest.mark.parametrize("spec", [
         "mistralai>=2.3.0,<3",
         "elevenlabs>=1.0,<2",
-        "honcho-ai>=2.0.1,<3",
+        "elevenlabs>=1.0.0,<2",
         "boto3>=1.35.0,<2",
         "mautrix[encryption]>=0.20,<1",
         "google-api-python-client>=2.100,<3",
@@ -96,10 +96,10 @@ class TestAllowlist:
                     f"{feature}: spec {spec!r} fails safety check"
 
     def test_feature_install_command_returns_pip_invocation(self):
-        cmd = ld.feature_install_command("memory.honcho")
+        cmd = ld.feature_install_command("tts.elevenlabs")
         assert cmd is not None
         assert cmd.startswith("uv pip install")
-        assert "honcho-ai" in cmd
+        assert "elevenlabs" in cmd
 
     def test_feature_install_command_unknown(self):
         assert ld.feature_install_command("not.real") is None
@@ -112,7 +112,7 @@ class TestAllowlist:
 
 class TestSecurityGating:
     def test_disabled_via_config_raises(self, monkeypatch):
-        # Pretend honcho is missing AND lazy installs are disabled.
+        # Pretend the package is missing AND lazy installs are disabled.
         monkeypatch.setitem(ld.LAZY_DEPS, "test.feat", ("packageX>=1.0,<2",))
         monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
         monkeypatch.setattr(ld, "_allow_lazy_installs", lambda: False)
@@ -254,13 +254,13 @@ class TestIsSatisfiedVersionAware:
         monkeypatch.setattr(_md, "version", _version)
 
     def test_exact_pin_match_returns_true(self, monkeypatch):
-        self._fake_version(monkeypatch, {"honcho-ai": "2.0.1"})
-        assert ld._is_satisfied("honcho-ai==2.0.1") is True
+        self._fake_version(monkeypatch, {"elevenlabs": "1.59.0"})
+        assert ld._is_satisfied("elevenlabs==1.59.0") is True
 
     def test_exact_pin_mismatch_returns_false(self, monkeypatch):
         # Installed 2.0.0, spec requires 2.0.1 → False (needs upgrade).
-        self._fake_version(monkeypatch, {"honcho-ai": "2.0.0"})
-        assert ld._is_satisfied("honcho-ai==2.0.1") is False
+        self._fake_version(monkeypatch, {"elevenlabs": "1.58.0"})
+        assert ld._is_satisfied("elevenlabs==1.59.0") is False
 
     def test_range_within_returns_true(self, monkeypatch):
         self._fake_version(monkeypatch, {"slack-bolt": "1.27.0"})
@@ -306,15 +306,15 @@ class TestActiveFeatures:
         assert ld.active_features() == []
 
     def test_finds_features_with_at_least_one_package_installed(self, monkeypatch):
-        # Pretend only honcho-ai is installed; nothing else.
+        # Pretend only elevenlabs is installed; nothing else.
         monkeypatch.setattr(
             ld, "_is_present",
-            lambda spec: ld._pkg_name_from_spec(spec) == "honcho-ai",
+            lambda spec: ld._pkg_name_from_spec(spec) == "elevenlabs",
         )
         active = ld.active_features()
-        assert "memory.honcho" in active
+        assert "tts.elevenlabs" in active
         # Backends the user never enabled stay quiet.
-        assert "memory.hindsight" not in active
+        assert "tts.edge" not in active
         assert "platform.slack" not in active
 
     def test_multi_package_feature_active_if_any_present(self, monkeypatch):

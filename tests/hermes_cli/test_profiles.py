@@ -5,7 +5,6 @@ management, export/import, renaming, alias collision checks, profile isolation,
 and shell completion generation.
 """
 
-import json
 import io
 import os
 import tarfile
@@ -622,69 +621,6 @@ class TestRenameProfile:
         assert not old_dir.is_dir()
         assert new_dir.is_dir()
         assert new_dir == tmp_path / ".jarviscopilot" / "profiles" / "newname"
-
-    def test_renames_root_honcho_host_without_changing_ai_peer(self, profile_env):
-        tmp_path = profile_env
-        create_profile("ssi_health", no_alias=True)
-        honcho_path = tmp_path / ".jarviscopilot" / "honcho.json"
-        honcho_path.write_text(json.dumps({
-            "hosts": {
-                "jarviscopilot.ssi_health": {
-                    "recallMode": "hybrid",
-                    "writeFrequency": "async",
-                    "sessionStrategy": "per-session",
-                    "saveMessages": True,
-                    "peerName": "user-peer",
-                    "aiPeer": "ssi_health",
-                    "workspace": "jarviscopilot",
-                    "enabled": True,
-                }
-            }
-        }))
-
-        with patch("jarviscopilot_cli.profiles.check_alias_collision", return_value="skip"):
-            rename_profile("ssi_health", "heimdall")
-
-        cfg = json.loads(honcho_path.read_text())
-        assert "jarviscopilot.ssi_health" not in cfg["hosts"]
-        assert cfg["hosts"]["jarviscopilot.heimdall"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["jarviscopilot.heimdall"]["peerName"] == "user-peer"
-
-    def test_pins_ai_peer_when_absent_on_honcho_host_rename(self, profile_env):
-        tmp_path = profile_env
-        create_profile("ssi_health", no_alias=True)
-        honcho_path = tmp_path / ".jarviscopilot" / "honcho.json"
-        honcho_path.write_text(json.dumps({
-            "hosts": {
-                "jarviscopilot.ssi_health": {"workspace": "jarviscopilot", "enabled": True}
-            }
-        }))
-
-        with patch("jarviscopilot_cli.profiles.check_alias_collision", return_value="skip"):
-            rename_profile("ssi_health", "heimdall")
-
-        cfg = json.loads(honcho_path.read_text())
-        assert "jarviscopilot.ssi_health" not in cfg["hosts"]
-        assert cfg["hosts"]["jarviscopilot.heimdall"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["jarviscopilot.heimdall"]["workspace"] == "jarviscopilot"
-
-    def test_does_not_overwrite_existing_honcho_host_on_rename(self, profile_env):
-        tmp_path = profile_env
-        create_profile("ssi_health", no_alias=True)
-        honcho_path = tmp_path / ".jarviscopilot" / "honcho.json"
-        honcho_path.write_text(json.dumps({
-            "hosts": {
-                "jarviscopilot.ssi_health": {"aiPeer": "ssi_health"},
-                "jarviscopilot.heimdall": {"aiPeer": "heimdall"},
-            }
-        }))
-
-        with patch("jarviscopilot_cli.profiles.check_alias_collision", return_value="skip"):
-            rename_profile("ssi_health", "heimdall")
-
-        cfg = json.loads(honcho_path.read_text())
-        assert cfg["hosts"]["jarviscopilot.ssi_health"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["jarviscopilot.heimdall"]["aiPeer"] == "heimdall"
 
     def test_default_raises_value_error(self, profile_env):
         with pytest.raises(ValueError, match="default"):
