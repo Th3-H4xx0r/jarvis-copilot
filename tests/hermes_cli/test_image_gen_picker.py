@@ -138,14 +138,14 @@ class TestPluginCatalog:
 
         image_gen_registry.register_provider(_FakeProvider("catimg"))
 
-        catalog, default = tools_config._plugin_image_gen_catalog("catimg")
+        catalog, default = tools_config._plugin_gen_catalog("image_gen", "catimg")
         assert "catimg-model-v1" in catalog
         assert default == "catimg-model-v1"
 
     def test_plugin_catalog_empty_for_unknown(self):
         from jarviscopilot_cli import tools_config
 
-        catalog, default = tools_config._plugin_image_gen_catalog("does-not-exist")
+        catalog, default = tools_config._plugin_gen_catalog("image_gen", "does-not-exist")
         assert catalog == {}
         assert default is None
 

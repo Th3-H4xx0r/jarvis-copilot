@@ -2106,95 +2106,21 @@ def _configure_imagegen_model(backend_name: str, config: dict) -> None:
     if not catalog:
         return
 
-    cfg_key = backend["config_key"]
-    cur_cfg = config.setdefault(cfg_key, {})
+    _pick_catalog_model(backend["config_key"], catalog, default_model, backend["display"], config)
+
+
+def _pick_catalog_model(
+    section_key: str, catalog: dict, default_model: str, label: str, config: dict,
+) -> None:
+    """Show a column-aligned model picker and write ``config[section_key]["model"]``.
+
+    ``catalog`` maps model id to ``{"speed", "strengths", "price", ...}``.
+    The current model is listed first so the cursor lands on it.
+    """
+    cur_cfg = config.setdefault(section_key, {})
     if not isinstance(cur_cfg, dict):
         cur_cfg = {}
-        config[cfg_key] = cur_cfg
-    current_model = cur_cfg.get("model") or default_model
-    if current_model not in catalog:
-        current_model = default_model
-
-    model_ids = list(catalog.keys())
-    # Put current model at the top so the cursor lands on it by default.
-    ordered = [current_model] + [m for m in model_ids if m != current_model]
-
-    # Column widths
-    widths = {
-        "model": max(len(m) for m in model_ids),
-        "speed": max((len(catalog[m].get("speed", "")) for m in model_ids), default=6),
-        "strengths": max((len(catalog[m].get("strengths", "")) for m in model_ids), default=0),
-    }
-
-    print()
-    header = (
-        f"  {'Model':<{widths['model']}}  "
-        f"{'Speed':<{widths['speed']}}  "
-        f"{'Strengths':<{widths['strengths']}}  "
-        f"Price"
-    )
-    print(color(header, Colors.CYAN))
-
-    rows = []
-    for mid in ordered:
-        row = _format_imagegen_model_row(mid, catalog[mid], widths)
-        if mid == current_model:
-            row += "  ← currently in use"
-        rows.append(row)
-
-    idx = _prompt_choice(
-        f"  Choose {backend['display']} model:",
-        rows,
-        default=0,
-    )
-
-    chosen = ordered[idx]
-    cur_cfg["model"] = chosen
-    _print_success(f"  Model set to: {chosen}")
-
-
-def _plugin_image_gen_catalog(plugin_name: str):
-    """Return ``(catalog_dict, default_model_id)`` for a plugin provider.
-
-    ``catalog_dict`` is shaped like the legacy ``FAL_MODELS`` table —
-    ``{model_id: {"display", "speed", "strengths", "price", ...}}`` —
-    so the existing picker code paths work without change. Returns
-    ``({}, None)`` if the provider isn't registered or has no models.
-    """
-    try:
-        from agent.image_gen_registry import get_provider
-        from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-        _ensure_plugins_discovered()
-        provider = get_provider(plugin_name)
-    except Exception:
-        return {}, None
-    if provider is None:
-        return {}, None
-    try:
-        models = provider.list_models() or []
-        default = provider.default_model()
-    except Exception:
-        return {}, None
-    catalog = {m["id"]: m for m in models if isinstance(m, dict) and "id" in m}
-    return catalog, default
-
-
-def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None:
-    """Prompt the user to pick a model for a plugin-registered backend.
-
-    Writes selection to ``image_gen.model``. Mirrors
-    :func:`_configure_imagegen_model` but sources its catalog from the
-    plugin registry instead of :data:`IMAGEGEN_BACKENDS`.
-    """
-    catalog, default_model = _plugin_image_gen_catalog(plugin_name)
-    if not catalog:
-        return
-
-    cur_cfg = config.setdefault("image_gen", {})
-    if not isinstance(cur_cfg, dict):
-        cur_cfg = {}
-        config["image_gen"] = cur_cfg
+        config[section_key] = cur_cfg
     current_model = cur_cfg.get("model") or default_model
     if current_model not in catalog:
         current_model = default_model
@@ -2224,44 +2150,26 @@ def _configure_imagegen_model_for_plugin(plugin_name: str, config: dict) -> None
             row += "  ← currently in use"
         rows.append(row)
 
-    idx = _prompt_choice(
-        f"  Choose {plugin_name} model:",
-        rows,
-        default=0,
-    )
-
+    idx = _prompt_choice(f"  Choose {label} model:", rows, default=0)
     chosen = ordered[idx]
     cur_cfg["model"] = chosen
     _print_success(f"  Model set to: {chosen}")
 
 
-def _select_plugin_image_gen_provider(plugin_name: str, config: dict) -> None:
-    """Persist a plugin-backed image generation provider selection."""
-    img_cfg = config.setdefault("image_gen", {})
-    if not isinstance(img_cfg, dict):
-        img_cfg = {}
-        config["image_gen"] = img_cfg
-    img_cfg["provider"] = plugin_name
-    img_cfg["use_gateway"] = False
-    _print_success(f"  image_gen.provider set to: {plugin_name}")
-    _configure_imagegen_model_for_plugin(plugin_name, config)
+def _plugin_gen_catalog(kind: str, plugin_name: str):
+    """Return ``(catalog_dict, default_model_id)`` for an image/video gen plugin.
 
-
-# ─── Video Generation Model Pickers ───────────────────────────────────────────
-
-
-def _plugin_video_gen_catalog(plugin_name: str):
-    """Return ``(catalog_dict, default_model_id)`` for a video gen plugin.
-
-    Mirrors :func:`_plugin_image_gen_catalog`. Returns ``({}, None)`` when
-    the plugin isn't registered or has no models.
+    ``kind`` is ``"image_gen"`` or ``"video_gen"`` (the registry is
+    ``agent.<kind>_registry``). The catalog is ``{model_id: model_dict}``
+    in the shape :func:`_pick_catalog_model` expects. Returns ``({}, None)``
+    if the provider isn't registered or has no models.
     """
     try:
-        from agent.video_gen_registry import get_provider
+        import importlib
         from jarviscopilot_cli.plugins import _ensure_plugins_discovered
 
         _ensure_plugins_discovered()
-        provider = get_provider(plugin_name)
+        provider = importlib.import_module(f"agent.{kind}_registry").get_provider(plugin_name)
     except Exception:
         return {}, None
     if provider is None:
@@ -2275,76 +2183,18 @@ def _plugin_video_gen_catalog(plugin_name: str):
     return catalog, default
 
 
-def _configure_videogen_model_for_plugin(plugin_name: str, config: dict) -> None:
-    """Prompt for a video gen model from a plugin's catalog.
-
-    Mirrors :func:`_configure_imagegen_model_for_plugin`. Writes the
-    selection to ``video_gen.model``.
-    """
-    catalog, default_model = _plugin_video_gen_catalog(plugin_name)
-    if not catalog:
-        return
-
-    cur_cfg = config.setdefault("video_gen", {})
-    if not isinstance(cur_cfg, dict):
-        cur_cfg = {}
-        config["video_gen"] = cur_cfg
-    current_model = cur_cfg.get("model") or default_model
-    if current_model not in catalog:
-        current_model = default_model
-
-    model_ids = list(catalog.keys())
-    ordered = [current_model] + [m for m in model_ids if m != current_model]
-
-    widths = {
-        "model": max(len(m) for m in model_ids),
-        "speed": max((len(catalog[m].get("speed", "")) for m in model_ids), default=6),
-        "strengths": max((len(catalog[m].get("strengths", "")) for m in model_ids), default=0),
-    }
-
-    print()
-    header = (
-        f"  {'Model':<{widths['model']}}  "
-        f"{'Speed':<{widths['speed']}}  "
-        f"{'Strengths':<{widths['strengths']}}  "
-        f"Price"
-    )
-    print(color(header, Colors.CYAN))
-
-    rows = []
-    for mid in ordered:
-        meta = catalog[mid]
-        row = (
-            f"  {mid:<{widths['model']}}  "
-            f"{meta.get('speed', ''):<{widths['speed']}}  "
-            f"{meta.get('strengths', ''):<{widths['strengths']}}  "
-            f"{meta.get('price', '')}"
-        )
-        if mid == current_model:
-            row += "  ← currently in use"
-        rows.append(row)
-
-    idx = _prompt_choice(
-        f"  Choose {plugin_name} model:",
-        rows,
-        default=0,
-    )
-
-    chosen = ordered[idx]
-    cur_cfg["model"] = chosen
-    _print_success(f"  Model set to: {chosen}")
-
-
-def _select_plugin_video_gen_provider(plugin_name: str, config: dict) -> None:
-    """Persist a plugin-backed video generation provider selection."""
-    vid_cfg = config.setdefault("video_gen", {})
-    if not isinstance(vid_cfg, dict):
-        vid_cfg = {}
-        config["video_gen"] = vid_cfg
-    vid_cfg["provider"] = plugin_name
-    vid_cfg["use_gateway"] = False
-    _print_success(f"  video_gen.provider set to: {plugin_name}")
-    _configure_videogen_model_for_plugin(plugin_name, config)
+def _select_plugin_gen_provider(kind: str, plugin_name: str, config: dict) -> None:
+    """Persist a plugin-backed image/video gen provider, then pick its model."""
+    section = config.setdefault(kind, {})
+    if not isinstance(section, dict):
+        section = {}
+        config[kind] = section
+    section["provider"] = plugin_name
+    section["use_gateway"] = False
+    _print_success(f"  {kind}.provider set to: {plugin_name}")
+    catalog, default_model = _plugin_gen_catalog(kind, plugin_name)
+    if catalog:
+        _pick_catalog_model(kind, catalog, default_model, plugin_name, config)
 
 
 def _configure_provider(provider: dict, config: dict, *, reconfigure: bool = False):
@@ -2480,14 +2330,11 @@ def _select_provider_model(provider: dict, config: dict) -> None:
     in-tree FAL backend (the managed Nous row) pins ``image_gen.provider``
     to ``fal`` so the dispatch shim takes the FAL path.
     """
-    plugin_name = provider.get("image_gen_plugin_name")
-    if plugin_name:
-        _select_plugin_image_gen_provider(plugin_name, config)
-        return
-    video_plugin = provider.get("video_gen_plugin_name")
-    if video_plugin:
-        _select_plugin_video_gen_provider(video_plugin, config)
-        return
+    for kind in ("image_gen", "video_gen"):
+        plugin_name = provider.get(f"{kind}_plugin_name")
+        if plugin_name:
+            _select_plugin_gen_provider(kind, plugin_name, config)
+            return
     backend = provider.get("imagegen_backend")
     if backend:
         _configure_imagegen_model(backend, config)
