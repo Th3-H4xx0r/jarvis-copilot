@@ -731,39 +731,11 @@ def init_agent(
             if agent.provider == "copilot-acp":
                 client_kwargs["command"] = agent.acp_command
                 client_kwargs["args"] = agent.acp_args
-            effective_base = base_url
-            if base_url_host_matches(effective_base, "openrouter.ai"):
-                from agent.auxiliary_client import build_or_headers
-                client_kwargs["default_headers"] = build_or_headers()
-            elif base_url_host_matches(effective_base, "integrate.api.nvidia.com"):
-                from agent.auxiliary_client import build_nvidia_nim_headers
-                client_kwargs["default_headers"] = build_nvidia_nim_headers(effective_base)
-            elif base_url_host_matches(effective_base, "api.routermint.com"):
-                client_kwargs["default_headers"] = _ra()._routermint_headers()
-            elif base_url_host_matches(effective_base, "api.githubcopilot.com"):
-                from jarviscopilot_cli.models import copilot_default_headers
+            from agent.provider_headers import default_headers_for
 
-                client_kwargs["default_headers"] = copilot_default_headers()
-            elif base_url_host_matches(effective_base, "api.kimi.com"):
-                client_kwargs["default_headers"] = {
-                    "User-Agent": "claude-code/0.1.0",
-                }
-            elif base_url_host_matches(effective_base, "portal.qwen.ai"):
-                client_kwargs["default_headers"] = _ra()._qwen_portal_headers()
-            elif base_url_host_matches(effective_base, "chatgpt.com"):
-                from agent.auxiliary_client import _codex_cloudflare_headers
-                client_kwargs["default_headers"] = _codex_cloudflare_headers(api_key)
-            elif "default_headers" not in client_kwargs:
-                # Fall back to profile.default_headers for providers that
-                # declare custom headers (e.g. Vercel AI Gateway attribution,
-                # Kimi User-Agent on non-kimi.com endpoints).
-                try:
-                    from providers import get_provider_profile as _gpf
-                    _ph = _gpf(agent.provider)
-                    if _ph and _ph.default_headers:
-                        client_kwargs["default_headers"] = dict(_ph.default_headers)
-                except Exception:
-                    pass
+            _headers = default_headers_for(base_url, agent.provider, api_key)
+            if _headers:
+                client_kwargs["default_headers"] = _headers
         else:
             # No explicit creds — use the centralized provider router
             from agent.auxiliary_client import resolve_provider_client
