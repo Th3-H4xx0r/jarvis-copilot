@@ -568,7 +568,7 @@ class DoorService:
         self.approvals.take(approval_id)
 
     def set_value(self, code: str, value: Any) -> dict:
-        cfg = self._require()
+        self._require()
         dp = self.hub.by_code.get(code)
         if dp is None:
             raise ValueError(f"The hub has no setting '{code}'.")

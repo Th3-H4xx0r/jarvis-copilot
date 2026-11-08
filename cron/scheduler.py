@@ -297,7 +297,7 @@ def _plan_job_harness(job: dict, prompt: str, *, harness_id: str, default_model:
     plan = plan_turn(doc, session_model=default_model, session_provider=default_provider,
                      text=prompt, surface="schedule", has_attachments=False)
     if follows_default:
-        node_model, node_provider = _split_job_model(plan.model, plan.provider)
+        _, node_provider = _split_job_model(plan.model, plan.provider)
         if node_provider and node_provider != default_provider:
             try:
                 from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
@@ -466,7 +466,6 @@ def _iter_home_target_platforms():
 
 def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[dict]:
     """Resolve one concrete auto-delivery target for a cron job."""
-
     origin = _resolve_origin(job)
 
     if deliver_value == "local":
@@ -1470,7 +1469,6 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     if prompt is None:
         logger.info("Job '%s': script produced no output, skipping AI call.", job_name)
         return True, "", SILENT_MARKER, None
-    origin = _resolve_origin(job)
     _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info("Running job '%s' (ID: %s)", job_name, job_id)
