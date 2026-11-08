@@ -7759,6 +7759,26 @@ def _cmd_update_pip(args):
     print("✓ Update complete! Restart jarviscopilot to use the new version.")
 
 
+def _systemctl_after_reset(scope_cmd: list, verb: str, svc_name: str) -> subprocess.CompletedProcess:
+    """``systemctl reset-failed`` then ``verb`` (start/restart) a unit.
+
+    Clearing the failed state first keeps a unit parked by systemd's own
+    auto-restart attempts from wedging against the RestartSec backoff.
+    """
+    subprocess.run(
+        scope_cmd + ["reset-failed", svc_name],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return subprocess.run(
+        scope_cmd + [verb, svc_name],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+
 def _cmd_update_impl(args, gateway_mode: bool):
     """Body of ``cmd_update`` — kept separate so the wrapper can always
     restore stdio even on ``sys.exit``."""
@@ -8458,18 +8478,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                                 # ``start`` is a no-op and we fall through to
                                 # the poll below. Either way we collapse the
                                 # 60s+ delay to a ~5s one.
-                                subprocess.run(
-                                    scope_cmd + ["reset-failed", svc_name],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=10,
-                                )
-                                subprocess.run(
-                                    scope_cmd + ["start", svc_name],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=15,
-                                )
+                                _systemctl_after_reset(scope_cmd, "start", svc_name)
                                 # Short poll: the gateway should be up within
                                 # a few seconds now that we bypassed
                                 # RestartSec. Fall back to the longer
@@ -8527,18 +8536,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                             # the restart idempotent.  Mirrors the recovery
                             # path in `jarviscopilot gateway restart`
                             # (`systemd_restart()`) as of PR #20949.
-                            subprocess.run(
-                                scope_cmd + ["reset-failed", svc_name],
-                                capture_output=True,
-                                text=True,
-                                timeout=10,
-                            )
-                            restart = subprocess.run(
-                                scope_cmd + ["restart", svc_name],
-                                capture_output=True,
-                                text=True,
-                                timeout=15,
-                            )
+                            restart = _systemctl_after_reset(scope_cmd, "restart", svc_name)
                             if restart.returncode == 0:
                                 # Verify the service actually survived the
                                 # restart.  systemctl restart returns 0 even
@@ -8559,18 +8557,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                                     print(
                                         f"  ⚠ {svc_name} died after restart, retrying..."
                                     )
-                                    subprocess.run(
-                                        scope_cmd + ["reset-failed", svc_name],
-                                        capture_output=True,
-                                        text=True,
-                                        timeout=10,
-                                    )
-                                    subprocess.run(
-                                        scope_cmd + ["restart", svc_name],
-                                        capture_output=True,
-                                        text=True,
-                                        timeout=15,
-                                    )
+                                    _systemctl_after_reset(scope_cmd, "restart", svc_name)
                                     if _wait_for_service_active(
                                         scope_cmd,
                                         svc_name,
