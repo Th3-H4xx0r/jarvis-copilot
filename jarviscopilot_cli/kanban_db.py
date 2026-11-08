@@ -2418,6 +2418,92 @@ def recompute_ready(conn: sqlite3.Connection) -> int:
 # Claim / complete / block
 # ---------------------------------------------------------------------------
 
+def _start_run(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    from_status: str,
+    lock: str,
+    expires: int,
+    now: int,
+    event_extra: Optional[dict] = None,
+) -> Optional[int]:
+    """CAS ``from_status -> running``, open a run and point the task at it.
+
+    Must run inside ``write_txn``.  Returns the new run id, or ``None`` when
+    the task is not in ``from_status`` or is already claimed.
+    """
+    # Defensive: if a prior run somehow leaked (invariant violation from an
+    # unknown code path), close it as 'reclaimed' so we don't strand it when
+    # the pointer moves below.  No-op when the invariant holds.
+    stale = conn.execute(
+        "SELECT current_run_id FROM tasks WHERE id = ? AND status = ?",
+        (task_id, from_status),
+    ).fetchone()
+    if stale and stale["current_run_id"]:
+        conn.execute(
+            """
+            UPDATE task_runs
+               SET status = 'reclaimed', outcome = 'reclaimed',
+                   summary = COALESCE(summary, 'invariant recovery on re-claim'),
+                   ended_at = ?,
+                   claim_lock = NULL, claim_expires = NULL, worker_pid = NULL
+             WHERE id = ? AND ended_at IS NULL
+            """,
+            (now, int(stale["current_run_id"])),
+        )
+    cur = conn.execute(
+        """
+        UPDATE tasks
+           SET status        = 'running',
+               claim_lock    = ?,
+               claim_expires = ?,
+               started_at    = COALESCE(started_at, ?)
+         WHERE id = ?
+           AND status = ?
+           AND claim_lock IS NULL
+        """,
+        (lock, expires, now, task_id, from_status),
+    )
+    if cur.rowcount != 1:
+        return None
+    # Populate the run with the task's assignee / step / runtime cap.
+    trow = conn.execute(
+        "SELECT assignee, max_runtime_seconds, current_step_key "
+        "FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    run_cur = conn.execute(
+        """
+        INSERT INTO task_runs (
+            task_id, profile, step_key, status,
+            claim_lock, claim_expires, max_runtime_seconds,
+            started_at
+        ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
+        """,
+        (
+            task_id,
+            trow["assignee"] if trow else None,
+            trow["current_step_key"] if trow else None,
+            lock,
+            expires,
+            trow["max_runtime_seconds"] if trow else None,
+            now,
+        ),
+    )
+    run_id = run_cur.lastrowid
+    conn.execute(
+        "UPDATE tasks SET current_run_id = ? WHERE id = ?",
+        (run_id, task_id),
+    )
+    _append_event(
+        conn, task_id, "claimed",
+        {"lock": lock, "expires": expires, "run_id": run_id, **(event_extra or {})},
+        run_id=run_id,
+    )
+    return run_id
+
+
 def claim_task(
     conn: sqlite3.Connection,
     task_id: str,
@@ -2459,76 +2545,9 @@ def claim_task(
                 {"reason": "parents_not_done"},
             )
             return None
-        # Defensive: if a prior run somehow leaked (invariant violation from
-        # an unknown code path), close it as 'reclaimed' so we don't strand
-        # it when the CAS resets the pointer below. No-op when the invariant
-        # holds (the common case).
-        stale = conn.execute(
-            "SELECT current_run_id FROM tasks WHERE id = ? AND status = 'ready'",
-            (task_id,),
-        ).fetchone()
-        if stale and stale["current_run_id"]:
-            conn.execute(
-                """
-                UPDATE task_runs
-                   SET status = 'reclaimed', outcome = 'reclaimed',
-                       summary = COALESCE(summary, 'invariant recovery on re-claim'),
-                       ended_at = ?,
-                       claim_lock = NULL, claim_expires = NULL, worker_pid = NULL
-                 WHERE id = ? AND ended_at IS NULL
-                """,
-                (now, int(stale["current_run_id"])),
-            )
-        cur = conn.execute(
-            """
-            UPDATE tasks
-               SET status        = 'running',
-                   claim_lock    = ?,
-                   claim_expires = ?,
-                   started_at    = COALESCE(started_at, ?)
-             WHERE id = ?
-               AND status = 'ready'
-               AND claim_lock IS NULL
-            """,
-            (lock, expires, now, task_id),
-        )
-        if cur.rowcount != 1:
+        if _start_run(conn, task_id, from_status="ready", lock=lock,
+                      expires=expires, now=now) is None:
             return None
-        # Look up the current task row so we can populate the run with
-        # its assignee / step / runtime cap.
-        trow = conn.execute(
-            "SELECT assignee, max_runtime_seconds, current_step_key "
-            "FROM tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-        run_cur = conn.execute(
-            """
-            INSERT INTO task_runs (
-                task_id, profile, step_key, status,
-                claim_lock, claim_expires, max_runtime_seconds,
-                started_at
-            ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
-            """,
-            (
-                task_id,
-                trow["assignee"] if trow else None,
-                trow["current_step_key"] if trow else None,
-                lock,
-                expires,
-                trow["max_runtime_seconds"] if trow else None,
-                now,
-            ),
-        )
-        run_id = run_cur.lastrowid
-        conn.execute(
-            "UPDATE tasks SET current_run_id = ? WHERE id = ?",
-            (run_id, task_id),
-        )
-        _append_event(
-            conn, task_id, "claimed",
-            {"lock": lock, "expires": expires, "run_id": run_id},
-            run_id=run_id,
-        )
         return get_task(conn, task_id)
 
 
@@ -2555,55 +2574,10 @@ def claim_review_task(
     lock = claimer or _claimer_id()
     expires = now + _resolve_claim_ttl_seconds(ttl_seconds)
     with write_txn(conn):
-        cur = conn.execute(
-            """
-            UPDATE tasks
-               SET status        = 'running',
-                   claim_lock    = ?,
-                   claim_expires = ?,
-                   started_at    = COALESCE(started_at, ?)
-             WHERE id = ?
-               AND status = 'review'
-               AND claim_lock IS NULL
-            """,
-            (lock, expires, now, task_id),
-        )
-        if cur.rowcount != 1:
+        if _start_run(conn, task_id, from_status="review", lock=lock,
+                      expires=expires, now=now,
+                      event_extra={"source_status": "review"}) is None:
             return None
-        trow = conn.execute(
-            "SELECT assignee, max_runtime_seconds, current_step_key "
-            "FROM tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-        run_cur = conn.execute(
-            """
-            INSERT INTO task_runs (
-                task_id, profile, step_key, status,
-                claim_lock, claim_expires, max_runtime_seconds,
-                started_at
-            ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
-            """,
-            (
-                task_id,
-                trow["assignee"] if trow else None,
-                trow["current_step_key"] if trow else None,
-                lock,
-                expires,
-                trow["max_runtime_seconds"] if trow else None,
-                now,
-            ),
-        )
-        run_id = run_cur.lastrowid
-        conn.execute(
-            "UPDATE tasks SET current_run_id = ? WHERE id = ?",
-            (run_id, task_id),
-        )
-        _append_event(
-            conn, task_id, "claimed",
-            {"lock": lock, "expires": expires, "run_id": run_id,
-             "source_status": "review"},
-            run_id=run_id,
-        )
         return get_task(conn, task_id)
 
 

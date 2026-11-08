@@ -2595,6 +2595,33 @@ def test_claim_review_task_fails_when_already_claimed(kanban_home):
     assert second is None
 
 
+def test_claim_review_task_closes_leaked_run(kanban_home):
+    """A review claim must close a run the task still points at, as
+    claim_task does for ready tasks; it used to leave it open forever."""
+    with kb.connect() as conn:
+        t = kb.create_task(conn, title="review me", assignee="alice")
+        kb.claim_task(conn, t)
+        leaked_run_id = kb.latest_run(conn, t).id
+        # Engineer the leak: move to review without ending the worker run.
+        conn.execute(
+            "UPDATE tasks SET status = 'review', claim_lock = NULL, "
+            "claim_expires = NULL WHERE id = ?",
+            (t,),
+        )
+        conn.commit()
+        assert kb.get_run(conn, leaked_run_id).ended_at is None
+
+        claimed = kb.claim_review_task(conn, t)
+        assert claimed is not None
+        leaked = kb.get_run(conn, leaked_run_id)
+        assert leaked.ended_at is not None
+        assert leaked.outcome == "reclaimed"
+        new_run = kb.latest_run(conn, t)
+        assert new_run.id != leaked_run_id
+        assert new_run.ended_at is None
+        assert claimed.current_run_id == new_run.id
+
+
 def test_dispatch_review_dry_run(kanban_home, all_assignees_spawnable):
     """dispatch_once dry-run sees review tasks and reports them as spawned."""
     with kb.connect() as conn:
