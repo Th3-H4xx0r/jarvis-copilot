@@ -25,27 +25,13 @@ Design:
 
 import json
 import logging
-import os
 import re
-import tempfile
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from jarviscopilot_constants import get_hermes_home
 from typing import Dict, Any, List, Optional
 
-from utils import atomic_replace
-
-# fcntl is Unix-only; on Windows use msvcrt for file locking
-msvcrt = None
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-    try:
-        import msvcrt
-    except ImportError:
-        pass
+from utils import atomic_text_write, exclusive_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +121,23 @@ def _drift_error(path: "Path", bak_path: str) -> Dict[str, Any]:
     }
 
 
+def _find_unique_entry(entries: List[str], old_text: str):
+    """Index of the one entry containing *old_text*, or an error dict.
+
+    Several matches are fine when they are exact duplicates: the first wins.
+    """
+    matches = [(i, e) for i, e in enumerate(entries) if old_text in e]
+    if not matches:
+        return {"success": False, "error": f"No entry matched '{old_text}'."}
+    if len({e for _, e in matches}) > 1:
+        return {
+            "success": False,
+            "error": f"Multiple entries matched '{old_text}'. Be more specific.",
+            "matches": [e[:80] + ("..." if len(e) > 80 else "") for _, e in matches],
+        }
+    return matches[0][0]
+
+
 class MemoryStore:
     """
     Bounded curated memory with file persistence. One instance per AIAgent.
@@ -210,41 +213,9 @@ class MemoryStore:
         return kept
 
     @staticmethod
-    @contextmanager
     def _file_lock(path: Path):
-        """Acquire an exclusive file lock for read-modify-write safety.
-
-        Uses a separate .lock file so the memory file itself can still be
-        atomically replaced via os.replace().
-        """
-        lock_path = path.with_suffix(path.suffix + ".lock")
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if fcntl is None and msvcrt is None:
-            yield
-            return
-
-        fd = open(lock_path, "a+", encoding="utf-8")
-        try:
-            if fcntl:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            else:
-                fd.seek(0)
-                msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
-            yield
-        finally:
-            if fcntl:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                except (OSError, IOError):
-                    pass
-            elif msvcrt:
-                try:
-                    fd.seek(0)
-                    msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
-                except (OSError, IOError):
-                    pass
-            fd.close()
+        """Exclusive lock for a read-modify-write of the memory file *path*."""
+        return exclusive_file_lock(path.with_suffix(path.suffix + ".lock"))
 
     @staticmethod
     def _path_for(target: str) -> Path:
@@ -372,24 +343,9 @@ class MemoryStore:
                 return _drift_error(self._path_for(target), bak)
 
             entries = self._entries_for(target)
-            matches = [(i, e) for i, e in enumerate(entries) if old_text in e]
-
-            if not matches:
-                return {"success": False, "error": f"No entry matched '{old_text}'."}
-
-            if len(matches) > 1:
-                # If all matches are identical (exact duplicates), operate on the first one
-                unique_texts = {e for _, e in matches}
-                if len(unique_texts) > 1:
-                    previews = [e[:80] + ("..." if len(e) > 80 else "") for _, e in matches]
-                    return {
-                        "success": False,
-                        "error": f"Multiple entries matched '{old_text}'. Be more specific.",
-                        "matches": previews,
-                    }
-                # All identical -- safe to replace just the first
-
-            idx = matches[0][0]
+            idx = _find_unique_entry(entries, old_text)
+            if isinstance(idx, dict):
+                return idx
             limit = self._char_limit(target)
 
             # Check that replacement doesn't blow the budget
@@ -424,24 +380,9 @@ class MemoryStore:
                 return _drift_error(self._path_for(target), bak)
 
             entries = self._entries_for(target)
-            matches = [(i, e) for i, e in enumerate(entries) if old_text in e]
-
-            if not matches:
-                return {"success": False, "error": f"No entry matched '{old_text}'."}
-
-            if len(matches) > 1:
-                # If all matches are identical (exact duplicates), remove the first one
-                unique_texts = {e for _, e in matches}
-                if len(unique_texts) > 1:
-                    previews = [e[:80] + ("..." if len(e) > 80 else "") for _, e in matches]
-                    return {
-                        "success": False,
-                        "error": f"Multiple entries matched '{old_text}'. Be more specific.",
-                        "matches": previews,
-                    }
-                # All identical -- safe to remove just the first
-
-            idx = matches[0][0]
+            idx = _find_unique_entry(entries, old_text)
+            if isinstance(idx, dict):
+                return idx
             entries.pop(idx)
             self._set_entries(target, entries)
             self.save_to_disk(target)
@@ -604,23 +545,7 @@ class MemoryStore:
         """
         content = ENTRY_DELIMITER.join(entries) if entries else ""
         try:
-            # Write to temp file in same directory (same filesystem for atomic rename)
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(path.parent), suffix=".tmp", prefix=".mem_"
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-                atomic_replace(tmp_path, path)
-            except BaseException:
-                # Clean up temp file on any failure
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
+            atomic_text_write(path, content)
         except (OSError, IOError) as e:
             raise RuntimeError(f"Failed to write memory file {path}: {e}")
 

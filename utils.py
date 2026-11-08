@@ -5,6 +5,7 @@ import logging
 import os
 import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Union
 from urllib.parse import urlparse
@@ -12,6 +13,17 @@ from urllib.parse import urlparse
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# fcntl is Unix-only; on Windows use msvcrt for file locking.
+msvcrt = None
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - platform-specific fallback
+    fcntl = None
+    try:
+        import msvcrt
+    except ImportError:
+        pass
 
 
 TRUTHY_STRINGS = frozenset({"1", "true", "yes", "on"})
@@ -58,6 +70,44 @@ def _restore_file_mode(path: Path, mode: "int | None") -> None:
         pass
 
 
+@contextmanager
+def exclusive_file_lock(lock_path: Union[str, Path]):
+    """Hold an exclusive cross-process lock on *lock_path* for a
+    read-modify-write cycle.
+
+    Lock a sidecar ``.lock`` file rather than the data file itself so the
+    data file can still be atomically replaced via ``os.replace``.  Without
+    fcntl or msvcrt the lock is a no-op.
+    """
+    lock_path = Path(lock_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if fcntl is None and msvcrt is None:
+        yield
+        return
+
+    # msvcrt locks a byte range, so make sure there is a byte to lock.
+    if msvcrt and (not lock_path.exists() or lock_path.stat().st_size == 0):
+        lock_path.write_text(" ", encoding="utf-8")
+    fd = open(lock_path, "r+" if msvcrt else "a+", encoding="utf-8")
+    try:
+        if fcntl:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            fd.seek(0)
+            msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
+        yield
+    finally:
+        try:
+            if fcntl:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            else:
+                fd.seek(0)
+                msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        fd.close()
+
+
 def atomic_replace(tmp_path: Union[str, Path], target: Union[str, Path]) -> str:
     """Atomically move *tmp_path* onto *target*, preserving symlinks.
 
@@ -102,11 +152,29 @@ def atomic_json_write(
         **dump_kwargs: Additional keyword args forwarded to json.dump(), such
             as default=str for non-native types.
     """
+    _atomic_write(path, lambda f: json.dump(
+        data, f, indent=indent, ensure_ascii=False, **dump_kwargs,
+    ))
+
+
+def atomic_text_write(path: Union[str, Path], text: str) -> None:
+    """Write *text* to *path* atomically (UTF-8); see :func:`_atomic_write`."""
+    _atomic_write(path, lambda f: f.write(text))
+
+
+def _atomic_write(path: Union[str, Path], write) -> None:
+    """Call ``write(file)`` on a temp file beside *path*, then swap it in.
+
+    Temp file + fsync + ``os.replace`` means the target is never left
+    partially written: if the process dies mid-write, the previous version
+    survives.  Symlinks are preserved (the real file is replaced, GitHub
+    #16743) and the target's permission bits are kept.  The temp file is
+    removed on any failure, including BaseException (KeyboardInterrupt,
+    SystemExit), before the error is re-raised.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
     original_mode = _preserve_file_mode(path)
-
     fd, tmp_path = tempfile.mkstemp(
         dir=str(path.parent),
         prefix=f".{path.stem}_",
@@ -114,21 +182,12 @@ def atomic_json_write(
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(
-                data,
-                f,
-                indent=indent,
-                ensure_ascii=False,
-                **dump_kwargs,
-            )
+            write(f)
             f.flush()
             os.fsync(f.fileno())
-        # Preserve symlinks — swap in-place on the real file (GitHub #16743).
         real_path = atomic_replace(tmp_path, path)
         _restore_file_mode(real_path, original_mode)
     except BaseException:
-        # Intentionally catch BaseException so temp-file cleanup still runs for
-        # KeyboardInterrupt/SystemExit before re-raising the original signal.
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -158,34 +217,12 @@ def atomic_yaml_write(
         extra_content: Optional string to append after the YAML dump
             (e.g. commented-out sections for user reference).
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    def _write(f):
+        yaml.dump(data, f, default_flow_style=default_flow_style, sort_keys=sort_keys)
+        if extra_content:
+            f.write(extra_content)
 
-    original_mode = _preserve_file_mode(path)
-
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.stem}_",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(data, f, default_flow_style=default_flow_style, sort_keys=sort_keys)
-            if extra_content:
-                f.write(extra_content)
-            f.flush()
-            os.fsync(f.fileno())
-        # Preserve symlinks — swap in-place on the real file (GitHub #16743).
-        real_path = atomic_replace(tmp_path, path)
-        _restore_file_mode(real_path, original_mode)
-    except BaseException:
-        # Match atomic_json_write: cleanup must also happen for process-level
-        # interruptions before we re-raise them.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _atomic_write(path, _write)
 
 
 def atomic_roundtrip_yaml_update(
@@ -231,25 +268,7 @@ def atomic_roundtrip_yaml_update(
         current = next_value
     current[keys[-1]] = value
 
-    original_mode = _preserve_file_mode(path)
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.stem}_",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml_rt.dump(config, f)
-            f.flush()
-            os.fsync(f.fileno())
-        real_path = atomic_replace(tmp_path, path)
-        _restore_file_mode(real_path, original_mode)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _atomic_write(path, lambda f: yaml_rt.dump(config, f))
 
 
 # ─── JSON Helpers ─────────────────────────────────────────────────────────────

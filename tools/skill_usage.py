@@ -26,29 +26,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from jarviscopilot_constants import get_hermes_home
 from agent.skill_utils import is_excluded_skill_path
+from utils import atomic_json_write, exclusive_file_lock
 
 logger = logging.getLogger(__name__)
-
-# fcntl is Unix-only; on Windows use msvcrt for file locking.
-msvcrt = None
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - platform-specific fallback
-    fcntl = None
-    try:
-        import msvcrt
-    except ImportError:
-        pass
-
 
 STATE_ACTIVE = "active"
 STATE_STALE = "stale"
@@ -64,40 +50,9 @@ def _usage_file() -> Path:
     return _skills_dir() / ".usage.json"
 
 
-@contextmanager
 def _usage_file_lock():
     """Serialize .usage.json read-modify-write cycles across processes."""
-    lock_path = _usage_file().with_suffix(".json.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if fcntl is None and msvcrt is None:
-        yield
-        return
-
-    if msvcrt and (not lock_path.exists() or lock_path.stat().st_size == 0):
-        lock_path.write_text(" ", encoding="utf-8")
-
-    fd = open(lock_path, "r+" if msvcrt else "a+", encoding="utf-8")
-    try:
-        if fcntl:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        else:
-            fd.seek(0)
-            msvcrt.locking(fd.fileno(), msvcrt.LK_LOCK, 1)
-        yield
-    finally:
-        if fcntl:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            except (OSError, IOError):
-                pass
-        elif msvcrt:
-            try:
-                fd.seek(0)
-                msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
-            except (OSError, IOError):
-                pass
-        fd.close()
+    return exclusive_file_lock(_usage_file().with_suffix(".json.lock"))
 
 
 def _archive_dir() -> Path:
@@ -240,10 +195,6 @@ def list_agent_created_skill_names() -> List[str]:
         # Skip JarvisCopilot metadata, VCS, virtualenv/dependency, and cache dirs
         if is_excluded_skill_path(skill_md):
             continue
-        try:
-            rel = skill_md.relative_to(base)
-        except ValueError:
-            continue
         name = _read_skill_name(skill_md, fallback=skill_md.parent.name)
         if name in off_limits:
             continue
@@ -344,22 +295,7 @@ def save_usage(data: Dict[str, Dict[str, Any]]) -> None:
     """Write the usage map atomically. Best-effort — errors are logged, not raised."""
     path = _usage_file()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(path.parent), prefix=".usage_", suffix=".tmp"
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, sort_keys=True, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        atomic_json_write(path, data, sort_keys=True)
     except Exception as e:
         logger.debug("Failed to write %s: %s", path, e, exc_info=True)
 
@@ -506,7 +442,7 @@ def archive_skill(skill_name: str) -> Tuple[bool, str]:
 
     try:
         skill_dir.rename(dest)
-    except OSError as e:
+    except OSError:
         # Cross-device — fall back to shutil.move
         import shutil
         try:

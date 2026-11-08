@@ -75,7 +75,7 @@ def test_save_is_atomic_no_partial_tmp_files(skills_home):
     skills_dir = _usage_file().parent
     # No leftover tempfile
     for p in skills_dir.iterdir():
-        assert not p.name.startswith(".usage_"), f"leftover tmp: {p.name}"
+        assert not p.name.endswith(".tmp"), f"leftover tmp: {p.name}"
 
 
 def test_get_record_missing_returns_empty_record(skills_home):

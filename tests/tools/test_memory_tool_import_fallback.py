@@ -16,6 +16,8 @@ def test_memory_tool_imports_without_fcntl(monkeypatch, tmp_path):
         return original_import(name, globals, locals, fromlist, level)
 
     registry.deregister("memory")
+    # The file lock lives in utils; re-import both so neither sees fcntl.
+    monkeypatch.delitem(sys.modules, "utils", raising=False)
     monkeypatch.delitem(sys.modules, "tools.memory_tool", raising=False)
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
@@ -26,6 +28,6 @@ def test_memory_tool_imports_without_fcntl(monkeypatch, tmp_path):
     store.load_from_disk()
     result = store.add("memory", "fact learned during import fallback test")
 
-    assert memory_tool.fcntl is None
+    assert sys.modules["utils"].fcntl is None
     assert registry.get_entry("memory") is not None
     assert result["success"] is True

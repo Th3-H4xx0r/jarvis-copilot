@@ -23,13 +23,12 @@ The manifest lives at ~/.jarviscopilot/skills/.bundled_manifest.
 
 import hashlib
 import logging
-import os
 import shutil
 from pathlib import Path
 from jarviscopilot_constants import get_bundled_skills_dir, get_hermes_home
 from agent.skill_utils import is_excluded_skill_path
 from typing import Dict, List, Tuple
-from utils import atomic_replace
+from utils import atomic_text_write
 
 logger = logging.getLogger(__name__)
 
@@ -82,29 +81,9 @@ def _write_manifest(entries: Dict[str, str]):
     Uses a temp file + os.replace() to avoid corruption if the process
     crashes or is interrupted mid-write.
     """
-    import tempfile
-
-    MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = "\n".join(f"{name}:{hash_val}" for name, hash_val in sorted(entries.items())) + "\n"
-
     try:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(MANIFEST_FILE.parent),
-            prefix=".bundled_manifest_",
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            atomic_replace(tmp_path, MANIFEST_FILE)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        atomic_text_write(MANIFEST_FILE, data)
     except Exception as e:
         logger.debug("Failed to write skills manifest %s: %s", MANIFEST_FILE, e, exc_info=True)
 

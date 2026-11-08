@@ -34,15 +34,13 @@ Directory layout for user skills:
 
 import json
 import logging
-import os
 import re
 import shutil
-import tempfile
 from pathlib import Path
 from jarviscopilot_constants import get_hermes_home, display_hermes_home
 from typing import Dict, Any, List, Optional, Tuple
 
-from utils import atomic_replace, is_truthy_value
+from utils import atomic_text_write, is_truthy_value
 from jarviscopilot_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
@@ -449,38 +447,6 @@ def _resolve_skill_target(skill_dir: Path, file_path: str) -> Tuple[Optional[Pat
     return target, None
 
 
-def _atomic_write_text(file_path: Path, content: str, encoding: str = "utf-8") -> None:
-    """
-    Atomically write text content to a file.
-    
-    Uses a temporary file in the same directory and os.replace() to ensure
-    the target file is never left in a partially-written state if the process
-    crashes or is interrupted.
-    
-    Args:
-        file_path: Target file path
-        content: Content to write
-        encoding: Text encoding (default: utf-8)
-    """
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_path = tempfile.mkstemp(
-        dir=str(file_path.parent),
-        prefix=f".{file_path.name}.tmp.",
-        suffix="",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding=encoding) as f:
-            f.write(content)
-        atomic_replace(temp_path, file_path)
-    except Exception:
-        # Clean up temp file on error
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            logger.error("Failed to remove temporary file %s during atomic write", temp_path, exc_info=True)
-        raise
-
-
 # =============================================================================
 # Core actions
 # =============================================================================
@@ -519,7 +485,7 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
 
     # Write SKILL.md atomically
     skill_md = skill_dir / "SKILL.md"
-    _atomic_write_text(skill_md, content)
+    atomic_text_write(skill_md, content)
 
     # Security scan — roll back on block
     scan_error = _security_scan_skill(skill_dir)
@@ -559,13 +525,13 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
     skill_md = existing["path"] / "SKILL.md"
     # Back up original content for rollback
     original_content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else None
-    _atomic_write_text(skill_md, content)
+    atomic_text_write(skill_md, content)
 
     # Security scan — roll back on block
     scan_error = _security_scan_skill(existing["path"])
     if scan_error:
         if original_content is not None:
-            _atomic_write_text(skill_md, original_content)
+            atomic_text_write(skill_md, original_content)
         return {"success": False, "error": scan_error}
 
     return {
@@ -655,12 +621,12 @@ def _patch_skill(
             }
 
     original_content = content  # for rollback
-    _atomic_write_text(target, new_content)
+    atomic_text_write(target, new_content)
 
     # Security scan — roll back on block
     scan_error = _security_scan_skill(skill_dir)
     if scan_error:
-        _atomic_write_text(target, original_content)
+        atomic_text_write(target, original_content)
         return {"success": False, "error": scan_error}
 
     return {
@@ -760,13 +726,13 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
     target.parent.mkdir(parents=True, exist_ok=True)
     # Back up for rollback
     original_content = target.read_text(encoding="utf-8") if target.exists() else None
-    _atomic_write_text(target, file_content)
+    atomic_text_write(target, file_content)
 
     # Security scan — roll back on block
     scan_error = _security_scan_skill(existing["path"])
     if scan_error:
         if original_content is not None:
-            _atomic_write_text(target, original_content)
+            atomic_text_write(target, original_content)
         else:
             target.unlink(missing_ok=True)
         return {"success": False, "error": scan_error}
