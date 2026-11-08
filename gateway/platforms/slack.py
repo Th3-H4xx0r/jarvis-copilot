@@ -2908,12 +2908,7 @@ class SlackAdapter(BasePlatformAdapter):
         message. Disables all auto-triggers (mentioned-thread memory,
         bot-message follow-up, session-presence). Defaults to False.
         """
-        configured = self.config.extra.get("strict_mention")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("SLACK_STRICT_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+        return self._config_flag("strict_mention", "SLACK_STRICT_MENTION", default=False)
 
     def _slack_free_response_channels(self) -> set:
         """Return channel IDs where no @mention is required."""

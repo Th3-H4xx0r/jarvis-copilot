@@ -20,7 +20,7 @@ import uuid
 from abc import ABC, abstractmethod
 from urllib.parse import urlsplit
 
-from utils import normalize_proxy_url
+from utils import is_truthy_value, normalize_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -1739,6 +1739,14 @@ class BasePlatformAdapter(ABC):
         (e.g. Telegram ``deleteMessage``).
         """
         return False
+
+    def _config_flag(self, key: str, env_var: str, default: bool = False) -> bool:
+        """A boolean setting: the platform's ``extra[key]`` when set, else the
+        ``env_var`` environment variable, else ``default``."""
+        value = (getattr(self.config, "extra", None) or {}).get(key)
+        if value is None:
+            value = os.getenv(env_var)
+        return is_truthy_value(value, default=default)
 
     def _get_ephemeral_system_ttl_default(self) -> int:
         """Read ``display.ephemeral_system_ttl`` from config.

@@ -298,12 +298,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
         return max(1024, self.MAX_MESSAGE_LENGTH - prefix_len)
 
     def _whatsapp_require_mention(self) -> bool:
-        configured = self.config.extra.get("require_mention")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("WHATSAPP_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+        return self._config_flag("require_mention", "WHATSAPP_REQUIRE_MENTION", default=False)
 
     def _whatsapp_free_response_chats(self) -> set[str]:
         raw = self.config.extra.get("free_response_chats")

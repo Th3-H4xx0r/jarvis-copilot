@@ -64,7 +64,7 @@ import sys
 from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
-from gateway.config import Platform, PlatformConfig
+from gateway.config import Platform, PlatformConfig, _coerce_bool
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -396,7 +396,7 @@ class TelegramAdapter(BasePlatformAdapter):
         self._webhook_mode: bool = False
         self._mention_patterns = self._compile_mention_patterns()
         self._reply_to_mode: str = getattr(config, 'reply_to_mode', 'first') or 'first'
-        self._disable_link_previews: bool = self._coerce_bool_extra("disable_link_previews", False)
+        self._disable_link_previews: bool = _coerce_bool((getattr(self.config, "extra", None) or {}).get("disable_link_previews"), default=False)
         # Buffer rapid/album photo updates so Telegram image bursts are handled
         # as a single MessageEvent instead of self-interrupting multiple turns.
         self._media_batch_delay_seconds = float(os.getenv("HERMES_TELEGRAM_MEDIA_BATCH_DELAY_SECONDS", "0.8"))
@@ -790,19 +790,6 @@ class TelegramAdapter(BasePlatformAdapter):
             if context is not None:
                 stack.append(context)
         return False
-
-    def _coerce_bool_extra(self, key: str, default: bool = False) -> bool:
-        value = self.config.extra.get(key) if getattr(self.config, "extra", None) else None
-        if value is None:
-            return default
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {"true", "1", "yes", "on"}:
-                return True
-            if lowered in {"false", "0", "no", "off"}:
-                return False
-            return default
-        return bool(value)
 
     def _link_preview_kwargs(self) -> Dict[str, Any]:
         if not getattr(self, "_disable_link_previews", False):
@@ -4138,12 +4125,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
     def _telegram_require_mention(self) -> bool:
         """Return whether group chats should require an explicit bot trigger."""
-        configured = self.config.extra.get("require_mention")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("TELEGRAM_REQUIRE_MENTION", "false").lower() in {"true", "1", "yes", "on"}
+        return self._config_flag("require_mention", "TELEGRAM_REQUIRE_MENTION", default=False)
 
     def _telegram_observe_unmentioned_group_messages(self) -> bool:
         """Return whether skipped unmentioned group messages are stored as context.
@@ -4153,32 +4135,18 @@ class TelegramAdapter(BasePlatformAdapter):
         transcript, but only dispatch the agent when the bot is explicitly
         addressed.
         """
-        configured = self.config.extra.get("observe_unmentioned_group_messages")
-        if configured is None:
-            configured = self.config.extra.get("ingest_unmentioned_group_messages")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("TELEGRAM_OBSERVE_UNMENTIONED_GROUP_MESSAGES", "false").lower() in {"true", "1", "yes", "on"}
+        key = "observe_unmentioned_group_messages"
+        if self.config.extra.get(key) is None:
+            key = "ingest_unmentioned_group_messages"  # older name
+        return self._config_flag(key, "TELEGRAM_OBSERVE_UNMENTIONED_GROUP_MESSAGES")
 
     def _telegram_guest_mode(self) -> bool:
         """Return whether non-allowlisted groups may trigger via direct @mention."""
-        configured = self.config.extra.get("guest_mode")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("TELEGRAM_GUEST_MODE", "false").lower() in {"true", "1", "yes", "on"}
+        return self._config_flag("guest_mode", "TELEGRAM_GUEST_MODE", default=False)
 
     def _telegram_exclusive_bot_mentions(self) -> bool:
         """Return whether explicit @...bot mentions exclusively route group messages."""
-        configured = self.config.extra.get("exclusive_bot_mentions")
-        if configured is not None:
-            if isinstance(configured, str):
-                return configured.lower() in {"true", "1", "yes", "on"}
-            return bool(configured)
-        return os.getenv("TELEGRAM_EXCLUSIVE_BOT_MENTIONS", "true").lower() in {"true", "1", "yes", "on"}
+        return self._config_flag("exclusive_bot_mentions", "TELEGRAM_EXCLUSIVE_BOT_MENTIONS", default=True)
 
     def _telegram_free_response_chats(self) -> set[str]:
         raw = self.config.extra.get("free_response_chats")
