@@ -518,12 +518,10 @@ def cmd_install(
             should_enable = False
 
     if should_enable:
-        enabled = _get_enabled_set()
-        disabled = _get_disabled_set()
+        enabled, disabled = _get_plugin_sets()
         enabled.add(installed_name)
         disabled.discard(installed_name)
-        _save_enabled_set(enabled)
-        _save_disabled_set(disabled)
+        _save_plugin_sets(enabled, disabled)
         console.print(
             f"[green]✓[/green] Plugin [bold]{installed_name}[/bold] enabled.",
         )
@@ -595,56 +593,36 @@ def cmd_remove(name: str) -> None:
     _display_removed(name, plugins_dir)
 
 
-def _get_disabled_set() -> set:
-    """Read the disabled plugins set from config.yaml.
+def _get_plugin_sets() -> tuple[set, set]:
+    """Return ``(enabled, disabled)`` plugin names from config.yaml.
 
-    An explicit deny-list. A plugin name here never loads, even if also
-    listed in ``plugins.enabled``.
+    Plugins are opt-in: only ``plugins.enabled`` names load. ``plugins.disabled``
+    is an explicit deny-list that wins over the allow-list. Missing or
+    malformed keys read as empty sets.
     """
     try:
         from jarviscopilot_cli.config import load_config
-        config = load_config()
-        disabled = cfg_get(config, "plugins", "disabled", default=[])
-        return set(disabled) if isinstance(disabled, list) else set()
+        plugins_cfg = load_config().get("plugins", {})
     except Exception:
-        return set()
+        return set(), set()
+    if not isinstance(plugins_cfg, dict):
+        return set(), set()
+
+    def _names(key: str) -> set:
+        value = plugins_cfg.get(key, [])
+        return set(value) if isinstance(value, list) else set()
+
+    return _names("enabled"), _names("disabled")
 
 
-def _save_disabled_set(disabled: set) -> None:
-    """Write the disabled plugins list to config.yaml."""
+def _save_plugin_sets(enabled: set, disabled: set) -> None:
+    """Write both plugin name lists to config.yaml in one save."""
     from jarviscopilot_cli.config import load_config, save_config
     config = load_config()
-    if "plugins" not in config:
-        config["plugins"] = {}
-    config["plugins"]["disabled"] = sorted(disabled)
-    save_config(config)
-
-
-def _get_enabled_set() -> set:
-    """Read the enabled plugins allow-list from config.yaml.
-
-    Plugins are opt-in: only names here are loaded. Returns ``set()`` if
-    the key is missing (same behaviour as "nothing enabled yet").
-    """
-    try:
-        from jarviscopilot_cli.config import load_config
-        config = load_config()
-        plugins_cfg = config.get("plugins", {})
-        if not isinstance(plugins_cfg, dict):
-            return set()
-        enabled = plugins_cfg.get("enabled", [])
-        return set(enabled) if isinstance(enabled, list) else set()
-    except Exception:
-        return set()
-
-
-def _save_enabled_set(enabled: set) -> None:
-    """Write the enabled plugins list to config.yaml."""
-    from jarviscopilot_cli.config import load_config, save_config
-    config = load_config()
-    if "plugins" not in config:
+    if not isinstance(config.get("plugins"), dict):
         config["plugins"] = {}
     config["plugins"]["enabled"] = sorted(enabled)
+    config["plugins"]["disabled"] = sorted(disabled)
     save_config(config)
 
 
@@ -658,8 +636,7 @@ def cmd_enable(name: str) -> None:
         console.print(f"[red]Plugin '{name}' is not installed or bundled.[/red]")
         sys.exit(1)
 
-    enabled = _get_enabled_set()
-    disabled = _get_disabled_set()
+    enabled, disabled = _get_plugin_sets()
 
     if name in enabled and name not in disabled:
         console.print(f"[dim]Plugin '{name}' is already enabled.[/dim]")
@@ -667,8 +644,7 @@ def cmd_enable(name: str) -> None:
 
     enabled.add(name)
     disabled.discard(name)
-    _save_enabled_set(enabled)
-    _save_disabled_set(disabled)
+    _save_plugin_sets(enabled, disabled)
     console.print(
         f"[green]✓[/green] Plugin [bold]{name}[/bold] enabled. "
         "Takes effect on next session."
@@ -684,8 +660,7 @@ def cmd_disable(name: str) -> None:
         console.print(f"[red]Plugin '{name}' is not installed or bundled.[/red]")
         sys.exit(1)
 
-    enabled = _get_enabled_set()
-    disabled = _get_disabled_set()
+    enabled, disabled = _get_plugin_sets()
 
     if name not in enabled and name in disabled:
         console.print(f"[dim]Plugin '{name}' is already disabled.[/dim]")
@@ -693,8 +668,7 @@ def cmd_disable(name: str) -> None:
 
     enabled.discard(name)
     disabled.add(name)
-    _save_enabled_set(enabled)
-    _save_disabled_set(disabled)
+    _save_plugin_sets(enabled, disabled)
     console.print(
         f"[yellow]\u2298[/yellow] Plugin [bold]{name}[/bold] disabled. "
         "Takes effect on next session."
@@ -822,8 +796,7 @@ def cmd_list() -> None:
         console.print("[dim]Install with:[/dim] jarviscopilot plugins install owner/repo")
         return
 
-    enabled = _get_enabled_set()
-    disabled = _get_disabled_set()
+    enabled, disabled = _get_plugin_sets()
 
     table = Table(title="Plugins", show_lines=False)
     table.add_column("Name", style="bold")
@@ -1001,8 +974,7 @@ def cmd_toggle() -> None:
 
     # -- General plugins discovery (bundled + user) --
     entries = _discover_all_plugins()
-    enabled_set = _get_enabled_set()
-    disabled_set = _get_disabled_set()
+    enabled_set, disabled_set = _get_plugin_sets()
 
     plugin_names = []
     plugin_labels = []
@@ -1063,8 +1035,7 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
 
     result_holder = {"plugins_changed": False, "providers_changed": False}
 
-    def _draw(stdscr):
-        curses.curs_set(0)
+    def _init_colors():
         if curses.has_colors():
             curses.start_color()
             curses.use_default_colors()
@@ -1072,6 +1043,29 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
             curses.init_pair(2, curses.COLOR_YELLOW, -1)
             curses.init_pair(3, curses.COLOR_CYAN, -1)
             curses.init_pair(4, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)  # dim gray
+
+    def _run_category(ci: int):
+        """Leave curses for a provider category's own picker, then re-enter."""
+        curses.endwin()
+        cat_name, _cat_cur, cat_fn = categories[ci]
+        if cat_fn():
+            result_holder["providers_changed"] = True
+            current = (
+                _get_current_memory_provider() or "built-in" if ci == 0
+                else _get_current_context_engine()
+            )
+            categories[ci] = (cat_name, current, cat_fn)
+        stdscr = curses.initscr()
+        curses.noecho()
+        curses.cbreak()
+        stdscr.keypad(True)
+        _init_colors()
+        curses.curs_set(0)
+        return stdscr
+
+    def _draw(stdscr):
+        curses.curs_set(0)
+        _init_colors()
         cursor = 0
         scroll_offset = 0
 
@@ -1193,31 +1187,7 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
                     # Provider category — launch sub-screen
                     ci = cursor - n_plugins
                     if 0 <= ci < n_categories:
-                        curses.endwin()
-                        _cat_name, _cat_cur, cat_fn = categories[ci]
-                        changed = cat_fn()
-                        if changed:
-                            result_holder["providers_changed"] = True
-                            # Refresh current values
-                            categories[ci] = (
-                                _cat_name,
-                                _get_current_memory_provider() or "built-in" if ci == 0
-                                else _get_current_context_engine(),
-                                cat_fn,
-                            )
-                        # Re-enter curses
-                        stdscr = curses.initscr()
-                        curses.noecho()
-                        curses.cbreak()
-                        stdscr.keypad(True)
-                        if curses.has_colors():
-                            curses.start_color()
-                            curses.use_default_colors()
-                            curses.init_pair(1, curses.COLOR_GREEN, -1)
-                            curses.init_pair(2, curses.COLOR_YELLOW, -1)
-                            curses.init_pair(3, curses.COLOR_CYAN, -1)
-                            curses.init_pair(4, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)
-                        curses.curs_set(0)
+                        stdscr = _run_category(ci)
             elif key in {curses.KEY_ENTER, 10, 13}:
                 if cursor < n_plugins:
                     # ENTER on a plugin checkbox — confirm and exit
@@ -1227,29 +1197,7 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
                     # ENTER on a category — same as SPACE, launch sub-screen
                     ci = cursor - n_plugins
                     if 0 <= ci < n_categories:
-                        curses.endwin()
-                        _cat_name, _cat_cur, cat_fn = categories[ci]
-                        changed = cat_fn()
-                        if changed:
-                            result_holder["providers_changed"] = True
-                            categories[ci] = (
-                                _cat_name,
-                                _get_current_memory_provider() or "built-in" if ci == 0
-                                else _get_current_context_engine(),
-                                cat_fn,
-                            )
-                        stdscr = curses.initscr()
-                        curses.noecho()
-                        curses.cbreak()
-                        stdscr.keypad(True)
-                        if curses.has_colors():
-                            curses.start_color()
-                            curses.use_default_colors()
-                            curses.init_pair(1, curses.COLOR_GREEN, -1)
-                            curses.init_pair(2, curses.COLOR_YELLOW, -1)
-                            curses.init_pair(3, curses.COLOR_CYAN, -1)
-                            curses.init_pair(4, 8 if curses.COLORS > 8 else curses.COLOR_WHITE, -1)
-                        curses.curs_set(0)
+                        stdscr = _run_category(ci)
             elif key in {27, ord("q")}:
                 # Save plugin changes on exit
                 result_holder["plugins_changed"] = True
@@ -1271,13 +1219,12 @@ def _run_composite_ui(curses, plugin_names, plugin_labels, plugin_selected,
         else:
             new_disabled.add(name)
 
-    prev_enabled = _get_enabled_set()
+    prev_enabled = _get_plugin_sets()[0]
     enabled_changed = new_enabled != prev_enabled
     disabled_changed = new_disabled != disabled
 
     if enabled_changed or disabled_changed:
-        _save_enabled_set(new_enabled)
-        _save_disabled_set(new_disabled)
+        _save_plugin_sets(new_enabled, new_disabled)
         console.print(
             f"\n[green]\u2713[/green] General plugins: {len(new_enabled)} enabled, "
             f"{len(plugin_names) - len(new_enabled)} disabled."
@@ -1335,10 +1282,9 @@ def _run_composite_fallback(plugin_names, plugin_labels, plugin_selected,
                 new_disabled.discard(name)
             else:
                 new_disabled.add(name)
-        prev_enabled = _get_enabled_set()
+        prev_enabled = _get_plugin_sets()[0]
         if new_enabled != prev_enabled or new_disabled != disabled:
-            _save_enabled_set(new_enabled)
-            _save_disabled_set(new_disabled)
+            _save_plugin_sets(new_enabled, new_disabled)
 
     # Provider categories
     if categories:
