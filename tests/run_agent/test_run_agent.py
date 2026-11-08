@@ -2254,6 +2254,18 @@ class TestConcurrentToolExecution:
             mock_todo.assert_called_once()
         assert "ok" in result
 
+    def test_invoke_tool_routes_context_engine_tools(self, agent):
+        """Context-engine tools go to the compressor, not the tool registry."""
+        agent._context_engine_tool_names = {"lcm_grep"}
+        agent.context_compressor = MagicMock()
+        agent.context_compressor.handle_tool_call.return_value = '{"hits": []}'
+        with patch("run_agent.handle_function_call", side_effect=AssertionError("registry")):
+            result = agent._invoke_tool("lcm_grep", {"q": "x"}, "task-1", messages=[])
+        assert result == '{"hits": []}'
+        agent.context_compressor.handle_tool_call.assert_called_once_with(
+            "lcm_grep", {"q": "x"}, messages=[],
+        )
+
     def test_invoke_tool_blocked_returns_error_and_skips_execution(self, agent, monkeypatch):
         """_invoke_tool should return error JSON when a plugin blocks the tool."""
         monkeypatch.setattr(

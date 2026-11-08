@@ -1621,6 +1621,9 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
         )
     elif function_name == "delegate_task":
         return agent._dispatch_delegate_task(function_args)
+    elif function_name in (getattr(agent, "_context_engine_tool_names", None) or ()):
+        # Context-engine tools (lcm_grep, ...) are not registry tools.
+        return agent.context_compressor.handle_tool_call(function_name, function_args, messages=messages)
     else:
         return _ra().handle_function_call(
             function_name, function_args, effective_task_id,
