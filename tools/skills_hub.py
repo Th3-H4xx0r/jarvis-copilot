@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from jarviscopilot_constants import get_hermes_home
-from agent.skill_utils import is_excluded_skill_path
+from agent.skill_utils import is_excluded_skill_path, skill_metadata
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -319,15 +319,8 @@ def _parse_frontmatter(content: str) -> dict:
 
 
 def _frontmatter_tags(fm: dict) -> List[str]:
-    """Tags from ``metadata.jarviscopilot.tags``, or the pre-rebrand
-    ``metadata.hermes.tags`` that some skills still carry."""
-    metadata = fm.get("metadata")
-    if isinstance(metadata, dict):
-        for namespace in ("jarviscopilot", "hermes"):
-            block = metadata.get(namespace)
-            if isinstance(block, dict) and isinstance(block.get("tags"), list):
-                return [str(t) for t in block["tags"]]
-    return []
+    tags = skill_metadata(fm).get("tags")
+    return [str(t) for t in tags] if isinstance(tags, list) else []
 
 
 class SkillSource(ABC):

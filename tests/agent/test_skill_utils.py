@@ -216,3 +216,18 @@ def test_iter_skill_index_files_survives_symlink_cycle(tmp_path):
     found = list(iter_skill_index_files(skills, "SKILL.md"))
     # Terminates, and still finds the real skill exactly once.
     assert sum(1 for p in found if p.name == "SKILL.md") == 1
+
+
+def test_conditions_and_config_are_read_from_the_rebranded_namespace():
+    """Most shipped skills declare `metadata.jarviscopilot`; only `metadata.hermes` was read, so
+    their requires_toolsets and config vars were lost."""
+    from agent.skill_utils import extract_skill_conditions, extract_skill_config_vars
+
+    fm = {"metadata": {"jarviscopilot": {
+        "requires_toolsets": ["web"],
+        "config": [{"key": "wiki.path", "description": "Wiki dir", "default": "~/wiki"}],
+    }}}
+    assert extract_skill_conditions(fm)["requires_toolsets"] == ["web"]
+    assert [c["key"] for c in extract_skill_config_vars(fm)] == ["wiki.path"]
+    legacy = {"metadata": {"hermes": {"requires_toolsets": ["browser"]}}}
+    assert extract_skill_conditions(legacy)["requires_toolsets"] == ["browser"]

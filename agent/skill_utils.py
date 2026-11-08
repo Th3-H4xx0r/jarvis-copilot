@@ -338,15 +338,22 @@ def get_all_skills_dirs() -> List[Path]:
 # ── Condition extraction ──────────────────────────────────────────────────
 
 
+def skill_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
+    """A skill's own metadata block: ``metadata.jarviscopilot``, or the pre-rebrand
+    ``metadata.hermes`` older skills still carry. Empty when absent or malformed."""
+    metadata = frontmatter.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    for namespace in ("jarviscopilot", "hermes"):
+        block = metadata.get(namespace)
+        if isinstance(block, dict) and block:
+            return block
+    return {}
+
+
 def extract_skill_conditions(frontmatter: Dict[str, Any]) -> Dict[str, List]:
     """Extract conditional activation fields from parsed frontmatter."""
-    metadata = frontmatter.get("metadata")
-    # Handle cases where metadata is not a dict (e.g., a string from malformed YAML)
-    if not isinstance(metadata, dict):
-        metadata = {}
-    hermes = metadata.get("hermes") or {}
-    if not isinstance(hermes, dict):
-        hermes = {}
+    hermes = skill_metadata(frontmatter)
     return {
         "fallback_for_toolsets": hermes.get("fallback_for_toolsets", []),
         "requires_toolsets": hermes.get("requires_toolsets", []),
@@ -364,7 +371,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Skills declare config.yaml settings they need via::
 
         metadata:
-          hermes:
+          jarviscopilot:
             config:
               - key: wiki.path
                 description: Path to the LLM Wiki knowledge base directory
@@ -374,13 +381,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Returns a list of dicts with keys: ``key``, ``description``, ``default``,
     ``prompt``.  Invalid or incomplete entries are silently skipped.
     """
-    metadata = frontmatter.get("metadata")
-    if not isinstance(metadata, dict):
-        return []
-    hermes = metadata.get("hermes")
-    if not isinstance(hermes, dict):
-        return []
-    raw = hermes.get("config")
+    raw = skill_metadata(frontmatter).get("config")
     if not raw:
         return []
     if isinstance(raw, dict):

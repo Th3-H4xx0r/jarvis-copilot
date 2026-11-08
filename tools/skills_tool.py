@@ -79,7 +79,7 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 from tools.registry import registry, tool_error
 from jarviscopilot_cli.config import cfg_get
 from utils import env_var_enabled
-from agent.skill_utils import EXCLUDED_SKILL_DIRS as _EXCLUDED_SKILL_DIRS
+from agent.skill_utils import EXCLUDED_SKILL_DIRS as _EXCLUDED_SKILL_DIRS, skill_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -1270,13 +1270,8 @@ def skill_view(
                         [str(f.relative_to(skill_dir)) for f in scripts_dir.glob(ext)]
                     )
 
-        # Read tags/related_skills with backward compat:
-        # Check metadata.jarviscopilot.* first (agentskills.io convention), then
-        # the pre-rebrand metadata.hermes.*, then top-level
-        hermes_meta = {}
-        metadata = frontmatter.get("metadata")
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("jarviscopilot") or metadata.get("hermes") or {}
+        # The skill's own metadata block, then top-level fields.
+        hermes_meta = skill_metadata(frontmatter)
 
         tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
         related_skills = _parse_tags(
@@ -1434,8 +1429,8 @@ def skill_view(
         # Surface agentskills.io optional fields when present
         if frontmatter.get("compatibility"):
             result["compatibility"] = frontmatter["compatibility"]
-        if isinstance(metadata, dict):
-            result["metadata"] = metadata
+        if isinstance(frontmatter.get("metadata"), dict):
+            result["metadata"] = frontmatter["metadata"]
 
         return json.dumps(result, ensure_ascii=False)
 

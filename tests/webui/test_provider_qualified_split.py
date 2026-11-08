@@ -8,31 +8,31 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "webui"))
 
 from api import config as config_mod
-from api import routes
+from api import session_model
 
 
 def test_split_ollama_tagged_model():
     assert config_mod.split_provider_qualified_model("@ollama-cloud:gemma4:31b") == ("ollama-cloud", "gemma4:31b")
-    assert routes._split_provider_qualified_model("@ollama-cloud:gemma4:31b") == ("gemma4:31b", "ollama-cloud")
+    assert session_model._split_provider_qualified_model("@ollama-cloud:gemma4:31b") == ("gemma4:31b", "ollama-cloud")
 
 
 def test_split_plain_provider_model():
-    assert routes._split_provider_qualified_model("@anthropic:claude-sonnet-5") == ("claude-sonnet-5", "anthropic")
+    assert session_model._split_provider_qualified_model("@anthropic:claude-sonnet-5") == ("claude-sonnet-5", "anthropic")
 
 
 def test_split_custom_provider_with_tagged_model():
-    assert routes._split_provider_qualified_model("@custom:macbook-ollama:llama3.2:latest") == (
+    assert session_model._split_provider_qualified_model("@custom:macbook-ollama:llama3.2:latest") == (
         "llama3.2:latest", "custom:macbook-ollama")
 
 
 def test_split_custom_host_port_slug():
     # custom:<host>:<port> is one slug; the model is only the last segment.
-    assert routes._split_provider_qualified_model("@custom:10.0.0.5:11434:llama3") == ("llama3", "custom:10.0.0.5:11434")
+    assert session_model._split_provider_qualified_model("@custom:10.0.0.5:11434:llama3") == ("llama3", "custom:10.0.0.5:11434")
 
 
 def test_non_qualified_passthrough():
-    assert routes._split_provider_qualified_model("gemma4:31b") == ("gemma4:31b", None)
-    assert routes._split_provider_qualified_model("") == ("", None)
+    assert session_model._split_provider_qualified_model("gemma4:31b") == ("gemma4:31b", None)
+    assert session_model._split_provider_qualified_model("") == ("", None)
 
 
 def test_resolve_keeps_tagged_ollama_pick(monkeypatch):
@@ -50,7 +50,7 @@ def test_resolve_keeps_tagged_ollama_pick(monkeypatch):
 
 def test_split_custom_host_port_slug_with_tagged_model():
     """`custom:<host>:<port>` is ONE slug and the model may still carry a tag."""
-    assert routes._split_provider_qualified_model("@custom:10.0.0.5:11434:llama3.2:latest") == (
+    assert session_model._split_provider_qualified_model("@custom:10.0.0.5:11434:llama3.2:latest") == (
         "llama3.2:latest", "custom:10.0.0.5:11434")
 
 
