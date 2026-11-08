@@ -26,82 +26,29 @@ enum X5Model {
     /// Where the target sits round the band: facing the camera before the ring turns.
     static let touchTargetU: Double = 0.25
 
-    private struct ProfilePoint {
-        var r: CGFloat
-        var y: CGFloat
-        var nr: CGFloat
-        var ny: CGFloat
-    }
-
     // MARK: Profile
 
-    private static func arc(r cr: CGFloat, y cy: CGFloat, radius: CGFloat,
-                            from a0: CGFloat, to a1: CGFloat, steps: Int) -> [ProfilePoint] {
-        (0...steps).map { i in
-            let a = a0 + (a1 - a0) * CGFloat(i) / CGFloat(steps)
-            return ProfilePoint(r: cr + radius * cos(a), y: cy + radius * sin(a), nr: cos(a), ny: sin(a))
-        }
-    }
-
-    private static func line(from p0: (CGFloat, CGFloat), to p1: (CGFloat, CGFloat),
-                             normal: (CGFloat, CGFloat), steps: Int) -> [ProfilePoint] {
-        (0...steps).map { i in
-            let t = CGFloat(i) / CGFloat(steps)
-            return ProfilePoint(r: p0.0 + (p1.0 - p0.0) * t, y: p0.1 + (p1.1 - p0.1) * t, nr: normal.0, ny: normal.1)
-        }
-    }
-
     /// The black shell: top face, round-over, outer face, round-over, bottom face.
-    private static var shellProfile: [ProfilePoint] {
+    private static var shellProfile: [Lathe.Point] {
         let f = fillet, h = width / 2, ri = innerRadius, ro = outerRadius
-        var points = line(from: (ri + f, h), to: (ro - f, h), normal: (0, 1), steps: 3)
-        points += arc(r: ro - f, y: h - f, radius: f, from: .pi / 2, to: 0, steps: 8).dropFirst()
-        points += line(from: (ro, h - f), to: (ro, -h + f), normal: (1, 0), steps: 10).dropFirst()
-        points += arc(r: ro - f, y: -h + f, radius: f, from: 0, to: -.pi / 2, steps: 8).dropFirst()
-        points += line(from: (ro - f, -h), to: (ri + f, -h), normal: (0, -1), steps: 3).dropFirst()
+        var points = Lathe.line(from: (ri + f, h), to: (ro - f, h), normal: (0, 1), steps: 3)
+        points += Lathe.arc(r: ro - f, y: h - f, radius: f, from: .pi / 2, to: 0, steps: 8).dropFirst()
+        points += Lathe.line(from: (ro, h - f), to: (ro, -h + f), normal: (1, 0), steps: 10).dropFirst()
+        points += Lathe.arc(r: ro - f, y: -h + f, radius: f, from: 0, to: -.pi / 2, steps: 8).dropFirst()
+        points += Lathe.line(from: (ro - f, -h), to: (ri + f, -h), normal: (0, -1), steps: 3).dropFirst()
         return points
     }
 
     /// The bright inner edges — the steel liner showing at each rim.
-    private static var lips: [[ProfilePoint]] {
+    private static var lips: [[Lathe.Point]] {
         let f = fillet, h = width / 2, ri = innerRadius
-        return [arc(r: ri + f, y: h - f, radius: f, from: .pi, to: .pi / 2, steps: 6),
-                arc(r: ri + f, y: -h + f, radius: f, from: -.pi / 2, to: -.pi, steps: 6)]
+        return [Lathe.arc(r: ri + f, y: h - f, radius: f, from: .pi, to: .pi / 2, steps: 6),
+                Lathe.arc(r: ri + f, y: -h + f, radius: f, from: -.pi / 2, to: -.pi, steps: 6)]
     }
 
-    private static var innerBand: [ProfilePoint] {
+    private static var innerBand: [Lathe.Point] {
         let h = width / 2 - fillet
-        return line(from: (innerRadius, -h), to: (innerRadius, h), normal: (-1, 0), steps: 6)
-    }
-
-    private static func lathe(_ profile: [ProfilePoint], segments: Int = 128) -> SCNGeometry {
-        var positions: [SCNVector3] = []
-        var normals: [SCNVector3] = []
-        var uvs: [CGPoint] = []
-        let yMin = profile.map(\.y).min() ?? 0
-        let yMax = profile.map(\.y).max() ?? 1
-        for point in profile {
-            for s in 0...segments {
-                let a = 2 * CGFloat.pi * CGFloat(s) / CGFloat(segments)
-                let c = cos(a), sn = sin(a)
-                positions.append(SCNVector3(Float(point.r * c), Float(point.y), Float(point.r * sn)))
-                normals.append(SCNVector3(Float(point.nr * c), Float(point.ny), Float(point.nr * sn)))
-                uvs.append(CGPoint(x: CGFloat(s) / CGFloat(segments), y: (yMax - point.y) / max(0.0001, yMax - yMin)))
-            }
-        }
-        var indices: [Int32] = []
-        let row = segments + 1
-        for i in 0..<(profile.count - 1) {
-            for s in 0..<segments {
-                let a = Int32(i * row + s), b = Int32(i * row + s + 1)
-                let c = Int32((i + 1) * row + s), d = Int32((i + 1) * row + s + 1)
-                indices += [a, b, c, b, d, c]
-            }
-        }
-        return SCNGeometry(
-            sources: [SCNGeometrySource(vertices: positions), SCNGeometrySource(normals: normals),
-                      SCNGeometrySource(textureCoordinates: uvs)],
-            elements: [SCNGeometryElement(indices: indices, primitiveType: .triangles)])
+        return Lathe.line(from: (innerRadius, -h), to: (innerRadius, h), normal: (-1, 0), steps: 6)
     }
 
     // MARK: Textures
@@ -251,7 +198,7 @@ enum X5Model {
         m.lightingModel = .constant
         m.diffuse.contents = UIColor(white: 0.08, alpha: 1)
         m.emission.contents = color
-        m.emission.intensity = Live.idleLED
+        m.emission.intensity = WearableStage.idleLED
         return m
     }
 
@@ -286,18 +233,18 @@ enum X5Model {
 
     static func makeNode() -> Parts {
         let root = SCNNode()
-        let shellGeometry = lathe(shellProfile)
+        let shellGeometry = Lathe.geometry(shellProfile, segments: 128)
         let shell = shellMaterial()
         shellGeometry.materials = [shell]
         root.addChildNode(SCNNode(geometry: shellGeometry))
 
         for lip in lips {
-            let geometry = lathe(lip)
+            let geometry = Lathe.geometry(lip, segments: 128)
             geometry.materials = [lipMaterial()]
             root.addChildNode(SCNNode(geometry: geometry))
         }
 
-        let inner = lathe(innerBand)
+        let inner = Lathe.geometry(innerBand, segments: 128)
         inner.materials = [steelMaterial()]
         root.addChildNode(SCNNode(geometry: inner))
 
@@ -341,107 +288,16 @@ enum X5Model {
 
     // MARK: Scene
 
-    /// One scene plus the nodes that animate. Held by `X5SceneView`.
-    final class Live {
-        static let idleLED: CGFloat = 0.15
-
-        let scene = SCNScene()
-        let camera = SCNNode()
-        private let pivot: SCNNode
-        private let spinner: SCNNode
-        private let leds: [SCNNode]
-        private let glow: SCNNode
+    /// The ring on its stage. Held by `X5SceneView`.
+    final class Live: WearableStage {
         private let shell: SCNMaterial
-        private var measuring = false
 
         init(spin: Bool, tilt: Float = X5Model.defaultTilt, cameraDistance: Float = 4.2,
              spinSeconds: Double = 34, spinAngle: Float = 0) {
             let parts = X5Model.makeNode()
-            pivot = parts.pivot
-            spinner = parts.spinner
-            leds = parts.leds
-            glow = parts.glow
             shell = parts.shell
-
-            scene.background.contents = UIColor.clear
-            scene.lightingEnvironment.contents = RingModel.environment
-            scene.lightingEnvironment.intensity = 1.6
-            scene.rootNode.addChildNode(pivot)
-            pivot.eulerAngles = SCNVector3(tilt, 0, 0.32)
-            spinner.eulerAngles.y = spinAngle
-            if spin {
-                spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)), forKey: "spin")
-            }
-
-            let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-                (.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
-                (.directional, 450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
-                (.directional, 350, .white, SCNVector3(0.9, 2.8, 0)),
-                (.ambient, 120, .white, SCNVector3Zero),
-            ]
-            for (type, intensity, color, euler) in lights {
-                let light = SCNLight()
-                light.type = type
-                light.intensity = intensity
-                light.color = color
-                let node = SCNNode()
-                node.light = light
-                node.eulerAngles = euler
-                scene.rootNode.addChildNode(node)
-            }
-
-            let lens = SCNCamera()
-            lens.fieldOfView = 30
-            camera.camera = lens
-            camera.position = SCNVector3(0, 0, cameraDistance)
-            scene.rootNode.addChildNode(camera)
-        }
-
-        func playEntrance() {
-            pivot.scale = SCNVector3(0.6, 0.6, 0.6)
-            pivot.opacity = 0
-            let grow = SCNAction.scale(to: 1, duration: 0.55)
-            grow.timingMode = .easeOut
-            pivot.runAction(.group([grow, .fadeIn(duration: 0.35)]))
-        }
-
-        /// The LEDs breathe and cast a green glow while a measurement runs.
-        func setPulsing(_ on: Bool) {
-            measuring = on
-            pulse(on)
-        }
-
-        private func pulse(_ on: Bool) {
-            leds.forEach { $0.removeAction(forKey: "pulse") }
-            glow.removeAction(forKey: "pulse")
-            guard on else {
-                leds.forEach { $0.geometry?.firstMaterial?.emission.intensity = Self.idleLED }
-                glow.light?.intensity = 0
-                return
-            }
-            let period = 1.0
-            let idle = Self.idleLED
-            let pulse = SCNAction.customAction(duration: period) { node, elapsed in
-                let phase = (sin(Double(elapsed) / period * 2 * .pi - .pi / 2) + 1) / 2
-                node.geometry?.firstMaterial?.emission.intensity = idle + (2 - idle) * CGFloat(phase)
-            }
-            leds.forEach { $0.runAction(.repeatForever(pulse), forKey: "pulse") }
-            let glowPulse = SCNAction.customAction(duration: period) { node, elapsed in
-                let phase = (sin(Double(elapsed) / period * 2 * .pi - .pi / 2) + 1) / 2
-                node.light?.intensity = CGFloat(40 * phase)
-            }
-            glow.runAction(.repeatForever(glowPulse), forKey: "pulse")
-        }
-
-        /// "Find ring": a quick hop and a burst of LED light.
-        func flash() {
-            let hop = SCNAction.sequence([.scale(to: 1.08, duration: 0.12), .scale(to: 1.0, duration: 0.18)])
-            pivot.runAction(.repeat(hop, count: 3), forKey: "hop")
-            pulse(true)
-            pivot.runAction(.sequence([.wait(duration: 2.0), .run { [weak self] _ in
-                guard let self else { return }
-                self.pulse(self.measuring)
-            }]), forKey: "flash")
+            super.init(pivot: parts.pivot, spinner: parts.spinner, leds: parts.leds, glow: parts.glow, spin: spin,
+                       tilt: tilt, cameraDistance: cameraDistance, spinSeconds: spinSeconds, spinAngle: spinAngle)
         }
 
         /// A gesture: the touch target lights up and fades.

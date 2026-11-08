@@ -561,112 +561,23 @@ enum BandModel {
 
     // MARK: Scene
 
-    /// One scene plus the nodes that animate. Held by `BandSceneView`.
-    final class Live {
-        static let idleLED: CGFloat = 0.15
+    /// The band on its stage. Held by `BandSceneView`. While a measurement runs the red pulse
+    /// mark beats with the LEDs.
+    final class Live: WearableStage {
         static let idleMark: CGFloat = 0.45
-
-        let scene = SCNScene()
-        let camera = SCNNode()
-        private let pivot: SCNNode
-        private let spinner: SCNNode
-        private let leds: [SCNNode]
-        private let glow: SCNNode
         private let mark: SCNMaterial
-        private var measuring = false
 
         init(spin: Bool, tilt: Float = BandModel.defaultTilt, cameraDistance: Float = 4.6,
              spinSeconds: Double = 34, spinAngle: Float = BandModel.defaultAngle) {
             let parts = BandModel.makeNode()
-            pivot = parts.pivot
-            spinner = parts.spinner
-            leds = parts.leds
-            glow = parts.glow
             mark = parts.mark
-
-            scene.background.contents = UIColor.clear
-            scene.lightingEnvironment.contents = RingModel.environment
-            scene.lightingEnvironment.intensity = 1.6
-            scene.rootNode.addChildNode(pivot)
-            pivot.eulerAngles = SCNVector3(tilt, 0, 0)
-            spinner.eulerAngles.y = spinAngle
-            if spin {
-                spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)), forKey: "spin")
-            }
-
-            let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-                (.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
-                (.directional, 260, UIColor(red: 0.8, green: 0.87, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
-                (.directional, 350, .white, SCNVector3(0.9, 2.8, 0)),
-                (.ambient, 120, .white, SCNVector3Zero),
-            ]
-            for (type, intensity, color, euler) in lights {
-                let light = SCNLight()
-                light.type = type
-                light.intensity = intensity
-                light.color = color
-                let node = SCNNode()
-                node.light = light
-                node.eulerAngles = euler
-                scene.rootNode.addChildNode(node)
-            }
-
-            let lens = SCNCamera()
-            lens.fieldOfView = 30
-            camera.camera = lens
-            camera.position = SCNVector3(0, 0, cameraDistance)
-            scene.rootNode.addChildNode(camera)
+            super.init(pivot: parts.pivot, spinner: parts.spinner, leds: parts.leds, glow: parts.glow, spin: spin,
+                       tilt: tilt, roll: 0, cameraDistance: cameraDistance, spinSeconds: spinSeconds,
+                       spinAngle: spinAngle, fill: (260, UIColor(red: 0.8, green: 0.87, blue: 1, alpha: 1)))
         }
 
-        func playEntrance() {
-            pivot.scale = SCNVector3(0.6, 0.6, 0.6)
-            pivot.opacity = 0
-            let grow = SCNAction.scale(to: 1, duration: 0.55)
-            grow.timingMode = .easeOut
-            pivot.runAction(.group([grow, .fadeIn(duration: 0.35)]))
-        }
-
-        /// While a measurement runs the LEDs breathe, cast a green glow inside the loop, and the
-        /// red pulse mark beats with them.
-        func setPulsing(_ on: Bool) {
-            measuring = on
-            pulse(on)
-        }
-
-        private func pulse(_ on: Bool) {
-            leds.forEach { $0.removeAction(forKey: "pulse") }
-            glow.removeAction(forKey: "pulse")
-            let mark = self.mark
-            guard on else {
-                leds.forEach { $0.geometry?.firstMaterial?.emission.intensity = Self.idleLED }
-                glow.light?.intensity = 0
-                mark.emission.intensity = Self.idleMark
-                return
-            }
-            let period = 1.0
-            let idle = Self.idleLED, idleMark = Self.idleMark
-            let pulse = SCNAction.customAction(duration: period) { node, elapsed in
-                let phase = (sin(Double(elapsed) / period * 2 * .pi - .pi / 2) + 1) / 2
-                node.geometry?.firstMaterial?.emission.intensity = idle + (2 - idle) * CGFloat(phase)
-            }
-            leds.forEach { $0.runAction(.repeatForever(pulse), forKey: "pulse") }
-            let glowPulse = SCNAction.customAction(duration: period) { node, elapsed in
-                let phase = (sin(Double(elapsed) / period * 2 * .pi - .pi / 2) + 1) / 2
-                node.light?.intensity = CGFloat(40 * phase)
-                mark.emission.intensity = idleMark + (1.6 - idleMark) * CGFloat(phase)
-            }
-            glow.runAction(.repeatForever(glowPulse), forKey: "pulse")
-        }
-
-        /// "Find band": a quick hop and a burst of LED light.
-        func flash() {
-            let hop = SCNAction.sequence([.scale(to: 1.08, duration: 0.12), .scale(to: 1.0, duration: 0.18)])
-            pivot.runAction(.repeat(hop, count: 3), forKey: "hop")
-            pulse(true)
-            pivot.runAction(.sequence([.wait(duration: 2.0), .run { [weak self] _ in
-                guard let self else { return }
-                self.pulse(self.measuring)
-            }]), forKey: "flash")
+        override func pulsed(_ phase: CGFloat?) {
+            mark.emission.intensity = phase.map { Self.idleMark + (1.6 - Self.idleMark) * $0 } ?? Self.idleMark
         }
     }
 }

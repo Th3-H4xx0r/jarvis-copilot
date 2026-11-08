@@ -792,6 +792,7 @@
 		9EB9D44293B49E0CA44FA29B /* ChatMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1FEF8EE3C4BA6BAD6F6C0B /* ChatMediaTests.swift */; };
 		9EBBF20EF739EAF216C30835 /* PodSetupCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90E1D05DBCB57D4A986B917 /* PodSetupCode.swift */; };
 		9ED2957ECDFE2C0E0C7917B1 /* LoadErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC349768DB1466D704F3107B /* LoadErrorBanner.swift */; };
+		9EED9124FBBB8C2C35718A53 /* WearableStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8941FF5ED187B58E41417491 /* WearableStage.swift */; };
 		9F032D5C785C3EA707CA5917 /* AgentLogos.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EEE710F590669824A19CCFA1 /* AgentLogos.xcassets */; };
 		9F72EF12CA02F6E036739E94 /* AppGroupIslandDesignCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012F7F41571ACDAAE72AA757 /* AppGroupIslandDesignCacheTests.swift */; };
 		9F84B0693B1F0A60A8C4F728 /* DashcamActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE450550EF136749F90BA80 /* DashcamActionsTests.swift */; };
@@ -1956,6 +1957,7 @@
 		88E9C82A1568ECB9AB0D221D /* IntegrationDeleteSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDeleteSheet.swift; sourceTree = "<group>"; };
 		88F31B15B05E8F7F84FF4017 /* VoiceAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceAPITests.swift; sourceTree = "<group>"; };
 		89041CFEB376E8D96A524649 /* DashcamRulesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRulesTests.swift; sourceTree = "<group>"; };
+		8941FF5ED187B58E41417491 /* WearableStage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableStage.swift; sourceTree = "<group>"; };
 		89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAlarmMetadata.swift; sourceTree = "<group>"; };
 		8A3EC0DFDBF30F9281D274F9 /* CostsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsAPI.swift; sourceTree = "<group>"; };
 		8A7C6D26BF3CF6E295291166 /* AmbientSegmenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientSegmenterTests.swift; sourceTree = "<group>"; };
@@ -4720,6 +4722,7 @@
 				DE15106A360CC72986B8C768 /* ButtonStates.swift */,
 				20AD96EA8CE101E72E4475CC /* ButtonStatesEditor.swift */,
 				C793DA99ED85678476A82625 /* LiveButtons.swift */,
+				8941FF5ED187B58E41417491 /* WearableStage.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -6279,6 +6282,7 @@
 				E333D3A224E1D9DEA05C4412 /* WearableKind.swift in Sources */,
 				F49FB5FC78989A1C9BBCE8D1 /* VoiceBargeIn.swift in Sources */,
 				6AB50FC85CC5D7EEF3BF6A34 /* FaceIDApprovals.swift in Sources */,
+				9EED9124FBBB8C2C35718A53 /* WearableStage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
