@@ -1806,7 +1806,6 @@ def terminal_tool(
                 "status": "error",
             }, ensure_ascii=False)
 
-        # Get configuration
         config = _get_env_config()
         env_type = config["env_type"]
 
@@ -1843,7 +1842,6 @@ def terminal_tool(
                     "status": "error",
                 }, ensure_ascii=False)
 
-        # Start cleanup thread
         _start_cleanup_thread()
 
         try:

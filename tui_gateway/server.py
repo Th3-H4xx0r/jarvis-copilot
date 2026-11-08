@@ -1384,9 +1384,7 @@ def _probe_config_health(cfg: dict) -> str:
         return ""
     warnings: list[str] = []
     null_keys = sorted(k for k, v in cfg.items() if v is None)
-    if not null_keys:
-        pass
-    else:
+    if null_keys:
         keys = ", ".join(f"`{k}`" for k in null_keys)
         warnings.append(
             f"config.yaml has empty section(s): {keys}. "

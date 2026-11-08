@@ -1309,17 +1309,10 @@ class MCPServerTask:
                     with _lock:
                         for _pid in new_pids:
                             _stdio_pids[_pid] = self.name
-                async with ClientSession(
-                    read_stream, write_stream, **sampling_kwargs
-                ) as session:
-                    self.initialize_result = await session.initialize()
-                    self.session = session
-                    await self._discover_tools()
-                    self._ready.set()
-                    # stdio transport does not use OAuth, but we still honor
-                    # _reconnect_event (e.g. future manual /mcp refresh) for
-                    # consistency with _run_http.
-                    await self._wait_for_lifecycle_event()
+                # stdio transport does not use OAuth, but we still honor
+                # _reconnect_event (e.g. future manual /mcp refresh) for
+                # consistency with _run_http.
+                await self._serve_session(read_stream, write_stream, **sampling_kwargs)
         finally:
             # Runs on clean exit, exceptions, AND asyncio cancellation.
             # If any of the spawned PIDs are still alive, the SDK's
@@ -1386,21 +1379,15 @@ class MCPServerTask:
 
         try:
             async with relay_transport(device_id, meta) as (read_stream, write_stream):
-                async with ClientSession(
+                # Hold the session until shutdown/reconnect or a transport
+                # error. A desktop disconnect closes the read stream →
+                # ClientSession surfaces it → run() reconnects. Kept
+                # anyio-clean (no mixed asyncio tasks) to avoid the
+                # "unhandled errors in a TaskGroup" flapping we hit before.
+                await self._serve_session(
                     read_stream, write_stream,
-                    read_timeout_seconds=read_timeout,
-                    **sampling_kwargs,
-                ) as session:
-                    self.initialize_result = await session.initialize()
-                    self.session = session
-                    await self._discover_tools()
-                    self._ready.set()
-                    # Hold the session until shutdown/reconnect or a transport
-                    # error. A desktop disconnect closes the read stream →
-                    # ClientSession surfaces it → run() reconnects. Kept
-                    # anyio-clean (no mixed asyncio tasks) to avoid the
-                    # "unhandled errors in a TaskGroup" flapping we hit before.
-                    await self._wait_for_lifecycle_event()
+                    read_timeout_seconds=read_timeout, **sampling_kwargs,
+                )
         except BaseException as exc:
             # run()'s reconnect logs only str(exc) — for an anyio/Exception
             # group that's the opaque "unhandled errors in a TaskGroup (N
@@ -1487,19 +1474,9 @@ class MCPServerTask:
                 # forwarded — SSE OAuth would silently fail with 401s.
                 _sse_kwargs["auth"] = _oauth_auth
             async with sse_client(**_sse_kwargs) as (read_stream, write_stream):
-                async with ClientSession(
-                    read_stream, write_stream, **sampling_kwargs
-                ) as session:
-                    self.initialize_result = await session.initialize()
-                    self.session = session
-                    await self._discover_tools()
-                    self._ready.set()
-                    reason = await self._wait_for_lifecycle_event()
-                    if reason == "reconnect":
-                        logger.info(
-                            "MCP server '%s': reconnect requested — "
-                            "tearing down SSE session", self.name,
-                        )
+                await self._serve_session(
+                    read_stream, write_stream, transport_label="SSE", **sampling_kwargs,
+                )
             return
 
         if _MCP_NEW_HTTP:
@@ -1536,17 +1513,9 @@ class MCPServerTask:
                 async with streamable_http_client(url, http_client=http_client) as (
                     read_stream, write_stream, _get_session_id,
                 ):
-                    async with ClientSession(read_stream, write_stream, **sampling_kwargs) as session:
-                        self.initialize_result = await session.initialize()
-                        self.session = session
-                        await self._discover_tools()
-                        self._ready.set()
-                        reason = await self._wait_for_lifecycle_event()
-                        if reason == "reconnect":
-                            logger.info(
-                                "MCP server '%s': reconnect requested — "
-                                "tearing down HTTP session", self.name,
-                            )
+                    await self._serve_session(
+                        read_stream, write_stream, transport_label="HTTP", **sampling_kwargs,
+                    )
         else:
             # Deprecated API (mcp < 1.24.0): manages httpx client internally.
             _http_kwargs: dict = {
@@ -1559,17 +1528,25 @@ class MCPServerTask:
             async with streamablehttp_client(url, **_http_kwargs) as (
                 read_stream, write_stream, _get_session_id,
             ):
-                async with ClientSession(read_stream, write_stream, **sampling_kwargs) as session:
-                    self.initialize_result = await session.initialize()
-                    self.session = session
-                    await self._discover_tools()
-                    self._ready.set()
-                    reason = await self._wait_for_lifecycle_event()
-                    if reason == "reconnect":
-                        logger.info(
-                            "MCP server '%s': reconnect requested — "
-                            "tearing down legacy HTTP session", self.name,
-                        )
+                await self._serve_session(
+                    read_stream, write_stream, transport_label="legacy HTTP", **sampling_kwargs,
+                )
+
+    async def _serve_session(self, read_stream, write_stream, *,
+                             transport_label: str = "", **session_kwargs):
+        """Open the MCP session on the streams, discover tools, mark the
+        server ready, then hold it until shutdown or a reconnect request."""
+        async with ClientSession(read_stream, write_stream, **session_kwargs) as session:
+            self.initialize_result = await session.initialize()
+            self.session = session
+            await self._discover_tools()
+            self._ready.set()
+            reason = await self._wait_for_lifecycle_event()
+            if reason == "reconnect" and transport_label:
+                logger.info(
+                    "MCP server '%s': reconnect requested — "
+                    "tearing down %s session", self.name, transport_label,
+                )
 
     async def _discover_tools(self):
         """Discover tools from the connected session."""
