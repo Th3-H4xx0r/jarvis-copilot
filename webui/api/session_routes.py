@@ -601,6 +601,24 @@ def _cap_recent_cli_sessions(sessions: list[dict], cli_cap: int = CLI_VISIBLE_SE
     return kept
 
 
+# Where a CLI/messaging session came from. The first four only label the
+# source; the rest identify the messaging chat it belongs to.
+CLI_SOURCE_FIELDS = ("source_tag", "raw_source", "session_source", "source_label")
+CLI_META_FIELDS = CLI_SOURCE_FIELDS + (
+    "user_id", "chat_id", "chat_type", "thread_id", "session_key", "platform",
+)
+
+
+def _apply_cli_meta(s, meta: dict) -> None:
+    """Mark a WebUI Session as a CLI session and copy its CLI_META_FIELDS from
+    ``meta`` (a get_cli_sessions() row). ``raw_source`` falls back to
+    ``source_tag``."""
+    s.is_cli_session = True
+    for key in CLI_META_FIELDS:
+        setattr(s, key, meta.get(key))
+    s.raw_source = meta.get("raw_source") or meta.get("source_tag")
+
+
 def _merge_cli_sidebar_metadata(ui_session: dict, cli_meta: dict) -> dict:
     """Merge source-of-truth CLI metadata into a sidebar session row.
 
@@ -613,17 +631,7 @@ def _merge_cli_sidebar_metadata(ui_session: dict, cli_meta: dict) -> dict:
         return dict(ui_session)
     merged = dict(ui_session)
     merged["is_cli_session"] = True
-    for key in (
-        "source_tag",
-        "raw_source",
-        "session_source",
-        "source_label",
-        "user_id",
-        "chat_id",
-        "chat_type",
-        "thread_id",
-        "session_key",
-        "platform",
+    for key in CLI_META_FIELDS + (
         "parent_session_id",
         "end_reason",
         "actual_message_count",
@@ -996,43 +1004,19 @@ def _handle_session_import_cli(handler, body):
         return bad(handler, "Session not found in CLI store", 404)
 
     # Get profile, model, timestamps, and title from CLI session metadata
-    profile = None
-    created_at = None
-    updated_at = None
-    cli_title = None
-    cli_source_tag = None
-    model = "unknown"
-    cli_raw_source = None
-    cli_session_source = None
-    cli_source_label = None
-    cli_user_id = None
-    cli_chat_id = None
-    cli_chat_type = None
-    cli_thread_id = None
-    cli_session_key = None
-    cli_platform = None
-    cli_parent_session_id = None
-    cli_read_only = False
+    cli_meta: dict = {}
     for cs in get_cli_sessions():
         if cs["session_id"] == sid:
-            profile = cs.get("profile")
-            model = cs.get("model", "unknown")
-            created_at = cs.get("created_at")
-            updated_at = cs.get("updated_at")
-            cli_title = cs.get("title")
-            cli_source_tag = cs.get("source_tag")
-            cli_raw_source = cs.get("raw_source")
-            cli_session_source = cs.get("session_source")
-            cli_source_label = cs.get("source_label")
-            cli_user_id = cs.get("user_id")
-            cli_chat_id = cs.get("chat_id")
-            cli_chat_type = cs.get("chat_type")
-            cli_thread_id = cs.get("thread_id")
-            cli_session_key = cs.get("session_key")
-            cli_platform = cs.get("platform")
-            cli_parent_session_id = cs.get("parent_session_id")
-            cli_read_only = bool(cs.get("read_only"))
+            cli_meta = cs
             break
+    profile = cli_meta.get("profile")
+    model = cli_meta.get("model", "unknown")
+    created_at = cli_meta.get("created_at")
+    updated_at = cli_meta.get("updated_at")
+    cli_title = cli_meta.get("title")
+    cli_source_tag = cli_meta.get("source_tag")
+    cli_parent_session_id = cli_meta.get("parent_session_id")
+    cli_read_only = bool(cli_meta.get("read_only"))
 
     # Use the CLI session title if available (e.g., cron job name), otherwise derive from messages
     title = cli_title or title_from(msgs, "CLI Session")
@@ -1058,9 +1042,9 @@ def _handle_session_import_cli(handler, body):
             "profile": profile,
             "is_cli_session": True,
             "source_tag": cli_source_tag,
-            "raw_source": cli_raw_source or cli_source_tag,
-            "session_source": cli_session_source,
-            "source_label": cli_source_label,
+            "raw_source": cli_meta.get("raw_source") or cli_source_tag,
+            "session_source": cli_meta.get("session_source"),
+            "source_label": cli_meta.get("source_label"),
             "parent_session_id": cli_parent_session_id,
             "read_only": True,
             "messages": msgs,
@@ -1080,17 +1064,7 @@ def _handle_session_import_cli(handler, body):
     )
     if cron_project_id:
         s.project_id = cron_project_id
-    s.is_cli_session = True
-    s.source_tag = cli_source_tag
-    s.raw_source = cli_raw_source or cli_source_tag
-    s.session_source = cli_session_source
-    s.source_label = cli_source_label
-    s.user_id = cli_user_id
-    s.chat_id = cli_chat_id
-    s.chat_type = cli_chat_type
-    s.thread_id = cli_thread_id
-    s.session_key = cli_session_key
-    s.platform = cli_platform
+    _apply_cli_meta(s, cli_meta)
     s._cli_origin = sid
     s.save(touch_updated_at=False)
     return j(
@@ -1465,7 +1439,9 @@ def _get_list(handler, parsed):
                     if s.get("session_id") != meta.get("session_id"):
                         s["session_id"] = meta.get("session_id")
                 else:
-                    for key in ("source_tag", "raw_source", "session_source", "source_label"):
+                    # Plain CLI rows only borrow the source labels, and only
+                    # where the WebUI copy has none.
+                    for key in CLI_SOURCE_FIELDS:
                         if not s.get(key) and meta.get(key):
                             s[key] = meta[key]
             # Apply the same CLI visibility semantics to imported local copies so
@@ -2028,17 +2004,7 @@ def _post_archive(handler, parsed, body):
                 created_at=cli_meta.get("created_at"),
                 updated_at=cli_meta.get("updated_at"),
             )
-            s.is_cli_session = True
-            s.source_tag = cli_meta.get("source_tag")
-            s.raw_source = cli_meta.get("raw_source") or cli_meta.get("source_tag")
-            s.session_source = cli_meta.get("session_source")
-            s.source_label = cli_meta.get("source_label")
-            s.user_id = cli_meta.get("user_id")
-            s.chat_id = cli_meta.get("chat_id")
-            s.chat_type = cli_meta.get("chat_type")
-            s.thread_id = cli_meta.get("thread_id")
-            s.session_key = cli_meta.get("session_key")
-            s.platform = cli_meta.get("platform")
+            _apply_cli_meta(s, cli_meta)
             s.save(touch_updated_at=False)
         else:
             msgs = get_cli_session_messages(sid)
@@ -2053,17 +2019,7 @@ def _post_archive(handler, parsed, body):
                 created_at=cli_meta.get("created_at"),
                 updated_at=cli_meta.get("updated_at"),
             )
-            s.is_cli_session = True
-            s.source_tag = cli_meta.get("source_tag")
-            s.raw_source = cli_meta.get("raw_source") or cli_meta.get("source_tag")
-            s.session_source = cli_meta.get("session_source")
-            s.source_label = cli_meta.get("source_label")
-            s.user_id = cli_meta.get("user_id")
-            s.chat_id = cli_meta.get("chat_id")
-            s.chat_type = cli_meta.get("chat_type")
-            s.thread_id = cli_meta.get("thread_id")
-            s.session_key = cli_meta.get("session_key")
-            s.platform = cli_meta.get("platform")
+            _apply_cli_meta(s, cli_meta)
     with _get_session_agent_lock(sid):
         s.archived = bool(body.get("archived", True))
         s.save(touch_updated_at=False)
