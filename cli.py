@@ -6951,6 +6951,8 @@ class HermesCLI:
         old_model = self.model
         self.model = result.new_model
         self.provider = result.target_provider
+        # _ensure_runtime_credentials() re-resolves from requested_provider on
+        # the next turn, so it must follow the switch.
         self.requested_provider = result.target_provider
         # Always overwrite explicit overrides so stale credentials from the
         # previous provider (e.g. Ollama api_key/base_url) don't leak into
@@ -6976,6 +6978,8 @@ class HermesCLI:
             except Exception as exc:
                 _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
 
+        # Prepended to the next user message: injecting a system message
+        # mid-history breaks some providers and prompt caching.
         self._pending_model_switch_note = (
             f"[Note: model was just switched from {old_model} to {result.new_model} "
             f"via {result.provider_label or result.target_provider}. "
@@ -7171,98 +7175,7 @@ class HermesCLI:
             custom_providers=custom_provs,
         )
 
-        if not result.success:
-            _cprint(f"  ✗ {result.error_message}")
-            return
-
-        # Apply to CLI state.
-        # Update requested_provider so _ensure_runtime_credentials() doesn't
-        # overwrite the switch on the next turn (it re-resolves from this).
-        old_model = self.model
-        self.model = result.new_model
-        self.provider = result.target_provider
-        self.requested_provider = result.target_provider
-        # Always overwrite explicit overrides so stale credentials from the
-        # previous provider (e.g. Ollama api_key/base_url) don't leak into
-        # the new provider's credential resolution on the next turn.
-        self._explicit_api_key = result.api_key
-        self._explicit_base_url = result.base_url
-        if result.api_key:
-            self.api_key = result.api_key
-        if result.base_url:
-            self.base_url = result.base_url
-        if result.api_mode:
-            self.api_mode = result.api_mode
-
-        # Apply to running agent (in-place swap)
-        if self.agent is not None:
-            try:
-                self.agent.switch_model(
-                    new_model=result.new_model,
-                    new_provider=result.target_provider,
-                    api_key=result.api_key,
-                    base_url=result.base_url,
-                    api_mode=result.api_mode,
-                )
-            except Exception as exc:
-                _cprint(f"  ⚠ Agent swap failed ({exc}); change applied to next session.")
-
-        # Store a note to prepend to the next user message so the model
-        # knows a switch occurred (avoids injecting system messages mid-history
-        # which breaks providers and prompt caching).
-        self._pending_model_switch_note = (
-            f"[Note: model was just switched from {old_model} to {result.new_model} "
-            f"via {result.provider_label or result.target_provider}. "
-            f"Adjust your self-identification accordingly.]"
-        )
-
-        # Display confirmation with full metadata
-        provider_label = result.provider_label or result.target_provider
-        _cprint(f"  ✓ Model switched: {result.new_model}")
-        _cprint(f"    Provider: {provider_label}")
-
-        # Context: always resolve via the provider-aware chain so Codex OAuth,
-        # Copilot, and Nous-enforced caps win over the raw models.dev entry
-        # (e.g. gpt-5.5 is 1.05M on openai but 272K on Codex OAuth).
-        mi = result.model_info
-        from jarviscopilot_cli.model_switch import resolve_display_context_length
-        ctx = resolve_display_context_length(
-            result.new_model,
-            result.target_provider,
-            base_url=result.base_url or self.base_url or "",
-            api_key=result.api_key or self.api_key or "",
-            model_info=mi,
-            config_context_length=getattr(self.agent, "_config_context_length", None) if self.agent else None,
-        )
-        if ctx:
-            _cprint(f"    Context: {ctx:,} tokens")
-        if mi:
-            if mi.max_output:
-                _cprint(f"    Max output: {mi.max_output:,} tokens")
-            if mi.has_cost_data():
-                _cprint(f"    Cost: {mi.format_cost()}")
-            _cprint(f"    Capabilities: {mi.format_capabilities()}")
-
-        # Cache notice
-        cache_enabled = (
-            (base_url_host_matches(result.base_url or "", "openrouter.ai") and "claude" in result.new_model.lower())
-            or result.api_mode == "anthropic_messages"
-        )
-        if cache_enabled:
-            _cprint("    Prompt caching: enabled")
-
-        # Warning from validation
-        if result.warning_message:
-            _cprint(f"    ⚠ {result.warning_message}")
-
-        # Persistence
-        if persist_global:
-            save_config_value("model.default", result.new_model)
-            if result.provider_changed:
-                save_config_value("model.provider", result.target_provider)
-            _cprint("    Saved to config.yaml (--global)")
-        else:
-            _cprint("    (session only — add --global to persist)")
+        self._apply_model_switch_result(result, persist_global)
 
     def _handle_codex_runtime(self, cmd_original: str) -> None:
         """Handle /codex-runtime — toggle the codex app-server runtime opt-in.
