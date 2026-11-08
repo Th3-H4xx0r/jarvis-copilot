@@ -63,6 +63,38 @@ def clarify_callback(cli, question, choices):
     )
 
 
+def _store_secret_answer(var_name: str, value: str) -> dict:
+    """Save an entered secret to .env (empty means the user skipped)."""
+    if not value:
+        cprint(f"\n{_DIM}  ⏭ Secret entry skipped{_RST}")
+        return {
+            "success": True,
+            "reason": "cancelled",
+            "stored_as": var_name,
+            "validated": False,
+            "skipped": True,
+            "message": "Secret setup was skipped.",
+        }
+    stored = save_env_value_secure(var_name, value)
+    cprint(f"\n{_DIM}  ✓ Stored secret in {display_hermes_home()}/.env as {var_name}{_RST}")
+    return {
+        **stored,
+        "skipped": False,
+        "message": "Secret stored securely. The secret value was not exposed to the model.",
+    }
+
+
+def _clear_secret_input(cli) -> None:
+    """Drop draft composer text so it can't be submitted as the secret."""
+    try:
+        if hasattr(cli, "_clear_secret_input_buffer"):
+            cli._clear_secret_input_buffer()
+        elif getattr(cli, "_app", None):
+            cli._app.current_buffer.reset()
+    except Exception:
+        pass
+
+
 def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     """Prompt for a secret value through the TUI (e.g. API keys for skills).
 
@@ -79,25 +111,7 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
         except (EOFError, KeyboardInterrupt):
             value = ""
 
-        if not value:
-            cprint(f"\n{_DIM}  ⏭ Secret entry skipped{_RST}")
-            return {
-                "success": True,
-                "reason": "cancelled",
-                "stored_as": var_name,
-                "validated": False,
-                "skipped": True,
-                "message": "Secret setup was skipped.",
-            }
-
-        stored = save_env_value_secure(var_name, value)
-        _dhh = display_hermes_home()
-        cprint(f"\n{_DIM}  ✓ Stored secret in {_dhh}/.env as {var_name}{_RST}")
-        return {
-            **stored,
-            "skipped": False,
-            "message": "Secret stored securely. The secret value was not exposed to the model.",
-        }
+        return _store_secret_answer(var_name, value)
 
     timeout = 120
     response_queue = queue.Queue()
@@ -110,16 +124,7 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     }
     cli._secret_deadline = _time.monotonic() + timeout
     # Avoid storing stale draft input as the secret when Enter is pressed.
-    if hasattr(cli, "_clear_secret_input_buffer"):
-        try:
-            cli._clear_secret_input_buffer()
-        except Exception:
-            pass
-    elif hasattr(cli, "_app") and cli._app:
-        try:
-            cli._app.current_buffer.reset()
-        except Exception:
-            pass
+    _clear_secret_input(cli)
 
     if hasattr(cli, "_app") and cli._app:
         cli._app.invalidate()
@@ -132,25 +137,7 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
             if hasattr(cli, "_app") and cli._app:
                 cli._app.invalidate()
 
-            if not value:
-                cprint(f"\n{_DIM}  ⏭ Secret entry skipped{_RST}")
-                return {
-                    "success": True,
-                    "reason": "cancelled",
-                    "stored_as": var_name,
-                    "validated": False,
-                    "skipped": True,
-                    "message": "Secret setup was skipped.",
-                }
-
-            stored = save_env_value_secure(var_name, value)
-            _dhh = display_hermes_home()
-            cprint(f"\n{_DIM}  ✓ Stored secret in {_dhh}/.env as {var_name}{_RST}")
-            return {
-                **stored,
-                "skipped": False,
-                "message": "Secret stored securely. The secret value was not exposed to the model.",
-            }
+            return _store_secret_answer(var_name, value)
         except queue.Empty:
             remaining = cli._secret_deadline - _time.monotonic()
             if remaining <= 0:
@@ -160,16 +147,7 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
 
     cli._secret_state = None
     cli._secret_deadline = 0
-    if hasattr(cli, "_clear_secret_input_buffer"):
-        try:
-            cli._clear_secret_input_buffer()
-        except Exception:
-            pass
-    elif hasattr(cli, "_app") and cli._app:
-        try:
-            cli._app.current_buffer.reset()
-        except Exception:
-            pass
+    _clear_secret_input(cli)
     if hasattr(cli, "_app") and cli._app:
         cli._app.invalidate()
     cprint(f"\n{_DIM}  ⏱ Timeout — secret capture cancelled{_RST}")
