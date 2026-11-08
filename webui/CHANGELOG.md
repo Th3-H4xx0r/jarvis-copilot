@@ -44,6 +44,10 @@
 
 ### Fixed
 
+- **Stopping a turn that produced no reply** — pressing Stop after the agent came back empty (often while it was retrying a provider error) crashed the cancel path: the turn was logged as interrupted twice and the chat showed a plain "Cancelled by user" instead of the provider error it was retrying (for example a 429). It now ends cleanly and says why.
+
+- **A coding sync whose safety check fails is refused** — if the server-side endpoint check crashed, the sync used to start anyway (a home folder or a Mac path could get through). It now refuses and logs the failure.
+
 - **Voice chats doubling every turn (server OOM restarts)** — after a compaction, each turn's writeback re-appended every earlier reply that had no text of its own (a voice reply that was only the Pod's `[end]` tag), so a voice chat doubled per turn — one reached 504,177 messages / 536 MB, and the webui was OOM-killed whenever it loaded it. The writeback now lines the agent's result up with the model context (what the agent was given) instead of the visible transcript, the merge never re-appends a reply already shown (role + timestamp + text + reasoning), and the current turn is the latest matching user message, not the first (an earlier "Hello, are you there?" used to re-append the whole history after it). Loading a session file over 25 MB logs a warning.
 
 - **Compaction at 64K on 1M-context models** — a hidden 64,000-token default cap (`compression.max_context_tokens`) clamped every model, so a large system prompt alone tripped compaction on the first tool round. The trigger is now the percentage of each model's own window (cap off by default). Compaction no longer fires when there's nothing outside the protected head/tail to summarize: it used to rotate the session and rebuild the system prompt anyway. Claude models on the `claude-code` provider now resolve to Anthropic's windows (1M for Sonnet/Opus 5.5) instead of 200K.
