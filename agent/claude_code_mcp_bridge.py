@@ -29,7 +29,6 @@ import shutil
 import socket
 import tempfile
 import threading
-import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any, Callable
@@ -301,5 +300,3 @@ def _ok(mid: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def new_socket_path() -> str:
-    return os.path.join(tempfile.gettempdir(), f"jc-mcp-{uuid.uuid4().hex}.sock")

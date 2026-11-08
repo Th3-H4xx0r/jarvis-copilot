@@ -25,7 +25,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from agent.lsp.workspace import nearest_root, normalize_path
+from agent.lsp.workspace import nearest_root
 
 logger = logging.getLogger("agent.lsp.servers")
 
@@ -724,10 +724,6 @@ def _root_go(file_path: str, workspace: str) -> Optional[str]:
 
 def _root_rust(file_path: str, workspace: str) -> Optional[str]:
     return _root_or_workspace(file_path, workspace, ["Cargo.toml", "Cargo.lock"])
-
-
-def _root_ruby(file_path: str, workspace: str) -> Optional[str]:
-    return _root_or_workspace(file_path, workspace, ["Gemfile"])
 
 
 def _root_clangd(file_path: str, workspace: str) -> Optional[str]:

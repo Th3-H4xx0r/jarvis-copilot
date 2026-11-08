@@ -452,9 +452,6 @@ class GoogleCredentials:
             managed_project_id=parts.managed_project_id,
         )
 
-    def expires_unix_seconds(self) -> float:
-        return self.expires_ms / 1000.0
-
     def access_token_expired(self, skew_seconds: int = REFRESH_SKEW_SECONDS) -> bool:
         if not self.access_token or not self.expires_ms:
             return True

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -345,18 +344,6 @@ def find_transcript_file(cwd: str, csid: str,
     except OSError:
         pass
     return None
-
-
-def read_local_messages(cwd: str, csid: str,
-                        projects_dir: str | None = None):
-    """(messages, mtime) parsed from the local transcript, or (None, None)."""
-    f = find_transcript_file(cwd, csid, projects_dir=projects_dir)
-    if f is None:
-        return None, None
-    try:
-        return parse_transcript_text(f.read_text(errors="replace")), f.stat().st_mtime
-    except OSError:
-        return None, None
 
 
 _LITE_SUMMARY = 200

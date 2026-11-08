@@ -76,13 +76,6 @@ CREATE TABLE IF NOT EXISTS coding_usage_snapshot (
 CREATE TABLE IF NOT EXISTS coding_settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL
 );
--- Parsed chat-view messages per claude_session_id (transcript -> message-list
--- JSON). Written whenever a transcript is (re)parsed so the mobile chat view
--- still shows history when the owning Mac is offline.
-CREATE TABLE IF NOT EXISTS coding_transcript_cache (
-  csid TEXT PRIMARY KEY, messages TEXT NOT NULL, total INTEGER NOT NULL,
-  updated_at REAL NOT NULL
-);
 -- Hook-driven agent sessions (agent/agent_tracking.py): the engine's state per
 -- (host, agent, session) so a webui restart picks up where it was. ``data`` is
 -- the engine's session dict as JSON; ``coding_session_id`` links the row above.
@@ -501,34 +494,6 @@ class CodingSessionStore:
         with self._conn() as c:
             return [dict(r) for r in c.execute(
                 "SELECT * FROM agent_decisions WHERE at>=? ORDER BY at ASC", (since,)).fetchall()]
-
-    # --- transcript chat cache ----------------------------------------------
-
-    def get_transcript_cache(self, csid: str):
-        """{"messages": list, "total": int, "updated_at": float} or None."""
-        import json as _json
-        with self._conn() as c:
-            r = c.execute("SELECT messages, total, updated_at FROM "
-                          "coding_transcript_cache WHERE csid=?",
-                          (csid,)).fetchone()
-        if not r:
-            return None
-        try:
-            return {"messages": _json.loads(r["messages"]),
-                    "total": int(r["total"]),
-                    "updated_at": float(r["updated_at"])}
-        except (ValueError, TypeError):
-            return None
-
-    def set_transcript_cache(self, csid: str, messages: list) -> None:
-        import json as _json
-        with self._conn() as c:
-            c.execute(
-                "INSERT INTO coding_transcript_cache(csid, messages, total, "
-                "updated_at) VALUES(?,?,?,?) ON CONFLICT(csid) DO UPDATE SET "
-                "messages=excluded.messages, total=excluded.total, "
-                "updated_at=excluded.updated_at",
-                (csid, _json.dumps(messages), len(messages), time.time()))
 
     # --- projects -----------------------------------------------------------
 

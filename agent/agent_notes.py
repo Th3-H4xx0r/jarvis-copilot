@@ -327,10 +327,6 @@ def transcript_lines(note: dict) -> list:
     return [f"{names.get(l['speaker'], l['speaker'])}: {l['text']}" for l in note.get("lines") or []]
 
 
-def plain_transcript(note: dict) -> str:
-    return "\n".join(transcript_lines(note))
-
-
 def markdown(note: dict, tz_minutes: int = 0) -> str:
     """The note as Markdown: title, date, summary, key points, to-dos, transcript.
     ``tz_minutes`` is the viewer's offset the JavaScript way (minutes WEST of UTC)."""

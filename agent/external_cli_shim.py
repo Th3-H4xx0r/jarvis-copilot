@@ -304,43 +304,6 @@ def render_message_content(content: Any) -> str:
     return str(content).strip()
 
 
-def _summarize_tool_calls(tool_calls: Any) -> str:
-    """Render an assistant message's tool_calls as ``name(args), name(args)``.
-
-    Accepts both dict-shaped (``{"function": {"name", "arguments"}}``) and
-    object-shaped (``tc.function.name``) tool calls. Arguments are truncated so
-    a large payload (e.g. a diff) doesn't bloat the prompt. Returns "" when there
-    are no usable calls.
-    """
-    if not tool_calls:
-        return ""
-    parts: list[str] = []
-    for tc in tool_calls:
-        fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
-        if isinstance(fn, dict):
-            name = str(fn.get("name") or "").strip()
-            args = fn.get("arguments")
-        elif fn is not None:
-            name = str(getattr(fn, "name", "") or "").strip()
-            args = getattr(fn, "arguments", None)
-        else:
-            name, args = "", None
-        if not name:
-            continue
-        if args is None:
-            args = ""
-        if not isinstance(args, str):
-            try:
-                args = json.dumps(args, ensure_ascii=False)
-            except Exception:
-                args = str(args)
-        args = args.strip()
-        if len(args) > 200:
-            args = args[:200] + "…"
-        parts.append(f"{name}({args})" if args else f"{name}()")
-    return ", ".join(parts)
-
-
 def format_messages_as_prompt(
     messages: list[dict[str, Any]],
     *,
