@@ -129,30 +129,6 @@ final class BandSync: ObservableObject {
     }
 }
 
-/// Sends band days to Jarvis Health after a sync, whichever wearable leads — as `X5HealthPush`
-/// does for the X5.
-enum BandHealthPush {
-    @MainActor
-    @discardableResult
-    static func push(_ keys: Set<String>, manager: BandManager) async -> Bool {
-        guard let deviceID = manager.deviceID, let store = manager.store, !keys.isEmpty else { return false }
-        let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
-        for key in keys.sorted() {
-            let day = store.day(key)
-            guard day.syncedAt != nil else { continue }
-            do {
-                try await client.pushDay(HealthDayPayload.make(day, key: key, deviceID: deviceID,
-                                                               source: WearableKeepAlive.band,
-                                                               battery: manager.session.battery))
-            } catch {
-                JcLog.devices.notice("band: could not push \(key, privacy: .public) to the server")
-                return false
-            }
-        }
-        return true
-    }
-}
-
 /// Changed days, uploaded at most every `every` — or at once while someone is looking (`urgent`).
 /// Each finished reading used to send the band's whole day (~38 KB) straight away: about twelve
 /// uploads an hour on his schedule, all day in the background. The server's hourly run reads the

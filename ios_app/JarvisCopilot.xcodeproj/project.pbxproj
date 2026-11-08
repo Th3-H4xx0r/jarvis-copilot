@@ -464,7 +464,6 @@
 		584FE958A56503AF14EB2C1E /* WatchConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F123592BB0EDB572AA897900 /* WatchConnector.swift */; };
 		5883F765C8903D49794BCC99 /* WebBrowserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */; };
 		58A97DE4C4E1D7C1E07676DD /* IslandOffline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */; };
-		59150C855011DCEE31ED1042 /* HealthScoreCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C33B28AD2D07DAF7F39482A2 /* HealthScoreCard.swift */; };
 		59582A208F292011B394F2BC /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */; };
 		598624D1C4434EDB4BF9828D /* ChatStreamReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EAF49343F83819ADBB1C63C /* ChatStreamReducerTests.swift */; };
 		59F559379AACB8FB231A9A02 /* ModelPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */; };
@@ -2254,7 +2253,6 @@
 		C2F60B76A48FCF7E435B836D /* WeightTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WeightTests.swift; sourceTree = "<group>"; };
 		C318AFCA17561381E2A63382 /* LocalExecutorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalExecutorTests.swift; sourceTree = "<group>"; };
 		C318CF8270F8127766E1D341 /* CodeMasterSettingsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMasterSettingsPage.swift; sourceTree = "<group>"; };
-		C33B28AD2D07DAF7F39482A2 /* HealthScoreCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthScoreCard.swift; sourceTree = "<group>"; };
 		C3634082F63862E42A4DC85D /* JarvisActivityViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisActivityViews.swift; path = JarvisWidget/JarvisActivityViews.swift; sourceTree = "<group>"; };
 		C37E581B3F19FE64C22BCDB7 /* BandRuntimeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandRuntimeTests.swift; sourceTree = "<group>"; };
 		C38365D25A4F93E45A104174 /* WidgetModelSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetModelSnapshotTests.swift; sourceTree = "<group>"; };
@@ -4682,7 +4680,6 @@
 				6351F42356D9E8EF6FBA3C3E /* RingMetricCard.swift */,
 				35FB23B2C0FCE8661BB5C251 /* HealthClient.swift */,
 				9C4C727D096C03E13D0FC610 /* HealthModels.swift */,
-				C33B28AD2D07DAF7F39482A2 /* HealthScoreCard.swift */,
 				A6ACD7A5F1C74BAD1BA7ECB9 /* HealthStore.swift */,
 				0A26954813A192B570D6CF9B /* RingDonut.swift */,
 				EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */,
@@ -5810,7 +5807,6 @@
 				DBFD2A989AF477B32F6AF3E6 /* EnergyReport.swift in Sources */,
 				0A6D2986C8C48B25907E3491 /* HealthClient.swift in Sources */,
 				DF64B958D9F02B5825CE0B1B /* HealthModels.swift in Sources */,
-				59150C855011DCEE31ED1042 /* HealthScoreCard.swift in Sources */,
 				D059B534FD784289B9D33940 /* HealthStore.swift in Sources */,
 				D14543AD6D944B20E2AD3EAC /* RingDonut.swift in Sources */,
 				1E18F4882BF3D67E23D0322E /* HealthDayPayload.swift in Sources */,

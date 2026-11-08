@@ -4,15 +4,6 @@ import UIKit
 /// Shared dark-glass primitives. Every screen composes from these
 /// so the visual identity stays consistent and tunable from one place.
 
-// MARK: - Backdrop
-
-/// The backdrop behind every screen: plain black (`JcTheme.bg`), no gradient.
-struct AuroraBackdrop: View {
-    var body: some View {
-        JcTheme.bg.allowsHitTesting(false)
-    }
-}
-
 // MARK: - Cards
 
 /// A frosted-glass container: translucent fill + hairline border.
@@ -352,7 +343,7 @@ extension View {
     /// to one small title for screens that draw their own header.
     func jcScreen(_ title: String? = nil, header: JcScreenHeader = .large) -> some View {
         self
-            .background(AuroraBackdrop().ignoresSafeArea())
+            .background(JcTheme.bg.allowsHitTesting(false).ignoresSafeArea())
             .modifier(JcNoTopEdgeLine())
             .modifier(JcNavigationTitle(title: title,
                                         header: (title ?? "").isEmpty ? .inline : header))

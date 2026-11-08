@@ -199,3 +199,8 @@ enum HealthRange: String, CaseIterable, Identifiable {
         }
     }
 }
+
+extension HealthScores {
+    /// What the overall score is called on screen.
+    static let batteryName = "Body battery"
+}

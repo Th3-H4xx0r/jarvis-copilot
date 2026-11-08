@@ -5,7 +5,7 @@ struct DeviceView: View {
     let bottle: DiscoveredBottle
 
     /// Persisted across launches; display-only, nothing is written to the bottle.
-    @AppStorage("temperatureUnit") private var tempUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var tempUnit: TemperatureUnit = .celsius
 
     /// Wall-clock elapsed time for the running cycle.
     @State private var cycleStart: Date?

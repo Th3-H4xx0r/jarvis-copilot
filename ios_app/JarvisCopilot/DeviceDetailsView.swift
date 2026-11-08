@@ -5,7 +5,7 @@ import SwiftUI
 /// stays a bottle and three buttons.
 struct DeviceDetailsView: View {
     @ObservedObject var manager: BottleManager
-    @AppStorage("temperatureUnit") private var tempUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var tempUnit: TemperatureUnit = .celsius
 
     @StateObject private var bridge = BridgeClient.shared
     @State private var rawHex = ""

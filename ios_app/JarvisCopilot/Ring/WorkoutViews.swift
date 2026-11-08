@@ -674,7 +674,7 @@ private struct StrengthNameLine: View {
 struct HealthWorkoutsCard: View {
     let workouts: [RingWorkout]
     /// Rows show distance in it: redrawn when it changes in Settings.
-    @AppStorage("jc.distance.unit") private var distanceUnit = DistanceUnit.current.rawValue
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnit = DistanceUnit.current.rawValue
     var title = "Workouts"
     /// Rows across several days say which day.
     var showsDate = false
@@ -753,7 +753,7 @@ struct HealthWorkoutsCard: View {
             }
             if let showAll {
                 RowDivider()
-                ShowAllRow(action: showAll)
+                JcShowAllRow(action: showAll)
             }
         }
     }

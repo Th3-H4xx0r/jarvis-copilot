@@ -9,7 +9,7 @@ struct RoutePicker: View {
     @State private var loading: String?
     @State private var failed = false
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
+    @AppStorage(DistanceUnit.storageKey) private var unitRaw = DistanceUnit.current.rawValue
 
     private var unit: DistanceUnit { DistanceUnit(rawValue: unitRaw) ?? .regional }
 

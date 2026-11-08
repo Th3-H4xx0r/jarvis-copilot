@@ -81,7 +81,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             // the goal ring, a score or Measure.
             if let showAll {
                 RowDivider()
-                ShowAllRow(action: showAll)
+                JcShowAllRow(action: showAll)
             }
         }
         .sensoryFeedback(.selection, trigger: scrubbed)
@@ -191,51 +191,6 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 }
             }
         }
-    }
-}
-
-/// "Show all ›" in a card's free top corner: the way into its history.
-struct ShowAllLink: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                Text("Show all")
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(JcTheme.accent)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show all history")
-    }
-}
-
-/// "Show all" as the last row of a card whose corner is taken — the way
-/// Apple Health ends a card with Show All Data.
-struct ShowAllRow: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Row(minHeight: 46) {
-                HStack {
-                    Text("Show all")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(JcTheme.accent)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted.opacity(0.7))
-                }
-                .contentShape(Rectangle())
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show all history")
     }
 }
 

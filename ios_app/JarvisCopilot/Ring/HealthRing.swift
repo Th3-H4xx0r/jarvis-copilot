@@ -88,44 +88,15 @@ enum HealthRing: String, CaseIterable, Identifiable {
         set(ring)
         UserDefaults.standard.set(RingDates.dayKey(Date()), forKey: sinceKey)
         WearablesHub.shared.registerHealthIntegrations()
-        if let store = WearablesHub.shared.x5.store {
-            Task { await X5HealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.x5) }
-        }
-        if let store = WearablesHub.shared.band.store {
-            Task { await BandHealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.band) }
-        }
+        let x5 = WearablesHub.shared.x5, band = WearablesHub.shared.band
+        if let store = x5.store { Task { await x5.pushHealthDays(Set(store.allKeys().suffix(14))) } }
+        if let store = band.store { Task { await band.pushHealthDays(Set(store.allKeys().suffix(14))) } }
         NotificationCenter.default.post(name: .jcHealthRingChanged, object: nil)
     }
 }
 
 extension Notification.Name {
     static let jcHealthRingChanged = Notification.Name("jcHealthRingChanged")
-}
-
-/// Sends X5 days to Jarvis Health after a sync, whichever ring leads — the X5's side of what
-/// `RingSync.pushDays` does for the R12.
-enum X5HealthPush {
-    @MainActor
-    @discardableResult
-    static func push(_ keys: Set<String>, manager: X5Manager) async -> Bool {
-        guard let deviceID = manager.deviceID, let store = manager.store, !keys.isEmpty else {
-            return false
-        }
-        let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
-        for key in keys.sorted() {
-            let day = store.day(key)
-            guard day.syncedAt != nil else { continue }
-            do {
-                try await client.pushDay(HealthDayPayload.make(day, key: key, deviceID: deviceID,
-                                                               source: WearableKeepAlive.x5ring,
-                                                               battery: manager.session.battery))
-            } catch {
-                JcLog.devices.notice("x5: could not push \(key, privacy: .public) to the server")
-                return false
-            }
-        }
-        return true
-    }
 }
 
 extension AppleHealthPlan {

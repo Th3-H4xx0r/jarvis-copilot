@@ -10,7 +10,6 @@ struct ScanView: View {
     @ObservedObject private var bandManager = WearablesHub.shared.band
     /// Linked wearables live on their host's page; unlinked ones keep their card here.
     @ObservedObject private var links = WearableLinks.shared
-    @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
     /// device_id of the card whose "Try to connect" is in flight.

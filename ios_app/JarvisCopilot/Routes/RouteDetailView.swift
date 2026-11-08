@@ -35,7 +35,7 @@ struct RouteDetailView: View {
     /// Start pressed on the Follow sheet: the workout starts once it has gone.
     @State private var startAfterFollow: RingSport?
     @ObservedObject private var controller = WearablesHub.shared.ring.workout
-    @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
+    @AppStorage(DistanceUnit.storageKey) private var unitRaw = DistanceUnit.current.rawValue
     @Environment(\.dismiss) private var dismiss
 
     init(workout: RingWorkout, route: WorkoutRoute? = nil, note: String? = nil, onSave: (() -> Void)? = nil,

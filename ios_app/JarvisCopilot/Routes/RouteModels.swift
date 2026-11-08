@@ -92,15 +92,16 @@ enum DistanceUnit: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     static let feetPerMeter = 3.280839895
-    private static let key = "jc.distance.unit"
+    /// Where the choice is stored (@AppStorage reads it under this key too).
+    static let storageKey = "jc.distance.unit"
 
     /// What the phone's region uses.
     static var regional: DistanceUnit { Locale.current.measurementSystem == .us ? .mi : .km }
 
     /// The person's choice, else the region's.
     static var current: DistanceUnit {
-        get { UserDefaults.standard.string(forKey: key).flatMap(DistanceUnit.init(rawValue:)) ?? regional }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+        get { UserDefaults.standard.string(forKey: storageKey).flatMap(DistanceUnit.init(rawValue:)) ?? regional }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: storageKey) }
     }
 
     /// Metres in one of this unit.

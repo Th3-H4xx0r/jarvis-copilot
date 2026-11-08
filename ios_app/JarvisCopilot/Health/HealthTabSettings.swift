@@ -8,7 +8,7 @@ struct HealthTabSettings: View {
     @ObservedObject var model: HealthTabModel
     @Environment(\.dismiss) private var dismiss
     @State private var devices: [HealthRosterDevice] = []
-    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var temperatureUnit: TemperatureUnit = .celsius
     @State private var stepsGoal = 10_000
     @State private var activeGoal = 30
     @State private var sleepGoal = 480
@@ -17,7 +17,7 @@ struct HealthTabSettings: View {
     @ObservedObject var appleHealth = AppleHealthWriter.shared
     @ObservedObject var healthSync = AppleHealthSync.shared
     @AppStorage("jc.training.unit") private var unit: TrainingUnit = TrainingUnit.regional
-    @AppStorage("jc.distance.unit") private var distanceUnit: DistanceUnit = DistanceUnit.regional
+    @AppStorage(DistanceUnit.storageKey) private var distanceUnit: DistanceUnit = DistanceUnit.regional
     @AppStorage("jc.map.style") private var mapStyle: MapStyle = .standard
     @AppStorage("jc.health.holdWearables") private var holdWearables = true
 

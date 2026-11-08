@@ -79,7 +79,7 @@ final class X5Manager: BLEWearableManager {
         session.onGesture = { [weak self] gesture in self?.received(gesture) }
         onDaysChanged = { [weak self] keys in
             guard let self else { return }
-            Task { await X5HealthPush.push(keys, manager: self) }
+            Task { await self.pushHealthDays(keys) }
             WidgetDataHub.shared.refreshSoon()
         }
         session.wantedHID = { [weak self] in Self.hid(for: self?.inputs?.wantedMode ?? .off) }
@@ -92,6 +92,13 @@ final class X5Manager: BLEWearableManager {
     static func isCandidate(name: String, hasService: Bool, strict: Bool) -> Bool {
         guard !RingProtocol.isRingName(name), !isScaleName(name) else { return false }
         return X5Protocol.isX5Name(name) || (!strict && hasService)
+    }
+
+    /// Days to Jarvis Health, whichever ring leads.
+    @discardableResult
+    func pushHealthDays(_ keys: Set<String>) async -> Bool {
+        await HealthDayPush.push(keys, deviceID: deviceID, store: store, source: WearableKind.x5ring.rawValue,
+                                 battery: session.battery, logName: linkLogName)
     }
 
     override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {

@@ -23,7 +23,7 @@ final class BandManager: BLEWearableManager {
     private(set) lazy var uploads = DayUploadThrottle { [weak self] keys in
         guard let self else { return true }
         WidgetDataHub.shared.refreshSoon()
-        return await BandHealthPush.push(keys, manager: self)
+        return await self.pushHealthDays(keys)
     }
 
     /// Days the sync changed — Jarvis Health pushes them.
@@ -149,6 +149,13 @@ final class BandManager: BLEWearableManager {
         if manufacturer == BandGATT.manufacturer { return true }
         let n = name.uppercased()
         return n.hasPrefix("E910") || n.contains("HBAND") || n.contains("VEEPOO")
+    }
+
+    /// Days to Jarvis Health, whichever wearable leads.
+    @discardableResult
+    func pushHealthDays(_ keys: Set<String>) async -> Bool {
+        await HealthDayPush.push(keys, deviceID: deviceID, store: store, source: WearableKind.band.rawValue,
+                                 battery: session.battery, logName: linkLogName)
     }
 
     override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {

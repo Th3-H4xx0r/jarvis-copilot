@@ -181,3 +181,30 @@ enum HealthDayPayload {
 
     private static func iso(_ date: Date) -> String { formatter.string(from: date) }
 }
+
+/// Hands Jarvis Health every synced day among `keys`, for any wearable.
+///
+/// The server is the system of record; the phone's store is the offline copy. Best effort on
+/// purpose: false at the first day the server didn't take, and a day missed here is picked up
+/// by the next scheduled run, which reads the same history back off the phone.
+enum HealthDayPush {
+    @MainActor
+    @discardableResult
+    static func push(_ keys: Set<String>, deviceID: String?, store: RingHistoryStore?, source: String,
+                     battery: RingBattery?, logName: String) async -> Bool {
+        guard let deviceID, let store, !keys.isEmpty else { return false }
+        let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
+        for key in keys.sorted() {
+            let day = store.day(key)
+            guard day.syncedAt != nil else { continue }
+            do {
+                try await client.pushDay(HealthDayPayload.make(day, key: key, deviceID: deviceID,
+                                                               source: source, battery: battery))
+            } catch {
+                JcLog.devices.notice("\(logName, privacy: .public): could not push \(key, privacy: .public) to the server")
+                return false
+            }
+        }
+        return true
+    }
+}

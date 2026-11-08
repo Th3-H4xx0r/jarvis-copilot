@@ -425,7 +425,7 @@ struct BandSettingsView: View {
     @State private var error: String?
     @State private var confirmForget = false
     /// The app-wide units every band and Health value is drawn in (the band keeps a copy).
-    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var temperatureUnit: TemperatureUnit = .celsius
     @AppStorage(GlucoseUnit.key) private var glucoseUnit: GlucoseUnit = .mmolL
     @AppStorage(BloodFatUnit.key) private var bloodFatUnit: BloodFatUnit = .mmolL
     @AppStorage(UricAcidUnit.key) private var uricAcidUnit: UricAcidUnit = .umolL

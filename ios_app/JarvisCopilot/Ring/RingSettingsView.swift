@@ -13,7 +13,7 @@ struct RingSettingsView: View {
     @State private var note: String?
     @State private var working = false
     /// The app-wide °C/°F choice every temperature in the app is drawn in.
-    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var temperatureUnit: TemperatureUnit = .celsius
     @State private var goals = GoalsDraft()
     @State private var profile = ProfileDraft()
     @State private var rawHex = ""

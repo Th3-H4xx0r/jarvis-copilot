@@ -743,7 +743,7 @@ final class BandDevice: WearableDevice {
         let fat = try pick("blood_fat", BloodFatUnit.self), uric = try pick("uric_acid", UricAcidUnit.self)
         var changes: [(BandSettings.Unit, Bool)] = []
         let defaults = UserDefaults.standard
-        if let temperature { defaults.set(temperature.rawValue, forKey: "temperatureUnit"); changes.append((.temperature, temperature == .celsius)) }
+        if let temperature { defaults.set(temperature.rawValue, forKey: TemperatureUnit.storageKey); changes.append((.temperature, temperature == .celsius)) }
         if let glucose { defaults.set(glucose.rawValue, forKey: GlucoseUnit.key); changes.append((.glucose, glucose == .mmolL)) }
         if let fat { defaults.set(fat.rawValue, forKey: BloodFatUnit.key); changes.append((.bloodFat, fat == .mmolL)) }
         if let uric { defaults.set(uric.rawValue, forKey: UricAcidUnit.key); changes.append((.uricAcid, uric == .umolL)) }

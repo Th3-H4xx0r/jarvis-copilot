@@ -38,10 +38,13 @@ enum TemperatureUnit: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String { self == .celsius ? "°C" : "°F" }
 
+    /// Where the choice is stored (@AppStorage reads it under this key too).
+    static let storageKey = "temperatureUnit"
+
     /// The unit the person picked, for code that draws a temperature outside a
     /// view's `@AppStorage`. Every device reports °C; this is display only.
     static var current: TemperatureUnit {
-        UserDefaults.standard.string(forKey: "temperatureUnit").flatMap(TemperatureUnit.init) ?? .celsius
+        UserDefaults.standard.string(forKey: storageKey).flatMap(TemperatureUnit.init) ?? .celsius
     }
 
     /// A Celsius reading in this unit.

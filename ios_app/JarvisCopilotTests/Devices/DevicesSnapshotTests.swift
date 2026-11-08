@@ -176,7 +176,7 @@ final class DevicesSnapshotTests: XCTestCase {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(AuroraBackdrop().ignoresSafeArea()),
+            .background(JcTheme.bg.ignoresSafeArea()),
             named: "02-skills-expanded")
     }
 
@@ -202,7 +202,7 @@ final class DevicesSnapshotTests: XCTestCase {
         snapshot(DevicesServerSection(store: store)
             .loadErrorBanner("Couldn't reach the server — showing the last known devices.",
                              hasContent: true)
-            .background(AuroraBackdrop().ignoresSafeArea()),
+            .background(JcTheme.bg.ignoresSafeArea()),
                  named: "05-stale-banner")
     }
 }

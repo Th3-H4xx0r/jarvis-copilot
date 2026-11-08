@@ -6,7 +6,7 @@ import SwiftUI
 /// expands to the whole screen with the essentials in a strip.
 struct RouteLiveView: View {
     @ObservedObject var workout: RingWorkoutController
-    @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
+    @AppStorage(DistanceUnit.storageKey) private var unitRaw = DistanceUnit.current.rawValue
     @State private var style = MapStyle.current
     @State private var following = true
     @State private var expanded = false

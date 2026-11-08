@@ -5,7 +5,7 @@ import SwiftUI
 struct RingStatsSections: View {
     @ObservedObject var store: RingHistoryStore
     /// The app's °C/°F choice: the ring reports Celsius, the card shows this.
-    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
+    @AppStorage(TemperatureUnit.storageKey) private var temperatureUnit: TemperatureUnit = .celsius
     let dayKey: String
     let capabilities: RingCapabilities
     /// The server's scores for this day, when it has any: the sleep card shows
