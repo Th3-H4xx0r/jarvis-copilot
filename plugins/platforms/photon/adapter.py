@@ -55,6 +55,7 @@ from gateway.platforms.base import (
     cache_image_from_bytes,
     cache_video_from_bytes,
 )
+from gateway.platforms.helpers import MessageDeduplicator
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class PhotonAdapter(BasePlatformAdapter):
 
         self._stream_task: Optional[asyncio.Task] = None
         self._http_client: Optional["httpx.AsyncClient"] = None
-        self._seen_messages: Dict[str, float] = {}
+        self._dedup = MessageDeduplicator(max_size=DEDUP_MAX_SIZE, ttl_seconds=DEDUP_WINDOW_SECONDS)
 
     # -- Connection lifecycle ----------------------------------------------
 
@@ -326,14 +327,14 @@ class PhotonAdapter(BasePlatformAdapter):
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
-        self._seen_messages.clear()
+        self._dedup.clear()
         logger.info("[%s] Disconnected", self.name)
 
     # -- Inbound -----------------------------------------------------------
 
     async def _on_message(self, msg: Dict[str, Any]) -> None:
         msg_id = str(msg.get("id") or uuid.uuid4().hex)
-        if self._is_duplicate(msg_id):
+        if self._dedup.is_duplicate(msg_id):
             return
         text = (msg.get("text") or "").strip()
         # Photos/stickers/files/voice arrive as attachments the sidecar spooled to
@@ -442,16 +443,6 @@ class PhotonAdapter(BasePlatformAdapter):
         if len(media_urls) > 1 and any((m or "").startswith("image/") for m in media_types):
             msg_type = MessageType.PHOTO
         return media_urls, media_types, msg_type
-
-    def _is_duplicate(self, msg_id: str) -> bool:
-        now = time.time()
-        if len(self._seen_messages) > DEDUP_MAX_SIZE:
-            cutoff = now - DEDUP_WINDOW_SECONDS
-            self._seen_messages = {k: v for k, v in self._seen_messages.items() if v > cutoff}
-        if msg_id in self._seen_messages:
-            return True
-        self._seen_messages[msg_id] = now
-        return False
 
     # -- Outbound ----------------------------------------------------------
 

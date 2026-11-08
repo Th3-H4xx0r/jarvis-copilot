@@ -67,6 +67,7 @@ from gateway.platforms.base import (
     MessageType,
     SendResult,
 )
+from gateway.platforms.helpers import MessageDeduplicator
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class NtfyAdapter(BasePlatformAdapter):
         self._http_client: Optional["httpx.AsyncClient"] = None
 
         # Message deduplication: msg_id -> timestamp
-        self._seen_messages: Dict[str, float] = {}
+        self._dedup = MessageDeduplicator(max_size=DEDUP_MAX_SIZE, ttl_seconds=DEDUP_WINDOW_SECONDS)
 
     # -- Connection lifecycle -----------------------------------------------
 
@@ -299,7 +300,7 @@ class NtfyAdapter(BasePlatformAdapter):
             await self._http_client.aclose()
             self._http_client = None
 
-        self._seen_messages.clear()
+        self._dedup.clear()
         logger.info("[%s] Disconnected", self.name)
 
     # -- Inbound message processing -----------------------------------------
@@ -307,7 +308,7 @@ class NtfyAdapter(BasePlatformAdapter):
     async def _on_message(self, event: Dict[str, Any]) -> None:
         """Process an incoming ntfy message event."""
         msg_id = event.get("id") or uuid.uuid4().hex
-        if self._is_duplicate(msg_id):
+        if self._dedup.is_duplicate(msg_id):
             logger.debug("[%s] Duplicate message %s, skipping", self.name, msg_id)
             return
 
@@ -356,18 +357,6 @@ class NtfyAdapter(BasePlatformAdapter):
         await self.handle_message(message_event)
 
     # -- Deduplication ------------------------------------------------------
-
-    def _is_duplicate(self, msg_id: str) -> bool:
-        """Return True if this message ID was already seen within the dedup window."""
-        now = time.time()
-        if len(self._seen_messages) > DEDUP_MAX_SIZE:
-            cutoff = now - DEDUP_WINDOW_SECONDS
-            self._seen_messages = {k: v for k, v in self._seen_messages.items() if v > cutoff}
-
-        if msg_id in self._seen_messages:
-            return True
-        self._seen_messages[msg_id] = now
-        return False
 
     # -- Outbound messaging -------------------------------------------------
 

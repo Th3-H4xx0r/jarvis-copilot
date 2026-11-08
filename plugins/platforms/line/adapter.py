@@ -94,6 +94,7 @@ from gateway.platforms.base import (
     SendResult,
     cache_image_from_bytes,
 )
+from gateway.platforms.helpers import MessageDeduplicator
 from gateway.config import Platform
 from gateway.session import SessionSource
 
@@ -355,26 +356,6 @@ class RequestCache:
 # ---------------------------------------------------------------------------
 # Inbound dedup
 # ---------------------------------------------------------------------------
-
-class _MessageDeduplicator:
-    """Bounded LRU of LINE webhook event IDs to ignore at-least-once retries."""
-
-    def __init__(self, max_size: int = 1000) -> None:
-        self._seen: Dict[str, float] = {}
-        self._max = max_size
-
-    def is_duplicate(self, event_id: str) -> bool:
-        if not event_id:
-            return False
-        if event_id in self._seen:
-            return True
-        if len(self._seen) >= self._max:
-            # Drop the oldest 10% so we don't trim on every insert.
-            cutoff = sorted(self._seen.values())[len(self._seen) // 10 or 1]
-            self._seen = {k: v for k, v in self._seen.items() if v > cutoff}
-        self._seen[event_id] = time.time()
-        return False
-
 
 # ---------------------------------------------------------------------------
 # Source / chat-id resolution
@@ -709,7 +690,8 @@ class LineAdapter(BasePlatformAdapter):
         self._site = None  # aiohttp.web.TCPSite
         self._reply_tokens: Dict[str, Tuple[str, float]] = {}  # chat_id → (token, expiry)
         self._cache = RequestCache()
-        self._dedup = _MessageDeduplicator()
+        # LINE redelivers webhooks at least once; ids stay remembered for a day.
+        self._dedup = MessageDeduplicator(max_size=1000, ttl_seconds=86400)
         self._bot_user_id: Optional[str] = None
         self._lock_key: Optional[str] = None
 

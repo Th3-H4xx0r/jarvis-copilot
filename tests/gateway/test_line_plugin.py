@@ -45,7 +45,7 @@ check_requirements = _line.check_requirements
 validate_config = _line.validate_config
 _standalone_send = _line._standalone_send
 _env_enablement = _line._env_enablement
-_MessageDeduplicator = _line._MessageDeduplicator
+from gateway.platforms.helpers import MessageDeduplicator as _MessageDeduplicator
 
 
 # ---------------------------------------------------------------------------

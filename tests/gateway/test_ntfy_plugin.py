@@ -158,7 +158,7 @@ class TestNtfyAdapterInit:
         adapter = NtfyAdapter(config)
         assert adapter._stream_task is None
         assert adapter._http_client is None
-        assert adapter._seen_messages == {}
+        assert adapter._dedup._seen == {}
 
 
 # ---------------------------------------------------------------------------
@@ -212,37 +212,37 @@ class TestDeduplication:
 
     def test_first_message_not_duplicate(self):
         adapter = self._make_adapter()
-        assert adapter._is_duplicate("msg-1") is False
+        assert adapter._dedup.is_duplicate("msg-1") is False
 
     def test_second_occurrence_is_duplicate(self):
         adapter = self._make_adapter()
-        adapter._is_duplicate("msg-1")
-        assert adapter._is_duplicate("msg-1") is True
+        adapter._dedup.is_duplicate("msg-1")
+        assert adapter._dedup.is_duplicate("msg-1") is True
 
     def test_different_ids_not_duplicate(self):
         adapter = self._make_adapter()
-        adapter._is_duplicate("msg-1")
-        assert adapter._is_duplicate("msg-2") is False
+        adapter._dedup.is_duplicate("msg-1")
+        assert adapter._dedup.is_duplicate("msg-2") is False
 
     def test_many_messages_recorded(self):
         adapter = self._make_adapter()
         for i in range(50):
-            adapter._is_duplicate(f"msg-{i}")
-        assert len(adapter._seen_messages) == 50
+            adapter._dedup.is_duplicate(f"msg-{i}")
+        assert len(adapter._dedup._seen) == 50
 
     def test_cache_pruned_on_overflow(self):
         adapter = self._make_adapter()
         for i in range(DEDUP_MAX_SIZE + 20):
-            adapter._is_duplicate(f"msg-{i}")
-        assert len(adapter._seen_messages) <= DEDUP_MAX_SIZE + 20
+            adapter._dedup.is_duplicate(f"msg-{i}")
+        assert len(adapter._dedup._seen) <= DEDUP_MAX_SIZE + 20
 
     def test_expired_id_can_be_seen_again(self):
         import time
         adapter = self._make_adapter()
-        adapter._seen_messages["old-msg"] = time.time() - DEDUP_WINDOW_SECONDS - 1
+        adapter._dedup._seen["old-msg"] = time.time() - DEDUP_WINDOW_SECONDS - 1
         for i in range(DEDUP_MAX_SIZE + 1):
-            adapter._is_duplicate(f"fill-{i}")
-        assert adapter._is_duplicate("old-msg") is False
+            adapter._dedup.is_duplicate(f"fill-{i}")
+        assert adapter._dedup.is_duplicate("old-msg") is False
 
 
 # ---------------------------------------------------------------------------
@@ -286,14 +286,14 @@ class TestConnect:
 
     def test_disconnect_clears_state(self):
         adapter = NtfyAdapter(PlatformConfig(enabled=True, extra={"topic": "t"}))
-        adapter._seen_messages["x"] = 1.0
+        adapter._dedup._seen["x"] = 1.0
         adapter._http_client = AsyncMock()
         adapter._stream_task = None
         adapter._running = True
 
         _run(adapter.disconnect())
 
-        assert adapter._seen_messages == {}
+        assert adapter._dedup._seen == {}
         assert adapter._http_client is None
         assert adapter._running is False
 
