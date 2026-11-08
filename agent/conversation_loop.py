@@ -309,6 +309,44 @@ def _recent_messages_for_memory(messages, limit: int = 6, max_chars: int = 2000)
     return out[-limit:]
 
 
+def _stop_partial(agent, messages, conversation_history, api_call_count, *,
+                  error, final_response=None, result_messages=None, task_id=None):
+    """End the turn early as partial: release the task's VM/browser when
+    *task_id* is given, persist the session, and build the result
+    (``result_messages`` overrides the returned transcript, e.g. a rollback)."""
+    if task_id is not None:
+        agent._cleanup_task_resources(task_id)
+    agent._persist_session(messages, conversation_history)
+    return {
+        "final_response": final_response,
+        "messages": messages if result_messages is None else result_messages,
+        "api_calls": api_call_count,
+        "completed": False,
+        "partial": True,
+        "error": error,
+    }
+
+
+def _compression_exhausted(agent, messages, conversation_history, api_call_count, *,
+                           headline, log, error,
+                           hint="Try /new to start a fresh conversation, or /compress to retry compression."):
+    """Give up on an oversized request: tell the user, persist, and return a
+    failed result flagged ``compression_exhausted`` for the gateway."""
+    agent._vprint(f"{agent.log_prefix}❌ {headline}", force=True)
+    agent._vprint(f"{agent.log_prefix}   💡 {hint}", force=True)
+    logger.error(f"{agent.log_prefix}{log}")
+    agent._persist_session(messages, conversation_history)
+    return {
+        "messages": messages,
+        "completed": False,
+        "api_calls": api_call_count,
+        "error": error,
+        "partial": True,
+        "failed": True,
+        "compression_exhausted": True,
+    }
+
+
 def run_conversation(
     agent,
     user_message: str,
@@ -1689,16 +1727,12 @@ def run_conversation(
                             "→ Lower reasoning effort: `/thinkon low` or `/thinkon minimal`\n"
                             "→ Or switch to a larger/non-reasoning model with `/model`"
                         )
-                        agent._cleanup_task_resources(effective_task_id)
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "final_response": _exhaust_response,
-                            "messages": messages,
-                            "api_calls": api_call_count,
-                            "completed": False,
-                            "partial": True,
-                            "error": _exhaust_error,
-                        }
+                        return _stop_partial(
+                            agent, messages, conversation_history, api_call_count,
+                            error=_exhaust_error,
+                            final_response=_exhaust_response,
+                            task_id=effective_task_id,
+                        )
 
                     if agent.api_mode in {"chat_completions", "bedrock_converse", "anthropic_messages"}:
                         assistant_message = _trunc_msg
@@ -1728,16 +1762,12 @@ def run_conversation(
                                 break
 
                             partial_response = agent._strip_think_blocks("".join(truncated_response_parts)).strip()
-                            agent._cleanup_task_resources(effective_task_id)
-                            agent._persist_session(messages, conversation_history)
-                            return {
-                                "final_response": partial_response or None,
-                                "messages": messages,
-                                "api_calls": api_call_count,
-                                "completed": False,
-                                "partial": True,
-                                "error": "Response remained truncated after 3 continuation attempts",
-                            }
+                            return _stop_partial(
+                                agent, messages, conversation_history, api_call_count,
+                                error="Response remained truncated after 3 continuation attempts",
+                                final_response=partial_response or None,
+                                task_id=effective_task_id,
+                            )
 
                     if agent.api_mode in {"chat_completions", "bedrock_converse", "anthropic_messages"}:
                         assistant_message = _trunc_msg
@@ -1756,33 +1786,23 @@ def run_conversation(
                                 f"{agent.log_prefix}⚠️  Truncated tool call response detected again — refusing to execute incomplete tool arguments.",
                                 force=True,
                             )
-                            agent._cleanup_task_resources(effective_task_id)
-                            agent._persist_session(messages, conversation_history)
-                            return {
-                                "final_response": None,
-                                "messages": messages,
-                                "api_calls": api_call_count,
-                                "completed": False,
-                                "partial": True,
-                                "error": "Response truncated due to output length limit",
-                            }
+                            return _stop_partial(
+                                agent, messages, conversation_history, api_call_count,
+                                error="Response truncated due to output length limit",
+                                task_id=effective_task_id,
+                            )
 
                     # If we have prior messages, roll back to last complete state
                     if len(messages) > 1:
                         agent._vprint(f"{agent.log_prefix}   ⏪ Rolling back to last complete assistant turn")
                         rolled_back_messages = agent._get_messages_up_to_last_assistant(messages)
 
-                        agent._cleanup_task_resources(effective_task_id)
-                        agent._persist_session(messages, conversation_history)
-
-                        return {
-                            "final_response": None,
-                            "messages": rolled_back_messages,
-                            "api_calls": api_call_count,
-                            "completed": False,
-                            "partial": True,
-                            "error": "Response truncated due to output length limit"
-                        }
+                        return _stop_partial(
+                            agent, messages, conversation_history, api_call_count,
+                            error="Response truncated due to output length limit",
+                            result_messages=rolled_back_messages,
+                            task_id=effective_task_id,
+                        )
                     else:
                         # First message was truncated - mark as failed
                         agent._vprint(f"{agent.log_prefix}❌ First response truncated - cannot recover", force=True)
@@ -2804,19 +2824,12 @@ def run_conversation(
                 if is_payload_too_large:
                     compression_attempts += 1
                     if compression_attempts > max_compression_attempts:
-                        agent._vprint(f"{agent.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached for payload-too-large error.", force=True)
-                        agent._vprint(f"{agent.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                        logger.error(f"{agent.log_prefix}413 compression failed after {max_compression_attempts} attempts.")
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "messages": messages,
-                            "completed": False,
-                            "api_calls": api_call_count,
-                            "error": f"Request payload too large: max compression attempts ({max_compression_attempts}) reached.",
-                            "partial": True,
-                            "failed": True,
-                            "compression_exhausted": True,
-                        }
+                        return _compression_exhausted(
+                            agent, messages, conversation_history, api_call_count,
+                            headline=f"Max compression attempts ({max_compression_attempts}) reached for payload-too-large error.",
+                            log=f"413 compression failed after {max_compression_attempts} attempts.",
+                            error=f"Request payload too large: max compression attempts ({max_compression_attempts}) reached.",
+                        )
                     agent._emit_status(f"⚠️  Request payload too large (413) — compression attempt {compression_attempts}/{max_compression_attempts}...")
 
                     original_len = len(messages)
@@ -2835,19 +2848,12 @@ def run_conversation(
                         restart_with_compressed_messages = True
                         break
                     else:
-                        agent._vprint(f"{agent.log_prefix}❌ Payload too large and cannot compress further.", force=True)
-                        agent._vprint(f"{agent.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                        logger.error(f"{agent.log_prefix}413 payload too large. Cannot compress further.")
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "messages": messages,
-                            "completed": False,
-                            "api_calls": api_call_count,
-                            "error": "Request payload too large (413). Cannot compress further.",
-                            "partial": True,
-                            "failed": True,
-                            "compression_exhausted": True,
-                        }
+                        return _compression_exhausted(
+                            agent, messages, conversation_history, api_call_count,
+                            headline="Payload too large and cannot compress further.",
+                            log="413 payload too large. Cannot compress further.",
+                            error="Request payload too large (413). Cannot compress further.",
+                        )
 
                 # Check for context-length errors BEFORE generic 4xx handler.
                 # The classifier detects context overflow from: explicit error
@@ -2888,19 +2894,12 @@ def run_conversation(
                         # loop forever if the error keeps recurring.
                         compression_attempts += 1
                         if compression_attempts > max_compression_attempts:
-                            agent._vprint(f"{agent.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached.", force=True)
-                            agent._vprint(f"{agent.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                            logger.error(f"{agent.log_prefix}Context compression failed after {max_compression_attempts} attempts.")
-                            agent._persist_session(messages, conversation_history)
-                            return {
-                                "messages": messages,
-                                "completed": False,
-                                "api_calls": api_call_count,
-                                "error": f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
-                                "partial": True,
-                                "failed": True,
-                                "compression_exhausted": True,
-                            }
+                            return _compression_exhausted(
+                                agent, messages, conversation_history, api_call_count,
+                                headline=f"Max compression attempts ({max_compression_attempts}) reached.",
+                                log=f"Context compression failed after {max_compression_attempts} attempts.",
+                                error=f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
+                            )
                         restart_with_compressed_messages = True
                         break
 
@@ -2962,19 +2961,12 @@ def run_conversation(
 
                     compression_attempts += 1
                     if compression_attempts > max_compression_attempts:
-                        agent._vprint(f"{agent.log_prefix}❌ Max compression attempts ({max_compression_attempts}) reached.", force=True)
-                        agent._vprint(f"{agent.log_prefix}   💡 Try /new to start a fresh conversation, or /compress to retry compression.", force=True)
-                        logger.error(f"{agent.log_prefix}Context compression failed after {max_compression_attempts} attempts.")
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "messages": messages,
-                            "completed": False,
-                            "api_calls": api_call_count,
-                            "error": f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
-                            "partial": True,
-                            "failed": True,
-                            "compression_exhausted": True,
-                        }
+                        return _compression_exhausted(
+                            agent, messages, conversation_history, api_call_count,
+                            headline=f"Max compression attempts ({max_compression_attempts}) reached.",
+                            log=f"Context compression failed after {max_compression_attempts} attempts.",
+                            error=f"Context length exceeded: max compression attempts ({max_compression_attempts}) reached.",
+                        )
                     agent._emit_status(f"🗜️ Context too large (~{approx_tokens:,} tokens) — compressing ({compression_attempts}/{max_compression_attempts})...")
 
                     original_len = len(messages)
@@ -2995,19 +2987,13 @@ def run_conversation(
                         break
                     else:
                         # Can't compress further and already at minimum tier
-                        agent._vprint(f"{agent.log_prefix}❌ Context length exceeded and cannot compress further.", force=True)
-                        agent._vprint(f"{agent.log_prefix}   💡 The conversation has accumulated too much content. Try /new to start fresh, or /compress to manually trigger compression.", force=True)
-                        logger.error(f"{agent.log_prefix}Context length exceeded: {approx_tokens:,} tokens. Cannot compress further.")
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "messages": messages,
-                            "completed": False,
-                            "api_calls": api_call_count,
-                            "error": f"Context length exceeded ({approx_tokens:,} tokens). Cannot compress further.",
-                            "partial": True,
-                            "failed": True,
-                            "compression_exhausted": True,
-                        }
+                        return _compression_exhausted(
+                            agent, messages, conversation_history, api_call_count,
+                            headline="Context length exceeded and cannot compress further.",
+                            log=f"Context length exceeded: {approx_tokens:,} tokens. Cannot compress further.",
+                            error=f"Context length exceeded ({approx_tokens:,} tokens). Cannot compress further.",
+                            hint="The conversation has accumulated too much content. Try /new to start fresh, or /compress to manually trigger compression.",
+                        )
 
                 # Check for non-retryable client errors.  The classifier
                 # already accounts for 413, 429, 529 (transient), context
@@ -3392,17 +3378,12 @@ def run_conversation(
                     agent._incomplete_scratchpad_retries = 0
                     
                     rolled_back_messages = agent._get_messages_up_to_last_assistant(messages)
-                    agent._cleanup_task_resources(effective_task_id)
-                    agent._persist_session(messages, conversation_history)
-                    
-                    return {
-                        "final_response": None,
-                        "messages": rolled_back_messages,
-                        "api_calls": api_call_count,
-                        "completed": False,
-                        "partial": True,
-                        "error": "Incomplete REASONING_SCRATCHPAD after 2 retries"
-                    }
+                    return _stop_partial(
+                        agent, messages, conversation_history, api_call_count,
+                        error="Incomplete REASONING_SCRATCHPAD after 2 retries",
+                        result_messages=rolled_back_messages,
+                        task_id=effective_task_id,
+                    )
             
             # Reset incomplete scratchpad counter on clean response
             agent._incomplete_scratchpad_retries = 0
@@ -3454,15 +3435,10 @@ def run_conversation(
                     continue
 
                 agent._codex_incomplete_retries = 0
-                agent._persist_session(messages, conversation_history)
-                return {
-                    "final_response": None,
-                    "messages": messages,
-                    "api_calls": api_call_count,
-                    "completed": False,
-                    "partial": True,
-                    "error": "Codex response remained incomplete after 3 continuation attempts",
-                }
+                return _stop_partial(
+                    agent, messages, conversation_history, api_call_count,
+                    error="Codex response remained incomplete after 3 continuation attempts",
+                )
             elif hasattr(agent, "_codex_incomplete_retries"):
                 agent._codex_incomplete_retries = 0
             
@@ -3505,15 +3481,10 @@ def run_conversation(
                     if agent._invalid_tool_retries >= 3:
                         agent._vprint(f"{agent.log_prefix}❌ Max retries (3) for invalid tool calls exceeded. Stopping as partial.", force=True)
                         agent._invalid_tool_retries = 0
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "final_response": None,
-                            "messages": messages,
-                            "api_calls": api_call_count,
-                            "completed": False,
-                            "partial": True,
-                            "error": f"Model generated invalid tool call: {invalid_preview}"
-                        }
+                        return _stop_partial(
+                            agent, messages, conversation_history, api_call_count,
+                            error=f"Model generated invalid tool call: {invalid_preview}",
+                        )
 
                     assistant_msg = agent._build_assistant_message(assistant_message, finish_reason)
                     messages.append(assistant_msg)
@@ -3588,16 +3559,11 @@ def run_conversation(
                             force=True,
                         )
                         agent._invalid_json_retries = 0
-                        agent._cleanup_task_resources(effective_task_id)
-                        agent._persist_session(messages, conversation_history)
-                        return {
-                            "final_response": None,
-                            "messages": messages,
-                            "api_calls": api_call_count,
-                            "completed": False,
-                            "partial": True,
-                            "error": "Response truncated due to output length limit",
-                        }
+                        return _stop_partial(
+                            agent, messages, conversation_history, api_call_count,
+                            error="Response truncated due to output length limit",
+                            task_id=effective_task_id,
+                        )
 
                     # Track retries for invalid JSON arguments
                     agent._invalid_json_retries += 1
