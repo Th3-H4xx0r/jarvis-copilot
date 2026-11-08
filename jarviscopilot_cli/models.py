@@ -1152,28 +1152,9 @@ def fetch_openrouter_models(
     fallback = list(remote) if remote else list(OPENROUTER_MODELS)
     preferred_ids = [mid for mid, _ in fallback]
 
-    try:
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/models",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode())
-    except Exception:
+    live_by_id = _fetch_live_models_by_id("https://openrouter.ai/api/v1/models", timeout)
+    if live_by_id is None:
         return list(_openrouter_catalog_cache or fallback)
-
-    live_items = payload.get("data", [])
-    if not isinstance(live_items, list):
-        return list(_openrouter_catalog_cache or fallback)
-
-    live_by_id: dict[str, dict[str, Any]] = {}
-    for item in live_items:
-        if not isinstance(item, dict):
-            continue
-        mid = str(item.get("id") or "").strip()
-        if not mid:
-            continue
-        live_by_id[mid] = item
 
     curated: list[tuple[str, str]] = []
     for preferred_id in preferred_ids:
@@ -1195,6 +1176,26 @@ def fetch_openrouter_models(
     curated[0] = (first_id, "recommended")
     _openrouter_catalog_cache = curated
     return list(curated)
+
+
+def _fetch_live_models_by_id(url: str, timeout: float) -> Optional[dict[str, dict[str, Any]]]:
+    """GET an OpenAI-style ``/models`` listing; return ``{id: item}`` or None on failure."""
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode())
+    except Exception:
+        return None
+    live_items = payload.get("data", []) if isinstance(payload, dict) else None
+    if not isinstance(live_items, list):
+        return None
+    live_by_id: dict[str, dict[str, Any]] = {}
+    for item in live_items:
+        if isinstance(item, dict):
+            mid = str(item.get("id") or "").strip()
+            if mid:
+                live_by_id[mid] = item
+    return live_by_id
 
 
 def model_ids(*, force_refresh: bool = False) -> list[str]:
@@ -1245,28 +1246,9 @@ def fetch_ai_gateway_models(
     fallback = list(VERCEL_AI_GATEWAY_MODELS)
     preferred_ids = [mid for mid, _ in fallback]
 
-    try:
-        req = urllib.request.Request(
-            f"{AI_GATEWAY_BASE_URL.rstrip('/')}/models",
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read().decode())
-    except Exception:
+    live_by_id = _fetch_live_models_by_id(f"{AI_GATEWAY_BASE_URL.rstrip('/')}/models", timeout)
+    if live_by_id is None:
         return list(_ai_gateway_catalog_cache or fallback)
-
-    live_items = payload.get("data", [])
-    if not isinstance(live_items, list):
-        return list(_ai_gateway_catalog_cache or fallback)
-
-    live_by_id: dict[str, dict[str, Any]] = {}
-    for item in live_items:
-        if not isinstance(item, dict):
-            continue
-        mid = str(item.get("id") or "").strip()
-        if not mid:
-            continue
-        live_by_id[mid] = item
 
     curated: list[tuple[str, str]] = []
     for preferred_id in preferred_ids:
