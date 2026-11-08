@@ -89,16 +89,16 @@ final class DoorAlarmTests: XCTestCase {
 
     func testJarvisApprovalsSignTheApprovalIdInTheHomeDomain() async {
         let (api, approver, _) = api()
-        let center = DoorApprovals(api: api, approver: approver)
-        let approval = DoorApproval(json: ["id": "ap1", "command": "disarm", "expires_in_s": 100])!
+        let center = FaceIDApprovals(domain: DoorApprovalDomain(door: api), approver: approver)
+        let approval = FaceIDApproval(json: ["id": "ap1", "command": "disarm", "expires_in_s": 100])!
         await center.approve(approval)
         XCTAssertEqual(signer.signed.first?.hasPrefix("jarvis-home|disarm|ap1|"), true)
     }
 
     func testApprovalsNeverSignAnUnknownAction() async {
         let (api, approver, _) = api()
-        let center = DoorApprovals(api: api, approver: approver)
-        await center.approve(DoorApproval(json: ["id": "x", "command": "unlock_front_door", "expires_in_s": 100])!)
+        let center = FaceIDApprovals(domain: DoorApprovalDomain(door: api), approver: approver)
+        await center.approve(FaceIDApproval(json: ["id": "x", "command": "unlock_front_door", "expires_in_s": 100])!)
         XCTAssertTrue(signer.signed.isEmpty)
     }
 

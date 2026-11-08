@@ -3,7 +3,7 @@ import SwiftUI
 /// The X5 screen: what the ring reports, its gestures, and every action it can take.
 struct X5DeviceView: View {
     @ObservedObject var manager: X5Manager
-    let ring: DiscoveredRing
+    let ring: DiscoveredWearable
     @ObservedObject private var session: X5Session
     @ObservedObject private var sync: X5Sync
     @ObservedObject private var measure: X5MeasureController
@@ -15,7 +15,7 @@ struct X5DeviceView: View {
     @State private var actionError: String?
     @State private var choosingWorkout = false
 
-    init(manager: X5Manager, ring: DiscoveredRing) {
+    init(manager: X5Manager, ring: DiscoveredWearable) {
         self.manager = manager
         self.ring = ring
         _session = ObservedObject(wrappedValue: manager.session)
@@ -294,7 +294,7 @@ struct X5DeviceView: View {
 
 /// The X5's card in the Devices list.
 struct X5Card: View {
-    let ring: DiscoveredRing
+    let ring: DiscoveredWearable
     let battery: RingBattery?
     let connected: Bool
     var lastSeen: Date? = nil

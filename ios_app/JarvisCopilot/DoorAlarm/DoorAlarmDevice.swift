@@ -70,7 +70,7 @@ final class DoorAlarmDevice: WearableDevice {
             Task { await DoorAlarmAlert.shared.refresh() }
             return ["ok": true]
         case "door_show_approvals":
-            Task { await DoorApprovals.shared.refresh() }
+            Task { await FaceIDApprovals.door.refresh() }
             return ["ok": true]
         case "door_alarm_ring":
             if args["stop"] as? Bool == true { return await stopRinging() }

@@ -144,7 +144,7 @@ final class CarDevice: WearableDevice, WearableHost {
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
         case "car_show_approvals":
-            Task { await CarApprovals.shared.refresh() }
+            Task { await FaceIDApprovals.car.refresh() }
             return ["ok": true]
         case "car_get_status":
             return snapshot()

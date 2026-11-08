@@ -200,28 +200,6 @@ struct DoorSetup: Equatable, Sendable {
     }
 }
 
-struct DoorApproval: Identifiable, Equatable, Sendable {
-    let id: String
-    /// disarm | silence
-    let command: String
-    let title: String
-    let source: String
-    let ageSeconds: Int
-    let expiresInSeconds: Int
-    let deadline: Date
-
-    init?(json: [String: Any], now: Date = Date()) {
-        guard let id = json["id"] as? String, let command = json["command"] as? String else { return nil }
-        self.id = id
-        self.command = command
-        title = json["title"] as? String ?? command
-        source = json["source"] as? String ?? "Jarvis"
-        ageSeconds = json["age_s"] as? Int ?? 0
-        expiresInSeconds = json["expires_in_s"] as? Int ?? 120
-        deadline = now.addingTimeInterval(TimeInterval(expiresInSeconds))
-    }
-}
-
 struct DoorState: Equatable, Sendable {
     let setup: DoorSetup
     let alarm: DoorAlarmInfo
@@ -231,7 +209,7 @@ struct DoorState: Equatable, Sendable {
     let dataPoints: [DoorDataPoint]
     let roles: [String: [String]]
     let links: DoorLinks
-    let approvals: [DoorApproval]
+    let approvals: [FaceIDApproval]
 
     init(json: [String: Any]) {
         setup = DoorSetup(json: json["setup"] as? [String: Any] ?? [:])
@@ -248,7 +226,7 @@ struct DoorState: Equatable, Sendable {
         }
         roles = hub["roles"] as? [String: [String]] ?? [:]
         links = DoorLinks(json: hub["link"] as? [String: Any] ?? [:])
-        approvals = (json["approvals"] as? [[String: Any]] ?? []).compactMap { DoorApproval(json: $0) }
+        approvals = (json["approvals"] as? [[String: Any]] ?? []).compactMap { FaceIDApproval(json: $0) }
     }
 
     /// The settings the hub lets you change, door sensors left out.

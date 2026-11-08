@@ -121,22 +121,13 @@ struct ToyotaAPI: Sendable {
         _ = try await actions.delete(Self.prefix + "/approver/button")
     }
 
-    func approvals() async throws -> [CarApproval] {
-        let o = try await api.get(Self.prefix + "/approvals", timeout: 20).object()
-        return (o["approvals"] as? [[String: Any]] ?? []).compactMap { CarApproval(json: $0) }
-    }
-
     /// Answers Jarvis's request: the proof's nonce is the approval's id. Returns what the car did.
-    func approve(_ approval: CarApproval, proof: ToyotaApprover.Proof) async throws -> String {
+    func approve(_ approval: FaceIDApproval, proof: ToyotaApprover.Proof) async throws -> String {
         let o = try await actions.post(Self.prefix + "/approvals/\(approval.id)/approve",
                                        json: ["ts": proof.ts, "signature": proof.signature],
                                        timeout: Self.commandTimeout).object()
         guard o["ok"] as? Bool != false else { throw APIError.badResponse(o["error"] as? String ?? "not done") }
         return o["result"] as? String ?? "Done"
-    }
-
-    func deny(_ approval: CarApproval) async throws {
-        _ = try await api.post(Self.prefix + "/approvals/\(approval.id)/deny")
     }
 
     func signOut() async throws {

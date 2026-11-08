@@ -3,7 +3,7 @@ import SwiftUI
 /// The ring screen: everything the ring reports, every action it can take.
 struct RingDeviceView: View {
     @ObservedObject var manager: RingManager
-    let ring: DiscoveredRing
+    let ring: DiscoveredWearable
     @ObservedObject private var session: RingSession
     @ObservedObject private var sync: RingSync
 
@@ -15,7 +15,7 @@ struct RingDeviceView: View {
     @ObservedObject private var measure: RingMeasureController
     @StateObject private var health: HealthStore
 
-    init(manager: RingManager, ring: DiscoveredRing) {
+    init(manager: RingManager, ring: DiscoveredWearable) {
         self.manager = manager
         self.ring = ring
         _session = ObservedObject(wrappedValue: manager.session)
@@ -281,7 +281,7 @@ struct RingDeviceView: View {
 
 /// The ring's card in the Devices list.
 struct RingCard: View {
-    let ring: DiscoveredRing
+    let ring: DiscoveredWearable
     let battery: RingBattery?
     let connected: Bool
     /// When the ring was last in range, for the offline pill.

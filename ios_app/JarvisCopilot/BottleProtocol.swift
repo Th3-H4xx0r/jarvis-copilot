@@ -1,11 +1,12 @@
+import CoreBluetooth
 import Foundation
 
 /// Protocol for the VSITOO S1 Pro / S1 Lite bottle. See PROTOCOL.md for where each
 /// opcode was recovered from in the decompiled app.
 enum BottleProtocol {
-    static let serviceUUID = "0000A300-0000-1000-8000-00805F9B34FB"
-    static let writeUUID   = "0000A301-0000-1000-8000-00805F9B34FB"
-    static let notifyUUID  = "0000A303-0000-1000-8000-00805F9B34FB"
+    static let service = CBUUID(string: "0000A300-0000-1000-8000-00805F9B34FB")
+    static let write   = CBUUID(string: "0000A301-0000-1000-8000-00805F9B34FB")
+    static let notify  = CBUUID(string: "0000A303-0000-1000-8000-00805F9B34FB")
 
     /// The bottle advertises as `VSITOO-S1-Pro…` / `VSITOO-S1-Lite…`.
     static let namePrefixes = ["VSITOO-S1-Pro", "VSITOO-S1-Lite"]

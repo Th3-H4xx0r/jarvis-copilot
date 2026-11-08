@@ -17,13 +17,13 @@ enum ConnectionState: Equatable {
 }
 
 /// A wearable in a scan list (any of them, not just rings).
-struct DiscoveredRing: Identifiable, Equatable {
+struct DiscoveredWearable: Identifiable, Equatable {
     let id: UUID
     var name: String
     var rssi: Int
     var peripheral: CBPeripheral
 
-    static func == (a: DiscoveredRing, b: DiscoveredRing) -> Bool { a.id == b.id }
+    static func == (a: DiscoveredWearable, b: DiscoveredWearable) -> Bool { a.id == b.id }
 }
 
 /// The Bluetooth link every on-demand wearable shares (R12, X5, band): one central, scanning,
@@ -37,8 +37,8 @@ struct DiscoveredRing: Identifiable, Equatable {
 class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentralManagerDelegate {
     @Published var state: ConnectionState = .idle
     @Published var bluetoothReady = false
-    @Published var discovered: [DiscoveredRing] = []
-    @Published var connected: DiscoveredRing?
+    @Published var discovered: [DiscoveredWearable] = []
+    @Published var connected: DiscoveredWearable?
     /// Devices forgotten this session: their page must not reconnect them on the way out.
     @Published var forgottenIDs: Set<UUID> = []
 
@@ -68,7 +68,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     var setupTask: Task<Void, Never>?
     var discoveryTask: Task<Void, Never>?
     var discoveryAttempts = 0
-    var wasConnectedBeforeBackground: DiscoveredRing?
+    var wasConnectedBeforeBackground: DiscoveredWearable?
     var isBackgrounded = false
 
     init(logName: String, restoreIdentifier: String, lastPeripheralKey: String, fallbackName: String,
@@ -161,7 +161,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
         }
         for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
             guard belongsInList(p, isLastUsed: p.identifier.uuidString == last) else { continue }
-            discovered.append(DiscoveredRing(id: p.identifier, name: displayName(p.name), rssi: 0, peripheral: p))
+            discovered.append(DiscoveredWearable(id: p.identifier, name: displayName(p.name), rssi: 0, peripheral: p))
         }
     }
 
@@ -172,7 +172,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
 
     // MARK: Connection
 
-    func connect(_ device: DiscoveredRing) {
+    func connect(_ device: DiscoveredWearable) {
         JcLog.devices.notice("\(self.linkLogName, privacy: .public): connect \(device.name, privacy: .public) state=\(self.state.text, privacy: .public)")
         stopScan()
         if let current = peripheral, current.identifier != device.id {
@@ -204,7 +204,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     /// CoreBluetooth can reopen a known peripheral by identifier, so this costs no scan.
     func startLink() {
         if peripheral == nil, let known = knownPeripheral() {
-            connect(DiscoveredRing(id: known.identifier, name: displayName(known.name), rssi: 0, peripheral: known))
+            connect(DiscoveredWearable(id: known.identifier, name: displayName(known.name), rssi: 0, peripheral: known))
         } else if let p = peripheral, state != .connecting, state != .discovering {
             discoveryAttempts = 0
             state = .connecting
@@ -305,7 +305,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
             guard let p = restored.first(where: { $0.state == .connected || $0.state == .connecting }) else { return }
             p.delegate = self.peripheralDelegate
             self.peripheral = p
-            self.connected = DiscoveredRing(id: p.identifier, name: self.displayName(p.name), rssi: 0, peripheral: p)
+            self.connected = DiscoveredWearable(id: p.identifier, name: self.displayName(p.name), rssi: 0, peripheral: p)
             self.discoveryAttempts = 0
             if p.state == .connected { self.beginDiscovery(p) } else { self.state = .connecting }
         }
@@ -327,7 +327,7 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
                 self.discovered[i].rssi = rssi
                 if !name.isEmpty { self.discovered[i].name = name }
             } else {
-                self.discovered.append(DiscoveredRing(id: p.identifier, name: self.displayName(name),
+                self.discovered.append(DiscoveredWearable(id: p.identifier, name: self.displayName(name),
                                                       rssi: rssi, peripheral: p))
             }
         }

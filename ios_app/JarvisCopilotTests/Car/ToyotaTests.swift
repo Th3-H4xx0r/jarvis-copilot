@@ -191,7 +191,7 @@ final class ToyotaTests: XCTestCase {
         let (api, transport) = JarvisAPI.mocked()
         let toyota = ToyotaAPI(api: api)
         transport.route("/api/car/approver", json: ["registered": true, "public_key": try signer.publicKey()])
-        let center = CarApprovals(api: toyota, approver: ToyotaApprover(signer: signer, api: toyota))
+        let center = FaceIDApprovals(domain: CarApprovalDomain(toyota: toyota), approver: ToyotaApprover(signer: signer, api: toyota))
         let waiting: [String: Any] = ["id": "a1", "command": "unlock", "title": "Unlock the car", "source": "Jarvis",
                                       "age_s": 3, "expires_in_s": 117]
         transport.enqueue(json: ["approvals": [waiting]])
@@ -293,13 +293,13 @@ final class ToyotaTests: XCTestCase {
         await store.load()
         let stage = CarStage()
         let (approvalsAPI, approvalsTransport) = JarvisAPI.mocked()
-        let center = CarApprovals(api: ToyotaAPI(api: approvalsAPI),
+        let center = FaceIDApprovals(domain: CarApprovalDomain(toyota: ToyotaAPI(api: approvalsAPI)),
                                   approver: ToyotaApprover(signer: signer, api: ToyotaAPI(api: approvalsAPI)))
         approvalsTransport.enqueue(json: ["approvals": [["id": "a1", "command": "lock", "title": "Lock the car",
                                                          "source": "Jarvis", "age_s": 2, "expires_in_s": 112]]])
         await center.refresh()
         let views: [(String, AnyView)] = [
-            ("toyota-approval", AnyView(CarApprovalCard(center: center).frame(height: 874))),
+            ("toyota-approval", AnyView(FaceIDApprovalCard(center: center).frame(height: 874))),
             ("toyota-controls", AnyView(CarControlsScreen(store: store, stage: stage).frame(height: 874))),
             ("toyota-status", AnyView(CarStatusScreen(store: store, stage: stage).frame(height: 874))),
             ("toyota-climate", AnyView(CarClimateScreen(store: store, stage: stage).frame(height: 780))),

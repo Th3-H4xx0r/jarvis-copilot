@@ -2,7 +2,7 @@ import SwiftUI
 
 struct DeviceView: View {
     @ObservedObject var manager: BottleManager
-    let bottle: DiscoveredBottle
+    let bottle: DiscoveredWearable
 
     /// Persisted across launches; display-only, nothing is written to the bottle.
     @AppStorage(TemperatureUnit.storageKey) private var tempUnit: TemperatureUnit = .celsius
@@ -110,7 +110,7 @@ struct DeviceView: View {
     /// cycle snap back instead of animating.
     @ViewBuilder private var hero: some View {
         VStack(spacing: 14) {
-            if bottle.hasModel {
+            if BottleProtocol.hasModel(forName: bottle.name) {
                 BottleSceneView(spin: true,
                                 entrance: true,
                                 sterilising: isSterilising)

@@ -39,19 +39,10 @@ struct DoorAlarmAPI: Sendable {
         return DoorState(json: try await api.post(Self.prefix + "/" + action, json: body, timeout: 20).object())
     }
 
-    func approvals() async throws -> [DoorApproval] {
-        let o = try await api.get(Self.prefix + "/approvals", timeout: 20).object()
-        return (o["approvals"] as? [[String: Any]] ?? []).compactMap { DoorApproval(json: $0) }
-    }
-
-    func approve(_ approval: DoorApproval, proof: ToyotaApprover.Proof) async throws -> DoorState {
+    func approve(_ approval: FaceIDApproval, proof: ToyotaApprover.Proof) async throws -> DoorState {
         let o = try await api.post(Self.prefix + "/approvals/\(approval.id)/approve",
                                    json: ["ts": proof.ts, "signature": proof.signature], timeout: 20).object()
         return DoorState(json: o)
-    }
-
-    func deny(_ approval: DoorApproval) async throws {
-        _ = try await api.post(Self.prefix + "/approvals/\(approval.id)/deny")
     }
 
     /// Sets one hub data point; returns how it went ("esp32" / "cloud"). Throws when the hub didn't confirm.

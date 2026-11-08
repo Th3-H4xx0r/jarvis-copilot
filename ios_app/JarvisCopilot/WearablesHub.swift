@@ -282,15 +282,15 @@ final class WearablesHub: ObservableObject {
 
     /// The wearables on the shared Bluetooth link (BLEWearableManager), with what their card shows.
     var linkedWearables: [(kind: WearableKind, manager: BLEWearableManager, model: String, fallbackName: String)] {
-        [(.ring, ring, ColmiR12.model, ColmiR12.model),
+        [(.bottle, bottle, VsitooS1Pro.model, VsitooS1Pro.model),
+         (.ring, ring, ColmiR12.model, ColmiR12.model),
          (.x5ring, x5, X5Ring.model, X5Ring.model),
          (.band, band, BandDevice.model, BandDevice.fallbackName)]
     }
 
-    /// Foreground: resume links, reconnect the remembered bottle, re-register.
+    /// Foreground: resume links, reconnect remembered devices, re-register.
     func appDidBecomeActive() {
         restoreSharedDevices()
-        bottle.enterForeground()
         for linked in linkedWearables { linked.manager.enterForeground() }
         if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.reconnectOnOpen() } }
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
@@ -301,30 +301,16 @@ final class WearablesHub: ObservableObject {
     /// exactly as the legacy `ScanView` did on `.background`.
     func appDidEnterBackground() {
         reconnectTask?.cancel()
-        bottle.enterBackground()
         for linked in linkedWearables { linked.manager.enterBackground() }
     }
 
-    /// Bring the last-used bottle back without anyone opening the Devices tab,
-    /// so `bottle_*` skills are advertised to the server. Best effort and
-    /// bounded: Bluetooth may be off, or the bottle out of range.
+    /// Bring remembered devices with Keep Alive back without anyone opening the Devices tab,
+    /// so their skills are advertised to the server. Best effort and bounded: Bluetooth may
+    /// be off, or the device out of range.
     func reconnectKnownDevices() {
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self else { return }
-            // Give CoreBluetooth a moment to report its power state after launch.
-            for _ in 0..<20 where !self.bottle.bluetoothReady {
-                try? await Task.sleep(for: .milliseconds(250))
-                if Task.isCancelled { return }
-            }
-            guard self.bottle.bluetoothReady, !Task.isCancelled else { return }
-            // Keep Alive off: don't reach for the bottle at all. It is connected
-            // on demand instead — see BottleManager.ensureConnected.
-            if WearableKeepAlive.isOn(WearableKeepAlive.bottle) {
-                if await self.bottle.ensureConnected(timeout: 15) == false {
-                    JcLog.services.notice("wearables: bottle not reachable at launch")
-                }
-            }
             if WearableKeepAlive.isOn(WearableKeepAlive.scale) { self.scale.startScan() }
             // Each linked wearable has its own central, which reports power separately.
             // Keep Alive alone brings the link back at launch. Gestures only reach Jarvis over a
@@ -352,19 +338,6 @@ final class WearablesHub: ObservableObject {
         noteWhatWeCanSee()
         var out: [WearableEntry] = []
 
-        if let id = WearableIdentity.remembered(WearableKeepAlive.bottle) {
-            let live = bottle.discovered.first { $0.id == bottle.connected?.id } ?? bottle.discovered.first
-            out.append(WearableEntry(kind: WearableKeepAlive.bottle,
-                                     deviceID: id,
-                                     model: VsitooS1Pro.model,
-                                     name: WearableNames.shared.name(WearableKeepAlive.bottle,
-                                                                     fallback: live?.name ?? bottle.connected?.name ?? VsitooS1Pro.model),
-                                     connected: bottle.state == .ready,
-                                     rssi: live?.rssi,
-                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.bottle),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.bottle),
-                                     listed: live != nil))
-        }
         if let id = WearableIdentity.remembered(WearableKeepAlive.scale) {
             let live = scale.discovered.first
             out.append(WearableEntry(kind: WearableKeepAlive.scale,
@@ -431,8 +404,6 @@ final class WearablesHub: ObservableObject {
     /// Record signal for anything the current scan turned up, so a device that drops
     /// out of range keeps a last-known reading to show.
     private func noteWhatWeCanSee() {
-        note(WearableKeepAlive.bottle, connected: bottle.state == .ready,
-             rssi: bottle.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.scale, connected: scale.state == .ready,
              rssi: scale.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.esp32, connected: esp32.state == .ready,
@@ -555,8 +526,6 @@ final class WearablesHub: ObservableObject {
         WearableKeepAlive.set(value, for: device)
         if let manager = linkedWearables.first(where: { $0.kind.rawValue == device })?.manager {
             if value { Task { _ = await manager.ensureConnected(timeout: 10) } } else { manager.releaseIfIdle() }
-        } else if device == WearableKeepAlive.bottle {
-            if value { Task { _ = await bottle.ensureConnected(timeout: 10) } } else { bottle.releaseIfIdle() }
         }
         return value
     }
@@ -569,8 +538,6 @@ final class WearablesHub: ObservableObject {
             return await connectLinked(manager, deviceID: deviceID, timeout: timeout)
         }
         switch entry.kind {
-        case WearableKeepAlive.bottle:
-            return await bottle.ensureConnected(timeout: timeout)
         case WearableKeepAlive.scale:
             if scale.connected != nil, scale.state == .ready { return true }
             scale.startScan()
@@ -597,6 +564,9 @@ final class WearablesHub: ObservableObject {
     /// gets its clock set and its data filed as this user's.
     private func connectLinked(_ manager: BLEWearableManager, deviceID: String, timeout: TimeInterval) async -> Bool {
         if await manager.ensureConnected(timeout: 3) { return true }
+        // A device known by another id (the bottle goes by its MAC) can't be picked out of a
+        // scan; only its known peripheral reopens.
+        guard UUID(uuidString: deviceID) != nil else { return await manager.ensureConnected(timeout: timeout) }
         manager.startScan()
         guard let found = await waitFor(timeout: timeout, {
             manager.discovered.first { $0.id.uuidString == deviceID }
@@ -627,7 +597,6 @@ final class WearablesHub: ObservableObject {
 
     /// The Devices tab's "Rescan".
     func rescanAll() {
-        bottle.startScan()
         scale.startScan()
         esp32.startScan()
         for linked in linkedWearables { linked.manager.startScan() }

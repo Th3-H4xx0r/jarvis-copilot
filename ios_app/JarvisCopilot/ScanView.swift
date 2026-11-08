@@ -376,14 +376,14 @@ private struct BottleCard: View {
     /// How far the model runs past the card's bottom edge.
     static let bleed: CGFloat = 46
 
-    let bottle: DiscoveredBottle
+    let bottle: DiscoveredWearable
     var connected = false
     /// When the bottle was last in range, for the offline corner note.
     var lastSeen: Date? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if bottle.hasModel {
+            if BottleProtocol.hasModel(forName: bottle.name) {
                 // Whole bottle, leaning, sitting in the right of the card and running a
                 // little past its bottom edge — the camera does the placing, so nothing
                 // is cropped mid-body.

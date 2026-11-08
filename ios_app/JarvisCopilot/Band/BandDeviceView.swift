@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The band's card on Devices.
 struct BandCard: View {
-    let band: DiscoveredRing
+    let band: DiscoveredWearable
     let battery: RingBattery?
     let connected: Bool
     var lastSeen: Date? = nil
@@ -54,7 +54,7 @@ struct BandCard: View {
 /// The band's page: model, status, spot checks, a workout, find, sync and its settings.
 struct BandDeviceView: View {
     @ObservedObject var manager: BandManager
-    let band: DiscoveredRing
+    let band: DiscoveredWearable
     @ObservedObject private var session: BandSession
     @ObservedObject private var sync: BandSync
     @Environment(\.dismiss) private var dismiss
@@ -74,7 +74,7 @@ struct BandDeviceView: View {
     @State private var ecgLive = false
     @State private var ecgReport: BandEcgReport?
 
-    init(manager: BandManager, band: DiscoveredRing) {
+    init(manager: BandManager, band: DiscoveredWearable) {
         self.manager = manager
         self.band = band
         _session = ObservedObject(wrappedValue: manager.session)
