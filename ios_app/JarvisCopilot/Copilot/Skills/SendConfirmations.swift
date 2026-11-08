@@ -109,6 +109,8 @@ final class SendConfirmations: ObservableObject {
     /// (tests replace it).
     var answer: (Bool) async -> Bool = { _ in false }
     var outcomeHold: Duration = .seconds(1.6)
+    /// A card is up and he hasn't answered yet.
+    var awaitingAnswer: Bool { card != nil && outcome == nil }
     /// A tap whose answer never got an outcome (the session dropped it) frees the buttons.
     var answerTimeout: Duration = .seconds(20)
     private var answerWatch: Task<Void, Never>?
@@ -124,7 +126,6 @@ final class SendConfirmations: ObservableObject {
         self.contacts = contacts
         if let voice {
             answer = { yes in await voice.submitTyped(yes ? "Yes." : "No.") }
-            voice.awaitingAnswer = { [weak self] in self?.card != nil && self?.outcome == nil }
             watchTheApp()
         }
     }

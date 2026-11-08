@@ -200,6 +200,9 @@ final class WearablesHub: ObservableObject {
     let x5 = X5Manager()
     let band = BandManager()
     let glasses = InmoGo3Device.shared
+    /// Workouts on any of them, started from the Health tab, a device's page or by voice: one
+    /// live sheet, Health card and Live Activity, whichever wearable the start screen picks.
+    let workout: RingWorkoutController
 
     private var reconnectTask: Task<Void, Never>?
     /// Roster changes, debounced, sent to the server so the Mac's menu can show them without
@@ -209,38 +212,7 @@ final class WearablesHub: ObservableObject {
     private var sentState: String?
 
     private init() {
-        // The X5 tracks workouts through the same controller as the R12: one live sheet,
-        // Health card and Live Activity, whichever ring the start screen picks.
-        let x5 = self.x5
-        ring.workout.add(X5WorkoutWearable(
-            session: x5.session,
-            connect: { [weak x5] in
-                guard let x5, await x5.ensureConnected(timeout: 12) else { return false }
-                await x5.waitForSetup(timeout: 8)
-                return true
-            },
-            disconnect: { [weak x5] in x5?.disconnect() },
-            release: { [weak x5] in x5?.releaseIfIdle() },
-            deviceID: { [weak x5] in x5?.deviceID },
-            state: x5.$state.eraseToAnyPublisher()))
-        let workout = ring.workout
-        x5.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.x5ring) ?? false }
-        x5.workouts = workout
-        // The band too: its own adapter makes the ticks (it has no per-second workout packet).
-        let band = self.band
-        workout.add(BandWorkoutWearable(
-            session: band.session,
-            connect: { [weak band] in
-                guard let band, await band.ensureConnected(timeout: 12) else { return false }
-                await band.waitForSetup(timeout: 8)
-                return true
-            },
-            disconnect: { [weak band] in band?.disconnect() },
-            release: { [weak band] in band?.releaseIfIdle() },
-            deviceID: { [weak band] in band?.deviceID },
-            state: band.$state.eraseToAnyPublisher()))
-        band.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.band) ?? false }
-        band.workouts = workout
+        workout = Self.makeWorkouts(ring: ring, x5: x5, band: band)
         let changes = bluetoothWearables.map { $0.manager.objectWillChange.map { _ in () }.eraseToAnyPublisher() }
             + [esp32.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
                glasses.objectWillChange.map { _ in () }.eraseToAnyPublisher()]
@@ -248,6 +220,59 @@ final class WearablesHub: ObservableObject {
             // A manager may publish off the main thread (a Bluetooth callback): hop first.
             .receive(on: DispatchQueue.main)
             .sink { _ in MainActor.assumeIsolated { WearablesHub.shared.sendStateSoon() } }
+    }
+
+    private static func makeWorkouts(ring: RingManager, x5: X5Manager, band: BandManager) -> RingWorkoutController {
+        let controller = RingWorkoutController(
+            wearable: R12WorkoutWearable(
+                session: ring.session,
+                connect: { [weak ring] in await ring?.ensureConnected(timeout: 12) ?? false },
+                disconnect: { [weak ring] in ring?.disconnect() },
+                release: { [weak ring] in ring?.workoutEnded() },
+                deviceID: { [weak ring] in ring?.deviceID },
+                state: ring.$state.eraseToAnyPublisher()),
+            age: { [weak ring] in ring?.session.settings.profile?.age ?? 30 },
+            location: WorkoutLocation(),
+            liveActivity: WorkoutLiveActivity(),
+            training: .shared, library: .shared, alerts: RestAlerts(), pedometer: PhonePedometer(),
+            profile: { [weak ring] in VitalsProfile(ring: ring?.session.settings.profile, restingHR: HealthRestingHR.last) })
+        // The X5 and the band start sport commands only once their setup has run.
+        controller.add(X5WorkoutWearable(
+            session: x5.session,
+            connect: { [weak x5] in
+                guard let x5, await x5.ensureConnected(timeout: 12) else { return false }
+                await x5.waitForSetup(timeout: 8)
+                return true
+            },
+            disconnect: { [weak x5] in x5?.disconnect() },
+            release: { [weak x5] in x5?.workoutEnded() },
+            deviceID: { [weak x5] in x5?.deviceID },
+            state: x5.$state.eraseToAnyPublisher()))
+        controller.add(BandWorkoutWearable(
+            session: band.session,
+            connect: { [weak band] in
+                guard let band, await band.ensureConnected(timeout: 12) else { return false }
+                await band.waitForSetup(timeout: 8)
+                return true
+            },
+            disconnect: { [weak band] in band?.disconnect() },
+            release: { [weak band] in band?.workoutEnded() },
+            deviceID: { [weak band] in band?.deviceID },
+            state: band.$state.eraseToAnyPublisher()))
+        // Saved under the wearable that tracked it (the X5's own id for an X5 workout).
+        controller.onSaveRoute = { [weak controller] route, workout in
+            RouteStore.shared.save(route, for: workout, deviceID: controller?.deviceIDForSave)
+        }
+        controller.onSave = { [weak controller] workout in
+            let deviceID = controller?.deviceIDForSave
+            Task {
+                await WorkoutUploader.save(workout, deviceID: deviceID)
+                await RouteStore.shared.flush()
+                await AppleHealthWriter.shared.export(workout)
+            }
+        }
+        for manager in [ring, x5, band] as [BLEWearableManager] { manager.workouts = controller }
+        return controller
     }
 
     /// The roster as the server keeps it for the Mac's menu: who is paired and linked, without the

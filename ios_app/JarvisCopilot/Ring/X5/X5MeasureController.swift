@@ -92,7 +92,7 @@ final class X5MeasureController: ObservableObject {
     // MARK: What a screen shows
 
     func card(_ type: RingMeasurementType, from screen: RingMeasureController.Host) -> RingCardMeasure? {
-        guard manager.deviceID != nil, types.contains(type), !manager.workoutRunning else { return nil }
+        guard manager.deviceID != nil, types.contains(type), !manager.holdsLinkForWorkout else { return nil }
         return RingCardMeasure(state: state(of: type), enabled: !isBusy || isMeasuring(type),
                                start: { [weak self] in self?.start(type, from: screen) },
                                stop: { [weak self] in self?.stop() })

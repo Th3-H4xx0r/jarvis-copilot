@@ -80,7 +80,7 @@ extension VoiceStore {
                           // The server clears a stream this session left running
                           // (the phone skips its own check once it said it can).
                           clearStaleStream: true,
-                          carplay: onCarPlay())
+                          carplay: host.onCarPlay())
     }
 
     /// Raise voice's claim on the process-wide `AVAudioSession` and make sure it
@@ -318,7 +318,7 @@ extension VoiceStore {
             // A one-shot reply that asks ("Unlock the car?"), or one whose call/text card
             // is waiting, waits for his answer.
             machine.replyAsks = machine.oneShot
-                && (reply.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") || awaitingAnswer())
+                && (reply.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") || host.awaitingAnswer())
             toolStatus = nil
             if VoiceTurnMachine.failureReasons.contains(reason), !producedReply {
                 // Drop the cached session id so the NEXT connect re-resolves the

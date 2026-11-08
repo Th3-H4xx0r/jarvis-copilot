@@ -25,7 +25,6 @@ extension RingBackend {
 }
 
 extension RingManager: RingBackend {
-    var workouts: RingWorkoutController? { workout }
     var isConnected: Bool { state == .ready }
     var connectionText: String { state.text }
     var displayName: String? { connected?.name }

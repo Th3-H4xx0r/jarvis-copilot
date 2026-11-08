@@ -182,7 +182,10 @@ final class RingWorkoutTests: XCTestCase {
     /// The link a workout held in the background is handed back when it ends.
     func testEndingTheWorkoutLetsTheLinkGo() async throws {
         var ended = 0
-        controller.onEnded = { ended += 1 }
+        controller = RingWorkoutController(
+            wearable: R12WorkoutWearable(session: session, connect: { true }, release: { ended += 1 }), age: { 30 })
+        controller.countdownSeconds = 0
+        controller.endTimeout = 0.2
         try await started()
         XCTAssertTrue(controller.isActive, "held while it runs")
         controller.end()

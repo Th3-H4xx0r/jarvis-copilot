@@ -198,7 +198,6 @@ struct WorkoutConfirmView: View {
     /// Stand-ins for the live wearables (previews and render tests).
     var monitors: [WorkoutMonitor]? = nil
     let onStart: (WorkoutChoice) -> Void
-    @ObservedObject private var ring: RingManager
     /// Republishes its wearables' links and batteries.
     @ObservedObject private var workout: RingWorkoutController
     @ObservedObject private var appleHealth = AppleHealthWriter.shared
@@ -214,7 +213,7 @@ struct WorkoutConfirmView: View {
     @State private var choseMonitor = false
 
     init(choice: WorkoutChoice, store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
-         monitors: [WorkoutMonitor]? = nil, ring: RingManager = WearablesHub.shared.ring, guide: RouteGuide? = nil,
+         monitors: [WorkoutMonitor]? = nil, workout: RingWorkoutController = WearablesHub.shared.workout, guide: RouteGuide? = nil,
          wearable: String? = nil, onStart: @escaping (WorkoutChoice) -> Void) {
         self.choice = choice
         _guide = State(initialValue: guide)
@@ -222,9 +221,8 @@ struct WorkoutConfirmView: View {
         self.library = library
         self.monitors = monitors
         self.onStart = onStart
-        _ring = ObservedObject(wrappedValue: ring)
-        _workout = ObservedObject(wrappedValue: ring.workout)
-        let wearables = ring.workout.wearables
+        _workout = ObservedObject(wrappedValue: workout)
+        let wearables = workout.wearables
         let isPaired = { (kind: String) in wearables.first { $0.kind == kind }?.isPaired ?? false }
         // A device's own page opens on that device; otherwise the last choice.
         _wearableKind = State(initialValue: wearable.flatMap { isPaired($0) ? $0 : nil } ?? WorkoutWearables.preferred(
@@ -299,7 +297,7 @@ struct WorkoutConfirmView: View {
             if let template { TemplateEditor(template: template, store: store, library: library) }
         }
         .sheet(isPresented: $choosingMonitor) {
-            MonitorPicker(choice: choice, ring: ring, ringChosen: $ringChosen, wearableKind: $wearableKind)
+            MonitorPicker(choice: choice, workout: workout, ringChosen: $ringChosen, wearableKind: $wearableKind)
         }
         .sheet(isPresented: $choosingRoute) { RoutePicker(guide: $guide) }
         .onChange(of: ringChosen) { _, chosen in
@@ -498,9 +496,9 @@ struct WorkoutConfirmView: View {
             // What the screen shows is what starts — saved as the preference
             // only when the person chose it (not when no ring forced it).
             if choseMonitor { savePreference() }
-            ring.workout.nextStartUsesRing = ringChosen
-            ring.workout.nextStartWearable = wearableKind
-            ring.workout.guide = choice.isOutdoor ? guide : nil
+            workout.nextStartUsesRing = ringChosen
+            workout.nextStartWearable = wearableKind
+            workout.guide = choice.isOutdoor ? guide : nil
             onStart(choice)
         } label: {
             Text("Start")
@@ -655,7 +653,6 @@ struct ExercisePlanCard: View {
 /// each with its state and a Connect or Reconnect, and "No wearable".
 struct MonitorPicker: View {
     let choice: WorkoutChoice
-    @ObservedObject var ring: RingManager
     @Binding var ringChosen: Bool
     @Binding var wearableKind: String
     /// Republishes its wearables' links and batteries.
@@ -665,13 +662,12 @@ struct MonitorPicker: View {
     @State private var working: String?
 
     /// `connecting`: shown mid-connection (render tests).
-    init(choice: WorkoutChoice, ring: RingManager, ringChosen: Binding<Bool>,
+    init(choice: WorkoutChoice, workout: RingWorkoutController = WearablesHub.shared.workout, ringChosen: Binding<Bool>,
          wearableKind: Binding<String> = .constant(WearableKeepAlive.ring), connecting: Bool = false) {
         self.choice = choice
-        self.ring = ring
         _ringChosen = ringChosen
         _wearableKind = wearableKind
-        _workout = ObservedObject(wrappedValue: ring.workout)
+        _workout = ObservedObject(wrappedValue: workout)
         _working = State(initialValue: connecting ? wearableKind.wrappedValue : nil)
     }
 

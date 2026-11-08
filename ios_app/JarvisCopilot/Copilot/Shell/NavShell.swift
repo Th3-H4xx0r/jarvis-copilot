@@ -75,7 +75,7 @@ struct NavShell: View {
             keyboardVisible = false
         }
         // A workout runs full screen over whichever tab started it.
-        .modifier(RingWorkoutPresenter(workout: WearablesHub.shared.ring.workout))
+        .modifier(RingWorkoutPresenter(workout: WearablesHub.shared.workout))
     }
 
     @ViewBuilder
@@ -103,7 +103,7 @@ struct GlassNavBar: View {
     var bottomInset: CGFloat = 0
     /// A workout under way marks the Health tab live: a beating dot on its
     /// icon and the workout's time in place of its name.
-    @ObservedObject var workout: RingWorkoutController = WearablesHub.shared.ring.workout
+    @ObservedObject var workout: RingWorkoutController = WearablesHub.shared.workout
     /// Live Jarvis capturing marks the Voice tab: a solid dot on its icon and
     /// "Rec" in place of its name, so the one fact that matters — this phone is
     /// listening to the room — is legible from every other tab.

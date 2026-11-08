@@ -353,12 +353,20 @@ final class AppServices {
         TalkHereBridge.press = { await talkHere.press() }
         TalkHereBridge.log = talkLog
         TalkHereBridge.stop = { await VoiceStore.shared.stopAll() }
-        VoiceStore.shared.skipEchoCancellation = { VoiceAudioEngine.shared.skipVoiceProcessing = $0 }
-        VoiceStore.shared.playbackOnlyEngine = { VoiceAudioEngine.shared.playbackOnly = $0 }
-        VoiceStore.shared.audioDiagnostics = {
-            "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
-                + " app=\(UIApplication.shared.applicationState.rawValue)"
-        }
+        VoiceStore.shared.host = VoiceHost(
+            inCar: { CarPresence.shared.inCar },
+            onCarPlay: { CarScreen.isConnected },
+            awaitingAnswer: { SendConfirmations.shared.awaitingAnswer },
+            // Voice directions open the map once the reply has played; Stop cancels them.
+            onTurnFinished: { CarHandoff.shared.turnFinished() },
+            onStopRequested: { CarHandoff.shared.stopped() },
+            earcons: ToneEarconPlayer(),
+            audioDiagnostics: {
+                "\(AudioSessionArbiter.shared.summary) keepalive=\(BackgroundKeepalive.shared.isRunning)"
+                    + " app=\(UIApplication.shared.applicationState.rawValue)"
+            },
+            skipEchoCancellation: { VoiceAudioEngine.shared.skipVoiceProcessing = $0 },
+            playbackOnlyEngine: { VoiceAudioEngine.shared.playbackOnly = $0 })
         if let outside = TalkHereBridge.takeOutsideApp() {
             talkLog("a press ran outside the app (no voice session there): \(outside)")
         }
@@ -369,19 +377,9 @@ final class AppServices {
             (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
         }
         // Log a set, change its weight / reps, move a rest, pause: the workout Live Activity's buttons.
-        WorkoutLiveBridge.perform = { action in WearablesHub.shared.ring.workout.liveAction(action) }
-        // Listening / thinking sounds: every car turn (the widget's, and the CarPlay voice tab).
-        VoiceStore.shared.earcons = ToneEarconPlayer()
-        VoiceStore.shared.wantsEarcons = { CarPresence.shared.inCar }
-        // The reply plays through the car's speakers: interrupting takes more than one word.
-        VoiceStore.shared.inCar = { CarPresence.shared.inCar }
-        // Every turn while Jarvis is on the car's screen tells the server he's on CarPlay.
-        VoiceStore.shared.onCarPlay = { CarScreen.isConnected }
-        // Voice directions open the map once the reply has played; Stop cancels them.
-        VoiceStore.shared.onTurnFinished = { CarHandoff.shared.turnFinished() }
+        WorkoutLiveBridge.perform = { action in WearablesHub.shared.workout.liveAction(action) }
         // Directions, a call, an app handed to the car: that reply ends the conversation.
         CarHandoff.shared.onQueued = { VoiceStore.shared.endAfterThisReply() }
-        VoiceStore.shared.onStopRequested = { CarHandoff.shared.stopped() }
 
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
         WidgetDataHub.shared.start()

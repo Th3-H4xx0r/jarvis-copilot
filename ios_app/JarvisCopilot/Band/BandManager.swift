@@ -28,12 +28,6 @@ final class BandManager: BLEWearableManager {
 
     /// Days the sync changed — Jarvis Health pushes them.
     var onDaysChanged: ((Set<String>) -> Void)?
-    /// Whether a workout on the band is under way (the workout controller answers).
-    var workoutHold: (() -> Bool)?
-    /// The workout controller, for `band_workout`.
-    weak var workouts: RingWorkoutController?
-    var workoutRunning: Bool { workoutHold?() ?? false }
-    override var holdsLinkForWorkout: Bool { workoutRunning }
 
     override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.band) }
 
@@ -245,7 +239,7 @@ final class BandManager: BLEWearableManager {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard let self else { return }
-                log.set(.workout, self.workoutRunning)
+                log.set(.workout, self.holdsLinkForWorkout)
                 guard self.isLinkReady, !self.isWorking,
                       Date().timeIntervalSince(self.lastBatteryRead) >= BandBatteryLog.readEvery else { continue }
                 self.lastBatteryRead = Date()

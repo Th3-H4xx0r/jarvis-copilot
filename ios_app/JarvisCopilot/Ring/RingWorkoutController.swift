@@ -103,9 +103,6 @@ final class RingWorkoutController: ObservableObject {
     var onSaveRoute: ((WorkoutRoute, RingWorkout) -> Void)?
     /// Strayed from, or back on, the route being followed.
     var onGuideEvent: ((OffRouteDetector.Event) -> Void)? = RouteAlerts.announce
-    /// The workout is over (finished, failed or closed): the link it held can
-    /// go back to the usual rules.
-    var onEnded: (() -> Void)?
 
     /// Every wearable that can track a workout, the R12 first (`add(_:)` brings the rest).
     private(set) var wearables: [WorkoutWearable] = []
@@ -782,9 +779,8 @@ final class RingWorkoutController: ObservableObject {
         Task { [wearable] in await wearable.send(command, sport: sport.id) }
     }
 
-    /// The workout is over: the R12's manager and the wearable's own link go back to the usual rules.
+    /// The workout is over (finished, failed or closed): the link it held goes back to the usual rules.
     private func workoutEnded() {
-        onEnded?()
         wearable.released()
     }
 

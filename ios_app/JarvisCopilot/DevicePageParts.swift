@@ -218,7 +218,7 @@ extension View {
     /// the shared controller, tracked by `wearable`.
     func workoutPicker(isPresented: Binding<Bool>, wearable: String) -> some View {
         sheet(isPresented: isPresented) {
-            let workout = WearablesHub.shared.ring.workout
+            let workout = WearablesHub.shared.workout
             WorkoutPicker(wearable: wearable,
                           onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
         }

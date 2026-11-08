@@ -205,7 +205,7 @@ struct BandDeviceView: View {
     /// one runs.
     private var measureCard: some View {
         // A workout has the sensor; readings wait until it ends.
-        let workout = WearablesHub.shared.ring.workout.holdsLink(for: WearableKeepAlive.band)
+        let workout = WearablesHub.shared.band.holdsLinkForWorkout
         return RingMeasureList(items: BandMeasure.allCases.map { type in
             var item = RingMeasureList.Item(
                 label: type.label, icon: type.icon, tint: type.tint, state: wearAsk.state(of: type),

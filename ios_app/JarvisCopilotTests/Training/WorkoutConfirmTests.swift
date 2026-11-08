@@ -147,7 +147,7 @@ final class WorkoutConfirmTests: XCTestCase {
     }
 
     func testTheWearableSheet() throws {
-        try RenderHarness.write(MonitorPicker(choice: .strength(nil), ring: WearablesHub.shared.ring, ringChosen: .constant(true)),
+        try RenderHarness.write(MonitorPicker(choice: .strength(nil), ringChosen: .constant(true)),
                                 size: CGSize(width: 402, height: 520), name: "confirm-monitor-sheet")
         // A ring paired, mid-connection: the spinner sits where the button would.
         let key = "jc.deviceID.\(WearableKeepAlive.ring)"
@@ -158,7 +158,7 @@ final class WorkoutConfirmTests: XCTestCase {
                 UserDefaults.standard.removeObject(forKey: key)
             }
         }
-        try RenderHarness.write(MonitorPicker(choice: .sport(run), ring: WearablesHub.shared.ring, ringChosen: .constant(true),
+        try RenderHarness.write(MonitorPicker(choice: .sport(run), ringChosen: .constant(true),
                                               connecting: true),
                                 size: CGSize(width: 402, height: 420), name: "confirm-monitor-sheet-connecting")
     }

@@ -25,15 +25,8 @@ final class X5Manager: BLEWearableManager {
 
     /// Days the sync changed — Jarvis Health pushes them when this is its ring.
     var onDaysChanged: ((Set<String>) -> Void)?
-    /// Whether a workout on the X5 is under way (the workout controller answers).
-    var workoutHold: (() -> Bool)?
-    /// The workout controller, for `x5_workout`.
-    weak var workouts: RingWorkoutController?
-    /// A workout the X5 is driving holds the link, in the background too.
-    var workoutRunning: Bool { workoutHold?() ?? false }
 
     override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.x5ring) }
-    override var holdsLinkForWorkout: Bool { workoutRunning }
 
     var deviceID: String? {
         WearableIdentity.remembered(WearableKeepAlive.x5ring)

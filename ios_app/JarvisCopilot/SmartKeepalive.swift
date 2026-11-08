@@ -90,7 +90,7 @@ final class SmartKeepalive {
         CarPresence.shared.$inCar.removeDuplicates()
             .sink { [weak self] on in self?.update { $0.inCar = on } }
             .store(in: &cancellables)
-        WearablesHub.shared.ring.workout.$phase.map(\.isActive).removeDuplicates()
+        WearablesHub.shared.workout.$phase.map(\.isActive).removeDuplicates()
             .sink { [weak self] on in self?.update { $0.workout = on } }
             .store(in: &cancellables)
         // A launch into the background (a push, a refresh) is not use: no 30 minutes for it.

@@ -25,7 +25,7 @@ struct HealthTab: View {
     /// The Health tab is the one on screen (its wearables stay connected).
     @State private var onScreen = false
     @Environment(\.scenePhase) private var scenePhase
-    private let workout = WearablesHub.shared.ring.workout
+    private let workout = WearablesHub.shared.workout
 
     init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
         let ring = ring ?? WearablesHub.shared.ring

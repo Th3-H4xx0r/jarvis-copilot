@@ -103,7 +103,17 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     // MARK: What a device says about itself (subclasses override)
 
     var keepAliveEnabled: Bool { false }
-    var holdsLinkForWorkout: Bool { false }
+
+    /// The app's workouts, for a device that tracks them (the hub hands them over).
+    weak var workouts: RingWorkoutController?
+    /// A workout under way on this device holds its link, in the background too: let go and
+    /// the device loses the phone and pauses its session.
+    var holdsLinkForWorkout: Bool { workouts?.holdsLink(for: identityKey) ?? false }
+
+    /// A workout on this device is over: the link it held goes back to the usual rules.
+    func workoutEnded() {
+        if isBackgrounded { releaseLinkForBackground() } else { releaseIfIdle() }
+    }
     var isWorking: Bool { isSettingUp }
     var isSettingUp: Bool { setupTask != nil }
 

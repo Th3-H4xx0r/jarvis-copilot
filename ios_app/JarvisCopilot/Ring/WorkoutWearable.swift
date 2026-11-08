@@ -71,13 +71,16 @@ final class R12WorkoutWearable: WorkoutWearable {
     let session: RingSession
     private let connect: () async -> Bool
     private let drop: () -> Void
+    private let release: () -> Void
     private let device: () -> String?
 
     init(session: RingSession, connect: @escaping () async -> Bool, disconnect: @escaping () -> Void = {},
-         deviceID: @escaping () -> String? = { nil }, state: AnyPublisher<ConnectionState, Never>? = nil) {
+         release: @escaping () -> Void = {}, deviceID: @escaping () -> String? = { nil },
+         state: AnyPublisher<ConnectionState, Never>? = nil) {
         self.session = session
         self.connect = connect
         self.drop = disconnect
+        self.release = release
         self.device = deviceID
         super.init(kind: WearableKeepAlive.ring)
         session.onSportTick = { [weak self] tick in self?.onTick?(tick) }
@@ -89,6 +92,7 @@ final class R12WorkoutWearable: WorkoutWearable {
 
     override func ensureConnected() async -> Bool { await connect() }
     override func disconnect() { drop() }
+    override func released() { release() }
 
     @discardableResult
     override func send(_ command: RingSportCommand, sport: Int) async -> Bool {
@@ -101,7 +105,6 @@ final class R12WorkoutWearable: WorkoutWearable {
               let totals = RingDecode.activity(reply.payload) else { return nil }
         return (totals.steps, totals.distanceMeters)
     }
-    // released(): the R12's manager re-applies its link rules through the controller's `onEnded`.
 }
 
 /// The X5: `19 [action, sport]` out (1 start, 2 pause, 3 resume, 4 end), `18` ticks in.

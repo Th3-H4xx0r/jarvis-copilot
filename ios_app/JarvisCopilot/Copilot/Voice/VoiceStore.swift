@@ -64,7 +64,37 @@ typealias VoiceLocalLaneRef = VoiceLocalLane
 ///  • **Realtime** — continuous: stream 16 kHz PCM over `/api/voice/s2s/ws` with
 ///    client-side VAD + barge-in, play 24 kHz PCM replies.
 ///
-/// Single session for the app: the mic, the audio session and the socket are all
+//// What the voice loop needs from the app around it. The iPhone sets all of it (AppServices); the
+/// Mac and the tests leave what they don't have.
+struct VoiceHost {
+    /// The phone is in the car: every turn gets the listening / thinking sounds, and the reply
+    /// plays through the car's speakers, far from the mic and late, where the phone can't cancel
+    /// its echo — interrupting takes more than one word.
+    var inCar: () -> Bool = { false }
+    /// Jarvis is on the car's screen (CarPlay): every turn says so, and the server tells the
+    /// model he's driving.
+    var onCarPlay: () -> Bool = { false }
+    /// A call or text Jarvis asked about is waiting for his answer (its card is up): a one-shot
+    /// reply keeps the mic for it, question mark or not.
+    var awaitingAnswer: () -> Bool = { false }
+    /// A reply finished playing: a one-shot turn closed, or realtime went back to listening.
+    var onTurnFinished: () -> Void = {}
+    /// Stop was asked for (Stop, End, the Talk widget's second tap).
+    var onStopRequested: () -> Void = {}
+    /// The listening / thinking sounds; nil is silent.
+    var earcons: EarconPlaying?
+    /// The audio session's claims and live state, for the voice log.
+    var audioDiagnostics: () -> String = { "" }
+    /// Builds the next mic without echo cancellation (true) or with it again. A one-shot
+    /// (background or the car's screen) takes none: its unit took ~0.6 s to build on his phone —
+    /// most of the wait before Listening — and leaves the session in VoiceChat mode, which the
+    /// next background talk then can't switch back ('!int').
+    var skipEchoCancellation: (Bool) -> Void = { _ in }
+    /// Builds the next engine without a mic (true) for a talk whose words come from the glasses.
+    var playbackOnlyEngine: (Bool) -> Void = { _ in }
+}
+
+// Single session for the app: the mic, the audio session and the socket are all
 /// process-wide, so a second store would fight the first. Views take `shared`.
 @MainActor
 @Observable
@@ -175,7 +205,7 @@ final class VoiceStore {
     /// recogniser reports in steps of about 0.9 s — and then gives up once the
     /// mic has been under the bar for `bargeInCheckQuietMs`.
     static let bargeInCheckMinMs = 1200
-    /// One of these alone interrupts in the car (`inCar`), where one ordinary word
+    /// One of these alone interrupts in the car (`host.inCar`), where one ordinary word
     /// doesn't.
     static let bargeInStopWords: Set<String> = ["stop", "wait", "jarvis", "cancel", "pause", "enough",
                                                 "quiet", "hold", "hang", "shut", "no", "nope"]
@@ -318,23 +348,8 @@ final class VoiceStore {
     private(set) var replyHoldUntil: Date?
     /// The phone's voice mode, put back when a one-shot turn (always realtime) is over.
     private var modeAfterOneShot: VoiceMode?
-    /// A reply finished playing: a one-shot turn closed, or realtime went back to listening.
-    var onTurnFinished: (() -> Void)?
-    /// Stop was asked for (Stop, End, the Talk widget's second tap).
-    var onStopRequested: (() -> Void)?
-    /// The listening / thinking sounds. Nil (silent) unless the app installs a player.
-    var earcons: EarconPlaying?
-    /// Sounds for every turn, not only one-shot ones: set by the app to "in the car".
-    var wantsEarcons: () -> Bool = { false }
-    /// The phone is in the car: the reply plays through the car's speakers, far from
-    /// the mic and late, where the phone can't cancel its echo. Set by the app.
-    var inCar: () -> Bool = { false }
-    /// Jarvis is on the car's screen (CarPlay): every turn says so, and the server
-    /// tells the model he's driving. Set by the app.
-    var onCarPlay: () -> Bool = { false }
-    /// A call or text Jarvis asked about is waiting for his answer (its card is up): a
-    /// one-shot reply keeps the mic for it, question mark or not. Set by the app.
-    var awaitingAnswer: () -> Bool = { false }
+    /// What the app around the voice loop provides (the car, the audio engine).
+    var host = VoiceHost()
     /// Mic audio ignored after an earcon (ms of audio, not wall time) for as long
     /// as the mic can still hear it, so the tone can't be heard as speech or as
     /// him cutting in.
@@ -348,17 +363,6 @@ final class VoiceStore {
     /// This one-shot holds the mixing-only session: iOS refused the car session's
     /// ducking from the background (`startOneShotTurn`).
     private(set) var mixedAudio = false
-    /// The audio session's claims and live state, for the voice log. Set by the app.
-    var audioDiagnostics: () -> String = { "" }
-    /// Builds the next mic without echo cancellation (true) or with it again. A one-shot
-    /// (background or the car's screen) takes none: its unit took ~0.6 s to build on his
-    /// phone — most of the wait before Listening — and leaves the session in
-    /// VoiceChat mode, which the next background talk then can't switch back
-    /// ('!int'). A one-shot takes no talk-over, so it has no use for it. Set by the app.
-    var skipEchoCancellation: (Bool) -> Void = { _ in }
-    /// Builds the next engine without a mic (true) for a talk whose words come from
-    /// the glasses, or with one again. Set by the app.
-    var playbackOnlyEngine: (Bool) -> Void = { _ in }
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -746,7 +750,7 @@ final class VoiceStore {
         input.onFrame = nil
         input = source ?? DefaultAudioInput()
         usesExternalInput = source != nil
-        playbackOnlyEngine(usesExternalInput)
+        host.playbackOnlyEngine(usesExternalInput)
         if source == nil { machine.mode = settings.mode }
         input.onFrame = { [weak self] chunk in self?.handleMicFrame(chunk) }
     }
@@ -814,7 +818,7 @@ final class VoiceStore {
     /// ('!int' otherwise). Each falls back to the other once. Every attempt goes in
     /// the voice log with the session's state.
     private func acquireOneShotSession(inBackground: Bool) throws {
-        note("one-shot audio before: \(audioDiagnostics())")
+        note("one-shot audio before: \(host.audioDiagnostics())")
         let order: [Bool] = inBackground ? [false, true] : [true, false]   // car session?
         var last: Error?
         for car in order {
@@ -823,13 +827,13 @@ final class VoiceStore {
             // No one-shot takes talk-over (`bargeInAllowed`), so none builds the ~0.6 s
             // echo-cancelling unit — the car's screen's too, which kept it and paid for it
             // on every tap (2026-11-05, 5 s CarPlay starts).
-            skipEchoCancellation(true)
+            host.skipEchoCancellation(true)
             do {
                 try acquireAudioSession()
                 note("one-shot on the \(car ? "car (ducking)" : "mixing-only") session")
                 return
             } catch let failure where Self.isInterruptRefusal(failure) {
-                note("one-shot \(car ? "car" : "mixing-only") session refused (!int): \(audioDiagnostics())")
+                note("one-shot \(car ? "car" : "mixing-only") session refused (!int): \(host.audioDiagnostics())")
                 last = failure
             } catch let failure {
                 last = failure
@@ -838,7 +842,7 @@ final class VoiceStore {
         }
         carAudio = false
         mixedAudio = false
-        skipEchoCancellation(false)
+        host.skipEchoCancellation(false)
         throw last ?? CancellationError()
     }
 
@@ -911,7 +915,7 @@ final class VoiceStore {
     /// The car's sounds (every turn in the car, any one-shot turn). The mic then
     /// ignores what it hears of the sound for as long as it plays.
     private func playEarcon(_ earcon: VoiceEarcon) {
-        guard machine.oneShot || wantsEarcons(), let earcons else { return }
+        guard machine.oneShot || host.inCar(), let earcons = host.earcons else { return }
         earconQuietMs = earcons.play(earcon)
     }
 
@@ -1057,7 +1061,7 @@ final class VoiceStore {
             interruptionGeneration += 1
         default: break
         }
-        if event == .stopRequested { onStopRequested?() }
+        if event == .stopRequested { host.onStopRequested() }
         let before = machine.state
         let effects = machine.apply(event)
         // Log the transition BEFORE the effects run: `.failed` performs
@@ -1068,7 +1072,7 @@ final class VoiceStore {
         for effect in effects { perform(effect) }
         if event == .playbackDrained || event == .resumeGraceElapsed,
            before != .listening, machine.state == .listening {
-            onTurnFinished?()
+            host.onTurnFinished()
         }
         // Any way back to listening (connected, a barge-in, Interrupt, a missed turn).
         if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
@@ -1180,7 +1184,7 @@ final class VoiceStore {
             markSpeechEnd()
         case .oneShotFinished:
             holdReply()
-            onTurnFinished?()
+            host.onTurnFinished()
         case .teardown:
             cancelBargeCheck()
             lastLocalTranscript = nil
@@ -1587,7 +1591,7 @@ final class VoiceStore {
             // In the car the phone can't cancel the reply's echo, and the recogniser
             // mis-hears Jarvis's own words: one stray word isn't him. A stop word is,
             // or a second word of his own; the check keeps listening for it.
-            if self.inCar(), words.count < 2, !words.contains(where: Self.bargeInStopWords.contains) { return }
+            if self.host.inCar(), words.count < 2, !words.contains(where: Self.bargeInStopWords.contains) { return }
             // The count only — what was said is never logged.
             self.note("barge-in: \(words.count) word(s) that aren't the reply's")
             self.confirmBargeIn()
@@ -1758,7 +1762,7 @@ final class VoiceStore {
         followupTimer = nil
         carAudio = false
         mixedAudio = false
-        skipEchoCancellation(false)
+        host.skipEchoCancellation(false)
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()
