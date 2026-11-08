@@ -449,75 +449,19 @@ def _handle_handoff_summary(handler, body):
         return channel_label
 
     def _agent_text_completion(agent, system_prompt, user_text, max_tokens=700):
-        """Use the current JarvisCopilot transport without mutating conversation history."""
-        api_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ]
-        result = {
-            "text": "",
-            "finish_reason": None,
-            "stop_reason": None,
-            "incomplete": True,
-        }
-        disabled_reasoning = {"enabled": False}
-        previous_reasoning = getattr(agent, "reasoning_config", None)
-        try:
-            agent.reasoning_config = disabled_reasoning
-            if getattr(agent, "api_mode", "") == "codex_responses":
-                codex_kwargs = agent._build_api_kwargs(api_messages)
-                codex_kwargs.pop("tools", None)
-                codex_kwargs["max_output_tokens"] = max_tokens
-                resp = agent._run_codex_stream(codex_kwargs)
-                assistant_message, _ = agent._normalize_codex_response(resp)
-                result["text"] = str((assistant_message.content or "") if assistant_message else "").strip()
-                result["incomplete"] = _summary_output_incomplete(result["text"])
-                return result
-
-            if getattr(agent, "api_mode", "") == "anthropic_messages":
-                from agent.anthropic_adapter import build_anthropic_kwargs, normalize_anthropic_response
-
-                ant_kwargs = build_anthropic_kwargs(
-                    model=agent.model,
-                    messages=api_messages,
-                    tools=None,
-                    max_tokens=max_tokens,
-                    reasoning_config=disabled_reasoning,
-                    is_oauth=getattr(agent, "_is_anthropic_oauth", False),
-                    preserve_dots=agent._anthropic_preserve_dots(),
-                    base_url=getattr(agent, "_anthropic_base_url", None),
-                )
-                resp = agent._anthropic_messages_create(ant_kwargs)
-                assistant_message, _ = normalize_anthropic_response(
-                    resp,
-                    strip_tool_prefix=getattr(agent, "_is_anthropic_oauth", False),
-                )
-                result["text"] = str((assistant_message.content or "") if assistant_message else "").strip()
-                result["incomplete"] = _summary_output_incomplete(result["text"])
-                return result
-
-            api_kwargs = agent._build_api_kwargs(api_messages)
-            api_kwargs.pop("tools", None)
-            api_kwargs["temperature"] = 0.2
-            api_kwargs["timeout"] = 30.0
-            if "max_completion_tokens" in api_kwargs:
-                api_kwargs["max_completion_tokens"] = max_tokens
-            else:
-                api_kwargs["max_tokens"] = max_tokens
-            resp = agent._ensure_primary_openai_client(reason="handoff_summary").chat.completions.create(
-                **api_kwargs,
-            )
-            choice = (getattr(resp, "choices", None) or [None])[0]
-            msg = getattr(choice, "message", None) if choice is not None else None
-            result["text"] = str(getattr(msg, "content", "") or "").strip()
-            result["finish_reason"] = getattr(choice, "finish_reason", None)
-            result["stop_reason"] = getattr(choice, "stop_reason", None)
-            result["incomplete"] = _agent_summary_incomplete(result)
+        from api.agent_completion import complete
+        text, resp = complete(agent, system_prompt, user_text, max_tokens=max_tokens,
+                              reason="handoff_summary", temperature=0.2, timeout=30.0)
+        result = {"text": text, "finish_reason": None, "stop_reason": None}
+        if resp is None:
+            result["incomplete"] = _summary_output_incomplete(text)
             return result
-        finally:
-            agent.reasoning_config = previous_reasoning
+        choice = (getattr(resp, "choices", None) or [None])[0]
+        result["finish_reason"] = getattr(choice, "finish_reason", None)
+        result["stop_reason"] = getattr(choice, "stop_reason", None)
+        result["incomplete"] = _agent_summary_incomplete(result)
+        return result
 
-        # Call LLM for summary.
     try:
         import api.config as _cfg
         from api.oauth import resolve_runtime_provider_with_anthropic_env_lock

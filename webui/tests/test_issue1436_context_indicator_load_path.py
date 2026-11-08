@@ -368,14 +368,15 @@ class TestIssue1436SourceMarkers:
         # remain in routes.py so WebUI still works with older/missing agent
         # bundles by swallowing metadata-resolution failures.
         start = src.find('def _get_detail(')
-        end = src.find('if parsed.path == "/api/projects":', start)
+        end = src.find('\ndef ', start + 1)
         block = src[start:end]
         assert "_resolve_context_length_for_session_model" in block, (
             "GET /api/session load-path block must resolve model context "
             "metadata for the context_length fallback (#1436)"
         )
-        assert "from agent.model_metadata import get_model_context_length" in src, (
-            "routes.py must lazy-import get_model_context_length for the "
+        session_model = (ROUTES.parent / "session_model.py").read_text(encoding="utf-8")
+        assert "from agent.model_metadata import get_model_context_length" in session_model, (
+            "session_model.py must lazy-import get_model_context_length for the "
             "context_length fallback (#1436)"
         )
 
@@ -385,7 +386,7 @@ class TestIssue1436SourceMarkers:
         # Find the load-path block (between "if parsed.path == \"/api/session\":"
         # and the next `if parsed.path` after it).
         start = src.find('def _get_detail(')
-        end = src.find('if parsed.path == "/api/projects":', start)
+        end = src.find('\ndef ', start + 1)
         block = src[start:end]
         assert "#1436" in block, (
             "GET /api/session load-path block must reference #1436 in a comment"

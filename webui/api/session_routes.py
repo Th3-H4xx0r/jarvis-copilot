@@ -66,7 +66,12 @@ from api.profiles import _profiles_match
 from api.request_diagnostics import RequestDiagnostics
 from api.run_journal import find_run_summary
 from api.session_compress import _handle_session_compress, _handle_session_compress_start, _handle_session_compress_status
-from api.session_model import _split_provider_qualified_model, clean_session_provider, resolve_session_model_state
+from api.session_model import (
+    _split_provider_qualified_model,
+    clean_session_provider,
+    context_length_for,
+    resolve_session_model_state,
+)
 from api.workspace import get_last_workspace, resolve_trusted_workspace, set_last_workspace
 
 logger = logging.getLogger(__name__)
@@ -305,42 +310,7 @@ def _resolve_context_length_for_session_model(
     model_for_lookup = str(model or "").strip()
     if not model_for_lookup:
         return 0
-    try:
-        from agent.model_metadata import get_model_context_length as _get_cl
-        from api.config import get_config as _get_config_for_cl
-
-        _cfg_for_cl = _get_config_for_cl()
-        _cfg_ctx_len_load = None
-        _cfg_custom_providers_load = None
-        try:
-            _model_cfg_load = _cfg_for_cl.get('model', {}) if isinstance(_cfg_for_cl, dict) else {}
-            if isinstance(_model_cfg_load, dict):
-                _raw_cfg_ctx_load = _model_cfg_load.get('context_length')
-                if _raw_cfg_ctx_load is not None:
-                    try:
-                        _parsed_load = int(_raw_cfg_ctx_load)
-                        if _parsed_load > 0:
-                            _cfg_ctx_len_load = _parsed_load
-                    except (TypeError, ValueError):
-                        pass
-            _raw_cp_load = _cfg_for_cl.get('custom_providers') if isinstance(_cfg_for_cl, dict) else None
-            if isinstance(_raw_cp_load, list):
-                _cfg_custom_providers_load = _raw_cp_load
-        except Exception:
-            pass
-        try:
-            return _get_cl(
-                model_for_lookup,
-                "",
-                config_context_length=_cfg_ctx_len_load,
-                provider=provider or "",
-                custom_providers=_cfg_custom_providers_load,
-            ) or 0
-        except TypeError:
-            # Older jarviscopilot builds: legacy 2-arg form.
-            return _get_cl(model_for_lookup, "") or 0
-    except Exception:
-        return 0
+    return context_length_for(model_for_lookup, provider=provider or "")
 
 
 def _session_model_state_from_request(

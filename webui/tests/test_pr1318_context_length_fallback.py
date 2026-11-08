@@ -5,8 +5,8 @@ session when agent.context_compressor was present. But for fresh agents or
 interrupted streams, context_compressor may be absent or report 0 — leaving
 the context-ring indicator showing 0% even with the writer in place.
 
-This follow-up adds a fallback to agent.model_metadata.get_model_context_length()
-that resolves the model's static context window when the compressor didn't.
+This follow-up adds a fallback (api.session_model.context_length_for, which
+swallows resolver errors as 0) that resolves the model's static context window when the compressor didn't.
 
 Sourced from @jasonjcwu's PR #1344, extracted into a focused follow-up.
 
@@ -14,8 +14,7 @@ Tests:
 1. Writer block contains the fallback after the compressor block
 2. Fallback gates on s.context_length being 0/falsy
 3. Fallback uses agent.model + agent.base_url
-4. Fallback exception is silently swallowed (older agent builds)
-5. Fallback runs before s.save() so the value is persisted
+4. Fallback runs before s.save() so the value is persisted
 """
 import re
 from pathlib import Path
@@ -36,14 +35,9 @@ def _persistence_block():
 
 
 def test_fallback_uses_model_metadata():
-    """Block must import and call get_model_context_length on missing compressor data."""
+    """Block must resolve missing compressor data through the shared resolver."""
     block = _persistence_block()
-    assert "from agent.model_metadata import get_model_context_length" in block, (
-        "Fallback must import get_model_context_length from agent.model_metadata"
-    )
-    assert "get_model_context_length(" in block, (
-        "Fallback must call get_model_context_length()"
-    )
+    assert "context_length_for(" in block, "Fallback must call context_length_for()"
 
 
 def test_fallback_gates_on_falsy_context_length():
@@ -68,23 +62,10 @@ def test_fallback_passes_model_and_base_url():
     assert "agent, 'base_url'" in block, "Fallback must read agent.base_url"
 
 
-def test_fallback_exception_is_swallowed():
-    """If get_model_context_length raises (older agent build, network error,
-    bad provider config), the fallback must not break s.save()."""
-    block = _persistence_block()
-    # Must wrap the import + call in try/except
-    fallback_section = block[block.find("Fallback"):]
-    assert "try:" in fallback_section, "Fallback must use try/except"
-    # except Exception: pass-style — old agent builds may not have this helper at all
-    assert "except Exception:" in fallback_section, (
-        "Fallback must catch broad Exception (older agent builds may not have the helper)"
-    )
-
-
 def test_fallback_runs_before_save():
     """The fallback must mutate s.context_length BEFORE s.save() so the value lands on disk."""
     block = _persistence_block()
-    fallback_idx = block.find("get_model_context_length")
+    fallback_idx = block.find("context_length_for(")
     save_idx = block.rfind("s.save()")
     assert fallback_idx != -1 and save_idx != -1
     assert fallback_idx < save_idx, (
@@ -96,7 +77,7 @@ def test_fallback_runs_before_save():
 def test_fallback_assigns_context_length_when_resolved():
     """The fallback must assign s.context_length when get_model_context_length returns a non-zero value."""
     block = _persistence_block()
-    fallback_section = block[block.find("Fallback"):]
+    fallback_section = block[block.find("context_length_for("):]
     # Must have an `if _resolved_cl:` guard followed by `s.context_length = _resolved_cl`
     assert "_resolved_cl" in fallback_section, "Fallback must capture the result"
     assert "s.context_length = _resolved_cl" in fallback_section, (

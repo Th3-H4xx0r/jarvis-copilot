@@ -20,6 +20,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from api import sse
+from api.session_model import context_length_for
 from api.turn_options import TurnOptions
 from api.config import (
     ENV_LOCK,
@@ -1549,107 +1550,43 @@ def generate_title_raw_via_agent(agent, user_text: str, assistant_text: str) -> 
     if agent is None:
         return None, 'missing_agent'
 
+    from api.agent_completion import complete
+    route = (getattr(agent, 'provider', ''), getattr(agent, 'model', ''), getattr(agent, 'base_url', ''))
     qa, prompts = _title_prompts(user_text, assistant_text)
-    base_max_tokens = _title_completion_budget(
-        getattr(agent, 'provider', ''),
-        getattr(agent, 'model', ''),
-        getattr(agent, 'base_url', ''),
-    )
-    disabled_reasoning = {"enabled": False}
-    prev_reasoning = getattr(agent, 'reasoning_config', None)
-    try:
-        agent.reasoning_config = disabled_reasoning
-        for idx, prompt in enumerate(prompts):
-            api_messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": qa},
-            ]
-            budgets = [base_max_tokens]
-            try:
-                last_status = 'llm_empty'
-                for budget_idx, max_tokens in enumerate(budgets):
-                    raw = ""
-                    empty_status = ''
-                    if getattr(agent, 'api_mode', '') == 'codex_responses':
-                        codex_kwargs = agent._build_api_kwargs(api_messages)
-                        codex_kwargs.pop('tools', None)
-                        if 'max_output_tokens' in codex_kwargs:
-                            codex_kwargs['max_output_tokens'] = max_tokens
-                        resp = agent._run_codex_stream(codex_kwargs)
-                        assistant_message, _ = agent._normalize_codex_response(resp)
-                        raw = (assistant_message.content or '') if assistant_message else ''
-                        if not raw:
-                            empty_status = 'llm_empty'
-                    elif getattr(agent, 'api_mode', '') == 'anthropic_messages':
-                        from agent.anthropic_adapter import build_anthropic_kwargs, normalize_anthropic_response
-                        ant_kwargs = build_anthropic_kwargs(
-                            model=agent.model,
-                            messages=api_messages,
-                            tools=None,
-                            max_tokens=max_tokens,
-                            reasoning_config=disabled_reasoning,
-                            is_oauth=getattr(agent, '_is_anthropic_oauth', False),
-                            preserve_dots=agent._anthropic_preserve_dots(),
-                            base_url=getattr(agent, '_anthropic_base_url', None),
-                        )
-                        resp = agent._anthropic_messages_create(ant_kwargs)
-                        assistant_message, _ = normalize_anthropic_response(
-                            resp, strip_tool_prefix=getattr(agent, '_is_anthropic_oauth', False)
-                        )
-                        raw = (assistant_message.content or '') if assistant_message else ''
-                        if not raw:
-                            empty_status = 'llm_empty'
-                    else:
-                        api_kwargs = agent._build_api_kwargs(api_messages)
-                        api_kwargs.pop('tools', None)
-                        api_kwargs['temperature'] = 0.1
-                        api_kwargs['timeout'] = 15.0
-                        if _is_minimax_route(getattr(agent, 'provider', ''), getattr(agent, 'model', ''), getattr(agent, 'base_url', '')):
-                            extra_body = dict(api_kwargs.get('extra_body') or {})
-                            extra_body['reasoning_split'] = True
-                            api_kwargs['extra_body'] = extra_body
-                        if 'max_completion_tokens' in api_kwargs:
-                            api_kwargs['max_completion_tokens'] = max_tokens
-                        else:
-                            api_kwargs['max_tokens'] = max_tokens
-                        resp = agent._ensure_primary_openai_client(reason='title_generation').chat.completions.create(
-                            **api_kwargs,
-                        )
-                        raw, empty_status = _extract_title_response(resp)
-                    raw = str(raw or '').strip()
-                    if raw:
-                        return raw, ('llm' if idx == 0 and budget_idx == 0 else 'llm_retry')
-                    last_status = empty_status or 'llm_empty'
-                    if budget_idx == 0 and _title_retry_status(last_status):
-                        budgets.append(_title_retry_completion_budget(
-                            getattr(agent, 'provider', ''),
-                            getattr(agent, 'model', ''),
-                            getattr(agent, 'base_url', ''),
-                        ))
-            except Exception as e:
-                last_status = 'llm_error'
-                logger.debug(
-                    "Agent title generation attempt %s failed: provider=%s model=%s error=%s",
-                    idx + 1,
-                    getattr(agent, 'provider', None),
-                    getattr(agent, 'model', None),
-                    e,
-                )
-            # If the model just burned its budget on hidden reasoning, retrying
-            # the next prompt against the same model produces the same shape.
-            # Short-circuit to the local fallback path (#2083).
-            if _title_should_skip_remaining_attempts(last_status):
-                logger.debug(
-                    "Agent title generation short-circuiting after %s (reasoning-only response).",
-                    last_status,
-                )
-                break
-        return None, last_status
-    except Exception as e:
-        logger.debug("Agent title generation failed: %s", e)
-        return None, 'llm_error'
-    finally:
-        agent.reasoning_config = prev_reasoning
+    extra_body = {'reasoning_split': True} if _is_minimax_route(*route) else None
+    last_status = 'llm_empty'
+    for idx, prompt in enumerate(prompts):
+        budgets = [_title_completion_budget(*route)]
+        try:
+            last_status = 'llm_empty'
+            for budget_idx, max_tokens in enumerate(budgets):
+                raw, resp = complete(agent, prompt, qa, max_tokens=max_tokens, reason='title_generation',
+                                     temperature=0.1, timeout=15.0, cap_codex_output=False,
+                                     extra_body=extra_body)
+                empty_status = '' if raw else 'llm_empty'
+                if resp is not None:
+                    raw, empty_status = _extract_title_response(resp)
+                raw = str(raw or '').strip()
+                if raw:
+                    return raw, ('llm' if idx == 0 and budget_idx == 0 else 'llm_retry')
+                last_status = empty_status or 'llm_empty'
+                if budget_idx == 0 and _title_retry_status(last_status):
+                    budgets.append(_title_retry_completion_budget(*route))
+        except Exception as e:
+            last_status = 'llm_error'
+            logger.debug(
+                "Agent title generation attempt %s failed: provider=%s model=%s error=%s",
+                idx + 1, route[0] or None, route[1] or None, e,
+            )
+        # A model that burned its budget on hidden reasoning does the same on the
+        # next prompt: go to the local fallback (#2083).
+        if _title_should_skip_remaining_attempts(last_status):
+            logger.debug(
+                "Agent title generation short-circuiting after %s (reasoning-only response).",
+                last_status,
+            )
+            break
+    return None, last_status
 
 
 def _generate_llm_session_title_for_agent(agent, user_text: str, assistant_text: str) -> tuple[Optional[str], str, str]:
@@ -1693,6 +1630,21 @@ def _generate_llm_session_title_via_aux(user_text: str, assistant_text: str, age
     if title:
         return title, status, ''
     return None, 'llm_invalid_aux', str(raw)[:120]
+
+
+def _generate_llm_session_title(agent, user_text: str, assistant_text: str) -> tuple[Optional[str], str, str]:
+    """(title, status, raw_preview): the configured auxiliary title model when there
+    is one, else the chat's own agent, each falling back to the other on an error
+    or an unusable answer."""
+    if agent and not _aux_title_configured():
+        result = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
+        if not result[0] and result[1] in ('llm_error', 'llm_invalid'):
+            result = _generate_llm_session_title_via_aux(user_text, assistant_text, agent=agent, use_agent_model=True)
+        return result
+    result = _generate_llm_session_title_via_aux(user_text, assistant_text)
+    if not result[0] and agent and result[1] in ('llm_error_aux', 'llm_invalid_aux'):
+        result = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
+    return result
 
 
 def _put_title_status(put_event, session_id: str, status: str, reason: str = '', title: str = '', raw_preview: str = '') -> None:
@@ -1825,15 +1777,7 @@ def _run_background_title_update(session_id: str, user_text: str, assistant_text
         from api import profiles as profiles_api
 
         with profiles_api.profile_env_for_background_worker(s, "background title", logger_override=logger):
-            aux_title_configured = _aux_title_configured()
-            if agent and not aux_title_configured:
-                next_title, llm_status, raw_preview = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
-                if not next_title and llm_status in ('llm_error', 'llm_invalid'):
-                    next_title, llm_status, raw_preview = _generate_llm_session_title_via_aux(user_text, assistant_text, agent=agent, use_agent_model=True)
-            else:
-                next_title, llm_status, raw_preview = _generate_llm_session_title_via_aux(user_text, assistant_text)
-                if not next_title and agent and llm_status in ('llm_error_aux', 'llm_invalid_aux'):
-                    next_title, llm_status, raw_preview = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
+            next_title, llm_status, raw_preview = _generate_llm_session_title(agent, user_text, assistant_text)
             source = llm_status
             if not next_title:
                 fallback_title = _fallback_title_from_exchange(user_text, assistant_text)
@@ -1908,15 +1852,7 @@ def _run_background_title_refresh(session_id: str, user_text: str, assistant_tex
         from api import profiles as profiles_api
 
         with profiles_api.profile_env_for_background_worker(s, "background title", logger_override=logger):
-            aux_title_configured = _aux_title_configured()
-            if agent and not aux_title_configured:
-                next_title, llm_status, raw_preview = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
-                if not next_title and llm_status in ('llm_error', 'llm_invalid'):
-                    next_title, llm_status, raw_preview = _generate_llm_session_title_via_aux(user_text, assistant_text, agent=agent, use_agent_model=True)
-            else:
-                next_title, llm_status, raw_preview = _generate_llm_session_title_via_aux(user_text, assistant_text)
-                if not next_title and agent and llm_status in ('llm_error_aux', 'llm_invalid_aux'):
-                    next_title, llm_status, raw_preview = _generate_llm_session_title_for_agent(agent, user_text, assistant_text)
+            next_title, llm_status, raw_preview = _generate_llm_session_title(agent, user_text, assistant_text)
         if not next_title:
             _put_title_status(put_event, session_id, 'refresh_skipped', llm_status or 'empty', effective, raw_preview)
             return
@@ -4918,72 +4854,17 @@ def _run_agent_streaming(
                     s.context_length = getattr(_cc_for_save, 'context_length', 0) or 0
                     s.threshold_tokens = getattr(_cc_for_save, 'threshold_tokens', 0) or 0
                     s.last_prompt_tokens = getattr(_cc_for_save, 'last_prompt_tokens', 0) or 0
-                # Fallback: if the compressor didn't report a context_length
-                # (fresh agent, interrupted stream, or compressor missing the
-                # attribute), resolve it from the model's static metadata so
-                # the indicator can still show a meaningful percentage.
-                # Sourced from PR #1344 (@jasonjcwu) — extracted to a focused
-                # follow-up after PR #1344 was closed as superseded by #1341.
-                #
-                # #1896: pass config_context_length, provider, and
-                # custom_providers so explicit config overrides win over the
-                # 256K default fallback. Without these, users on 1M-context
-                # models who set `model.context_length: 1048576` (or rely on
-                # a `custom_providers` per-model override) get a 256K
-                # window in the persisted session and the SSE payload —
-                # which then trips LCM auto-compress at ~25% of the wrong
-                # value, cascading into 429 floods.
+                # No compressor figure (fresh agent, interrupted stream): the
+                # model's metadata, so the indicator still shows a percentage.
                 if not getattr(s, 'context_length', 0):
-                    try:
-                        from agent.model_metadata import get_model_context_length
-                        _cfg_ctx_len = None
-                        _cfg_custom_providers = None
-                        try:
-                            _model_cfg_for_ctx = _cfg.get('model', {}) if isinstance(_cfg, dict) else {}
-                            if isinstance(_model_cfg_for_ctx, dict):
-                                _raw_cfg_ctx = _model_cfg_for_ctx.get('context_length')
-                                if _raw_cfg_ctx is not None:
-                                    try:
-                                        _parsed_cfg_ctx = int(_raw_cfg_ctx)
-                                        if _parsed_cfg_ctx > 0:
-                                            _cfg_ctx_len = _parsed_cfg_ctx
-                                    except (TypeError, ValueError):
-                                        # Invalid config — let the resolver fall
-                                        # through to provider/registry probing.
-                                        pass
-                            _raw_cp = _cfg.get('custom_providers') if isinstance(_cfg, dict) else None
-                            if isinstance(_raw_cp, list):
-                                _cfg_custom_providers = _raw_cp
-                        except Exception:
-                            pass
-                        _resolved_cl = get_model_context_length(
-                            getattr(agent, 'model', resolved_model or '') or '',
-                            getattr(agent, 'base_url', '') or '',
-                            config_context_length=_cfg_ctx_len,
-                            provider=resolved_provider or '',
-                            custom_providers=_cfg_custom_providers,
-                        )
-                        if _resolved_cl:
-                            s.context_length = _resolved_cl
-                    except TypeError:
-                        # Older jarviscopilot builds whose get_model_context_length
-                        # signature pre-dates the config_context_length /
-                        # custom_providers kwargs. Retry with the legacy 2-arg
-                        # form so the indicator still resolves *something*.
-                        try:
-                            from agent.model_metadata import get_model_context_length as _legacy_cl
-                            _resolved_cl = _legacy_cl(
-                                getattr(agent, 'model', resolved_model or '') or '',
-                                getattr(agent, 'base_url', '') or '',
-                            )
-                            if _resolved_cl:
-                                s.context_length = _resolved_cl
-                        except Exception:
-                            pass
-                    except Exception:
-                        # Older jarviscopilot builds may not expose this helper.
-                        # Better to leave context_length=0 than crash the save.
-                        pass
+                    _resolved_cl = context_length_for(
+                        getattr(agent, 'model', resolved_model or '') or '',
+                        getattr(agent, 'base_url', '') or '',
+                        provider=resolved_provider or '',
+                        cfg=_cfg,
+                    )
+                    if _resolved_cl:
+                        s.context_length = _resolved_cl
                 if not ephemeral and s.messages:
                     _latest_assistant_idx = next(
                         (idx for idx in range(len(s.messages) - 1, -1, -1)
@@ -5093,55 +4974,17 @@ def _run_agent_streaming(
                 usage['context_length'] = getattr(_cc, 'context_length', 0) or 0
                 usage['threshold_tokens'] = getattr(_cc, 'threshold_tokens', 0) or 0
                 usage['last_prompt_tokens'] = getattr(_cc, 'last_prompt_tokens', 0) or 0
-            # Fallback: when the compressor is absent or reports context_length=0,
-            # resolve the model's context window from metadata so the UI indicator
-            # shows the correct percentage rather than overflowing against the 128K
-            # JS default.  Mirrors the session-save fallback above.
-            #
-            # #1896: pass config_context_length, provider, and custom_providers so
-            # explicit config overrides win over the 256K default fallback. The
-            # SSE payload's `context_length` is what feeds the live token-usage
-            # indicator, so a stale 256K here surfaces as the same wrong-window
-            # display that motivates this fix.
+            # No compressor figure: the model's metadata, or the UI indicator
+            # overflows against its 128K default.
             if not usage.get('context_length'):
-                try:
-                    from agent.model_metadata import get_model_context_length as _get_cl
-                    _cfg_ctx_len = None
-                    _cfg_custom_providers = None
-                    try:
-                        _model_cfg_for_ctx = _cfg.get('model', {}) if isinstance(_cfg, dict) else {}
-                        if isinstance(_model_cfg_for_ctx, dict):
-                            _raw_cfg_ctx = _model_cfg_for_ctx.get('context_length')
-                            if _raw_cfg_ctx is not None:
-                                try:
-                                    _parsed_cfg_ctx = int(_raw_cfg_ctx)
-                                    if _parsed_cfg_ctx > 0:
-                                        _cfg_ctx_len = _parsed_cfg_ctx
-                                except (TypeError, ValueError):
-                                    pass
-                        _raw_cp = _cfg.get('custom_providers') if isinstance(_cfg, dict) else None
-                        if isinstance(_raw_cp, list):
-                            _cfg_custom_providers = _raw_cp
-                    except Exception:
-                        pass
-                    try:
-                        _fb_cl = _get_cl(
-                            getattr(agent, 'model', resolved_model or '') or '',
-                            getattr(agent, 'base_url', '') or '',
-                            config_context_length=_cfg_ctx_len,
-                            provider=resolved_provider or '',
-                            custom_providers=_cfg_custom_providers,
-                        )
-                    except TypeError:
-                        # Older jarviscopilot builds: fall back to legacy 2-arg form.
-                        _fb_cl = _get_cl(
-                            getattr(agent, 'model', resolved_model or '') or '',
-                            getattr(agent, 'base_url', '') or '',
-                        )
-                    if _fb_cl:
-                        usage['context_length'] = _fb_cl
-                except Exception:
-                    pass
+                _fb_cl = context_length_for(
+                    getattr(agent, 'model', resolved_model or '') or '',
+                    getattr(agent, 'base_url', '') or '',
+                    provider=resolved_provider or '',
+                    cfg=_cfg,
+                )
+                if _fb_cl:
+                    usage['context_length'] = _fb_cl
             # Fallback: when last_prompt_tokens is missing (no compressor), use the
             # session-persisted value rather than letting the frontend fall back to
             # the cumulative input_tokens counter, which overflows for long sessions.

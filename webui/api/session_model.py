@@ -3,6 +3,42 @@ from api.config import get_available_models
 from api.config import DEFAULT_MODEL
 
 
+def context_length_for(model: str, base_url: str = "", provider: str = "", cfg: dict | None = None) -> int:
+    """The model's context window, 0 when unknown.
+
+    config.yaml's ``model.context_length`` and ``custom_providers`` win over the
+    metadata default (#1896): without them a 1M-context model reads as 256K and
+    auto-compression fires at a quarter of the real window. ``cfg`` is the loaded
+    config (read here when not given)."""
+    try:
+        from agent.model_metadata import get_model_context_length
+        if cfg is None:
+            from api.config import get_config
+            cfg = get_config()
+        cfg = cfg if isinstance(cfg, dict) else {}
+        config_length = None
+        model_cfg = cfg.get("model", {})
+        if isinstance(model_cfg, dict) and model_cfg.get("context_length") is not None:
+            try:
+                parsed = int(model_cfg.get("context_length"))
+                config_length = parsed if parsed > 0 else None
+            except (TypeError, ValueError):
+                pass  # an invalid override falls through to provider/registry probing
+        custom_providers = cfg.get("custom_providers")
+        try:
+            return get_model_context_length(
+                model, base_url,
+                config_context_length=config_length,
+                provider=provider or "",
+                custom_providers=custom_providers if isinstance(custom_providers, list) else None,
+            ) or 0
+        except TypeError:
+            # An agent build whose resolver predates those keyword arguments.
+            return get_model_context_length(model, base_url) or 0
+    except Exception:
+        return 0
+
+
 _PROVIDER_FAMILY_ALIASES = {
     "claude": "anthropic",
     "gpt": "openai",
