@@ -6,6 +6,7 @@ import pytest
 
 import api.models as models
 from api.models import SESSIONS, Session
+import api.session_routes as session_routes
 
 
 def _git(cwd, *args):
@@ -174,7 +175,7 @@ def test_worktree_status_endpoint_returns_session_owned_status(git_worktree, mon
     captured = {}
 
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "j",
         lambda handler, payload, status=200, extra_headers=None: captured.update(
             payload=payload,
@@ -203,7 +204,7 @@ def test_worktree_status_endpoint_rejects_non_worktree_session(tmp_path, monkeyp
     captured = {}
 
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "bad",
         lambda handler, message, status=400: captured.update(
             message=message,

@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import api.profiles as profiles
 import api.routes as routes
+import api.session_routes as session_routes
 
 
 class _FakeHandler:
@@ -64,10 +65,10 @@ def test_sessions_list_reconciles_stale_stream_state_before_serializing(monkeypa
         session.active_stream_id = None
         return True
 
-    monkeypatch.setattr(routes, "all_sessions", fake_all_sessions)
-    monkeypatch.setattr(routes, "get_session", fake_get_session)
-    monkeypatch.setattr(routes, "clear_stale_stream_state", fake_clear_stale_stream_state)
-    monkeypatch.setattr(routes, "load_settings", lambda: {"show_cli_sessions": False})
+    monkeypatch.setattr(session_routes, "all_sessions", fake_all_sessions)
+    monkeypatch.setattr(session_routes, "get_session", fake_get_session)
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", fake_clear_stale_stream_state)
+    monkeypatch.setattr(session_routes, "load_settings", lambda: {"show_cli_sessions": False})
     monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
 
     handler = _FakeHandler()
@@ -90,9 +91,9 @@ def test_reconcile_stale_stream_state_skips_live_stream_rows(monkeypatch):
         loaded.append((session_id, metadata_only))
         raise AssertionError("live stream rows should not be loaded for cleanup")
 
-    monkeypatch.setattr(routes, "get_session", fake_get_session)
+    monkeypatch.setattr(session_routes, "get_session", fake_get_session)
 
-    changed = routes._reconcile_stale_stream_state_for_session_rows([
+    changed = session_routes._reconcile_stale_stream_state_for_session_rows([
         {
             "session_id": "live-session",
             "active_stream_id": "live-stream",

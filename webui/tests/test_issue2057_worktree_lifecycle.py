@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import api.models as models
 import api.routes as routes
 from api.models import SESSIONS, Session
+import api.session_routes as session_routes
 
 
 def _capture_post(monkeypatch, body):
@@ -10,7 +11,7 @@ def _capture_post(monkeypatch, body):
     monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: body)
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "j",
         lambda handler, payload, status=200, extra_headers=None: captured.update(
             payload=payload,
@@ -26,8 +27,8 @@ def _isolate_session_store(tmp_path, monkeypatch):
     session_dir.mkdir()
     monkeypatch.setattr(models, "SESSION_DIR", session_dir)
     monkeypatch.setattr(models, "SESSION_INDEX_FILE", session_dir / "_index.json")
-    monkeypatch.setattr(routes, "SESSION_DIR", session_dir)
-    monkeypatch.setattr(routes, "SESSION_INDEX_FILE", session_dir / "_index.json")
+    monkeypatch.setattr(session_routes, "SESSION_DIR", session_dir)
+    monkeypatch.setattr(session_routes, "SESSION_INDEX_FILE", session_dir / "_index.json")
     SESSIONS.clear()
     return session_dir
 
@@ -52,8 +53,8 @@ def test_delete_worktree_session_reports_retained_worktree_without_cleanup(tmp_p
     session_dir = _isolate_session_store(tmp_path, monkeypatch)
     session, worktree = _worktree_session(tmp_path, "wtdelete1")
     captured = _capture_post(monkeypatch, {"session_id": session.session_id})
-    monkeypatch.setattr(routes, "_lookup_cli_session_metadata", lambda sid: {})
-    monkeypatch.setattr(routes, "_is_messaging_session_id", lambda sid: False)
+    monkeypatch.setattr(session_routes, "_lookup_cli_session_metadata", lambda sid: {})
+    monkeypatch.setattr(session_routes, "_is_messaging_session_id", lambda sid: False)
     monkeypatch.setattr(models, "delete_cli_session", lambda sid: None)
 
     assert routes.handle_post(object(), SimpleNamespace(path="/api/session/delete")) is True

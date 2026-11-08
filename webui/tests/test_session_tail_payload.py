@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-import api.chat_turns as chat_turns
 from unittest.mock import patch
 from urllib.parse import urlparse
 
@@ -55,11 +54,11 @@ def _invoke(session):
         return data
 
     parsed = urlparse("/api/session?session_id=tail_payload_001&messages=1&resolve_model=0&msg_limit=1")
-    with patch("api.routes.get_session", return_value=session), \
+    with patch("api.session_routes.get_session", return_value=session), \
          patch("api.chat_turns.clear_stale_stream_state", return_value=False), \
-         patch("api.routes._lookup_cli_session_metadata", return_value={}), \
-         patch("api.routes.redact_session_data", side_effect=lambda raw: raw), \
-         patch("api.routes.j", side_effect=fake_j):
+         patch("api.session_routes._lookup_cli_session_metadata", return_value={}), \
+         patch("api.session_routes.redact_session_data", side_effect=lambda raw: raw), \
+         patch("api.session_routes.j", side_effect=fake_j):
         routes.handle_get(SimpleNamespace(), parsed)
     return captured["data"]["session"]
 

@@ -1,9 +1,9 @@
 from urllib.parse import urlparse
+import api.session_routes as session_routes
 
 
 def test_webui_session_metadata_load_skips_cli_metadata_scan(monkeypatch):
     """Opening a normal WebUI session should not scan imported CLI sessions."""
-    import api.routes as routes
     from api.models import Session
 
     session = Session(
@@ -12,17 +12,17 @@ def test_webui_session_metadata_load_skips_cli_metadata_scan(monkeypatch):
         messages=[{"role": "user", "content": "hello"}],
     )
 
-    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
-    monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid, metadata_only=False: session)
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(session_routes, "redact_session_data", lambda payload: payload)
+    monkeypatch.setattr(session_routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "_lookup_cli_session_metadata",
         lambda _sid: (_ for _ in ()).throw(AssertionError("normal WebUI loads should not scan CLI sessions")),
     )
 
-    response = routes.handle_get(
+    response = session_routes._get_detail(
         object(),
         urlparse("/api/session?session_id=webui_normal&messages=0&resolve_model=0"),
     )
@@ -33,7 +33,6 @@ def test_webui_session_metadata_load_skips_cli_metadata_scan(monkeypatch):
 
 def test_read_only_session_metadata_load_preserves_cli_metadata_lookup(monkeypatch):
     """Read-only imported sidecars still need CLI metadata for source identity."""
-    import api.routes as routes
     from api.models import Session
 
     session = Session(
@@ -44,11 +43,11 @@ def test_read_only_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
     )
     looked_up = []
 
-    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
-    monkeypatch.setattr(routes, "get_cli_session_messages", lambda _sid: [])
-    monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid, metadata_only=False: session)
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(session_routes, "get_cli_session_messages", lambda _sid: [])
+    monkeypatch.setattr(session_routes, "redact_session_data", lambda payload: payload)
+    monkeypatch.setattr(session_routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     def fake_lookup(sid):
         looked_up.append(sid)
@@ -58,9 +57,9 @@ def test_read_only_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
             "source_label": "External Agent",
         }
 
-    monkeypatch.setattr(routes, "_lookup_cli_session_metadata", fake_lookup)
+    monkeypatch.setattr(session_routes, "_lookup_cli_session_metadata", fake_lookup)
 
-    response = routes.handle_get(
+    response = session_routes._get_detail(
         object(),
         urlparse("/api/session?session_id=readonly_sidecar&messages=0&resolve_model=0"),
     )
@@ -71,7 +70,6 @@ def test_read_only_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
 
 def test_messaging_session_metadata_load_preserves_cli_metadata_lookup(monkeypatch):
     """Messaging/imported sidecars still need CLI metadata for source identity."""
-    import api.routes as routes
     from api.models import Session
 
     session = Session(
@@ -83,11 +81,11 @@ def test_messaging_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
     )
     looked_up = []
 
-    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: session)
-    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda _session: None)
-    monkeypatch.setattr(routes, "get_cli_session_messages", lambda _sid: [])
-    monkeypatch.setattr(routes, "redact_session_data", lambda payload: payload)
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid, metadata_only=False: session)
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", lambda _session: None)
+    monkeypatch.setattr(session_routes, "get_cli_session_messages", lambda _sid: [])
+    monkeypatch.setattr(session_routes, "redact_session_data", lambda payload: payload)
+    monkeypatch.setattr(session_routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     def fake_lookup(sid):
         looked_up.append(sid)
@@ -98,9 +96,9 @@ def test_messaging_session_metadata_load_preserves_cli_metadata_lookup(monkeypat
             "source_label": "Telegram",
         }
 
-    monkeypatch.setattr(routes, "_lookup_cli_session_metadata", fake_lookup)
+    monkeypatch.setattr(session_routes, "_lookup_cli_session_metadata", fake_lookup)
 
-    response = routes.handle_get(
+    response = session_routes._get_detail(
         object(),
         urlparse("/api/session?session_id=messaging_sidecar&messages=0&resolve_model=0"),
     )

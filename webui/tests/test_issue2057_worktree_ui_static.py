@@ -62,7 +62,7 @@ def test_archive_delete_success_copy_prefers_response_worktree_retained():
 
 
 def test_worktree_archive_delete_api_responses_are_explicit():
-    src = read("api/routes.py")
+    src = read("api/session_routes.py")
     assert "def _worktree_retained_payload(session)" in src
     assert "def _worktree_retained_payload_for_session_id(sid: str)" in src
     assert '"worktree_retained": True' in src

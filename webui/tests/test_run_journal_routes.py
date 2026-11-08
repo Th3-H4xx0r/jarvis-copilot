@@ -5,6 +5,7 @@ import io
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES_SRC = (ROOT / "api" / "routes.py").read_text()
+SESSION_ROUTES_SRC = (ROOT / "api" / "session_routes.py").read_text()
 
 
 def test_stream_status_exposes_replay_summary():
@@ -38,9 +39,9 @@ def test_replay_emits_event_ids_and_stale_restart_diagnostic():
 
 
 def test_session_payload_exposes_runtime_journal_for_stale_streams():
-    assert "original_stream_id = getattr(s, \"active_stream_id\", None)" in ROUTES_SRC
-    assert '"runtime_journal"' in ROUTES_SRC
-    assert 'terminal_state = "stale-from-restart"' in ROUTES_SRC
+    assert "original_stream_id = getattr(s, \"active_stream_id\", None)" in SESSION_ROUTES_SRC
+    assert '"runtime_journal"' in SESSION_ROUTES_SRC
+    assert 'terminal_state = "stale-from-restart"' in SESSION_ROUTES_SRC
 
 
 def test_status_payload_marks_non_terminal_dead_journal_as_stale():

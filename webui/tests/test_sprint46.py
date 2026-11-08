@@ -13,8 +13,10 @@ import types
 
 from api.models import Session
 from api.config import SESSION_DIR
-from api.routes import _handle_session_compress, get_session
+from api.session_compress import _handle_session_compress
+from api.routes import get_session
 from tests._pytest_port import BASE
+import api.session_compress as session_compress
 
 
 class _FakeHandler:
@@ -161,10 +163,9 @@ def test_session_compress_roundtrip(monkeypatch, cleanup_test_sessions):
 
 
 def test_session_compress_start_is_async_and_reuses_running_job(monkeypatch, cleanup_test_sessions):
-    import api.routes as routes
 
-    assert hasattr(routes, "_handle_session_compress_start")
-    assert hasattr(routes, "_handle_session_compress_status")
+    assert hasattr(session_compress, "_handle_session_compress_start")
+    assert hasattr(session_compress, "_handle_session_compress_status")
 
     class BlockingCompressor:
         entered = threading.Event()
@@ -190,7 +191,7 @@ def test_session_compress_start_is_async_and_reuses_running_job(monkeypatch, cle
     _install_fake_compression_runtime(monkeypatch, BlockingAgent)
     try:
         first = _FakeHandler()
-        routes._handle_session_compress_start(first, {"session_id": sid, "focus_topic": "slow"})
+        session_compress._handle_session_compress_start(first, {"session_id": sid, "focus_topic": "slow"})
         assert first.status == 200
         first_payload = first.payload()
         assert first_payload["ok"] is True
@@ -200,14 +201,14 @@ def test_session_compress_start_is_async_and_reuses_running_job(monkeypatch, cle
         assert BlockingCompressor.entered.wait(timeout=2)
 
         second = _FakeHandler()
-        routes._handle_session_compress_start(second, {"session_id": sid, "focus_topic": "slow"})
+        session_compress._handle_session_compress_start(second, {"session_id": sid, "focus_topic": "slow"})
         assert second.status == 200
         second_payload = second.payload()
         assert second_payload["status"] == "running"
         assert len(BlockingAgent.instances) == 1
 
         running = _FakeHandler()
-        routes._handle_session_compress_status(running, sid)
+        session_compress._handle_session_compress_status(running, sid)
         assert running.status == 200
         assert running.payload()["status"] == "running"
     finally:
@@ -217,7 +218,7 @@ def test_session_compress_start_is_async_and_reuses_running_job(monkeypatch, cle
     done_payload = None
     while time.time() < deadline:
         done = _FakeHandler()
-        routes._handle_session_compress_status(done, sid)
+        session_compress._handle_session_compress_status(done, sid)
         payload = done.payload()
         if payload["status"] == "done":
             done_payload = payload
@@ -232,10 +233,9 @@ def test_session_compress_start_is_async_and_reuses_running_job(monkeypatch, cle
 
 
 def test_session_compress_status_reports_worker_error_without_raw_paths(monkeypatch, cleanup_test_sessions):
-    import api.routes as routes
 
-    assert hasattr(routes, "_handle_session_compress_start")
-    assert hasattr(routes, "_handle_session_compress_status")
+    assert hasattr(session_compress, "_handle_session_compress_start")
+    assert hasattr(session_compress, "_handle_session_compress_status")
 
     class FailingCompressor:
         entered = threading.Event()
@@ -254,7 +254,7 @@ def test_session_compress_status_reports_worker_error_without_raw_paths(monkeypa
     _install_fake_compression_runtime(monkeypatch, FailingAgent)
 
     start = _FakeHandler()
-    routes._handle_session_compress_start(start, {"session_id": sid})
+    session_compress._handle_session_compress_start(start, {"session_id": sid})
     assert start.status == 200
     assert FailingCompressor.entered.wait(timeout=2)
 
@@ -262,7 +262,7 @@ def test_session_compress_status_reports_worker_error_without_raw_paths(monkeypa
     error_payload = None
     while time.time() < deadline:
         status = _FakeHandler()
-        routes._handle_session_compress_status(status, sid)
+        session_compress._handle_session_compress_status(status, sid)
         payload = status.payload()
         if payload["status"] == "error":
             error_payload = payload
@@ -276,7 +276,6 @@ def test_session_compress_status_reports_worker_error_without_raw_paths(monkeypa
 
 
 def test_session_compress_start_retries_after_terminal_error(monkeypatch, cleanup_test_sessions):
-    import api.routes as routes
 
     class BlockingCompressor:
         entered = threading.Event()
@@ -296,8 +295,8 @@ def test_session_compress_start_retries_after_terminal_error(monkeypatch, cleanu
     created.append(sid)
     _install_fake_compression_runtime(monkeypatch, BlockingAgent)
 
-    with routes._MANUAL_COMPRESSION_JOBS_LOCK:
-        routes._MANUAL_COMPRESSION_JOBS[sid] = {
+    with session_compress._MANUAL_COMPRESSION_JOBS_LOCK:
+        session_compress._MANUAL_COMPRESSION_JOBS[sid] = {
             "session_id": sid,
             "focus_topic": None,
             "status": "error",
@@ -309,7 +308,7 @@ def test_session_compress_start_retries_after_terminal_error(monkeypatch, cleanu
 
     try:
         retry = _FakeHandler()
-        routes._handle_session_compress_start(retry, {"session_id": sid})
+        session_compress._handle_session_compress_start(retry, {"session_id": sid})
         assert retry.status == 200
         retry_payload = retry.payload()
         assert retry_payload["status"] == "running"
@@ -320,7 +319,6 @@ def test_session_compress_start_retries_after_terminal_error(monkeypatch, cleanu
 
 
 def test_session_compress_async_reports_stale_session_guard(monkeypatch, cleanup_test_sessions):
-    import api.routes as routes
 
     created = cleanup_test_sessions
     sid = _make_session()
@@ -342,7 +340,7 @@ def test_session_compress_async_reports_stale_session_guard(monkeypatch, cleanup
     _install_fake_compression_runtime(monkeypatch, MutatingAgent)
 
     start = _FakeHandler()
-    routes._handle_session_compress_start(start, {"session_id": sid})
+    session_compress._handle_session_compress_start(start, {"session_id": sid})
     assert start.status == 200
     assert MutatingCompressor.entered.wait(timeout=2)
 
@@ -350,7 +348,7 @@ def test_session_compress_async_reports_stale_session_guard(monkeypatch, cleanup
     error_payload = None
     while time.time() < deadline:
         status = _FakeHandler()
-        routes._handle_session_compress_status(status, sid)
+        session_compress._handle_session_compress_status(status, sid)
         payload = status.payload()
         if payload["status"] == "error":
             error_payload = payload
@@ -364,7 +362,6 @@ def test_session_compress_async_reports_stale_session_guard(monkeypatch, cleanup
 
 
 def test_session_compress_async_reports_stream_state_guard(monkeypatch, cleanup_test_sessions):
-    import api.routes as routes
 
     created = cleanup_test_sessions
     sid = _make_session()
@@ -386,7 +383,7 @@ def test_session_compress_async_reports_stream_state_guard(monkeypatch, cleanup_
     _install_fake_compression_runtime(monkeypatch, StreamMutatingAgent)
 
     start = _FakeHandler()
-    routes._handle_session_compress_start(start, {"session_id": sid})
+    session_compress._handle_session_compress_start(start, {"session_id": sid})
     assert start.status == 200
     assert StreamMutatingCompressor.entered.wait(timeout=2)
 
@@ -394,7 +391,7 @@ def test_session_compress_async_reports_stream_state_guard(monkeypatch, cleanup_
     error_payload = None
     while time.time() < deadline:
         status = _FakeHandler()
-        routes._handle_session_compress_status(status, sid)
+        session_compress._handle_session_compress_status(status, sid)
         payload = status.payload()
         if payload["status"] == "error":
             error_payload = payload
@@ -409,7 +406,6 @@ def test_session_compress_async_reports_stream_state_guard(monkeypatch, cleanup_
 
 def test_manual_compress_worker_uses_session_profile_env(monkeypatch, tmp_path, cleanup_test_sessions):
     import api.profiles as profiles
-    import api.routes as routes
 
     class EnvAssertingAgent:
         seen_env = None
@@ -452,8 +448,8 @@ def test_manual_compress_worker_uses_session_profile_env(monkeypatch, tmp_path, 
     monkeypatch.delenv("HERMES_TEST_PROFILE_ENV", raising=False)
     _install_fake_compression_runtime(monkeypatch, EnvAssertingAgent)
 
-    with routes._MANUAL_COMPRESSION_JOBS_LOCK:
-        routes._MANUAL_COMPRESSION_JOBS[sid] = {
+    with session_compress._MANUAL_COMPRESSION_JOBS_LOCK:
+        session_compress._MANUAL_COMPRESSION_JOBS[sid] = {
             "session_id": sid,
             "focus_topic": None,
             "status": "running",
@@ -461,7 +457,7 @@ def test_manual_compress_worker_uses_session_profile_env(monkeypatch, tmp_path, 
             "updated_at": time.time(),
         }
 
-    routes._run_manual_compression_job(sid, {"session_id": sid})
+    session_compress._run_manual_compression_job(sid, {"session_id": sid})
 
     assert EnvAssertingAgent.seen_env == {
         "HERMES_HOME": str(profile_home),
@@ -475,8 +471,8 @@ def test_manual_compress_worker_uses_session_profile_env(monkeypatch, tmp_path, 
     assert str(getattr(fake_skill_module, "SKILLS_DIR")) == "default-home/skills"
     assert os.environ.get("HERMES_HOME") == "default-home"
     assert os.environ.get("HERMES_TEST_PROFILE_ENV") is None
-    with routes._MANUAL_COMPRESSION_JOBS_LOCK:
-        assert routes._MANUAL_COMPRESSION_JOBS[sid]["status"] == "done"
+    with session_compress._MANUAL_COMPRESSION_JOBS_LOCK:
+        assert session_compress._MANUAL_COMPRESSION_JOBS[sid]["status"] == "done"
 
 
 def test_static_commands_js_registers_compress_alias(cleanup_test_sessions):

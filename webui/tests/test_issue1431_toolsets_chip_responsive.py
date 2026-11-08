@@ -143,7 +143,7 @@ class TestToolsetsAPIStillWorks:
         """The api/session/toolsets endpoint must still be registered."""
         # Check api/routes.py for the endpoint
         try:
-            with open("api/routes.py") as f:
+            with open("api/session_routes.py") as f:
                 src = f.read()
         except FileNotFoundError:
             # If routes.py is named differently, search

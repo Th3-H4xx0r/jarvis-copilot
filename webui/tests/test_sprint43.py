@@ -23,6 +23,7 @@ CONFIG_PY = (REPO_ROOT / "api" / "config.py").read_text()
 BOOTSTRAP_PY = (REPO_ROOT / "bootstrap.py").read_text()
 SERVER_PY = (REPO_ROOT / "server.py").read_text()
 ROUTES_PY = (REPO_ROOT / "api" / "routes.py").read_text()
+SESSION_ROUTES_PY = (REPO_ROOT / "api" / "session_routes.py").read_text()
 AUTH_PY = (REPO_ROOT / "api" / "auth.py").read_text()
 PROFILES_PY = (REPO_ROOT / "api" / "profiles.py").read_text()
 STREAMING_PY = (REPO_ROOT / "api" / "streaming.py").read_text()
@@ -237,17 +238,17 @@ class TestSessionTitleRedaction(unittest.TestCase):
     """routes.py: session titles must be redacted in the sessions list endpoint."""
 
     def test_redact_text_called_on_session_titles(self):
-        """routes.py must call _redact_text on session titles in /api/sessions."""
+        """session_routes.py must call _redact_text on session titles in /api/sessions."""
         self.assertRegex(
-            ROUTES_PY,
+            SESSION_ROUTES_PY,
             r'_redact_text\([^)]*\btitle\b[^)]*\)',
-            "routes.py: session titles must be redacted via _redact_text in /api/sessions",
+            "session_routes.py: session titles must be redacted via _redact_text in /api/sessions",
         )
 
     def test_redact_text_imported_in_routes(self):
-        """routes.py must import _redact_text from api.helpers."""
+        """session_routes.py must import _redact_text from api.helpers."""
         self.assertIn(
             "_redact_text",
-            ROUTES_PY,
-            "routes.py: _redact_text must be imported from api.helpers",
+            SESSION_ROUTES_PY,
+            "session_routes.py: _redact_text must be imported from api.helpers",
         )

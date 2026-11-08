@@ -136,8 +136,9 @@ def test_archive_route_reloads_metadata_only_cached_session(temp_session_dir, mo
     from types import SimpleNamespace
 
     import api.routes as routes
+    import api.session_routes as session_routes
     from api.models import LOCK, SESSIONS, Session, get_session
-    monkeypatch.setattr(routes, "SESSIONS", SESSIONS)
+    monkeypatch.setattr(session_routes, "SESSIONS", SESSIONS)
 
     sid = _make_session_on_disk(temp_session_dir, n_msgs=12, with_active_stream=False)
     stub = get_session(sid, metadata_only=True)
@@ -153,15 +154,11 @@ def test_archive_route_reloads_metadata_only_cached_session(temp_session_dir, mo
     captured = {}
     monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: {"session_id": sid, "archived": True})
-    monkeypatch.setattr(
-        routes,
-        "j",
-        lambda handler, payload, status=200, extra_headers=None: captured.update(
-            payload=payload,
-            status=status,
-        )
-        or True,
-    )
+    def fake_j(handler, payload, status=200, extra_headers=None):
+        captured.update(payload=payload, status=status)
+        return True
+
+    monkeypatch.setattr(session_routes, "j", fake_j)
 
     assert routes.handle_post(object(), SimpleNamespace(path="/api/session/archive")) is True
 
@@ -398,6 +395,7 @@ def test_metadata_only_cached_session_mutation_routes_reload_full_session(
 ):
     """Session metadata mutation routes must not save cached metadata-only stubs."""
     import api.routes as routes
+    import api.session_routes as session_routes
     from api.models import LOCK, SESSIONS, Session, get_session
 
     sid = _make_session_on_disk(
@@ -415,7 +413,7 @@ def test_metadata_only_cached_session_mutation_routes_reload_full_session(
     assert stub.messages == []
     with LOCK:
         SESSIONS[sid] = stub
-    monkeypatch.setattr(routes, "SESSIONS", SESSIONS)
+    monkeypatch.setattr(session_routes, "SESSIONS", SESSIONS)
 
     request_body = {
         key: (sid if value == "{sid}" else value)
@@ -424,13 +422,12 @@ def test_metadata_only_cached_session_mutation_routes_reload_full_session(
     captured = {}
     monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
     monkeypatch.setattr("api.helpers.read_body", lambda handler: request_body)
-    monkeypatch.setattr(
-        routes,
-        "j",
-        lambda handler, payload, status=200, extra_headers=None: captured.update(
-            payload=payload, status=status
-        ) or True,
-    )
+    def fake_j(handler, payload, status=200, extra_headers=None):
+        captured.update(payload=payload, status=status)
+        return True
+
+    for module in (routes, session_routes):
+        monkeypatch.setattr(module, "j", fake_j)
 
     assert routes.handle_post(object(), SimpleNamespace(path=path)) is True
     assert captured["status"] == 200

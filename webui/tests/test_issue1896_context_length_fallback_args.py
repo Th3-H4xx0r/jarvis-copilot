@@ -183,7 +183,7 @@ def test_cfg_custom_providers_resolved_from_cfg_dict():
 
 # ── Sibling fallback in api/routes.py session-load path ─────────────────────
 
-ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
+ROUTES_PY = (REPO / "api" / "session_routes.py").read_text(encoding="utf-8")
 
 
 def test_routes_session_load_fallback_passes_config_overrides():

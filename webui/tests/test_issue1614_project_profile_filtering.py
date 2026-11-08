@@ -268,9 +268,9 @@ def test_project_delete_rejects_cross_profile():
 def test_session_move_rejects_cross_profile_project():
     """/api/session/move must refuse moves into a project from another profile."""
     from pathlib import Path
-    src = (Path(__file__).parent.parent / 'api' / 'routes.py').read_text(encoding='utf-8')
+    src = (Path(__file__).parent.parent / 'api' / 'session_routes.py').read_text(encoding='utf-8')
 
-    move_idx = src.find('"/api/session/move"')
+    move_idx = src.find('def _post_move(')
     assert move_idx > 0
     move_block = src[move_idx:move_idx + 2000]
     assert '_profiles_match(target.get("profile"), active_profile)' in move_block, (

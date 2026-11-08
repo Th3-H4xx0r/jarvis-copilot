@@ -20,6 +20,46 @@ def bad(handler, msg, status: int=400):
     return j(handler, {'error': msg}, status=status)
 
 
+class HttpError(Exception):
+    """Raised inside a route to answer ``{"error": message}`` with ``status`` and stop.
+
+    Caught by the mount dispatcher and by functions wrapped in ``answers_http_errors``."""
+
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.status = status
+
+
+def answers_http_errors(fn):
+    """Turn an HttpError raised by ``fn(handler, ...)`` into its JSON error reply."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(handler, *args, **kwargs):
+        try:
+            return fn(handler, *args, **kwargs)
+        except HttpError as e:
+            return bad(handler, str(e), e.status)
+    return wrapper
+
+
+def need(body: dict, *fields) -> None:
+    """``require`` that answers 400 with its message."""
+    try:
+        require(body, *fields)
+    except ValueError as e:
+        raise HttpError(str(e)) from None
+
+
+def query_sid(parsed, missing: str = "session_id is required") -> str:
+    """The ``session_id`` query parameter; 400 with ``missing`` when absent."""
+    from urllib.parse import parse_qs
+    sid = parse_qs(parsed.query).get("session_id", [""])[0]
+    if not sid:
+        raise HttpError(missing)
+    return sid
+
+
 def _sanitize_error(e: Exception) -> str:
     """Strip filesystem paths from exception messages before returning to client."""
     import re

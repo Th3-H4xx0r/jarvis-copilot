@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import api.agent_sessions as agent_sessions
 import api.routes as routes
+import api.session_routes as session_routes
 
 
 def _ensure_state_db(path):
@@ -236,7 +237,7 @@ def test_lineage_report_endpoint_is_read_only_and_uses_active_state_db(tmp_path)
 
         handler = SimpleNamespace()
         parsed = urlparse("/api/session/lineage/report?session_id=lineage_report_tip")
-        with patch.object(routes, "_active_state_db_path", return_value=tmp_path / "state.db"), patch.object(routes, "j", side_effect=fake_j):
+        with patch.object(session_routes, "_active_state_db_path", return_value=tmp_path / "state.db"), patch.object(session_routes, "j", side_effect=fake_j):
             routes.handle_get(handler, parsed)
 
         assert captured["status"] == 200
@@ -259,7 +260,7 @@ def test_lineage_report_endpoint_returns_404_for_unknown_session(tmp_path):
 
     handler = SimpleNamespace()
     parsed = urlparse("/api/session/lineage/report?session_id=missing_lineage_report_session")
-    with patch.object(routes, "_active_state_db_path", return_value=tmp_path / "state.db"), patch.object(routes, "bad", side_effect=fake_bad):
+    with patch.object(session_routes, "_active_state_db_path", return_value=tmp_path / "state.db"), patch.object(session_routes, "bad", side_effect=fake_bad):
         routes.handle_get(handler, parsed)
 
     assert captured == {"status": 404, "message": "Session not found"}

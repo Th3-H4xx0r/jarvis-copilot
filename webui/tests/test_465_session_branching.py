@@ -17,7 +17,7 @@ import re
 
 def test_branch_endpoint_exists():
     """Verify the POST /api/session/branch route handler exists."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     assert '"POST /api/session/branch"' in src or '"/api/session/branch"' in src, \
         "Missing /api/session/branch route"
@@ -25,25 +25,25 @@ def test_branch_endpoint_exists():
 
 def test_branch_endpoint_validates_session_id():
     """Verify the branch endpoint requires session_id."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     # Find the branch block
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match, "Could not find /api/session/branch handler block"
     block = branch_match.group(1)
-    assert 'require(body, "session_id")' in block, \
+    assert 'need(body, "session_id")' in block, \
         "Branch handler should validate session_id"
 
 
 def test_branch_endpoint_returns_new_session_id():
     """Verify the branch endpoint returns session_id and title."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match
@@ -56,10 +56,10 @@ def test_branch_endpoint_returns_new_session_id():
 
 def test_branch_creates_session_with_parent():
     """Verify the branch creates a Session with parent_session_id set."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match
@@ -70,10 +70,10 @@ def test_branch_creates_session_with_parent():
 
 def test_branch_marks_explicit_forks_as_fork_sessions():
     """Explicit branches must not be mistaken for compression lineage rows."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match
@@ -96,10 +96,10 @@ def test_branch_fork_sessions_do_not_collapse_into_parent_lineage():
 
 def test_branch_keep_count_support():
     """Verify the branch endpoint supports keep_count parameter."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match
@@ -111,10 +111,10 @@ def test_branch_keep_count_support():
 
 def test_branch_auto_title():
     """Verify fork title defaults to '<original> (fork)'."""
-    with open('api/routes.py') as f:
+    with open('api/session_routes.py') as f:
         src = f.read()
     branch_match = re.search(
-        r'parsed\.path == "/api/session/branch"(.*?)(?=\n    if parsed\.path|$)',
+        r'def _post_branch\((.*?)(?=\ndef |$)',
         src, re.DOTALL
     )
     assert branch_match

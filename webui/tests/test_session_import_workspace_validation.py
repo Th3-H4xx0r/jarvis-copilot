@@ -5,7 +5,8 @@ from urllib.parse import urlparse
 
 from api.config import DEFAULT_WORKSPACE, SESSION_DIR
 from api.models import get_session
-from api.routes import _handle_file_read, _handle_session_import
+from api.routes import _handle_file_read
+from api.session_routes import _handle_session_import
 from api.workspace import resolve_trusted_workspace
 
 

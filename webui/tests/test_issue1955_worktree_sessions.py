@@ -7,6 +7,7 @@ import pytest
 
 import api.models as models
 from api.models import SESSIONS, Session, new_session
+import api.session_routes as session_routes
 
 
 @pytest.fixture(autouse=True)
@@ -156,7 +157,7 @@ def test_session_new_route_creates_worktree_backed_session(tmp_path, monkeypatch
             "profile": "default",
         },
     )
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda raw: repo if raw == str(repo) else raw)
+    monkeypatch.setattr(session_routes, "resolve_trusted_workspace", lambda raw: repo if raw == str(repo) else raw)
     monkeypatch.setattr(
         worktrees,
         "create_worktree_for_workspace",
@@ -169,7 +170,7 @@ def test_session_new_route_creates_worktree_backed_session(tmp_path, monkeypatch
     )
     captured = {}
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "j",
         lambda handler, payload, status=200, extra_headers=None: captured.update(
             payload=payload,
@@ -202,13 +203,13 @@ def test_session_new_worktree_fallback_workspace_is_resolved(tmp_path, monkeypat
             "profile": "default",
         },
     )
-    monkeypatch.setattr(routes, "get_last_workspace", lambda: str(repo))
+    monkeypatch.setattr(session_routes, "get_last_workspace", lambda: str(repo))
 
     def fake_resolve(raw):
         seen["resolved"].append(raw)
         return repo
 
-    monkeypatch.setattr(routes, "resolve_trusted_workspace", fake_resolve)
+    monkeypatch.setattr(session_routes, "resolve_trusted_workspace", fake_resolve)
     monkeypatch.setattr(
         worktrees,
         "create_worktree_for_workspace",
@@ -221,7 +222,7 @@ def test_session_new_worktree_fallback_workspace_is_resolved(tmp_path, monkeypat
     )
     captured = {}
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "j",
         lambda handler, payload, status=200, extra_headers=None: captured.update(
             payload=payload,

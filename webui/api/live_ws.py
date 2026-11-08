@@ -3461,7 +3461,7 @@ def _delete_one_session(live_session_id: str) -> Dict[str, Any]:
 def _delete_chat_session(chat_session_id: str) -> Tuple[bool, str]:
     """Delete a paired chat through the WebUI's own session-delete path."""
     try:
-        from api.routes import delete_chat_session
+        from api.session_routes import delete_chat_session
     except Exception as exc:
         logger.warning("live: chat delete helper unavailable", exc_info=True)
         return False, f"delete path unavailable: {type(exc).__name__}"

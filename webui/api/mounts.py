@@ -33,6 +33,8 @@ MOUNTS = (
     ("/api/kanban", "api.kanban_bridge"),
     ("/api/live", "api.live_ws"),
     ("/api/screen", "api.screen_share"),
+    ("/api/session", "api.session_routes"),
+    ("/api/sessions", "api.session_routes"),
     ("/api/speech", "api.speech_config"),
     ("/api/voice", "api.voice"),
     ("/api/widgets", "api.widget_routes"),
@@ -102,4 +104,8 @@ def dispatch(req: Request) -> bool:
     req.prefix = prefix
     # Only False means "not mine": a route that replied may return None (j() does), as
     # server.py treats every handle_* result.
-    return importlib.import_module(module).route(req) is not False
+    try:
+        return importlib.import_module(module).route(req) is not False
+    except helpers.HttpError as e:
+        helpers.bad(req.handler, str(e), e.status)
+        return True

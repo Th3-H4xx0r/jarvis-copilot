@@ -6,13 +6,15 @@ import sqlite3
 from pathlib import Path
 import sys
 import types
+import api.handoff_summary as handoff_summary
+import api.session_routes as session_routes
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 SESSIONS_JS = (ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
 STYLE_CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
-ROUTES = (ROOT / "api" / "routes.py").read_text(encoding="utf-8")
+ROUTES = (ROOT / "api" / "handoff_summary.py").read_text(encoding="utf-8")
 UI_JS = (ROOT / "static" / "ui.js").read_text(encoding="utf-8")
 
 
@@ -134,7 +136,7 @@ def test_handoff_summary_card_rendering_uses_persisted_messages():
 def test_handoff_summary_does_not_call_removed_agent_get_response():
     """Current JarvisCopilot exposes run_conversation/private transports, not get_response."""
     handoff_start = ROUTES.index("def _handle_handoff_summary")
-    next_handler = ROUTES.index("\ndef _handle_skill_save", handoff_start)
+    next_handler = len(ROUTES)
     handoff_body = ROUTES[handoff_start:next_handler]
     assert ".get_response(" not in handoff_body
     assert "_agent_text_completion" in handoff_body
@@ -144,7 +146,7 @@ def test_handoff_summary_does_not_call_removed_agent_get_response():
 def test_handoff_summary_prompt_uses_you_and_你():
     """Summary prompt should use assistant-facing pronouns instead of “user/用户”."""
     handoff_start = ROUTES.index("def _handle_handoff_summary")
-    next_handler = ROUTES.index("\ndef _handle_skill_save", handoff_start)
+    next_handler = len(ROUTES)
     handoff_body = ROUTES[handoff_start:next_handler]
     prompt_start = handoff_body.index("summary_system_prompt = (")
     prompt_end = handoff_body.index("summary_user_text =", prompt_start)
@@ -194,18 +196,17 @@ def test_handoff_hints_use_max_baseline_since():
 
 def test_no_api_key_handoff_summary_persists_fallback_summary(monkeypatch):
     """No-API-key path should persist fallback summary markers."""
-    import api.routes as routes
     import api.config as cfg
     import api.models as models
 
     # Force API-path validation to focus on fallback behavior only.
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
+    monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
+    monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     persisted = []
     monkeypatch.setattr(
-        routes,
+        handoff_summary,
         "_persist_handoff_summary",
         lambda sid, summary, channel, rounds, fallback=False: persisted.append({
             "sid": sid,
@@ -235,7 +236,7 @@ def test_no_api_key_handoff_summary_persists_fallback_summary(monkeypatch):
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
-    response = routes._handle_handoff_summary(object(), {"session_id": "session-without-api-key"})
+    response = handoff_summary._handle_handoff_summary(object(), {"session_id": "session-without-api-key"})
 
     assert response["ok"] is True
     assert response["fallback"] is True
@@ -250,17 +251,16 @@ def test_no_api_key_handoff_summary_persists_fallback_summary(monkeypatch):
 
 def test_exception_handoff_summary_persists_fallback_summary(monkeypatch):
     """Unhandled summary exception should still persist a fallback handoff marker."""
-    import api.routes as routes
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
+    monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
+    monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     persisted = []
     monkeypatch.setattr(
-        routes,
+        handoff_summary,
         "_persist_handoff_summary",
         lambda sid, summary, channel, rounds, fallback=False: persisted.append({
             "sid": sid,
@@ -326,7 +326,7 @@ def test_exception_handoff_summary_persists_fallback_summary(monkeypatch):
     fake_run_agent.AIAgent = _FailingAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
-    response = routes._handle_handoff_summary(object(), {"session_id": "session-with-exception"})
+    response = handoff_summary._handle_handoff_summary(object(), {"session_id": "session-with-exception"})
 
     assert response["ok"] is True
     assert response["fallback"] is True
@@ -342,17 +342,16 @@ def test_exception_handoff_summary_persists_fallback_summary(monkeypatch):
 
 def test_handoff_summary_retries_once_when_length_limit_reached(monkeypatch):
     """finish_reason='length' should trigger one retry with larger budget."""
-    import api.routes as routes
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
+    monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
+    monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     persisted = []
     monkeypatch.setattr(
-        routes,
+        handoff_summary,
         "_persist_handoff_summary",
         lambda sid, summary, channel, rounds, fallback=False: persisted.append({
             "sid": sid,
@@ -436,7 +435,7 @@ def test_handoff_summary_retries_once_when_length_limit_reached(monkeypatch):
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
-    response = routes._handle_handoff_summary(object(), {"session_id": "session-length-retry"})
+    response = handoff_summary._handle_handoff_summary(object(), {"session_id": "session-length-retry"})
 
     assert response["ok"] is True
     assert response["fallback"] is False
@@ -449,17 +448,16 @@ def test_handoff_summary_retries_once_when_length_limit_reached(monkeypatch):
 
 def test_handoff_summary_falls_back_when_retry_still_incomplete(monkeypatch):
     """Retry may still truncate; fallback should still return deterministic concise bullets."""
-    import api.routes as routes
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
+    monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
+    monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
     persisted = []
     monkeypatch.setattr(
-        routes,
+        handoff_summary,
         "_persist_handoff_summary",
         lambda sid, summary, channel, rounds, fallback=False: persisted.append({
             "sid": sid,
@@ -531,7 +529,7 @@ def test_handoff_summary_falls_back_when_retry_still_incomplete(monkeypatch):
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
-    response = routes._handle_handoff_summary(object(), {"session_id": "session-length-fallback"})
+    response = handoff_summary._handle_handoff_summary(object(), {"session_id": "session-length-fallback"})
 
     assert response["ok"] is True
     assert response["fallback"] is True
@@ -544,7 +542,6 @@ def test_handoff_summary_falls_back_when_retry_still_incomplete(monkeypatch):
 
 def test_handoff_summary_persistence_targets_both_backends_for_messaging_session(tmp_path, monkeypatch):
     """Messaging sessions should persist handoff summary markers into both local JSON and state.db."""
-    import api.routes as routes
     import api.models as models
     import api.profiles as profiles
 
@@ -580,7 +577,7 @@ def test_handoff_summary_persistence_targets_both_backends_for_messaging_session
         session.source_label = "Telegram"
         session.save(touch_updated_at=False)
 
-        routes._persist_handoff_summary(sid, "Please handoff after context", "telegram", 2, False)
+        handoff_summary._persist_handoff_summary(sid, "Please handoff after context", "telegram", 2, False)
 
         saved = models.Session.load(sid)
         assert len(saved.messages) == 2
@@ -609,7 +606,6 @@ def test_handoff_summary_persistence_targets_both_backends_for_messaging_session
 
 def test_persisted_handoff_summary_deduplicates_identical_tail_markers(tmp_path, monkeypatch):
     """When the tail already contains the same handoff marker, repeated generation should be idempotent."""
-    import api.routes as routes
     import api.models as models
     import api.profiles as profiles
 
@@ -631,7 +627,7 @@ def test_persisted_handoff_summary_deduplicates_identical_tail_markers(tmp_path,
         )
         conn.commit()
 
-        marker = routes._build_handoff_summary_tool_message(sid, "Repeat me", "telegram", 3, False)
+        marker = handoff_summary._build_handoff_summary_tool_message(sid, "Repeat me", "telegram", 3, False)
         session = models.Session(
             session_id=sid,
             title="Imported Messaging Session",
@@ -654,7 +650,7 @@ def test_persisted_handoff_summary_deduplicates_identical_tail_markers(tmp_path,
         )
         conn.commit()
 
-        routes._persist_handoff_summary(sid, "Repeat me", "telegram", 3, False)
+        handoff_summary._persist_handoff_summary(sid, "Repeat me", "telegram", 3, False)
 
         refreshed = models.Session.load(sid)
         assert len(refreshed.messages) == 2
@@ -671,7 +667,6 @@ def test_persisted_handoff_summary_deduplicates_identical_tail_markers(tmp_path,
 
 def test_persist_handoff_summary_falls_back_when_local_session_file_missing(tmp_path, monkeypatch):
     """Messaging session IDs should still persist to state.db when no local WebUI session exists."""
-    import api.routes as routes
     import api.profiles as profiles
 
     sid = "messaging_1013_no_local_file"
@@ -682,9 +677,9 @@ def test_persist_handoff_summary_falls_back_when_local_session_file_missing(tmp_
     conn = _new_state_db(mock_home / "state.db")
 
     # Force messaging classification while keeping the local shell absent.
-    monkeypatch.setattr(routes, "_is_messaging_session_id", lambda _sid: True)
+    monkeypatch.setattr(session_routes, "_is_messaging_session_id", lambda _sid: True)
     try:
-        routes._persist_handoff_summary(sid, "Persist without local shell", "telegram", 1, True)
+        handoff_summary._persist_handoff_summary(sid, "Persist without local shell", "telegram", 1, True)
         rows = conn.execute(
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY rowid ASC",
             (sid,),

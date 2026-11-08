@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 
 REPO_ROOT = Path(__file__).parent.parent
-ROUTES_PY = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
+ROUTES_PY = (REPO_ROOT / "api" / "session_routes.py").read_text(encoding="utf-8")
 SESSIONS_JS = (REPO_ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
 I18N_JS = (REPO_ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
 
@@ -51,7 +51,7 @@ def test_sf1_session_meta_children_present_in_all_locales():
 
 def test_sf2_duplicate_carries_personality():
     """The duplicate must propagate `personality` from source to copy."""
-    duplicate_start = ROUTES_PY.find('if parsed.path == "/api/session/duplicate":')
+    duplicate_start = ROUTES_PY.find('def _post_duplicate(')
     assert duplicate_start != -1
     block = ROUTES_PY[duplicate_start:duplicate_start + 3000]
     assert 'personality=session.personality' in block, (
@@ -62,7 +62,7 @@ def test_sf2_duplicate_carries_personality():
 
 def test_sf2_duplicate_carries_enabled_toolsets():
     """The duplicate must propagate `enabled_toolsets` (per-session toolset overrides)."""
-    duplicate_start = ROUTES_PY.find('if parsed.path == "/api/session/duplicate":')
+    duplicate_start = ROUTES_PY.find('def _post_duplicate(')
     block = ROUTES_PY[duplicate_start:duplicate_start + 3000]
     assert 'enabled_toolsets=getattr(session, "enabled_toolsets", None)' in block, (
         "duplicate must carry enabled_toolsets — without it, per-session "
@@ -72,7 +72,7 @@ def test_sf2_duplicate_carries_enabled_toolsets():
 
 def test_sf2_duplicate_carries_context_settings():
     """The duplicate must propagate context_length + threshold_tokens."""
-    duplicate_start = ROUTES_PY.find('if parsed.path == "/api/session/duplicate":')
+    duplicate_start = ROUTES_PY.find('def _post_duplicate(')
     block = ROUTES_PY[duplicate_start:duplicate_start + 3000]
     assert 'context_length=getattr(session, "context_length", None)' in block
     assert 'threshold_tokens=getattr(session, "threshold_tokens", None)' in block
@@ -84,7 +84,7 @@ def test_sf3_duplicate_handles_none_title():
     """The duplicate handler must guard `session.title or 'Untitled'` to avoid
     `TypeError: unsupported operand type(s) for +: 'NoneType' and 'str'`
     on legacy sessions with title=null."""
-    duplicate_start = ROUTES_PY.find('if parsed.path == "/api/session/duplicate":')
+    duplicate_start = ROUTES_PY.find('def _post_duplicate(')
     assert duplicate_start != -1
     block = ROUTES_PY[duplicate_start:duplicate_start + 3000]
     # Must use the (session.title or "Untitled") form, not raw session.title

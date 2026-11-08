@@ -83,7 +83,7 @@ def _effective(section: Dict[str, Any]) -> Dict[str, Any]:
 def _context_length_for(model: str, provider: str) -> int:
     """The window the WebUI already shows for a session model (0 = unknown)."""
     try:
-        from api.routes import _resolve_context_length_for_session_model
+        from api.session_routes import _resolve_context_length_for_session_model
         return int(_resolve_context_length_for_session_model(model, provider) or 0)
     except Exception:
         logger.debug("compression: context length lookup failed", exc_info=True)

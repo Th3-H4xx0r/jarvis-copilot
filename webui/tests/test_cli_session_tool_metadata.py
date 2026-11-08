@@ -6,6 +6,7 @@ import json
 import sqlite3
 
 import api.models as models
+import api.session_routes as session_routes
 
 
 def _patch_active_home(monkeypatch, home):
@@ -139,12 +140,12 @@ def test_existing_cli_import_refreshes_same_length_tool_metadata(monkeypatch):
     save_calls = []
     existing = FakeSession()
     monkeypatch.setattr(routes.Session, "load", classmethod(lambda _cls, sid: existing if sid == session_id else None))
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
-    monkeypatch.setattr(routes, "get_cli_session_messages", lambda sid: enriched if sid == session_id else [])
-    monkeypatch.setattr(routes, "get_cli_sessions", lambda: [{"session_id": session_id, "source_tag": "cli", "raw_source": "cli", "session_source": "cli", "source_label": "CLI"}])
+    monkeypatch.setattr(session_routes, "require", lambda body, *keys: None)
+    monkeypatch.setattr(session_routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(session_routes, "get_cli_session_messages", lambda sid: enriched if sid == session_id else [])
+    monkeypatch.setattr(session_routes, "get_cli_sessions", lambda: [{"session_id": session_id, "source_tag": "cli", "raw_source": "cli", "session_source": "cli", "source_label": "CLI"}])
 
-    response = routes._handle_session_import_cli(object(), {"session_id": session_id})
+    response = session_routes._handle_session_import_cli(object(), {"session_id": session_id})
 
     assert response["imported"] is False
     assert existing.messages == enriched

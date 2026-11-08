@@ -84,14 +84,16 @@ def test_streaming_sets_pending_goal_continuation_on_goal_continue():
 # ---------------------------------------------------------------------------
 
 def test_routes_marks_goal_kickoff_as_goal_related():
-    """The /api/goal handler must mark the kickoff stream as goal-related."""
+    """The /api/goal handler starts its kickoff turn as goal-related, and the
+    turn service marks such a stream for the goal hook."""
     from pathlib import Path
-    routes_py = (Path(__file__).resolve().parents[1] / "api" / "routes.py").read_text()
+    api_dir = Path(__file__).resolve().parents[1] / "api"
+    routes_py = (api_dir / "routes.py").read_text()
+    chat_turns_py = (api_dir / "chat_turns.py").read_text()
 
-    # After kickoff stream is started, it must mark the stream
-    kickoff_idx = routes_py.find("kickoff_prompt")
-    stream_goal_idx = routes_py.find("STREAM_GOAL_RELATED")
-    assert kickoff_idx != -1 and stream_goal_idx != -1
+    kickoff = routes_py[routes_py.find("kickoff_prompt"):]
+    assert "goal_related=True" in kickoff[:1500]
+    assert "STREAM_GOAL_RELATED[stream_id] = True" in chat_turns_py
 
 
 # ---------------------------------------------------------------------------

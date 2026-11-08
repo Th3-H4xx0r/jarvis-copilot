@@ -11,6 +11,7 @@ from PIL import Image
 import api.config  # noqa: F401  (puts the agent checkout on sys.path)
 import api.harness_runner as hr
 from agent import chat_media, escalation
+import api.session_routes as session_routes
 
 
 def _png(w=500, h=400):
@@ -87,13 +88,12 @@ def test_localize_turn_images_only_touches_this_turns_assistant_messages():
 
 
 def test_delete_chat_removes_media_unless_continued(monkeypatch):
-    import api.routes as routes
     import api.models as models
     chat_media.save_image_bytes(_png(), "aaa1")
     chat_media.save_image_bytes(_png(), "bbb2")
     monkeypatch.setattr(models, "all_sessions",
                         lambda *a, **k: [{"session_id": "ccc3", "parent_session_id": "bbb2"}])
-    routes.delete_chat_session("aaa1")
-    routes.delete_chat_session("bbb2")
+    session_routes.delete_chat_session("aaa1")
+    session_routes.delete_chat_session("bbb2")
     assert not chat_media.media_dir("aaa1").exists()
     assert chat_media.media_dir("bbb2").exists()

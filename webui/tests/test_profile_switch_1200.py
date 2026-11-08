@@ -205,6 +205,7 @@ This caused the chip to keep showing the old profile name after switchToProfile(
 """
 
 import re
+import api.session_routes as session_routes
 
 
 def test_syncTopbar_early_return_updates_profile_chip():
@@ -478,7 +479,7 @@ def test_chat_start_retags_empty_session_to_request_profile(monkeypatch, tmp_pat
             self.saved = True
 
     fake = FakeSession()
-    monkeypatch.setattr(routes, "get_session", lambda sid: fake)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid: fake)
     monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", lambda path: tmp_path)
     monkeypatch.setattr(
         routes,
@@ -550,7 +551,7 @@ def test_chat_start_does_not_retag_non_empty_session(monkeypatch, tmp_path):
             self.saved = True
 
     fake = FakeSession()
-    monkeypatch.setattr(routes, "get_session", lambda sid: fake)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid: fake)
     monkeypatch.setattr(chat_turns, "resolve_trusted_workspace", lambda path: tmp_path)
     monkeypatch.setattr(
         routes,
@@ -593,7 +594,7 @@ def test_chat_start_rejects_invalid_request_profile(monkeypatch):
     class FakeSession:
         profile = "default"
 
-    monkeypatch.setattr(routes, "get_session", lambda sid: FakeSession())
+    monkeypatch.setattr(session_routes, "get_session", lambda sid: FakeSession())
     errors = []
 
     def fake_bad(handler, message, status=400):

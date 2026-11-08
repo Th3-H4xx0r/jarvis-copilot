@@ -8,6 +8,7 @@ import pytest
 import api.models as models
 import api.routes as routes
 import api.worktrees as worktrees
+import api.session_routes as session_routes
 
 
 def _capture_post(monkeypatch, body):
@@ -19,7 +20,7 @@ def _capture_post(monkeypatch, body):
     def _fake_j(handler, payload, status=200, extra_headers=None):
         captured.update(payload=payload, status=status)
         return True
-    monkeypatch.setattr(routes, "j", _fake_j)
+    monkeypatch.setattr(session_routes, "j", _fake_j)
     monkeypatch.setattr(helpers, "j", _fake_j)
     return captured
 
@@ -29,8 +30,8 @@ def _isolate_session_store(tmp_path, monkeypatch):
     session_dir.mkdir()
     monkeypatch.setattr(models, "SESSION_DIR", session_dir)
     monkeypatch.setattr(models, "SESSION_INDEX_FILE", session_dir / "_index.json")
-    monkeypatch.setattr(routes, "SESSION_DIR", session_dir)
-    monkeypatch.setattr(routes, "SESSION_INDEX_FILE", session_dir / "_index.json")
+    monkeypatch.setattr(session_routes, "SESSION_DIR", session_dir)
+    monkeypatch.setattr(session_routes, "SESSION_INDEX_FILE", session_dir / "_index.json")
     models.SESSIONS.clear()
     return session_dir
 
@@ -329,7 +330,5 @@ def test_remove_missing_session_returns_404(tmp_path, monkeypatch):
 
 
 def test_post_router_does_not_expose_read_only_worktree_or_compress_status():
-    src = Path("api/routes.py").read_text(encoding="utf-8")
-    post_body = src[src.index("def handle_post"):src.index('if parsed.path == "/api/session/worktree/remove"')]
-    assert '"/api/session/worktree/status"' not in post_body
-    assert '"/api/session/compress/status"' not in post_body
+    assert "/api/session/worktree/status" not in session_routes._POST
+    assert "/api/session/compress/status" not in session_routes._POST

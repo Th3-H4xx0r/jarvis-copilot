@@ -8,7 +8,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 STREAMING_PY = (REPO / "api" / "streaming.py").read_text(encoding="utf-8")
 MESSAGES_JS = (REPO / "static" / "messages.js").read_text(encoding="utf-8")
-ROUTES_PY = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
+CHAT_TURNS_PY = (REPO / "api" / "chat_turns.py").read_text(encoding="utf-8")
 UI_JS = (REPO / "static" / "ui.js").read_text(encoding="utf-8")
 CSS = (REPO / "static" / "style.css").read_text(encoding="utf-8")
 
@@ -62,7 +62,7 @@ def test_ui_formats_and_renders_turn_duration_in_footer_and_activity_summary():
 
 
 def test_active_compact_activity_elapsed_timer_uses_persisted_start_time():
-    assert '"pending_started_at": s.pending_started_at' in ROUTES_PY, (
+    assert '"pending_started_at": s.pending_started_at' in CHAT_TURNS_PY, (
         "/api/chat/start should return the persisted pending_started_at timestamp "
         "so the live timer starts from backend/session truth."
     )

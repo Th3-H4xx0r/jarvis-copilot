@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-import api.chat_turns as chat_turns
 from unittest.mock import patch
 from urllib.parse import urlparse
 
@@ -63,10 +62,10 @@ def _invoke_api_session(session_obj, *, lookup_cli):
         return data
 
     parsed = urlparse("/api/session?session_id=native_webui_001&messages=0&resolve_model=0")
-    with patch("api.routes.get_session", return_value=session_obj), \
+    with patch("api.session_routes.get_session", return_value=session_obj), \
          patch("api.chat_turns.clear_stale_stream_state", return_value=False), \
-         patch("api.routes._lookup_cli_session_metadata", side_effect=lookup_cli) as lookup, \
-         patch("api.routes.j", side_effect=fake_j):
+         patch("api.session_routes._lookup_cli_session_metadata", side_effect=lookup_cli) as lookup, \
+         patch("api.session_routes.j", side_effect=fake_j):
         routes.handle_get(SimpleNamespace(), parsed)
     return captured, lookup
 

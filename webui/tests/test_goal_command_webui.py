@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import api.session_routes as session_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMANDS_JS = (REPO_ROOT / "static" / "commands.js").read_text(encoding="utf-8")
@@ -196,7 +197,7 @@ def test_goal_endpoint_sets_goal_and_starts_kickoff_stream(monkeypatch, tmp_path
         active_stream_id = None
 
     monkeypatch.setattr(webui_goals, "GoalManager", FakeGoalManager)
-    monkeypatch.setattr(routes, "get_session", lambda sid: FakeSession())
+    monkeypatch.setattr(session_routes, "get_session", lambda sid: FakeSession())
     monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda workspace: tmp_path)
     monkeypatch.setattr(
         routes,

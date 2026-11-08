@@ -20,6 +20,7 @@ from tests.conftest import TEST_STATE_DIR
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 from tests._pytest_port import BASE
+import api.session_routes as session_routes
 
 
 def _read(rel_path: str) -> str:
@@ -376,7 +377,6 @@ def test_default_model_save_persists_codex_provider_for_qualified_model(tmp_path
 
 def test_active_codex_at_provider_session_model_preserved(monkeypatch):
     """@openai-codex:gpt-5.5 session selections must keep their provider hint."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -407,7 +407,6 @@ def test_active_codex_at_provider_session_model_preserved(monkeypatch):
 
 def test_bare_codex_gpt_session_model_gets_separate_provider_context(monkeypatch):
     """A bare GPT model under active Codex stays bare and carries model_provider."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -577,7 +576,6 @@ def test_real_provider_custom_base_url_slash_model_stays_on_configured_endpoint(
 
 def test_bare_gemini_session_model_normalizes_to_active_provider_default(monkeypatch):
     """Persisted bare Gemini IDs must not survive a provider switch."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -596,7 +594,6 @@ def test_bare_gemini_session_model_normalizes_to_active_provider_default(monkeyp
 
 def test_prefixed_google_session_model_normalizes_to_active_provider_default(monkeypatch):
     """Persisted provider-prefixed Gemini IDs must normalize too."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -615,7 +612,6 @@ def test_prefixed_google_session_model_normalizes_to_active_provider_default(mon
 
 def test_legacy_at_provider_session_model_normalizes_when_provider_hidden(monkeypatch):
     """Old @provider:model session values must not bypass stale-model recovery."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -648,7 +644,6 @@ def test_active_at_provider_session_model_preserved_with_hint(monkeypatch):
     wrong provider. The fix returns the full @provider:model unchanged so
     resolve_model_provider() can route through the correct provider.
     """
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -676,7 +671,6 @@ def test_active_at_provider_session_model_preserved_with_hint(monkeypatch):
 
 def test_routable_non_active_at_provider_session_model_is_preserved(monkeypatch):
     """Visible cross-provider dropdown selections must keep their provider hint."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -718,7 +712,6 @@ def test_issue1253_duplicate_model_id_active_provider_hint_preserved(monkeypatch
     which then got written back to disk and sent as effective_model, snapping the
     picker to the first (wrong) provider.
     """
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -754,7 +747,6 @@ def test_issue1253_duplicate_model_id_active_provider_hint_preserved(monkeypatch
 
 def test_named_custom_provider_hint_with_colon_is_preserved(monkeypatch):
     """@custom:name:model must survive chat/start normalization for WebUI routing."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -795,7 +787,6 @@ def test_named_custom_provider_hint_with_colon_is_preserved(monkeypatch):
 
 def test_issue1734_stale_openai_slash_session_model_repairs_to_codex(monkeypatch):
     """Legacy openai/... session IDs must not route to OpenRouter when Codex is active."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -899,10 +890,11 @@ def test_issue1734_chat_start_persists_repaired_codex_provider(monkeypatch):
             pass
 
     session = DummySession()
-    monkeypatch.setattr(routes, "get_session", lambda sid: session)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid: session)
     monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda value: value)
     monkeypatch.setattr(routes, "_get_session_agent_lock", lambda sid: contextlib.nullcontext())
-    monkeypatch.setattr(routes, "set_last_workspace", lambda workspace: None)
+    import api.chat_turns as chat_turns
+    monkeypatch.setattr(chat_turns, "set_last_workspace", lambda workspace: None)
     monkeypatch.setattr(routes, "create_stream_channel", lambda: object())
     monkeypatch.setattr(routes.threading, "Thread", FakeThread)
 
@@ -925,7 +917,6 @@ def test_issue1734_chat_start_persists_repaired_codex_provider(monkeypatch):
 
 def test_stale_at_provider_model_falls_back_when_family_mismatches(monkeypatch):
     """Unroutable @provider:model should not invent a bare model for another family."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -951,7 +942,6 @@ def test_stale_at_provider_model_falls_back_when_family_mismatches(monkeypatch):
 
 def test_google_active_provider_keeps_valid_gemini_session_model(monkeypatch):
     """A Google-configured session must keep its Gemini model."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -998,7 +988,6 @@ def test_session_model_normalizer_persists_corrected_model(monkeypatch):
 
 def test_session_model_display_resolver_is_read_only(monkeypatch):
     """Read-path model resolution must not mutate or save the session."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -1017,7 +1006,7 @@ def test_session_model_display_resolver_is_read_only(monkeypatch):
             save_calls.append(touch_updated_at)
 
     session = DummySession()
-    effective = routes._resolve_effective_session_model_for_display(session)
+    effective = session_routes._resolve_effective_session_model_for_display(session)
 
     assert effective == "gpt-5.4-mini"
     assert session.model == "gemini-3.1-pro-preview"
@@ -1180,7 +1169,6 @@ class TestFrontendModelProviderState:
 
 def test_unknown_prefix_model_passes_through_unchanged(monkeypatch):
     """Models with unknown/custom prefixes must never be stripped — regression test for #751."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -1241,7 +1229,6 @@ def test_empty_model_session_does_not_trigger_save(monkeypatch):
 def test_stale_openai_model_cleared_for_custom_only_provider(monkeypatch):
     """A stale openai/... session model must be cleared when active provider is
     'custom' and no catalog group can route the openai prefix (#829)."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -1268,7 +1255,6 @@ def test_stale_openai_model_cleared_for_custom_only_provider(monkeypatch):
 def test_stale_openai_model_cleared_for_custom_provider_with_default(monkeypatch):
     """When active_provider='custom', no openrouter group, and default_model is
     configured, stale openai/... model should be cleared to default (#829)."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -1292,7 +1278,6 @@ def test_stale_openai_model_cleared_for_custom_provider_with_default(monkeypatch
 def test_openrouter_model_preserved_when_openrouter_group_present(monkeypatch):
     """When active_provider='openrouter' and openrouter group exists,
     openai/... model IDs must pass through unchanged — they are routable (#829)."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {
@@ -1316,7 +1301,6 @@ def test_openrouter_model_preserved_when_openrouter_group_present(monkeypatch):
 def test_custom_namespace_model_always_preserved_on_custom_provider(monkeypatch):
     """Model IDs with 'custom/' prefix must always pass through unchanged even
     when active_provider='custom' (#829)."""
-    import api.routes as routes
 
     monkeypatch.setattr(session_model, "get_available_models",
         lambda: {

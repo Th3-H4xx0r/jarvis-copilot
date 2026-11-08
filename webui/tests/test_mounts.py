@@ -100,3 +100,24 @@ def test_unknown_kanban_endpoint_names_the_stale_bundle_for_every_method(monkeyp
     assert handler.status == 404
     error = json.loads(handler.wfile.getvalue())["error"]
     assert f"unknown Kanban endpoint: {method} /api/kanban/obsolete-shape" in error
+
+
+@pytest.mark.parametrize("path, body, status, error", [
+    ("/api/session/rename", {}, 400, "Missing required field(s): session_id, title"),
+    ("/api/session/rename", {"session_id": "nope_nope", "title": "x"}, 404, "Session not found"),
+    ("/api/session/clear", {"session_id": "nope_nope"}, 404, "Session not found"),
+])
+def test_a_session_route_that_raises_http_error_answers_with_it(monkeypatch, path, body, status, error):
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
+    handler = _Handler(body)
+    assert routes.handle_post(handler, urlparse(path)) is True
+    assert handler.status == status
+    assert json.loads(handler.wfile.getvalue())["error"] == error
+
+
+def test_a_routes_handler_that_raises_http_error_answers_with_it(monkeypatch):
+    monkeypatch.setattr(routes, "check_csrf", lambda handler: True)
+    handler = _Handler({"session_id": "nope_nope", "path": "a.txt"})
+    routes.handle_post(handler, urlparse("/api/file/delete"))
+    assert handler.status == 404
+    assert json.loads(handler.wfile.getvalue())["error"] == "Session not found"

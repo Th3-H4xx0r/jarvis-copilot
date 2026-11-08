@@ -6,6 +6,7 @@ import sqlite3
 
 import api.models as models
 import api.routes as routes
+import api.session_routes as session_routes
 
 
 
@@ -29,23 +30,23 @@ def test_session_endpoint_merges_sidecar_and_lineage_messages_for_cli_sessions(m
 
     captured = {}
 
-    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: DummySession())
-    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda s: None)
-    monkeypatch.setattr(routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
-    monkeypatch.setattr(routes, "_is_messaging_session_record", lambda s: True)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid, metadata_only=False: DummySession())
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", lambda s: None)
+    monkeypatch.setattr(session_routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
+    monkeypatch.setattr(session_routes, "_is_messaging_session_record", lambda s: True)
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "get_cli_session_messages",
         lambda sid: [
             {"role": "user", "content": "root user", "timestamp": 1.0},
             {"role": "assistant", "content": "tip assistant", "timestamp": 2.0},
         ],
     )
-    monkeypatch.setattr(routes, "_resolve_effective_session_model_for_display", lambda s: getattr(s, "model", None))
-    monkeypatch.setattr(routes, "_resolve_effective_session_model_provider_for_display", lambda s: None)
-    monkeypatch.setattr(routes, "_merge_cli_sidebar_metadata", lambda raw, meta: raw)
-    monkeypatch.setattr(routes, "redact_session_data", lambda raw: raw)
-    monkeypatch.setattr(routes, "j", lambda handler, payload, status=200: captured.setdefault("payload", payload))
+    monkeypatch.setattr(session_routes, "_resolve_effective_session_model_for_display", lambda s: getattr(s, "model", None))
+    monkeypatch.setattr(session_routes, "_resolve_effective_session_model_provider_for_display", lambda s: None)
+    monkeypatch.setattr(session_routes, "_merge_cli_sidebar_metadata", lambda raw, meta: raw)
+    monkeypatch.setattr(session_routes, "redact_session_data", lambda raw: raw)
+    monkeypatch.setattr(session_routes, "j", lambda handler, payload, status=200: captured.setdefault("payload", payload))
 
     class Handler:
         pass
@@ -91,12 +92,12 @@ def test_session_endpoint_preserves_distinct_messages_with_different_ids(monkeyp
 
     captured = {}
 
-    monkeypatch.setattr(routes, "get_session", lambda sid, metadata_only=False: DummySession())
-    monkeypatch.setattr(routes, "clear_stale_stream_state", lambda s: None)
-    monkeypatch.setattr(routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
-    monkeypatch.setattr(routes, "_is_messaging_session_record", lambda s: True)
+    monkeypatch.setattr(session_routes, "get_session", lambda sid, metadata_only=False: DummySession())
+    monkeypatch.setattr(session_routes, "clear_stale_stream_state", lambda s: None)
+    monkeypatch.setattr(session_routes, "_lookup_cli_session_metadata", lambda sid: {"session_source": "messaging"})
+    monkeypatch.setattr(session_routes, "_is_messaging_session_record", lambda s: True)
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "get_cli_session_messages",
         lambda sid: [
             {"role": "user", "content": "root user", "timestamp": 1.0},
@@ -108,11 +109,11 @@ def test_session_endpoint_preserves_distinct_messages_with_different_ids(monkeyp
             },
         ],
     )
-    monkeypatch.setattr(routes, "_resolve_effective_session_model_for_display", lambda s: getattr(s, "model", None))
-    monkeypatch.setattr(routes, "_resolve_effective_session_model_provider_for_display", lambda s: None)
-    monkeypatch.setattr(routes, "_merge_cli_sidebar_metadata", lambda raw, meta: raw)
-    monkeypatch.setattr(routes, "redact_session_data", lambda raw: raw)
-    monkeypatch.setattr(routes, "j", lambda handler, payload, status=200: captured.setdefault("payload", payload))
+    monkeypatch.setattr(session_routes, "_resolve_effective_session_model_for_display", lambda s: getattr(s, "model", None))
+    monkeypatch.setattr(session_routes, "_resolve_effective_session_model_provider_for_display", lambda s: None)
+    monkeypatch.setattr(session_routes, "_merge_cli_sidebar_metadata", lambda raw, meta: raw)
+    monkeypatch.setattr(session_routes, "redact_session_data", lambda raw: raw)
+    monkeypatch.setattr(session_routes, "j", lambda handler, payload, status=200: captured.setdefault("payload", payload))
 
     class Handler:
         pass

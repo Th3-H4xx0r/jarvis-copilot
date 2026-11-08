@@ -33,7 +33,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
-ROUTES = Path(__file__).resolve().parent.parent / "api" / "routes.py"
+ROUTES = Path(__file__).resolve().parent.parent / "api" / "session_routes.py"
 UI_JS = Path(__file__).resolve().parent.parent / "static" / "ui.js"
 
 
@@ -96,8 +96,8 @@ class TestIssue1436BackendFallback:
         parsed = urlparse("/api/session?session_id=test-1436&messages=0")
 
         # Patch import so `from agent.model_metadata import ...` resolves to our fake.
-        with patch("api.routes.get_session", return_value=session_obj), \
-             patch("api.routes.j", side_effect=fake_j), \
+        with patch("api.session_routes.get_session", return_value=session_obj), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_get(handler, parsed)
         return captured
@@ -138,8 +138,8 @@ class TestIssue1436BackendFallback:
             "/api/session?session_id=test-1436&messages=0&resolve_model=1"
         )
 
-        with patch("api.routes.get_session", return_value=s), \
-             patch("api.routes.j", side_effect=fake_j), \
+        with patch("api.session_routes.get_session", return_value=s), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_get(handler, parsed)
 
@@ -186,9 +186,9 @@ class TestIssue1436BackendFallback:
         }
         with patch("api.routes.check_csrf", return_value=True), \
              patch("api.helpers.read_body", return_value=body), \
-             patch("api.routes.get_session", return_value=s), \
-             patch("api.routes.resolve_trusted_workspace", return_value="/tmp"), \
-             patch("api.routes.j", side_effect=fake_j), \
+             patch("api.session_routes.get_session", return_value=s), \
+             patch("api.session_routes.resolve_trusted_workspace", return_value="/tmp"), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_post(handler, parsed)
 
@@ -227,8 +227,8 @@ class TestIssue1436BackendFallback:
         handler = MagicMock()
         parsed = urlparse("/api/session?session_id=test-1436&messages=0")
 
-        with patch("api.routes.get_session", return_value=s), \
-             patch("api.routes.j", side_effect=fake_j), \
+        with patch("api.session_routes.get_session", return_value=s), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_get(handler, parsed)
 
@@ -258,8 +258,8 @@ class TestIssue1436BackendFallback:
             "/api/session?session_id=test-1436&messages=0&resolve_model=0"
         )
 
-        with patch("api.routes.get_session", return_value=s), \
-             patch("api.routes.j", side_effect=fake_j), \
+        with patch("api.session_routes.get_session", return_value=s), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_get(handler, parsed)
 
@@ -290,8 +290,8 @@ class TestIssue1436BackendFallback:
         handler = MagicMock()
         parsed = urlparse("/api/session?session_id=test-1436&messages=0")
 
-        with patch("api.routes.get_session", return_value=s), \
-             patch("api.routes.j", side_effect=fake_j), \
+        with patch("api.session_routes.get_session", return_value=s), \
+             patch("api.session_routes.j", side_effect=fake_j), \
              patch.dict("sys.modules", {"agent.model_metadata": fake_module}):
             routes.handle_get(handler, parsed)  # must not raise
 
@@ -367,7 +367,7 @@ class TestIssue1436SourceMarkers:
         # The session load path can call a helper, but the lazy import must
         # remain in routes.py so WebUI still works with older/missing agent
         # bundles by swallowing metadata-resolution failures.
-        start = src.find('if parsed.path == "/api/session":')
+        start = src.find('def _get_detail(')
         end = src.find('if parsed.path == "/api/projects":', start)
         block = src[start:end]
         assert "_resolve_context_length_for_session_model" in block, (
@@ -384,7 +384,7 @@ class TestIssue1436SourceMarkers:
         src = ROUTES.read_text(encoding="utf-8")
         # Find the load-path block (between "if parsed.path == \"/api/session\":"
         # and the next `if parsed.path` after it).
-        start = src.find('if parsed.path == "/api/session":')
+        start = src.find('def _get_detail(')
         end = src.find('if parsed.path == "/api/projects":', start)
         block = src[start:end]
         assert "#1436" in block, (

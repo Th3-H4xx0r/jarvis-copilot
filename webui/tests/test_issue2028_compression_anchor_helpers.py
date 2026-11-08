@@ -8,7 +8,7 @@ from api.compression_anchor import visible_messages_for_anchor
 
 
 def test_legacy_duplicate_anchor_helpers_are_removed():
-    routes_src = Path("api/routes.py").read_text(encoding="utf-8")
+    routes_src = Path("api/session_compress.py").read_text(encoding="utf-8")
     streaming_src = Path("api/streaming.py").read_text(encoding="utf-8")
 
     assert "def _visible_messages_for_anchor" not in routes_src

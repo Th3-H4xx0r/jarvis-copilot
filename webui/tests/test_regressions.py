@@ -316,13 +316,13 @@ def _delete_a_session_in(tmp_path, monkeypatch, sid="abc123deadbeef"):
     """Run the real session-delete mechanics against a throwaway session dir.
 
     These two invariants used to be checked by searching the handler body for
-    literals. The mechanics now live in ``routes.delete_chat_session`` (shared
+    literals. The mechanics now live in ``session_routes.delete_chat_session`` (shared
     with the live-session delete, which has to remove the chat it paired), so
     that search proved only where the code sat, not what it did. Returns the
     paths that must be gone afterwards.
     """
     from api import models as api_models
-    from api import routes as api_routes
+    from api import session_routes as api_routes
 
     sessions = tmp_path / "sessions"
     sessions.mkdir(exist_ok=True)

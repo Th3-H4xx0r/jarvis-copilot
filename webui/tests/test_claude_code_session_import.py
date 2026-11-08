@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+import api.session_routes as session_routes
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -190,15 +191,15 @@ def test_session_import_cli_returns_read_only_claude_code_payload(monkeypatch, t
     }
 
     monkeypatch.setattr(routes.Session, "load", classmethod(lambda _cls, _sid: None))
-    monkeypatch.setattr(routes, "require", lambda body, *keys: None)
-    monkeypatch.setattr(routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
-    monkeypatch.setattr(routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
-    monkeypatch.setattr(routes, "get_cli_session_messages", lambda _sid: messages if _sid == sid else [])
-    monkeypatch.setattr(routes, "get_cli_sessions", lambda: [meta])
-    monkeypatch.setattr(routes, "get_last_workspace", lambda: tmp_path / "workspace")
-    monkeypatch.setattr(routes, "import_cli_session", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("read-only import must not persist")))
+    monkeypatch.setattr(session_routes, "require", lambda body, *keys: None)
+    monkeypatch.setattr(session_routes, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
+    monkeypatch.setattr(session_routes, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
+    monkeypatch.setattr(session_routes, "get_cli_session_messages", lambda _sid: messages if _sid == sid else [])
+    monkeypatch.setattr(session_routes, "get_cli_sessions", lambda: [meta])
+    monkeypatch.setattr(session_routes, "get_last_workspace", lambda: tmp_path / "workspace")
+    monkeypatch.setattr(session_routes, "import_cli_session", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("read-only import must not persist")))
 
-    response = routes._handle_session_import_cli(object(), {"session_id": sid})
+    response = session_routes._handle_session_import_cli(object(), {"session_id": sid})
 
     assert response["imported"] is False
     session = response["session"]
@@ -220,7 +221,7 @@ def test_read_only_source_badge_ui_guards_are_present():
     ui_js = (REPO_ROOT / "static" / "ui.js").read_text(encoding="utf-8")
     panels_js = (REPO_ROOT / "static" / "panels.js").read_text(encoding="utf-8")
     style_css = (REPO_ROOT / "static" / "style.css").read_text(encoding="utf-8")
-    routes_py = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
+    routes_py = (REPO_ROOT / "api" / "session_routes.py").read_text(encoding="utf-8")
 
     assert "function _isReadOnlySession" in sessions_js
     assert "read-only-session" in sessions_js

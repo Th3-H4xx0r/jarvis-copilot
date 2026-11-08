@@ -61,7 +61,7 @@ def test_repair_safe_session_recovery_leaves_unsafe_orphan_for_manual_review(tmp
 def test_repair_safe_route_uses_clean_flag_for_status_code():
     from pathlib import Path
 
-    src = Path("api/routes.py").read_text(encoding="utf-8")
+    src = Path("api/session_routes.py").read_text(encoding="utf-8")
 
     assert 'status=200 if result.get("clean") else 409' in src
 
@@ -69,9 +69,9 @@ def test_repair_safe_route_uses_clean_flag_for_status_code():
 def test_recovery_audit_routes_are_registered():
     from pathlib import Path
 
-    src = Path("api/routes.py").read_text(encoding="utf-8")
+    src = Path("api/session_routes.py").read_text(encoding="utf-8")
 
-    assert 'parsed.path == "/api/session/recovery/audit"' in src
-    assert 'parsed.path == "/api/session/recovery/repair-safe"' in src
+    assert 'def _get_recovery_audit(' in src
+    assert 'def _post_recovery_repair_safe(' in src
     assert "audit_session_recovery" in src
     assert "repair_safe_session_recovery" in src

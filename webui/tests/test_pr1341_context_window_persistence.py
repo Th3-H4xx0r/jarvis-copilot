@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STREAMING = ROOT / "api" / "streaming.py"
 MODELS = ROOT / "api" / "models.py"
-ROUTES = ROOT / "api" / "routes.py"
+ROUTES = ROOT / "api" / "session_routes.py"
 
 
 def test_streaming_persists_context_fields_on_session_before_save():

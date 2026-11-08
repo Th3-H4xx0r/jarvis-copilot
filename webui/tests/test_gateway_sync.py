@@ -1125,10 +1125,9 @@ def test_sessions_response_distinguishes_same_user_different_chat_identity_from_
 
 def test_messaging_projection_hides_stale_gateway_internal_segments(monkeypatch):
     """Active Gateway identity should hide old reset rows and internal child segments."""
-    from api import routes
 
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "_load_gateway_session_identity_map",
         lambda: {
             "weixin_current_sid": {
@@ -1181,7 +1180,7 @@ def test_messaging_projection_hides_stale_gateway_internal_segments(monkeypatch)
         },
     ]
 
-    kept = routes._keep_latest_messaging_session_per_source(sessions)
+    kept = session_routes._keep_latest_messaging_session_per_source(sessions)
     ids = {session.get("session_id") for session in kept}
 
     assert "weixin_current_sid" in ids
@@ -1193,10 +1192,9 @@ def test_messaging_projection_hides_stale_gateway_internal_segments(monkeypatch)
 
 def test_messaging_projection_keeps_distinct_active_gateway_conversations(monkeypatch):
     """Telegram DM and group chats must not collapse just because source matches."""
-    from api import routes
 
     monkeypatch.setattr(
-        routes,
+        session_routes,
         "_load_gateway_session_identity_map",
         lambda: {
             "telegram_dm_sid": {
@@ -1234,7 +1232,7 @@ def test_messaging_projection_keeps_distinct_active_gateway_conversations(monkey
         },
     ]
 
-    kept = routes._keep_latest_messaging_session_per_source(sessions)
+    kept = session_routes._keep_latest_messaging_session_per_source(sessions)
     ids = {session.get("session_id") for session in kept}
 
     assert ids == {"telegram_dm_sid", "telegram_group_sid"}
@@ -1242,9 +1240,8 @@ def test_messaging_projection_keeps_distinct_active_gateway_conversations(monkey
 
 def test_messaging_projection_does_not_aggressively_hide_without_gateway_metadata(monkeypatch):
     """Without sessions.json as source of truth, keep fallback behavior."""
-    from api import routes
 
-    monkeypatch.setattr(routes, "_load_gateway_session_identity_map", lambda: {})
+    monkeypatch.setattr(session_routes, "_load_gateway_session_identity_map", lambda: {})
     sessions = [
         {
             "session_id": "weixin_reset_sid",
@@ -1256,7 +1253,7 @@ def test_messaging_projection_does_not_aggressively_hide_without_gateway_metadat
         },
     ]
 
-    kept = routes._keep_latest_messaging_session_per_source(sessions)
+    kept = session_routes._keep_latest_messaging_session_per_source(sessions)
 
     assert [session.get("session_id") for session in kept] == ["weixin_reset_sid"]
 
@@ -1885,6 +1882,7 @@ import sys
 import threading
 sys.path.insert(0, str(REPO_ROOT))
 from api.routes import _gateway_sse_probe_payload
+import api.session_routes as session_routes
 
 
 def test_probe_payload_when_disabled():

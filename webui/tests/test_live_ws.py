@@ -45,11 +45,11 @@ def isolated_state(tmp_path, monkeypatch):
     sessions.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(api_models, "SESSION_DIR", sessions)
     monkeypatch.setattr(api_models, "SESSION_INDEX_FILE", sessions / "_index.json")
-    # api.routes imported the same names from api.config, so the chat-delete path
-    # needs them redirected too or it unlinks from the shared test state dir.
-    import api.routes as _routes
-    monkeypatch.setattr(_routes, "SESSION_DIR", sessions)
-    monkeypatch.setattr(_routes, "SESSION_INDEX_FILE", sessions / "_index.json")
+    # api.session_routes imported the same names from api.config, so the chat-delete
+    # path needs them redirected too or it unlinks from the shared test state dir.
+    import api.session_routes as _session_routes
+    monkeypatch.setattr(_session_routes, "SESSION_DIR", sessions)
+    monkeypatch.setattr(_session_routes, "SESSION_INDEX_FILE", sessions / "_index.json")
     monkeypatch.setenv("HERMES_CONFIG_PATH", str(tmp_path / "config.yaml"))
     api_config.reload_config()
     # Whether the host has the agent's STT deps installed must not decide
@@ -1985,12 +1985,12 @@ def test_a_chat_that_cannot_be_deleted_is_reported_not_claimed(monkeypatch):
     sid = conn.live_session_id
     chat_id = client.first("ready")["chat_session_id"]
 
-    import api.routes as routes
+    import api.session_routes as session_routes
 
     def refuse(_sid):
         raise OSError("read-only file system")
 
-    monkeypatch.setattr(routes, "delete_chat_session", refuse)
+    monkeypatch.setattr(session_routes, "delete_chat_session", refuse)
     handler, _ = _post("/api/live/delete", {"kind": "session", "id": sid})
     body = handler.payload()
     assert body["ok"] is False

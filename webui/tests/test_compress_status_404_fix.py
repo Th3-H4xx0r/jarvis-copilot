@@ -16,7 +16,8 @@ import io
 import json
 from pathlib import Path
 
-from api.routes import _handle_session_compress_status, handle_get
+from api.session_compress import _handle_session_compress_status
+from api.routes import handle_get
 from tests._pytest_port import BASE
 
 
