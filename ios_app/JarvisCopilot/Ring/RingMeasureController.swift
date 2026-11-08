@@ -137,7 +137,7 @@ final class RingMeasureController: ObservableObject {
         case .notWorn where wearPrompt == nil:
             // Only where a screen will show the sheet: a reading Jarvis took
             // with no screen open must not keep re-asking the ring unseen.
-            guard host != nil || manager.screenIsOpen else { return fadeSoon() }
+            guard host != nil || manager.screenIsOpen || manager.healthIsOpen else { return fadeSoon() }
             showPrompt(for: state.type)
         case .done:
             closePrompt()

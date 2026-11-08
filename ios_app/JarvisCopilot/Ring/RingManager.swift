@@ -18,7 +18,7 @@ struct DiscoveredRing: Identifiable, Equatable {
 /// connect on demand and drop after the grace period, bridge mode holds it in the
 /// background — and hands every byte to `RingSession`, which owns the protocol.
 @MainActor
-final class RingManager: NSObject, ObservableObject {
+final class RingManager: NSObject, ObservableObject, OnDemandWearable {
     @Published private(set) var state: ConnectionState = .idle
     @Published private(set) var bluetoothReady = false
     @Published private(set) var discovered: [DiscoveredRing] = []
@@ -73,8 +73,15 @@ final class RingManager: NSObject, ObservableObject {
 
     /// True while a ring screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {
-        didSet { if screenIsOpen { idleDropTask?.cancel(); idleDropTask = nil } }
+        didSet { if oldValue != screenIsOpen { holdChanged(screenIsOpen) } }
     }
+
+    /// True while the Health tab is open: held so a refresh or a spot check needs no connect.
+    var healthIsOpen = false {
+        didSet { if oldValue != healthIsOpen { holdChanged(healthIsOpen, connectIfDown: true) } }
+    }
+
+    let linkLogName = "ring"
 
     var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
 
@@ -112,7 +119,7 @@ final class RingManager: NSObject, ObservableObject {
     private var pendingChunks: [Data] = []
     private var exposedDevice: ColmiR12?
     private var scanTimeoutTask: Task<Void, Never>?
-    private var idleDropTask: Task<Void, Never>?
+    var idleDropTask: Task<Void, Never>?
     private var setupTask: Task<Void, Never>?
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
@@ -238,11 +245,8 @@ final class RingManager: NSObject, ObservableObject {
         session.linkDropped()
     }
 
-    /// Reconnects if needed and waits until the link is usable. CoreBluetooth can reopen a
-    /// known peripheral by identifier, so this costs no scan.
-    func ensureConnected(timeout: TimeInterval = 12) async -> Bool {
-        if state == .ready { return true }
-        guard bluetoothReady else { return false }
+    /// CoreBluetooth can reopen a known peripheral by identifier, so this costs no scan.
+    func startLink() {
         if peripheral == nil, let known = knownPeripheral() {
             connect(DiscoveredRing(id: known.identifier, name: known.name ?? "Ring", rssi: 0, peripheral: known))
         } else if let p = peripheral, state != .connecting, state != .discovering {
@@ -251,21 +255,9 @@ final class RingManager: NSObject, ObservableObject {
             p.delegate = self
             central.connect(p)
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if state == .ready { return true }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        return state == .ready
     }
 
-    /// Waits (bounded) for the per-connection setup, so capability checks see real values.
-    func waitForSetup(timeout: TimeInterval = 10) async {
-        let deadline = Date().addingTimeInterval(timeout)
-        while setupTask != nil, state == .ready, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-    }
+    func dropIdleLink() async { disconnect() }
 
     private func knownPeripheral() -> CBPeripheral? {
         if let stored = UserDefaults.standard.string(forKey: Self.lastPeripheralKey),
@@ -275,22 +267,6 @@ final class RingManager: NSObject, ObservableObject {
         }
         return central.retrieveConnectedPeripherals(withServices: [RingProtocol.commandService])
             .first { RingProtocol.isRingName($0.name ?? "") }
-    }
-
-    /// Releases an on-demand link once the work is done (Keep Alive off, no screen open).
-    func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForWorkout else { return }
-        idleDropTask?.cancel()
-        idleDropTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
-            // A first sync after launch easily outlasts the grace; the link goes when the work does.
-            while !Task.isCancelled, self?.ringIsWorking == true {
-                try? await Task.sleep(for: .seconds(5))
-            }
-            guard let self, !Task.isCancelled, !self.keepAliveEnabled, !self.screenIsOpen else { return }
-            JcLog.devices.notice("ring: idle after on-demand use; dropping the link")
-            self.disconnect()
-        }
     }
 
     /// A tap or swipe on the ring: run whatever it is set to, and say so in the log.
@@ -310,7 +286,9 @@ final class RingManager: NSObject, ObservableObject {
         }
     }
 
-    private var ringIsWorking: Bool {
+    var isSettingUp: Bool { setupTask != nil }
+
+    var isWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
             || workout.isActive
     }

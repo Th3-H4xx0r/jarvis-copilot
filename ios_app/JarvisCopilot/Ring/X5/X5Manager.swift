@@ -9,7 +9,7 @@ import UIKit
 /// notification to `X5Session` through `X5Frames`. The R12's manager is untouched: the two
 /// rings each own their own central and link.
 @MainActor
-final class X5Manager: NSObject, ObservableObject {
+final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
     @Published private(set) var state: ConnectionState = .idle
     @Published private(set) var bluetoothReady = false
     @Published private(set) var discovered: [DiscoveredRing] = []
@@ -70,10 +70,9 @@ final class X5Manager: NSObject, ObservableObject {
     var screenIsOpen = false {
         didSet {
             guard oldValue != screenIsOpen else { return }
-            if screenIsOpen { idleDropTask?.cancel(); idleDropTask = nil }
             session.holdsLive = screenIsOpen
             if state == .ready { Task { await session.setLive(screenIsOpen) } }
-            if !screenIsOpen { releaseIfIdle() }
+            holdChanged(screenIsOpen)
         }
     }
 
@@ -82,13 +81,7 @@ final class X5Manager: NSObject, ObservableObject {
     var healthIsOpen = false {
         didSet {
             guard oldValue != healthIsOpen else { return }
-            if healthIsOpen {
-                idleDropTask?.cancel()
-                idleDropTask = nil
-                if !linkIsUp { Task { _ = await ensureConnected(timeout: 12) } }
-            } else {
-                releaseIfIdle()
-            }
+            holdChanged(healthIsOpen, connectIfDown: true)
         }
     }
 
@@ -97,7 +90,8 @@ final class X5Manager: NSObject, ObservableObject {
     private var writeCharacteristic: CBCharacteristic?
     private var exposedDevice: X5Ring?
     private var scanTimeoutTask: Task<Void, Never>?
-    private var idleDropTask: Task<Void, Never>?
+    var idleDropTask: Task<Void, Never>?
+    let linkLogName = "x5"
     private var setupTask: Task<Void, Never>?
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
@@ -308,9 +302,7 @@ final class X5Manager: NSObject, ObservableObject {
         session.linkDropped()
     }
 
-    func ensureConnected(timeout: TimeInterval = 12) async -> Bool {
-        if state == .ready { return true }
-        guard bluetoothReady else { return false }
+    func startLink() {
         if peripheral == nil, let known = knownPeripheral() {
             connect(DiscoveredRing(id: known.identifier, name: known.name ?? "X5 ring", rssi: 0, peripheral: known))
         } else if let p = peripheral, state != .connecting, state != .discovering {
@@ -319,20 +311,11 @@ final class X5Manager: NSObject, ObservableObject {
             p.delegate = self
             central.connect(p)
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if state == .ready { return true }
-            if case .failed = state { return false }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-        }
-        return state == .ready
     }
 
-    func waitForSetup(timeout: TimeInterval = 10) async {
-        let deadline = Date().addingTimeInterval(timeout)
-        while setupTask != nil, state == .ready, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+    func dropIdleLink() async {
+        await session.setLive(false)
+        disconnect()
     }
 
     private func knownPeripheral() -> CBPeripheral? {
@@ -346,23 +329,9 @@ final class X5Manager: NSObject, ObservableObject {
         return nil
     }
 
-    func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen, !healthIsOpen, !holdsLinkForWorkout else { return }
-        idleDropTask?.cancel()
-        idleDropTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
-            while !Task.isCancelled, self?.isWorking == true {
-                try? await Task.sleep(for: .seconds(5))
-            }
-            guard let self, !Task.isCancelled, !self.keepAliveEnabled, !self.screenIsOpen,
-                  !self.healthIsOpen, !self.holdsLinkForWorkout else { return }
-            JcLog.devices.notice("x5: idle after on-demand use; dropping the link")
-            await self.session.setLive(false)
-            self.disconnect()
-        }
-    }
+    var isSettingUp: Bool { setupTask != nil }
 
-    private var isWorking: Bool {
+    var isWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
     }
 

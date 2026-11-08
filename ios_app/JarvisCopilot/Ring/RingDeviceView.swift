@@ -78,7 +78,6 @@ struct RingDeviceView: View {
             // across it rather than stopping and restarting.
             guard !showingSettings else { return }
             manager.screenIsOpen = false
-            manager.releaseIfIdle()
             measure.leave(.ring)
         }
         .ringWearSheet(measure, on: .ring)
