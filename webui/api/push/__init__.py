@@ -42,16 +42,10 @@ def _mobile_devices() -> list:
     return list_devices()
 
 
-def alert_phones(title: str, body: str, *, data: Optional[dict] = None,
-                 category: Optional[str] = None, level: Optional[str] = None) -> int:
-    """A visible banner on every paired phone, each through its own app's topic and APNs
-    environment. ``level`` "time-sensitive" breaks through Focus. Best effort; returns how
-    many phones APNs accepted it for."""
-    alert: dict = {"title": title, "body": body}
-    if category:
-        alert["category"] = category
-    if level:
-        alert["interruption_level"] = level
+def push_phones(data: dict, *, alert: Optional[dict] = None) -> int:
+    """``data`` to every paired phone, each through its own app's topic and APNs environment: a
+    visible banner with ``alert``, else a silent wake. Best effort; returns how many phones APNs
+    accepted it for."""
     sent = 0
     try:
         devices = _mobile_devices()
@@ -66,10 +60,21 @@ def alert_phones(title: str, body: str, *, data: Optional[dict] = None,
         env = (d.get("push_env") or "").strip().lower()
         sandbox = True if env == "development" else False if env == "production" else None
         try:
-            res = send_apns(token, dict(data or {}), alert=dict(alert),
-                            topic=(d.get("push_topic") or "").strip() or None, sandbox=sandbox)
+            res = send("apns", token, dict(data or {}), alert=dict(alert) if alert else None,
+                       topic=(d.get("push_topic") or "").strip() or None, sandbox=sandbox)
         except Exception:
             continue
         if res.get("ok"):
             sent += 1
     return sent
+
+
+def alert_phones(title: str, body: str, *, data: Optional[dict] = None,
+                 category: Optional[str] = None, level: Optional[str] = None) -> int:
+    """A visible banner on every paired phone. ``level`` "time-sensitive" breaks through Focus."""
+    alert: dict = {"title": title, "body": body}
+    if category:
+        alert["category"] = category
+    if level:
+        alert["interruption_level"] = level
+    return push_phones(data or {}, alert=alert)

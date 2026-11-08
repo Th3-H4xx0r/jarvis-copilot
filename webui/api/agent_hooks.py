@@ -248,28 +248,9 @@ def _project(cwd: str) -> str:
 def _push_agent_alert(*, title: str, body: str, data: dict, category: str, wake: bool = False) -> int:
     """An actionable banner to every paired phone. ``wake``: it also wakes the app
     (it carries a glasses card). Returns how many it reached."""
-    sent = 0
-    try:
-        from api import push as push_mod
-        from api.pairing import list_devices
-        devices = list_devices()
-    except Exception:  # noqa: BLE001
-        return 0
-    for d in devices:
-        try:
-            token = (d.get("push_token") or "").strip()
-            if not token or (d.get("push_kind") or "").strip().lower() != "apns":
-                continue
-            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
-                continue
-            res = push_mod.send("apns", token, data,
-                                alert={"title": title, "body": body, "category": category,
-                                       **({"wake": True} if wake else {})})
-            if res.get("ok"):
-                sent += 1
-        except Exception:  # noqa: BLE001
-            continue
-    return sent
+    from api import push
+    return push.push_phones(data, alert={"title": title, "body": body, "category": category,
+                                         **({"wake": True} if wake else {})})
 
 
 def _server_key(device_id, data) -> str:

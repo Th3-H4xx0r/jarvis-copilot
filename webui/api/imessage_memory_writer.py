@@ -376,33 +376,13 @@ def push_facts(burst: Burst, chat: dict, facts: List[str]) -> int:
     Returns how many phones it reached; never raises."""
     if not facts:
         return 0
-    try:
-        from api import push as push_mod
-        from api.pairing import list_devices
-        devices = list_devices()
-    except Exception:
-        logger.debug("imessage memory: push unavailable", exc_info=True)
-        return 0
+    from api import push
     who = _with_whom(burst, chat)
     n = len(facts)
     title = f"{n} new fact{'s' if n != 1 else ''} from {who}"
     body = facts[0] if n == 1 else f"{facts[0]} — and {n - 1} more"
-    data = {"type": "imessage_facts", "burst": f"{burst.guid}|{burst.first_rowid}"}
-    sent = 0
-    for d in devices:
-        try:
-            token = (d.get("push_token") or "").strip()
-            if not token or (d.get("push_kind") or "").strip().lower() != "apns":
-                continue
-            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
-                continue
-            res = push_mod.send("apns", token, data,
-                                alert={"title": title[:120], "body": body[:240], "category": FACTS_CATEGORY})
-            if res.get("ok"):
-                sent += 1
-        except Exception:
-            logger.debug("imessage memory: fact push failed", exc_info=True)
-    return sent
+    return push.push_phones({"type": "imessage_facts", "burst": f"{burst.guid}|{burst.first_rowid}"},
+                            alert={"title": title[:120], "body": body[:240], "category": FACTS_CATEGORY})
 
 
 def _store_cards(st: IMStore, cards: list, memory, status: str) -> int:

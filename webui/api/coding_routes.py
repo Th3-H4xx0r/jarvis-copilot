@@ -146,31 +146,9 @@ def _push_device_alert(title: str, body: str, data: dict | None = None, wake: bo
     wakes the app (it carries a glasses card). Best-effort; never raises.
     Returns the number of devices the push reached.
     """
-    sent = 0
-    try:
-        from api.pairing import list_devices
-        from api import push as push_mod
-    except Exception:
-        return 0
-    try:
-        devices = list_devices()
-    except Exception:
-        return 0
-    for d in devices:
-        try:
-            token = (d.get("push_token") or "").strip()
-            kind = (d.get("push_kind") or "").strip().lower()
-            if not token or kind != "apns":
-                continue
-            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
-                continue
-            res = push_mod.send(kind, token, data or {"type": "coding"},
-                                alert={"title": title, "body": body, **({"wake": True} if wake else {})})
-            if res.get("ok"):
-                sent += 1
-        except Exception:
-            continue
-    return sent
+    from api import push
+    return push.push_phones(data or {"type": "coding"},
+                            alert={"title": title, "body": body, **({"wake": True} if wake else {})})
 
 
 def _permission_summary(tool: str, tinput) -> str:
@@ -192,32 +170,8 @@ def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
     """Send an ACTIONABLE permission banner (category PERMISSION_APPROVAL, with
     Approve/Deny/Reply actions) to every registered mobile device, carrying the
     request_id + session in the data envelope. Returns how many it reached."""
-    sent = 0
-    try:
-        from api.pairing import list_devices
-        from api import push as push_mod
-    except Exception:
-        return 0
-    try:
-        devices = list_devices()
-    except Exception:
-        return 0
-    for d in devices:
-        try:
-            token = (d.get("push_token") or "").strip()
-            kind = (d.get("push_kind") or "").strip().lower()
-            if not token or kind != "apns":
-                continue
-            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
-                continue
-            res = push_mod.send(kind, token, data, alert={
-                "title": title, "body": body,
-                "category": "PERMISSION_APPROVAL"})
-            if res.get("ok"):
-                sent += 1
-        except Exception:
-            continue
-    return sent
+    from api import push
+    return push.push_phones(data, alert={"title": title, "body": body, "category": "PERMISSION_APPROVAL"})
 
 
 # ── Code Master notification settings + dispatch ─────────────────────────────
@@ -389,34 +343,10 @@ def _send_coding_device_notify(channel_key: str, title: str, body: str, app: str
     ``banner=False``: the phone already shows its own banner for this — wake
     only, no second one. No-ops to False when no mobile device is registered or
     unreachable. Never raises."""
-    sent = 0
-    try:
-        from api.pairing import list_devices
-        from api import push as push_mod
-    except Exception:
-        return False
-    try:
-        devices = list_devices()
-    except Exception:
-        return False
-    for d in devices:
-        try:
-            token = (d.get("push_token") or "").strip()
-            kind = (d.get("push_kind") or "").strip().lower()
-            if not token or kind != "apns":
-                continue
-            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
-                continue
-            res = push_mod.send(kind, token,
-                                {"type": "device_notify", "channel": channel_key,
-                                 "notify_title": title, "notify_body": body,
-                                 **({"notify_app": app} if app else {})},
-                                alert={"title": title, "body": body, "wake": True} if banner else None)
-            if res.get("ok"):
-                sent += 1
-        except Exception:
-            continue
-    return sent > 0
+    from api import push
+    data = {"type": "device_notify", "channel": channel_key, "notify_title": title, "notify_body": body,
+            **({"notify_app": app} if app else {})}
+    return push.push_phones(data, alert={"title": title, "body": body, "wake": True} if banner else None) > 0
 
 
 def _alert_debounce_ok(sid: str, event: str) -> bool:

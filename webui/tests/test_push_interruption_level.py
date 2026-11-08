@@ -48,3 +48,19 @@ def test_alert_phones_uses_each_devices_topic_and_environment(monkeypatch):
     assert by_token["tok-b"]["topic"] is None and by_token["tok-b"]["sandbox"] is None
     assert by_token["tok-a"]["alert"] == {"title": "Door alarm", "body": "Front Door opened",
                                           "category": "DOOR_ALARM", "interruption_level": "time-sensitive"}
+
+
+def test_coding_pushes_reach_each_phone_through_its_own_app(monkeypatch):
+    """The coding and agent banners had their own fan-out that ignored push_topic/push_env, so a
+    phone on another build of the app never got them."""
+    from api import coding_routes
+
+    sent = []
+    monkeypatch.setattr(push, "send_apns", lambda token, payload, **kw: sent.append((token, kw)) or {"ok": True})
+    monkeypatch.setattr(push, "_mobile_devices", lambda: [
+        {"kind": "mobile-ios", "push_kind": "apns", "push_token": "tok-a",
+         "push_topic": "com.example.wearables", "push_env": "development"}])
+    assert coding_routes._push_permission_alert(title="Allow?", body="Bash: ls", data={"request_id": "r"}) == 1
+    token, kw = sent[0]
+    assert kw["topic"] == "com.example.wearables" and kw["sandbox"] is True
+    assert kw["alert"]["category"] == "PERMISSION_APPROVAL"

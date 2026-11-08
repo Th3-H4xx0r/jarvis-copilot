@@ -344,7 +344,7 @@ def test_push_facts_sends_one_alert_to_phones(monkeypatch):
     monkeypatch.setattr(pairing, "list_devices", lambda: [
         {"push_token": "t1", "push_kind": "apns", "kind": "mobile-ios"},
         {"push_token": "t2", "push_kind": "apns", "kind": "desktop"}])
-    monkeypatch.setattr(push_mod, "send", lambda kind, token, data, alert=None: calls.append((token, data, alert)) or {"ok": True})
+    monkeypatch.setattr(push_mod, "send", lambda kind, token, data, alert=None, **kw: calls.append((token, data, alert)) or {"ok": True})
     burst = Burst("one", _rows((0, False, "x")))
     assert w.push_facts(burst, {"participants": [SAM]}, ["Fact A is here", "Fact B is here"]) == 1
     token, data, alert = calls[0]
