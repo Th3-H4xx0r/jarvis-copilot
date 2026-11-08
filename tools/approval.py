@@ -916,6 +916,30 @@ def approve_permanent(pattern_key: str):
         _permanent_approved.add(pattern_key)
 
 
+def _consent_blocked(lead: str, pattern_key: str, description: str,
+                     outcome: str, *, addendum: str = "") -> dict:
+    """The BLOCKED result for a denied or unanswered approval.
+
+    Consent contract: silence is NOT consent, and an explicit deny is also a
+    hard halt.  The message names the agent's most common evasion paths
+    (retry, rephrase, same outcome via a different command); issue #24912.
+    """
+    return {
+        "approved": False,
+        "message": (
+            f"{lead} The user has NOT consented to this action. Do NOT retry "
+            "this command, do NOT rephrase it, and do NOT attempt the same "
+            "outcome via a different command. Stop the current workflow and "
+            "wait for the user to respond before taking any further "
+            f"destructive or irreversible action.{addendum}"
+        ),
+        "pattern_key": pattern_key,
+        "description": description,
+        "outcome": outcome,
+        "user_consent": False,
+    }
+
+
 def _remember_approval(session_key: str, pattern_key: str, choice: str,
                        *, permanent_ok: bool = True) -> None:
     """Persist an approve *choice*: "session" approves for this session,
@@ -1591,11 +1615,6 @@ def check_all_command_guards(command: str, env_type: str,
             )
 
             if not resolved or choice is None or choice == "deny":
-                # Consent contract: silence is NOT consent, and an explicit
-                # deny is also a hard halt — both produce a BLOCKED outcome
-                # that names the agent's most common evasion paths (retry,
-                # rephrase, achieve the same outcome via a different command).
-                # See issue #24912 for the original incident.
                 if not resolved:
                     reason = "timed out without user response"
                     timeout_addendum = " Silence is not consent."
@@ -1604,22 +1623,10 @@ def check_all_command_guards(command: str, env_type: str,
                     reason = "denied by user"
                     timeout_addendum = ""
                     outcome = "denied"
-                return {
-                    "approved": False,
-                    "message": (
-                        f"BLOCKED: Command {reason}. The user has NOT consented "
-                        f"to this action. Do NOT retry this command, do NOT "
-                        f"rephrase it, and do NOT attempt the same outcome via "
-                        f"a different command. Stop the current workflow and "
-                        f"wait for the user to respond before taking any "
-                        f"further destructive or irreversible action."
-                        f"{timeout_addendum}"
-                    ),
-                    "pattern_key": primary_key,
-                    "description": combined_desc,
-                    "outcome": outcome,
-                    "user_consent": False,
-                }
+                return _consent_blocked(
+                    f"BLOCKED: Command {reason}.", primary_key, combined_desc,
+                    outcome, addendum=timeout_addendum,
+                )
 
             for key, _, is_tirith in warnings:
                 _remember_approval(session_key, key, choice, permanent_ok=not is_tirith)
@@ -1673,21 +1680,9 @@ def check_all_command_guards(command: str, env_type: str,
     )
 
     if choice == "deny":
-        return {
-            "approved": False,
-            "message": (
-                "BLOCKED: User denied this command. The user has NOT consented "
-                "to this action. Do NOT retry this command, do NOT rephrase "
-                "it, and do NOT attempt the same outcome via a different "
-                "command. Stop the current workflow and wait for the user "
-                "to respond before taking any further destructive or "
-                "irreversible action."
-            ),
-            "pattern_key": primary_key,
-            "description": combined_desc,
-            "outcome": "denied",
-            "user_consent": False,
-        }
+        return _consent_blocked(
+            "BLOCKED: User denied this command.", primary_key, combined_desc, "denied",
+        )
 
     for key, _, is_tirith in warnings:
         _remember_approval(session_key, key, choice, permanent_ok=not is_tirith)
