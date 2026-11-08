@@ -365,11 +365,6 @@ def view(session_id: str, *, turn_running: Optional[bool] = None) -> Optional[Di
     return out
 
 
-def task_id_of(session_id: str) -> Optional[str]:
-    row = get(session_id)
-    return row["task_id"] if row else None
-
-
 # ---------------------------------------------------------------------------
 # Replays
 # ---------------------------------------------------------------------------

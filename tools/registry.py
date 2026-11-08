@@ -175,10 +175,6 @@ class ToolRegistry:
         """Return a stable snapshot of registered tool entries."""
         return self._snapshot_state()[0]
 
-    def _snapshot_toolset_checks(self) -> Dict[str, Callable]:
-        """Return a stable snapshot of toolset availability checks."""
-        return self._snapshot_state()[1]
-
     def _evaluate_toolset_check(self, toolset: str, check: Callable | None) -> bool:
         """Run a toolset check, treating missing or failing checks as unavailable/available."""
         if not check:

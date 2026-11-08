@@ -290,22 +290,6 @@ def safe_json_loads(text: str, default: Any = None) -> Any:
 # ─── Environment Variable Helpers ─────────────────────────────────────────────
 
 
-def env_int(key: str, default: int = 0) -> int:
-    """Read an environment variable as an integer, with fallback."""
-    raw = os.getenv(key, "").strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except (ValueError, TypeError):
-        return default
-
-
-def env_bool(key: str, default: bool = False) -> bool:
-    """Read an environment variable as a boolean."""
-    return is_truthy_value(os.getenv(key, ""), default=default)
-
-
 # ─── Proxy Helpers ────────────────────────────────────────────────────────────
 
 

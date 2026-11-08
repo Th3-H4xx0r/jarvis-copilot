@@ -2562,18 +2562,6 @@ class SessionDB:
             results.append({**session, "messages": messages})
         return results
 
-    def clear_messages(self, session_id: str) -> None:
-        """Delete all messages for a session and reset its counters."""
-        def _do(conn):
-            conn.execute(
-                "DELETE FROM messages WHERE session_id = ?", (session_id,)
-            )
-            conn.execute(
-                "UPDATE sessions SET message_count = 0, tool_call_count = 0 WHERE id = ?",
-                (session_id,),
-            )
-        self._execute_write(_do)
-
     @staticmethod
     def _remove_session_files(sessions_dir: Optional[Path], session_id: str) -> None:
         """Remove on-disk transcript files for a session.

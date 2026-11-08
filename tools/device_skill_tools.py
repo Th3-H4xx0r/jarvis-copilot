@@ -672,15 +672,6 @@ def _build_tool_entry(skill_name: str, candidates: list[dict]) -> dict:
 
 # ── registry rebuild ─────────────────────────────────────────────────────────
 
-def _deregister_all_locked() -> None:
-    for name in _registered_names:
-        try:
-            registry.deregister(name)
-        except Exception:
-            logger.debug("failed to deregister stale device tool %s", name, exc_info=True)
-    _registered_names.clear()
-
-
 def rebuild_device_tools() -> list[dict]:
     """Rebuild the native ``device_<skill>`` tools from the bridge registry.
 

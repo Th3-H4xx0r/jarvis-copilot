@@ -272,7 +272,3 @@ def unregister_notify(session_key: str) -> None:
     # ends (interrupt, completion, gateway shutdown).
     clear_session(session_key)
 
-
-def get_notify(session_key: str) -> Optional[Callable[[_ClarifyEntry], None]]:
-    with _lock:
-        return _notify_cbs.get(session_key)
