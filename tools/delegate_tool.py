@@ -2126,6 +2126,19 @@ def delegate_task(
             # still-pending futures can carry the correct _delegate_role.
             _child_by_index = {i: child for (i, _, child) in children}
 
+            def _failed_entry(idx, status, error):
+                return {
+                    "task_index": idx,
+                    "status": status,
+                    "summary": None,
+                    "error": error,
+                    "api_calls": 0,
+                    "duration_seconds": 0,
+                    "_child_role": getattr(
+                        _child_by_index.get(idx), "_delegate_role", None
+                    ),
+                }
+
             pending = set(futures.keys())
             while pending:
                 if getattr(parent_agent, "_interrupt_requested", False) is True:
@@ -2138,29 +2151,12 @@ def delegate_task(
                             try:
                                 entry = f.result()
                             except Exception as exc:
-                                entry = {
-                                    "task_index": idx,
-                                    "status": "error",
-                                    "summary": None,
-                                    "error": str(exc),
-                                    "api_calls": 0,
-                                    "duration_seconds": 0,
-                                    "_child_role": getattr(
-                                        _child_by_index.get(idx), "_delegate_role", None
-                                    ),
-                                }
+                                entry = _failed_entry(idx, "error", str(exc))
                         else:
-                            entry = {
-                                "task_index": idx,
-                                "status": "interrupted",
-                                "summary": None,
-                                "error": "Parent agent interrupted — child did not finish in time",
-                                "api_calls": 0,
-                                "duration_seconds": 0,
-                                "_child_role": getattr(
-                                    _child_by_index.get(idx), "_delegate_role", None
-                                ),
-                            }
+                            entry = _failed_entry(
+                                idx, "interrupted",
+                                "Parent agent interrupted — child did not finish in time",
+                            )
                         results.append(entry)
                         completed_count += 1
                     break
@@ -2174,18 +2170,7 @@ def delegate_task(
                     try:
                         entry = future.result()
                     except Exception as exc:
-                        idx = futures[future]
-                        entry = {
-                            "task_index": idx,
-                            "status": "error",
-                            "summary": None,
-                            "error": str(exc),
-                            "api_calls": 0,
-                            "duration_seconds": 0,
-                            "_child_role": getattr(
-                                _child_by_index.get(idx), "_delegate_role", None
-                            ),
-                        }
+                        entry = _failed_entry(futures[future], "error", str(exc))
                     results.append(entry)
                     completed_count += 1
 

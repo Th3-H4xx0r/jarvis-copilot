@@ -33,6 +33,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from typing import Optional
 
 from jarviscopilot_constants import get_hermes_home
 
@@ -438,6 +439,34 @@ def _is_explicit_path(configured_path: str) -> bool:
     return configured_path != "tirith"
 
 
+def _is_executable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _find_local_tirith(expanded: str, explicit: bool) -> Optional[str]:
+    """Find tirith without touching the network and cache the hit.
+
+    An explicit configured path is checked as a file, then as a name on
+    PATH.  The default looks on PATH, then in JarvisCopilot's own bin dir; a
+    hit there also clears any recorded install failure.
+    """
+    global _resolved_path, _install_failure_reason
+    if explicit:
+        found = expanded if _is_executable(expanded) else shutil.which(expanded)
+        if found:
+            _resolved_path = found
+        return found
+    found = shutil.which("tirith")
+    if not found:
+        hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
+        found = hermes_bin if _is_executable(hermes_bin) else None
+    if found:
+        _resolved_path = found
+        _install_failure_reason = ""
+        _clear_install_failed()
+    return found
+
+
 def _resolve_tirith_path(configured_path: str) -> str:
     """Resolve the tirith binary path, auto-installing if necessary.
 
@@ -472,37 +501,18 @@ def _resolve_tirith_path(configured_path: str) -> str:
         _install_failure_reason = "unsupported_platform"
         return expanded
 
-    # Explicit path: check it and stop. Never auto-download a replacement.
+    # Always re-run the cheap local checks so a manual install is picked up
+    # even after a previous network failure (long-lived gateway/CLI recovers
+    # without restart).
+    found = _find_local_tirith(expanded, explicit)
+    if found:
+        return found
+    # Explicit path: never auto-download a replacement.
     if explicit:
-        if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
-            _resolved_path = expanded
-            return expanded
-        # Also try shutil.which in case it's a bare name on PATH
-        found = shutil.which(expanded)
-        if found:
-            _resolved_path = found
-            return found
         logger.warning("Configured tirith path %r not found; scanning disabled", configured_path)
         _resolved_path = _INSTALL_FAILED
         _install_failure_reason = "explicit_path_missing"
         return expanded
-
-    # Default "tirith" — always re-run cheap local checks so a manual
-    # install is picked up even after a previous network failure (P2 fix:
-    # long-lived gateway/CLI recovers without restart).
-    found = shutil.which("tirith")
-    if found:
-        _resolved_path = found
-        _install_failure_reason = ""
-        _clear_install_failed()
-        return found
-
-    hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-    if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-        _resolved_path = hermes_bin
-        _install_failure_reason = ""
-        _clear_install_failed()
-        return hermes_bin
 
     # Local checks failed.  If a previous install attempt already failed,
     # skip the network retry — UNLESS the failure was "cosign_missing" and
@@ -555,16 +565,7 @@ def _background_install(*, log_failures: bool = True):
             return
 
         # Re-check local paths (may have been installed by another process)
-        found = shutil.which("tirith")
-        if found:
-            _resolved_path = found
-            _install_failure_reason = ""
-            return
-
-        hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-        if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-            _resolved_path = hermes_bin
-            _install_failure_reason = ""
+        if _find_local_tirith("", explicit=False):
             return
 
         installed, reason = _install_tirith(log_failures=log_failures)
@@ -593,10 +594,7 @@ def ensure_installed(*, log_failures: bool = True):
 
     # Already resolved from a previous call
     if _resolved_path is not None and _resolved_path is not _INSTALL_FAILED:
-        path = _resolved_path
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-        return None
+        return _resolved_path if _is_executable(_resolved_path) else None
 
     # Platform has no tirith build (e.g. Windows) — don't probe PATH,
     # don't start a download thread, don't write a disk failure marker.
@@ -610,33 +608,14 @@ def ensure_installed(*, log_failures: bool = True):
     explicit = _is_explicit_path(configured_path)
     expanded = os.path.expanduser(configured_path)
 
+    found = _find_local_tirith(expanded, explicit)
+    if found:
+        return found
     # Explicit path: synchronous check only, no download
     if explicit:
-        if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
-            _resolved_path = expanded
-            return expanded
-        found = shutil.which(expanded)
-        if found:
-            _resolved_path = found
-            return found
         _resolved_path = _INSTALL_FAILED
         _install_failure_reason = "explicit_path_missing"
         return None
-
-    # Default "tirith" — quick local checks first (no network)
-    found = shutil.which("tirith")
-    if found:
-        _resolved_path = found
-        _install_failure_reason = ""
-        _clear_install_failed()
-        return found
-
-    hermes_bin = os.path.join(_hermes_bin_dir(), "tirith")
-    if os.path.isfile(hermes_bin) and os.access(hermes_bin, os.X_OK):
-        _resolved_path = hermes_bin
-        _install_failure_reason = ""
-        _clear_install_failed()
-        return hermes_bin
 
     # If previously failed in-memory, check if the cause is now resolved
     if _resolved_path is _INSTALL_FAILED:

@@ -702,38 +702,8 @@ def _transcribe_groq(file_path: str, model_name: str) -> Dict[str, Any]:
         logger.info("Model %s not available on Groq, using %s", model_name, DEFAULT_GROQ_STT_MODEL)
         model_name = DEFAULT_GROQ_STT_MODEL
 
-    try:
-        from openai import OpenAI, APIError, APIConnectionError, APITimeoutError
-        client = OpenAI(api_key=api_key, base_url=GROQ_BASE_URL, timeout=30, max_retries=0)
-        try:
-            with open(file_path, "rb") as audio_file:
-                transcription = client.audio.transcriptions.create(
-                    model=model_name,
-                    file=audio_file,
-                    response_format="text",
-                )
-
-            transcript_text = str(transcription).strip()
-            logger.info("Transcribed %s via Groq API (%s, %d chars)",
-                         Path(file_path).name, model_name, len(transcript_text))
-
-            return {"success": True, "transcript": transcript_text, "provider": "groq"}
-        finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
-
-    except PermissionError:
-        return {"success": False, "transcript": "", "error": f"Permission denied: {file_path}"}
-    except APIConnectionError as e:
-        return {"success": False, "transcript": "", "error": f"Connection error: {e}"}
-    except APITimeoutError as e:
-        return {"success": False, "transcript": "", "error": f"Request timeout: {e}"}
-    except APIError as e:
-        return {"success": False, "transcript": "", "error": f"API error: {e}"}
-    except Exception as e:
-        logger.error("Groq transcription failed: %s", e, exc_info=True)
-        return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
+    return _transcribe_whisper_api(file_path, model_name, api_key, GROQ_BASE_URL,
+                                   "groq", "Groq", response_format="text")
 
 # ---------------------------------------------------------------------------
 # Provider: openai (Whisper API)
@@ -759,6 +729,16 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
         logger.info("Model %s not available on OpenAI, using %s", model_name, DEFAULT_STT_MODEL)
         model_name = DEFAULT_STT_MODEL
 
+    return _transcribe_whisper_api(
+        file_path, model_name, api_key, base_url, "openai", "OpenAI",
+        response_format="text" if model_name == "whisper-1" else "json",
+    )
+
+
+def _transcribe_whisper_api(file_path: str, model_name: str, api_key: str,
+                            base_url: str, provider: str, label: str,
+                            *, response_format: str) -> Dict[str, Any]:
+    """Transcribe through an OpenAI-compatible ``/audio/transcriptions``."""
     try:
         from openai import OpenAI, APIError, APIConnectionError, APITimeoutError
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=30, max_retries=0)
@@ -767,14 +747,14 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
                 transcription = client.audio.transcriptions.create(
                     model=model_name,
                     file=audio_file,
-                    response_format="text" if model_name == "whisper-1" else "json",
+                    response_format=response_format,
                 )
 
             transcript_text = _extract_transcript_text(transcription)
-            logger.info("Transcribed %s via OpenAI API (%s, %d chars)",
-                         Path(file_path).name, model_name, len(transcript_text))
+            logger.info("Transcribed %s via %s API (%s, %d chars)",
+                         Path(file_path).name, label, model_name, len(transcript_text))
 
-            return {"success": True, "transcript": transcript_text, "provider": "openai"}
+            return {"success": True, "transcript": transcript_text, "provider": provider}
         finally:
             close = getattr(client, "close", None)
             if callable(close):
@@ -789,7 +769,7 @@ def _transcribe_openai(file_path: str, model_name: str) -> Dict[str, Any]:
     except APIError as e:
         return {"success": False, "transcript": "", "error": f"API error: {e}"}
     except Exception as e:
-        logger.error("OpenAI transcription failed: %s", e, exc_info=True)
+        logger.error("%s transcription failed: %s", label, e, exc_info=True)
         return {"success": False, "transcript": "", "error": f"Transcription failed: {e}"}
 
 # ---------------------------------------------------------------------------

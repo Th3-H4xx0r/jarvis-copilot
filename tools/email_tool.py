@@ -103,8 +103,9 @@ def _collect_attachments(body: str, attach) -> tuple:
     return body, files, warnings
 
 
-def _build(sender: str, to: str, subject: str, body: str, cc: str,
-           html: bool, files) -> str:
+def build_message(sender: str, to: str, subject: str, body: str, files,
+                  *, cc: str = "", html: bool = False):
+    """A MIME message with *body* and the ``(Path, bytes)`` *files* attached."""
     if files:
         msg = MIMEMultipart()
         msg.attach(MIMEText(body or "", "html" if html else "plain", "utf-8"))
@@ -120,11 +121,11 @@ def _build(sender: str, to: str, subject: str, body: str, cc: str,
         msg = MIMEText(body or "", "html" if html else "plain", "utf-8")
     msg["From"] = sender
     msg["To"] = to
-    msg["Subject"] = subject or "(no subject)"
+    msg["Subject"] = subject
     if cc:
         msg["Cc"] = cc
     msg["Date"] = formatdate(localtime=True)
-    return msg.as_string()
+    return msg
 
 
 def send_email(to: str = "", subject: str = "", body: str = "",
@@ -153,7 +154,7 @@ def send_email(to: str = "", subject: str = "", body: str = "",
         sender = _himalaya_sender()
         if not sender:
             return tool_error("himalaya has no configured account to send from", success=False)
-        raw = _build(sender, to, subject, body, cc, html, files)
+        raw = build_message(sender, to, subject or "(no subject)", body, files, cc=cc, html=html).as_string()
         try:
             code, out, err = _run_himalaya([binary, "message", "send"], raw)
         except Exception as exc:
@@ -165,7 +166,7 @@ def send_email(to: str = "", subject: str = "", body: str = "",
 
     import smtplib
     import ssl
-    raw = _build(smtp["address"], to, subject, body, cc, html, files)
+    raw = build_message(smtp["address"], to, subject or "(no subject)", body, files, cc=cc, html=html).as_string()
     try:
         server = smtplib.SMTP(smtp["host"], smtp["port"])
         server.starttls(context=ssl.create_default_context())

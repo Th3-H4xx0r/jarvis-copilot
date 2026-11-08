@@ -13,8 +13,6 @@ import re
 import ssl
 from pathlib import Path
 import time
-from email.utils import formatdate
-from typing import Dict, Optional
 
 from agent.redact import redact_sensitive_text
 
@@ -835,60 +833,31 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
             try:
                 with open(media_path, "rb") as f:
                     media_kwargs = dict(thread_kwargs)
+                    if ext in _IMAGE_EXTS and not force_document:
+                        send, field = bot.send_photo, "photo"
+                    elif ext in _VIDEO_EXTS:
+                        send, field = bot.send_video, "video"
+                    elif ext in _VOICE_EXTS and is_voice:
+                        send, field = bot.send_voice, "voice"
+                    elif ext in _TELEGRAM_SEND_AUDIO_EXTS:
+                        send, field = bot.send_audio, "audio"
+                    else:
+                        send, field = bot.send_document, "document"
                     try:
-                        if ext in _IMAGE_EXTS and not force_document:
-                            last_msg = await bot.send_photo(
-                                chat_id=int_chat_id, photo=f, **media_kwargs
-                            )
-                        elif ext in _VIDEO_EXTS:
-                            last_msg = await bot.send_video(
-                                chat_id=int_chat_id, video=f, **media_kwargs
-                            )
-                        elif ext in _VOICE_EXTS and is_voice:
-                            last_msg = await bot.send_voice(
-                                chat_id=int_chat_id, voice=f, **media_kwargs
-                            )
-                        elif ext in _TELEGRAM_SEND_AUDIO_EXTS:
-                            last_msg = await bot.send_audio(
-                                chat_id=int_chat_id, audio=f, **media_kwargs
-                            )
-                        else:
-                            last_msg = await bot.send_document(
-                                chat_id=int_chat_id, document=f, **media_kwargs
-                            )
+                        last_msg = await send(chat_id=int_chat_id, **{field: f}, **media_kwargs)
                     except Exception as media_err:
-                        if _is_telegram_thread_not_found(media_err) and media_kwargs.get("message_thread_id"):
-                            # Thread not found for media — retry without
-                            # message_thread_id (issue #27012).
-                            logger.warning(
-                                "Thread %s not found for media send, retrying without message_thread_id",
-                                media_kwargs["message_thread_id"],
-                            )
-                            # Re-seek the file since the first attempt consumed it
-                            f.seek(0)
-                            media_kwargs.pop("message_thread_id", None)
-                            if ext in _IMAGE_EXTS and not force_document:
-                                last_msg = await bot.send_photo(
-                                    chat_id=int_chat_id, photo=f, **media_kwargs
-                                )
-                            elif ext in _VIDEO_EXTS:
-                                last_msg = await bot.send_video(
-                                    chat_id=int_chat_id, video=f, **media_kwargs
-                                )
-                            elif ext in _VOICE_EXTS and is_voice:
-                                last_msg = await bot.send_voice(
-                                    chat_id=int_chat_id, voice=f, **media_kwargs
-                                )
-                            elif ext in _TELEGRAM_SEND_AUDIO_EXTS:
-                                last_msg = await bot.send_audio(
-                                    chat_id=int_chat_id, audio=f, **media_kwargs
-                                )
-                            else:
-                                last_msg = await bot.send_document(
-                                    chat_id=int_chat_id, document=f, **media_kwargs
-                                )
-                        else:
+                        if not (_is_telegram_thread_not_found(media_err)
+                                and media_kwargs.get("message_thread_id")):
                             raise
+                        # Thread not found for media — retry without
+                        # message_thread_id (issue #27012).
+                        logger.warning(
+                            "Thread %s not found for media send, retrying without message_thread_id",
+                            media_kwargs.pop("message_thread_id"),
+                        )
+                        # Re-seek the file since the first attempt consumed it
+                        f.seek(0)
+                        last_msg = await send(chat_id=int_chat_id, **{field: f}, **media_kwargs)
             except Exception as e:
                 warning = _sanitize_error_text(f"Failed to send media {media_path}: {e}")
                 logger.error(warning)
@@ -1154,13 +1123,8 @@ async def _send_email(extra, chat_id, message, media_files=None):
     MIMEText and every `MEDIA:<path>` the model emitted was delivered as
     literal text in the body — "here is your photo: MEDIA:/root/.../x.jpg".
     """
-    import mimetypes
     import smtplib
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from email import encoders
-    from email.utils import formatdate
+    from tools.email_tool import build_message
 
     address = extra.get("address") or os.getenv("EMAIL_ADDRESS", "")
     password = os.getenv("EMAIL_PASSWORD", "")
@@ -1186,27 +1150,11 @@ async def _send_email(extra, chat_id, message, media_files=None):
                 # A note worth sending should not be lost to one unreadable file.
                 logger.warning("email: could not read attachment, sending without it", exc_info=True)
 
-        if attachments:
-            msg = MIMEMultipart()
-            msg.attach(MIMEText(message or "", "plain", "utf-8"))
-            for path, blob in attachments:
-                ctype, _ = mimetypes.guess_type(path.name)
-                maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
-                part = MIMEBase(maintype, subtype or "octet-stream")
-                part.set_payload(blob)
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", "attachment", filename=path.name)
-                msg.attach(part)
-        else:
-            msg = MIMEText(message or "", "plain", "utf-8")
-        msg["From"] = address
-        msg["To"] = chat_id
         subject = "JarvisCopilot"
         if attachments and not (message or "").strip():
             names = ", ".join(p.name for p, _ in attachments)
             subject = f"JarvisCopilot: {names}"
-        msg["Subject"] = subject
-        msg["Date"] = formatdate(localtime=True)
+        msg = build_message(address, chat_id, subject, message, attachments)
 
         server = smtplib.SMTP(smtp_host, smtp_port)
         server.starttls(context=ssl.create_default_context())

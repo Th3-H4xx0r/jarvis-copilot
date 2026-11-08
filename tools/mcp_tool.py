@@ -2419,13 +2419,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
                 }, ensure_ascii=False)
             # Cooldown elapsed → fall through as a half-open probe.
 
-        with _lock:
-            server = _servers.get(server_name)
-        if not server or not server.session:
+        server = _connected_server(server_name)
+        if server is None:
             _bump_server_error(server_name)
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+            return _not_connected_error(server_name)
 
         async def _call():
             async with server._rpc_lock:
@@ -2529,16 +2526,53 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
     return _handler
 
 
+def _connected_server(server_name: str):
+    """The connected server named *server_name*, or None."""
+    with _lock:
+        server = _servers.get(server_name)
+    return server if server and server.session else None
+
+
+def _not_connected_error(server_name: str) -> str:
+    return json.dumps({
+        "error": f"MCP server '{server_name}' is not connected"
+    }, ensure_ascii=False)
+
+
+def _call_with_recovery(server_name: str, call, tool_timeout: float,
+                        op: str, log_name: str) -> str:
+    """Run the coroutine function *call* on the MCP loop.
+
+    On failure, retry once through OAuth recovery or, for a stale transport
+    session, a reconnect; otherwise return a sanitized error JSON.
+    """
+    def _call_once():
+        return _run_on_mcp_loop(call, timeout=tool_timeout)
+
+    try:
+        return _call_once()
+    except InterruptedError:
+        return _interrupted_call_result()
+    except Exception as exc:
+        for recover in (_handle_auth_error_and_retry, _handle_session_expired_and_retry):
+            recovered = recover(server_name, exc, _call_once, op)
+            if recovered is not None:
+                return recovered
+        logger.error("MCP %s/%s failed: %s", server_name, log_name, exc)
+        return json.dumps({
+            "error": _sanitize_error(
+                f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
+            )
+        }, ensure_ascii=False)
+
+
 def _make_list_resources_handler(server_name: str, tool_timeout: float):
     """Return a sync handler that lists resources from an MCP server."""
 
     def _handler(args: dict, **kwargs) -> str:
-        with _lock:
-            server = _servers.get(server_name)
-        if not server or not server.session:
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+        server = _connected_server(server_name)
+        if server is None:
+            return _not_connected_error(server_name)
 
         async def _call():
             async with server._rpc_lock:
@@ -2557,32 +2591,7 @@ def _make_list_resources_handler(server_name: str, tool_timeout: float):
                 resources.append(entry)
             return json.dumps({"resources": resources}, ensure_ascii=False)
 
-        def _call_once():
-            return _run_on_mcp_loop(_call, timeout=tool_timeout)
-
-        try:
-            return _call_once()
-        except InterruptedError:
-            return _interrupted_call_result()
-        except Exception as exc:
-            recovered = _handle_auth_error_and_retry(
-                server_name, exc, _call_once, "resources/list",
-            )
-            if recovered is not None:
-                return recovered
-            recovered = _handle_session_expired_and_retry(
-                server_name, exc, _call_once, "resources/list",
-            )
-            if recovered is not None:
-                return recovered
-            logger.error(
-                "MCP %s/list_resources failed: %s", server_name, exc,
-            )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
-                )
-            }, ensure_ascii=False)
+        return _call_with_recovery(server_name, _call, tool_timeout, "resources/list", "list_resources")
 
     return _handler
 
@@ -2593,12 +2602,9 @@ def _make_read_resource_handler(server_name: str, tool_timeout: float):
     def _handler(args: dict, **kwargs) -> str:
         from tools.registry import tool_error
 
-        with _lock:
-            server = _servers.get(server_name)
-        if not server or not server.session:
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+        server = _connected_server(server_name)
+        if server is None:
+            return _not_connected_error(server_name)
 
         uri = args.get("uri")
         if not uri:
@@ -2617,32 +2623,7 @@ def _make_read_resource_handler(server_name: str, tool_timeout: float):
                     parts.append(f"[binary data, {len(block.blob)} bytes]")
             return json.dumps({"result": "\n".join(parts) if parts else ""}, ensure_ascii=False)
 
-        def _call_once():
-            return _run_on_mcp_loop(_call, timeout=tool_timeout)
-
-        try:
-            return _call_once()
-        except InterruptedError:
-            return _interrupted_call_result()
-        except Exception as exc:
-            recovered = _handle_auth_error_and_retry(
-                server_name, exc, _call_once, "resources/read",
-            )
-            if recovered is not None:
-                return recovered
-            recovered = _handle_session_expired_and_retry(
-                server_name, exc, _call_once, "resources/read",
-            )
-            if recovered is not None:
-                return recovered
-            logger.error(
-                "MCP %s/read_resource failed: %s", server_name, exc,
-            )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
-                )
-            }, ensure_ascii=False)
+        return _call_with_recovery(server_name, _call, tool_timeout, "resources/read", "read_resource")
 
     return _handler
 
@@ -2651,12 +2632,9 @@ def _make_list_prompts_handler(server_name: str, tool_timeout: float):
     """Return a sync handler that lists prompts from an MCP server."""
 
     def _handler(args: dict, **kwargs) -> str:
-        with _lock:
-            server = _servers.get(server_name)
-        if not server or not server.session:
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+        server = _connected_server(server_name)
+        if server is None:
+            return _not_connected_error(server_name)
 
         async def _call():
             async with server._rpc_lock:
@@ -2680,32 +2658,7 @@ def _make_list_prompts_handler(server_name: str, tool_timeout: float):
                 prompts.append(entry)
             return json.dumps({"prompts": prompts}, ensure_ascii=False)
 
-        def _call_once():
-            return _run_on_mcp_loop(_call, timeout=tool_timeout)
-
-        try:
-            return _call_once()
-        except InterruptedError:
-            return _interrupted_call_result()
-        except Exception as exc:
-            recovered = _handle_auth_error_and_retry(
-                server_name, exc, _call_once, "prompts/list",
-            )
-            if recovered is not None:
-                return recovered
-            recovered = _handle_session_expired_and_retry(
-                server_name, exc, _call_once, "prompts/list",
-            )
-            if recovered is not None:
-                return recovered
-            logger.error(
-                "MCP %s/list_prompts failed: %s", server_name, exc,
-            )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
-                )
-            }, ensure_ascii=False)
+        return _call_with_recovery(server_name, _call, tool_timeout, "prompts/list", "list_prompts")
 
     return _handler
 
@@ -2716,12 +2669,9 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
     def _handler(args: dict, **kwargs) -> str:
         from tools.registry import tool_error
 
-        with _lock:
-            server = _servers.get(server_name)
-        if not server or not server.session:
-            return json.dumps({
-                "error": f"MCP server '{server_name}' is not connected"
-            }, ensure_ascii=False)
+        server = _connected_server(server_name)
+        if server is None:
+            return _not_connected_error(server_name)
 
         name = args.get("name")
         if not name:
@@ -2751,32 +2701,7 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
                 resp["description"] = result.description
             return json.dumps(resp, ensure_ascii=False)
 
-        def _call_once():
-            return _run_on_mcp_loop(_call, timeout=tool_timeout)
-
-        try:
-            return _call_once()
-        except InterruptedError:
-            return _interrupted_call_result()
-        except Exception as exc:
-            recovered = _handle_auth_error_and_retry(
-                server_name, exc, _call_once, "prompts/get",
-            )
-            if recovered is not None:
-                return recovered
-            recovered = _handle_session_expired_and_retry(
-                server_name, exc, _call_once, "prompts/get",
-            )
-            if recovered is not None:
-                return recovered
-            logger.error(
-                "MCP %s/get_prompt failed: %s", server_name, exc,
-            )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {_exc_str(exc)}"
-                )
-            }, ensure_ascii=False)
+        return _call_with_recovery(server_name, _call, tool_timeout, "prompts/get", "get_prompt")
 
     return _handler
 
@@ -2785,9 +2710,7 @@ def _make_check_fn(server_name: str):
     """Return a check function that verifies the MCP connection is alive."""
 
     def _check() -> bool:
-        with _lock:
-            server = _servers.get(server_name)
-        return server is not None and server.session is not None
+        return _connected_server(server_name) is not None
 
     return _check
 

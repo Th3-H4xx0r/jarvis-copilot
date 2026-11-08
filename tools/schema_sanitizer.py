@@ -305,6 +305,20 @@ def _sanitize_node(node: Any, path: str) -> Any:
 _STRIP_ON_RECOVERY_KEYS = frozenset({"pattern", "format"})
 
 
+def _tool_parameter_schemas(tools: list):
+    """Yield each tool's ``parameters`` dict, from either the OpenAI format
+    (``function.parameters``) or the Responses format (top-level
+    ``parameters``, used by codex_responses: xAI, OpenAI Codex)."""
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        fn = tool.get("function")
+        if isinstance(fn, dict) and isinstance(fn.get("parameters"), dict):
+            yield fn["parameters"]
+        elif isinstance(tool.get("parameters"), dict):
+            yield tool["parameters"]
+
+
 def strip_pattern_and_format(tools: list[dict]) -> tuple[list[dict], int]:
     """Strip ``pattern`` and ``format`` JSON Schema keywords from tool schemas.
 
@@ -354,24 +368,8 @@ def strip_pattern_and_format(tools: list[dict]) -> tuple[list[dict], int]:
             for item in node:
                 _walk(item)
 
-    for tool in tools:
-        if not isinstance(tool, dict):
-            continue
-        
-        # OpenAI-format: {"function": {"parameters": {...}}}
-        fn = tool.get("function")
-        if isinstance(fn, dict):
-            params = fn.get("parameters")
-            if isinstance(params, dict):
-                _walk(params)
-                continue
-        
-        # Responses-format: {"name": "...", "parameters": {...}}
-        # (used by codex_responses API mode — xAI, OpenAI Codex, etc.)
-        params = tool.get("parameters")
-        if isinstance(params, dict):
-            _walk(params)
-            continue
+    for params in _tool_parameter_schemas(tools):
+        _walk(params)
 
     if stripped:
         logger.info(
@@ -423,18 +421,8 @@ def strip_slash_enum(tools: list[dict]) -> tuple[list[dict], int]:
             for item in node:
                 _walk(item)
 
-    for tool in tools:
-        if not isinstance(tool, dict):
-            continue
-        fn = tool.get("function")
-        if isinstance(fn, dict):
-            params = fn.get("parameters")
-            if isinstance(params, dict):
-                _walk(params)
-                continue
-        params = tool.get("parameters")
-        if isinstance(params, dict):
-            _walk(params)
+    for params in _tool_parameter_schemas(tools):
+        _walk(params)
 
     if stripped:
         logger.info(

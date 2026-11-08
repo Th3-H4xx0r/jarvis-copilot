@@ -916,6 +916,20 @@ def approve_permanent(pattern_key: str):
         _permanent_approved.add(pattern_key)
 
 
+def _remember_approval(session_key: str, pattern_key: str, choice: str,
+                       *, permanent_ok: bool = True) -> None:
+    """Persist an approve *choice*: "session" approves for this session,
+    "always" also adds the permanent allowlist (session only when
+    *permanent_ok* is false: tirith findings never get broad permanent
+    allowlisting), "once" persists nothing."""
+    if choice == "session" or (choice == "always" and not permanent_ok):
+        approve_session(session_key, pattern_key)
+    elif choice == "always":
+        approve_session(session_key, pattern_key)
+        approve_permanent(pattern_key)
+        save_permanent_allowlist(_permanent_approved)
+
+
 def load_permanent(patterns: set):
     """Bulk-load permanent allowlist entries from config."""
     with _lock:
@@ -1274,13 +1288,7 @@ def check_dangerous_command(command: str, env_type: str,
             "description": description,
         }
 
-    if choice == "session":
-        approve_session(session_key, pattern_key)
-    elif choice == "always":
-        approve_session(session_key, pattern_key)
-        approve_permanent(pattern_key)
-        save_permanent_allowlist(_permanent_approved)
-
+    _remember_approval(session_key, pattern_key, choice)
     return {"approved": True, "message": None}
 
 
@@ -1613,16 +1621,8 @@ def check_all_command_guards(command: str, env_type: str,
                     "user_consent": False,
                 }
 
-            # User approved — persist based on scope (same logic as CLI)
             for key, _, is_tirith in warnings:
-                if choice == "session" or (choice == "always" and is_tirith):
-                    approve_session(session_key, key)
-                elif choice == "always":
-                    approve_session(session_key, key)
-                    approve_permanent(key)
-                    save_permanent_allowlist(_permanent_approved)
-                # choice == "once": no persistence — command allowed this
-                # single time only, matching the CLI's behavior.
+                _remember_approval(session_key, key, choice, permanent_ok=not is_tirith)
 
             return {"approved": True, "message": None,
                     "user_approved": True, "description": combined_desc}
@@ -1689,16 +1689,8 @@ def check_all_command_guards(command: str, env_type: str,
             "user_consent": False,
         }
 
-    # Persist approval for each warning individually
     for key, _, is_tirith in warnings:
-        if choice == "session" or (choice == "always" and is_tirith):
-            # tirith: session only (no permanent broad allowlisting)
-            approve_session(session_key, key)
-        elif choice == "always":
-            # dangerous patterns: permanent allowed
-            approve_session(session_key, key)
-            approve_permanent(key)
-            save_permanent_allowlist(_permanent_approved)
+        _remember_approval(session_key, key, choice, permanent_ok=not is_tirith)
 
     return {"approved": True, "message": None,
             "user_approved": True, "description": combined_desc}

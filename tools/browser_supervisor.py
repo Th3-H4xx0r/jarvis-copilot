@@ -892,18 +892,25 @@ class CDPSupervisor:
         Dialog has already been archived by the caller (``_on_dialog_opening``);
         this just fires the CDP call so the page unblocks.
         """
-        params: Dict[str, Any] = {"accept": accept}
-        if dialog.type == "prompt":
-            params["promptText"] = prompt_text
         try:
-            await self._cdp(
-                "Page.handleJavaScriptDialog",
-                params,
-                session_id=dialog.cdp_session_id or None,
-                timeout=5.0,
-            )
+            await self._answer_native_dialog(dialog, accept=accept, prompt_text=prompt_text)
         except Exception as e:
             logger.debug("auto-handle CDP call failed for %s: %s", dialog.id, e)
+
+    async def _answer_native_dialog(
+        self, dialog: PendingDialog, *, accept: bool, prompt_text: Optional[str]
+    ) -> None:
+        """Page.handleJavaScriptDialog; ``promptText`` only for prompt dialogs
+        and only when given."""
+        params: Dict[str, Any] = {"accept": accept}
+        if dialog.type == "prompt" and prompt_text is not None:
+            params["promptText"] = prompt_text
+        await self._cdp(
+            "Page.handleJavaScriptDialog",
+            params,
+            session_id=dialog.cdp_session_id or None,
+            timeout=5.0,
+        )
 
     async def _dialog_timeout_expired(self, dialog_id: str) -> None:
         with self._state_lock:
@@ -928,12 +935,7 @@ class CDPSupervisor:
             if dialog.bridge_request_id:
                 await self._fulfill_bridge_request(dialog, accept=False, prompt_text="")
             else:
-                await self._cdp(
-                    "Page.handleJavaScriptDialog",
-                    {"accept": False},
-                    session_id=dialog.cdp_session_id or None,
-                    timeout=5.0,
-                )
+                await self._answer_native_dialog(dialog, accept=False, prompt_text=None)
         except Exception as e:
             logger.debug("auto-dismiss failed for %s: %s", dialog_id, e)
 
@@ -960,31 +962,15 @@ class CDPSupervisor:
         Routes to the bridge-fulfill path when the dialog was captured via
         the injected XHR override (see ``_on_fetch_paused``).
         """
-        if dialog.bridge_request_id:
-            try:
+        try:
+            if dialog.bridge_request_id:
                 await self._fulfill_bridge_request(
                     dialog, accept=accept, prompt_text=prompt_text
                 )
-            finally:
-                with self._state_lock:
-                    if dialog.id in self._pending_dialogs:
-                        self._pending_dialogs.pop(dialog.id, None)
-                        self._archive_dialog_locked(dialog, "agent")
-                handle = self._dialog_watchdogs.pop(dialog.id, None)
-                if handle is not None:
-                    handle.cancel()
-            return
-
-        params: Dict[str, Any] = {"accept": accept}
-        if dialog.type == "prompt":
-            params["promptText"] = prompt_text
-        try:
-            await self._cdp(
-                "Page.handleJavaScriptDialog",
-                params,
-                session_id=dialog.cdp_session_id or None,
-                timeout=5.0,
-            )
+            else:
+                await self._answer_native_dialog(
+                    dialog, accept=accept, prompt_text=prompt_text
+                )
         finally:
             # Clear regardless — the CDP error path usually means the dialog
             # already closed (browser auto-dismissed after navigation, etc.).

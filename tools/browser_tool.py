@@ -55,7 +55,6 @@ import json
 import logging
 import os
 import re
-import signal
 import subprocess
 import shutil
 import sys
@@ -175,6 +174,60 @@ def _merge_browser_path(existing_path: str = "") -> str:
             prefix_parts.append(part)
 
     return os.pathsep.join(prefix_parts + path_parts)
+
+
+def _agent_browser_argv(browser_cmd: str) -> List[str]:
+    """argv prefix for the agent-browser CLI.
+
+    Concrete executable paths stay intact even when they contain spaces;
+    only the synthetic ``npx agent-browser`` fallback expands to two items.
+    On Windows npx is npx.cmd, so resolve it with shutil.which (honours
+    PATHEXT) for CreateProcessW; if npx isn't on PATH (Termux, bare
+    container) keep the bare name so Popen raises a readable
+    ``FileNotFoundError: 'npx'`` rather than WinError 193.
+    """
+    if browser_cmd == "npx agent-browser":
+        return [shutil.which("npx") or "npx", "agent-browser"]
+    return [browser_cmd]
+
+
+def _spawn_agent_browser(argv: List[str], env: Dict[str, str],
+                         stdout_path: str, stderr_path: str) -> subprocess.Popen:
+    """Start agent-browser with stdout/stderr going to temp files.
+
+    Temp files, not pipes: agent-browser starts a background daemon that
+    inherits file descriptors, so with pipes the daemon keeps them open
+    after the CLI exits and communicate() never sees EOF.
+
+    Windows hardening:
+    * CREATE_NO_WINDOW so cmd.exe doesn't briefly allocate a console for the
+      .cmd shim.  NOT CREATE_NEW_PROCESS_GROUP: on Python 3.11 it interacts
+      with asyncio's ProactorEventLoop so the spawn cancels the running loop
+      task, surfacing as KeyboardInterrupt in the CLI's MainThread.
+    * STARTF_USESTDHANDLES so CreateProcess hands the child ONLY our three
+      handles.  Leaked parent-console handles (the CLI dups stderr onto
+      stdout) make the Rust binary's detached daemon grandchild die with
+      "Daemon process exited during startup with no error output".
+    * close_fds=True to block inheritance of every other handle (the POSIX
+      default, explicit on Windows for stdio).
+    """
+    popen_extra: dict = {}
+    if os.name == "nt":
+        popen_extra["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        popen_extra["close_fds"] = True
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESTDHANDLES
+        popen_extra["startupinfo"] = si
+    stdout_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        return subprocess.Popen(
+            argv, stdout=stdout_fd, stderr=stderr_fd,
+            stdin=subprocess.DEVNULL, env=env, **popen_extra,
+        )
+    finally:
+        os.close(stdout_fd)
+        os.close(stderr_fd)
 
 # Throttle screenshot cleanup to avoid repeated full directory scans.
 _last_screenshot_cleanup_by_dir: dict[str, float] = {}
@@ -891,16 +944,7 @@ def _run_chrome_fallback_command(
             )
         return {"success": False, "error": hint}
 
-    # On Windows npx is npx.cmd — use shutil.which so CreateProcessW can
-    # execute the batch shim.  shutil.which honours PATHEXT on Windows and
-    # returns the plain executable on POSIX.  If npx isn't on PATH (Termux,
-    # bare container), fall back to the bare name and let Popen raise with
-    # a readable "FileNotFoundError: 'npx'" rather than WinError 193.
-    if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
-    else:
-        cmd_prefix = [browser_cmd]
+    cmd_prefix = _agent_browser_argv(browser_cmd)
     base_args = cmd_prefix + ["--engine", "chrome", "--session", tmp_session, "--json"]
 
     task_socket_dir = os.path.join(_socket_safe_tmpdir(), f"agent-browser-{tmp_session}")
@@ -917,52 +961,7 @@ def _run_chrome_fallback_command(
         # to avoid pipe hang from agent-browser daemon inheriting fds.
         stdout_path = os.path.join(task_socket_dir, f"_stdout_{cmd}")
         stderr_path = os.path.join(task_socket_dir, f"_stderr_{cmd}")
-        stdout_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            # On Windows, launch the child in a new process group so parent
-            # console Ctrl+C doesn't kill it with STATUS_CONTROL_C_EXIT
-            # (0xC000013A = rc 3221225786), AND insulate its stdio + handle
-            # inheritance from the parent.
-            #
-            # Additional Windows hardening beyond CREATE_NEW_PROCESS_GROUP:
-            # * STARTF_USESTDHANDLES + explicit handles → CreateProcess hands
-            #   the child ONLY our three chosen handles (DEVNULL stdin +
-            #   temp-file stdout/stderr). Without this, some parents leak
-            #   console handles that break downstream grandchild spawns — the
-            #   agent-browser Rust binary spawns a detached daemon grandchild,
-            #   and that grandchild's CreateProcess dies silently
-            #   ("Daemon process exited during startup with no error output")
-            #   when inherited parent handles are in a weird state. Observed
-            #   in the JarvisCopilot CLI where sys.stdout and sys.stderr both report
-            #   fileno=1 (stderr dup'd onto stdout at the OS level).
-            # * close_fds=True → block inheritance of every other handle.
-            #   (Default on POSIX; must be explicit on Windows for stdio.)
-            _popen_extra: dict = {}
-            if os.name == "nt":
-                # CREATE_NO_WINDOW → don't attach a console (cmd.exe would
-                # otherwise briefly allocate one for the .cmd shim).
-                # Do NOT add CREATE_NEW_PROCESS_GROUP: on Python 3.11 Windows
-                # it interacts with asyncio's ProactorEventLoop such that the
-                # subprocess creation cancels the running loop task, which
-                # surfaces as KeyboardInterrupt in app.run() and tears down
-                # the CLI mid-turn. The agent thread's subprocess spawn
-                # unwound MainThread's prompt_toolkit loop that way — see
-                # diag log: "asyncio.CancelledError → KeyboardInterrupt".
-                _CREATE_NO_WINDOW = 0x08000000
-                _popen_extra["creationflags"] = _CREATE_NO_WINDOW
-                _popen_extra["close_fds"] = True
-                _si = subprocess.STARTUPINFO()
-                _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
-                _popen_extra["startupinfo"] = _si
-            proc = subprocess.Popen(
-                full, stdout=stdout_fd, stderr=stderr_fd,
-                stdin=subprocess.DEVNULL, env=browser_env,
-                **_popen_extra,
-            )
-        finally:
-            os.close(stdout_fd)
-            os.close(stderr_fd)
+        proc = _spawn_agent_browser(full, browser_env, stdout_path, stderr_path)
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -2126,16 +2125,7 @@ def _run_browser_command(
     engine = _engine_override or session_info.get("engine") or _get_browser_engine()
     backend_args += _engine_args(session_info, _engine_override)
 
-    # Keep concrete executable paths intact, even when they contain spaces.
-    # Only the synthetic npx fallback needs to expand into multiple argv items.
-    # shutil.which resolves npx → npx.cmd on Windows; bare "npx" stays on POSIX.
-    if browser_cmd == "npx agent-browser":
-        _npx_bin = shutil.which("npx") or "npx"
-        cmd_prefix = [_npx_bin, "agent-browser"]
-    else:
-        cmd_prefix = [browser_cmd]
-
-    cmd_parts = cmd_prefix + backend_args + [
+    cmd_parts = _agent_browser_argv(browser_cmd) + backend_args + [
         "--json",
         command
     ] + args
@@ -2205,44 +2195,9 @@ def _run_browser_command(
                     "--no-sandbox,--disable-dev-shm-usage"
                 )
 
-        # Use temp files for stdout/stderr instead of pipes.
-        # agent-browser starts a background daemon that inherits file
-        # descriptors.  With capture_output=True (pipes), the daemon keeps
-        # the pipe fds open after the CLI exits, so communicate() never
-        # sees EOF and blocks until the timeout fires.
         stdout_path = os.path.join(task_socket_dir, f"_stdout_{command}")
         stderr_path = os.path.join(task_socket_dir, f"_stderr_{command}")
-        stdout_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            # See matching comment at the other Popen site above — on
-            # Windows we put agent-browser in its own process group, force
-            # STARTF_USESTDHANDLES so CreateProcess hands the child ONLY our
-            # three explicit handles (no leaked parent-console handles to
-            # confuse the Rust binary's daemon-spawn), and close_fds=True to
-            # block inheritance of everything else.
-            _popen_extra: dict = {}
-            if os.name == "nt":
-                # See matching block at the other Popen site — CREATE_NO_WINDOW
-                # only, NO CREATE_NEW_PROCESS_GROUP (cancels asyncio loop task
-                # on Python 3.11 Windows → KeyboardInterrupt in CLI MainThread).
-                _CREATE_NO_WINDOW = 0x08000000
-                _popen_extra["creationflags"] = _CREATE_NO_WINDOW
-                _popen_extra["close_fds"] = True
-                _si = subprocess.STARTUPINFO()
-                _si.dwFlags |= subprocess.STARTF_USESTDHANDLES
-                _popen_extra["startupinfo"] = _si
-            proc = subprocess.Popen(
-                cmd_parts,
-                stdout=stdout_fd,
-                stderr=stderr_fd,
-                stdin=subprocess.DEVNULL,
-                env=browser_env,
-                **_popen_extra,
-            )
-        finally:
-            os.close(stdout_fd)
-            os.close(stderr_fd)
+        proc = _spawn_agent_browser(cmd_parts, browser_env, stdout_path, stderr_path)
 
         try:
             proc.wait(timeout=timeout)
