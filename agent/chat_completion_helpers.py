@@ -291,24 +291,10 @@ def interruptible_api_call(agent, api_kwargs: dict):
                 # normalize_converse_response produces an OpenAI-compatible
                 # SimpleNamespace so the rest of the agent loop can treat
                 # bedrock responses like chat_completions responses.
-                from agent.bedrock_adapter import (
-                    _get_bedrock_runtime_client,
-                    invalidate_runtime_client,
-                    is_stale_connection_error,
-                    normalize_converse_response,
-                )
+                from agent.bedrock_adapter import converse, normalize_converse_response
                 region = api_kwargs.pop("__bedrock_region__", "us-east-1")
                 api_kwargs.pop("__bedrock_converse__", None)
-                client = _get_bedrock_runtime_client(region)
-                try:
-                    raw_response = client.converse(**api_kwargs)
-                except Exception as _bedrock_exc:
-                    # Evict the cached client on stale-connection failures
-                    # so the outer retry loop builds a fresh client/pool.
-                    if is_stale_connection_error(_bedrock_exc):
-                        invalidate_runtime_client(region)
-                    raise
-                result["response"] = normalize_converse_response(raw_response)
+                result["response"] = normalize_converse_response(converse(region, api_kwargs))
             else:
                 request_client = request_client_slot.set(
                     agent._create_request_openai_client(
@@ -1406,23 +1392,10 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
 
         def _bedrock_call():
             try:
-                from agent.bedrock_adapter import (
-                    _get_bedrock_runtime_client,
-                    invalidate_runtime_client,
-                    is_stale_connection_error,
-                    stream_converse_with_callbacks,
-                )
+                from agent.bedrock_adapter import converse, stream_converse_with_callbacks
                 region = api_kwargs.pop("__bedrock_region__", "us-east-1")
                 api_kwargs.pop("__bedrock_converse__", None)
-                client = _get_bedrock_runtime_client(region)
-                try:
-                    raw_response = client.converse_stream(**api_kwargs)
-                except Exception as _bedrock_exc:
-                    # Evict the cached client on stale-connection failures
-                    # so the outer retry loop builds a fresh client/pool.
-                    if is_stale_connection_error(_bedrock_exc):
-                        invalidate_runtime_client(region)
-                    raise
+                raw_response = converse(region, api_kwargs, stream=True)
 
                 def _on_text(text):
                     _fire_first()
