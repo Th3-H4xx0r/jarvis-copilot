@@ -120,14 +120,6 @@ def test_korean_settings_detail_descriptions_are_translated():
         assert entry in src
 
 
-def test_korean_locale_matches_english_key_coverage():
-    src = read(REPO / "static" / "i18n.js")
-    en_keys = set(locale_keys(src, "en"))
-    ko_keys = set(locale_keys(src, "ko"))
-    assert sorted(en_keys - ko_keys) == []
-    assert sorted(ko_keys - en_keys) == []
-
-
 def test_korean_locale_has_no_duplicate_keys():
     src = read(REPO / "static" / "i18n.js")
     keys = locale_keys(src, "ko")

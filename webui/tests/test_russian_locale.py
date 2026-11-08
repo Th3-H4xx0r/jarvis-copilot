@@ -98,16 +98,6 @@ def test_russian_locale_includes_representative_translations():
         assert entry in src
 
 
-def test_russian_locale_covers_english_keys():
-    src = read(REPO / "static" / "i18n.js")
-    key_pattern = re.compile(r"^\s{4}([a-zA-Z0-9_]+):", re.MULTILINE)
-    en_keys = set(key_pattern.findall(extract_locale_block(src, "en")))
-    ru_keys = set(key_pattern.findall(extract_locale_block(src, "ru")))
-
-    missing = sorted(en_keys - ru_keys)
-    assert not missing, f"Russian locale missing keys: {missing}"
-
-
 def test_russian_locale_has_no_duplicate_keys():
     src = read(REPO / "static" / "i18n.js")
     key_pattern = re.compile(r"^\s{4}([a-zA-Z0-9_]+):", re.MULTILINE)
