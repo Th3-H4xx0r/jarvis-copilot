@@ -79,7 +79,7 @@ _SIZES = {
 }
 
 
-def _load_openai_config() -> Dict[str, Any]:
+def _load_image_gen_config() -> Dict[str, Any]:
     """Read ``image_gen`` from config.yaml (returns {} on any failure)."""
     try:
         from jarviscopilot_cli.config import load_config
@@ -92,17 +92,21 @@ def _load_openai_config() -> Dict[str, Any]:
         return {}
 
 
-def _resolve_model() -> Tuple[str, Dict[str, Any]]:
-    """Decide which tier to use and return ``(model_id, meta)``."""
+def _resolve_model(section: str = "openai") -> Tuple[str, Dict[str, Any]]:
+    """Decide which tier to use and return ``(model_id, meta)``.
+
+    ``section`` names the provider's own ``image_gen.<section>`` block, so
+    the ``openai-codex`` plugin can share this resolution.
+    """
     env_override = os.environ.get("OPENAI_IMAGE_MODEL")
     if env_override and env_override in _MODELS:
         return env_override, _MODELS[env_override]
 
-    cfg = _load_openai_config()
-    openai_cfg = cfg.get("openai") if isinstance(cfg.get("openai"), dict) else {}
+    cfg = _load_image_gen_config()
+    sub = cfg.get(section)
     candidate: Optional[str] = None
-    if isinstance(openai_cfg, dict):
-        value = openai_cfg.get("model")
+    if isinstance(sub, dict):
+        value = sub.get("model")
         if isinstance(value, str) and value in _MODELS:
             candidate = value
     if candidate is None:
@@ -114,6 +118,20 @@ def _resolve_model() -> Tuple[str, Dict[str, Any]]:
         return candidate, _MODELS[candidate]
 
     return DEFAULT_MODEL, _MODELS[DEFAULT_MODEL]
+
+
+def _tier_listing() -> List[Dict[str, Any]]:
+    """The tier catalog in ``ImageGenProvider.list_models`` shape."""
+    return [
+        {
+            "id": model_id,
+            "display": meta["display"],
+            "speed": meta["speed"],
+            "strengths": meta["strengths"],
+            "price": "varies",
+        }
+        for model_id, meta in _MODELS.items()
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -142,16 +160,7 @@ class OpenAIImageGenProvider(ImageGenProvider):
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "id": model_id,
-                "display": meta["display"],
-                "speed": meta["speed"],
-                "strengths": meta["strengths"],
-                "price": "varies",
-            }
-            for model_id, meta in _MODELS.items()
-        ]
+        return _tier_listing()
 
     def default_model(self) -> Optional[str]:
         return DEFAULT_MODEL

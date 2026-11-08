@@ -34,40 +34,15 @@ from agent.image_gen_provider import (
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Model catalog — mirrors the ``openai`` plugin so the picker UX is identical.
-# ---------------------------------------------------------------------------
-
-API_MODEL = "gpt-image-2"
-
-_MODELS: Dict[str, Dict[str, Any]] = {
-    "gpt-image-2-low": {
-        "display": "GPT Image 2 (Low)",
-        "speed": "~15s",
-        "strengths": "Fast iteration, lowest cost",
-        "quality": "low",
-    },
-    "gpt-image-2-medium": {
-        "display": "GPT Image 2 (Medium)",
-        "speed": "~40s",
-        "strengths": "Balanced — default",
-        "quality": "medium",
-    },
-    "gpt-image-2-high": {
-        "display": "GPT Image 2 (High)",
-        "speed": "~2min",
-        "strengths": "Highest fidelity, strongest prompt adherence",
-        "quality": "high",
-    },
-}
-
-DEFAULT_MODEL = "gpt-image-2-medium"
-
-_SIZES = {
-    "landscape": "1536x1024",
-    "square": "1024x1024",
-    "portrait": "1024x1536",
-}
+# The tier catalog and its resolution are the ``openai`` plugin's, so the
+# picker UX is identical.
+from plugins.image_gen.openai import (  # noqa: E402
+    API_MODEL,
+    DEFAULT_MODEL,
+    _SIZES,
+    _resolve_model as _resolve_tier,
+    _tier_listing,
+)
 
 # Codex Responses surface used for the request. The chat model itself is only
 # the host that calls the ``image_generation`` tool; the actual image work is
@@ -85,43 +60,9 @@ _CODEX_INSTRUCTIONS = (
 # ---------------------------------------------------------------------------
 
 
-def _load_image_gen_config() -> Dict[str, Any]:
-    """Read ``image_gen`` from config.yaml (returns {} on any failure)."""
-    try:
-        from jarviscopilot_cli.config import load_config
-
-        cfg = load_config()
-        section = cfg.get("image_gen") if isinstance(cfg, dict) else None
-        return section if isinstance(section, dict) else {}
-    except Exception as exc:
-        logger.debug("Could not load image_gen config: %s", exc)
-        return {}
-
-
 def _resolve_model() -> Tuple[str, Dict[str, Any]]:
     """Decide which tier to use and return ``(model_id, meta)``."""
-    import os
-
-    env_override = os.environ.get("OPENAI_IMAGE_MODEL")
-    if env_override and env_override in _MODELS:
-        return env_override, _MODELS[env_override]
-
-    cfg = _load_image_gen_config()
-    sub = cfg.get("openai-codex") if isinstance(cfg.get("openai-codex"), dict) else {}
-    candidate: Optional[str] = None
-    if isinstance(sub, dict):
-        value = sub.get("model")
-        if isinstance(value, str) and value in _MODELS:
-            candidate = value
-    if candidate is None:
-        top = cfg.get("model")
-        if isinstance(top, str) and top in _MODELS:
-            candidate = top
-
-    if candidate is not None:
-        return candidate, _MODELS[candidate]
-
-    return DEFAULT_MODEL, _MODELS[DEFAULT_MODEL]
+    return _resolve_tier("openai-codex")
 
 
 def _read_codex_access_token() -> Optional[str]:
@@ -240,16 +181,7 @@ class OpenAICodexImageGenProvider(ImageGenProvider):
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "id": model_id,
-                "display": meta["display"],
-                "speed": meta["speed"],
-                "strengths": meta["strengths"],
-                "price": "varies",
-            }
-            for model_id, meta in _MODELS.items()
-        ]
+        return _tier_listing()
 
     def default_model(self) -> Optional[str]:
         return DEFAULT_MODEL

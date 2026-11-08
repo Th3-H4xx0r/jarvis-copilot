@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -175,7 +175,7 @@ class XAIImageGenProvider(ImageGenProvider):
                 aspect_ratio=aspect_ratio,
             )
 
-        model_id, meta = _resolve_model()
+        model_id, _ = _resolve_model()
         aspect = resolve_aspect_ratio(aspect_ratio)
         xai_ar = _XAI_ASPECT_RATIOS.get(aspect, "1:1")
         resolution = _resolve_resolution()
