@@ -11,9 +11,9 @@ The fix has two prongs:
    ``shutdown(SHUT_RDWR)``. Shutdown unblocks the worker's pending
    ``recv``/``send`` without releasing the FD.
 
-2. ``_close_request_client_once`` is thread-aware: a stranger thread (the
+2. ``_RequestClientSlot.close_once`` is thread-aware: a stranger thread (the
    interrupt-check / stale-call loop) only aborts the sockets and leaves
-   the client in the holder; the worker's own ``finally`` performs the
+   the client in the slot; the worker's own ``finally`` performs the
    actual ``client.close()`` from its own thread context.
 
 Both prongs together close the FD-recycling window. The tests below pin
@@ -146,7 +146,7 @@ def test_force_close_tcp_sockets_handles_multiple_pool_entries():
 
 
 # ---------------------------------------------------------------------------
-# Prong 2: _close_request_client_once is thread-aware.
+# Prong 2: _RequestClientSlot.close_once is thread-aware.
 # ---------------------------------------------------------------------------
 
 
@@ -179,108 +179,47 @@ def _call_inside_owner_thread(callable_):
 
 
 def test_close_from_stranger_thread_aborts_only_no_close():
-    """Stranger-thread close → ``_abort_request_openai_client``, holder NOT popped.
+    """Stranger-thread close → ``_abort_request_openai_client``, slot kept.
 
     Reproduces the asyncio_0 → Thread-1616 interrupt path. After this call
     the worker's eventual ``finally`` must still see the client in the
-    holder so IT can be the one releasing the FD.
+    slot so IT can be the one releasing the FD.
     """
-    from agent.chat_completion_helpers import interruptible_api_call
+    from agent.chat_completion_helpers import _RequestClientSlot
 
-    # We can't easily invoke just `_close_request_client_once` because it's
-    # a closure local to ``interruptible_api_call``. Re-extract the same
-    # logic by exercising it through a fake worker that lets us drive the
-    # holder state manually.
     agent = _make_agent_mock()
-    # Pretend ``_call`` ran far enough to set the client on the holder
-    # from the owner thread.
+    slot = _RequestClientSlot(agent)
     sentinel = object()
-    owner_tid_holder = {"tid": None, "client_present_after_stranger_close": False}
+    owner_tid = _call_inside_owner_thread(
+        lambda: (slot.set(sentinel), threading.get_ident())[1]
+    )
 
-    def _owner_workload(holder, lock):
-        # Owner-thread set
-        with lock:
-            holder["client"] = sentinel
-            holder["owner_tid"] = threading.get_ident()
-        owner_tid_holder["tid"] = threading.get_ident()
+    slot.close_once("interrupt_abort")
 
-    holder = {"client": None, "owner_tid": None}
-    lock = threading.Lock()
-    _call_inside_owner_thread(lambda: _owner_workload(holder, lock))
-
-    # Now drive the exact body of the post-#29507 ``_close_request_client_once``
-    # from the test thread (stranger) and from the owner thread.
-    def close_once(holder, lock, reason):
-        with lock:
-            request_client = holder.get("client")
-            owner_tid = holder.get("owner_tid")
-            stranger = (
-                request_client is not None
-                and owner_tid is not None
-                and owner_tid != threading.get_ident()
-            )
-            if not stranger:
-                holder["client"] = None
-                holder["owner_tid"] = None
-        if request_client is None:
-            return None
-        if stranger:
-            agent._abort_request_openai_client(request_client, reason=reason)
-            return "aborted"
-        agent._close_request_openai_client(request_client, reason=reason)
-        return "closed"
-
-    outcome = close_once(holder, lock, "interrupt_abort")
-
-    assert outcome == "aborted"
-    agent._abort_request_openai_client.assert_called_once()
+    agent._abort_request_openai_client.assert_called_once_with(sentinel, reason="interrupt_abort")
     agent._close_request_openai_client.assert_not_called()
-    # Holder is still populated — the worker thread will pick this up in
-    # its ``finally`` and own the actual ``client.close()``.
-    assert holder["client"] is sentinel
-    assert holder["owner_tid"] == owner_tid_holder["tid"]
+    assert slot.client is sentinel
+    assert slot.owner_tid == owner_tid
 
 
 def test_close_from_owner_thread_pops_and_full_close():
-    """Worker-thread close → ``_close_request_openai_client``, holder popped."""
+    """Worker-thread close → ``_close_request_openai_client``, slot emptied."""
+    from agent.chat_completion_helpers import _RequestClientSlot
+
     agent = _make_agent_mock()
+    slot = _RequestClientSlot(agent)
     sentinel = object()
-    holder = {"client": None, "owner_tid": None}
-    lock = threading.Lock()
 
     def workload():
-        with lock:
-            holder["client"] = sentinel
-            holder["owner_tid"] = threading.get_ident()
+        slot.set(sentinel)
+        slot.close_once("request_complete")
 
-        # Same body inlined here so the test thread and the closing thread
-        # are identical (owner == self).
-        with lock:
-            request_client = holder.get("client")
-            owner_tid = holder.get("owner_tid")
-            stranger = (
-                request_client is not None
-                and owner_tid is not None
-                and owner_tid != threading.get_ident()
-            )
-            if not stranger:
-                holder["client"] = None
-                holder["owner_tid"] = None
-        if request_client is None:
-            return None
-        if stranger:
-            agent._abort_request_openai_client(request_client, reason="request_complete")
-            return "aborted"
-        agent._close_request_openai_client(request_client, reason="request_complete")
-        return "closed"
+    _call_inside_owner_thread(workload)
 
-    outcome = _call_inside_owner_thread(workload)
-
-    assert outcome == "closed"
-    agent._close_request_openai_client.assert_called_once()
+    agent._close_request_openai_client.assert_called_once_with(sentinel, reason="request_complete")
     agent._abort_request_openai_client.assert_not_called()
-    assert holder["client"] is None
-    assert holder["owner_tid"] is None
+    assert slot.client is None
+    assert slot.owner_tid is None
 
 
 def test_stranger_then_owner_close_sequence_runs_full_close_exactly_once():
@@ -289,61 +228,39 @@ def test_stranger_then_owner_close_sequence_runs_full_close_exactly_once():
     This mirrors the reporter's timeline: asyncio_0 fires interrupt_abort
     (stranger → abort only), then Thread-1616 unwinds and its finally
     fires request_complete (owner → full close). Net result must be one
-    abort + one full close, with the holder ending empty.
+    abort + one full close, with the slot ending empty.
     """
-    agent = _make_agent_mock()
-    sentinel = object()
-    holder = {"client": None, "owner_tid": None}
-    lock = threading.Lock()
+    from agent.chat_completion_helpers import _RequestClientSlot
 
-    def close_once(reason):
-        with lock:
-            request_client = holder.get("client")
-            owner_tid = holder.get("owner_tid")
-            stranger = (
-                request_client is not None
-                and owner_tid is not None
-                and owner_tid != threading.get_ident()
-            )
-            if not stranger:
-                holder["client"] = None
-                holder["owner_tid"] = None
-        if request_client is None:
-            return
-        if stranger:
-            agent._abort_request_openai_client(request_client, reason=reason)
-        else:
-            agent._close_request_openai_client(request_client, reason=reason)
+    agent = _make_agent_mock()
+    slot = _RequestClientSlot(agent)
+    sentinel = object()
+    client_set = threading.Event()
+    stranger_done = threading.Event()
 
     def owner_workload():
-        # Set client from owner thread.
-        with lock:
-            holder["client"] = sentinel
-            holder["owner_tid"] = threading.get_ident()
-        # Simulate work being interrupted by a stranger from outside.
-        nonlocal_stranger_event.wait(timeout=2.0)
+        slot.set(sentinel)
+        client_set.set()
+        stranger_done.wait(timeout=2.0)
         # Worker unwinds — its finally calls close once.
-        close_once("request_complete")
+        slot.close_once("request_complete")
 
-    nonlocal_stranger_event = threading.Event()
     owner = threading.Thread(target=owner_workload)
     owner.start()
-
+    assert client_set.wait(timeout=2.0)
     # Test thread plays the stranger.
-    # Give the owner a moment to set the holder.
-    import time as _t
-    _t.sleep(0.05)
-    close_once("interrupt_abort")
-    nonlocal_stranger_event.set()
+    slot.close_once("interrupt_abort")
+    stranger_done.set()
     owner.join(timeout=5.0)
 
     assert not owner.is_alive(), "owner thread hung past join timeout"
-
-    # The fix's intended outcome: abort once, close once, holder empty.
     assert agent._abort_request_openai_client.call_count == 1
     assert agent._close_request_openai_client.call_count == 1
-    assert holder["client"] is None
-    assert holder["owner_tid"] is None
+    assert slot.client is None
+    assert slot.owner_tid is None
+    # A late close after the slot is empty is a no-op.
+    slot.close_once("request_complete")
+    assert agent._close_request_openai_client.call_count == 1
 
 
 # ---------------------------------------------------------------------------

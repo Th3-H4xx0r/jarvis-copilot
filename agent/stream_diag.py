@@ -42,7 +42,7 @@ def stream_diag_init() -> Dict[str, Any]:
     """Return a fresh per-attempt diagnostic dict.
 
     Mutated in-place by the streaming functions and read from the retry
-    block when a stream dies.  Lives on ``request_client_holder`` so it
+    block when a stream dies.  Lives on ``_RequestClientSlot.diag`` so it
     survives across the closure boundary.
     """
     return {

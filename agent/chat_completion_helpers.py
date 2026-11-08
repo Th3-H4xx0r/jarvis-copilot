@@ -217,6 +217,54 @@ def _ra():
 
 
 
+class _RequestClientSlot:
+    """The OpenAI client of one in-flight request, closed once by the right thread.
+
+    #29507: the worker thread that set the client owns its release.  When
+    the worker reaches its ``finally`` it pops and fully closes the client.
+    When a stranger thread (the interrupt-check loop, the stale-call
+    detector) drives the close, it only shuts the sockets down so the
+    worker's blocked ``recv``/``send`` unwinds with ``EPIPE`` / EOF, and
+    leaves the client in the slot for the worker to close from its own
+    thread.  That avoids the FD-recycling race where the kernel reassigned a
+    just-closed TLS socket FD to ``kanban.db`` and the still-live SSL BIO on
+    the worker thread then wrote a 24-byte TLS record into the SQLite header.
+    """
+
+    def __init__(self, agent):
+        self._agent = agent
+        self._lock = threading.Lock()
+        self.client = None
+        self.owner_tid = None
+        # Per-attempt stream diagnostics, read by the streaming retry block
+        # after a stream dies.
+        self.diag = None
+
+    def set(self, client):
+        with self._lock:
+            self.client = client
+            self.owner_tid = threading.get_ident()
+        return client
+
+    def close_once(self, reason: str) -> None:
+        with self._lock:
+            client = self.client
+            stranger_thread = (
+                client is not None
+                and self.owner_tid is not None
+                and self.owner_tid != threading.get_ident()
+            )
+            if not stranger_thread:
+                self.client = None
+                self.owner_tid = None
+        if client is None:
+            return
+        if stranger_thread:
+            self._agent._abort_request_openai_client(client, reason=reason)
+        else:
+            self._agent._close_request_openai_client(client, reason=reason)
+
+
 def interruptible_api_call(agent, api_kwargs: dict):
     """
     Run the API call in a background thread so the main conversation loop
@@ -246,61 +294,12 @@ def interruptible_api_call(agent, api_kwargs: dict):
             # fall through to the normal (text-shim) path below
 
     result = {"response": None, "error": None}
-    request_client_holder = {"client": None, "owner_tid": None}
-    request_client_lock = threading.Lock()
-
-    def _set_request_client(client):
-        with request_client_lock:
-            request_client_holder["client"] = client
-            # #29507: stamp the owning thread so a stranger-thread interrupt
-            # only shuts the connection down rather than racing the worker
-            # for FD ownership during ``client.close()``.
-            request_client_holder["owner_tid"] = threading.get_ident()
-        return client
-
-    def _take_request_client():
-        with request_client_lock:
-            client = request_client_holder.get("client")
-            request_client_holder["client"] = None
-            request_client_holder["owner_tid"] = None
-            return client
-
-    def _close_request_client_once(reason: str) -> None:
-        # #29507: dispatch on the calling thread.
-        #
-        # When ``_call`` (the worker) reaches its ``finally`` it owns the
-        # close and we pop + fully close as before. When a *stranger* thread
-        # (the interrupt-check loop, the stale-call detector) drives the
-        # close, only shut the sockets down so the worker's blocked
-        # ``recv``/``send`` unwinds with an ``EPIPE`` / EOF — and let the
-        # worker close ``client`` from its own thread on its way out. That
-        # avoids the FD-recycling race where the kernel reassigned a
-        # just-closed TLS socket FD to ``kanban.db``, and the still-live SSL
-        # BIO on the worker thread then wrote a 24-byte TLS application-data
-        # record into the SQLite header (#29507).
-        with request_client_lock:
-            request_client = request_client_holder.get("client")
-            owner_tid = request_client_holder.get("owner_tid")
-            stranger_thread = (
-                request_client is not None
-                and owner_tid is not None
-                and owner_tid != threading.get_ident()
-            )
-            if not stranger_thread:
-                # Owning thread (or no recorded owner) → pop and fully close.
-                request_client_holder["client"] = None
-                request_client_holder["owner_tid"] = None
-        if request_client is None:
-            return
-        if stranger_thread:
-            agent._abort_request_openai_client(request_client, reason=reason)
-        else:
-            agent._close_request_openai_client(request_client, reason=reason)
+    request_client_slot = _RequestClientSlot(agent)
 
     def _call():
         try:
             if agent.api_mode == "codex_responses":
-                request_client = _set_request_client(
+                request_client = request_client_slot.set(
                     agent._create_request_openai_client(
                         reason="codex_stream_request",
                         api_kwargs=api_kwargs,
@@ -337,7 +336,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     raise
                 result["response"] = normalize_converse_response(raw_response)
             else:
-                request_client = _set_request_client(
+                request_client = request_client_slot.set(
                     agent._create_request_openai_client(
                         reason="chat_completion_request",
                         api_kwargs=api_kwargs,
@@ -347,7 +346,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
         except Exception as e:
             result["error"] = e
         finally:
-            _close_request_client_once("request_complete")
+            request_client_slot.close_once("request_complete")
 
     # ── Stale-call timeout (mirrors streaming stale detector) ────────
     # Non-streaming calls return nothing until the full response is
@@ -398,7 +397,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     agent._anthropic_client.close()
                     agent._rebuild_anthropic_client()
                 else:
-                    _close_request_client_once("stale_call_kill")
+                    request_client_slot.close_once("stale_call_kill")
             except Exception:
                 pass
             agent._touch_activity(
@@ -422,7 +421,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     agent._anthropic_client.close()
                     agent._rebuild_anthropic_client()
                 else:
-                    _close_request_client_once("interrupt_abort")
+                    request_client_slot.close_once("interrupt_abort")
             except Exception:
                 pass
             raise InterruptedError("Agent interrupted during API call")
@@ -1251,25 +1250,7 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
             from agent.portal_tags import nous_portal_tags as _portal_tags
             summary_extra_body["tags"] = _portal_tags()
 
-        if agent.api_mode == "codex_responses":
-            codex_kwargs = agent._build_api_kwargs(api_messages)
-            codex_kwargs.pop("tools", None)
-            summary_response = agent._run_codex_stream(codex_kwargs)
-            _ct_sum = agent._get_transport()
-            _cnr_sum = _ct_sum.normalize_response(summary_response)
-            final_response = (_cnr_sum.content or "").strip()
-        else:
-            summary_kwargs = {
-                "model": agent.model,
-                "messages": api_messages,
-            }
-            if _summary_temperature is not None:
-                summary_kwargs["temperature"] = _summary_temperature
-            if agent.max_tokens is not None:
-                summary_kwargs.update(agent._max_tokens_param(agent.max_tokens))
-            if _lm_reasoning_effort is not None:
-                summary_kwargs["reasoning_effort"] = _lm_reasoning_effort
-
+        if agent.api_mode not in ("codex_responses", "anthropic_messages"):
             # Include provider routing preferences
             provider_preferences = {}
             if agent.providers_allowed:
@@ -1307,48 +1288,21 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                         {"id": "pareto-router", "min_coding_score": _ps}
                     ]
 
-            if summary_extra_body:
-                summary_kwargs["extra_body"] = summary_extra_body
-
-            if agent.api_mode == "anthropic_messages":
-                _tsum = agent._get_transport()
-                _ant_kw = _tsum.build_kwargs(model=agent.model, messages=api_messages, tools=None,
-                               max_tokens=agent.max_tokens, reasoning_config=agent.reasoning_config,
-                               is_oauth=agent._is_anthropic_oauth,
-                               preserve_dots=agent._anthropic_preserve_dots())
-                summary_response = agent._anthropic_messages_create(_ant_kw)
-                _summary_result = _tsum.normalize_response(summary_response, strip_tool_prefix=agent._is_anthropic_oauth)
-                final_response = (_summary_result.content or "").strip()
-            else:
-                summary_response = agent._ensure_primary_openai_client(reason="iteration_limit_summary").chat.completions.create(**summary_kwargs)
-                _summary_result = agent._get_transport().normalize_response(summary_response)
-                final_response = (_summary_result.content or "").strip()
-
-        if final_response:
-            if "<think>" in final_response:
-                final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
-            if final_response:
-                messages.append({"role": "assistant", "content": final_response})
-            else:
-                final_response = "I reached the iteration limit and couldn't generate a summary."
-        else:
-            # Retry summary generation
+        def _request_summary(reason: str) -> str:
+            transport = agent._get_transport()
             if agent.api_mode == "codex_responses":
                 codex_kwargs = agent._build_api_kwargs(api_messages)
                 codex_kwargs.pop("tools", None)
-                retry_response = agent._run_codex_stream(codex_kwargs)
-                _ct_retry = agent._get_transport()
-                _cnr_retry = _ct_retry.normalize_response(retry_response)
-                final_response = (_cnr_retry.content or "").strip()
+                result = transport.normalize_response(agent._run_codex_stream(codex_kwargs))
             elif agent.api_mode == "anthropic_messages":
-                _tretry = agent._get_transport()
-                _ant_kw2 = _tretry.build_kwargs(model=agent.model, messages=api_messages, tools=None,
-                                is_oauth=agent._is_anthropic_oauth,
-                                max_tokens=agent.max_tokens, reasoning_config=agent.reasoning_config,
-                                preserve_dots=agent._anthropic_preserve_dots())
-                retry_response = agent._anthropic_messages_create(_ant_kw2)
-                _retry_result = _tretry.normalize_response(retry_response, strip_tool_prefix=agent._is_anthropic_oauth)
-                final_response = (_retry_result.content or "").strip()
+                ant_kwargs = transport.build_kwargs(
+                    model=agent.model, messages=api_messages, tools=None,
+                    max_tokens=agent.max_tokens, reasoning_config=agent.reasoning_config,
+                    is_oauth=agent._is_anthropic_oauth,
+                    preserve_dots=agent._anthropic_preserve_dots())
+                result = transport.normalize_response(
+                    agent._anthropic_messages_create(ant_kwargs),
+                    strip_tool_prefix=agent._is_anthropic_oauth)
             else:
                 summary_kwargs = {
                     "model": agent.model,
@@ -1362,20 +1316,21 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                     summary_kwargs["reasoning_effort"] = _lm_reasoning_effort
                 if summary_extra_body:
                     summary_kwargs["extra_body"] = summary_extra_body
+                client = agent._ensure_primary_openai_client(reason=reason)
+                result = transport.normalize_response(client.chat.completions.create(**summary_kwargs))
+            return (result.content or "").strip()
 
-                summary_response = agent._ensure_primary_openai_client(reason="iteration_limit_summary_retry").chat.completions.create(**summary_kwargs)
-                _retry_result = agent._get_transport().normalize_response(summary_response)
-                final_response = (_retry_result.content or "").strip()
-
-            if final_response:
-                if "<think>" in final_response:
-                    final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
-                if final_response:
-                    messages.append({"role": "assistant", "content": final_response})
-                else:
-                    final_response = "I reached the iteration limit and couldn't generate a summary."
-            else:
-                final_response = "I reached the iteration limit and couldn't generate a summary."
+        # One retry when the first summary comes back empty.
+        final_response = (
+            _request_summary("iteration_limit_summary")
+            or _request_summary("iteration_limit_summary_retry")
+        )
+        if "<think>" in final_response:
+            final_response = re.sub(r'<think>.*?</think>\s*', '', final_response, flags=re.DOTALL).strip()
+        if final_response:
+            messages.append({"role": "assistant", "content": final_response})
+        else:
+            final_response = "I reached the iteration limit and couldn't generate a summary."
 
     except Exception as e:
         logger.warning(f"Failed to get summary response: {e}")
@@ -1529,45 +1484,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         return result["response"]
 
     result = {"response": None, "error": None, "partial_tool_names": []}
-    request_client_holder = {"client": None, "diag": None, "owner_tid": None}
-    request_client_lock = threading.Lock()
-
-    def _set_request_client(client):
-        with request_client_lock:
-            request_client_holder["client"] = client
-            # See #29507 explanation in the non-streaming variant above.
-            request_client_holder["owner_tid"] = threading.get_ident()
-        return client
-
-    def _take_request_client():
-        with request_client_lock:
-            client = request_client_holder.get("client")
-            request_client_holder["client"] = None
-            request_client_holder["owner_tid"] = None
-            return client
-
-    def _close_request_client_once(reason: str) -> None:
-        # See #29507 explanation in the non-streaming variant above. A
-        # stranger thread (the interrupt-check / stale-stream detector loop)
-        # only aborts sockets — never pops, never calls ``client.close()`` —
-        # so the worker thread retains ownership of the FD release.
-        with request_client_lock:
-            request_client = request_client_holder.get("client")
-            owner_tid = request_client_holder.get("owner_tid")
-            stranger_thread = (
-                request_client is not None
-                and owner_tid is not None
-                and owner_tid != threading.get_ident()
-            )
-            if not stranger_thread:
-                request_client_holder["client"] = None
-                request_client_holder["owner_tid"] = None
-        if request_client is None:
-            return
-        if stranger_thread:
-            agent._abort_request_openai_client(request_client, reason=reason)
-        else:
-            agent._close_request_openai_client(request_client, reason=reason)
+    request_client_slot = _RequestClientSlot(agent)
 
     first_delta_fired = {"done": False}
     deltas_were_sent = {"yes": False}  # Track if any deltas were fired (for fallback)
@@ -1625,7 +1542,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                 pool=_conn_cap,
             ),
         }
-        request_client = _set_request_client(
+        request_client = request_client_slot.set(
             agent._create_request_openai_client(
                 reason="chat_completion_stream_request",
                 api_kwargs=stream_kwargs,
@@ -1637,9 +1554,9 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         agent._touch_activity("waiting for provider response (streaming)")
         # Initialize per-attempt stream diagnostics so the retry block can
         # reach for them after the stream dies.  Lives on
-        # ``request_client_holder["diag"]`` for closure access.
+        # ``request_client_slot.diag`` for closure access.
         _diag = agent._stream_diag_init()
-        request_client_holder["diag"] = _diag
+        request_client_slot.diag = _diag
         stream = request_client.chat.completions.create(**stream_kwargs)
 
         # Capture rate limit headers from the initial HTTP response.
@@ -1889,7 +1806,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         _eager_tracker = _build_eager_tracker(agent)
         # Per-attempt diagnostic dict for the retry block to consume.
         _diag = agent._stream_diag_init()
-        request_client_holder["diag"] = _diag
+        request_client_slot.diag = _diag
         # Use the Anthropic SDK's streaming context manager
         with agent._anthropic_client.messages.stream(**api_kwargs) as stream:
             # The Anthropic SDK exposes the raw httpx response on
@@ -2086,9 +2003,9 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                             attempt=_stream_attempt + 2,
                             max_attempts=_max_stream_retries + 1,
                             mid_tool_call=True,
-                            diag=request_client_holder.get("diag"),
+                            diag=request_client_slot.diag,
                         )
-                        _close_request_client_once("stream_mid_tool_retry_cleanup")
+                        request_client_slot.close_once("stream_mid_tool_retry_cleanup")
                         try:
                             agent._replace_primary_openai_client(
                                 reason="stream_mid_tool_retry_pool_cleanup"
@@ -2136,10 +2053,10 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                                 attempt=_stream_attempt + 2,
                                 max_attempts=_max_stream_retries + 1,
                                 mid_tool_call=False,
-                                diag=request_client_holder.get("diag"),
+                                diag=request_client_slot.diag,
                             )
                             # Close the stale request client before retry
-                            _close_request_client_once("stream_retry_cleanup")
+                            request_client_slot.close_once("stream_retry_cleanup")
                             # Also rebuild the primary client to purge
                             # any dead connections from the pool.
                             try:
@@ -2161,7 +2078,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                             attempt=_max_stream_retries + 1,
                             max_attempts=_max_stream_retries + 1,
                             mid_tool_call=False,
-                            diag=request_client_holder.get("diag"),
+                            diag=request_client_slot.diag,
                         )
                         agent._emit_status(
                             "❌ Provider returned malformed streaming data after "
@@ -2207,7 +2124,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
             result["error"] = e
             return
         finally:
-            _close_request_client_once("stream_request_complete")
+            request_client_slot.close_once("stream_request_complete")
 
     # Provider-configured stale timeout takes priority over env default.
     _cfg_stale = get_provider_stale_timeout(agent.provider, agent.model)
@@ -2277,7 +2194,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                 f"Reconnecting..."
             )
             try:
-                _close_request_client_once("stale_stream_kill")
+                request_client_slot.close_once("stale_stream_kill")
             except Exception:
                 pass
             # Rebuild the primary client too — its connection pool
@@ -2299,7 +2216,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                     agent._anthropic_client.close()
                     agent._rebuild_anthropic_client()
                 else:
-                    _close_request_client_once("stream_interrupt_abort")
+                    request_client_slot.close_once("stream_interrupt_abort")
             except Exception:
                 pass
             raise InterruptedError("Agent interrupted during streaming API call")
