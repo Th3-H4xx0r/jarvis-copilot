@@ -932,18 +932,7 @@ class SessionStore:
             }
 
         # SQLite operations outside the lock
-        if self._db and db_end_session_id:
-            try:
-                self._db.end_session(db_end_session_id, "session_reset")
-            except Exception as e:
-                logger.debug("Session DB operation failed: %s", e)
-
-        if self._db and db_create_kwargs:
-            try:
-                self._db.create_session(**db_create_kwargs)
-            except Exception as e:
-                print(f"[gateway] Warning: Failed to create SQLite session: {e}")
-
+        self._record_reset_in_db(db_end_session_id, db_create_kwargs)
         return entry
 
     def update_session(
@@ -1157,19 +1146,23 @@ class SessionStore:
                 "user_id": old_entry.origin.user_id if old_entry.origin else None,
             }
 
-        if self._db and db_end_session_id:
-            try:
-                self._db.end_session(db_end_session_id, "session_reset")
-            except Exception as e:
-                logger.debug("Session DB operation failed: %s", e)
-
-        if self._db and db_create_kwargs:
-            try:
-                self._db.create_session(**db_create_kwargs)
-            except Exception as e:
-                logger.debug("Session DB operation failed: %s", e)
-
+        self._record_reset_in_db(db_end_session_id, db_create_kwargs)
         return new_entry
+
+    def _record_reset_in_db(self, end_session_id: Optional[str], create_kwargs: Optional[dict]) -> None:
+        """Mirror a session reset into SQLite: end the old session, create the new one."""
+        if not self._db:
+            return
+        if end_session_id:
+            try:
+                self._db.end_session(end_session_id, "session_reset")
+            except Exception as e:
+                logger.debug("Session DB operation failed: %s", e)
+        if create_kwargs:
+            try:
+                self._db.create_session(**create_kwargs)
+            except Exception as e:
+                logger.warning("Failed to create SQLite session: %s", e)
 
     def switch_session(self, session_key: str, target_session_id: str) -> Optional[SessionEntry]:
         """Switch a session key to point at an existing session ID.

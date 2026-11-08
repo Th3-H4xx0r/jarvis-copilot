@@ -121,20 +121,9 @@ def _coerce_command_list(raw: Any) -> FrozenSet[str]:
     or ``["/help", "/status"]``. Lowercase canonicalization matches how
     ``resolve_command()`` stores names.
     """
-    if raw is None:
-        return frozenset()
-    if isinstance(raw, (list, tuple, set, frozenset)):
-        items: Iterable[Any] = raw
-    elif isinstance(raw, str):
-        items = (s for s in raw.split(",") if s.strip())
-    else:
-        items = (raw,)
-    out: list[str] = []
-    for it in items:
-        s = str(it).strip().lstrip("/").lower()
-        if s:
-            out.append(s)
-    return frozenset(out)
+    return frozenset(
+        name for name in (s.lstrip("/").lower() for s in _coerce_id_list(raw)) if name
+    )
 
 
 def _scope_for_chat_type(chat_type: Optional[str]) -> str:
