@@ -1408,9 +1408,7 @@ class DiscordAdapter(BasePlatformAdapter):
                     return SendResult(success=False, error=f"Thread {thread_id} not found")
             else:
                 # Get the parent channel
-                channel = self._client.get_channel(int(chat_id))
-                if not channel:
-                    channel = await self._client.fetch_channel(int(chat_id))
+                channel = await self._get_or_fetch_channel(chat_id)
                 if not channel:
                     return SendResult(success=False, error=f"Channel {chat_id} not found")
 
@@ -1615,9 +1613,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if not self._client:
             return SendResult(success=False, error="Not connected")
         try:
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
+            channel = await self._get_or_fetch_channel(chat_id)
             msg = await channel.fetch_message(int(message_id))
             formatted = self.format_message(content)
             if len(formatted) > self.MAX_MESSAGE_LENGTH:
@@ -1643,9 +1639,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if not self._client:
             return SendResult(success=False, error="Not connected")
 
-        channel = self._client.get_channel(int(chat_id))
-        if not channel:
-            channel = await self._client.fetch_channel(int(chat_id))
+        channel = await self._get_or_fetch_channel(chat_id)
         if not channel:
             return SendResult(success=False, error=f"Channel {chat_id} not found")
 
@@ -1691,9 +1685,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return
 
         try:
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
+            channel = await self._get_or_fetch_channel(chat_id)
             if not channel:
                 logger.warning("[%s] Channel %s not found for multi-image send", self.name, chat_id)
                 return
@@ -1820,9 +1812,7 @@ class DiscordAdapter(BasePlatformAdapter):
         try:
             import io
 
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
+            channel = await self._get_or_fetch_channel(chat_id)
             if not channel:
                 return SendResult(success=False, error=f"Channel {chat_id} not found")
 
@@ -2527,6 +2517,52 @@ class DiscordAdapter(BasePlatformAdapter):
             logger.error("[%s] Failed to send local image, falling back to base adapter: %s", self.name, e, exc_info=True)
             return await super().send_image_file(chat_id, image_path, caption, reply_to, metadata=metadata)
 
+    async def _get_or_fetch_channel(self, chat_id):
+        """The cached channel for ``chat_id``, fetched from the API when not cached."""
+        channel = self._client.get_channel(int(chat_id))
+        if not channel:
+            channel = await self._client.fetch_channel(int(chat_id))
+        return channel
+
+    async def _send_url_as_attachment(self, chat_id, url: str, caption, kind: str, filename_for) -> Optional[SendResult]:
+        """Download ``url`` and post it to ``chat_id`` as a file attachment
+        (named by ``filename_for(content_type)``).  Returns None when the
+        caller should fall back to sending the URL as text."""
+        try:
+            import aiohttp
+        except ImportError:
+            logger.warning(
+                "[%s] aiohttp not installed, falling back to URL. Run: pip install aiohttp",
+                self.name,
+            )
+            return None
+        try:
+            channel = await self._get_or_fetch_channel(chat_id)
+            if not channel:
+                return SendResult(success=False, error=f"Channel {chat_id} not found")
+
+            from gateway.platforms.base import resolve_proxy_url, proxy_kwargs_for_aiohttp
+            _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(resolve_proxy_url(platform_env_var="DISCORD_PROXY"))
+            async with aiohttp.ClientSession(**_sess_kw) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30), **_req_kw) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"Failed to download {kind}: HTTP {resp.status}")
+                    data = await resp.read()
+                    content_type = resp.headers.get("content-type", "image/png")
+
+            import io
+            file = discord.File(io.BytesIO(data), filename=filename_for(content_type))
+            if self._is_forum_parent(channel):
+                return await self._forum_post_file(channel, content=(caption or "").strip(), file=file)
+            msg = await channel.send(content=caption if caption else None, file=file)
+            return SendResult(success=True, message_id=str(msg.id))
+        except Exception as e:  # pragma: no cover - defensive logging
+            logger.error(
+                "[%s] Failed to send %s attachment, falling back to URL: %s",
+                self.name, kind, e, exc_info=True,
+            )
+            return None
+
     async def send_image(
         self,
         chat_id: str,
@@ -2543,68 +2579,21 @@ class DiscordAdapter(BasePlatformAdapter):
             logger.warning("[%s] Blocked unsafe image URL during Discord send_image", self.name)
             return await super().send_image(chat_id, image_url, caption, reply_to, metadata=metadata)
 
-        try:
-            import aiohttp
+        def _image_filename(content_type: str) -> str:
+            ext = "png"
+            if "jpeg" in content_type or "jpg" in content_type:
+                ext = "jpg"
+            elif "gif" in content_type:
+                ext = "gif"
+            elif "webp" in content_type:
+                ext = "webp"
+            return f"image.{ext}"
 
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
-            if not channel:
-                return SendResult(success=False, error=f"Channel {chat_id} not found")
-
-            # Download the image and send as a Discord file attachment
-            # (Discord renders attachments inline, unlike plain URLs)
-            from gateway.platforms.base import resolve_proxy_url, proxy_kwargs_for_aiohttp
-            _proxy = resolve_proxy_url(platform_env_var="DISCORD_PROXY")
-            _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(_proxy)
-            async with aiohttp.ClientSession(**_sess_kw) as session:
-                async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=30), **_req_kw) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Failed to download image: HTTP {resp.status}")
-
-                    image_data = await resp.read()
-
-                    # Determine filename from URL or content type
-                    content_type = resp.headers.get("content-type", "image/png")
-                    ext = "png"
-                    if "jpeg" in content_type or "jpg" in content_type:
-                        ext = "jpg"
-                    elif "gif" in content_type:
-                        ext = "gif"
-                    elif "webp" in content_type:
-                        ext = "webp"
-
-                    import io
-                    file = discord.File(io.BytesIO(image_data), filename=f"image.{ext}")
-
-                    if self._is_forum_parent(channel):
-                        return await self._forum_post_file(
-                            channel,
-                            content=(caption or "").strip(),
-                            file=file,
-                        )
-
-                    msg = await channel.send(
-                        content=caption if caption else None,
-                        file=file,
-                    )
-                    return SendResult(success=True, message_id=str(msg.id))
-
-        except ImportError:
-            logger.warning(
-                "[%s] aiohttp not installed, falling back to URL. Run: pip install aiohttp",
-                self.name,
-                exc_info=True,
-            )
-            return await super().send_image(chat_id, image_url, caption, reply_to)
-        except Exception as e:  # pragma: no cover - defensive logging
-            logger.error(
-                "[%s] Failed to send image attachment, falling back to URL: %s",
-                self.name,
-                e,
-                exc_info=True,
-            )
-            return await super().send_image(chat_id, image_url, caption, reply_to)
+        # Discord renders attachments inline, unlike plain URLs.
+        result = await self._send_url_as_attachment(chat_id, image_url, caption, "image", _image_filename)
+        if result is None:
+            return await super().send_image(chat_id, image_url, caption, reply_to, metadata=metadata)
+        return result
 
     async def send_animation(
         self,
@@ -2622,58 +2611,13 @@ class DiscordAdapter(BasePlatformAdapter):
             logger.warning("[%s] Blocked unsafe animation URL during Discord send_animation", self.name)
             return await super().send_animation(chat_id, animation_url, caption, reply_to, metadata=metadata)
 
-        try:
-            import aiohttp
-
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
-            if not channel:
-                return SendResult(success=False, error=f"Channel {chat_id} not found")
-
-            # Download the GIF and send as a Discord file attachment
-            # (Discord renders .gif attachments as auto-playing animations inline)
-            from gateway.platforms.base import resolve_proxy_url, proxy_kwargs_for_aiohttp
-            _proxy = resolve_proxy_url(platform_env_var="DISCORD_PROXY")
-            _sess_kw, _req_kw = proxy_kwargs_for_aiohttp(_proxy)
-            async with aiohttp.ClientSession(**_sess_kw) as session:
-                async with session.get(animation_url, timeout=aiohttp.ClientTimeout(total=30), **_req_kw) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Failed to download animation: HTTP {resp.status}")
-
-                    animation_data = await resp.read()
-
-                    import io
-                    file = discord.File(io.BytesIO(animation_data), filename="animation.gif")
-
-                    if self._is_forum_parent(channel):
-                        return await self._forum_post_file(
-                            channel,
-                            content=(caption or "").strip(),
-                            file=file,
-                        )
-
-                    msg = await channel.send(
-                        content=caption if caption else None,
-                        file=file,
-                    )
-                    return SendResult(success=True, message_id=str(msg.id))
-
-        except ImportError:
-            logger.warning(
-                "[%s] aiohttp not installed, falling back to URL. Run: pip install aiohttp",
-                self.name,
-                exc_info=True,
-            )
+        # Discord renders .gif attachments as auto-playing animations inline.
+        result = await self._send_url_as_attachment(
+            chat_id, animation_url, caption, "animation", lambda _ct: "animation.gif",
+        )
+        if result is None:
             return await super().send_animation(chat_id, animation_url, caption, reply_to, metadata=metadata)
-        except Exception as e:  # pragma: no cover - defensive logging
-            logger.error(
-                "[%s] Failed to send animation attachment, falling back to URL: %s",
-                self.name,
-                e,
-                exc_info=True,
-            )
-            return await super().send_animation(chat_id, animation_url, caption, reply_to, metadata=metadata)
+        return result
 
     async def send_video(
         self,
@@ -2780,9 +2724,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return {"name": "Unknown", "type": "dm"}
 
         try:
-            channel = self._client.get_channel(int(chat_id))
-            if not channel:
-                channel = await self._client.fetch_channel(int(chat_id))
+            channel = await self._get_or_fetch_channel(chat_id)
 
             if not channel:
                 return {"name": str(chat_id), "type": "dm"}
