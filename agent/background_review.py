@@ -259,20 +259,14 @@ _RETROSPECTIVE_REVIEW_PROMPT = (
 
 
 
-def summarize_background_review_actions(
-    review_messages: List[Dict],
-    prior_snapshot: List[Dict],
-) -> List[str]:
-    """Build the human-facing action summary for a background review pass.
+def _new_tool_results(review_messages: List[Dict], prior_snapshot: List[Dict]):
+    """Yield the parsed JSON dict of each tool result the review pass produced.
 
-    Walks the review agent's session messages and collects "successful tool
-    action" descriptions to surface to the user (e.g. "Memory updated").
-    Tool messages already present in ``prior_snapshot`` are skipped so we
-    don't re-surface stale results from the prior conversation that the
-    review agent inherited via ``conversation_history`` (issue #14944).
-
-    Matching is by ``tool_call_id`` when available, with a content-equality
-    fallback for tool messages that lack one.
+    Tool messages already present in ``prior_snapshot`` are skipped: the
+    review agent inherits the prior conversation via ``conversation_history``
+    and must not re-surface its stale results (issue #14944). Matching is by
+    ``tool_call_id`` when available, with a content-equality fallback for
+    tool messages that lack one.
     """
     existing_tool_call_ids = set()
     existing_tool_contents = set()
@@ -282,42 +276,50 @@ def summarize_background_review_actions(
         tcid = prior.get("tool_call_id")
         if tcid:
             existing_tool_call_ids.add(tcid)
-        else:
-            content = prior.get("content")
-            if isinstance(content, str):
-                existing_tool_contents.add(content)
+        elif isinstance(prior.get("content"), str):
+            existing_tool_contents.add(prior["content"])
 
-    actions: List[str] = []
     for msg in review_messages or []:
         if not isinstance(msg, dict) or msg.get("role") != "tool":
             continue
         tcid = msg.get("tool_call_id")
         if tcid and tcid in existing_tool_call_ids:
             continue
-        if not tcid:
-            content_str = msg.get("content")
-            if isinstance(content_str, str) and content_str in existing_tool_contents:
-                continue
+        if not tcid and isinstance(msg.get("content"), str) and msg["content"] in existing_tool_contents:
+            continue
         try:
             data = json.loads(msg.get("content", "{}"))
         except (json.JSONDecodeError, TypeError):
             continue
-        if not isinstance(data, dict) or not data.get("success"):
+        if isinstance(data, dict):
+            yield data
+
+
+def summarize_background_review_actions(
+    review_messages: List[Dict],
+    prior_snapshot: List[Dict],
+) -> List[str]:
+    """Build the human-facing action summary for a background review pass.
+
+    Collects successful tool actions to surface to the user (e.g. "Memory
+    updated"), ignoring results inherited from the prior conversation.
+    """
+    actions: List[str] = []
+    for data in _new_tool_results(review_messages, prior_snapshot):
+        if not data.get("success"):
             continue
         message = data.get("message", "")
         target = data.get("target", "")
-        if "created" in message.lower():
+        lowered = message.lower()
+        if "created" in lowered or "updated" in lowered:
             actions.append(message)
-        elif "updated" in message.lower():
-            actions.append(message)
-        elif "added" in message.lower() or (target and "add" in message.lower()):
-            label = "Memory" if target == "memory" else "User profile" if target == "user" else target
-            actions.append(f"{label} updated")
-        elif "Entry added" in message:
-            label = "Memory" if target == "memory" else "User profile" if target == "user" else target
-            actions.append(f"{label} updated")
-        elif "removed" in message.lower() or "replaced" in message.lower():
-            label = "Memory" if target == "memory" else "User profile" if target == "user" else target
+        elif (
+            "added" in lowered
+            or (target and "add" in lowered)
+            or "removed" in lowered
+            or "replaced" in lowered
+        ):
+            label = {"memory": "Memory", "user": "User profile"}.get(target, target)
             actions.append(f"{label} updated")
     return actions
 
@@ -333,42 +335,13 @@ def summarize_background_review_failures(
     char-limit hit vanishes silently — it looks like "nothing happened" even
     though the agent tried to save something. We surface these to the
     self-improvement log so a botched self-evolution attempt is diagnosable
-    rather than invisible. Prior-snapshot tool messages are skipped (same
-    inherited-history guard as the success path, #14944).
+    rather than invisible.
     """
-    existing_tool_call_ids = set()
-    existing_tool_contents = set()
-    for prior in prior_snapshot or []:
-        if not isinstance(prior, dict) or prior.get("role") != "tool":
-            continue
-        tcid = prior.get("tool_call_id")
-        if tcid:
-            existing_tool_call_ids.add(tcid)
-        else:
-            content = prior.get("content")
-            if isinstance(content, str):
-                existing_tool_contents.add(content)
-
-    failures: List[str] = []
-    for msg in review_messages or []:
-        if not isinstance(msg, dict) or msg.get("role") != "tool":
-            continue
-        tcid = msg.get("tool_call_id")
-        if tcid and tcid in existing_tool_call_ids:
-            continue
-        if not tcid:
-            content_str = msg.get("content")
-            if isinstance(content_str, str) and content_str in existing_tool_contents:
-                continue
-        try:
-            data = json.loads(msg.get("content", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not isinstance(data, dict) or data.get("success") is not False:
-            continue
-        err = data.get("error") or data.get("message") or "unknown error"
-        failures.append(str(err).strip()[:200])
-    return failures
+    return [
+        str(data.get("error") or data.get("message") or "unknown error").strip()[:200]
+        for data in _new_tool_results(review_messages, prior_snapshot)
+        if data.get("success") is False
+    ]
 
 
 def build_memory_write_metadata(
