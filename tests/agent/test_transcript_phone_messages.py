@@ -1,6 +1,7 @@
 """Messages sent from the phone show in the chat; the newest text survives the cap."""
 import json
 
+from agent.agent_engine_shim import load_instruction_delivery
 from agent.coding_transcript_read import MAX_TEXT, parse_transcript_text
 
 
@@ -18,12 +19,14 @@ def STOP(uid, reason):
                        "message": {"role": "user", "content": "Stop hook feedback:\n" + reason}})
 
 
-PHONE = "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n"
+def PHONE_STOP(uid, text):
+    """The Stop-hook feedback exactly as jc-client's stop_reply writes it."""
+    return STOP(uid, load_instruction_delivery().stop_reply(text)["reason"])
 
 
 def test_a_phone_message_handed_at_stop_is_a_user_bubble():
     msgs = parse_transcript_text("\n".join([
-        U("u1", "deploy it"), A("a1", "Deployed."), STOP("s1", PHONE + "Hi"), A("a2", "Hi! It came through.")]))
+        U("u1", "deploy it"), A("a1", "Deployed."), PHONE_STOP("s1", "Hi"), A("a2", "Hi! It came through.")]))
     assert [(m["role"], m["text"]) for m in msgs] == [
         ("user", "deploy it"), ("assistant", "Deployed."), ("user", "Hi"),
         ("assistant", "Hi! It came through.")]

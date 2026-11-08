@@ -52,6 +52,11 @@ def load_hook_install():
     return _load_sibling("jarvis_hook_install", "hook_install.py")
 
 
+def load_instruction_delivery():
+    """jc-client's phone-message delivery: owns the Stop-hook PHONE_PREFIX."""
+    return _load_sibling("jarvis_instruction_delivery", "instruction_delivery.py")
+
+
 def load_arbiter():
     """jc-client's approval Arbiter class, for hooks running on this host."""
     return _load_sibling("jarvis_approval_arbiter", "approval_arbiter.py").Arbiter

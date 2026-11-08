@@ -20,6 +20,11 @@ from typing import Callable
 
 QUEUE_TTL = 2 * 3600.0
 
+# Wire contract: the server's transcript reader (agent/coding_transcript_read.py,
+# which loads this file by path) shows Stop-hook feedback starting with this as
+# the phone message it carries. Change it here only.
+PHONE_PREFIX = "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n"
+
 # iTerm2: find the session by its unique id and type the text. Both arrive as
 # arguments, so the text is data and never part of the script.
 _ITERM_SCRIPT = [
@@ -88,8 +93,7 @@ class InstructionQueue:
 
 def stop_reply(text: str) -> dict:
     """What the Stop hook answers so Claude continues with the message."""
-    return {"decision": "block",
-            "reason": "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n" + text}
+    return {"decision": "block", "reason": PHONE_PREFIX + text}
 
 
 def type_into(terminal: dict, text: str, *, pid=None, vscode=None,

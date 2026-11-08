@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from agent.agent_engine_shim import load_instruction_delivery
 from agent.transcript_mirror import claude_config_dir, encode_project_dir
 
 # Caps keep a huge session renderable + the API payload bounded.
@@ -86,7 +87,7 @@ def _clip_tail(s: str, n: int) -> str:
 # A message sent from the phone and handed to Claude at its Stop hook
 # (jc_client/instruction_delivery.stop_reply) is written as hook feedback.
 _STOP_FEEDBACK = "Stop hook feedback:\n"
-_PHONE_PREFIX = "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n"
+_PHONE_PREFIX = load_instruction_delivery().PHONE_PREFIX
 
 
 def _tool_summary(name: str, inp) -> str:
