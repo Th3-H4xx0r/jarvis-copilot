@@ -2283,12 +2283,8 @@ class GatewayRunner:
         file_path = os.getenv("HERMES_PREFILL_MESSAGES_FILE", "")
         if not file_path:
             try:
-                import yaml as _y
-                cfg_path = _hermes_home / "config.yaml"
-                if cfg_path.exists():
-                    with open(cfg_path, encoding="utf-8") as _f:
-                        cfg = _y.safe_load(_f) or {}
-                    file_path = cfg.get("prefill_messages_file", "")
+                cfg = _load_gateway_config()
+                file_path = cfg.get("prefill_messages_file", "")
             except Exception:
                 pass
         if not file_path:
@@ -2321,12 +2317,8 @@ class GatewayRunner:
         if prompt:
             return prompt
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                return (cfg_get(cfg, "agent", "system_prompt", default="") or "").strip()
+            cfg = _load_gateway_config()
+            return (cfg_get(cfg, "agent", "system_prompt", default="") or "").strip()
         except Exception:
             pass
         return ""
@@ -2342,12 +2334,8 @@ class GatewayRunner:
         from jarviscopilot_constants import parse_reasoning_effort
         effort = ""
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                effort = str(cfg_get(cfg, "agent", "reasoning_effort", default="") or "").strip()
+            cfg = _load_gateway_config()
+            effort = str(cfg_get(cfg, "agent", "reasoning_effort", default="") or "").strip()
         except Exception:
             pass
         result = parse_reasoning_effort(effort)
@@ -2425,12 +2413,8 @@ class GatewayRunner:
         """
         raw = ""
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                raw = str(cfg_get(cfg, "agent", "service_tier", default="") or "").strip()
+            cfg = _load_gateway_config()
+            raw = str(cfg_get(cfg, "agent", "service_tier", default="") or "").strip()
         except Exception:
             pass
 
@@ -2446,15 +2430,11 @@ class GatewayRunner:
     def _load_show_reasoning() -> bool:
         """Load show_reasoning toggle from config.yaml display section."""
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                return is_truthy_value(
-                    cfg_get(cfg, "display", "show_reasoning"),
-                    default=False,
-                )
+            cfg = _load_gateway_config()
+            return is_truthy_value(
+                cfg_get(cfg, "display", "show_reasoning"),
+                default=False,
+            )
         except Exception:
             pass
         return False
@@ -2465,12 +2445,8 @@ class GatewayRunner:
         mode = os.getenv("HERMES_GATEWAY_BUSY_INPUT_MODE", "").strip().lower()
         if not mode:
             try:
-                import yaml as _y
-                cfg_path = _hermes_home / "config.yaml"
-                if cfg_path.exists():
-                    with open(cfg_path, encoding="utf-8") as _f:
-                        cfg = _y.safe_load(_f) or {}
-                    mode = str(cfg_get(cfg, "display", "busy_input_mode", default="") or "").strip().lower()
+                cfg = _load_gateway_config()
+                mode = str(cfg_get(cfg, "display", "busy_input_mode", default="") or "").strip().lower()
             except Exception:
                 pass
         if mode == "queue":
@@ -2485,12 +2461,8 @@ class GatewayRunner:
         raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
         if not raw:
             try:
-                import yaml as _y
-                cfg_path = _hermes_home / "config.yaml"
-                if cfg_path.exists():
-                    with open(cfg_path, encoding="utf-8") as _f:
-                        cfg = _y.safe_load(_f) or {}
-                    raw = str(cfg_get(cfg, "agent", "restart_drain_timeout", default="") or "").strip()
+                cfg = _load_gateway_config()
+                raw = str(cfg_get(cfg, "agent", "restart_drain_timeout", default="") or "").strip()
             except Exception:
                 pass
         value = parse_restart_drain_timeout(raw)
@@ -2518,16 +2490,12 @@ class GatewayRunner:
         mode = os.getenv("HERMES_BACKGROUND_NOTIFICATIONS", "")
         if not mode:
             try:
-                import yaml as _y
-                cfg_path = _hermes_home / "config.yaml"
-                if cfg_path.exists():
-                    with open(cfg_path, encoding="utf-8") as _f:
-                        cfg = _y.safe_load(_f) or {}
-                    raw = cfg_get(cfg, "display", "background_process_notifications")
-                    if raw is False:
-                        mode = "off"
-                    elif raw not in {None, ""}:
-                        mode = str(raw)
+                cfg = _load_gateway_config()
+                raw = cfg_get(cfg, "display", "background_process_notifications")
+                if raw is False:
+                    mode = "off"
+                elif raw not in {None, ""}:
+                    mode = str(raw)
             except Exception:
                 pass
         mode = (mode or "all").strip().lower()
@@ -2544,12 +2512,8 @@ class GatewayRunner:
     def _load_provider_routing() -> dict:
         """Load OpenRouter provider routing preferences from config.yaml."""
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                return cfg.get("provider_routing", {}) or {}
+            cfg = _load_gateway_config()
+            return cfg.get("provider_routing", {}) or {}
         except Exception:
             pass
         return {}
@@ -2563,14 +2527,10 @@ class GatewayRunner:
         AIAgent.__init__ normalizes both formats into a chain.
         """
         try:
-            import yaml as _y
-            cfg_path = _hermes_home / "config.yaml"
-            if cfg_path.exists():
-                with open(cfg_path, encoding="utf-8") as _f:
-                    cfg = _y.safe_load(_f) or {}
-                fb = cfg.get("fallback_providers") or cfg.get("fallback_model") or None
-                if fb:
-                    return fb
+            cfg = _load_gateway_config()
+            fb = cfg.get("fallback_providers") or cfg.get("fallback_model") or None
+            if fb:
+                return fb
         except Exception:
             pass
         return None
@@ -10615,14 +10575,10 @@ class GatewayRunner:
         # Read checkpoint config from config.yaml
         cp_cfg = {}
         try:
-            import yaml as _y
-            _cfg_path = _hermes_home / "config.yaml"
-            if _cfg_path.exists():
-                with open(_cfg_path, encoding="utf-8") as _f:
-                    _data = _y.safe_load(_f) or {}
-                cp_cfg = _data.get("checkpoints", {})
-                if isinstance(cp_cfg, bool):
-                    cp_cfg = {"enabled": cp_cfg}
+            _data = _load_gateway_config()
+            cp_cfg = _data.get("checkpoints", {})
+            if isinstance(cp_cfg, bool):
+                cp_cfg = {"enabled": cp_cfg}
         except Exception:
             pass
 

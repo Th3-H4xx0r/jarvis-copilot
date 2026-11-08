@@ -4952,7 +4952,49 @@ def _define_discord_view_classes() -> None:
     """
     global ExecApprovalView, SlashConfirmView, UpdatePromptView, ModelPickerView, ClarifyChoiceView
 
-    class ExecApprovalView(discord.ui.View):
+    class _AuthorizedView(discord.ui.View):
+        """A single-use view only allowlisted users/roles may answer."""
+
+        def __init__(self, allowed_user_ids: set, allowed_role_ids: Optional[set] = None, *, timeout: float = 300):
+            super().__init__(timeout=timeout)
+            self.allowed_user_ids = allowed_user_ids
+            self.allowed_role_ids = allowed_role_ids or set()
+            self.resolved = False
+
+        def _check_auth(self, interaction: "discord.Interaction") -> bool:
+            """Verify the user clicking is authorized."""
+            return _component_check_auth(
+                interaction, self.allowed_user_ids, self.allowed_role_ids,
+            )
+
+        async def _claim(self, interaction: "discord.Interaction", already: str, denied: str) -> bool:
+            """Take the single answer for this view, or tell the clicker why not."""
+            if self.resolved:
+                await interaction.response.send_message(already, ephemeral=True)
+                return False
+            if not self._check_auth(interaction):
+                await interaction.response.send_message(denied, ephemeral=True)
+                return False
+            self.resolved = True
+            return True
+
+        async def _close(self, interaction: "discord.Interaction", color: "discord.Color", label: str) -> None:
+            """Stamp the decision on the embed and disable every button."""
+            embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if embed:
+                embed.color = color
+                embed.set_footer(text=f"{label} by {interaction.user.display_name}")
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(embed=embed, view=self)
+
+        async def on_timeout(self):
+            """Handle view timeout -- disable buttons and mark as expired."""
+            self.resolved = True
+            for child in self.children:
+                child.disabled = True
+
+    class ExecApprovalView(_AuthorizedView):
         """
         Interactive button view for exec approval of dangerous commands.
 
@@ -4968,48 +5010,21 @@ def _define_discord_view_classes() -> None:
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
         ):
-            super().__init__(timeout=300)  # 5-minute timeout
+            super().__init__(allowed_user_ids, allowed_role_ids)
             self.session_key = session_key
-            self.allowed_user_ids = allowed_user_ids
-            self.allowed_role_ids = allowed_role_ids or set()
-            self.resolved = False
-
-        def _check_auth(self, interaction: discord.Interaction) -> bool:
-            """Verify the user clicking is authorized."""
-            return _component_check_auth(
-                interaction, self.allowed_user_ids, self.allowed_role_ids,
-            )
 
         async def _resolve(
             self, interaction: discord.Interaction, choice: str,
             color: discord.Color, label: str,
         ):
             """Resolve the approval via the gateway approval queue and update the embed."""
-            if self.resolved:
-                await interaction.response.send_message(
-                    "This approval has already been resolved~", ephemeral=True
-                )
+            if not await self._claim(
+                interaction,
+                "This approval has already been resolved~",
+                "You're not authorized to approve commands~",
+            ):
                 return
-
-            if not self._check_auth(interaction):
-                await interaction.response.send_message(
-                    "You're not authorized to approve commands~", ephemeral=True
-                )
-                return
-
-            self.resolved = True
-
-            # Update the embed with the decision
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
-                embed.color = color
-                embed.set_footer(text=f"{label} by {interaction.user.display_name}")
-
-            # Disable all buttons
-            for child in self.children:
-                child.disabled = True
-
-            await interaction.response.edit_message(embed=embed, view=self)
+            await self._close(interaction, color, label)
 
             # Unblock the waiting agent thread via the gateway approval queue
             try:
@@ -5046,13 +5061,7 @@ def _define_discord_view_classes() -> None:
         ):
             await self._resolve(interaction, "deny", discord.Color.red(), "Denied")
 
-        async def on_timeout(self):
-            """Handle view timeout -- disable buttons and mark as expired."""
-            self.resolved = True
-            for child in self.children:
-                child.disabled = True
-
-    class SlashConfirmView(discord.ui.View):
+    class SlashConfirmView(_AuthorizedView):
         """Three-button view for generic slash-command confirmations.
 
         Used by ``/reload-mcp`` and any future slash command routed through
@@ -5077,44 +5086,21 @@ def _define_discord_view_classes() -> None:
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
         ):
-            super().__init__(timeout=300)
+            super().__init__(allowed_user_ids, allowed_role_ids)
             self.session_key = session_key
             self.confirm_id = confirm_id
-            self.allowed_user_ids = allowed_user_ids
-            self.allowed_role_ids = allowed_role_ids or set()
-            self.resolved = False
-
-        def _check_auth(self, interaction: discord.Interaction) -> bool:
-            return _component_check_auth(
-                interaction, self.allowed_user_ids, self.allowed_role_ids,
-            )
 
         async def _resolve(
             self, interaction: discord.Interaction, choice: str,
             color: discord.Color, label: str,
         ):
-            if self.resolved:
-                await interaction.response.send_message(
-                    "This prompt has already been resolved~", ephemeral=True,
-                )
+            if not await self._claim(
+                interaction,
+                "This prompt has already been resolved~",
+                "You're not authorized to answer this prompt~",
+            ):
                 return
-            if not self._check_auth(interaction):
-                await interaction.response.send_message(
-                    "You're not authorized to answer this prompt~", ephemeral=True,
-                )
-                return
-
-            self.resolved = True
-
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
-                embed.color = color
-                embed.set_footer(text=f"{label} by {interaction.user.display_name}")
-
-            for child in self.children:
-                child.disabled = True
-
-            await interaction.response.edit_message(embed=embed, view=self)
+            await self._close(interaction, color, label)
 
             # Resolve via the module-level primitive.  If the handler
             # returns a follow-up message, post it in the same channel.
@@ -5151,12 +5137,7 @@ def _define_discord_view_classes() -> None:
         ):
             await self._resolve(interaction, "cancel", discord.Color.greyple(), "Cancelled")
 
-        async def on_timeout(self):
-            self.resolved = True
-            for child in self.children:
-                child.disabled = True
-
-    class UpdatePromptView(discord.ui.View):
+    class UpdatePromptView(_AuthorizedView):
         """Interactive Yes/No buttons for ``jarviscopilot update`` prompts.
 
         Clicking a button writes the answer to ``.update_response`` so the
@@ -5171,43 +5152,16 @@ def _define_discord_view_classes() -> None:
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
         ):
-            super().__init__(timeout=300)
+            super().__init__(allowed_user_ids, allowed_role_ids)
             self.session_key = session_key
-            self.allowed_user_ids = allowed_user_ids
-            self.allowed_role_ids = allowed_role_ids or set()
-            self.resolved = False
-
-        def _check_auth(self, interaction: discord.Interaction) -> bool:
-            return _component_check_auth(
-                interaction, self.allowed_user_ids, self.allowed_role_ids,
-            )
 
         async def _respond(
             self, interaction: discord.Interaction, answer: str,
             color: discord.Color, label: str,
         ):
-            if self.resolved:
-                await interaction.response.send_message(
-                    "Already answered~", ephemeral=True
-                )
+            if not await self._claim(interaction, "Already answered~", "You're not authorized~"):
                 return
-            if not self._check_auth(interaction):
-                await interaction.response.send_message(
-                    "You're not authorized~", ephemeral=True
-                )
-                return
-
-            self.resolved = True
-
-            # Update embed
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
-                embed.color = color
-                embed.set_footer(text=f"{label} by {interaction.user.display_name}")
-
-            for child in self.children:
-                child.disabled = True
-            await interaction.response.edit_message(embed=embed, view=self)
+            await self._close(interaction, color, label)
 
             # Write response file
             try:
@@ -5236,12 +5190,7 @@ def _define_discord_view_classes() -> None:
         ):
             await self._respond(interaction, "n", discord.Color.red(), "No")
 
-        async def on_timeout(self):
-            self.resolved = True
-            for child in self.children:
-                child.disabled = True
-
-    class ModelPickerView(discord.ui.View):
+    class ModelPickerView(_AuthorizedView):
         """Interactive select-menu view for model switching.
 
         Two-step drill-down: provider dropdown → model dropdown.
@@ -5259,23 +5208,15 @@ def _define_discord_view_classes() -> None:
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
         ):
-            super().__init__(timeout=120)
+            super().__init__(allowed_user_ids, allowed_role_ids, timeout=120)
             self.providers = providers
             self.current_model = current_model
             self.current_provider = current_provider
             self.session_key = session_key
             self.on_model_selected = on_model_selected
-            self.allowed_user_ids = allowed_user_ids
-            self.allowed_role_ids = allowed_role_ids or set()
-            self.resolved = False
             self._selected_provider: str = ""
 
             self._build_provider_select()
-
-        def _check_auth(self, interaction: discord.Interaction) -> bool:
-            return _component_check_auth(
-                interaction, self.allowed_user_ids, self.allowed_role_ids,
-            )
 
         def _build_provider_select(self):
             """Build the provider dropdown menu."""
@@ -5467,7 +5408,7 @@ def _define_discord_view_classes() -> None:
             self.clear_items()
 
 
-    class ClarifyChoiceView(discord.ui.View):
+    class ClarifyChoiceView(_AuthorizedView):
         """Interactive button view for the clarify tool's multiple-choice prompts.
 
         Renders one button per choice (max 24) plus a final ``✏️ Other`` button.
@@ -5489,12 +5430,9 @@ def _define_discord_view_classes() -> None:
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
         ):
-            super().__init__(timeout=300)  # 5-minute timeout
+            super().__init__(allowed_user_ids, allowed_role_ids)
             self.choices = list(choices)[:24]
             self.clarify_id = clarify_id
-            self.allowed_user_ids = allowed_user_ids
-            self.allowed_role_ids = allowed_role_ids or set()
-            self.resolved = False
 
             for index, choice in enumerate(self.choices):
                 # Discord button labels are capped at 80 chars.
@@ -5514,11 +5452,6 @@ def _define_discord_view_classes() -> None:
             )
             other_btn.callback = self._on_other
             self.add_item(other_btn)
-
-        def _check_auth(self, interaction: "discord.Interaction") -> bool:
-            return _component_check_auth(
-                interaction, self.allowed_user_ids, self.allowed_role_ids,
-            )
 
         def _make_choice_callback(self, index: int, choice: str):
             async def _callback(interaction: "discord.Interaction"):
@@ -5646,10 +5579,7 @@ def _define_discord_view_classes() -> None:
                 except Exception:
                     pass
 
-        async def on_timeout(self):
-            self.resolved = True
-            for child in self.children:
-                child.disabled = True
+
 if DISCORD_AVAILABLE:
     _define_discord_view_classes()
 
