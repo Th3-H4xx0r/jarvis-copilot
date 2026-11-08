@@ -1254,6 +1254,102 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
         )
 
 
+_CONTAINER_ENV_TYPES = {"docker", "singularity", "modal", "daytona", "vercel_sandbox"}
+
+
+def _task_image_and_cwd(config: dict, task_id: str) -> tuple:
+    """The (image, cwd) for *task_id*: per-task overrides (set by RL envs
+    like TerminalBench2Env) win over the global config."""
+    env_type = config["env_type"]
+    overrides = _task_env_overrides.get(task_id, {})
+    image = ""
+    if env_type in ("docker", "singularity", "modal", "daytona"):
+        key = f"{env_type}_image"
+        image = overrides.get(key) or config[key]
+    return image, overrides.get("cwd") or config["cwd"]
+
+
+def get_or_create_env(task_id: str):
+    """Return the live environment for an already-resolved container
+    *task_id* (see ``_resolve_container_task_id``), creating it once.
+
+    terminal, the file tools and execute_code all share one environment per
+    task.  A per-task creation lock makes concurrent first calls wait for
+    the first creator instead of each building its own sandbox.  Raises
+    whatever ``_create_environment`` raises (ImportError for a missing
+    backend SDK).
+    """
+    with _env_lock:
+        env = _active_environments.get(task_id)
+        if env is not None:
+            _last_activity[task_id] = time.time()
+            return env
+
+    with _creation_locks_lock:
+        task_lock = _creation_locks.setdefault(task_id, threading.Lock())
+
+    with task_lock:
+        with _env_lock:
+            env = _active_environments.get(task_id)
+            if env is not None:
+                _last_activity[task_id] = time.time()
+                return env
+
+        config = _get_env_config()
+        env_type = config["env_type"]
+        image, cwd = _task_image_and_cwd(config, task_id)
+        if env_type == "singularity":
+            _check_disk_usage_warning()
+
+        container_config = None
+        if env_type in _CONTAINER_ENV_TYPES:
+            container_config = {
+                "container_cpu": config.get("container_cpu", 1),
+                "container_memory": config.get("container_memory", 5120),
+                "container_disk": config.get("container_disk", 51200),
+                "container_persistent": config.get("container_persistent", True),
+                "modal_mode": config.get("modal_mode", "auto"),
+                "vercel_runtime": config.get("vercel_runtime", ""),
+                "docker_volumes": config.get("docker_volumes", []),
+                "docker_mount_cwd_to_workspace": config.get("docker_mount_cwd_to_workspace", False),
+                "docker_forward_env": config.get("docker_forward_env", []),
+                "docker_env": config.get("docker_env", {}),
+                "docker_run_as_host_user": config.get("docker_run_as_host_user", False),
+                "docker_extra_args": config.get("docker_extra_args", []),
+            }
+        ssh_config = None
+        if env_type == "ssh":
+            ssh_config = {
+                "host": config.get("ssh_host", ""),
+                "user": config.get("ssh_user", ""),
+                "port": config.get("ssh_port", 22),
+                "key": config.get("ssh_key", ""),
+                "persistent": config.get("ssh_persistent", False),
+            }
+        local_config = None
+        if env_type == "local":
+            local_config = {"persistent": config.get("local_persistent", False)}
+
+        logger.info("Creating new %s environment for task %s...", env_type, task_id[:8])
+        env = _create_environment(
+            env_type=env_type,
+            image=image,
+            cwd=cwd,
+            timeout=config["timeout"],
+            ssh_config=ssh_config,
+            container_config=container_config,
+            local_config=local_config,
+            task_id=task_id,
+            host_cwd=config.get("host_cwd"),
+        )
+        with _env_lock:
+            _active_environments[task_id] = env
+            _last_activity[task_id] = time.time()
+        _start_cleanup_thread()
+        logger.info("%s environment ready for task %s", env_type, task_id[:8])
+        return env
+
+
 def _cleanup_inactive_envs(lifetime_seconds: int = 300):
     """Clean up environments that have been inactive for longer than lifetime_seconds."""
     current_time = time.time()
@@ -1720,23 +1816,7 @@ def terminal_tool(
         # a registered env override (RL benchmarks) get isolated sandboxes.
         effective_task_id = _resolve_container_task_id(task_id)
 
-        # Check per-task overrides (set by environments like TerminalBench2Env)
-        # before falling back to global env var config
-        overrides = _task_env_overrides.get(effective_task_id, {})
-        
-        # Select image based on env type, with per-task override support
-        if env_type == "docker":
-            image = overrides.get("docker_image") or config["docker_image"]
-        elif env_type == "singularity":
-            image = overrides.get("singularity_image") or config["singularity_image"]
-        elif env_type == "modal":
-            image = overrides.get("modal_image") or config["modal_image"]
-        elif env_type == "daytona":
-            image = overrides.get("daytona_image") or config["daytona_image"]
-        else:
-            image = ""
-
-        cwd = overrides.get("cwd") or config["cwd"]
+        _, cwd = _task_image_and_cwd(config, effective_task_id)
         default_timeout = config["timeout"]
         effective_timeout = timeout or default_timeout
 
@@ -1766,95 +1846,15 @@ def terminal_tool(
         # Start cleanup thread
         _start_cleanup_thread()
 
-        # Get or create environment.
-        # Use a per-task creation lock so concurrent tool calls for the same
-        # task_id wait for the first one to finish creating the sandbox,
-        # instead of each creating their own (wasting Modal resources).
-        with _env_lock:
-            if effective_task_id in _active_environments:
-                _last_activity[effective_task_id] = time.time()
-                env = _active_environments[effective_task_id]
-                needs_creation = False
-            else:
-                needs_creation = True
-
-        if needs_creation:
-            # Per-task lock: only one thread creates the sandbox, others wait
-            with _creation_locks_lock:
-                if effective_task_id not in _creation_locks:
-                    _creation_locks[effective_task_id] = threading.Lock()
-                task_lock = _creation_locks[effective_task_id]
-
-            with task_lock:
-                # Double-check after acquiring the per-task lock
-                with _env_lock:
-                    if effective_task_id in _active_environments:
-                        _last_activity[effective_task_id] = time.time()
-                        env = _active_environments[effective_task_id]
-                        needs_creation = False
-
-                if needs_creation:
-                    if env_type == "singularity":
-                        _check_disk_usage_warning()
-                    logger.info("Creating new %s environment for task %s...", env_type, effective_task_id[:8])
-                    try:
-                        ssh_config = None
-                        if env_type == "ssh":
-                            ssh_config = {
-                                "host": config.get("ssh_host", ""),
-                                "user": config.get("ssh_user", ""),
-                                "port": config.get("ssh_port", 22),
-                                "key": config.get("ssh_key", ""),
-                                "persistent": config.get("ssh_persistent", False),
-                            }
-
-                        container_config = None
-                        if env_type in {"docker", "singularity", "modal", "daytona", "vercel_sandbox"}:
-                            container_config = {
-                                "container_cpu": config.get("container_cpu", 1),
-                                "container_memory": config.get("container_memory", 5120),
-                                "container_disk": config.get("container_disk", 51200),
-                                "container_persistent": config.get("container_persistent", True),
-                                "modal_mode": config.get("modal_mode", "auto"),
-                                "vercel_runtime": config.get("vercel_runtime", ""),
-                                "docker_volumes": config.get("docker_volumes", []),
-                                "docker_mount_cwd_to_workspace": config.get("docker_mount_cwd_to_workspace", False),
-                                "docker_forward_env": config.get("docker_forward_env", []),
-                                "docker_env": config.get("docker_env", {}),
-                                "docker_run_as_host_user": config.get("docker_run_as_host_user", False),
-                                "docker_extra_args": config.get("docker_extra_args", []),
-                            }
-
-                        local_config = None
-                        if env_type == "local":
-                            local_config = {
-                                "persistent": config.get("local_persistent", False),
-                            }
-
-                        new_env = _create_environment(
-                            env_type=env_type,
-                            image=image,
-                            cwd=cwd,
-                            timeout=effective_timeout,
-                            ssh_config=ssh_config,
-                            container_config=container_config,
-                            local_config=local_config,
-                            task_id=effective_task_id,
-                            host_cwd=config.get("host_cwd"),
-                        )
-                    except ImportError as e:
-                        return json.dumps({
-                            "output": "",
-                            "exit_code": -1,
-                            "error": f"Terminal tool disabled: environment creation failed ({e})",
-                            "status": "disabled"
-                        }, ensure_ascii=False)
-
-                    with _env_lock:
-                        _active_environments[effective_task_id] = new_env
-                        _last_activity[effective_task_id] = time.time()
-                        env = new_env
-                    logger.info("%s environment ready for task %s", env_type, effective_task_id[:8])
+        try:
+            env = get_or_create_env(effective_task_id)
+        except ImportError as e:
+            return json.dumps({
+                "output": "",
+                "exit_code": -1,
+                "error": f"Terminal tool disabled: environment creation failed ({e})",
+                "status": "disabled"
+            }, ensure_ascii=False)
 
         # Pre-exec security checks (tirith + dangerous command detection)
         # Skip check if force=True (user has confirmed they want to run it)
