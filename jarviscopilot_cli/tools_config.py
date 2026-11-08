@@ -1864,44 +1864,34 @@ def _toolset_needs_configuration_prompt(ts_key: str, config: dict) -> bool:
     if ts_key == "image_gen":
         # Satisfied when the in-tree FAL backend is configured OR any
         # plugin-registered image gen provider is available.
-        if fal_key_is_configured():
-            return False
-        try:
-            from agent.image_gen_registry import list_providers
-            from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-            _ensure_plugins_discovered()
-            for provider in list_providers():
-                try:
-                    if provider.is_available():
-                        return False
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        return True
+        return not (fal_key_is_configured() or _any_plugin_provider_available("agent.image_gen_registry"))
     if ts_key == "video_gen":
-        # Satisfied when any plugin-registered video gen provider reports
-        # available — no in-tree fallback (every backend is a plugin).
-        try:
-            from agent.video_gen_registry import list_providers
-            from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-            _ensure_plugins_discovered()
-            for provider in list_providers():
-                try:
-                    if provider.is_available():
-                        return False
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        return True
+        # Every video gen backend is a plugin — no in-tree fallback.
+        return not _any_plugin_provider_available("agent.video_gen_registry")
 
     return not _toolset_has_keys(ts_key, config)
 
 
-def _configure_tool_category(ts_key: str, cat: dict, config: dict):
+def _any_plugin_provider_available(registry_module: str) -> bool:
+    """True when any provider in an image/video-gen plugin registry is usable."""
+    try:
+        import importlib
+        from jarviscopilot_cli.plugins import _ensure_plugins_discovered
+
+        _ensure_plugins_discovered()
+        providers = importlib.import_module(registry_module).list_providers()
+    except Exception:
+        return False
+    for provider in providers:
+        try:
+            if provider.is_available():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _configure_tool_category(ts_key: str, cat: dict, config: dict, *, reconfigure: bool = False):
     """Configure a tool category with provider selection."""
     icon = cat.get("icon", "")
     name = cat["name"]
@@ -1926,7 +1916,7 @@ def _configure_tool_category(ts_key: str, cat: dict, config: dict):
         # For single-provider tools, show a note if available
         if cat.get("setup_note"):
             _print_info(f"  {cat['setup_note']}")
-        _configure_provider(provider, config)
+        _configure_provider(provider, config, reconfigure=reconfigure)
     else:
         # Multiple providers - let user choose
         print()
@@ -1948,28 +1938,10 @@ def _configure_tool_category(ts_key: str, cat: dict, config: dict):
         except Exception:
             _nous_logged_in = False
 
-        provider_choices = []
-        for p in providers:
-            badge = f" [{p['badge']}]" if p.get("badge") else ""
-            tag = f" — {p['tag']}" if p.get("tag") else ""
-            configured = ""
-            env_vars = p.get("env_vars", [])
-            if not env_vars or all(get_env_value(v["key"]) for v in env_vars):
-                if _is_provider_active(p, config):
-                    configured = " [active]"
-                elif not env_vars:
-                    configured = ""
-                else:
-                    configured = " [configured]"
-            # Highlight Nous-managed entries when the user has Portal auth.
-            # curses_radiolist can't render ANSI inside item strings, so we
-            # use a plain unicode star + parenthetical phrase. Suppressed
-            # when no Portal auth is present so non-subscribers see the
-            # picker unchanged.
-            sub_marker = ""
-            if _nous_logged_in and p.get("managed_nous_feature"):
-                sub_marker = "  ★ Included with your Nous subscription"
-            provider_choices.append(f"{p['name']}{badge}{tag}{configured}{sub_marker}")
+        provider_choices = [
+            _provider_choice_label(p, config, nous_logged_in=_nous_logged_in)
+            for p in providers
+        ]
 
         # Add skip option
         provider_choices.append("Skip — keep defaults / configure later")
@@ -1984,7 +1956,28 @@ def _configure_tool_category(ts_key: str, cat: dict, config: dict):
             _print_info(f"  Skipped {name}")
             return
 
-        _configure_provider(providers[provider_idx], config)
+        _configure_provider(providers[provider_idx], config, reconfigure=reconfigure)
+
+
+def _provider_choice_label(p: dict, config: dict, *, nous_logged_in: bool = False) -> str:
+    """Plain-text picker row for a provider (curses_radiolist can't render ANSI).
+
+    Nous-managed rows get a star when the user has Portal auth, so it's
+    obvious which options cost nothing on top of the subscription.
+    """
+    badge = f" [{p['badge']}]" if p.get("badge") else ""
+    tag = f" — {p['tag']}" if p.get("tag") else ""
+    configured = ""
+    env_vars = p.get("env_vars", [])
+    if not env_vars or all(get_env_value(v["key"]) for v in env_vars):
+        if _is_provider_active(p, config):
+            configured = " [active]"
+        elif env_vars:
+            configured = " [configured]"
+    sub_marker = ""
+    if nous_logged_in and p.get("managed_nous_feature"):
+        sub_marker = "  ★ Included with your Nous subscription"
+    return f"{p['name']}{badge}{tag}{configured}{sub_marker}"
 
 
 def _is_provider_active(provider: dict, config: dict) -> bool:
@@ -2354,8 +2347,12 @@ def _select_plugin_video_gen_provider(plugin_name: str, config: dict) -> None:
     _configure_videogen_model_for_plugin(plugin_name, config)
 
 
-def _configure_provider(provider: dict, config: dict):
-    """Configure a single provider - prompt for API keys and set config."""
+def _configure_provider(provider: dict, config: dict, *, reconfigure: bool = False):
+    """Apply a provider pick: write its config keys, then prompt for its API keys.
+
+    ``reconfigure`` (the "reconfigure a tool" menu) offers to replace every
+    key, configured or not; the first-time flow only asks for missing ones.
+    """
     env_vars = provider.get("env_vars", [])
     managed_feature = provider.get("managed_nous_feature")
 
@@ -2365,13 +2362,12 @@ def _configure_provider(provider: dict, config: dict):
             _print_warning("  Nous Subscription is only available after logging into Nous Portal.")
             return
 
-    # Set TTS provider in config if applicable
     if provider.get("tts_provider"):
         tts_cfg = config.setdefault("tts", {})
         tts_cfg["provider"] = provider["tts_provider"]
         tts_cfg["use_gateway"] = bool(managed_feature)
+        _print_success(f"  TTS provider set to: {provider['tts_provider']}")
 
-    # Set browser cloud provider in config if applicable
     if "browser_provider" in provider:
         bp = provider["browser_provider"]
         browser_cfg = config.setdefault("browser", {})
@@ -2383,20 +2379,22 @@ def _configure_provider(provider: dict, config: dict):
             _print_success(f"  Browser cloud provider set to: {bp}")
         browser_cfg["use_gateway"] = bool(managed_feature)
 
-    # Set web search backend in config if applicable
     if provider.get("web_backend"):
         web_cfg = config.setdefault("web", {})
         web_cfg["backend"] = provider["web_backend"]
         web_cfg["use_gateway"] = bool(managed_feature)
         _print_success(f"  Web backend set to: {provider['web_backend']}")
 
-    # For tools without a specific config key (e.g. image_gen), still
+    # Tools without a provider key of their own (e.g. image_gen) still
     # track use_gateway so the runtime knows the user's intent.
     if managed_feature and managed_feature not in {"web", "tts", "browser"}:
-        config.setdefault(managed_feature, {})["use_gateway"] = True
+        section = config.setdefault(managed_feature, {})
+        if not isinstance(section, dict):
+            section = {}
+            config[managed_feature] = section
+        section["use_gateway"] = True
     elif not managed_feature:
-        # User picked a non-gateway provider — find which category this
-        # belongs to and clear use_gateway if it was previously set.
+        # A non-gateway pick clears a use_gateway left by an earlier one.
         for cat_key, cat in TOOL_CATEGORIES.items():
             if provider in cat.get("providers", []):
                 section = config.get(cat_key)
@@ -2410,101 +2408,93 @@ def _configure_provider(provider: dict, config: dict):
         _print_success(f"  {provider['name']} - no configuration needed!")
         if managed_feature:
             _print_info("  Requests for this tool will be billed to your Nous subscription.")
-        # Plugin-registered image_gen provider: write image_gen.provider
-        # and route model selection to the plugin's own catalog.
-        plugin_name = provider.get("image_gen_plugin_name")
-        if plugin_name:
-            _select_plugin_image_gen_provider(plugin_name, config)
-            return
-        # Plugin-registered video_gen provider — same flow, different
-        # registry.
-        video_plugin = provider.get("video_gen_plugin_name")
-        if video_plugin:
-            _select_plugin_video_gen_provider(video_plugin, config)
-            return
-        # Imagegen backends prompt for model selection after backend pick.
-        backend = provider.get("imagegen_backend")
-        if backend:
-            _configure_imagegen_model(backend, config)
-            # In-tree FAL is the only non-plugin backend today. Keep
-            # image_gen.provider clear so the dispatch shim falls through
-            # to the legacy FAL path.
-            img_cfg = config.setdefault("image_gen", {})
-            if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
-                img_cfg["provider"] = "fal"
+        _select_provider_model(provider, config)
         return
 
-    # Prompt for each required env var
-    all_configured = True
-    # If this BYOK provider lives in a category that ALSO has a
-    # Nous-managed sibling, show a single dim hint so users know
-    # they can avoid the key entirely via a Portal subscription.
-    # Suppressed when the user is already authed to Nous.
-    _show_portal_hint = False
-    if env_vars and not managed_feature and not provider.get("requires_nous_auth"):
-        try:
-            _has_managed_sibling = False
-            for _cat_key, _cat in TOOL_CATEGORIES.items():
-                _providers = _cat.get("providers", [])
-                if provider in _providers and any(
-                    sib.get("managed_nous_feature") for sib in _providers
-                ):
-                    _has_managed_sibling = True
-                    break
-            if _has_managed_sibling:
-                _features = get_nous_subscription_features(config)
-                _show_portal_hint = not _features.nous_auth_present
-        except Exception:
-            _show_portal_hint = False
-
-    if _show_portal_hint:
-        _print_info("  Available through Nous Portal subscription.")
-
-    for var in env_vars:
-        existing = get_env_value(var["key"])
-        if existing:
-            _print_success(f"  {var['key']}: already configured")
-            # Don't ask to update - this is a new enable flow.
-            # Reconfigure is handled separately.
-        else:
+    if reconfigure:
+        for var in env_vars:
+            existing = get_env_value(var["key"])
+            if existing:
+                _print_info(f"  {var['key']}: configured ({existing[:8]}...)")
             url = var.get("url", "")
             if url:
                 _print_info(f"  Get yours at: {url}")
-
             default_val = var.get("default", "")
-            if default_val:
-                value = _prompt(f"    {var.get('prompt', var['key'])}", default_val)
+            value = _prompt(f"    {var.get('prompt', var['key'])} (Enter to keep current)", password=not default_val)
+            if value and value.strip():
+                save_env_value(var["key"], value.strip())
+                _print_success("    Updated")
             else:
-                value = _prompt(f"    {var.get('prompt', var['key'])}", password=True)
+                _print_info("    Kept current")
+        if provider.get("post_setup"):
+            _run_post_setup(provider["post_setup"])
+        _select_provider_model(provider, config)
+        return
 
-            if value:
-                save_env_value(var["key"], value)
-                _print_success("    Saved")
-            else:
-                _print_warning("    Skipped")
-                all_configured = False
+    # A BYOK provider whose category also has a Nous-managed sibling gets a
+    # hint that a Portal subscription avoids the key (unless already authed).
+    if not managed_feature and not provider.get("requires_nous_auth"):
+        try:
+            has_managed_sibling = any(
+                provider in cat.get("providers", [])
+                and any(sib.get("managed_nous_feature") for sib in cat.get("providers", []))
+                for cat in TOOL_CATEGORIES.values()
+            )
+            if has_managed_sibling and not get_nous_subscription_features(config).nous_auth_present:
+                _print_info("  Available through Nous Portal subscription.")
+        except Exception:
+            pass
 
-    # Run post-setup hooks if needed
-    if provider.get("post_setup") and all_configured:
-        _run_post_setup(provider["post_setup"])
+    all_configured = True
+    for var in env_vars:
+        if get_env_value(var["key"]):
+            # Changing an existing key is the reconfigure menu's job.
+            _print_success(f"  {var['key']}: already configured")
+            continue
+        url = var.get("url", "")
+        if url:
+            _print_info(f"  Get yours at: {url}")
+        default_val = var.get("default", "")
+        if default_val:
+            value = _prompt(f"    {var.get('prompt', var['key'])}", default_val)
+        else:
+            value = _prompt(f"    {var.get('prompt', var['key'])}", password=True)
+        if value:
+            save_env_value(var["key"], value)
+            _print_success("    Saved")
+        else:
+            _print_warning("    Skipped")
+            all_configured = False
 
     if all_configured:
+        if provider.get("post_setup"):
+            _run_post_setup(provider["post_setup"])
         _print_success(f"  {provider['name']} configured!")
-        plugin_name = provider.get("image_gen_plugin_name")
-        if plugin_name:
-            _select_plugin_image_gen_provider(plugin_name, config)
-            return
-        video_plugin = provider.get("video_gen_plugin_name")
-        if video_plugin:
-            _select_plugin_video_gen_provider(video_plugin, config)
-            return
-        # Imagegen backends prompt for model selection after env vars are in.
-        backend = provider.get("imagegen_backend")
-        if backend:
-            _configure_imagegen_model(backend, config)
-            img_cfg = config.setdefault("image_gen", {})
-            if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
-                img_cfg["provider"] = "fal"
+        _select_provider_model(provider, config)
+
+
+def _select_provider_model(provider: dict, config: dict) -> None:
+    """After a provider pick, route to its model picker.
+
+    Plugin image/video providers persist their own ``provider`` key; the
+    in-tree FAL backend (the managed Nous row) pins ``image_gen.provider``
+    to ``fal`` so the dispatch shim takes the FAL path.
+    """
+    plugin_name = provider.get("image_gen_plugin_name")
+    if plugin_name:
+        _select_plugin_image_gen_provider(plugin_name, config)
+        return
+    video_plugin = provider.get("video_gen_plugin_name")
+    if video_plugin:
+        _select_plugin_video_gen_provider(video_plugin, config)
+        return
+    backend = provider.get("imagegen_backend")
+    if backend:
+        _configure_imagegen_model(backend, config)
+        img_cfg = config.setdefault("image_gen", {})
+        if isinstance(img_cfg, dict):
+            img_cfg["provider"] = "fal"
+            img_cfg["use_gateway"] = bool(provider.get("managed_nous_feature"))
 
 
 def _configure_simple_requirements(ts_key: str):
@@ -2597,7 +2587,7 @@ def _reconfigure_tool(config: dict):
     cat = TOOL_CATEGORIES.get(ts_key)
 
     if cat:
-        _configure_tool_category_for_reconfig(ts_key, cat, config)
+        _configure_tool_category(ts_key, cat, config, reconfigure=True)
     else:
         _reconfigure_simple_requirements(ts_key)
 
@@ -2624,158 +2614,6 @@ def _toolset_enabled_for_reconfigure(ts_key: str, config: dict) -> bool:
         if ts_key in enabled:
             return True
     return False
-
-
-def _configure_tool_category_for_reconfig(ts_key: str, cat: dict, config: dict):
-    """Reconfigure a tool category - provider selection + API key update."""
-    icon = cat.get("icon", "")
-    name = cat["name"]
-    providers = _visible_providers(cat, config)
-
-    if len(providers) == 1:
-        provider = providers[0]
-        print()
-        print(color(f"  --- {icon} {name} ({provider['name']}) ---", Colors.CYAN))
-        _reconfigure_provider(provider, config)
-    else:
-        print()
-        print(color(f"  --- {icon} {name} - Choose a provider ---", Colors.CYAN))
-        print()
-
-        provider_choices = []
-        for p in providers:
-            badge = f" [{p['badge']}]" if p.get("badge") else ""
-            tag = f" — {p['tag']}" if p.get("tag") else ""
-            configured = ""
-            env_vars = p.get("env_vars", [])
-            if not env_vars or all(get_env_value(v["key"]) for v in env_vars):
-                if _is_provider_active(p, config):
-                    configured = " [active]"
-                elif not env_vars:
-                    configured = ""
-                else:
-                    configured = " [configured]"
-            provider_choices.append(f"{p['name']}{badge}{tag}{configured}")
-
-        default_idx = _detect_active_provider_index(providers, config)
-
-        provider_idx = _prompt_choice("  Select provider:", provider_choices, default_idx)
-        _reconfigure_provider(providers[provider_idx], config)
-
-
-def _reconfigure_provider(provider: dict, config: dict):
-    """Reconfigure a provider - update API keys."""
-    env_vars = provider.get("env_vars", [])
-    managed_feature = provider.get("managed_nous_feature")
-
-    if provider.get("requires_nous_auth"):
-        features = get_nous_subscription_features(config)
-        if not features.nous_auth_present:
-            _print_warning("  Nous Subscription is only available after logging into Nous Portal.")
-            return
-
-    if provider.get("tts_provider"):
-        tts_cfg = config.setdefault("tts", {})
-        tts_cfg["provider"] = provider["tts_provider"]
-        tts_cfg["use_gateway"] = bool(managed_feature)
-        _print_success(f"  TTS provider set to: {provider['tts_provider']}")
-
-    if "browser_provider" in provider:
-        bp = provider["browser_provider"]
-        browser_cfg = config.setdefault("browser", {})
-        if bp == "local":
-            browser_cfg["cloud_provider"] = "local"
-            _print_success("  Browser set to local mode")
-        elif bp:
-            browser_cfg["cloud_provider"] = bp
-            _print_success(f"  Browser cloud provider set to: {bp}")
-        browser_cfg["use_gateway"] = bool(managed_feature)
-
-    # Set web search backend in config if applicable
-    if provider.get("web_backend"):
-        web_cfg = config.setdefault("web", {})
-        web_cfg["backend"] = provider["web_backend"]
-        web_cfg["use_gateway"] = bool(managed_feature)
-        _print_success(f"  Web backend set to: {provider['web_backend']}")
-
-    if managed_feature and managed_feature not in {"web", "tts", "browser"}:
-        section = config.setdefault(managed_feature, {})
-        if not isinstance(section, dict):
-            section = {}
-            config[managed_feature] = section
-        section["use_gateway"] = True
-    elif not managed_feature:
-        for cat_key, cat in TOOL_CATEGORIES.items():
-            if provider in cat.get("providers", []):
-                section = config.get(cat_key)
-                if isinstance(section, dict) and section.get("use_gateway"):
-                    section["use_gateway"] = False
-                break
-
-    if not env_vars:
-        if provider.get("post_setup"):
-            _run_post_setup(provider["post_setup"])
-        _print_success(f"  {provider['name']} - no configuration needed!")
-        if managed_feature:
-            _print_info("  Requests for this tool will be billed to your Nous subscription.")
-        plugin_name = provider.get("image_gen_plugin_name")
-        if plugin_name:
-            _select_plugin_image_gen_provider(plugin_name, config)
-            return
-        # Plugin-registered video_gen provider — same flow, different registry.
-        video_plugin = provider.get("video_gen_plugin_name")
-        if video_plugin:
-            _select_plugin_video_gen_provider(video_plugin, config)
-            return
-        # Imagegen backends prompt for model selection on reconfig too.
-        backend = provider.get("imagegen_backend")
-        if backend:
-            _configure_imagegen_model(backend, config)
-            if backend == "fal":
-                img_cfg = config.setdefault("image_gen", {})
-                if isinstance(img_cfg, dict):
-                    img_cfg["provider"] = "fal"
-                    img_cfg["use_gateway"] = False
-        return
-
-    for var in env_vars:
-        existing = get_env_value(var["key"])
-        if existing:
-            _print_info(f"  {var['key']}: configured ({existing[:8]}...)")
-        url = var.get("url", "")
-        if url:
-            _print_info(f"  Get yours at: {url}")
-        default_val = var.get("default", "")
-        value = _prompt(f"    {var.get('prompt', var['key'])} (Enter to keep current)", password=not default_val)
-        if value and value.strip():
-            save_env_value(var["key"], value.strip())
-            _print_success("    Updated")
-        else:
-            _print_info("    Kept current")
-
-    if provider.get("post_setup"):
-        _run_post_setup(provider["post_setup"])
-
-    # Imagegen backends prompt for model selection on reconfig too.
-    plugin_name = provider.get("image_gen_plugin_name")
-    if plugin_name:
-        _select_plugin_image_gen_provider(plugin_name, config)
-        return
-
-    # Plugin-registered video_gen provider — same flow, different registry.
-    video_plugin = provider.get("video_gen_plugin_name")
-    if video_plugin:
-        _select_plugin_video_gen_provider(video_plugin, config)
-        return
-
-    backend = provider.get("imagegen_backend")
-    if backend:
-        _configure_imagegen_model(backend, config)
-        if backend == "fal":
-            img_cfg = config.setdefault("image_gen", {})
-            if isinstance(img_cfg, dict):
-                img_cfg["provider"] = "fal"
-                img_cfg["use_gateway"] = False
 
 
 def _reconfigure_simple_requirements(ts_key: str):

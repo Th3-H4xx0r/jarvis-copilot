@@ -72,7 +72,7 @@ def _reset_registry():
 class TestReconfigureWritesProvider:
     """Regression tests for the video_gen reconfigure path.
 
-    Before the fix, _reconfigure_provider() handled image_gen_plugin_name
+    Before the fix, the reconfigure path handled image_gen_plugin_name
     in both the no-env-vars branch and the post-env-vars branch but
     missed video_gen_plugin_name in both. Picking xAI via Reconfigure
     tool → Video Generation silently no-op'd: the env var was already
@@ -109,7 +109,7 @@ class TestReconfigureWritesProvider:
             "video_gen_plugin_name": "xai_fake",
         }
 
-        tools_config._reconfigure_provider(provider_row, config)
+        tools_config._configure_provider(provider_row, config, reconfigure=True)
 
         assert config["video_gen"]["provider"] == "xai_fake"
         assert config["video_gen"]["model"] == "xai_fake-video-v1"
@@ -141,7 +141,7 @@ class TestReconfigureWritesProvider:
             "video_gen_plugin_name": "noenv_video",
         }
 
-        tools_config._reconfigure_provider(provider_row, config)
+        tools_config._configure_provider(provider_row, config, reconfigure=True)
 
         assert config["video_gen"]["provider"] == "noenv_video"
         assert config["video_gen"]["model"] == "noenv_video-video-v1"

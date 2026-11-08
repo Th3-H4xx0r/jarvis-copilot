@@ -225,7 +225,7 @@ class TestConfigWriting:
             "image_gen_plugin_name": "testopenai",
         }
 
-        tools_config._reconfigure_provider(provider_row, config)
+        tools_config._configure_provider(provider_row, config, reconfigure=True)
 
         assert config["image_gen"]["provider"] == "testopenai"
         assert config["image_gen"]["model"] == "testopenai-model-v1"
@@ -273,7 +273,33 @@ class TestConfigWriting:
             "imagegen_backend": "fal",
         }
 
-        tools_config._reconfigure_provider(provider_row, config)
+        tools_config._configure_provider(provider_row, config, reconfigure=True)
 
         assert config["image_gen"]["provider"] == "fal"
         assert config["image_gen"]["use_gateway"] is False
+
+    def test_reconfiguring_managed_fal_keeps_gateway_on(self, monkeypatch):
+        """Reconfiguring the Nous-managed FAL row must leave it routed through
+        the gateway (and so still shown as the active provider)."""
+        from jarviscopilot_cli import tools_config
+
+        monkeypatch.setattr(tools_config, "_configure_imagegen_model", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            tools_config,
+            "get_nous_subscription_features",
+            lambda config: SimpleNamespace(
+                nous_auth_present=True,
+                features={"image_gen": SimpleNamespace(managed_by_nous=True)},
+            ),
+        )
+        provider_row = next(
+            p for p in tools_config.TOOL_CATEGORIES["image_gen"]["providers"]
+            if p.get("managed_nous_feature") == "image_gen"
+        )
+        config = {"image_gen": {"provider": "openai", "use_gateway": False}}
+
+        tools_config._configure_provider(provider_row, config, reconfigure=True)
+
+        assert config["image_gen"]["provider"] == "fal"
+        assert config["image_gen"]["use_gateway"] is True
+        assert tools_config._is_provider_active(provider_row, config) is True

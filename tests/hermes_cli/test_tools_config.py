@@ -8,7 +8,6 @@ from jarviscopilot_cli.tools_config import (
     _DEFAULT_OFF_TOOLSETS,
     _apply_toolset_change,
     _configure_provider,
-    _reconfigure_provider,
     _get_platform_tools,
     _platform_toolset_summary,
     _reconfigure_tool,
@@ -610,8 +609,8 @@ def test_reconfigure_lists_enabled_web_without_existing_provider_config(monkeypa
 
     monkeypatch.setattr("jarviscopilot_cli.tools_config._prompt_choice", fake_prompt_choice)
     monkeypatch.setattr(
-        "jarviscopilot_cli.tools_config._configure_tool_category_for_reconfig",
-        lambda ts_key, cat, config: configured.append(ts_key),
+        "jarviscopilot_cli.tools_config._configure_tool_category",
+        lambda ts_key, cat, config, reconfigure=False: configured.append(ts_key),
     )
     monkeypatch.setattr("jarviscopilot_cli.tools_config.save_config", lambda config: None)
 
@@ -1108,7 +1107,7 @@ def test_get_effective_configurable_toolsets_dedupes_bundled_plugins():
 ])
 def test_reconfigure_provider_syncs_use_gateway(provider, config_key, expected):
     config = {}
-    _reconfigure_provider(provider, config)
+    _configure_provider(provider, config, reconfigure=True)
     assert config[config_key]["use_gateway"] is expected
 
 
@@ -1116,7 +1115,7 @@ def test_reconfigure_browser_provider_overwrites_stale_use_gateway():
     # Switching from managed (use_gateway=True) to self-hosted must clear the stale flag.
     config = {"browser": {"cloud_provider": "managed-browser", "use_gateway": True}}
     provider = {"name": "Browserbase", "browser_provider": "browserbase", "env_vars": []}
-    _reconfigure_provider(provider, config)
+    _configure_provider(provider, config, reconfigure=True)
     assert config["browser"]["use_gateway"] is False
 
 
@@ -1126,8 +1125,8 @@ def test_reconfigure_browser_provider_overwrites_stale_use_gateway():
 def test_reconfigure_provider_runs_post_setup_for_env_var_providers(
     monkeypatch, provider_name, post_setup_key
 ):
-    """_reconfigure_provider() must call _run_post_setup() for providers that have
-    both env_vars and post_setup — parity with _configure_provider() line 2286."""
+    """Reconfiguring must call _run_post_setup() for providers that have
+    both env_vars and post_setup."""
     called = []
     monkeypatch.setattr("jarviscopilot_cli.tools_config._run_post_setup", lambda key: called.append(key))
     monkeypatch.setattr("jarviscopilot_cli.tools_config.get_env_value", lambda k: None)
@@ -1139,6 +1138,6 @@ def test_reconfigure_provider_runs_post_setup_for_env_var_providers(
         for p in TOOL_CATEGORIES["browser"]["providers"]
         if p["name"] == provider_name
     )
-    _reconfigure_provider(provider, {})
+    _configure_provider(provider, {}, reconfigure=True)
 
     assert called == [post_setup_key]
