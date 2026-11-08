@@ -357,12 +357,7 @@ enum BandHandModel {
 
             for light in RingHandModel.lights() { scene.rootNode.addChildNode(light) }
 
-            let lens = SCNCamera()
-            lens.fieldOfView = 40
-            lens.projectionDirection = .horizontal
-            lens.zNear = 0.5
-            lens.zFar = 200
-            camera.camera = lens
+            camera.camera = RingHandModel.lens()
             camera.simdPosition = root.simdConvertPosition(lookAt, to: nil) + SIMD3(0, 0, distance)
             scene.rootNode.addChildNode(camera)
             place(0)

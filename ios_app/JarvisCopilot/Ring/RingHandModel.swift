@@ -158,12 +158,7 @@ enum RingHandModel {
 
             for light in RingHandModel.lights() { scene.rootNode.addChildNode(light) }
 
-            let lens = SCNCamera()
-            lens.fieldOfView = 40
-            lens.projectionDirection = .horizontal
-            lens.zNear = 0.5
-            lens.zFar = 200
-            camera.camera = lens
+            camera.camera = RingHandModel.lens()
             camera.position = cameraAt
             scene.rootNode.addChildNode(camera)
         }
@@ -228,6 +223,16 @@ enum RingHandModel {
     }
 
     // MARK: Light
+
+    /// The camera both hand scenes (the ring's and the band's) look through.
+    static func lens() -> SCNCamera {
+        let lens = SCNCamera()
+        lens.fieldOfView = 40
+        lens.projectionDirection = .horizontal
+        lens.zNear = 0.5
+        lens.zFar = 200
+        return lens
+    }
 
     static func lights() -> [SCNNode] {
         let placements: [(SCNLight.LightType, CGFloat, SIMD3<Float>, SCNVector3)] = [
