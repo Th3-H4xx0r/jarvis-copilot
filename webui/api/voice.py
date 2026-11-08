@@ -968,6 +968,15 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
     from api.config import STREAMS, STREAMS_LOCK  # type: ignore
     last_tool_name = ""
     current_text: list = []
+
+    def flush():
+        """What is buffered, as one text segment."""
+        nonlocal current_text, first_text_emitted
+        text = "".join(current_text).strip()
+        current_text = []
+        if text:
+            first_text_emitted = True
+            yield {"kind": "text", "text": text}
     deadline = _time.monotonic() + _VOICE_TURN_TIMEOUT_SECONDS
     try:
         while _time.monotonic() < deadline:
@@ -995,12 +1004,7 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
                         first_text_emitted = True
                         yield {"kind": "text", "text": _emit_now}
             elif event_type == "tool":
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        first_text_emitted = True
-                        yield {"kind": "text", "text": text}
+                yield from flush()
                 name = ""
                 preview = ""
                 if isinstance(data, dict):
@@ -1021,11 +1025,7 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
                 # and STOP — the bridge speaks it, listens for the spoken answer,
                 # resolves the clarify, and resumes via
                 # _run_agent_continuation_after_clarify.
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        yield {"kind": "text", "text": text}
+                yield from flush()
                 q = ""
                 choices: list = []
                 if isinstance(data, dict):
@@ -1036,13 +1036,9 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
                 yield {"kind": "clarify", "question": q, "choices": choices}
                 return
             elif event_type == "done":
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        first_text_emitted = True
-                        yield {"kind": "text", "text": text}
-                elif not first_text_emitted:
+                had_text = bool(current_text)
+                yield from flush()
+                if not had_text and not first_text_emitted:
                     # Nothing was streamed as tokens, but the turn may still have
                     # produced a reply in the session payload: a provider that
                     # doesn't stream, or the agent's own failure message after a
@@ -1055,11 +1051,7 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
             elif event_type in ("error", "apperror", "cancel"):
                 # A failed turn used to end in silence ("didn't catch a reply");
                 # hand the bridge the classified failure so it can be spoken.
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        yield {"kind": "text", "text": text}
+                yield from flush()
                 d = data if isinstance(data, dict) else {}
                 yield {"kind": "error",
                        "etype": str(d.get("type") or event_type),
@@ -1074,10 +1066,7 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
         except Exception:
             pass
     # Deadline hit without a done event — flush whatever we have.
-    if current_text:
-        text = "".join(current_text).strip()
-        if text:
-            yield {"kind": "text", "text": text}
+    yield from flush()
 
 
 def _last_assistant_from_done(data) -> "Optional[dict]":
