@@ -207,17 +207,10 @@ def route(req):
                 out.append(dd)
             return j(handler, {"devices": out})
         if parsed.path == "/api/devices/skills":
-            # List every skill currently advertised by a connected device.
             from api.device_bridge import all_device_skills
             return j(handler, {"skills": all_device_skills()})
     elif req.method == "POST":
         body = req.body
-        # ── Invoke a device-exposed skill ──
-        # POST /api/devices/skills/invoke
-        # body: {"device_id":"...","skill":"...","args":{...},"timeout":30}
-        # Authed callers (chat skill, agent, devops) ask a paired device to
-        # execute one of its registered skills. Synchronous — returns the
-        # device's result or an error.
         if parsed.path == "/api/devices/pod/recordings/delete":
             from api.voice_recordings import handle_delete as _recordings_delete
             return _recordings_delete(handler, body)
@@ -461,7 +454,6 @@ def route(req):
             from api.pairing import cancel_pairing_code
             code = (body.get("code") or "").strip().upper()
             return j(handler, {"removed": cancel_pairing_code(code)})
-        # POST /api/devices/<id>/rename {name}
         if parsed.path.endswith("/rename"):
             rest = parsed.path[len("/api/devices/"):-len("/rename")].strip("/")
             name = " ".join(str(body.get("name") or "").split())[:64]

@@ -1328,7 +1328,7 @@ def _publish_translation_frame(live_session_id: str, seq: int, translation: str,
 # ── the language actually spoken (see api/live_language.py) ────────────────
 
 # Its own single worker rather than sharing the identification pool: a Whisper
-# pass is hundreds of milliseconds against identification's ~40, and queueing
+# pass is longer than an identification, and queueing
 # them together would make every speaker label wait behind a transcription.
 _LANG_WORKERS = 1
 _MAX_LANG_INFLIGHT = 32
@@ -1533,8 +1533,8 @@ _IDENT_WORKERS = 1
 # drops about once a minute and then uploads its spool, so utterances arrive in
 # bursts of dozens, and a cap of 4 meant everything after the fourth was
 # declined and stayed permanently unlabelled — nothing retries a dropped job.
-# Identification is ~40 ms of CPU per utterance, so a full queue drains in a
-# couple of seconds on the single worker; the cap only has to stop an
+# Identification is a few hundred ms of CPU per utterance (see above), so a full
+# queue drains in well under a minute on the single worker; the cap only has to stop an
 # unbounded backlog from growing server memory.
 _MAX_IDENT_INFLIGHT = 64
 

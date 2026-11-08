@@ -366,7 +366,6 @@ def get_or_create_voice_session():
                     stale.append(sid)  # a previous day's voice session
         except Exception:
             pass
-        # Archive yesterday's voice session(s) — keep the history, just retire it.
         for sid in stale:
             try:
                 old = get_session(sid)
@@ -429,9 +428,6 @@ def get_or_create_voice_session():
 
 
 def _voice_session(handler) -> bool:
-    # NOTE: j() returns None, so we must `return True` explicitly (like the
-    # other voice GET handlers) — the dispatcher uses the truthy return to mark
-    # the request as claimed.
     try:
         s = get_or_create_voice_session()
     except _VoiceAgentError as exc:
@@ -2084,7 +2080,6 @@ def _synth_edge_voice(text: str, voice_name: str) -> bytes:
 def _tts_to_base64(text: str) -> str:
     if not text:
         return ""
-    # Speak clean prose, not raw markdown ("asterisk asterisk").
     text = _speakable(text)
     if not text:
         return ""
@@ -2118,7 +2113,6 @@ def _tts_to_base64(text: str) -> str:
         audio_b64 = _synth_piper_to_base64(text, tts_section, suffix=".mp3")
         if audio_b64:
             return audio_b64
-        # fall through to the generic dispatcher below on failure
     tts_fn, _, _ = _try_import_tts()
     if not tts_fn:
         return ""
@@ -3979,19 +3973,16 @@ def _parse_fish_voice_id(raw: str) -> tuple:
     if not raw:
         return "", None
     s = raw.strip()
-    # Strip protocol + domain if the user pasted a full URL.
     for prefix in ("https://fish.audio/m/", "http://fish.audio/m/", "fish.audio/m/"):
         if s.startswith(prefix):
             s = s[len(prefix):]
             break
-    # Split off query/fragment params (we accept either ? or &).
     head, sep, tail = s.partition("?")
     if not sep:
         head, sep, tail = s.partition("&")
     head = head.strip().strip("/")
     model_override = None
     if sep and tail:
-        # Find a version= or model= key in the params and use its value.
         for chunk in tail.split("&"):
             k, _, v = chunk.partition("=")
             if k.strip().lower() in ("version", "model") and v.strip():
@@ -4249,13 +4240,11 @@ def _voice_provider_config(handler, body) -> bool:
                 section[field] = str(val)
     tts[engine] = section
     cfg["tts"] = tts
-    # `enabled` flag flips an entry into / out of webui.voice.enabled_engines.
     if "enabled" in body:
         webui = cfg.get("webui")
         webui = dict(webui) if isinstance(webui, dict) else {}
         voice = webui.get("voice")
         voice = dict(voice) if isinstance(voice, dict) else {}
-        # Default list = the full catalog when nothing has been set yet.
         current = list(voice.get("enabled_engines") or [e["id"] for e in _VOICE_ENGINE_CATALOG])
         if body.get("enabled"):
             if engine not in current:

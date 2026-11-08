@@ -227,7 +227,6 @@ def _safe_close(conn: _DeviceConn) -> None:
         conn.sock.close()
     except Exception:
         pass
-    # Wake any callers waiting on pending invocations from this device.
     with conn.pending_lock:
         for entry in conn.pending.values():
             entry["error"] = "device disconnected"
@@ -488,7 +487,6 @@ def skills_for_device(device_id: str) -> list[dict]:
     with _REG_LOCK:
         c = _REG.get(device_id)
         if c and not c.closed:
-            # Return a copy so callers can't mutate registry state.
             return [dict(s) for s in c.skills]
     return _remembered_skills(device_id)
 
@@ -632,7 +630,6 @@ def invoke_skill(device_id: str, skill_name: str, args: dict,
         c = _REG.get(device_id)
     if c and not c.closed:
         return _invoke_via_ws(c, skill_name, args, timeout=timeout)
-    # No live WS — try the mobile push path.
     return _invoke_via_mobile_push(device_id, skill_name, args, timeout=timeout)
 
 
@@ -886,7 +883,7 @@ _FOREGROUND_SKILLS = frozenset({
 })
 
 # How long a queued, not-yet-tapped invoke stays runnable before it's dropped.
-_MOBILE_INVOKE_TTL = 3600.0  # 1 hour
+_MOBILE_INVOKE_TTL = 3600.0
 
 
 def is_foreground_skill(skill_name: str) -> bool:
@@ -1036,8 +1033,6 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
     requires_foreground = is_foreground_skill(skill_name)
     with _PENDING_MOBILE_LOCK:
         q = _PENDING_MOBILE.setdefault(device_id, [])
-        # Drop oldest entries if a runaway server keeps queueing without the
-        # phone draining — protects against unbounded memory growth.
         if len(q) >= _MOBILE_QUEUE_CAP_PER_DEVICE:
             dropped = q.pop(0)
             logger.warning("mobile queue cap reached; dropped %r", dropped.get("call_id"))
@@ -1111,8 +1106,6 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
         }}
 
     ok = ev.wait(timeout=timeout)
-    # Remember whether the phone answered, so a run of timeouts stops
-    # costing the full wait on every later call.
     _record_push_outcome(device_id, ok)
     final = _cleanup_mobile_call(call_id)
     if not ok:
@@ -1185,8 +1178,6 @@ def take_mobile_queue(device_id: str, include_foreground: bool = True) -> list[d
     for e in expired:
         resolve_mobile_result(e.get("call_id", ""),
                               error="expired — phone not tapped in time")
-    # Return a shallow copy of each entry so the caller can't mutate
-    # remaining state via aliased dicts.
     return [dict(e) for e in live]
 
 
@@ -1325,7 +1316,6 @@ def _resolve_device_for_handler(handler) -> Optional[dict]:
         token = morsel.value.split(".", 1)[0]
     except Exception:
         return None
-    # Don't trust an expired session.
     try:
         from api.auth import verify_session
         if not verify_session(morsel.value):
@@ -1340,7 +1330,6 @@ def _resolve_device_for_handler(handler) -> Optional[dict]:
     matches = [d for d in list_devices() if (d.get("session_prefix") or "") == prefix]
     if not matches:
         return None
-    # Newest match wins if multiple devices ever shared a prefix.
     matches.sort(key=lambda d: d.get("paired_at", 0), reverse=True)
     # A device that only holds the bridge (the Mac client, the Pod) never makes
     # the HTTP requests that renew a session, so connecting renews it too.
@@ -1546,7 +1535,6 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         # large manifests chunk the registration across multiple frames
         # so each WS message stays well under the recv buffer. Without
         # the flag we treat the frame as authoritative and replace.
-        # Parse notification channels (devices that can display notification cards).
         raw_channels = msg.get("notification_channels") or []
         clean_channels: list[dict] = []
         if isinstance(raw_channels, list):

@@ -138,8 +138,6 @@ def clear_stale_stream_state(session) -> bool:
                 "clear_stale_stream_state: save() failed for session %s",
                 getattr(session, "session_id", "?"),
             )
-    # Patch the caller's stub (if different from the full-load object) so
-    # its in-memory active_stream_id matches what just got persisted.
     if original_stub is not session:
         try:
             original_stub.active_stream_id = None
@@ -271,7 +269,6 @@ def start_turn(
                 "active_stream_id": current_stream_id,
                 "_status": 409,
             }
-        # Stale stream id from a previous run; clear and continue.
         diag.stage("stale_stream_cleanup") if diag else None
         clear_stale_stream_state(s)
 

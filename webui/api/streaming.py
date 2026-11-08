@@ -1088,7 +1088,6 @@ def _strip_xml_tool_calls(text: str) -> str:
     if not text:
         return text
     s = str(text)
-    # Check if contains any function_calls/DSML marker (case-insensitive)
     _lo = s.lower()
     if 'function_calls' not in _lo and 'dsml' not in _lo:
         return text
@@ -1127,7 +1126,6 @@ def _sanitize_generated_title(text: str) -> str:
     s = re.sub(r'^\s*title\s*:\s*', '', s, flags=re.IGNORECASE)
     s = s.strip(" \t\r\n\"'`*_~")
     s = re.sub(r'\s+', ' ', s).strip()
-    # Guard against chain-of-thought leakage and meta-reasoning patterns.
     if _looks_invalid_generated_title(s):
         return ''
     return s[:80]
@@ -1256,7 +1254,6 @@ def _latest_exchange_snippets(messages):
         role = m.get('role')
         if role == 'assistant' and not asst_text:
             candidate = _message_text(m.get('content'))
-            # Skip tool-call-only preambles
             if m.get('tool_calls') and (not candidate or _looks_invalid_generated_title(candidate)):
                 continue
             if candidate:
@@ -1923,7 +1920,6 @@ def _run_background_title_refresh(session_id: str, user_text: str, assistant_tex
         if not next_title:
             _put_title_status(put_event, session_id, 'refresh_skipped', llm_status or 'empty', effective, raw_preview)
             return
-        # Skip if the new title is essentially the same (after normalization)
         normalized_current = re.sub(r'\s+', ' ', effective).strip().lower()
         normalized_new = re.sub(r'\s+', ' ', next_title).strip().lower()
         if normalized_current == normalized_new:
@@ -3122,12 +3118,7 @@ def _run_agent_streaming(
     old_hermes_home = None
     old_profile_env = {}
 
-    # MCP discovery moved to AFTER the per-profile HERMES_HOME mutation below
-    # (was here at v0.51.30) — the previous placement always read the default
-    # profile's mcp_servers because os.environ['HERMES_HOME'] hadn't been
-    # rewritten yet.  See https://github.com/nesquena/jarviscopilot-webui/issues/1968.
 
-    # Sprint 10: create a cancel event for this stream
     cancel_event = threading.Event()
     with STREAMS_LOCK:
         CANCEL_FLAGS[stream_id] = cancel_event
@@ -3247,7 +3238,6 @@ def _run_agent_streaming(
 
         return _usage
 
-    # Register this stream with the global streaming meter
     meter().begin_session(stream_id)
 
     # Metering ticker — emits a metering event at 1 Hz while sessions are active.
@@ -3271,7 +3261,6 @@ def _run_agent_streaming(
     _metering_thread.start()
 
     def put(event, data):
-        # If cancelled, drop all further events except the cancel event itself
         if cancel_event.is_set() and event not in ('cancel', 'error'):
             return
         if run_journal is not None:
@@ -3358,7 +3347,6 @@ def _run_agent_streaming(
                 logger.warning("harness planning failed; running the session model", exc_info=True)
 
         _agent_lock = _get_session_agent_lock(session_id)
-        # TD1: set thread-local env context so concurrent sessions don't clobber globals
         # Check for pre-flight cancel (user cancelled before agent even started)
         if cancel_event.is_set():
             with _agent_lock:
@@ -4182,9 +4170,7 @@ def _run_agent_streaming(
             # Store agent instance for cancel/interrupt propagation
             with STREAMS_LOCK:
                 AGENT_INSTANCES[stream_id] = agent
-                # Check if cancel was requested during agent initialization
                 if stream_id in CANCEL_FLAGS and CANCEL_FLAGS[stream_id].is_set():
-                    # Cancel arrived during agent creation - interrupt immediately
                     try:
                         agent.interrupt("Cancelled before start")
                     except Exception:
@@ -4573,7 +4559,6 @@ def _run_agent_streaming(
                         )
                         if _heal_rt is not None:
                             logger.info('[webui] self-heal: retrying stream after credential refresh')
-                            # Rebuild runtime variables from the refreshed resolve
                             _rt = _heal_rt
                             resolved_api_key = _heal_rt.get('api_key')
                             if not resolved_provider:
@@ -4586,7 +4571,6 @@ def _run_agent_streaming(
                                     resolved_api_key = _cp_key
                                 if not resolved_base_url and _cp_base:
                                     resolved_base_url = _cp_base
-                            # Rebuild agent kwargs and create a fresh agent
                             _agent_kwargs['api_key'] = resolved_api_key
                             _agent_kwargs['base_url'] = resolved_base_url
                             _agent_kwargs['model'] = resolved_model
@@ -4606,7 +4590,6 @@ def _run_agent_streaming(
                             with _SAC_L:
                                 _SAC[_agent_cache_key] = (agent, _agent_sig)
                                 _SAC.move_to_end(_agent_cache_key)
-                            # Retry the conversation once with fresh credentials
                             _self_healed = True
                             _token_sent = False
                             try:
@@ -4625,18 +4608,7 @@ def _run_agent_streaming(
                                 )
                                 _heal_ok = False
                             if _heal_ok and _heal_result is not None:
-                                # Retry succeeded — replace result and skip error
                                 result = _heal_result
-                                # Fall through past the error-emission block;
-                                # the post-result persistence code below will
-                                # process ``result`` normally.  We jump past
-                                # the ``put('apperror', ...)`` + ``return`` by
-                                # NOT entering the ``if not _assistant_added``
-                                # guard again — but we are already inside it.
-                                # Solution: set _assistant_added so the guard
-                                # evaluates False on next conceptual pass.
-                                # Since we're in a flat block, directly run the
-                                # post-result merge logic here.
                                 _result_messages = result.get('messages') or _previous_context_messages
                                 _next_context_messages = _restore_reasoning_metadata(
                                     _previous_context_messages,
@@ -4649,12 +4621,8 @@ def _run_agent_streaming(
                                     _next_context_messages,
                                     msg_text,
                                 )
-                                # Skip the error block — jump directly to the
-                                # normal post-result persistence path by
-                                # leaving _assistant_added truthy (set below).
                                 _assistant_added = True  # prevent re-entering guard
                         if not _assistant_added:
-                            # Self-heal didn't apply or retry failed — emit error
                             _err_label = 'Authentication failed'
                             _err_type = 'auth_mismatch'
                             _err_hint = (
@@ -4798,12 +4766,10 @@ def _run_agent_streaming(
                             if _cached_entry:
                                 SESSION_AGENT_CACHE[new_sid + _old_key[len(old_sid):]] = _cached_entry
                     _compressed = True
-                # Also detect compression via the result dict or compressor state
                 if not _compressed:
                     _compressor = getattr(agent, 'context_compressor', None)
                     if _compressor and getattr(_compressor, 'compression_count', 0) > _pre_compression_count:
                         _compressed = True
-                # Notify the frontend that compression happened
                 if _compressed:
                     visible_after = visible_messages_for_anchor(s.messages, auto_compression=True)
                     s.compression_anchor_visible_idx = (
@@ -4822,7 +4788,6 @@ def _run_agent_streaming(
                         'usage': _live_usage_snapshot(),
                     })
 
-                # Stamp 'timestamp' on any messages that don't have one yet
                 _now = time.time()
                 for _m in s.messages:
                     if isinstance(_m, dict) and not _m.get('timestamp') and not _m.get('_ts'):
@@ -5131,7 +5096,7 @@ def _run_agent_streaming(
             # Fallback: when the compressor is absent or reports context_length=0,
             # resolve the model's context window from metadata so the UI indicator
             # shows the correct percentage rather than overflowing against the 128K
-            # JS default.  Mirrors the session-save fallback above (lines ~2205-2217).
+            # JS default.  Mirrors the session-save fallback above.
             #
             # #1896: pass config_context_length, provider, and custom_providers so
             # explicit config overrides win over the 256K default fallback. The
@@ -5191,7 +5156,7 @@ def _run_agent_streaming(
             # the text is still stashed in agent._pending_steer. Drain
             # it now and emit a pending_steer_leftover SSE event so the
             # frontend can queue it for the next turn — same fallback
-            # path as the CLI in cli.py:8788-8794.
+            # path as the CLI (cli.py, the leftover-steer handling).
             try:
                 _drain_pending_steer = getattr(agent, '_drain_pending_steer', None)
                 _leftover = _drain_pending_steer() if _drain_pending_steer else None
@@ -5324,7 +5289,6 @@ def _run_agent_streaming(
                 # so it doesn't block the stream.
                 _maybe_schedule_title_refresh(s, put, agent)
         finally:
-            # Stop the live metering ticker
             _metering_stop.set()
             # Unregister the gateway approval callback and unblock any threads
             # still waiting on approval (e.g. stream cancelled mid-approval).
@@ -5423,7 +5387,6 @@ def _run_agent_streaming(
                 if _heal_rt is not None:
                     logger.info('[webui] self-heal (except path): retrying stream after credential refresh')
                     _self_healed = True
-                    # Rebuild runtime variables
                     _rt = _heal_rt
                     resolved_api_key = _heal_rt.get('api_key')
                     if not resolved_provider:
@@ -5436,7 +5399,6 @@ def _run_agent_streaming(
                             resolved_api_key = _cp_key
                         if not resolved_base_url and _cp_base:
                             resolved_base_url = _cp_base
-                    # Build a fresh agent with the new credentials
                     _heal_kwargs = dict(_agent_kwargs) if '_agent_kwargs' in dir() else {}
                     _heal_kwargs['api_key'] = resolved_api_key
                     _heal_kwargs['base_url'] = resolved_base_url
@@ -5451,7 +5413,6 @@ def _run_agent_streaming(
                     with _SAC2_L:
                         _SAC2[_agent_cache_key] = (_heal_agent, _agent_sig)
                         _SAC2.move_to_end(_agent_cache_key)
-                    # Retry the conversation
                     _token_sent = False
                     try:
                         _heal_result = _heal_agent.run_conversation(
@@ -5461,7 +5422,6 @@ def _run_agent_streaming(
                             task_id=session_id,
                             persist_user_message=msg_text,
                         )
-                        # Retry succeeded — persist the result normally
                         if s is not None:
                             if _checkpoint_stop is not None:
                                 _checkpoint_stop.set()
@@ -5493,8 +5453,6 @@ def _run_agent_streaming(
                         return  # skip error emission
                     except Exception as _retry_exc2:
                         logger.warning('[webui] self-heal (except path): retry failed: %s', _retry_exc2)
-                        # Fall through to emit the original error
-            # Self-heal didn't apply or retry failed — emit the auth error
             _exc_label, _exc_type, _exc_hint = (
                 'Authentication error', 'auth_mismatch',
                 'The selected model may not be supported by your configured provider. '
@@ -5625,21 +5583,15 @@ def _run_agent_streaming(
         except Exception:
             logger.warning("Failed to announce run_ended", exc_info=True)
         # NOTE: do NOT discard PENDING_GOAL_CONTINUATION here. The marker
-        # is set by goal_continue (line ~3328) inside the SAME function
-        # call and consumed atomically by `_start_chat_stream_for_session`
-        # in routes.py (around line 6522) when the next stream starts.
+        # is set by goal_continue inside the SAME function call and
+        # consumed atomically by `chat_turns.start_turn` when the next
+        # stream starts.
         # Discarding here in the streaming worker's `finally` would
         # almost always race ahead of the frontend's SSE-receive →
         # POST /api/chat/start round-trip and erase the marker before
         # the next stream can read it, breaking the goal-continuation
         # chain. Stage-326 critical fix per Opus advisor review.
 
-# ============================================================
-# SECTION: HTTP Request Handler
-# do_GET: read-only API endpoints + SSE stream + static HTML
-# do_POST: mutating endpoints (session CRUD, chat, upload, approval)
-# Routing is a flat if/elif chain. See ARCHITECTURE.md section 4.1.
-# ============================================================
 
 
 def _handle_chat_steer(handler, body: dict) -> bool:
@@ -5751,18 +5703,15 @@ def cancel_stream(stream_id: str) -> bool:
         if stream_id not in streams:
             return False
 
-        # Set WebUI layer cancel flag
         flag = cancel_flags.get(stream_id)
         if flag:
             flag.set()
 
-        # Interrupt the AIAgent instance to stop tool execution
         agent = agent_instances.get(stream_id)
         if agent:
             try:
                 agent.interrupt("Cancelled by user")
             except Exception as e:
-                # Log but don't block the cancel flow
                 import logging
                 logging.getLogger(__name__).debug(
                     f"Failed to interrupt agent for stream {stream_id}: {e}"
