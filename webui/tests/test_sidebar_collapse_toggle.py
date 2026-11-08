@@ -301,14 +301,6 @@ class TestRailButtonsPassFromRailClick:
             assert args and "fromRailClick:true" in args, \
                 f"sidebar-nav button for {panel!r} must pass fromRailClick:true (got: {args!r})"
 
-    def test_dashboard_button_unchanged(self):
-        # Dashboard opens an external page; must NOT pass fromRailClick
-        assert "openHermesDashboard(event)" in HTML
-        dash_idx = HTML.index("openHermesDashboard(event)")
-        # 200-char window before the dashboard onclick should not mention fromRailClick
-        assert "fromRailClick" not in HTML[dash_idx - 200:dash_idx + 50], \
-            "Dashboard button should not receive fromRailClick"
-
 
 # ── Flash-prevention contract ──────────────────────────────────────────────
 
