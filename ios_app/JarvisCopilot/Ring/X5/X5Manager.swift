@@ -9,11 +9,7 @@ import UIKit
 /// notification to `X5Session` through `X5Frames`. The R12's manager is untouched: the two
 /// rings each own their own central and link.
 @MainActor
-final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
-    @Published private(set) var state: ConnectionState = .idle
-    @Published private(set) var bluetoothReady = false
-    @Published private(set) var discovered: [DiscoveredRing] = []
-    @Published private(set) var connected: DiscoveredRing?
+final class X5Manager: BLEWearableManager {
     /// What the ring sent lately, newest first — the inputs screen's monitor.
     @Published private(set) var gestureFeed: [RingGestureEvent] = []
     @Published private(set) var lastInput: RingInputEvent?
@@ -45,8 +41,8 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
     /// A workout the X5 is driving holds the link, in the background too.
     var workoutRunning: Bool { workoutHold?() ?? false }
 
-    var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.x5ring) }
-    var holdsLinkForWorkout: Bool { workoutRunning }
+    override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.x5ring) }
+    override var holdsLinkForWorkout: Bool { workoutRunning }
 
     var deviceID: String? {
         WearableIdentity.remembered(WearableKeepAlive.x5ring)
@@ -58,55 +54,26 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
     var exposedDeviceID: String? { exposedDevice?.deviceID }
     var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
 
-    var linkIsUp: Bool {
-        switch state {
-        case .connecting, .discovering, .ready: return true
-        case .idle, .scanning, .failed: return false
-        }
-    }
-
     /// True while an X5 screen is open: the link stays up whatever Keep Alive says, and the
     /// live stream runs.
-    var screenIsOpen = false {
+    override var screenIsOpen: Bool {
         didSet {
             guard oldValue != screenIsOpen else { return }
             session.holdsLive = screenIsOpen
             if state == .ready { Task { await session.setLive(screenIsOpen) } }
-            holdChanged(screenIsOpen)
         }
     }
 
-    /// True while the Health tab is open: the link is held so a refresh or a spot check needs
-    /// no connect, but — unlike this ring's own screen — no live stream runs.
-    var healthIsOpen = false {
-        didSet {
-            guard oldValue != healthIsOpen else { return }
-            holdChanged(healthIsOpen, connectIfDown: true)
-        }
-    }
-
-    private var central: CBCentralManager!
-    private var peripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
     private var exposedDevice: X5Ring?
-    private var scanTimeoutTask: Task<Void, Never>?
-    var idleDropTask: Task<Void, Never>?
-    let linkLogName = "x5"
-    private var setupTask: Task<Void, Never>?
-    private var discoveryTask: Task<Void, Never>?
-    private var discoveryAttempts = 0
-    private var wasConnectedBeforeBackground: DiscoveredRing?
-    private var isBackgrounded = false
     private var lastBackgroundDrain = Date.distantPast
     static let lastPeripheralKey = "lastConnectedX5Peripheral"
 
-    override init() {
-        super.init()
-        central = CBCentralManager(
-            delegate: self,
-            queue: .main,
-            options: [CBCentralManagerOptionRestoreIdentifierKey:
-                        "com.jarviscopilot.jarviscopilotMobileAndIOS.x5Central"])
+    init() {
+        super.init(logName: "x5", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.x5Central",
+                   lastPeripheralKey: Self.lastPeripheralKey, fallbackName: "X5 ring",
+                   primaryService: X5Protocol.service, servicesToDiscover: [X5Protocol.service],
+                   discoveryFailure: "the ring never answered — unbind it in its own app, or toggle Bluetooth")
         session.attach(self)
         _ = sync
         session.onGesture = { [weak self] gesture in self?.received(gesture) }
@@ -127,14 +94,21 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
         return X5Protocol.isX5Name(name) || (!strict && hasService)
     }
 
+    override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {
+        Self.isCandidate(name: name, hasService: services.contains(X5Protocol.service), strict: strictNameMatch)
+    }
+
+    /// Everything iOS hands back was found by its FFF0 service (or is the ring used last time).
+    override func belongsInList(_ p: CBPeripheral, isLastUsed: Bool) -> Bool {
+        isLastUsed || Self.isCandidate(name: p.name ?? "", hasService: true, strict: strictNameMatch)
+    }
+
     /// The bathroom scale advertises FFF0 too; it has its own card.
     static func isScaleName(_ name: String) -> Bool {
         let n = name.lowercased()
         return n.contains("esf551") || n.contains("esf-551") || n.contains("etekcity") || n.contains("scale")
     }
 
-    /// Rings forgotten this session: their page must not reconnect them on the way out.
-    @Published private(set) var forgottenIDs: Set<UUID> = []
 
     /// The touch-surface mode an inputs-screen mode asks for.
     static func hid(for mode: RingInputMode) -> (enabled: Bool, mode: X5HIDMode) {
@@ -225,113 +199,19 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
         if gestureFeed.count > 40 { gestureFeed.removeLast(gestureFeed.count - 40) }
     }
 
-    // MARK: Scanning
+    // MARK: Link
 
-    func startScan() {
-        guard bluetoothReady else { return }
-        // A deliberate scan is how a forgotten ring comes back.
-        forgottenIDs.removeAll()
-        discovered.removeAll { $0.id != connected?.id }
-        surfaceKnownPeripherals()
-        if !linkIsUp { state = .scanning }
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.stopScan()
-        }
-    }
-
-    func stopScan() {
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = nil
-        central.stopScan()
-        if case .scanning = state { state = .idle }
-    }
-
-    private func surfaceKnownPeripherals() {
-        guard bluetoothReady else { return }
-        let last = UserDefaults.standard.string(forKey: Self.lastPeripheralKey)
-        var candidates = central.retrieveConnectedPeripherals(withServices: [X5Protocol.service])
-        if let last, let uuid = UUID(uuidString: last) {
-            candidates += central.retrievePeripherals(withIdentifiers: [uuid])
-        }
-        for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
-            let name = p.name ?? ""
-            // Everything here was found by its FFF0 service (or is the ring used last time).
-            guard p.identifier.uuidString == last
-                    || Self.isCandidate(name: name, hasService: true, strict: strictNameMatch) else { continue }
-            discovered.append(DiscoveredRing(id: p.identifier, name: name.isEmpty ? "X5 ring" : name, rssi: 0, peripheral: p))
-        }
-    }
-
-    // MARK: Connection
-
-    func connect(_ ring: DiscoveredRing) {
-        JcLog.devices.notice("x5: connect \(ring.name, privacy: .public) state=\(self.state.text, privacy: .public)")
-        stopScan()
-        if let current = peripheral, current.identifier != ring.id {
-            central.cancelPeripheralConnection(current)
-            resetLink()
-        }
-        peripheral = ring.peripheral
-        connected = ring
-        if !discovered.contains(where: { $0.id == ring.id }) { discovered.insert(ring, at: 0) }
-        discoveryAttempts = 0
-        state = .connecting
-        ring.peripheral.delegate = self
-        central.connect(ring.peripheral)
-    }
-
-    func disconnect() {
-        JcLog.devices.notice("x5: disconnect state=\(self.state.text, privacy: .public)")
-        setupTask?.cancel()
-        setupTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
-        peripheral = nil
-        connected = nil
-        state = .idle
-        resetLink()
-    }
-
-    private func resetLink() {
+    override func resetLink() {
         writeCharacteristic = nil
         session.linkDropped()
     }
 
-    func startLink() {
-        if peripheral == nil, let known = knownPeripheral() {
-            connect(DiscoveredRing(id: known.identifier, name: known.name ?? "X5 ring", rssi: 0, peripheral: known))
-        } else if let p = peripheral, state != .connecting, state != .discovering {
-            discoveryAttempts = 0
-            state = .connecting
-            p.delegate = self
-            central.connect(p)
-        }
-    }
-
-    func dropIdleLink() async {
+    override func dropIdleLink() async {
         await session.setLive(false)
         disconnect()
     }
 
-    private func knownPeripheral() -> CBPeripheral? {
-        guard WearableIdentity.remembered(WearableKeepAlive.x5ring) != nil
-                || UserDefaults.standard.string(forKey: Self.lastPeripheralKey) != nil else { return nil }
-        if let stored = UserDefaults.standard.string(forKey: Self.lastPeripheralKey),
-           let uuid = UUID(uuidString: stored),
-           let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
-            return known
-        }
-        return nil
-    }
-
-    var isSettingUp: Bool { setupTask != nil }
-
-    var isWorking: Bool {
+    override var isWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
     }
 
@@ -350,30 +230,6 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
         WearableIdentity.forget(WearableKeepAlive.x5ring)
         UserDefaults.standard.removeObject(forKey: Self.lastPeripheralKey)
         if let id { X5Cursors(deviceID: id).reset() }
-    }
-
-    private func beginDiscovery(_ p: CBPeripheral) {
-        discoveryAttempts += 1
-        state = .discovering
-        p.delegate = self
-        p.discoverServices([X5Protocol.service])
-        discoveryTask?.cancel()
-        discoveryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            guard let self, !Task.isCancelled, self.state == .discovering, self.peripheral === p else { return }
-            switch self.discoveryAttempts {
-            case 1:
-                self.beginDiscovery(p)
-            case 2:
-                self.discoveryAttempts = 3
-                self.resetLink()
-                self.central.cancelPeripheralConnection(p)
-                self.state = .connecting
-                self.central.connect(p)
-            default:
-                self.state = .failed("the ring never answered — unbind it in its own app, or toggle Bluetooth")
-            }
-        }
     }
 
     private func becomeReady(_ p: CBPeripheral) {
@@ -440,7 +296,7 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
 
     // MARK: Foreground / background
 
-    func enterBackground() {
+    override func enterBackground() {
         isBackgrounded = true
         stopScan()
         Task {
@@ -450,24 +306,9 @@ final class X5Manager: NSObject, ObservableObject, OnDemandWearable {
         }
     }
 
-    private func releaseLinkForBackground() {
-        guard !holdsLinkForWorkout else { return }
-        guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
-        if connected != nil {
-            wasConnectedBeforeBackground = connected
-            disconnect()
-        }
-    }
-
-    func enterForeground() {
-        isBackgrounded = false
-        if let ring = wasConnectedBeforeBackground {
-            wasConnectedBeforeBackground = nil
-            if keepAliveEnabled || screenIsOpen || healthIsOpen || holdsLinkForWorkout { connect(ring) }
-        } else if state == .ready {
-            if screenIsOpen { Task { await self.session.setLive(true) } }
-            if sync.isStale { Task { await self.sync.sync() } }
-        }
+    override func foregroundWhileReady() {
+        if screenIsOpen { Task { await self.session.setLive(true) } }
+        if sync.isStale { Task { await self.sync.sync() } }
     }
 }
 
@@ -482,83 +323,6 @@ extension X5Manager: RingLink {
         // The vendor's own app writes with response.
         let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
         peripheral.writeValue(data, for: characteristic, type: type)
-    }
-}
-
-// MARK: - CBCentralManagerDelegate
-
-extension X5Manager: CBCentralManagerDelegate {
-    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        let on = c.state == .poweredOn
-        Task { @MainActor in
-            self.bluetoothReady = on
-            if on {
-                self.startScan()
-            } else {
-                self.state = .failed("Bluetooth off")
-                self.resetLink()
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, willRestoreState dict: [String: Any]) {
-        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
-        Task { @MainActor in
-            guard let p = restored.first(where: { $0.state == .connected || $0.state == .connecting }) else { return }
-            p.delegate = self
-            self.peripheral = p
-            self.connected = DiscoveredRing(id: p.identifier, name: p.name ?? "X5 ring", rssi: 0, peripheral: p)
-            self.discoveryAttempts = 0
-            if p.state == .connected { self.beginDiscovery(p) } else { self.state = .connecting }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral,
-                                    advertisementData ad: [String: Any], rssi RSSI: NSNumber) {
-        let name = (ad[CBAdvertisementDataLocalNameKey] as? String) ?? p.name ?? ""
-        let services = ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let rssi = RSSI.intValue
-        Task { @MainActor in
-            guard Self.isCandidate(name: name, hasService: services.contains(X5Protocol.service),
-                                   strict: self.strictNameMatch) else { return }
-            if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
-                self.discovered[i].rssi = rssi
-                if !name.isEmpty { self.discovered[i].name = name }
-            } else {
-                self.discovered.append(DiscoveredRing(id: p.identifier, name: name.isEmpty ? "X5 ring" : name,
-                                                      rssi: rssi, peripheral: p))
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
-        Task { @MainActor in self.beginDiscovery(p) }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        Task { @MainActor in
-            self.state = .failed(error?.localizedDescription ?? "could not connect")
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        let reason = error?.localizedDescription ?? "no error"
-        Task { @MainActor in
-            guard p === self.peripheral else { return }
-            self.setupTask?.cancel()
-            self.setupTask = nil
-            self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.healthIsOpen || self.holdsLinkForWorkout else {
-                JcLog.devices.notice("x5: link dropped (\(reason, privacy: .public)); keep-alive off")
-                self.connected = nil
-                self.state = .idle
-                return
-            }
-            JcLog.devices.notice("x5: link dropped (\(reason, privacy: .public)); reconnecting")
-            self.discoveryAttempts = 0
-            self.state = .connecting
-            self.central.connect(p)
-        }
     }
 }
 

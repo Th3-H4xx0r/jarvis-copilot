@@ -968,6 +968,7 @@
 		C0A89AC6BC1217F3719FE4DE /* DashcamRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DA01C3C578C7F23B053FD5 /* DashcamRules.swift */; };
 		C0D491DB6F39CA0ADC6706AE /* DashcamControlsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D193ABE5AFDF15C3F2E25CFC /* DashcamControlsCard.swift */; };
 		C13B15C8C7B5A43A5D50B41B /* BandMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E40F4BE6C78673EA718AE58 /* BandMonitorTests.swift */; };
+		C15B9CA5A697E047C5492A0F /* BLEWearableManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */; };
 		C16311BF9CC5ADA6369800D8 /* InvokeRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F79D941BA4BB5632F6491E9 /* InvokeRunnerTests.swift */; };
 		C1706FF86FF3571038B430B2 /* CarPlayScreensTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EB9C7771C46F50FD2210D9 /* CarPlayScreensTests.swift */; };
 		C17D7AC2F7EC3340B34D8F2B /* NavigationMinimap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C4ACCC9C12F7ADBC039E5E /* NavigationMinimap.swift */; };
@@ -1743,6 +1744,7 @@
 		59053007B98F708B4326A25C /* VoiceMocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceMocks.swift; sourceTree = "<group>"; };
 		5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureSchedule.swift; sourceTree = "<group>"; };
 		59437ADD8499A9F58BCACCEF /* OnDeviceAISettingsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAISettingsPage.swift; sourceTree = "<group>"; };
+		595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BLEWearableManager.swift; sourceTree = "<group>"; };
 		59F4338E72F1443806778AE7 /* GradientButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GradientButton.swift; sourceTree = "<group>"; };
 		5A033203704890E4ACBA40D3 /* ActionAgentTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionAgentTests.swift; sourceTree = "<group>"; };
 		5A289BA0A4EF00D5577CA623 /* RingFirmwareFlashSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareFlashSheet.swift; sourceTree = "<group>"; };
@@ -4459,6 +4461,7 @@
 				851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */,
 				F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */,
 				432A3387741D90798D1C21CB /* OnDemandWearable.swift */,
+				595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */,
 			);
 			name = .;
 			path = .;
@@ -6263,6 +6266,7 @@
 				B098EE16F564C212F45E8CF9 /* DashcamDualPlayback.swift in Sources */,
 				A1A076BD0A0ED30595802F71 /* VoiceLogSkill.swift in Sources */,
 				341F4224A525FAC122B25B1E /* OnDemandWearable.swift in Sources */,
+				C15B9CA5A697E047C5492A0F /* BLEWearableManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

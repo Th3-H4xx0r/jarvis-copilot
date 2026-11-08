@@ -3,26 +3,13 @@ import CoreBluetooth
 import Foundation
 import UIKit
 
-struct DiscoveredRing: Identifiable, Equatable {
-    let id: UUID
-    var name: String
-    var rssi: Int
-    var peripheral: CBPeripheral
-
-    static func == (a: DiscoveredRing, b: DiscoveredRing) -> Bool { a.id == b.id }
-}
-
 /// App-lifetime owner of the ring's Bluetooth link.
 ///
 /// Follows `BottleManager`'s semantics — Keep Alive holds and restores the link, off means
 /// connect on demand and drop after the grace period, bridge mode holds it in the
 /// background — and hands every byte to `RingSession`, which owns the protocol.
 @MainActor
-final class RingManager: NSObject, ObservableObject, OnDemandWearable {
-    @Published private(set) var state: ConnectionState = .idle
-    @Published private(set) var bluetoothReady = false
-    @Published private(set) var discovered: [DiscoveredRing] = []
-    @Published private(set) var connected: DiscoveredRing?
+final class RingManager: BLEWearableManager {
 
     /// Off shows any peripheral advertising the ring's UART service, not just ring names.
     @Published var strictNameMatch = true {
@@ -71,23 +58,12 @@ final class RingManager: NSObject, ObservableObject, OnDemandWearable {
         return controller
     }()
 
-    /// True while a ring screen is open: the link stays up whatever Keep Alive says.
-    var screenIsOpen = false {
-        didSet { if oldValue != screenIsOpen { holdChanged(screenIsOpen) } }
-    }
 
-    /// True while the Health tab is open: held so a refresh or a spot check needs no connect.
-    var healthIsOpen = false {
-        didSet { if oldValue != healthIsOpen { holdChanged(healthIsOpen, connectIfDown: true) } }
-    }
-
-    let linkLogName = "ring"
-
-    var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
+    override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
 
     /// A workout needs the link the whole time, in the background too: let
     /// go and the ring loses the phone and pauses its session.
-    var holdsLinkForWorkout: Bool { workout.holdsLink(for: WearableKeepAlive.ring) }
+    override var holdsLinkForWorkout: Bool { workout.holdsLink(for: WearableKeepAlive.ring) }
 
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.
@@ -105,36 +81,19 @@ final class RingManager: NSObject, ObservableObject, OnDemandWearable {
     var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
     var exposedDeviceID: String? { exposedDevice?.deviceID }
 
-    var linkIsUp: Bool {
-        switch state {
-        case .connecting, .discovering, .ready: return true
-        case .idle, .scanning, .failed: return false
-        }
-    }
-
-    private var central: CBCentralManager!
-    private var peripheral: CBPeripheral?
     private var commandWrite: CBCharacteristic?
     private var bigDataWrite: CBCharacteristic?
     private var pendingChunks: [Data] = []
     private var exposedDevice: ColmiR12?
-    private var scanTimeoutTask: Task<Void, Never>?
-    var idleDropTask: Task<Void, Never>?
-    private var setupTask: Task<Void, Never>?
-    private var discoveryTask: Task<Void, Never>?
-    private var discoveryAttempts = 0
-    private var wasConnectedBeforeBackground: DiscoveredRing?
-    private var isBackgrounded = false
     private var lastBackgroundDrain = Date.distantPast
     private static let lastPeripheralKey = "lastConnectedRingPeripheral"
 
-    override init() {
-        super.init()
-        central = CBCentralManager(
-            delegate: self,
-            queue: .main,
-            options: [CBCentralManagerOptionRestoreIdentifierKey:
-                        "com.jarviscopilot.jarviscopilotMobileAndIOS.ringCentral"])
+    init() {
+        super.init(logName: "ring", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.ringCentral",
+                   lastPeripheralKey: Self.lastPeripheralKey, fallbackName: "Ring",
+                   primaryService: RingProtocol.commandService,
+                   servicesToDiscover: [RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService],
+                   discoveryFailure: "the ring never answered — unbind it in QRing, or toggle Bluetooth")
         session.attach(self)
         // Wires the session's push and measurement hooks before a restored link delivers any.
         _ = sync
@@ -166,107 +125,28 @@ final class RingManager: NSObject, ObservableObject, OnDemandWearable {
         }
     }
 
-    // MARK: Scanning
+    // MARK: Link
 
-    func startScan() {
-        guard bluetoothReady else { return }
-        // A connected ring doesn't advertise; keep it in the list across rescans.
-        discovered.removeAll { $0.id != connected?.id }
-        surfaceKnownPeripherals()
-        if !linkIsUp { state = .scanning }
-        central.scanForPeripherals(withServices: nil,
-                                   options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.stopScan()
-        }
-    }
-
-    func stopScan() {
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = nil
-        central.stopScan()
-        if case .scanning = state { state = .idle }
-    }
-
-    /// A ring iOS already holds a link to, or the one used last time, belongs in the list
-    /// even though it won't show up in scan results.
-    private func surfaceKnownPeripherals() {
-        guard bluetoothReady else { return }
-        let last = UserDefaults.standard.string(forKey: Self.lastPeripheralKey)
-        var candidates = central.retrieveConnectedPeripherals(withServices: [RingProtocol.commandService])
-        if let last, let uuid = UUID(uuidString: last) {
-            candidates += central.retrievePeripherals(withIdentifiers: [uuid])
-        }
-        for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
-            let name = p.name ?? "Ring"
-            guard RingProtocol.isRingName(name) || p.identifier.uuidString == last else { continue }
-            discovered.append(DiscoveredRing(id: p.identifier, name: name, rssi: 0, peripheral: p))
-        }
-    }
-
-    // MARK: Connection
-
-    func connect(_ ring: DiscoveredRing) {
-        JcLog.devices.notice("ring: connect \(ring.name, privacy: .public) state=\(self.state.text, privacy: .public)")
-        stopScan()
-        if let current = peripheral, current.identifier != ring.id {
-            central.cancelPeripheralConnection(current)
-            resetLink()
-        }
-        peripheral = ring.peripheral
-        connected = ring
-        if !discovered.contains(where: { $0.id == ring.id }) { discovered.insert(ring, at: 0) }
-        discoveryAttempts = 0
-        state = .connecting
-        ring.peripheral.delegate = self
-        central.connect(ring.peripheral)
-    }
-
-    func disconnect() {
-        JcLog.devices.notice("ring: disconnect state=\(self.state.text, privacy: .public)")
-        setupTask?.cancel()
-        setupTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
-        peripheral = nil
-        connected = nil
-        state = .idle
-        resetLink()
-    }
-
-    private func resetLink() {
+    override func resetLink() {
         commandWrite = nil
         bigDataWrite = nil
         pendingChunks.removeAll()
         session.linkDropped()
     }
 
-    /// CoreBluetooth can reopen a known peripheral by identifier, so this costs no scan.
-    func startLink() {
-        if peripheral == nil, let known = knownPeripheral() {
-            connect(DiscoveredRing(id: known.identifier, name: known.name ?? "Ring", rssi: 0, peripheral: known))
-        } else if let p = peripheral, state != .connecting, state != .discovering {
-            discoveryAttempts = 0
-            state = .connecting
-            p.delegate = self
-            central.connect(p)
-        }
+    /// The ring used last time, else one iOS already holds.
+    override func knownPeripheral() -> CBPeripheral? {
+        super.knownPeripheral() ?? central.retrieveConnectedPeripherals(withServices: [RingProtocol.commandService])
+            .first { RingProtocol.isRingName($0.name ?? "") }
     }
 
-    func dropIdleLink() async { disconnect() }
+    /// Off shows any peripheral advertising the ring's UART service, not just ring names.
+    override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {
+        RingProtocol.isRingName(name) || (!strictNameMatch && services.contains(RingProtocol.commandService))
+    }
 
-    private func knownPeripheral() -> CBPeripheral? {
-        if let stored = UserDefaults.standard.string(forKey: Self.lastPeripheralKey),
-           let uuid = UUID(uuidString: stored),
-           let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
-            return known
-        }
-        return central.retrieveConnectedPeripherals(withServices: [RingProtocol.commandService])
-            .first { RingProtocol.isRingName($0.name ?? "") }
+    override func belongsInList(_ p: CBPeripheral, isLastUsed: Bool) -> Bool {
+        RingProtocol.isRingName(p.name ?? "") || isLastUsed
     }
 
     /// A tap or swipe on the ring: run whatever it is set to, and say so in the log.
@@ -286,41 +166,9 @@ final class RingManager: NSObject, ObservableObject, OnDemandWearable {
         }
     }
 
-    var isSettingUp: Bool { setupTask != nil }
-
-    var isWorking: Bool {
+    override var isWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
             || workout.isActive
-    }
-
-    /// Asks for the ring's services and keeps a watchdog on the answer. Discovery can stall
-    /// for good — the ring still held by another app, or a link restored by iOS that never
-    /// reports — and nothing else moves the state off "Discovering".
-    private func beginDiscovery(_ p: CBPeripheral) {
-        discoveryAttempts += 1
-        state = .discovering
-        p.delegate = self
-        p.discoverServices([RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService])
-        discoveryTask?.cancel()
-        discoveryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            guard let self, !Task.isCancelled, self.state == .discovering, self.peripheral === p else { return }
-            switch self.discoveryAttempts {
-            case 1:
-                JcLog.devices.notice("ring: discovery stalled; asking again")
-                self.beginDiscovery(p)
-            case 2:
-                JcLog.devices.notice("ring: discovery stalled twice; reopening the link")
-                self.discoveryAttempts = 3
-                self.resetLink()
-                self.central.cancelPeripheralConnection(p)
-                self.state = .connecting
-                self.central.connect(p)
-            default:
-                JcLog.devices.error("ring: discovery never finished")
-                self.state = .failed("the ring never answered — unbind it in QRing, or toggle Bluetooth")
-            }
-        }
     }
 
     private func becomeReady(_ p: CBPeripheral) {
@@ -380,41 +228,19 @@ final class RingManager: NSObject, ObservableObject, OnDemandWearable {
 
     // MARK: Foreground / background
 
-    func enterBackground() {
-        isBackgrounded = true
-        stopScan()
-        releaseLinkForBackground()
-    }
-
-    /// Bridge mode + Keep Alive holds the link in the background; otherwise it is reopened on
-    /// demand. Gestures ride on Keep Alive: off, they only reach Jarvis while something else has
-    /// the ring connected — saving the battery is the point of turning it off.
-    private func releaseLinkForBackground() {
-        guard !holdsLinkForWorkout else { return }
-        guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
-        if connected != nil {
-            wasConnectedBeforeBackground = connected
-            disconnect()
-        }
-    }
-
     /// The link a workout held in the background goes back to the usual rules.
     private func workoutEnded() {
         if isBackgrounded { releaseLinkForBackground() } else { releaseIfIdle() }
     }
 
-    func enterForeground() {
-        isBackgrounded = false
+    override func enterForeground() {
         session.noteAppBecameActive()
-        if let ring = wasConnectedBeforeBackground {
-            wasConnectedBeforeBackground = nil
-            // An open ring screen holds the link whatever Keep Alive says; its wear watch starts
-            // again once the link is ready.
-            if keepAliveEnabled || screenIsOpen || holdsLinkForWorkout { connect(ring) }
-        } else if state == .ready {
-            sync.syncIfStale()
-        }
+        // An open ring screen holds the link whatever Keep Alive says; its wear watch starts
+        // again once the link is ready.
+        super.enterForeground()
     }
+
+    override func foregroundWhileReady() { sync.syncIfStale() }
 }
 
 // MARK: - RingLink
@@ -453,94 +279,6 @@ extension RingManager: RingLink {
         while !pendingChunks.isEmpty {
             if type == .withoutResponse, !peripheral.canSendWriteWithoutResponse { return }
             peripheral.writeValue(pendingChunks.removeFirst(), for: characteristic, type: type)
-        }
-    }
-}
-
-// MARK: - CBCentralManagerDelegate
-
-extension RingManager: CBCentralManagerDelegate {
-    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        let on = c.state == .poweredOn
-        Task { @MainActor in
-            self.bluetoothReady = on
-            if on {
-                self.startScan()
-            } else {
-                self.state = .failed("Bluetooth off")
-                self.resetLink()
-            }
-        }
-    }
-
-    /// iOS hands the central back after a suspension or relaunch; re-adopt the ring.
-    nonisolated func centralManager(_ c: CBCentralManager, willRestoreState dict: [String: Any]) {
-        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
-        Task { @MainActor in
-            guard let p = restored.first(where: { $0.state == .connected || $0.state == .connecting }) else { return }
-            p.delegate = self
-            self.peripheral = p
-            self.connected = DiscoveredRing(id: p.identifier, name: p.name ?? "Ring", rssi: 0, peripheral: p)
-            self.discoveryAttempts = 0
-            if p.state == .connected {
-                self.beginDiscovery(p)
-            } else {
-                self.state = .connecting
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral,
-                                    advertisementData ad: [String: Any], rssi RSSI: NSNumber) {
-        let name = (ad[CBAdvertisementDataLocalNameKey] as? String) ?? p.name ?? ""
-        let services = ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let rssi = RSSI.intValue
-        Task { @MainActor in
-            let byName = RingProtocol.isRingName(name)
-            let byService = services.contains(RingProtocol.commandService)
-            guard byName || (!self.strictNameMatch && byService) else { return }
-            if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
-                self.discovered[i].rssi = rssi
-                if !name.isEmpty { self.discovered[i].name = name }
-            } else {
-                self.discovered.append(DiscoveredRing(id: p.identifier, name: name.isEmpty ? "Ring" : name,
-                                                      rssi: rssi, peripheral: p))
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
-        Task { @MainActor in
-            self.beginDiscovery(p)
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        Task { @MainActor in
-            JcLog.devices.notice("ring: failed to connect (\(error?.localizedDescription ?? "?", privacy: .public))")
-            self.state = .failed(error?.localizedDescription ?? "could not connect")
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        let reason = error?.localizedDescription ?? "no error"
-        Task { @MainActor in
-            // A callback for a peripheral we already let go of is the tail of a deliberate
-            // disconnect; acting on it would throw away a fresh connect request.
-            guard p === self.peripheral else { return }
-            self.setupTask?.cancel()
-            self.setupTask = nil
-            self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForWorkout else {
-                JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); keep-alive off")
-                self.connected = nil
-                self.state = .idle
-                return
-            }
-            JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); reconnecting")
-            self.discoveryAttempts = 0
-            self.state = .connecting
-            self.central.connect(p)
         }
     }
 }

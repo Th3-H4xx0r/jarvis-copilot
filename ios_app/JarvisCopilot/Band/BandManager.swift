@@ -11,13 +11,7 @@ import UIKit
 /// `BandSession`. The band advertises only FEE7 and Veepoo's manufacturer data, so a device it
 /// hasn't seen before must pass the Veepoo handshake before it is remembered.
 @MainActor
-final class BandManager: NSObject, ObservableObject, OnDemandWearable {
-    @Published private(set) var state: ConnectionState = .idle
-    @Published private(set) var bluetoothReady = false
-    @Published private(set) var discovered: [DiscoveredRing] = []
-    @Published private(set) var connected: DiscoveredRing?
-    /// Bands forgotten this session: their page must not reconnect them on the way out.
-    @Published private(set) var forgottenIDs: Set<UUID> = []
+final class BandManager: BLEWearableManager {
 
     let session = BandSession()
     /// The band's measuring, managed by the band or by the phone.
@@ -39,9 +33,9 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
     /// The workout controller, for `band_workout`.
     weak var workouts: RingWorkoutController?
     var workoutRunning: Bool { workoutHold?() ?? false }
-    var holdsLinkForWorkout: Bool { workoutRunning }
+    override var holdsLinkForWorkout: Bool { workoutRunning }
 
-    var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.band) }
+    override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.band) }
 
     var deviceID: String? {
         WearableIdentity.remembered(WearableKeepAlive.band)
@@ -52,60 +46,33 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
     var exposedDeviceID: String? { exposedDevice?.deviceID }
 
-    var linkIsUp: Bool {
-        switch state {
-        case .connecting, .discovering, .ready: return true
-        case .idle, .scanning, .failed: return false
-        }
-    }
-
     /// True while the band's screen is open: the link stays up whatever Keep Alive says.
-    var screenIsOpen = false {
-        didSet {
-            guard oldValue != screenIsOpen else { return }
-            if screenIsOpen { uploads.flush() }
-            holdChanged(screenIsOpen)
-        }
+    override var screenIsOpen: Bool {
+        didSet { if screenIsOpen, !oldValue { uploads.flush() } }
     }
 
     /// True while the Health tab is open: held so a refresh or a spot check needs no connect.
-    var healthIsOpen = false {
-        didSet {
-            guard oldValue != healthIsOpen else { return }
-            if healthIsOpen { uploads.flush() }
-            holdChanged(healthIsOpen, connectIfDown: true)
-        }
+    override var healthIsOpen: Bool {
+        didSet { if healthIsOpen, !oldValue { uploads.flush() } }
     }
 
-    private var central: CBCentralManager!
-    private var peripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
     /// The ECG waveform channel, subscribed while an ECG runs.
     private var waveCharacteristic: CBCharacteristic?
     private var exposedDevice: BandDevice?
-    private var scanTimeoutTask: Task<Void, Never>?
-    var idleDropTask: Task<Void, Never>?
-    let linkLogName = "band"
     /// Backgrounded mid-reading: the link drops once the reading ends.
     private var backgroundDropTask: Task<Void, Never>?
-    private var setupTask: Task<Void, Never>?
-    private var discoveryTask: Task<Void, Never>?
-    private var discoveryAttempts = 0
     private var periodicSync: Task<Void, Never>?
     private var batteryWatch: Set<AnyCancellable> = []
     private var batteryTicker: Task<Void, Never>?
     private var lastBatteryRead = Date.distantPast
-    private var wasConnectedBeforeBackground: DiscoveredRing?
-    private var isBackgrounded = false
     static let lastPeripheralKey = "lastConnectedBandPeripheral"
 
-    override init() {
-        super.init()
-        central = CBCentralManager(
-            delegate: self,
-            queue: .main,
-            options: [CBCentralManagerOptionRestoreIdentifierKey:
-                        "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral"])
+    init() {
+        super.init(logName: "band", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral",
+                   lastPeripheralKey: Self.lastPeripheralKey, fallbackName: BandDevice.fallbackName,
+                   primaryService: BandGATT.service, servicesToDiscover: [BandGATT.service, BandGATT.waveService],
+                   discoveryFailure: "the band never answered — toggle Bluetooth, or unbind it in its own app")
         session.attach(self)
         measureScheduler.attach(self)
         measureScheduler.noteControlIfUnlogged(in: battery)
@@ -184,97 +151,16 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
         return n.hasPrefix("E910") || n.contains("HBAND") || n.contains("VEEPOO")
     }
 
-    // MARK: Scanning
-
-    func startScan() {
-        guard bluetoothReady else { return }
-        forgottenIDs.removeAll()
-        discovered.removeAll { $0.id != connected?.id }
-        surfaceKnownPeripherals()
-        if !linkIsUp { state = .scanning }
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.stopScan()
-        }
+    override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {
+        Self.isCandidate(name: name, manufacturer: manufacturer)
     }
 
-    func stopScan() {
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = nil
-        central.stopScan()
-        if case .scanning = state { state = .idle }
-    }
+    // MARK: Link
 
-    /// A band iOS already holds doesn't advertise: find it by its service, or as the last one used.
-    private func surfaceKnownPeripherals() {
-        guard bluetoothReady else { return }
-        let last = UserDefaults.standard.string(forKey: Self.lastPeripheralKey)
-        var candidates = central.retrieveConnectedPeripherals(withServices: [BandGATT.service])
-        if let last, let uuid = UUID(uuidString: last) {
-            candidates += central.retrievePeripherals(withIdentifiers: [uuid])
-        }
-        for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
-            discovered.append(DiscoveredRing(id: p.identifier, name: p.name ?? BandDevice.fallbackName, rssi: 0, peripheral: p))
-        }
-    }
-
-    // MARK: Connection
-
-    func connect(_ band: DiscoveredRing) {
-        JcLog.devices.notice("band: connect \(band.name, privacy: .public) state=\(self.state.text, privacy: .public)")
-        stopScan()
-        if let current = peripheral, current.identifier != band.id {
-            central.cancelPeripheralConnection(current)
-            resetLink()
-        }
-        peripheral = band.peripheral
-        connected = band
-        if !discovered.contains(where: { $0.id == band.id }) { discovered.insert(band, at: 0) }
-        discoveryAttempts = 0
-        state = .connecting
-        band.peripheral.delegate = self
-        central.connect(band.peripheral)
-    }
-
-    func disconnect() {
-        JcLog.devices.notice("band: disconnect state=\(self.state.text, privacy: .public)")
-        setupTask?.cancel()
-        setupTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
-        peripheral = nil
-        connected = nil
-        state = .idle
-        resetLink()
-    }
-
-    private func resetLink() {
+    override func resetLink() {
         writeCharacteristic = nil
         waveCharacteristic = nil
         session.linkDropped()
-    }
-
-    func startLink() {
-        if peripheral == nil, let known = knownPeripheral() {
-            connect(DiscoveredRing(id: known.identifier, name: known.name ?? BandDevice.fallbackName, rssi: 0, peripheral: known))
-        } else if let p = peripheral, state != .connecting, state != .discovering {
-            discoveryAttempts = 0
-            state = .connecting
-            p.delegate = self
-            central.connect(p)
-        }
-    }
-
-    func dropIdleLink() async { disconnect() }
-
-    private func knownPeripheral() -> CBPeripheral? {
-        guard let stored = UserDefaults.standard.string(forKey: Self.lastPeripheralKey),
-              let uuid = UUID(uuidString: stored) else { return nil }
-        return central.retrievePeripherals(withIdentifiers: [uuid]).first
     }
 
     /// Syncs on the interval picked in the band's settings: when one is due it connects to the
@@ -375,9 +261,7 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
         Task { _ = try? await DefaultNotifier().post(LocalNotificationRequest(title: "Band battery draining fast", body: text)) }
     }
 
-    var isSettingUp: Bool { setupTask != nil }
-
-    var isWorking: Bool {
+    override var isWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measuring != nil || sync.isSyncing
     }
 
@@ -393,30 +277,6 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
         exposedDevice = nil
         WearableIdentity.forget(WearableKeepAlive.band)
         UserDefaults.standard.removeObject(forKey: Self.lastPeripheralKey)
-    }
-
-    private func beginDiscovery(_ p: CBPeripheral) {
-        discoveryAttempts += 1
-        state = .discovering
-        p.delegate = self
-        p.discoverServices([BandGATT.service, BandGATT.waveService])
-        discoveryTask?.cancel()
-        discoveryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            guard let self, !Task.isCancelled, self.state == .discovering, self.peripheral === p else { return }
-            switch self.discoveryAttempts {
-            case 1:
-                self.beginDiscovery(p)
-            case 2:
-                self.discoveryAttempts = 3
-                self.resetLink()
-                self.central.cancelPeripheralConnection(p)
-                self.state = .connecting
-                self.central.connect(p)
-            default:
-                self.state = .failed("the band never answered — toggle Bluetooth, or unbind it in its own app")
-            }
-        }
     }
 
     private func becomeReady(_ p: CBPeripheral) {
@@ -489,7 +349,7 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
 
     // MARK: Foreground / background
 
-    func enterBackground() {
+    override func enterBackground() {
         isBackgrounded = true
         stopScan()
         guard !holdsLinkForWorkout else { return }
@@ -512,17 +372,18 @@ final class BandManager: NSObject, ObservableObject, OnDemandWearable {
         }
     }
 
-    func enterForeground() {
-        isBackgrounded = false
+    override func enterForeground() {
         backgroundDropTask?.cancel()
         backgroundDropTask = nil
-        if let band = wasConnectedBeforeBackground {
-            wasConnectedBeforeBackground = nil
-            if keepAliveEnabled || screenIsOpen || healthIsOpen || holdsLinkForWorkout { connect(band) }
-        } else if state == .ready, sync.isStale, !holdsLinkForWorkout {
-            Task { await self.sync.sync() }
-        }
+        super.enterForeground()
     }
+
+    override func foregroundWhileReady() {
+        if sync.isStale, !holdsLinkForWorkout { Task { await self.sync.sync() } }
+    }
+
+    /// A band iOS already holds doesn't advertise; Bluetooth coming on lists it, no scan.
+    override func bluetoothBecameReady() { surfaceKnownPeripherals() }
 }
 
 // MARK: - BandLink
@@ -534,82 +395,6 @@ extension BandManager: BandLink {
         guard let peripheral, let characteristic = writeCharacteristic else { return }
         let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
         peripheral.writeValue(Data(frame), for: characteristic, type: type)
-    }
-}
-
-// MARK: - CBCentralManagerDelegate
-
-extension BandManager: CBCentralManagerDelegate {
-    nonisolated func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        let on = c.state == .poweredOn
-        Task { @MainActor in
-            self.bluetoothReady = on
-            if on {
-                self.surfaceKnownPeripherals()
-            } else {
-                self.state = .failed("Bluetooth off")
-                self.resetLink()
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, willRestoreState dict: [String: Any]) {
-        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
-        Task { @MainActor in
-            guard let p = restored.first(where: { $0.state == .connected || $0.state == .connecting }) else { return }
-            p.delegate = self
-            self.peripheral = p
-            self.connected = DiscoveredRing(id: p.identifier, name: p.name ?? BandDevice.fallbackName, rssi: 0, peripheral: p)
-            self.discoveryAttempts = 0
-            if p.state == .connected { self.beginDiscovery(p) } else { self.state = .connecting }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral,
-                                    advertisementData ad: [String: Any], rssi RSSI: NSNumber) {
-        let name = (ad[CBAdvertisementDataLocalNameKey] as? String) ?? p.name ?? ""
-        let maker = (ad[CBAdvertisementDataManufacturerDataKey] as? Data).flatMap { data -> UInt16? in
-            data.count >= 2 ? UInt16(data[data.startIndex]) | UInt16(data[data.startIndex + 1]) << 8 : nil
-        }
-        let rssi = RSSI.intValue
-        Task { @MainActor in
-            guard Self.isCandidate(name: name, manufacturer: maker) else { return }
-            if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
-                self.discovered[i].rssi = rssi
-                if !name.isEmpty { self.discovered[i].name = name }
-            } else {
-                self.discovered.append(DiscoveredRing(id: p.identifier, name: name.isEmpty ? BandDevice.fallbackName : name,
-                                                      rssi: rssi, peripheral: p))
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
-        Task { @MainActor in self.beginDiscovery(p) }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        Task { @MainActor in self.state = .failed(error?.localizedDescription ?? "could not connect") }
-    }
-
-    nonisolated func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        let reason = error?.localizedDescription ?? "no error"
-        Task { @MainActor in
-            guard p === self.peripheral else { return }
-            self.setupTask?.cancel()
-            self.setupTask = nil
-            self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.healthIsOpen || self.holdsLinkForWorkout else {
-                JcLog.devices.notice("band: link dropped (\(reason, privacy: .public)); keep-alive off")
-                self.connected = nil
-                self.state = .idle
-                return
-            }
-            JcLog.devices.notice("band: link dropped (\(reason, privacy: .public)); reconnecting")
-            self.discoveryAttempts = 0
-            self.state = .connecting
-            self.central.connect(p)
-        }
     }
 }
 

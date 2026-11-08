@@ -20,21 +20,6 @@ struct TrafficEntry: Identifiable {
     let note: String
 }
 
-enum ConnectionState: Equatable {
-    case idle, scanning, connecting, discovering, ready, failed(String)
-
-    var text: String {
-        switch self {
-        case .idle:         return "Idle"
-        case .scanning:     return "Scanning…"
-        case .connecting:   return "Connecting…"
-        case .discovering:  return "Discovering…"
-        case .ready:        return "Connected"
-        case .failed(let m): return "Failed: \(m)"
-        }
-    }
-}
-
 @MainActor
 final class BottleManager: NSObject, ObservableObject {
     @Published private(set) var state: ConnectionState = .idle
