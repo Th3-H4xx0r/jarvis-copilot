@@ -1549,8 +1549,9 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
     """Invoke a single tool and return the result string. No display logic.
 
     Handles both agent-level tools (todo, memory, etc.) and registry-dispatched
-    tools. Used by the concurrent execution path; the sequential path retains
-    its own inline invocation for backward-compatible display handling.
+    tools. Used by the concurrent execution path and the structured engine;
+    the sequential path calls it for the agent-state tools and keeps its own
+    spinner/display handling for the rest.
     """
     # Check plugin hooks for a block directive before executing anything.
     block_message: Optional[str] = None
@@ -1753,54 +1754,15 @@ def sanitize_api_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]
         filtered.append(msg)
     messages = filtered
 
-    surviving_call_ids: set = set()
-    for msg in messages:
-        if msg.get("role") == "assistant":
-            for tc in msg.get("tool_calls") or []:
-                cid = _ra().AIAgent._get_tool_call_id_static(tc)
-                if cid:
-                    surviving_call_ids.add(cid)
+    from agent.message_sanitization import repair_tool_call_pairs
 
-    result_call_ids: set = set()
-    for msg in messages:
-        if msg.get("role") == "tool":
-            cid = msg.get("tool_call_id")
-            if cid:
-                result_call_ids.add(cid)
-
-    # 1. Drop tool results with no matching assistant call
-    orphaned_results = result_call_ids - surviving_call_ids
-    if orphaned_results:
-        messages = [
-            m for m in messages
-            if not (m.get("role") == "tool" and m.get("tool_call_id") in orphaned_results)
-        ]
-        _ra().logger.debug(
-            "Pre-call sanitizer: removed %d orphaned tool result(s)",
-            len(orphaned_results),
-        )
-
-    # 2. Inject stub results for calls whose result was dropped
-    missing_results = surviving_call_ids - result_call_ids
-    if missing_results:
-        patched: List[Dict[str, Any]] = []
-        for msg in messages:
-            patched.append(msg)
-            if msg.get("role") == "assistant":
-                for tc in msg.get("tool_calls") or []:
-                    cid = _ra().AIAgent._get_tool_call_id_static(tc)
-                    if cid in missing_results:
-                        patched.append({
-                            "role": "tool",
-                            "name": _ra().AIAgent._get_tool_call_name_static(tc),
-                            "content": "[Result unavailable — see context summary above]",
-                            "tool_call_id": cid,
-                        })
-        messages = patched
-        _ra().logger.debug(
-            "Pre-call sanitizer: added %d stub tool result(s)",
-            len(missing_results),
-        )
+    messages, dropped, stubbed = repair_tool_call_pairs(
+        messages, stub_content="[Result unavailable — see context summary above]",
+    )
+    if dropped:
+        _ra().logger.debug("Pre-call sanitizer: removed %d orphaned tool result(s)", dropped)
+    if stubbed:
+        _ra().logger.debug("Pre-call sanitizer: added %d stub tool result(s)", stubbed)
     return messages
 
 

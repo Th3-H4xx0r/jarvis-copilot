@@ -429,6 +429,80 @@ def _sanitize_structure_non_ascii(payload: Any) -> bool:
     return found
 
 
+def _tool_call_id(tc: Any) -> str:
+    """Call ID of a tool_call entry (dict or object)."""
+    if isinstance(tc, dict):
+        return tc.get("call_id", "") or tc.get("id", "") or ""
+    return getattr(tc, "call_id", "") or getattr(tc, "id", "") or ""
+
+
+def _tool_call_name(tc: Any) -> str:
+    """Function name of a tool_call entry (dict or object), or ""."""
+    fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+    if isinstance(fn, dict):
+        return fn.get("name", "") or ""
+    if isinstance(tc, dict):
+        return ""
+    return getattr(fn, "name", "") or ""
+
+
+def repair_tool_call_pairs(messages: list, *, stub_content: str) -> tuple[list, int, int]:
+    """Make every tool result answer a call and every call have a result.
+
+    Two failure modes are fixed:
+
+    1. A tool *result* whose assistant tool_call is gone (summarized away,
+       truncated, or lost on session load).  The API rejects it with
+       "No tool call found for function call output with call_id ...".
+       Such results are dropped.
+    2. An assistant tool_call whose result is gone.  Every call must be
+       followed by a result with the matching call_id, so a stub result
+       carrying *stub_content* is inserted right after the assistant turn.
+       Stubs carry the function name, which Gemini's OpenAI-compatible
+       endpoint requires on every ``role: tool`` message.
+
+    Returns ``(messages, dropped_results, stubbed_results)``; the input list
+    is not modified.
+    """
+    call_ids = {
+        cid
+        for msg in messages if msg.get("role") == "assistant"
+        for cid in map(_tool_call_id, msg.get("tool_calls") or []) if cid
+    }
+    result_ids = {
+        msg.get("tool_call_id")
+        for msg in messages
+        if msg.get("role") == "tool" and msg.get("tool_call_id")
+    }
+
+    orphaned_results = result_ids - call_ids
+    if orphaned_results:
+        messages = [
+            m for m in messages
+            if not (m.get("role") == "tool" and m.get("tool_call_id") in orphaned_results)
+        ]
+
+    missing_results = call_ids - result_ids
+    if missing_results:
+        patched: list = []
+        for msg in messages:
+            patched.append(msg)
+            if msg.get("role") != "assistant":
+                continue
+            for tc in msg.get("tool_calls") or []:
+                cid = _tool_call_id(tc)
+                if cid in missing_results:
+                    patched.append({
+                        "role": "tool",
+                        "name": _tool_call_name(tc),
+                        "content": stub_content,
+                        "tool_call_id": cid,
+                    })
+        messages = patched
+
+    return messages, len(orphaned_results), len(missing_results)
+
+
 __all__ = [
     "_SURROGATE_RE",
     "_sanitize_surrogates",
@@ -441,4 +515,5 @@ __all__ = [
     "_sanitize_tools_non_ascii",
     "_strip_images_from_messages",
     "_sanitize_structure_non_ascii",
+    "repair_tool_call_pairs",
 ]

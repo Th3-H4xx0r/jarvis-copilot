@@ -55,6 +55,10 @@ logger = logging.getLogger(__name__)
 # Mirrors the constant in ``run_agent`` for tests/imports that look here.
 _MAX_TOOL_WORKERS = 8
 
+# Tools that run on agent state rather than through the registry; the
+# sequential path hands them to ``invoke_tool`` like the concurrent one.
+_AGENT_STATE_TOOLS = frozenset({"todo", "session_search", "memory", "clarify", "tool_search", "tool_call"})
+
 
 def _ra():
     """Lazy reference to ``run_agent`` so patches like ``run_agent._set_interrupt`` work."""
@@ -618,97 +622,21 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             # tool result for the original tool_call_id without executing.
             function_result = agent._guardrail_block_result(_guardrail_block_decision)
             tool_duration = 0.0
-        elif function_name == "todo":
-            from tools.todo_tool import todo_tool as _todo_tool
-            function_result = _todo_tool(
-                todos=function_args.get("todos"),
-                merge=function_args.get("merge", False),
-                store=agent._todo_store,
+        elif function_name in _AGENT_STATE_TOOLS:
+            function_result = agent._invoke_tool(
+                function_name, function_args, effective_task_id,
+                tool_call_id=getattr(tool_call, "id", None),
+                pre_tool_block_checked=True,
             )
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
-        elif function_name == "session_search":
-            session_db = agent._get_session_db_for_recall()
-            if not session_db:
-                from jarviscopilot_state import format_session_db_unavailable
-                function_result = json.dumps({"success": False, "error": format_session_db_unavailable()})
-            else:
-                from tools.session_search_tool import session_search as _session_search
-                function_result = _session_search(
-                    query=function_args.get("query", ""),
-                    role_filter=function_args.get("role_filter"),
-                    limit=function_args.get("limit", 3),
-                    session_id=function_args.get("session_id"),
-                    around_message_id=function_args.get("around_message_id"),
-                    window=function_args.get("window", 5),
-                    sort=function_args.get("sort"),
-                    db=session_db,
-                    current_session_id=agent.session_id,
-                )
-            tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
-        elif function_name == "memory":
-            target = function_args.get("target", "memory")
-            from tools.memory_tool import memory_tool as _memory_tool
-            function_result = _memory_tool(
-                action=function_args.get("action"),
-                target=target,
-                content=function_args.get("content"),
-                old_text=function_args.get("old_text"),
-                store=agent._memory_store,
-            )
-            # Bridge: notify external memory provider of built-in memory writes
-            if agent._memory_manager and function_args.get("action") in {"add", "replace"}:
-                try:
-                    agent._memory_manager.on_memory_write(
-                        function_args.get("action", ""),
-                        target,
-                        function_args.get("content", ""),
-                        metadata=agent._build_memory_write_metadata(
-                            task_id=effective_task_id,
-                            tool_call_id=getattr(tool_call, "id", None),
-                        ),
-                    )
-                except Exception:
-                    pass
-            tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('memory', function_args, tool_duration, result=function_result)}")
-        elif function_name == "clarify":
-            from tools.clarify_tool import clarify_tool as _clarify_tool
-            function_result = _clarify_tool(
-                question=function_args.get("question", ""),
-                choices=function_args.get("choices"),
-                callback=agent.clarify_callback,
-            )
-            tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
-        elif function_name == "tool_search":
-            # Lazy tool-loading: resolve the query and return the matching
-            # tools' full schemas. Needs agent state, so it's intercepted here
-            # rather than dispatched through the registry. With the bridge on
-            # the advertised tool list is left untouched and the model reaches
-            # these through tool_call; with it off they are promoted into
-            # agent.tools the old way.
-            from tools.lazy_tools import handle_tool_search
-            function_result = handle_tool_search(agent, function_args)
-            tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('tool_search', function_args, tool_duration, result=function_result)}")
-        elif function_name == "tool_call":
-            # The cache-safe invocation path for a deferred tool. Reported under
-            # the REAL tool's name so the activity feed reads the same as a
-            # native call rather than a wall of "tool_call".
-            from tools.lazy_tools import handle_tool_call
-            _bridged_name = (function_args or {}).get("name") or "tool_call"
-            _bridged_args = (function_args or {}).get("arguments") or {}
-            function_result = handle_tool_call(agent, function_args, effective_task_id)
-            tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl(_bridged_name, _bridged_args, tool_duration, result=function_result)}")
+                shown_name, shown_args = function_name, function_args
+                if function_name == "tool_call":
+                    # A deferred tool is reported under the REAL tool's name
+                    # so the activity feed reads the same as a native call.
+                    shown_name = (function_args or {}).get("name") or "tool_call"
+                    shown_args = (function_args or {}).get("arguments") or {}
+                agent._vprint(f"  {_get_cute_tool_message_impl(shown_name, shown_args, tool_duration, result=function_result)}")
         elif function_name == "delegate_task":
             tasks_arg = function_args.get("tasks")
             if tasks_arg and isinstance(tasks_arg, list):
