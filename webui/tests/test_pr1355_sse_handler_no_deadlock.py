@@ -105,11 +105,11 @@ def test_handler_snapshot_does_not_deadlock_when_queue_has_entry():
         clarify.resolve_clarify(sid, "a")
 
 
-def test_routes_handler_does_not_call_get_pending_under_lock():
-    """Source-level invariant: routes.py must not call get_clarify_pending()
-    inside the `with _clarify_lock:` block — that would re-acquire _lock and
+def test_clarify_handler_does_not_call_get_pending_under_lock():
+    """Source-level invariant: the clarify SSE handler must not call get_pending()
+    inside its `with _lock:` block — that would re-acquire _lock and
     deadlock."""
-    src = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
+    src = (REPO_ROOT / "api" / "clarify.py").read_text(encoding="utf-8")
     # Find _handle_clarify_sse_stream
     start = src.find("def _handle_clarify_sse_stream(")
     assert start != -1, "_handle_clarify_sse_stream must exist"
@@ -117,8 +117,8 @@ def test_routes_handler_does_not_call_get_pending_under_lock():
     body = src[start:end if end != -1 else len(src)]
 
     # Find the lock block
-    lock_start = body.find("with _clarify_lock:")
-    assert lock_start != -1, "Handler must use `with _clarify_lock:`"
+    lock_start = body.find("with _lock:")
+    assert lock_start != -1, "Handler must use `with _lock:`"
 
     # Walk forward by indentation to find the end of the lock block
     lines = body[lock_start:].split("\n")
@@ -136,9 +136,9 @@ def test_routes_handler_does_not_call_get_pending_under_lock():
         lock_block_lines.append(line)
     lock_body = "\n".join(lock_block_lines)
 
-    assert "get_clarify_pending(" not in lock_body, (
-        "_handle_clarify_sse_stream must not call get_clarify_pending() "
-        "inside `with _clarify_lock:` — it acquires _lock internally and "
+    assert "get_pending(" not in lock_body, (
+        "_handle_clarify_sse_stream must not call get_pending() "
+        "inside `with _lock:` — it acquires _lock internally and "
         "would deadlock the handler thread (non-reentrant Lock)."
     )
     assert "clarify.get_pending(" not in lock_body, (

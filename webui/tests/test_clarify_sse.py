@@ -14,7 +14,6 @@ import textwrap
 import pytest
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-_ROUTES = os.path.join(os.path.dirname(__file__), "..", "api", "routes.py")
 _CLARIFY = os.path.join(os.path.dirname(__file__), "..", "api", "clarify.py")
 _MESSAGES = os.path.join(os.path.dirname(__file__), "..", "static", "messages.js")
 
@@ -50,8 +49,8 @@ class TestClarifySSEBackendCode:
 
 class TestClarifySSERoutesCode:
     def test_route_registered(self):
-        src = _read(_ROUTES)
-        assert '"/api/clarify/stream"' in src, "Missing /api/clarify/stream route"
+        from api.mounts import _owner
+        assert _owner("/api/clarify/stream") == ("/api/clarify", "api.clarify")
 
 class TestClarifySSEFrontendCode:
     @pytest.fixture(autouse=True)

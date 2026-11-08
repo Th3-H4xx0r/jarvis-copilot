@@ -12,55 +12,85 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
-ROUTES_SRC = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
 MESSAGES_JS = (REPO_ROOT / "static" / "messages.js").read_text(encoding="utf-8")
 INDEX_HTML = (REPO_ROOT / "static" / "index.html").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
-# Static-analysis: Python routes
+# Behaviour: api.approvals queue
 # ---------------------------------------------------------------------------
 
-def test_submit_pending_appends_to_list():
-    """submit_pending() must append to a list, not overwrite."""
-    # The new wrapper must contain a queue append (list mutation pattern)
-    assert "queue_list.append(entry)" in ROUTES_SRC or "queue.append(entry)" in ROUTES_SRC, \
-        "submit_pending() must append entry to a list queue, not overwrite _pending[sid]"
+class _Handler:
+    def __init__(self):
+        import io
+        self.wfile = io.BytesIO()
+        self.status = None
+        self.headers = {}
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, *a):
+        pass
+
+    def end_headers(self):
+        pass
+
+    def json(self):
+        return json.loads(self.wfile.getvalue().decode("utf-8"))
 
 
-def test_submit_pending_adds_approval_id():
-    """Each queued entry must get a unique approval_id."""
-    assert "approval_id" in ROUTES_SRC and "uuid.uuid4().hex" in ROUTES_SRC, \
-        "submit_pending() must assign a uuid4 approval_id to each queued entry"
+def _reset(r, sid):
+    with r._lock:
+        r._pending.pop(sid, None)
 
 
-def test_handle_approval_pending_returns_count():
-    """_handle_approval_pending must return pending_count in its response."""
-    assert '"pending_count"' in ROUTES_SRC, \
-        "_handle_approval_pending must include pending_count in the JSON response"
+def _submit(r, sid, n):
+    for i in range(1, n + 1):
+        r.submit_pending(sid, {"command": f"cmd{i}", "pattern_key": f"p{i}",
+                               "pattern_keys": [f"p{i}"], "description": f"d{i}"})
 
 
-def test_handle_approval_respond_pops_by_approval_id():
-    """_handle_approval_respond must target entry by approval_id."""
-    assert 'approval_id = body.get("approval_id"' in ROUTES_SRC, \
-        "_handle_approval_respond must read approval_id from request body"
-    assert 'entry.get("approval_id") == approval_id' in ROUTES_SRC, \
-        "_handle_approval_respond must find and pop the matching entry by approval_id"
+def test_pending_returns_head_and_count():
+    from api import approvals as r
+    sid = "test-pending-count-sid"
+    _reset(r, sid)
+    _submit(r, sid, 2)
+    h = _Handler()
+    r._handle_approval_pending(h, sid)
+    out = h.json()
+    assert out["pending"]["command"] == "cmd1"
+    assert out["pending_count"] == 2
+    _reset(r, sid)
+    h = _Handler()
+    r._handle_approval_pending(h, sid)
+    assert h.json() == {"pending": None, "pending_count": 0}
 
 
-def test_handle_approval_respond_fallback_to_oldest():
-    """When no approval_id is given, fall back to popping the oldest entry (FIFO)."""
-    # The fallback path: queue.pop(0) when approval_id is empty
-    assert "queue.pop(0)" in ROUTES_SRC, \
-        "_handle_approval_respond must fall back to popping the oldest entry when approval_id is absent"
+def test_respond_without_id_pops_oldest():
+    from api import approvals as r
+    sid = "test-respond-oldest-sid"
+    _reset(r, sid)
+    _submit(r, sid, 2)
+    r.respond_approval(sid, "deny")
+    with r._lock:
+        assert [e["command"] for e in r._pending[sid]] == ["cmd2"]
+    r.respond_approval(sid, "deny", "no-such-id")
+    with r._lock:
+        assert sid not in r._pending
 
 
-def test_backward_compat_legacy_dict_value():
-    """The respond handler must tolerate a legacy single-dict value in _pending."""
-    assert "Legacy single-dict value" in ROUTES_SRC or \
-           "# Legacy single-dict" in ROUTES_SRC or \
-           "elif queue:" in ROUTES_SRC, \
-        "respond handler must handle legacy single-dict _pending values for backward compatibility"
+def test_respond_tolerates_legacy_single_dict_value():
+    from api import approvals as r
+    sid = "test-respond-legacy-sid"
+    with r._lock:
+        r._pending[sid] = {"command": "old", "pattern_key": "p"}
+    h = _Handler()
+    r._handle_approval_pending(h, sid)
+    assert h.json() == {"pending": {"command": "old", "pattern_key": "p"}, "pending_count": 1}
+    r.respond_approval(sid, "deny")
+    with r._lock:
+        assert sid not in r._pending
 
 
 # ---------------------------------------------------------------------------
@@ -115,13 +145,13 @@ def test_approval_counter_element_exists():
 
 
 # ---------------------------------------------------------------------------
-# Functional: multiple entries behave correctly (via routes module directly)
+# Functional: multiple entries behave correctly
 # ---------------------------------------------------------------------------
 
 def test_multiple_approvals_both_surfaced():
     """Two submit_pending calls must produce two queued entries, not one."""
     import threading
-    from api import routes as r
+    from api import approvals as r
 
     # Reset state
     sid = "test-multi-approval-sid"
@@ -149,7 +179,7 @@ def test_multiple_approvals_both_surfaced():
 
 def test_respond_by_approval_id_pops_correct_entry():
     """Responding with approval_id must remove only the targeted entry."""
-    from api import routes as r
+    from api import approvals as r
 
     sid = "test-respond-by-id-sid"
     with r._lock:
@@ -165,17 +195,7 @@ def test_respond_by_approval_id_pops_correct_entry():
     assert aid2, "Second entry must have an approval_id"
 
     # Respond to the SECOND entry by its approval_id
-    # We call the handler internals directly (no HTTP)
-    with r._lock:
-        queue = r._pending.get(sid, [])
-        popped = None
-        for i, entry in enumerate(queue):
-            if entry.get("approval_id") == aid2:
-                popped = queue.pop(i)
-                break
-
-    assert popped is not None, "Should have found and popped entry by approval_id"
-    assert popped["command"] == "cmd2", "Popped the wrong entry"
+    r.respond_approval(sid, "deny", aid2)
 
     with r._lock:
         remaining = r._pending.get(sid, [])

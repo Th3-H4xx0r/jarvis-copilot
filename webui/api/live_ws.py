@@ -3745,22 +3745,13 @@ def _live_events_sse(handler, parsed) -> bool:
         # same table today.
         segments = [segment_frame(row)
                     for row in live_store.segments_after(sid, after_seq)]
-        sse.send(handler, "snapshot", {
+        sse.relay(handler, q, greet=("snapshot", {
             "live_session_id": sid,
             "session": session,
             "segments": segments,
             "last_seq": int(session.get("last_seq") or 0),
             "after_seq": after_seq,
-        })
-        while True:
-            try:
-                event, data = q.get(timeout=sse.HEARTBEAT_SECONDS)
-            except queue.Empty:
-                sse.keepalive(handler)
-                continue
-            sse.send(handler, event, data)
-    except sse.CLIENT_GONE:
-        pass
+        }))
     finally:
         unsubscribe(sid, q)
     return True

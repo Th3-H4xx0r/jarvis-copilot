@@ -1632,145 +1632,6 @@ from api.oauth import (
     start_onboarding_oauth_flow,
 )
 
-# Approval system (optional -- graceful fallback if agent not available)
-try:
-    from tools.approval import (
-        submit_pending as _submit_pending_raw,
-        approve_session,
-        approve_permanent,
-        save_permanent_allowlist,
-        is_approved,
-        _pending,
-        _lock,
-        _permanent_approved,
-        resolve_gateway_approval,
-        enable_session_yolo,
-        disable_session_yolo,
-        is_session_yolo_enabled,
-    )
-except ImportError:
-    _submit_pending_raw = lambda *a, **k: None
-    approve_session = lambda *a, **k: None
-    approve_permanent = lambda *a, **k: None
-    save_permanent_allowlist = lambda *a, **k: None
-    is_approved = lambda *a, **k: True
-    resolve_gateway_approval = lambda *a, **k: 0
-    enable_session_yolo = lambda *a, **k: None
-    disable_session_yolo = lambda *a, **k: None
-    is_session_yolo_enabled = lambda *a, **k: False
-    _pending = {}
-    _lock = threading.Lock()
-    _permanent_approved = set()
-
-
-# ── Approval SSE subscribers (long-connection push) ──────────────────────────
-_approval_sse_subscribers: dict[str, list[queue.Queue]] = {}
-
-
-def _approval_sse_subscribe(session_id: str) -> queue.Queue:
-    """Register an SSE subscriber for approval events on a given session."""
-    q = queue.Queue(maxsize=16)
-    with _lock:
-        _approval_sse_subscribers.setdefault(session_id, []).append(q)
-    return q
-
-
-def _approval_sse_unsubscribe(session_id: str, q: queue.Queue) -> None:
-    """Remove an SSE subscriber."""
-    with _lock:
-        subs = _approval_sse_subscribers.get(session_id)
-        if subs and q in subs:
-            subs.remove(q)
-            if not subs:
-                _approval_sse_subscribers.pop(session_id, None)
-
-
-def _approval_sse_notify_locked(session_id: str, head: dict | None, total: int) -> None:
-    """Push an approval event to all SSE subscribers for a session.
-
-    CALLER MUST HOLD `_lock`. Snapshots the subscriber list under the held
-    lock and then calls `q.put_nowait()` on each (which is itself thread-safe).
-
-    `head` is the approval entry currently at the head of the queue (the one
-    the UI should display) — NOT the just-appended entry. With multiple
-    parallel approvals (#527), the just-appended entry is at the TAIL, but
-    `/api/approval/pending` always returns the HEAD, so SSE must match.
-
-    `total` is the total number of pending approvals.
-
-    Pass `head=None` and `total=0` when the queue has just been emptied (e.g.
-    `_handle_approval_respond` popped the last entry) so the client knows to
-    hide its approval card.
-    """
-    payload = {"pending": dict(head) if head else None, "pending_count": total}
-    subs = _approval_sse_subscribers.get(session_id, ())
-    for q in subs:
-        try:
-            q.put_nowait(payload)
-        except queue.Full:
-            pass  # drop if subscriber is slow (bounded queue prevents memory leak)
-
-
-def _approval_sse_notify(session_id: str, head: dict | None, total: int) -> None:
-    """Convenience wrapper that takes `_lock` itself.
-
-    Use only from contexts that don't already hold `_lock`. Production call
-    sites (submit_pending, _handle_approval_respond) MUST hold the lock and
-    call `_approval_sse_notify_locked` directly to avoid a notify-ordering
-    race where a later append's notify can fire before an earlier append's
-    notify (resulting in stale `pending_count`).
-    """
-    with _lock:
-        _approval_sse_notify_locked(session_id, head, total)
-
-
-def submit_pending(session_key: str, approval: dict) -> None:
-    """Append a pending approval to the per-session queue.
-
-    Wraps the agent's submit_pending to:
-    - Add a stable approval_id (uuid4 hex) so the respond endpoint can target
-      a specific entry even when multiple approvals are queued simultaneously.
-    - Change the storage from a single overwriting dict value to a list, so
-      parallel tool calls each get their own approval slot (fixes #527).
-    - Notify any connected SSE subscribers immediately.
-    """
-    entry = dict(approval)
-    entry.setdefault("approval_id", uuid.uuid4().hex)
-    with _lock:
-        queue_list = _pending.setdefault(session_key, [])
-        # Replace a legacy non-list value if the agent version uses the old pattern.
-        if not isinstance(queue_list, list):
-            _pending[session_key] = [queue_list]
-            queue_list = _pending[session_key]
-        queue_list.append(entry)
-        total = len(queue_list)
-        head = queue_list[0]  # /api/approval/pending always returns head
-        # Push to SSE subscribers from inside _lock so two parallel
-        # submit_pending calls can't deliver out-of-order (T2's later
-        # notify arriving before T1's earlier notify with a stale count).
-        _approval_sse_notify_locked(session_key, head, total)
-    # NOTE: We do NOT call _submit_pending_raw here — that function overwrites
-    # _pending[session_key] with a single dict, which would undo the list we just
-    # built. The gateway blocking path uses _gateway_queues (a separate mechanism
-    # managed by check_all_command_guards / register_gateway_notify), which is
-    # unaffected by _pending. The _pending dict is only used for UI polling.
-
-# Clarify prompts (optional -- graceful fallback if agent not available)
-try:
-    from api.clarify import (
-        submit_pending as submit_clarify_pending,
-        get_pending as get_clarify_pending,
-        resolve_clarify,
-        sse_subscribe as clarify_sse_subscribe,
-        sse_unsubscribe as clarify_sse_unsubscribe,
-    )
-except ImportError:
-    submit_clarify_pending = lambda *a, **k: None
-    get_clarify_pending = lambda *a, **k: None
-    clarify_sse_subscribe = None
-    resolve_clarify = lambda *a, **k: 0
-
-
 # ── Login page locale strings ─────────────────────────────────────────────────
 # Add entries here to support more languages on the login page.
 # The key must match the 'language' setting value (from static/i18n.js LOCALES).
@@ -3492,6 +3353,7 @@ def handle_get(handler, parsed) -> bool:
         sid = parse_qs(parsed.query).get("session_id", [""])[0]
         if not sid:
             return bad(handler, "Missing session_id")
+        from api.approvals import is_session_yolo_enabled
         return j(handler, {"yolo_enabled": is_session_yolo_enabled(sid)})
 
     if parsed.path == "/api/session/usage":
@@ -3811,30 +3673,6 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/api/file":
         return _handle_file_read(handler, parsed)
-
-    if parsed.path == "/api/approval/pending":
-        return _handle_approval_pending(handler, parsed)
-
-    if parsed.path == "/api/approval/stream":
-        return _handle_approval_sse_stream(handler, parsed)
-
-    if parsed.path == "/api/approval/inject_test":
-        # Loopback-only: used by automated tests; blocked from any remote client
-        if handler.client_address[0] != "127.0.0.1":
-            return j(handler, {"error": "not found"}, status=404)
-        return _handle_approval_inject(handler, parsed)
-
-    if parsed.path == "/api/clarify/pending":
-        return _handle_clarify_pending(handler, parsed)
-
-    if parsed.path == "/api/clarify/stream":
-        return _handle_clarify_sse_stream(handler, parsed)
-
-    if parsed.path == "/api/clarify/inject_test":
-        # Loopback-only: used by automated tests; blocked from any remote client
-        if handler.client_address[0] != "127.0.0.1":
-            return j(handler, {"error": "not found"}, status=404)
-        return _handle_clarify_inject(handler, parsed)
 
     if parsed.path == "/api/onboarding/oauth/poll":
         qs = parse_qs(parsed.query)
@@ -4796,19 +4634,8 @@ def handle_post(handler, parsed) -> bool:
             return bad(handler, str(e))
         sid = body["session_id"]
         enabled = bool(body.get("enabled", True))
-        if enabled:
-            enable_session_yolo(sid)
-            # Also resolve any pending approvals for this session so the
-            # agent doesn't stay stuck waiting on an already-dismissed card.
-            try:
-                from tools.approval import _pending as _p, _lock as _l
-                with _l:
-                    _p.pop(sid, None)
-            except Exception:
-                pass
-            resolve_gateway_approval(sid, "once", resolve_all=True)
-        else:
-            disable_session_yolo(sid)
+        from api.approvals import set_yolo
+        set_yolo(sid, enabled)
         return j(handler, {"ok": True, "yolo_enabled": enabled})
 
     if parsed.path == "/api/btw":
@@ -4923,14 +4750,6 @@ def handle_post(handler, parsed) -> bool:
 
     if parsed.path == "/api/workspaces/reorder":
         return _handle_workspace_reorder(handler, body)
-
-    # ── Approval (POST) ──
-    if parsed.path == "/api/approval/respond":
-        return _handle_approval_respond(handler, body)
-
-    # ── Clarify (POST) ──
-    if parsed.path == "/api/clarify/respond":
-        return _handle_clarify_respond(handler, body)
 
     # ── Commands (POST) ──
     if parsed.path == "/api/commands/exec":
@@ -6462,16 +6281,7 @@ def _handle_session_events_sse(handler, parsed):
     # as an event rather than falling into the gap between the two.
     q = SESSION_EVENTS.subscribe(session_id)
     try:
-        sse.send(handler, 'snapshot', _session_events_snapshot(session_id))
-        while True:
-            try:
-                event, data = q.get(timeout=sse.HEARTBEAT_SECONDS)
-            except queue.Empty:
-                sse.keepalive(handler)
-                continue
-            sse.send(handler, event, data)
-    except sse.CLIENT_GONE:
-        pass
+        sse.relay(handler, q, greet=('snapshot', _session_events_snapshot(session_id)))
     finally:
         SESSION_EVENTS.unsubscribe(session_id, q)
     return True
@@ -6664,192 +6474,6 @@ def _handle_file_read(handler, parsed):
         return j(handler, read_file_content(Path(s.workspace), rel))
     except (FileNotFoundError, ValueError) as e:
         return bad(handler, _sanitize_error(e), 404)
-
-
-def _handle_approval_pending(handler, parsed):
-    sid = parse_qs(parsed.query).get("session_id", [""])[0]
-    with _lock:
-        queue = _pending.get(sid)
-        # Support both the new list format and a legacy single-dict value.
-        if isinstance(queue, list):
-            p = queue[0] if queue else None
-            total = len(queue)
-        elif queue:
-            p = queue
-            total = 1
-        else:
-            p = None
-            total = 0
-    if p:
-        return j(handler, {"pending": dict(p), "pending_count": total})
-    return j(handler, {"pending": None, "pending_count": 0})
-
-
-def _handle_approval_sse_stream(handler, parsed):
-    """SSE endpoint for real-time approval notifications.
-
-    Long-lived connection that pushes approval events the moment they arrive,
-    replacing the 1.5s polling loop.  The frontend uses EventSource and falls
-    back to HTTP polling if the connection fails.
-    """
-    sid = parse_qs(parsed.query).get("session_id", [""])[0]
-    if not sid:
-        return bad(handler, "session_id is required")
-
-    # Subscribe AND snapshot atomically under a single _lock acquisition so a
-    # submit_pending() that fires between the two cannot be lost. If we
-    # snapshot first then subscribe (the naive ordering), an approval that
-    # arrives in the gap is appended to _pending (after our snapshot) AND
-    # notified to subscribers (before we joined) — leaving the client unaware
-    # until the next event arrives.
-    q = queue.Queue(maxsize=16)
-    initial_pending = None
-    initial_count = 0
-    with _lock:
-        _approval_sse_subscribers.setdefault(sid, []).append(q)
-        q_list = _pending.get(sid)
-        if isinstance(q_list, list):
-            initial_pending = dict(q_list[0]) if q_list else None
-            initial_count = len(q_list)
-        elif q_list:
-            initial_pending = dict(q_list)
-            initial_count = 1
-
-    sse.open_stream(handler)
-
-
-    # Push initial state immediately so the client doesn't miss anything.
-    sse.send(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
-
-    try:
-        while True:
-            try:
-                payload = q.get(timeout=sse.HEARTBEAT_SECONDS)
-            except queue.Empty:
-                # Keepalive — SSE comment line prevents proxy/CDN timeout.
-                sse.keepalive(handler)
-                continue
-            if payload is None:
-                break  # signal to close
-            sse.send(handler, 'approval', payload)
-    except sse.CLIENT_GONE:
-        pass  # client went away — normal for long-lived connections
-    finally:
-        _approval_sse_unsubscribe(sid, q)
-
-
-def _handle_approval_inject(handler, parsed):
-    """Inject a fake pending approval -- loopback-only, used by automated tests."""
-    qs = parse_qs(parsed.query)
-    sid = qs.get("session_id", [""])[0]
-    key = qs.get("pattern_key", ["test_pattern"])[0]
-    cmd = qs.get("command", ["rm -rf /tmp/test"])[0]
-    if sid:
-        submit_pending(
-            sid,
-            {
-                "command": cmd,
-                "pattern_key": key,
-                "pattern_keys": [key],
-                "description": "test pattern",
-            },
-        )
-        return j(handler, {"ok": True, "session_id": sid})
-    return j(handler, {"error": "session_id required"}, status=400)
-
-
-def _handle_clarify_pending(handler, parsed):
-    sid = parse_qs(parsed.query).get("session_id", [""])[0]
-    pending = get_clarify_pending(sid)
-    if pending:
-        return j(handler, {"pending": pending})
-    return j(handler, {"pending": None})
-
-
-def _handle_clarify_sse_stream(handler, parsed):
-    """SSE endpoint for real-time clarify notifications.
-
-    Long-lived connection that pushes clarify events the moment they arrive,
-    replacing the 1.5s polling loop.  The frontend uses EventSource and falls
-    back to HTTP polling if the connection fails.
-    """
-    if clarify_sse_subscribe is None:
-        return bad(handler, "clarify SSE not available")
-
-    sid = parse_qs(parsed.query).get("session_id", [""])[0]
-    if not sid:
-        return bad(handler, "session_id is required")
-
-    # Subscribe AND snapshot atomically.  We import clarify's _lock so that
-    # subscribe and the snapshot read happen under the same mutex — same
-    # pattern as the approval SSE handler.
-    #
-    # NOTE: We must NOT call clarify.get_pending() here — it acquires _lock
-    # internally, which would deadlock since clarify._lock is a non-reentrant
-    # threading.Lock.  Instead, read _gateway_queues / _pending inline under
-    # the lock we already hold.
-    from api.clarify import (
-        _lock as _clarify_lock,
-        _clarify_sse_subscribers as _clarify_subs,
-        _gateway_queues as _clarify_gateway_queues,
-        _pending as _clarify_pending,
-    )
-    q = queue.Queue(maxsize=16)
-    initial_pending = None
-    initial_count = 0
-    with _clarify_lock:
-        _clarify_subs.setdefault(sid, []).append(q)
-        gw_q = _clarify_gateway_queues.get(sid) or []
-        if gw_q:
-            initial_pending = dict(gw_q[0].data)
-            initial_count = len(gw_q)
-        else:
-            _legacy = _clarify_pending.get(sid)
-            if _legacy:
-                initial_pending = dict(_legacy)
-                initial_count = 1
-
-    sse.open_stream(handler)
-
-
-    # Push initial state immediately so the client doesn't miss anything.
-    sse.send(handler, 'initial', {"pending": initial_pending, "pending_count": initial_count})
-
-    try:
-        while True:
-            try:
-                payload = q.get(timeout=sse.HEARTBEAT_SECONDS)
-            except queue.Empty:
-                sse.keepalive(handler)
-                continue
-            if payload is None:
-                break
-            sse.send(handler, 'clarify', payload)
-    except sse.CLIENT_GONE:
-        pass
-    finally:
-        clarify_sse_unsubscribe(sid, q)
-
-
-
-def _handle_clarify_inject(handler, parsed):
-    """Inject a fake pending clarify prompt -- loopback-only, used by automated tests."""
-    qs = parse_qs(parsed.query)
-    sid = qs.get("session_id", [""])[0]
-    question = qs.get("question", ["Which option?"])[0]
-    choices = qs.get("choices", [])
-    if sid:
-        submit_clarify_pending(
-            sid,
-            {
-                "question": question,
-                "choices_offered": choices,
-                "session_id": sid,
-                "kind": "clarify",
-            },
-        )
-        return j(handler, {"ok": True, "session_id": sid})
-    return j(handler, {"error": "session_id required"}, status=400)
 
 
 def _build_tools_catalog():
@@ -8490,94 +8114,6 @@ def _handle_workspace_reorder(handler, body):
             reordered.append(w)
     save_workspaces(reordered)
     return j(handler, {"ok": True, "workspaces": reordered})
-
-
-def _handle_approval_respond(handler, body):
-    sid = body.get("session_id", "")
-    if not sid:
-        return bad(handler, "session_id is required")
-    choice = body.get("choice", "deny")
-    if choice not in ("once", "session", "always", "deny"):
-        return bad(handler, f"Invalid choice: {choice}")
-    approval_id = body.get("approval_id", "")
-    respond_approval(sid, choice, approval_id)
-    return j(handler, {"ok": True, "choice": choice})
-
-
-def respond_approval(sid: str, choice: str, approval_id: str = "") -> int:
-    """Answer a session's waiting approval (a chat card, a Background job's
-    card, the Agents tab or a push button all land here). Returns how many
-    waiting agent threads it released."""
-    # Pop the targeted entry from the pending queue by approval_id.
-    # Falls back to popping the first entry for backward-compat with old clients.
-    pending = None
-    with _lock:
-        queue = _pending.get(sid)
-        if isinstance(queue, list):
-            if approval_id:
-                # Find and remove the specific entry by approval_id.
-                for i, entry in enumerate(queue):
-                    if entry.get("approval_id") == approval_id:
-                        pending = queue.pop(i)
-                        break
-                else:
-                    # approval_id not found -- fall back to oldest entry.
-                    pending = queue.pop(0) if queue else None
-            else:
-                pending = queue.pop(0) if queue else None
-            if not queue:
-                _pending.pop(sid, None)
-        elif queue:
-            # Legacy single-dict value.
-            pending = _pending.pop(sid, None)
-        # Notify SSE subscribers of the new head (or empty state) so the UI
-        # surfaces any trailing approvals that were queued behind this one
-        # without waiting for the next submit_pending. Without this, a parallel
-        # tool-call scenario (#527) would leave the second approval invisible
-        # in the SSE path until the next event ever fired (the agent thread
-        # would be parked indefinitely from the user's perspective).
-        if isinstance(_pending.get(sid), list) and _pending[sid]:
-            _approval_sse_notify_locked(sid, _pending[sid][0], len(_pending[sid]))
-        else:
-            _approval_sse_notify_locked(sid, None, 0)
-
-    if pending:
-        keys = pending.get("pattern_keys") or [pending.get("pattern_key", "")]
-        if choice in ("once", "session"):
-            for k in keys:
-                approve_session(sid, k)
-        elif choice == "always":
-            for k in keys:
-                approve_session(sid, k)
-                approve_permanent(k)
-            save_permanent_allowlist(_permanent_approved)
-    # Unblock the agent thread waiting in the gateway approval queue.
-    # This is the primary signal when streaming is active — the agent
-    # thread is parked in entry.event.wait() and needs to be woken up.
-    released = resolve_gateway_approval(sid, choice, resolve_all=False, approval_id=approval_id)
-    # Its copies elsewhere (the Agents tab's request, a job card's buttons) go too.
-    try:
-        from api import jarvis_approvals
-        jarvis_approvals.answered(sid, approval_id)
-    except Exception:
-        logger.debug("jarvis approval copies not settled", exc_info=True)
-    return released
-
-
-def _handle_clarify_respond(handler, body):
-    sid = body.get("session_id", "")
-    if not sid:
-        return bad(handler, "session_id is required")
-    response = body.get("response")
-    if response is None:
-        response = body.get("answer")
-    if response is None:
-        response = body.get("choice")
-    response = str(response or "").strip()
-    if not response:
-        return bad(handler, "response is required")
-    resolve_clarify(sid, response, resolve_all=False)
-    return j(handler, {"ok": True, "response": response})
 
 
 class _ManualCompressionMemoryHandler:

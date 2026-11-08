@@ -275,7 +275,7 @@ def decide(fp: str, decision: str) -> bool:
         # let go of it, so put it back — the turn is still waiting.
         _request(fp, sid, data, quiet=True)
         return True
-    from api.routes import respond_approval
+    from api.approvals import respond_approval
     released = respond_approval(sid, choice, str(data.get("approval_id") or ""))
     # respond_approval settles the copies; an ask the gateway no longer has
     # (it ended a moment ago) is just retired.

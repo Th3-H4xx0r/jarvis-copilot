@@ -44,8 +44,8 @@ def env(monkeypatch):
         ja.answered(sid, approval_id)
         return 1
 
-    import api.routes as routes
-    monkeypatch.setattr(routes, "respond_approval", fake_respond)
+    import api.approvals as approvals
+    monkeypatch.setattr(approvals, "respond_approval", fake_respond)
     yield pushes, answers, published
     cp._reset_for_tests()
     ja._reset_for_tests()

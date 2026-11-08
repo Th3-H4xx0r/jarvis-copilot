@@ -19,7 +19,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
-ROUTES_SRC = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
+ROUTES_SRC = (REPO_ROOT / "api" / "approvals.py").read_text(encoding="utf-8")
 
 
 def _extract_lock_block(body: str) -> str:
@@ -69,7 +69,7 @@ def test_snapshot_taken_under_lock():
     """The initial _pending snapshot must be guarded by `with _lock:`."""
     lock_body = _extract_lock_block(_handler_body())
     assert lock_body, "_handle_approval_sse_stream must contain a `with _lock:` block"
-    assert "_pending.get(sid)" in lock_body, \
+    assert "_head_locked(sid)" in lock_body, \
         "Initial snapshot of _pending must be read inside the `with _lock:` block"
 
 
@@ -89,7 +89,7 @@ def test_subscribe_before_snapshot_in_lock():
     assert lock_body, "Handler must contain a `with _lock:` block"
 
     sub_idx = lock_body.find("_approval_sse_subscribers")
-    snap_idx = lock_body.find("_pending.get(sid)")
+    snap_idx = lock_body.find("_head_locked(sid)")
 
     assert sub_idx != -1, "Subscriber registration must be inside the lock"
     assert snap_idx != -1, "Snapshot read must be inside the lock"
