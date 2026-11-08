@@ -159,21 +159,6 @@ def _auto_continue_freshness_window() -> float:
         return float(_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT)
 
 
-def _float_env(name: str, default: float) -> float:
-    """Read an env var as float, falling back to ``default`` on typos/empty.
-
-    A misconfigured env var (e.g. ``HERMES_AGENT_TIMEOUT=abc``) must not
-    crash the gateway or an agent turn.  Unset/empty also falls back.
-    """
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return float(default)
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return float(default)
-
-
 def _is_fresh_gateway_interruption(
     value: Any,
     *,
@@ -381,7 +366,6 @@ _hermes_home = get_hermes_home()
 
 # Load environment variables from ~/.jarviscopilot/.env first.
 # User-managed env files should override stale shell exports on restart.
-from dotenv import load_dotenv  # backward-compat for tests that monkeypatch this symbol
 from jarviscopilot_cli.env_loader import load_hermes_dotenv
 _env_path = _hermes_home / '.env'
 load_hermes_dotenv(hermes_home=_hermes_home, project_env=Path(__file__).resolve().parents[1] / '.env')
@@ -643,7 +627,9 @@ from gateway.platforms.base import (
     EphemeralReply,
     MessageEvent,
     MessageType,
+    _float_env,
     _reply_anchor_for_event,
+    _thread_metadata_for_source,
     merge_pending_message_event,
 )
 from gateway.restart import (
@@ -990,6 +976,34 @@ def _load_gateway_config() -> dict:
     except Exception:
         logger.debug("Could not load gateway config from %s", config_path)
     return {}
+
+
+def _save_config_value(key_path: str, value) -> bool:
+    """Set one dot-separated key in config.yaml.
+
+    Writes through PyYAML rather than the comment-keeping ruamel round-trip:
+    ruamel emits YAML 1.2, so a value like ``off`` comes back unquoted and
+    every PyYAML (1.1) reader here would load it as ``False``.
+    """
+    import yaml
+    config_path = _hermes_home / "config.yaml"
+    try:
+        cfg = {}
+        if config_path.exists():
+            with open(config_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        node = cfg
+        *parents, leaf = key_path.split(".")
+        for k in parents:
+            if not isinstance(node.get(k), dict):
+                node[k] = {}
+            node = node[k]
+        node[leaf] = value
+        atomic_yaml_write(config_path, cfg)
+        return True
+    except Exception as e:
+        logger.error("Failed to save config key %s: %s", key_path, e)
+        return False
 
 
 def _resolve_gateway_model(config: dict | None = None) -> str:
@@ -2566,8 +2580,8 @@ class GatewayRunner:
             if not adapter:
                 return True
 
-            reply_anchor = self._reply_anchor_for_event(event)
-            thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
+            reply_anchor = _reply_anchor_for_event(event)
+            thread_meta = _thread_metadata_for_source(event.source, reply_anchor)
             if self._queue_during_drain_enabled():
                 self._queue_or_replace_pending_event(session_key, event)
                 message = f"⏳ Gateway {self._status_action_gerund()} — queued for the next turn after it comes back."
@@ -2577,13 +2591,7 @@ class GatewayRunner:
             await adapter._send_with_retry(
                 chat_id=event.source.chat_id,
                 content=message,
-                reply_to=(
-                    reply_anchor
-                    if event.source.platform == Platform.TELEGRAM
-                    and event.source.chat_type == "dm"
-                    and event.source.thread_id
-                    else (None if event.source.platform == Platform.TELEGRAM and event.source.thread_id else event.message_id)
-                ),
+                reply_to=reply_anchor,
                 metadata=thread_meta,
             )
             return True
@@ -2754,19 +2762,13 @@ class GatewayRunner:
         except Exception as _onb_err:
             logger.debug("Failed to apply busy-input onboarding hint: %s", _onb_err)
 
-        reply_anchor = self._reply_anchor_for_event(event)
-        thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
+        reply_anchor = _reply_anchor_for_event(event)
+        thread_meta = _thread_metadata_for_source(event.source, reply_anchor)
         try:
             await adapter._send_with_retry(
                 chat_id=event.source.chat_id,
                 content=message,
-                reply_to=(
-                    reply_anchor
-                    if event.source.platform == Platform.TELEGRAM
-                    and event.source.chat_type == "dm"
-                    and event.source.thread_id
-                    else (None if event.source.platform == Platform.TELEGRAM and event.source.thread_id else event.message_id)
-                ),
+                reply_to=reply_anchor,
                 metadata=thread_meta,
             )
         except Exception as e:
@@ -5872,7 +5874,7 @@ class GatewayRunner:
         if config and hasattr(config, "get_notice_delivery"):
             notice_delivery = config.get_notice_delivery(source.platform)
 
-        metadata = self._thread_metadata_for_source(source)
+        metadata = _thread_metadata_for_source(source)
         if notice_delivery == "private" and getattr(source, "user_id", None):
             try:
                 result = await adapter.send_private_notice(
@@ -7094,7 +7096,7 @@ class GatewayRunner:
                 )
                 if any(marker in message_text for marker in _stt_fail_markers):
                     _stt_adapter = self.adapters.get(source.platform)
-                    _stt_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
+                    _stt_meta = _thread_metadata_for_source(source, _reply_anchor_for_event(event))
                     if _stt_adapter:
                         try:
                             _stt_msg = (
@@ -7400,7 +7402,7 @@ class GatewayRunner:
                             pass
                         await adapter.send(
                             source.chat_id, notice,
-                            metadata=self._thread_metadata_for_source(source),
+                            metadata=_thread_metadata_for_source(source),
                         )
             except Exception as e:
                 logger.debug("Auto-reset notification failed (non-fatal): %s", e)
@@ -7623,7 +7625,7 @@ class GatewayRunner:
                         f"{_compress_token_threshold:,}",
                     )
 
-                    _hyg_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
+                    _hyg_meta = _thread_metadata_for_source(source, _reply_anchor_for_event(event))
 
                     try:
                         from run_agent import AIAgent
@@ -7855,7 +7857,7 @@ class GatewayRunner:
                 session_id=session_entry.session_id,
                 session_key=session_key,
                 run_generation=run_generation,
-                event_message_id=self._reply_anchor_for_event(event),
+                event_message_id=_reply_anchor_for_event(event),
                 channel_prompt=event.channel_prompt,
             )
 
@@ -8218,7 +8220,7 @@ class GatewayRunner:
                             await _foot_adapter.send(
                                 source.chat_id,
                                 _footer_line,
-                                metadata=self._thread_metadata_for_source(source, self._reply_anchor_for_event(event)),
+                                metadata=_thread_metadata_for_source(source, _reply_anchor_for_event(event)),
                             )
                     except Exception as _e:
                         logger.debug("trailing footer send failed: %s", _e)
@@ -9542,7 +9544,7 @@ class GatewayRunner:
                         lines.append("_(session only — add `--global` to persist)_")
                         return "\n".join(lines)
 
-                    metadata = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
+                    metadata = _thread_metadata_for_source(source, _reply_anchor_for_event(event))
                     result = await adapter.send_model_picker(
                         chat_id=source.chat_id,
                         providers=providers,
@@ -9768,14 +9770,8 @@ class GatewayRunner:
         from jarviscopilot_constants import display_hermes_home
 
         args = event.get_command_args().strip().lower()
-        config_path = _hermes_home / 'config.yaml'
 
-        try:
-            config = _load_gateway_config()
-            personalities = cfg_get(config, "agent", "personalities", default={})
-        except Exception:
-            config = {}
-            personalities = {}
+        personalities = cfg_get(_load_gateway_config(), "agent", "personalities", default={})
 
         if not personalities:
             return f"No personalities configured in `{display_hermes_home()}/config.yaml`"
@@ -9803,28 +9799,14 @@ class GatewayRunner:
             return str(value)
 
         if args in {"none", "default", "neutral"}:
-            try:
-                if "agent" not in config or not isinstance(config.get("agent"), dict):
-                    config["agent"] = {}
-                config["agent"]["system_prompt"] = ""
-                atomic_yaml_write(config_path, config)
-            except Exception as e:
-                return f"⚠️ Failed to save personality change: {str(e)}"
+            if not _save_config_value("agent.system_prompt", ""):
+                return "⚠️ Failed to save personality change — see the gateway log."
             self._ephemeral_system_prompt = ""
             return "🎭 Personality cleared — using base agent behavior.\n_(takes effect on next message)_"
         elif args in personalities:
             new_prompt = _resolve_prompt(personalities[args])
-
-            # Write to config.yaml, same pattern as CLI save_config_value.
-            try:
-                if "agent" not in config or not isinstance(config.get("agent"), dict):
-                    config["agent"] = {}
-                config["agent"]["system_prompt"] = new_prompt
-                atomic_yaml_write(config_path, config)
-            except Exception as e:
-                return f"⚠️ Failed to save personality change: {str(e)}"
-
-            # Update in-memory so it takes effect on the very next message.
+            if not _save_config_value("agent.system_prompt", new_prompt):
+                return "⚠️ Failed to save personality change — see the gateway log."
             self._ephemeral_system_prompt = new_prompt
 
             return f"🎭 Personality set to **{args}**\n_(takes effect on next message)_"
@@ -10050,7 +10032,7 @@ class GatewayRunner:
             return
 
         try:
-            metadata = self._thread_metadata_for_source(source)
+            metadata = _thread_metadata_for_source(source)
         except Exception:
             metadata = None
 
@@ -10607,8 +10589,8 @@ class GatewayRunner:
                     and adapter.is_in_voice_channel(guild_id)):
                 await adapter.play_in_voice_channel(guild_id, actual_path)
             elif adapter and hasattr(adapter, "send_voice"):
-                reply_anchor = self._reply_anchor_for_event(event)
-                thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
+                reply_anchor = _reply_anchor_for_event(event)
+                thread_meta = _thread_metadata_for_source(event.source, reply_anchor)
                 send_kwargs: Dict[str, Any] = {
                     "chat_id": event.source.chat_id,
                     "audio_path": actual_path,
@@ -10652,7 +10634,7 @@ class GatewayRunner:
             _, cleaned = adapter.extract_images(response)
             local_files, _ = adapter.extract_local_files(cleaned)
 
-            _thread_meta = self._thread_metadata_for_source(event.source, self._reply_anchor_for_event(event))
+            _thread_meta = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
 
             from gateway.platforms.base import should_send_media_as_audio
 
@@ -10807,7 +10789,7 @@ class GatewayRunner:
         source = event.source
         task_id = f"bg_{datetime.now().strftime('%H%M%S')}_{os.urandom(3).hex()}"
 
-        event_message_id = self._reply_anchor_for_event(event)
+        event_message_id = _reply_anchor_for_event(event)
 
         # Forward image/audio attachments so the background agent can see them.
         media_urls = list(event.media_urls) if event.media_urls else []
@@ -10850,7 +10832,7 @@ class GatewayRunner:
             logger.warning("No adapter for platform %s in background task %s", source.platform, task_id)
             return
 
-        _thread_metadata = self._thread_metadata_for_source(source, event_message_id)
+        _thread_metadata = _thread_metadata_for_source(source, event_message_id)
 
         try:
             user_config = _load_gateway_config()
@@ -11013,37 +10995,14 @@ class GatewayRunner:
             /reasoning show|on               Show model reasoning in responses
             /reasoning hide|off              Hide model reasoning from responses
         """
-        import yaml
-
         raw_args = event.get_command_args().strip()
         args, persist_global = self._parse_reasoning_command_args(raw_args)
-        config_path = _hermes_home / "config.yaml"
         session_key = self._session_key_for_source(event.source)
         self._show_reasoning = self._load_show_reasoning()
         self._reasoning_config = self._resolve_session_reasoning_config(
             source=event.source,
             session_key=session_key,
         )
-
-        def _save_config_key(key_path: str, value):
-            """Save a dot-separated key to config.yaml."""
-            try:
-                user_config = {}
-                if config_path.exists():
-                    with open(config_path, encoding="utf-8") as f:
-                        user_config = yaml.safe_load(f) or {}
-                keys = key_path.split(".")
-                current = user_config
-                for k in keys[:-1]:
-                    if k not in current or not isinstance(current[k], dict):
-                        current[k] = {}
-                    current = current[k]
-                current[keys[-1]] = value
-                atomic_yaml_write(config_path, user_config)
-                return True
-            except Exception as e:
-                logger.error("Failed to save config key %s: %s", key_path, e)
-                return False
 
         if not raw_args:
             # Show current state
@@ -11071,12 +11030,12 @@ class GatewayRunner:
         platform_key = _platform_config_key(event.source.platform)
         if args in {"show", "on"}:
             self._show_reasoning = True
-            _save_config_key(f"display.platforms.{platform_key}.show_reasoning", True)
+            _save_config_value(f"display.platforms.{platform_key}.show_reasoning", True)
             return f"🧠 ✓ Reasoning display: **ON**\nModel thinking will be shown before each response on **{platform_key}**."
 
         if args in {"hide", "off"}:
             self._show_reasoning = False
-            _save_config_key(f"display.platforms.{platform_key}.show_reasoning", False)
+            _save_config_value(f"display.platforms.{platform_key}.show_reasoning", False)
             return f"🧠 ✓ Reasoning display: **OFF** for **{platform_key}**"
 
         # Effort level change
@@ -11097,7 +11056,7 @@ class GatewayRunner:
 
         self._reasoning_config = parsed
         if persist_global:
-            if _save_config_key("agent.reasoning_effort", effort):
+            if _save_config_value("agent.reasoning_effort", effort):
                 self._set_session_reasoning_override(session_key, None)
                 self._evict_cached_agent(session_key)
                 return f"🧠 ✓ Reasoning effort set to `{effort}` (saved to config)\n_(takes effect on next message)_"
@@ -11111,37 +11070,15 @@ class GatewayRunner:
 
     async def _handle_fast_command(self, event: MessageEvent) -> str:
         """Handle /fast — mirror the CLI Priority Processing toggle in gateway chats."""
-        import yaml
         from jarviscopilot_cli.models import model_supports_fast_mode
 
         args = event.get_command_args().strip().lower()
-        config_path = _hermes_home / "config.yaml"
         self._service_tier = self._load_service_tier()
 
         user_config = _load_gateway_config()
         model = _resolve_gateway_model(user_config)
         if not model_supports_fast_mode(model):
             return "⚡ /fast is only available for OpenAI models that support Priority Processing."
-
-        def _save_config_key(key_path: str, value):
-            """Save a dot-separated key to config.yaml."""
-            try:
-                user_config = {}
-                if config_path.exists():
-                    with open(config_path, encoding="utf-8") as f:
-                        user_config = yaml.safe_load(f) or {}
-                keys = key_path.split(".")
-                current = user_config
-                for k in keys[:-1]:
-                    if k not in current or not isinstance(current[k], dict):
-                        current[k] = {}
-                    current = current[k]
-                current[keys[-1]] = value
-                atomic_yaml_write(config_path, user_config)
-                return True
-            except Exception as e:
-                logger.error("Failed to save config key %s: %s", key_path, e)
-                return False
 
         if not args or args == "status":
             status = "fast" if self._service_tier == "priority" else "normal"
@@ -11158,7 +11095,7 @@ class GatewayRunner:
         else:
             return f"⚠️ Unknown argument: `{args}`\n\n**Valid options:** normal, fast, status"
 
-        if _save_config_key("agent.service_tier", saved_value):
+        if _save_config_value("agent.service_tier", saved_value):
             return f"⚡ ✓ Priority Processing: **{label}** (saved to config)\n_(takes effect on next message)_"
         return f"⚡ ✓ Priority Processing: **{label}** (this session only)"
 
@@ -11189,7 +11126,6 @@ class GatewayRunner:
         have its own verbosity level independently.
         """
 
-        config_path = _hermes_home / "config.yaml"
         platform_key = _platform_config_key(event.source.platform)
 
         # --- check config gate ------------------------------------------------
@@ -11222,24 +11158,9 @@ class GatewayRunner:
         idx = (cycle.index(current) + 1) % len(cycle)
         new_mode = cycle[idx]
 
-        # Save to display.platforms.<platform>.tool_progress
-        try:
-            if "display" not in user_config or not isinstance(user_config.get("display"), dict):
-                user_config["display"] = {}
-            display = user_config["display"]
-            if "platforms" not in display or not isinstance(display.get("platforms"), dict):
-                display["platforms"] = {}
-            if platform_key not in display["platforms"] or not isinstance(display["platforms"].get(platform_key), dict):
-                display["platforms"][platform_key] = {}
-            display["platforms"][platform_key]["tool_progress"] = new_mode
-            atomic_yaml_write(config_path, user_config)
-            return (
-                f"{descriptions[new_mode]}\n"
-                + f"_(saved for **{platform_key}** — takes effect on next message)_"
-            )
-        except Exception as e:
-            logger.warning("Failed to save tool_progress mode: %s", e)
-            return f"{descriptions[new_mode]}\n" + f"_(could not save to config: {e})_"
+        if _save_config_value(f"display.platforms.{platform_key}.tool_progress", new_mode):
+            return f"{descriptions[new_mode]}\n_(saved for **{platform_key}** — takes effect on next message)_"
+        return f"{descriptions[new_mode]}\n_(could not save to config — see the gateway log)_"
 
     async def _handle_footer_command(self, event: MessageEvent) -> str:
         """Handle /footer command — toggle the runtime-metadata footer.
@@ -11257,7 +11178,6 @@ class GatewayRunner:
         """
         from gateway.runtime_footer import resolve_footer_config
 
-        config_path = _hermes_home / "config.yaml"
         platform_key = _platform_config_key(event.source.platform)
 
         # --- parse argument -------------------------------------------------
@@ -11293,18 +11213,8 @@ class GatewayRunner:
         else:
             return "Usage: `/footer [on|off|status]`"
 
-        # --- write global flag ---------------------------------------------
-        try:
-            if not isinstance(user_config.get("display"), dict):
-                user_config["display"] = {}
-            display = user_config["display"]
-            if not isinstance(display.get("runtime_footer"), dict):
-                display["runtime_footer"] = {}
-            display["runtime_footer"]["enabled"] = new_state
-            atomic_yaml_write(config_path, user_config)
-        except Exception as e:
-            logger.warning("Failed to save runtime_footer.enabled: %s", e)
-            return f"⚠️ Could not save config: {e}"
+        if not _save_config_value("display.runtime_footer.enabled", new_state):
+            return "⚠️ Could not save config — see the gateway log."
 
         state = "ON" if new_state else "OFF"
         example = ""
@@ -12712,7 +12622,7 @@ class GatewayRunner:
         _slash_confirm_mod.register(session_key, confirm_id, command, handler)
 
         adapter = self.adapters.get(source.platform)
-        metadata = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
+        metadata = _thread_metadata_for_source(source, _reply_anchor_for_event(event))
 
         used_buttons = False
         if adapter is not None:
@@ -12752,37 +12662,46 @@ class GatewayRunner:
         except Exception:
             return {}
 
-    def _thread_metadata_for_source(
-        self,
-        source,
-        reply_to_message_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Build the metadata dict platforms need for thread-aware replies."""
-        thread_id = getattr(source, "thread_id", None)
-        if thread_id is None:
-            return None
-        metadata: Dict[str, Any] = {"thread_id": thread_id}
-        if (
-            getattr(source, "platform", None) == Platform.TELEGRAM
-            and getattr(source, "chat_type", None) == "dm"
-        ):
-            metadata["telegram_dm_topic_reply_fallback"] = True
-            # Telegram DM topic lanes need direct_messages_topic_id in metadata
-            # so synthetic/queued messages (goal continuations, status notices)
-            # route to the correct topic even when reply anchor is unavailable.
-            tid = str(thread_id)
-            if tid and tid not in {"", "1"}:
-                metadata["direct_messages_topic_id"] = tid
-            anchor = reply_to_message_id or getattr(source, "message_id", None)
-            if anchor is not None:
-                metadata["telegram_reply_to_message_id"] = str(anchor)
-        return metadata
+    def _streaming_settings(self, source, user_config: dict):
+        """Return the global streaming config and whether streaming is on for
+        ``source``'s platform (``display.platforms.<plat>.streaming`` overrides
+        the global switch when set)."""
+        from gateway.display_config import resolve_display_setting
+        scfg = getattr(getattr(self, "config", None), "streaming", None)
+        if scfg is None:
+            from gateway.config import StreamingConfig
+            scfg = StreamingConfig()
+        plat = resolve_display_setting(user_config, _platform_config_key(source.platform), "streaming")
+        enabled = (scfg.enabled and scfg.transport != "off") if plat is None else bool(plat)
+        return scfg, enabled
 
     @staticmethod
-    def _reply_anchor_for_event(event: MessageEvent) -> Optional[str]:
-        """Return the platform-specific reply anchor for GatewayRunner sends."""
-        return _reply_anchor_for_event(event)
-
+    def _new_stream_consumer(adapter, source, scfg, *, cursor: str, metadata, reply_to_id, on_new_message=None):
+        """Build a GatewayStreamConsumer for ``source`` from the streaming config."""
+        from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
+        # Fresh-final applies to Telegram only — other platforms either edit
+        # in place cheaply or don't have the edit-timestamp-stays-stale
+        # problem.  (Ported from openclaw/openclaw#72038.)
+        fresh_final_secs = (
+            float(getattr(scfg, "fresh_final_after_seconds", 0.0) or 0.0)
+            if source.platform == Platform.TELEGRAM
+            else 0.0
+        )
+        return GatewayStreamConsumer(
+            adapter=adapter,
+            chat_id=source.chat_id,
+            config=StreamConsumerConfig(
+                edit_interval=scfg.edit_interval,
+                buffer_threshold=scfg.buffer_threshold,
+                cursor=cursor,
+                fresh_final_after_seconds=fresh_final_secs,
+                transport=scfg.transport or "auto",
+                chat_type=getattr(source, "chat_type", "") or "",
+            ),
+            metadata=metadata,
+            on_new_message=on_new_message,
+            initial_reply_to_id=reply_to_id,
+        )
 
     # ------------------------------------------------------------------
     # /approve & /deny — explicit dangerous-command approval
@@ -13809,6 +13728,10 @@ class GatewayRunner:
             user_name=str(evt.get("user_name") or "").strip() or None,
         )
 
+    def _adapter_named(self, platform_name: str):
+        """The connected adapter whose platform value is ``platform_name``."""
+        return next((a for p, a in self.adapters.items() if p.value == platform_name), None)
+
     async def _inject_watch_notification(self, synth_text: str, evt: dict) -> None:
         """Inject a watch-pattern notification as a synthetic message event.
 
@@ -13823,11 +13746,7 @@ class GatewayRunner:
             )
             return
         platform_name = source.platform.value if hasattr(source.platform, "value") else str(source.platform)
-        adapter = None
-        for p, a in self.adapters.items():
-            if p.value == platform_name:
-                adapter = a
-                break
+        adapter = self._adapter_named(platform_name)
         if not adapter:
             return
         try:
@@ -13875,6 +13794,15 @@ class GatewayRunner:
 
         logger.debug("Process watcher started: %s (every %ss, notify=%s, agent_notify=%s)",
                       session_id, interval, notify_mode, agent_notify)
+
+        async def _deliver(message_text: str) -> None:
+            adapter = self._adapter_named(platform_name)
+            if adapter and chat_id:
+                try:
+                    send_meta = {"thread_id": thread_id} if thread_id else None
+                    await adapter.send(chat_id, message_text, metadata=send_meta)
+                except Exception as e:
+                    logger.error("Watcher delivery error: %s", e)
 
         if notify_mode == "off" and not agent_notify:
             # Still wait for the process to exit so we can log it, but don't
@@ -13928,11 +13856,7 @@ class GatewayRunner:
                         )
                         break
 
-                    adapter = None
-                    for p, a in self.adapters.items():
-                        if p == source.platform:
-                            adapter = a
-                            break
+                    adapter = self.adapters.get(source.platform)
                     if adapter and source.chat_id:
                         try:
                             synth_event = MessageEvent(
@@ -13961,42 +13885,20 @@ class GatewayRunner:
                 )
                 if should_notify:
                     new_output = session.output_buffer[-1000:] if session.output_buffer else ""
-                    message_text = (
+                    await _deliver(
                         f"[Background process {session_id} finished with exit code {session.exit_code}~ "
                         f"Here's the final output:\n{new_output}]"
                     )
-                    adapter = None
-                    for p, a in self.adapters.items():
-                        if p.value == platform_name:
-                            adapter = a
-                            break
-                    if adapter and chat_id:
-                        try:
-                            send_meta = {"thread_id": thread_id} if thread_id else None
-                            await adapter.send(chat_id, message_text, metadata=send_meta)
-                        except Exception as e:
-                            logger.error("Watcher delivery error: %s", e)
                 break
 
             elif has_new_output and notify_mode == "all" and not agent_notify:
                 # New output available -- deliver status update (only in "all" mode)
                 # Skip periodic updates for agent_notify watchers (they only care about completion)
                 new_output = session.output_buffer[-500:] if session.output_buffer else ""
-                message_text = (
+                await _deliver(
                     f"[Background process {session_id} is still running~ "
                     f"New output:\n{new_output}]"
                 )
-                adapter = None
-                for p, a in self.adapters.items():
-                    if p.value == platform_name:
-                        adapter = a
-                        break
-                if adapter and chat_id:
-                    try:
-                        send_meta = {"thread_id": thread_id} if thread_id else None
-                        await adapter.send(chat_id, message_text, metadata=send_meta)
-                    except Exception as e:
-                        logger.error("Watcher delivery error: %s", e)
 
         logger.debug("Process watcher ended: %s", session_id)
 
@@ -14605,55 +14507,18 @@ class GatewayRunner:
 
         # Set up platform streaming if available -------------------------
         _stream_consumer = None
-        _scfg = getattr(getattr(self, "config", None), "streaming", None)
-        if _scfg is None:
-            from gateway.config import StreamingConfig
-            _scfg = StreamingConfig()
-
-        platform_key = _platform_config_key(source.platform)
-        user_config = _load_gateway_config()
-        from gateway.display_config import resolve_display_setting
-        _plat_streaming = resolve_display_setting(
-            user_config, platform_key, "streaming"
-        )
-        _streaming_enabled = (
-            _scfg.enabled and _scfg.transport != "off"
-            if _plat_streaming is None
-            else bool(_plat_streaming)
-        )
-
-        _thread_metadata: Optional[Dict[str, Any]] = self._thread_metadata_for_source(source, event_message_id)
+        _scfg, _streaming_enabled = self._streaming_settings(source, _load_gateway_config())
+        _thread_metadata: Optional[Dict[str, Any]] = _thread_metadata_for_source(source, event_message_id)
 
         if _streaming_enabled:
             try:
-                from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
                 _adapter = self.adapters.get(source.platform)
                 if _adapter:
-                    _adapter_supports_edit = getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True)
-                    _effective_cursor = _scfg.cursor if _adapter_supports_edit else ""
-                    # Fresh-final applies to Telegram only — other
-                    # platforms either edit in place cheaply (Discord,
-                    # Slack) or don't have the timestamp-on-edit
-                    # problem.  (Ported from openclaw/openclaw#72038.)
-                    _fresh_final_secs = (
-                        float(getattr(_scfg, "fresh_final_after_seconds", 0.0) or 0.0)
-                        if source.platform == Platform.TELEGRAM
-                        else 0.0
-                    )
-                    _consumer_cfg = StreamConsumerConfig(
-                        edit_interval=_scfg.edit_interval,
-                        buffer_threshold=_scfg.buffer_threshold,
-                        cursor=_effective_cursor,
-                        fresh_final_after_seconds=_fresh_final_secs,
-                        transport=_scfg.transport or "auto",
-                        chat_type=getattr(source, "chat_type", "") or "",
-                    )
-                    _stream_consumer = GatewayStreamConsumer(
-                        adapter=_adapter,
-                        chat_id=source.chat_id,
-                        config=_consumer_cfg,
+                    _stream_consumer = self._new_stream_consumer(
+                        _adapter, source, _scfg,
+                        cursor=_scfg.cursor if getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True) else "",
                         metadata=_thread_metadata,
-                        initial_reply_to_id=event_message_id,
+                        reply_to_id=event_message_id,
                     )
             except Exception as _sc_err:
                 logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
@@ -15058,7 +14923,7 @@ class GatewayRunner:
         else:
             _progress_thread_id = source.thread_id
         _progress_metadata = (
-            self._thread_metadata_for_source(source, event_message_id)
+            _thread_metadata_for_source(source, event_message_id)
             if _progress_thread_id == source.thread_id
             else {"thread_id": _progress_thread_id}
         ) if _progress_thread_id else None
@@ -15303,7 +15168,7 @@ class GatewayRunner:
         _status_adapter = self.adapters.get(source.platform)
         _status_chat_id = source.chat_id
         _status_thread_metadata: Optional[Dict[str, Any]] = (
-            self._thread_metadata_for_source(source, event_message_id) if _progress_thread_id else None
+            _thread_metadata_for_source(source, event_message_id) if _progress_thread_id else None
         )
 
         def _status_callback_sync(event_type: str, message: str) -> None:
@@ -15409,68 +15274,26 @@ class GatewayRunner:
             # Set up stream consumer for token streaming or interim commentary.
             _stream_consumer = None
             _stream_delta_cb = None
-            _scfg = getattr(getattr(self, 'config', None), 'streaming', None)
-            if _scfg is None:
-                from gateway.config import StreamingConfig
-                _scfg = StreamingConfig()
-
-            # Per-platform streaming gate: display.platforms.<plat>.streaming
-            # can disable streaming for specific platforms even when the global
-            # streaming config is enabled.
-            _plat_streaming = resolve_display_setting(
-                user_config, platform_key, "streaming"
-            )
-            # None = no per-platform override → follow global config
-            _streaming_enabled = (
-                _scfg.enabled and _scfg.transport != "off"
-                if _plat_streaming is None
-                else bool(_plat_streaming)
-            )
-            _want_stream_deltas = _streaming_enabled
+            _scfg, _want_stream_deltas = self._streaming_settings(source, user_config)
             _want_interim_messages = interim_assistant_messages_enabled
             _want_interim_consumer = _want_interim_messages
             if _want_stream_deltas or _want_interim_consumer:
                 try:
-                    from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
                     _adapter = self.adapters.get(source.platform)
-                    if _adapter:
-                        # Platforms that don't support editing sent messages
-                        # should skip streaming entirely —
-                        # without edit support, the consumer sends a partial
-                        # first message that can never be updated, resulting in
-                        # duplicate messages (partial + final).
-                        _adapter_supports_edit = getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True)
-                        if not _adapter_supports_edit:
-                            raise RuntimeError("skip streaming for non-editable platform")
-                        _effective_cursor = _scfg.cursor
-                        # Fresh-final applies to Telegram only — other
-                        # platforms either edit in place cheaply or don't
-                        # have the edit-timestamp-stays-stale problem.
-                        # (Ported from openclaw/openclaw#72038.)
-                        _fresh_final_secs = (
-                            float(getattr(_scfg, "fresh_final_after_seconds", 0.0) or 0.0)
-                            if source.platform == Platform.TELEGRAM
-                            else 0.0
-                        )
-                        _consumer_cfg = StreamConsumerConfig(
-                            edit_interval=_scfg.edit_interval,
-                            buffer_threshold=_scfg.buffer_threshold,
-                            cursor=_effective_cursor,
-                            fresh_final_after_seconds=_fresh_final_secs,
-                            transport=_scfg.transport or "auto",
-                            chat_type=getattr(source, "chat_type", "") or "",
-                        )
-                        _stream_consumer = GatewayStreamConsumer(
-                            adapter=_adapter,
-                            chat_id=source.chat_id,
-                            config=_consumer_cfg,
+                    # Platforms that can't edit sent messages skip streaming:
+                    # the partial first message could never be updated, so
+                    # the user would get it twice (partial + final).
+                    if _adapter and getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True):
+                        _stream_consumer = self._new_stream_consumer(
+                            _adapter, source, _scfg,
+                            cursor=_scfg.cursor,
                             metadata=_status_thread_metadata,
+                            reply_to_id=event_message_id,
                             on_new_message=(
                                 (lambda: progress_queue.put(("__reset__",)))
                                 if progress_queue is not None
                                 else None
                             ),
-                            initial_reply_to_id=event_message_id,
                         )
                         if _want_stream_deltas:
                             def _stream_delta_cb(text: str) -> None:
@@ -16374,48 +16197,17 @@ class GatewayRunner:
             _inactivity_timeout = False
             _POLL_INTERVAL = 5.0
 
-            if _agent_timeout is None:
-                # Unlimited — still poll periodically for backup interrupt
-                # detection in case monitor_for_interrupt() silently died.
-                response = None
-                while True:
-                    done, _ = await asyncio.wait(
-                        {_executor_task}, timeout=_POLL_INTERVAL
-                    )
-                    if done:
-                        response = _executor_task.result()
-                        break
-                    # Backup interrupt check: if the monitor task died or
-                    # missed the interrupt, catch it here.
-                    if not _interrupt_detected.is_set() and session_key:
-                        _backup_adapter = self.adapters.get(source.platform)
-                        _backup_agent = agent_holder[0]
-                        if (_backup_adapter and _backup_agent
-                                and hasattr(_backup_adapter, 'has_pending_interrupt')
-                                and _backup_adapter.has_pending_interrupt(session_key)):
-                            _bp_event = _backup_adapter._pending_messages.get(session_key)
-                            _bp_text = _bp_event.text if _bp_event else None
-                            logger.info(
-                                "Backup interrupt detected for session %s "
-                                "(monitor task state: %s)",
-                                session_key,
-                                "done" if interrupt_monitor.done() else "running",
-                            )
-                            _backup_agent.interrupt(_bp_text)
-                            _interrupt_detected.set()
-            else:
-                # Poll loop: check the agent's built-in activity tracker
-                # (updated by _touch_activity() on every tool call, API
-                # call, and stream delta) every few seconds.
-                response = None
-                while True:
-                    done, _ = await asyncio.wait(
-                        {_executor_task}, timeout=_POLL_INTERVAL
-                    )
-                    if done:
-                        response = _executor_task.result()
-                        break
-                    # Agent still running — check inactivity.
+            # Poll the executor; with a timeout set, also check the agent's
+            # activity tracker (updated on every tool call, API call and
+            # stream delta).  Either way, re-check for a pending interrupt in
+            # case monitor_for_interrupt() silently died.
+            response = None
+            while True:
+                done, _ = await asyncio.wait({_executor_task}, timeout=_POLL_INTERVAL)
+                if done:
+                    response = _executor_task.result()
+                    break
+                if _agent_timeout is not None:
                     _agent_ref = agent_holder[0]
                     _idle_secs = 0.0
                     if _agent_ref and hasattr(_agent_ref, "get_activity_summary"):
@@ -16446,23 +16238,22 @@ class GatewayRunner:
                     if _idle_secs >= _agent_timeout:
                         _inactivity_timeout = True
                         break
-                    # Backup interrupt check (same as unlimited path).
-                    if not _interrupt_detected.is_set() and session_key:
-                        _backup_adapter = self.adapters.get(source.platform)
-                        _backup_agent = agent_holder[0]
-                        if (_backup_adapter and _backup_agent
-                                and hasattr(_backup_adapter, 'has_pending_interrupt')
-                                and _backup_adapter.has_pending_interrupt(session_key)):
-                            _bp_event = _backup_adapter._pending_messages.get(session_key)
-                            _bp_text = _bp_event.text if _bp_event else None
-                            logger.info(
-                                "Backup interrupt detected for session %s "
-                                "(monitor task state: %s)",
-                                session_key,
-                                "done" if interrupt_monitor.done() else "running",
-                            )
-                            _backup_agent.interrupt(_bp_text)
-                            _interrupt_detected.set()
+                if not _interrupt_detected.is_set() and session_key:
+                    _backup_adapter = self.adapters.get(source.platform)
+                    _backup_agent = agent_holder[0]
+                    if (_backup_adapter and _backup_agent
+                            and hasattr(_backup_adapter, 'has_pending_interrupt')
+                            and _backup_adapter.has_pending_interrupt(session_key)):
+                        _bp_event = _backup_adapter._pending_messages.get(session_key)
+                        _bp_text = _bp_event.text if _bp_event else None
+                        logger.info(
+                            "Backup interrupt detected for session %s "
+                            "(monitor task state: %s)",
+                            session_key,
+                            "done" if interrupt_monitor.done() else "running",
+                        )
+                        _backup_agent.interrupt(_bp_text)
+                        _interrupt_detected.set()
 
             if _inactivity_timeout:
                 # Build a diagnostic summary from the agent's activity tracker.
@@ -16746,7 +16537,7 @@ class GatewayRunner:
                     )
                     if next_message is None:
                         return result
-                    next_message_id = self._reply_anchor_for_event(pending_event)
+                    next_message_id = _reply_anchor_for_event(pending_event)
                     next_channel_prompt = getattr(pending_event, "channel_prompt", None)
 
                 # Restart typing indicator so the user sees activity while

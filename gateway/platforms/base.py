@@ -42,13 +42,18 @@ def _platform_name(platform) -> str:
 
 
 def _float_env(name: str, default: float) -> float:
+    """Read an env var as float, falling back to ``default`` on typos/empty.
+
+    A misconfigured env var (e.g. ``HERMES_AGENT_TIMEOUT=abc``) must not
+    crash the gateway or an agent turn.
+    """
     raw = os.environ.get(name, "").strip()
     if not raw:
-        return default
+        return float(default)
     try:
         return float(raw)
     except (TypeError, ValueError):
-        return default
+        return float(default)
 
 
 def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) -> dict | None:

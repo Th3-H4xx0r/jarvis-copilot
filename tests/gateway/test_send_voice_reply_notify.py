@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from gateway.config import Platform
-from gateway.platforms.base import MessageEvent, MessageType
+from gateway.platforms.base import MessageEvent, MessageType, _reply_anchor_for_event, _thread_metadata_for_source
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 
@@ -94,9 +94,7 @@ async def test_voice_reply_marks_existing_thread_metadata_without_mutation(monke
     runner = _runner_with_adapter(send_voice)
     # Use a DM topic source so _thread_metadata_for_source returns a non-None dict.
     event = _make_event(thread_id="17585")
-    source_meta_snapshot = runner._thread_metadata_for_source(
-        event.source, runner._reply_anchor_for_event(event)
-    )
+    source_meta_snapshot = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
     assert source_meta_snapshot is not None
     snapshot_copy = dict(source_meta_snapshot)
 
@@ -110,7 +108,5 @@ async def test_voice_reply_marks_existing_thread_metadata_without_mutation(monke
         assert kwargs["metadata"].get(k) == v
     # The freshly-computed source-side metadata must NOT have been mutated
     # (would otherwise leak notify=True into the typing-indicator state).
-    fresh = runner._thread_metadata_for_source(
-        event.source, runner._reply_anchor_for_event(event)
-    )
+    fresh = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
     assert "notify" not in fresh
