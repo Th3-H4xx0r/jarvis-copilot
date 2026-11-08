@@ -16,23 +16,11 @@ stamp ``created_at`` metadata.
 """
 from __future__ import annotations
 
-import os
 import sqlite3
 import time
 import uuid
-from pathlib import Path
 
-
-def _default_db_path() -> str:
-    """Resolve the db path under the profile-scoped JarvisCopilot home."""
-    try:
-        from jarviscopilot_constants import get_hermes_home
-
-        home = Path(get_hermes_home())
-    except Exception:
-        home = Path(os.path.expanduser("~/.jarviscopilot"))
-    home.mkdir(parents=True, exist_ok=True)
-    return str(home / "coding_sessions.db")
+from agent.coding_session_db import _default_db_path
 
 
 _SCHEMA = """

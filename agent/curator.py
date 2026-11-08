@@ -489,6 +489,31 @@ def _needle_in_path_component(needle: str, path: str) -> bool:
     return False
 
 
+def _skill_manage_args(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The argument dicts of this run's ``skill_manage`` calls, in order.
+
+    Arguments can be a JSON string (standard) or a dict (defensive).  A
+    truncated or malformed string comes back as ``{"_raw": <string>}`` so
+    substring matching still catches the common case.
+    """
+    parsed: List[Dict[str, Any]] = []
+    for tc in tool_calls or []:
+        if not isinstance(tc, dict) or tc.get("name") != "skill_manage":
+            continue
+        raw = tc.get("arguments") or ""
+        args: Any = {}
+        if isinstance(raw, dict):
+            args = raw
+        elif isinstance(raw, str):
+            try:
+                args = json.loads(raw)
+            except Exception:
+                args = {"_raw": raw}
+        if isinstance(args, dict):
+            parsed.append(args)
+    return parsed
+
+
 def _classify_removed_skills(
     removed: List[str],
     added: List[str],
@@ -515,29 +540,7 @@ def _classify_removed_skills(
     """
     consolidated: List[Dict[str, Any]] = []
     pruned: List[Dict[str, Any]] = []
-
-    # Pre-parse tool calls: we only care about skill_manage.
-    parsed_calls: List[Dict[str, Any]] = []
-    for tc in tool_calls or []:
-        if not isinstance(tc, dict):
-            continue
-        if tc.get("name") != "skill_manage":
-            continue
-        raw = tc.get("arguments") or ""
-        # Arguments can be a JSON string (standard) or a dict (defensive).
-        args: Dict[str, Any] = {}
-        if isinstance(raw, dict):
-            args = raw
-        elif isinstance(raw, str):
-            try:
-                args = json.loads(raw)
-            except Exception:
-                # Truncated or malformed — fall back to substring match on
-                # the raw string so we still catch the common case.
-                args = {"_raw": raw}
-        if not isinstance(args, dict):
-            continue
-        parsed_calls.append(args)
+    parsed_calls = _skill_manage_args(tool_calls)
 
     # Build a set of "destination" skill names: anything still present after
     # the run plus anything newly added this run. A removed skill being
@@ -712,22 +715,7 @@ def _extract_absorbed_into_declarations(
     curator runs and any callers that don't populate the arg).
     """
     out: Dict[str, Dict[str, Any]] = {}
-    for tc in tool_calls or []:
-        if not isinstance(tc, dict):
-            continue
-        if tc.get("name") != "skill_manage":
-            continue
-        raw = tc.get("arguments") or ""
-        args: Dict[str, Any] = {}
-        if isinstance(raw, dict):
-            args = raw
-        elif isinstance(raw, str):
-            try:
-                args = json.loads(raw)
-            except Exception:
-                continue
-        if not isinstance(args, dict):
-            continue
+    for args in _skill_manage_args(tool_calls):
         if args.get("action") != "delete":
             continue
         name = args.get("name")
@@ -777,7 +765,6 @@ def _reconcile_classification(
     Every removed skill is placed in exactly one bucket.
     """
     heur_cons = {e["name"]: e for e in heuristic.get("consolidated", [])}
-    heur_pruned = {e["name"] for e in heuristic.get("pruned", [])}
 
     model_cons = {e["from"]: e for e in model_block.get("consolidations", [])}
     model_pruned = {e["name"]: e for e in model_block.get("prunings", [])}

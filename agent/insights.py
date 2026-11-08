@@ -24,19 +24,10 @@ from typing import Any, Dict, List
 
 from agent.usage_pricing import (
     CanonicalUsage,
-    DEFAULT_PRICING,
     estimate_usage_cost,
     format_duration_compact,
     has_known_pricing,
 )
-
-_DEFAULT_PRICING = DEFAULT_PRICING
-
-
-def _has_known_pricing(model_name: str, provider: str = None, base_url: str = None) -> bool:
-    """Check if a model has known pricing (vs unknown/custom endpoint)."""
-    return has_known_pricing(model_name, provider=provider, base_url=base_url)
-
 
 def _estimate_cost(
     session_or_model: Dict[str, Any] | str,
@@ -75,11 +66,6 @@ def _estimate_cost(
         base_url=base_url,
     )
     return float(result.amount_usd or 0.0), result.status
-
-
-def _format_duration(seconds: float) -> str:
-    """Format seconds into a human-readable duration string."""
-    return format_duration_compact(seconds)
 
 
 def _bar_chart(values: List[int], max_width: int = 20) -> List[str]:
@@ -196,6 +182,27 @@ class InsightsEngine:
         " ORDER BY started_at DESC"
     )
 
+    def _query_window_messages(self, select: str, cutoff: float, source: str = None,
+                               where: str = "", tail: str = ""):
+        """``SELECT <select>`` over messages of sessions started since *cutoff*.
+
+        Narrowed to sessions from *source* when one is given; *where* adds
+        conditions and *tail* is appended (GROUP BY / ORDER BY).  Only
+        constant SQL fragments are interpolated; values are bound.
+        """
+        sql = ("SELECT " + select + " FROM messages m"
+               " JOIN sessions s ON s.id = m.session_id"
+               " WHERE s.started_at >= ?")
+        params: List[Any] = [cutoff]
+        if source:
+            sql += " AND s.source = ?"
+            params.append(source)
+        if where:
+            sql += " AND " + where
+        if tail:
+            sql += " " + tail
+        return self._conn.execute(sql, params)
+
     def _get_sessions(self, cutoff: float, source: str = None) -> List[Dict]:
         """Fetch sessions within the time window."""
         if source:
@@ -215,51 +222,20 @@ class InsightsEngine:
         tool_counts = Counter()
 
         # Source 1: explicit tool_name on tool response messages
-        if source:
-            cursor = self._conn.execute(
-                """SELECT m.tool_name, COUNT(*) as count
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?
-                     AND m.role = 'tool' AND m.tool_name IS NOT NULL
-                   GROUP BY m.tool_name
-                   ORDER BY count DESC""",
-                (cutoff, source),
-            )
-        else:
-            cursor = self._conn.execute(
-                """SELECT m.tool_name, COUNT(*) as count
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?
-                     AND m.role = 'tool' AND m.tool_name IS NOT NULL
-                   GROUP BY m.tool_name
-                   ORDER BY count DESC""",
-                (cutoff,),
-            )
+        cursor = self._query_window_messages(
+            "m.tool_name, COUNT(*) as count", cutoff, source,
+            where="m.role = 'tool' AND m.tool_name IS NOT NULL",
+            tail="GROUP BY m.tool_name ORDER BY count DESC",
+        )
         for row in cursor.fetchall():
             tool_counts[row["tool_name"]] += row["count"]
 
         # Source 2: extract from tool_calls JSON on assistant messages
         # (covers CLI sessions where tool_name is NULL on tool responses)
-        if source:
-            cursor2 = self._conn.execute(
-                """SELECT m.tool_calls
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?
-                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff, source),
-            )
-        else:
-            cursor2 = self._conn.execute(
-                """SELECT m.tool_calls
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?
-                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff,),
-            )
+        cursor2 = self._query_window_messages(
+            "m.tool_calls", cutoff, source,
+            where="m.role = 'assistant' AND m.tool_calls IS NOT NULL",
+        )
 
         tool_calls_counts = Counter()
         for row in cursor2.fetchall():
@@ -300,24 +276,10 @@ class InsightsEngine:
         """Extract per-skill usage from assistant tool calls."""
         skill_counts: Dict[str, Dict[str, Any]] = {}
 
-        if source:
-            cursor = self._conn.execute(
-                """SELECT m.tool_calls, m.timestamp
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?
-                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff, source),
-            )
-        else:
-            cursor = self._conn.execute(
-                """SELECT m.tool_calls, m.timestamp
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?
-                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff,),
-            )
+        cursor = self._query_window_messages(
+            "m.tool_calls, m.timestamp", cutoff, source,
+            where="m.role = 'assistant' AND m.tool_calls IS NOT NULL",
+        )
 
         for row in cursor.fetchall():
             try:
@@ -374,30 +336,13 @@ class InsightsEngine:
 
     def _get_message_stats(self, cutoff: float, source: str = None) -> Dict:
         """Get aggregate message statistics."""
-        if source:
-            cursor = self._conn.execute(
-                """SELECT
-                     COUNT(*) as total_messages,
-                     SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) as user_messages,
-                     SUM(CASE WHEN m.role = 'assistant' THEN 1 ELSE 0 END) as assistant_messages,
-                     SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END) as tool_messages
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?""",
-                (cutoff, source),
-            )
-        else:
-            cursor = self._conn.execute(
-                """SELECT
-                     COUNT(*) as total_messages,
-                     SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) as user_messages,
-                     SUM(CASE WHEN m.role = 'assistant' THEN 1 ELSE 0 END) as assistant_messages,
-                     SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END) as tool_messages
-                   FROM messages m
-                   JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?""",
-                (cutoff,),
-            )
+        cursor = self._query_window_messages(
+            "COUNT(*) as total_messages,"
+            " SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) as user_messages,"
+            " SUM(CASE WHEN m.role = 'assistant' THEN 1 ELSE 0 END) as assistant_messages,"
+            " SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END) as tool_messages",
+            cutoff, source,
+        )
         row = cursor.fetchone()
         return dict(row) if row else {
             "total_messages": 0, "user_messages": 0,
@@ -435,7 +380,7 @@ class InsightsEngine:
                 included_cost_sessions += 1
             elif status == "unknown":
                 unknown_cost_sessions += 1
-            if _has_known_pricing(model, s.get("billing_provider"), s.get("billing_base_url")):
+            if has_known_pricing(model, s.get("billing_provider"), s.get("billing_base_url")):
                 models_with_pricing.add(display)
             else:
                 models_without_pricing.add(display)
@@ -508,7 +453,7 @@ class InsightsEngine:
             d["tool_calls"] += s.get("tool_call_count") or 0
             estimate, status = _estimate_cost(s)
             d["cost"] += estimate
-            d["has_pricing"] = _has_known_pricing(model, s.get("billing_provider"), s.get("billing_base_url"))
+            d["has_pricing"] = has_known_pricing(model, s.get("billing_provider"), s.get("billing_base_url"))
             d["cost_status"] = status
 
         result = [
@@ -679,7 +624,7 @@ class InsightsEngine:
             top.append({
                 "label": "Longest session",
                 "session_id": longest["id"][:16],
-                "value": _format_duration(dur),
+                "value": format_duration_compact(dur),
                 "date": datetime.fromtimestamp(longest["started_at"]).strftime("%b %d"),
             })
 
@@ -764,7 +709,7 @@ class InsightsEngine:
         lines.append(f"  Input tokens:      {o['total_input_tokens']:<12,}  Output tokens:   {o['total_output_tokens']:,}")
         lines.append(f"  Total tokens:      {o['total_tokens']:,}")
         if o["total_hours"] > 0:
-            lines.append(f"  Active time:       ~{_format_duration(o['total_hours'] * 3600):<11}  Avg session:     ~{_format_duration(o['avg_session_duration'])}")
+            lines.append(f"  Active time:       ~{format_duration_compact(o['total_hours'] * 3600):<11}  Avg session:     ~{format_duration_compact(o['avg_session_duration'])}")
         lines.append(f"  Avg msgs/session:  {o['avg_messages_per_session']:.1f}")
         lines.append("")
 
@@ -879,7 +824,7 @@ class InsightsEngine:
         lines.append(f"**Sessions:** {o['total_sessions']} | **Messages:** {o['total_messages']:,} | **Tool calls:** {o['total_tool_calls']:,}")
         lines.append(f"**Tokens:** {o['total_tokens']:,} (in: {o['total_input_tokens']:,} / out: {o['total_output_tokens']:,})")
         if o["total_hours"] > 0:
-            lines.append(f"**Active time:** ~{_format_duration(o['total_hours'] * 3600)} | **Avg session:** ~{_format_duration(o['avg_session_duration'])}")
+            lines.append(f"**Active time:** ~{format_duration_compact(o['total_hours'] * 3600)} | **Avg session:** ~{format_duration_compact(o['avg_session_duration'])}")
         lines.append("")
 
         # Models (top 5)

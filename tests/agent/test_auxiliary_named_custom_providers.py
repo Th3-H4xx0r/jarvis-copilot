@@ -24,52 +24,52 @@ def _write_config(tmp_path, config_dict):
 
 
 class TestNormalizeVisionProvider:
-    """_normalize_vision_provider should resolve 'main' to actual main provider."""
+    """_normalize_aux_provider should resolve 'main' to actual main provider."""
 
     def test_main_resolves_to_named_custom(self, tmp_path):
         _write_config(tmp_path, {
             "model": {"default": "my-model", "provider": "custom:beans"},
             "custom_providers": [{"name": "beans", "base_url": "http://localhost/v1"}],
         })
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("main") == "custom:beans"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("main") == "custom:beans"
 
     def test_main_resolves_to_openrouter(self, tmp_path):
         _write_config(tmp_path, {
             "model": {"default": "anthropic/claude-sonnet-4", "provider": "openrouter"},
         })
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("main") == "openrouter"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("main") == "openrouter"
 
     def test_main_resolves_to_deepseek(self, tmp_path):
         _write_config(tmp_path, {
             "model": {"default": "deepseek-chat", "provider": "deepseek"},
         })
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("main") == "deepseek"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("main") == "deepseek"
 
     def test_main_falls_back_to_custom_when_no_provider(self, tmp_path):
         _write_config(tmp_path, {"model": {"default": "gpt-4o"}})
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("main") == "custom"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("main") == "custom"
 
     def test_bare_provider_name_unchanged(self):
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("beans") == "beans"
-        assert _normalize_vision_provider("deepseek") == "deepseek"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("beans") == "beans"
+        assert _normalize_aux_provider("deepseek") == "deepseek"
 
     def test_custom_colon_named_provider_preserved(self):
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("custom:beans") == "beans"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("custom:beans") == "beans"
 
     def test_codex_alias_still_works(self):
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("codex") == "openai-codex"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("codex") == "openai-codex"
 
     def test_auto_unchanged(self):
-        from agent.auxiliary_client import _normalize_vision_provider
-        assert _normalize_vision_provider("auto") == "auto"
-        assert _normalize_vision_provider(None) == "auto"
+        from agent.auxiliary_client import _normalize_aux_provider
+        assert _normalize_aux_provider("auto") == "auto"
+        assert _normalize_aux_provider(None) == "auto"
 
 
 class TestResolveProviderClientMainAlias:

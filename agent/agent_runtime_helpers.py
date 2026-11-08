@@ -663,6 +663,37 @@ def recover_with_credential_pool(
 
 
 
+def _switch_to_primary_runtime(agent, *, reason: str) -> None:
+    """Point *agent* at its primary runtime snapshot and rebuild its client."""
+    rt = agent._primary_runtime
+    agent.model = rt["model"]
+    agent.provider = rt["provider"]
+    agent.base_url = rt["base_url"]           # setter updates _base_url_lower
+    agent.api_mode = rt["api_mode"]
+    if hasattr(agent, "_transport_cache"):
+        agent._transport_cache.clear()
+    agent.api_key = rt["api_key"]
+    agent._client_kwargs = dict(rt["client_kwargs"])
+
+    if agent.api_mode == "anthropic_messages":
+        from agent.anthropic_adapter import build_anthropic_client
+        agent._anthropic_api_key = rt["anthropic_api_key"]
+        agent._anthropic_base_url = rt["anthropic_base_url"]
+        agent._anthropic_client = build_anthropic_client(
+            rt["anthropic_api_key"], rt["anthropic_base_url"],
+            timeout=get_provider_request_timeout(agent.provider, agent.model),
+            force_api_key=agent.provider == "anthropic-api",
+        )
+        agent._is_anthropic_oauth = rt["is_anthropic_oauth"]
+        agent.client = None
+    else:
+        agent.client = agent._create_openai_client(
+            dict(rt["client_kwargs"]),
+            reason=reason,
+            shared=True,
+        )
+
+
 def try_recover_primary_transport(
     agent, api_error: Exception, *, retry_count: int, max_retries: int,
 ) -> bool:
@@ -703,34 +734,7 @@ def try_recover_primary_transport(
             except Exception:
                 pass
 
-        # Rebuild from primary snapshot
-        rt = agent._primary_runtime
-        agent._client_kwargs = dict(rt["client_kwargs"])
-        agent.model = rt["model"]
-        agent.provider = rt["provider"]
-        agent.base_url = rt["base_url"]
-        agent.api_mode = rt["api_mode"]
-        if hasattr(agent, "_transport_cache"):
-            agent._transport_cache.clear()
-        agent.api_key = rt["api_key"]
-
-        if agent.api_mode == "anthropic_messages":
-            from agent.anthropic_adapter import build_anthropic_client
-            agent._anthropic_api_key = rt["anthropic_api_key"]
-            agent._anthropic_base_url = rt["anthropic_base_url"]
-            agent._anthropic_client = build_anthropic_client(
-                rt["anthropic_api_key"], rt["anthropic_base_url"],
-                timeout=get_provider_request_timeout(agent.provider, agent.model),
-                force_api_key=agent.provider == "anthropic-api",
-            )
-            agent._is_anthropic_oauth = rt["is_anthropic_oauth"]
-            agent.client = None
-        else:
-            agent.client = agent._create_openai_client(
-                dict(rt["client_kwargs"]),
-                reason="primary_recovery",
-                shared=True,
-            )
+        _switch_to_primary_runtime(agent, reason="primary_recovery")
 
         wait_time = min(3 + retry_count, 8)
         agent._vprint(
@@ -861,15 +865,7 @@ def restore_primary_runtime(agent) -> bool:
 
     rt = agent._primary_runtime
     try:
-        # ── Core runtime state ──
-        agent.model = rt["model"]
-        agent.provider = rt["provider"]
-        agent.base_url = rt["base_url"]           # setter updates _base_url_lower
-        agent.api_mode = rt["api_mode"]
-        if hasattr(agent, "_transport_cache"):
-            agent._transport_cache.clear()
-        agent.api_key = rt["api_key"]
-        agent._client_kwargs = dict(rt["client_kwargs"])
+        _switch_to_primary_runtime(agent, reason="restore_primary")
         agent._use_prompt_caching = rt["use_prompt_caching"]
         # Default to native layout when the restored snapshot predates the
         # native-vs-proxy split (older sessions saved before this PR).
@@ -877,25 +873,6 @@ def restore_primary_runtime(agent) -> bool:
             "use_native_cache_layout",
             agent.api_mode == "anthropic_messages" and agent.provider == "anthropic",
         )
-
-        # ── Rebuild client for the primary provider ──
-        if agent.api_mode == "anthropic_messages":
-            from agent.anthropic_adapter import build_anthropic_client
-            agent._anthropic_api_key = rt["anthropic_api_key"]
-            agent._anthropic_base_url = rt["anthropic_base_url"]
-            agent._anthropic_client = build_anthropic_client(
-                rt["anthropic_api_key"], rt["anthropic_base_url"],
-                timeout=get_provider_request_timeout(agent.provider, agent.model),
-                force_api_key=agent.provider == "anthropic-api",
-            )
-            agent._is_anthropic_oauth = rt["is_anthropic_oauth"]
-            agent.client = None
-        else:
-            agent.client = agent._create_openai_client(
-                dict(rt["client_kwargs"]),
-                reason="restore_primary",
-                shared=True,
-            )
 
         # ── Restore context engine state ──
         cc = agent.context_compressor

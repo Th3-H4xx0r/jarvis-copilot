@@ -8,11 +8,9 @@ from jarviscopilot_state import SessionDB
 from agent.insights import (
     InsightsEngine,
     _estimate_cost,
-    _format_duration,
     _bar_chart,
-    _has_known_pricing,
-    _DEFAULT_PRICING,
 )
+from agent.usage_pricing import format_duration_compact, has_known_pricing
 
 
 @pytest.fixture()
@@ -140,20 +138,20 @@ def populated_db(db):
 
 class TestHasKnownPricing:
     def test_known_commercial_model(self):
-        assert _has_known_pricing("gpt-4o", provider="openai") is True
-        assert _has_known_pricing("anthropic/claude-sonnet-4-20250514") is True
-        assert _has_known_pricing("gpt-4.1", provider="openai") is True
+        assert has_known_pricing("gpt-4o", provider="openai") is True
+        assert has_known_pricing("anthropic/claude-sonnet-4-20250514") is True
+        assert has_known_pricing("gpt-4.1", provider="openai") is True
 
     def test_unknown_custom_model(self):
-        assert _has_known_pricing("FP16_Hermes_4.5") is False
-        assert _has_known_pricing("my-custom-model") is False
-        assert _has_known_pricing("glm-5") is False
-        assert _has_known_pricing("") is False
-        assert _has_known_pricing(None) is False
+        assert has_known_pricing("FP16_Hermes_4.5") is False
+        assert has_known_pricing("my-custom-model") is False
+        assert has_known_pricing("glm-5") is False
+        assert has_known_pricing("") is False
+        assert has_known_pricing(None) is False
 
     def test_heuristic_matched_models_are_not_considered_known(self):
-        assert _has_known_pricing("some-opus-model") is False
-        assert _has_known_pricing("future-sonnet-v2") is False
+        assert has_known_pricing("some-opus-model") is False
+        assert has_known_pricing("future-sonnet-v2") is False
 
 
 class TestEstimateCost:
@@ -192,20 +190,20 @@ class TestEstimateCost:
 
 class TestFormatDuration:
     def test_seconds(self):
-        assert _format_duration(45) == "45s"
+        assert format_duration_compact(45) == "45s"
 
     def test_minutes(self):
-        assert _format_duration(300) == "5m"
+        assert format_duration_compact(300) == "5m"
 
     def test_hours_with_minutes(self):
-        result = _format_duration(5400)  # 1.5 hours
+        result = format_duration_compact(5400)  # 1.5 hours
         assert result == "1h 30m"
 
     def test_exact_hours(self):
-        assert _format_duration(7200) == "2h"
+        assert format_duration_compact(7200) == "2h"
 
     def test_days(self):
-        result = _format_duration(172800)  # 2 days
+        result = format_duration_compact(172800)  # 2 days
         assert result == "2.0d"
 
 

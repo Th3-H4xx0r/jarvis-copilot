@@ -3710,15 +3710,11 @@ _VISION_AUTO_PROVIDER_ORDER = (
 )
 
 
-def _normalize_vision_provider(provider: Optional[str]) -> str:
-    return _normalize_aux_provider(provider)
-
-
 def _resolve_strict_vision_backend(
     provider: str,
     model: Optional[str] = None,
 ) -> Tuple[Optional[Any], Optional[str]]:
-    provider = _normalize_vision_provider(provider)
+    provider = _normalize_aux_provider(provider)
     if provider == "copilot":
         return resolve_provider_client("copilot", model, is_vision=True)
     if provider == "openrouter":
@@ -3786,7 +3782,7 @@ def resolve_vision_provider_client(
     requested, resolved_model, resolved_base_url, resolved_api_key, resolved_api_mode = _resolve_task_provider_model(
         "vision", provider, model, base_url, api_key
     )
-    requested = _normalize_vision_provider(requested)
+    requested = _normalize_aux_provider(requested)
 
     def _finalize(resolved_provider: str, sync_client: Any, default_model: Optional[str]):
         if sync_client is None:
