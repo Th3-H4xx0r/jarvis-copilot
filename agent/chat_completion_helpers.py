@@ -28,6 +28,7 @@ from typing import Any, Dict
 from jarviscopilot_cli.timeouts import get_provider_request_timeout, get_provider_stale_timeout
 from agent.error_classifier import FailoverReason
 from agent.model_metadata import is_local_endpoint
+from agent.stream_diag import stream_diag_count_chunk
 from agent.message_sanitization import (
     _sanitize_surrogates,
     _repair_tool_call_arguments,
@@ -1536,23 +1537,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
             last_chunk_time["t"] = time.time()
             agent._touch_activity("receiving stream response")
 
-            # Update per-attempt diagnostic counters.  Best-effort —
-            # failures are swallowed so the streaming hot path is never
-            # interrupted by diagnostic accounting.
-            try:
-                _diag["chunks"] = int(_diag.get("chunks", 0)) + 1
-                if _diag.get("first_chunk_at") is None:
-                    _diag["first_chunk_at"] = last_chunk_time["t"]
-                # Approximate byte size from the chunk's repr — exact wire
-                # bytes aren't exposed by the SDK, but len(repr(chunk)) is
-                # a stable proxy for "how much content arrived" that
-                # survives stub provider differences.
-                try:
-                    _diag["bytes"] = int(_diag.get("bytes", 0)) + len(repr(chunk))
-                except Exception:
-                    pass
-            except Exception:
-                pass
+            stream_diag_count_chunk(_diag, last_chunk_time["t"], chunk)
 
             if agent._interrupt_requested:
                 break
@@ -1776,17 +1761,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                 last_chunk_time["t"] = time.time()
                 agent._touch_activity("receiving stream response")
 
-                # Update per-attempt diagnostic counters (best-effort).
-                try:
-                    _diag["chunks"] = int(_diag.get("chunks", 0)) + 1
-                    if _diag.get("first_chunk_at") is None:
-                        _diag["first_chunk_at"] = last_chunk_time["t"]
-                    try:
-                        _diag["bytes"] = int(_diag.get("bytes", 0)) + len(repr(event))
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                stream_diag_count_chunk(_diag, last_chunk_time["t"], event)
 
                 if agent._interrupt_requested:
                     break

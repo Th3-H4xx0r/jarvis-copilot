@@ -55,6 +55,22 @@ def stream_diag_init() -> Dict[str, Any]:
     }
 
 
+def stream_diag_count_chunk(diag: Dict[str, Any], received_at: float, chunk: Any) -> None:
+    """Count one received stream chunk/event in *diag*.  Never raises.
+
+    Bytes are approximated from ``len(repr(chunk))``: the SDK doesn't expose
+    wire bytes, but the repr is a stable proxy for "how much content
+    arrived" across providers.
+    """
+    try:
+        diag["chunks"] = int(diag.get("chunks", 0)) + 1
+        if diag.get("first_chunk_at") is None:
+            diag["first_chunk_at"] = received_at
+        diag["bytes"] = int(diag.get("bytes", 0)) + len(repr(chunk))
+    except Exception:
+        pass
+
+
 def stream_diag_capture_response(agent: Any, diag: Dict[str, Any], http_response: Any) -> None:
     """Snapshot interesting headers + HTTP status from the live stream.
 
