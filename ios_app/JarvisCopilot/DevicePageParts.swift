@@ -111,6 +111,58 @@ func signalTint(_ rssi: Int) -> Color {
     }
 }
 
+/// A device's "Jarvis Copilot" card: Share with Jarvis lists it with Jarvis or takes it off.
+/// Needs a paired server.
+struct ShareWithJarvisCard: View {
+    let deviceID: String
+    /// What sharing lets Jarvis do, for the footer.
+    let lets: String
+    /// Re-registers the device after the switch flips.
+    let changed: () -> Void
+    @ObservedObject private var bridge = BridgeClient.shared
+    @State private var shared: Bool
+
+    init(deviceID: String, lets: String, changed: @escaping () -> Void) {
+        self.deviceID = deviceID
+        self.lets = lets
+        self.changed = changed
+        _shared = State(initialValue: BridgeClient.isExposed(deviceID))
+    }
+
+    var body: some View {
+        CardGroup("Jarvis Copilot", footer: bridge.isPaired ? lets : "Pair with a Jarvis Copilot server first, from Settings.") {
+            Row {
+                Toggle("Share with Jarvis", isOn: Binding(
+                    get: { shared },
+                    set: { on in
+                        shared = on
+                        BridgeClient.setExposed(on, for: deviceID)
+                        changed()
+                    }))
+            }
+            .disabled(!bridge.isPaired)
+        }
+    }
+}
+
+/// A Bluetooth wearable's settings for its link: shared with Jarvis, and Keep Alive.
+struct WearableLinkSettings: View {
+    @ObservedObject var manager: BLEWearableManager
+    /// What sharing lets Jarvis do, for the footer.
+    let lets: String
+    /// The id it is shared under, when it differs from its Jarvis device's (one never connected).
+    var deviceID: String? = nil
+
+    var body: some View {
+        if let id = deviceID ?? manager.exposedDeviceID {
+            ShareWithJarvisCard(deviceID: id, lets: lets, changed: manager.refreshRegistryMembership)
+        }
+        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
+            Row { WearableKeepAliveToggle(device: manager.identityKey) }
+        }
+    }
+}
+
 /// A row on a wearable's page that opens something: icon, what it opens, a line under it, chevron.
 struct DeviceLinkLabel: View {
     let icon: String

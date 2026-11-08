@@ -4,7 +4,6 @@ import SwiftUI
 struct RingSettingsView: View {
     @ObservedObject var manager: RingManager
     @ObservedObject private var session: RingSession
-    @StateObject private var bridge = BridgeClient.shared
     @StateObject private var flasher = RingFirmwareFlasher()
     @ObservedObject private var health: HealthStore
 
@@ -126,28 +125,8 @@ struct RingSettingsView: View {
 
     // MARK: Sharing
 
-    @ViewBuilder private var sharing: some View {
-        if let deviceID = manager.exposedDeviceID {
-            CardGroup("Jarvis Copilot",
-                      footer: bridge.isPaired
-                          ? "Lets Jarvis read this ring's data and run its commands."
-                          : "Pair with a Jarvis Copilot server first — Settings on the device list.") {
-                Row {
-                    Toggle("Share with Jarvis", isOn: Binding(
-                        get: { BridgeClient.isExposed(deviceID) },
-                        set: { on in
-                            BridgeClient.setExposed(on, for: deviceID)
-                            manager.refreshRegistryMembership()
-                        }))
-                }
-                .disabled(!bridge.isPaired)
-            }
-        }
-        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
-            Row {
-                WearableKeepAliveToggle(device: WearableKeepAlive.ring)
-            }
-        }
+    private var sharing: some View {
+        WearableLinkSettings(manager: manager, lets: "Lets Jarvis read this ring's data and run its commands.")
     }
 
     // MARK: Monitoring

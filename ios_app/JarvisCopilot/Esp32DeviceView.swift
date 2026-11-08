@@ -4,7 +4,6 @@ struct Esp32DeviceView: View {
     @ObservedObject var manager: Esp32Manager
     let board: DiscoveredEsp32
 
-    @StateObject private var bridge = BridgeClient.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingWifiSheet = false
     @State private var renaming = false
@@ -552,17 +551,8 @@ struct Esp32DeviceView: View {
                 }
             }
         }
-        CardGroup("Sharing", footer: bridge.isPaired ? nil : "Pair with Jarvis in Settings first.") {
-            Row {
-                Toggle("Share with Jarvis", isOn: Binding(
-                    get: { BridgeClient.isExposed(deviceID) },
-                    set: { on in
-                        BridgeClient.setExposed(on, for: deviceID)
-                        manager.refreshRegistryMembership()
-                    }))
-            }
-            .disabled(!bridge.isPaired)
-        }
+        ShareWithJarvisCard(deviceID: deviceID, lets: "Lets Jarvis read this board and run its pins and scripts.",
+                            changed: manager.refreshRegistryMembership)
         CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
             Row { WearableKeepAliveToggle(device: WearableKeepAlive.esp32) }
         }

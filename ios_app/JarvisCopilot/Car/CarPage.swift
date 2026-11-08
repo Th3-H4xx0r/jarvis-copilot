@@ -6,11 +6,9 @@ import SwiftUI
 struct CarPage: View {
     @ObservedObject private var presence: CarPresence = .shared
     @ObservedObject private var links: WearableLinks = .shared
-    @ObservedObject private var bridge: BridgeClient = .shared
     @ObservedObject private var toyota: ToyotaStore = .shared
     @State private var sheet: CarSheet?
     @State private var renaming = false
-    @State private var shared = BridgeClient.isExposed(CarDevice.shared.deviceID)
     /// The one live car the page and the screens it opens share.
     @StateObject private var stage = CarStage()
     @Namespace private var cards
@@ -59,20 +57,8 @@ struct CarPage: View {
     }
 
     private var sharing: some View {
-        CardGroup("Jarvis Copilot",
-                  footer: bridge.isPaired
-                      ? "Lets Jarvis see whether you're in the car, what's linked to it, and use its controls."
-                      : "Pair with a Jarvis Copilot server from the device-list settings first.") {
-            Row {
-                Toggle("Share with Jarvis", isOn: Binding(
-                    get: { shared },
-                    set: { on in
-                        shared = on
-                        BridgeClient.setExposed(on, for: car.deviceID)
-                        car.refreshMembership()
-                    }))
-            }
-            .disabled(!bridge.isPaired)
-        }
+        ShareWithJarvisCard(deviceID: car.deviceID,
+                            lets: "Lets Jarvis see whether you're in the car, what's linked to it, and use its controls.",
+                            changed: car.refreshMembership)
     }
 }

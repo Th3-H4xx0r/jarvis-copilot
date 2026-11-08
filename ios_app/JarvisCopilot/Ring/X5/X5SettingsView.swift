@@ -4,7 +4,6 @@ import SwiftUI
 struct X5SettingsView: View {
     @ObservedObject var manager: X5Manager
     @ObservedObject private var session: X5Session
-    @StateObject private var bridge = BridgeClient.shared
 
     @State private var error: String?
     @State private var confirmPowerOff = false
@@ -88,28 +87,8 @@ struct X5SettingsView: View {
 
     // MARK: Sections
 
-    @ViewBuilder private var sharing: some View {
-        if let deviceID = manager.exposedDeviceID {
-            CardGroup("Jarvis Copilot",
-                      footer: bridge.isPaired ? "Lets Jarvis read this ring's data and run its commands."
-                                              : "Pair with a Jarvis Copilot server first — Settings on the device list.") {
-                Row {
-                    Toggle("Share with Jarvis", isOn: Binding(
-                        get: { BridgeClient.isExposed(deviceID) },
-                        set: { on in
-                            BridgeClient.setExposed(on, for: deviceID)
-                            manager.refreshRegistryMembership()
-                        }))
-                }
-                .disabled(!bridge.isPaired)
-            }
-        }
-        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
-            Row {
-                WearableKeepAliveToggle(device: WearableKeepAlive.x5ring)
-            }
-        }
-
+    private var sharing: some View {
+        WearableLinkSettings(manager: manager, lets: "Lets Jarvis read this ring's data and run its commands.")
     }
 
     private var health: some View {

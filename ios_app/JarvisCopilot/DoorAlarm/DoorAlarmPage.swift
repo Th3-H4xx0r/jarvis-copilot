@@ -5,10 +5,8 @@ import SwiftUI
 /// the hub (ESP32 at home, Tuya's cloud), firmware, and setup. Live while open (3 s refresh).
 struct DoorAlarmPage: View {
     @ObservedObject private var store: DoorAlarmStore = .shared
-    @ObservedObject private var bridge: BridgeClient = .shared
     @State private var editing: DoorContact?
     @State private var renaming = false
-    @State private var shared = BridgeClient.isExposed(DoorAlarmDevice.shared.deviceID)
     @State private var onScreen = false
     @State private var watching = false
     @Environment(\.scenePhase) private var scenePhase
@@ -311,18 +309,9 @@ struct DoorAlarmPage: View {
     }
 
     private var sharing: some View {
-        CardGroup("Jarvis Copilot", footer: "Lets the alarm ring this iPhone and ask you for Face ID when Jarvis is asked to disarm.") {
-            Row {
-                Toggle("Share with Jarvis", isOn: Binding(
-                    get: { shared },
-                    set: { on in
-                        shared = on
-                        BridgeClient.setExposed(on, for: DoorAlarmDevice.shared.deviceID)
-                        DoorAlarmDevice.shared.start()
-                    }))
-            }
-            .disabled(!bridge.isPaired)
-        }
+        ShareWithJarvisCard(deviceID: DoorAlarmDevice.shared.deviceID,
+                            lets: "Lets the alarm ring this iPhone and ask you for Face ID when Jarvis is asked to disarm.",
+                            changed: { DoorAlarmDevice.shared.start() })
     }
 
     @ViewBuilder private var noticeBanner: some View {

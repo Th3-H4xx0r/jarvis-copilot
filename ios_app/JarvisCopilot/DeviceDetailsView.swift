@@ -7,7 +7,6 @@ struct DeviceDetailsView: View {
     @ObservedObject var manager: BottleManager
     @AppStorage(TemperatureUnit.storageKey) private var tempUnit: TemperatureUnit = .celsius
 
-    @StateObject private var bridge = BridgeClient.shared
     @State private var rawHex = ""
     @State private var screenSeconds = 5.0
 
@@ -31,28 +30,8 @@ struct DeviceDetailsView: View {
 
     /// Per-device opt-in. Server, pairing and bridge mode are app-level and live in
     /// Jarvis Copilot settings, reachable from the device list.
-    @ViewBuilder private var sharing: some View {
-        if let deviceID = manager.exposedDeviceID {
-            CardGroup("Jarvis Copilot",
-                      footer: bridge.isPaired
-                          ? "Lets Jarvis read this bottle's state and run its commands."
-                          : "Pair with a server first, from Settings.") {
-                Row {
-                    Toggle("Share with Jarvis", isOn: Binding(
-                        get: { BridgeClient.isExposed(deviceID) },
-                        set: { on in
-                            BridgeClient.setExposed(on, for: deviceID)
-                            manager.refreshRegistryMembership()
-                        }))
-                }
-                .disabled(!bridge.isPaired)
-            }
-        }
-        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
-            Row {
-                WearableKeepAliveToggle(device: WearableKeepAlive.bottle)
-            }
-        }
+    private var sharing: some View {
+        WearableLinkSettings(manager: manager, lets: "Lets Jarvis read this bottle's state and run its commands.")
     }
 
     @ViewBuilder private var preferences: some View {

@@ -279,7 +279,6 @@ struct ScaleDeviceView: View {
 private struct ScaleSettingsView: View {
     @ObservedObject var manager: ScaleManager
     let scale: DiscoveredWearable
-    @StateObject private var bridge = BridgeClient.shared
     @StateObject private var history = ScaleHistoryStore.shared
     @AppStorage("scaleDisplayUnit") private var unit: WeightUnit = .kilograms
     @State private var showingProfile = false
@@ -305,24 +304,9 @@ private struct ScaleSettingsView: View {
         }
     }
 
-    @ViewBuilder private var sharing: some View {
-        CardGroup("Jarvis Copilot",
-                  footer: bridge.isPaired
-                      ? "Lets Jarvis read this scale's latest measurement and history."
-                      : "Pair with a Jarvis Copilot server from the device-list settings first.") {
-            Row {
-                Toggle("Share with Jarvis", isOn: Binding(
-                    get: { BridgeClient.isExposed(sharingDeviceID) },
-                    set: { on in
-                        BridgeClient.setExposed(on, for: sharingDeviceID)
-                        manager.refreshRegistryMembership()
-                    }))
-            }
-            .disabled(!bridge.isPaired)
-        }
-        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
-            Row { WearableKeepAliveToggle(device: WearableKeepAlive.scale) }
-        }
+    private var sharing: some View {
+        WearableLinkSettings(manager: manager, lets: "Lets Jarvis read this scale's latest measurement and history.",
+                             deviceID: sharingDeviceID)
     }
 
     private var preferences: some View {
