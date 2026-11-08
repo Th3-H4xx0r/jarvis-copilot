@@ -4083,6 +4083,32 @@ def gateway_setup():
 # Main Command Handler
 # =============================================================================
 
+def _stop_installed_service(system: bool) -> bool:
+    """Stop the installed systemd / launchd / Scheduled Task gateway service.
+
+    True when a service was installed and the stop succeeded; False sends
+    the caller to the profile PID file instead.
+    """
+    if supports_systemd_services() and (
+        get_systemd_unit_path(system=False).exists() or get_systemd_unit_path(system=True).exists()
+    ):
+        stop, failures = (lambda: systemd_stop(system=system)), (subprocess.CalledProcessError,)
+    elif is_macos() and get_launchd_plist_path().exists():
+        stop, failures = launchd_stop, (subprocess.CalledProcessError,)
+    elif is_windows():
+        from jarviscopilot_cli import gateway_windows
+        if not gateway_windows.is_installed():
+            return False
+        stop, failures = gateway_windows.stop, (subprocess.CalledProcessError, RuntimeError)
+    else:
+        return False
+    try:
+        stop()
+    except failures:
+        return False
+    return True
+
+
 def gateway_command(args):
     """Handle gateway subcommands."""
     try:
@@ -4258,27 +4284,7 @@ def _gateway_command_inner(args):
 
         if stop_all:
             # --all: kill every gateway process on the machine
-            service_available = False
-            if supports_systemd_services() and (get_systemd_unit_path(system=False).exists() or get_systemd_unit_path(system=True).exists()):
-                try:
-                    systemd_stop(system=system)
-                    service_available = True
-                except subprocess.CalledProcessError:
-                    pass
-            elif is_macos() and get_launchd_plist_path().exists():
-                try:
-                    launchd_stop()
-                    service_available = True
-                except subprocess.CalledProcessError:
-                    pass
-            elif is_windows():
-                from jarviscopilot_cli import gateway_windows
-                if gateway_windows.is_installed():
-                    try:
-                        gateway_windows.stop()
-                        service_available = True
-                    except (subprocess.CalledProcessError, RuntimeError):
-                        pass
+            service_available = _stop_installed_service(system)
             killed = kill_gateway_processes(all_profiles=True)
             total = killed + (1 if service_available else 0)
             if total:
@@ -4287,27 +4293,7 @@ def _gateway_command_inner(args):
                 print("✗ No gateway processes found")
         else:
             # Default: stop only the current profile's gateway
-            service_available = False
-            if supports_systemd_services() and (get_systemd_unit_path(system=False).exists() or get_systemd_unit_path(system=True).exists()):
-                try:
-                    systemd_stop(system=system)
-                    service_available = True
-                except subprocess.CalledProcessError:
-                    pass
-            elif is_macos() and get_launchd_plist_path().exists():
-                try:
-                    launchd_stop()
-                    service_available = True
-                except subprocess.CalledProcessError:
-                    pass
-            elif is_windows():
-                from jarviscopilot_cli import gateway_windows
-                if gateway_windows.is_installed():
-                    try:
-                        gateway_windows.stop()
-                        service_available = True
-                    except (subprocess.CalledProcessError, RuntimeError):
-                        pass
+            service_available = _stop_installed_service(system)
 
             if not service_available:
                 # No systemd/launchd/schtasks service — use profile-scoped PID file
