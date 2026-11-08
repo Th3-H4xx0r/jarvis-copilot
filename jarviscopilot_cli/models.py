@@ -3336,6 +3336,38 @@ def fetch_ollama_cloud_models(
     return []
 
 
+def _match_listed_model(
+    requested: str, lookup: str, models: list, *, ignore_case: bool = False,
+) -> tuple[Optional[dict[str, Any]], str]:
+    """Check a requested model ID against a provider's model listing.
+
+    Returns ``(verdict, similar)``. ``verdict`` is the accepted result for an
+    exact match or a near-identical typo (auto-corrected), else ``None``;
+    ``similar`` is the "Similar models" suffix for the caller's not-found
+    message. ``lookup`` is the provider-normalized form of ``requested``.
+    """
+    by_key = {(m.lower() if ignore_case else m): m for m in models}
+    key = lookup.lower() if ignore_case else lookup
+    if key in by_key:
+        return {"accepted": True, "persist": True, "recognized": True, "message": None}, ""
+    keys = list(by_key)
+    auto = get_close_matches(key, keys, n=1, cutoff=0.9)
+    if auto:
+        corrected = by_key[auto[0]]
+        return {
+            "accepted": True,
+            "persist": True,
+            "recognized": True,
+            "corrected_model": corrected,
+            "message": f"Auto-corrected `{requested}` → `{corrected}`",
+        }, ""
+    suggestions = get_close_matches(key, keys, n=3, cutoff=0.5)
+    similar = ""
+    if suggestions:
+        similar = "\n  Similar models: " + ", ".join(f"`{by_key[s]}`" for s in suggestions)
+    return None, similar
+
+
 def validate_requested_model(
     model_name: str,
     provider: Optional[str],
@@ -3437,30 +3469,9 @@ def validate_requested_model(
             probe = probe_api_models(api_key, base_url)
         api_models = probe.get("models")
         if api_models is not None:
-            if requested_for_lookup in set(api_models):
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "message": None,
-                }
-
-            # Auto-correct if the top match is very similar (e.g. typo)
-            auto = get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
-            if auto:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": auto[0],
-                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
-                }
-
-            suggestions = get_close_matches(requested, api_models, n=3, cutoff=0.5)
-            suggestion_text = ""
-            if suggestions:
-                suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
-
+            verdict, suggestion_text = _match_listed_model(requested, requested_for_lookup, api_models)
+            if verdict:
+                return verdict
             message = (
                 f"Note: `{requested}` was not found in this custom endpoint's model listing "
                 f"({probe.get('probed_url')}). It may still work if the server supports hidden or aliased models."
@@ -3505,27 +3516,9 @@ def validate_requested_model(
         except Exception:
             catalog_models = []
         if catalog_models:
-            if requested_for_lookup in set(catalog_models):
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "message": None,
-                }
-            # Auto-correct if the top match is very similar (e.g. typo)
-            auto = get_close_matches(requested_for_lookup, catalog_models, n=1, cutoff=0.9)
-            if auto:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": auto[0],
-                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
-                }
-            suggestions = get_close_matches(requested_for_lookup, catalog_models, n=3, cutoff=0.5)
-            suggestion_text = ""
-            if suggestions:
-                suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
+            verdict, suggestion_text = _match_listed_model(requested, requested_for_lookup, catalog_models)
+            if verdict:
+                return verdict
             provider_label = "OpenAI Codex" if normalized == "openai-codex" else "xAI Grok OAuth (SuperGrok Subscription)"
             return {
                 "accepted": True,
@@ -3546,31 +3539,12 @@ def validate_requested_model(
         except Exception:
             catalog_models = []
         if catalog_models:
-            # Case-insensitive lookup (catalog uses mixed case like MiniMax-M2.7)
-            catalog_lower = {m.lower(): m for m in catalog_models}
-            if requested_for_lookup.lower() in catalog_lower:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "message": None,
-                }
-            # Auto-correct close matches (case-insensitive)
-            catalog_lower_list = list(catalog_lower.keys())
-            auto = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=1, cutoff=0.9)
-            if auto:
-                corrected = catalog_lower[auto[0]]
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": corrected,
-                    "message": f"Auto-corrected `{requested}` → `{corrected}`",
-                }
-            suggestions = get_close_matches(requested_for_lookup.lower(), catalog_lower_list, n=3, cutoff=0.5)
-            suggestion_text = ""
-            if suggestions:
-                suggestion_text = "\n  Similar models: " + ", ".join(f"`{catalog_lower[s]}`" for s in suggestions)
+            # The catalog uses mixed case like MiniMax-M2.7.
+            verdict, suggestion_text = _match_listed_model(
+                requested, requested_for_lookup, catalog_models, ignore_case=True,
+            )
+            if verdict:
+                return verdict
             return {
                 "accepted": True,
                 "persist": True,
@@ -3592,26 +3566,9 @@ def validate_requested_model(
     if normalized == "anthropic":
         anthropic_models = _fetch_anthropic_models()
         if anthropic_models is not None:
-            if requested_for_lookup in set(anthropic_models):
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "message": None,
-                }
-            auto = get_close_matches(requested_for_lookup, anthropic_models, n=1, cutoff=0.9)
-            if auto:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": auto[0],
-                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
-                }
-            suggestions = get_close_matches(requested, anthropic_models, n=3, cutoff=0.5)
-            suggestion_text = ""
-            if suggestions:
-                suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
+            verdict, suggestion_text = _match_listed_model(requested, requested_for_lookup, anthropic_models)
+            if verdict:
+                return verdict
             # Accept anyway — Anthropic sometimes gates newer/preview models
             # (e.g. snapshot IDs, early-access releases) behind accounts
             # even though they aren't listed on /v1/models.
@@ -3633,22 +3590,9 @@ def validate_requested_model(
     if api_mode == "anthropic_messages":
         api_models = fetch_api_models(api_key, base_url, api_mode=api_mode)
         if api_models is not None:
-            if requested_for_lookup in set(api_models):
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "message": None,
-                }
-            auto = get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
-            if auto:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": auto[0],
-                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
-                }
+            verdict, _ = _match_listed_model(requested, requested_for_lookup, api_models)
+            if verdict:
+                return verdict
         # Probe failed or model not found — accept anyway (proxy likely
         # doesn't implement the Anthropic Models API).
         return {
@@ -3677,36 +3621,9 @@ def validate_requested_model(
                 m[len("models/"):] if isinstance(m, str) and m.startswith("models/") else m
                 for m in api_models
             ]
-        if requested_for_lookup in set(api_models):
-            # API confirmed the model exists
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": True,
-                "message": None,
-            }
-        else:
-            # API responded but model is not listed.  Accept anyway —
-            # the user may have access to models not shown in the public
-            # listing (e.g. Z.AI Pro/Max plans can use glm-5 on coding
-            # endpoints even though it's not in /models).  Warn but allow.
-
-            # Auto-correct if the top match is very similar (e.g. typo)
-            auto = get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
-            if auto:
-                return {
-                    "accepted": True,
-                    "persist": True,
-                    "recognized": True,
-                    "corrected_model": auto[0],
-                    "message": f"Auto-corrected `{requested}` → `{auto[0]}`",
-                }
-
-            suggestions = get_close_matches(requested, api_models, n=3, cutoff=0.5)
-            suggestion_text = ""
-            if suggestions:
-                suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
-
+        verdict, suggestion_text = _match_listed_model(requested, requested_for_lookup, api_models)
+        if verdict:
+            return verdict
         return {
             "accepted": False,
             "persist": False,
@@ -3770,35 +3687,11 @@ def validate_requested_model(
         catalog_models = []
 
     if catalog_models:
-        catalog_lower = {m.lower(): m for m in catalog_models}
-        if requested_for_lookup.lower() in catalog_lower:
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": True,
-                "message": None,
-            }
-        catalog_lower_list = list(catalog_lower.keys())
-        auto = get_close_matches(
-            requested_for_lookup.lower(), catalog_lower_list, n=1, cutoff=0.9
+        verdict, suggestion_text = _match_listed_model(
+            requested, requested_for_lookup, catalog_models, ignore_case=True,
         )
-        if auto:
-            corrected = catalog_lower[auto[0]]
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": True,
-                "corrected_model": corrected,
-                "message": f"Auto-corrected `{requested}` → `{corrected}`",
-            }
-        suggestions = get_close_matches(
-            requested_for_lookup.lower(), catalog_lower_list, n=3, cutoff=0.5
-        )
-        suggestion_text = ""
-        if suggestions:
-            suggestion_text = "\n  Similar models: " + ", ".join(
-                f"`{catalog_lower[s]}`" for s in suggestions
-            )
+        if verdict:
+            return verdict
         return {
             "accepted": True,
             "persist": True,
