@@ -3,7 +3,7 @@ import LinkPresentation
 import SwiftUI
 import WebKit
 
-// The chat's embeds (ChatMarkdown.withEmbeds), ported from the phone's
+// The chat's embeds (MarkdownBlocks.withEmbeds), ported from the phone's
 // ChatEmbeds: a page the agent saved, live inside the reply, and a preview
 // card for a link on a line of its own.
 

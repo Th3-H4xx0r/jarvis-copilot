@@ -142,17 +142,17 @@ final class ChatReplyDetailsTests: XCTestCase {
             .paragraph("See [the docs](https://docs.x.org/a) for more."),
             .linkPreview(url: "https://docs.x.org/b"),
             .linkPreview(url: "https://x.org/c"),
-            .code(language: "", text: "https://in.code/fence\n/tmp/in-fence.html"),
+            .code(language: "", text: "https://in.code/fence\n/tmp/in-fence.html", closed: true),
             .htmlPage(path: "/tmp/chart.html"),  // the repeated report.html line is its card already
             .list([.init(marker: "•", depth: 0, text: "see /tmp/list.html")]),
             .htmlPage(path: "/tmp/list.html"),
             .linkPreview(url: "https://x.org/a.html"),
             .paragraph("~/notes/draft.html and https://x.org/page.html stay text"),
         ])
-        XCTAssertEqual(ChatMarkdown.htmlPaths(in: "open `/srv/a b.html` or /srv/x.html."), ["/srv/x.html"])
-        XCTAssertEqual(ChatMarkdown.htmlPaths(in: "in `/srv/x.html`"), ["/srv/x.html"])
-        XCTAssertEqual(ChatMarkdown.htmlPaths(in: "a `ls /srv/x.html` span"), [], "inside a longer code span")
-        XCTAssertNil(ChatMarkdown.standaloneLink("see https://x.org"))
+        XCTAssertEqual(MarkdownBlocks.htmlPaths(in: "open `/srv/a b.html` or /srv/x.html."), ["/srv/x.html"])
+        XCTAssertEqual(MarkdownBlocks.htmlPaths(in: "in `/srv/x.html`"), ["/srv/x.html"])
+        XCTAssertEqual(MarkdownBlocks.htmlPaths(in: "a `ls /srv/x.html` span"), [], "inside a longer code span")
+        XCTAssertNil(MarkdownBlocks.standaloneLink("see https://x.org"))
         XCTAssertEqual(ChatMedia.mediaSource("/tmp/a b.html"), "/api/media?path=%2Ftmp%2Fa%20b.html")
     }
 

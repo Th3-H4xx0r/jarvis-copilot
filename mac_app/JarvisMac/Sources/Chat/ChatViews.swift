@@ -548,7 +548,7 @@ struct ChatMarkdownView: View {
 
     var body: some View {
         let blocks = ChatMarkdown.blocks(text)
-        let pictures = ChatMarkdown.images(in: blocks)
+        let pictures = MarkdownBlocks.images(in: blocks)
         VStack(alignment: .leading, spacing: 9) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 view(for: block, pictures: pictures)
@@ -560,7 +560,7 @@ struct ChatMarkdownView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func view(for block: ChatMarkdown.Block, pictures: [ChatMarkdown.Picture]) -> some View {
+    @ViewBuilder private func view(for block: MarkdownBlock, pictures: [MarkdownImage]) -> some View {
         switch block {
         case .heading(let level, let text):
             Text(ChatMarkdown.inline(text))
@@ -569,7 +569,7 @@ struct ChatMarkdownView: View {
         case .paragraph(let text):
             Text(ChatMarkdown.inline(text)).lineSpacing(3).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-        case .code(let language, let code):
+        case .code(let language, let code, _):
             ChatCodeBlock(language: language, code: code)
         case .list(let items):
             VStack(alignment: .leading, spacing: 4) {
@@ -676,9 +676,9 @@ struct ChatCodeBlock: View {
 /// both columns). A click opens every picture of the reply in Preview, starting
 /// with the one clicked (arrows, zoom, Share, Save).
 struct ChatGalleryView: View {
-    let pictures: [ChatMarkdown.Picture]
+    let pictures: [MarkdownImage]
     /// Every picture of the reply, in order — what Preview pages through.
-    var all: [ChatMarkdown.Picture] = []
+    var all: [MarkdownImage] = []
 
     var body: some View {
         if pictures.count == 1, let only = pictures.first {
@@ -700,11 +700,11 @@ struct ChatGalleryView: View {
         }
     }
 
-    private var rows: [[ChatMarkdown.Picture]] {
+    private var rows: [[MarkdownImage]] {
         stride(from: 0, to: pictures.count, by: 2).map { Array(pictures[$0..<min($0 + 2, pictures.count)]) }
     }
 
-    private func open(_ picture: ChatMarkdown.Picture) {
+    private func open(_ picture: MarkdownImage) {
         let set = all.isEmpty ? pictures : all
         ChatImageCache.shared.openAll(set.map(\.source), start: set.firstIndex(of: picture) ?? 0)
     }
@@ -715,7 +715,7 @@ struct ChatGalleryView: View {
 /// chat image's name carries its size), "Image unavailable · Retry" if it
 /// can't load — never a path.
 struct ChatImageView: View {
-    let picture: ChatMarkdown.Picture
+    let picture: MarkdownImage
     /// Fill (and crop to) a grid cell, or fit the picture's own shape.
     var fill: Bool
     var onOpen: () -> Void = {}

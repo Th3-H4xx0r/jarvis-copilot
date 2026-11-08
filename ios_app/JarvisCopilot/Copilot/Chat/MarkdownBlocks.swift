@@ -294,7 +294,7 @@ enum MarkdownBlocks {
         pattern: #"(?:^|[^\w:/.~`(-])(?:`(/[^\s`'"<>()\[\]]+?\.html)`|(/[^\s`'"<>()\[\]]+?\.html)(?![\w/`-]|\.\w))"#)
 
     /// `https://…`, `<https://…>` or `[label](https://…)` and nothing else.
-    private static func standaloneLink(_ line: String) -> String? {
+    static func standaloneLink(_ line: String) -> String? {
         let range = NSRange(line.startIndex..., in: line)
         for pattern in linkLinePatterns {
             guard let match = pattern.firstMatch(in: line, range: range),

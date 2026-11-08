@@ -39,6 +39,10 @@ targets:
       - path: ../../ios_app/JarvisCopilot/Copilot/Shared/JcAccent.swift
       # The real Jarvis orb (the phone's and the voice panel's shader).
       - path: ../../ios_app/JarvisCopilot/Copilot/Voice/Views/OrbShader.metal
+      # The chat's markdown blocks, the phone's own parser.
+      - path: ../../ios_app/JarvisCopilot/Copilot/Chat/MarkdownBlocks.swift
+      # Who answered a reply ("Claude Opus 5.5 · 3.2 s · routed deep 82%"), the phone's own words.
+      - path: ../../ios_app/JarvisCopilot/Copilot/Chat/HarnessFormat.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac

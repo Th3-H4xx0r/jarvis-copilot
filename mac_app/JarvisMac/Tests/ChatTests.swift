@@ -260,7 +260,7 @@ final class ChatTests: XCTestCase {
         let reply = "Here's a lion.\nMEDIA:https://commons.wikimedia.org/wiki/Special:FilePath/Lion_male.jpg?width=1280\nMEDIA:/tmp/shot 1.png\nMEDIA:/tmp/report.pdf"
         let blocks = ChatMarkdown.blocks(reply)
         XCTAssertEqual(blocks.first, .paragraph("Here's a lion."))
-        XCTAssertTrue(ChatMarkdown.images(in: blocks).contains(.init(alt: "image",
+        XCTAssertTrue(MarkdownBlocks.images(in: blocks).contains(.init(alt: "image",
                       source: "https://commons.wikimedia.org/wiki/Special:FilePath/Lion_male.jpg?width=1280")))
         XCTAssertFalse(blocks.contains { if case .paragraph(let p) = $0 { return p.contains("MEDIA:") }; return false },
                        "no MEDIA: text left")
@@ -276,24 +276,24 @@ final class ChatTests: XCTestCase {
     }
 
     func testMarkdownBlocks() {
-        let blocks = ChatMarkdown.split("# Plan\n\n- one\n  - two\n1. first\n\n```swift\nlet x = 1\n```\n> note\n\n---\n| a | b |\n|---|:-:|\n| 1 | 2 |\n![alt](https://x/y.png)\n```\nopen fence")
+        let blocks = MarkdownBlocks.split("# Plan\n\n- one\n  - two\n1. first\n\n```swift\nlet x = 1\n```\n> note\n\n---\n| a | b |\n|---|:-:|\n| 1 | 2 |\n![alt](https://x/y.png)\n```\nopen fence")
         XCTAssertEqual(blocks, [
             .heading(level: 1, text: "Plan"),
             .list([.init(marker: "•", depth: 0, text: "one"), .init(marker: "•", depth: 1, text: "two"),
                    .init(marker: "1.", depth: 0, text: "first")]),
-            .code(language: "swift", text: "let x = 1"),
+            .code(language: "swift", text: "let x = 1", closed: true),
             .quote("note"),
             .rule,
-            .table(.init(header: ["a", "b"], rows: [["1", "2"]])),
+            .table(.init(header: ["a", "b"], alignments: [.leading, .center], rows: [["1", "2"]])),
             .gallery([.init(alt: "alt", source: "https://x/y.png")]),
-            .code(language: "", text: "open fence"),
+            .code(language: "", text: "open fence", closed: false),
         ])
     }
 
     // MARK: pictures beside their text (2026-11-02)
 
     func testListItemWithImageKeepsLabelAndImage() {
-        let blocks = ChatMarkdown.split("- **Rokid:** light ![image](/api/media?path=a.jpg)\n- RayNeo: bulky")
+        let blocks = MarkdownBlocks.split("- **Rokid:** light ![image](/api/media?path=a.jpg)\n- RayNeo: bulky")
         XCTAssertEqual(blocks, [.list([
             .init(marker: "•", depth: 0, text: "**Rokid:** light", images: [.init(alt: "image", source: "/api/media?path=a.jpg")]),
             .init(marker: "•", depth: 0, text: "RayNeo: bulky"),
@@ -301,24 +301,24 @@ final class ChatTests: XCTestCase {
     }
 
     func testLabelThenImageInParagraph() {
-        XCTAssertEqual(ChatMarkdown.split("see ![a](/x/b.png) here"),
+        XCTAssertEqual(MarkdownBlocks.split("see ![a](/x/b.png) here"),
                        [.paragraph("see  here"), .gallery([.init(alt: "a", source: "/x/b.png")])])
     }
 
     func testTwoImageLinesMergeIntoOneGallery() {
-        XCTAssertEqual(ChatMarkdown.split("Photos:\n\n![a](/a.png)\n\n![b](/b.png)\n\nEnd."),
+        XCTAssertEqual(MarkdownBlocks.split("Photos:\n\n![a](/a.png)\n\n![b](/b.png)\n\nEnd."),
                        [.paragraph("Photos:"),
                         .gallery([.init(alt: "a", source: "/a.png"), .init(alt: "b", source: "/b.png")]),
                         .paragraph("End.")])
     }
 
     func testImageInCodeStaysCode() {
-        XCTAssertEqual(ChatMarkdown.split("```\n![a](/a.png)\n```"), [.code(language: "", text: "![a](/a.png)")])
-        XCTAssertEqual(ChatMarkdown.split("use `![a](/a.png)` here"), [.paragraph("use `![a](/a.png)` here")])
+        XCTAssertEqual(MarkdownBlocks.split("```\n![a](/a.png)\n```"), [.code(language: "", text: "![a](/a.png)", closed: true)])
+        XCTAssertEqual(MarkdownBlocks.split("use `![a](/a.png)` here"), [.paragraph("use `![a](/a.png)` here")])
     }
 
     func testNumberedListMarkersSurvive() {
-        guard case .list(let items)? = ChatMarkdown.split("1. One ![a](/a.png)\n2. Two ![b](/b.png)").first
+        guard case .list(let items)? = MarkdownBlocks.split("1. One ![a](/a.png)\n2. Two ![b](/b.png)").first
         else { return XCTFail() }
         XCTAssertEqual(items.map(\.marker), ["1.", "2."])
         XCTAssertEqual(items.map { $0.images.count }, [1, 1])
@@ -327,15 +327,15 @@ final class ChatTests: XCTestCase {
     func testImageLineAfterABulletBelongsToIt() {
         for md in ["1. Rokid\n   ![R](/r.jpg)\n2. XREAL", "1. Rokid\n![R](/r.jpg)\n2. XREAL",
                    "1. Rokid\n\n![R](/r.jpg)\n\n2. XREAL"] {
-            let blocks = ChatMarkdown.split(md)
-            let items = blocks.flatMap { block -> [ChatMarkdown.ListItem] in
+            let blocks = MarkdownBlocks.split(md)
+            let items = blocks.flatMap { block -> [MarkdownListItem] in
                 if case .list(let items) = block { return items }
                 return []
             }
             XCTAssertEqual(items.map(\.marker), ["1.", "2."], md)
             XCTAssertEqual(items.first?.images, [.init(alt: "R", source: "/r.jpg")], md)
         }
-        XCTAssertEqual(ChatMarkdown.split("- a\n\nPhotos:\n\n![x](/x.jpg)").last,
+        XCTAssertEqual(MarkdownBlocks.split("- a\n\nPhotos:\n\n![x](/x.jpg)").last,
                        .gallery([.init(alt: "x", source: "/x.jpg")]))
     }
 
