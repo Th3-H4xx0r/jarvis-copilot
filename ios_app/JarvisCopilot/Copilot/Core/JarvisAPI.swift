@@ -732,3 +732,13 @@ extension AsyncThrowingStream where Element == Data, Failure == Error {
         }
     }
 }
+
+extension JarvisAPI {
+    /// `GET /api/devices`: every paired device as the server lists it. Without `skills` each
+    /// device's skill catalogue (the phone's own is ~90 KB) is left out, for a caller that only
+    /// needs who is paired and online.
+    func devices(skills: Bool = false) async throws -> [[String: Any]] {
+        try await get("/api/devices", query: ["skills": skills ? "1" : "0"]).array(key: "devices")
+            .compactMap { $0 as? [String: Any] }
+    }
+}

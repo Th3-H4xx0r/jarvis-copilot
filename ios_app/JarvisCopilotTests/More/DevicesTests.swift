@@ -50,7 +50,7 @@ final class DevicesTests: XCTestCase {
 
         XCTAssertEqual(transport.lastMethod, "GET")
         XCTAssertEqual(transport.lastPath, "/api/devices")
-        XCTAssertEqual(transport.lastQuery, [:])
+        XCTAssertEqual(transport.lastQuery, ["skills": "1"])
         XCTAssertEqual(devices.map(\.id), ["d1", "d2"])
     }
 

@@ -13,10 +13,7 @@ struct ServerDevice {
 @MainActor
 enum ServerDevices {
     /// Overridable for tests.
-    static var fetch: () async throws -> [[String: Any]] = {
-        try await JarvisAPI.shared.get("/api/devices", query: ["skills": "1"]).array(key: "devices")
-            .compactMap { $0 as? [String: Any] }
-    }
+    static var fetch: () async throws -> [[String: Any]] = { try await JarvisAPI.shared.devices(skills: true) }
     static var invoke: (String, String, [String: Any]) async throws -> [String: Any] = {
         try await JarvisPodAPI().invoke($0, $1, $2)
     }

@@ -697,13 +697,7 @@ extension VoiceStore {
         Task { @MainActor [weak self] in
             var kinds: [String]?
             do {
-                // Named key, not `.array()`: that helper scans a fixed key list
-                // and hands back whichever it meets FIRST, so a reply that also
-                // carries another array (`sessions`, `items`, …) would quietly
-                // give us the wrong one.
-                // No skill catalogues (~90 KB): only who's online.
-                kinds = try await api.get("/api/devices", query: ["skills": "0"]).array(key: "devices")
-                    .compactMap { $0 as? [String: Any] }
+                kinds = try await api.devices()
                     .filter { $0.bool("online") ?? false }
                     .map(deviceIconKind)
             } catch {

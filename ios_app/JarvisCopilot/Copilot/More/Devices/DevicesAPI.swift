@@ -7,11 +7,8 @@ struct DevicesAPI {
 
     init(api: JarvisAPI = .shared) { self.api = api }
 
-    /// `GET /api/devices` → `{devices: [...]}`. `skills: false` leaves out each device's skill
-    /// catalogue (the phone's own is ~90 KB) for a caller that only shows who's paired and online.
     func list(skills: Bool = true) async throws -> [Device] {
-        let body = try await (skills ? api.get("/api/devices") : api.get("/api/devices", query: ["skills": "0"])).object()
-        return MoreJSON.mapList(MoreJSON.envelopeList(body, "devices")).map(Device.init(json:))
+        try await api.devices(skills: skills).map(Device.init(json:))
     }
 
     /// Remove the device and log it out.
