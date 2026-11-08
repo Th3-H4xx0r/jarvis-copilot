@@ -926,6 +926,36 @@ def _check_unavailable_skill(command_name: str) -> str | None:
     return None
 
 
+# Built-in platforms' allowlist env vars; plugin platforms declare theirs in
+# the platform registry.
+_ALLOWED_USERS_ENV = {
+    Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
+    Platform.DISCORD: "DISCORD_ALLOWED_USERS",
+    Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
+    Platform.SLACK: "SLACK_ALLOWED_USERS",
+    Platform.SIGNAL: "SIGNAL_ALLOWED_USERS",
+    Platform.EMAIL: "EMAIL_ALLOWED_USERS",
+    Platform.SMS: "SMS_ALLOWED_USERS",
+    Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
+}
+
+
+def _platform_auth_env(platform) -> tuple[str, str]:
+    """Return ``(allowed_users_env, allow_all_env)`` for ``platform`` ("" when none)."""
+    if platform in _ALLOWED_USERS_ENV:
+        allowed = _ALLOWED_USERS_ENV[platform]
+        return allowed, allowed.replace("_ALLOWED_USERS", "_ALLOW_ALL_USERS")
+    try:
+        from gateway.platform_registry import platform_registry
+        entry = platform_registry.get(platform.value)
+    except Exception:
+        logger.debug("platform registry lookup failed for %s", platform, exc_info=True)
+        entry = None
+    if not entry:
+        return "", ""
+    return entry.allowed_users_env or "", entry.allow_all_env or ""
+
+
 def _platform_config_key(platform: "Platform") -> str:
     """Map a Platform enum to its config.yaml key (LOCAL→"cli", rest→enum value)."""
     return "cli" if platform == Platform.LOCAL else platform.value
@@ -5644,58 +5674,15 @@ class GatewayRunner:
         if not user_id:
             return False
 
-        platform_env_map = {
-            Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-            Platform.DISCORD: "DISCORD_ALLOWED_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-            Platform.SLACK: "SLACK_ALLOWED_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOWED_USERS",
-            Platform.EMAIL: "EMAIL_ALLOWED_USERS",
-            Platform.SMS: "SMS_ALLOWED_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-        }
-        platform_group_user_env_map = {
-            Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_USERS",
-        }
-        platform_group_chat_env_map = {
-            Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
-        }
-        platform_allow_all_map = {
-            Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
-            Platform.DISCORD: "DISCORD_ALLOW_ALL_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOW_ALL_USERS",
-            Platform.SLACK: "SLACK_ALLOW_ALL_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOW_ALL_USERS",
-            Platform.EMAIL: "EMAIL_ALLOW_ALL_USERS",
-            Platform.SMS: "SMS_ALLOW_ALL_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOW_ALL_USERS",
-        }
-        # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
-        platform_allow_bots_map = {
-            Platform.DISCORD: "DISCORD_ALLOW_BOTS",
-        }
-
-        # Plugin platforms: check the registry for auth env var names
-        if source.platform not in platform_env_map:
-            try:
-                from gateway.platform_registry import platform_registry
-                entry = platform_registry.get(source.platform.value)
-                if entry:
-                    if entry.allowed_users_env:
-                        platform_env_map[source.platform] = entry.allowed_users_env
-                    if entry.allow_all_env:
-                        platform_allow_all_map[source.platform] = entry.allow_all_env
-            except Exception:
-                pass
+        allowed_users_var, allow_all_var = _platform_auth_env(source.platform)
 
         # Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
-        platform_allow_all_var = platform_allow_all_map.get(source.platform, "")
-        if platform_allow_all_var and os.getenv(platform_allow_all_var, "").lower() in {"true", "1", "yes"}:
+        if allow_all_var and os.getenv(allow_all_var, "").lower() in {"true", "1", "yes"}:
             return True
 
-        if getattr(source, "is_bot", False):
-            allow_bots_var = platform_allow_bots_map.get(source.platform)
-            if allow_bots_var and os.getenv(allow_bots_var, "none").lower().strip() in {"mentions", "all"}:
+        # Bots admitted by DISCORD_ALLOW_BOTS bypass the human allowlist (#4466).
+        if getattr(source, "is_bot", False) and source.platform == Platform.DISCORD:
+            if os.getenv("DISCORD_ALLOW_BOTS", "none").lower().strip() in {"mentions", "all"}:
                 return True
 
         # Discord role-based access (DISCORD_ALLOWED_ROLES): the adapter's
@@ -5716,12 +5703,12 @@ class GatewayRunner:
             return True
 
         # Check platform-specific and global allowlists
-        platform_allowlist = os.getenv(platform_env_map.get(source.platform, ""), "").strip()
+        platform_allowlist = os.getenv(allowed_users_var, "").strip()
         group_user_allowlist = ""
         group_chat_allowlist = ""
-        if source.chat_type in {"group", "forum"}:
-            group_user_allowlist = os.getenv(platform_group_user_env_map.get(source.platform, ""), "").strip()
-            group_chat_allowlist = os.getenv(platform_group_chat_env_map.get(source.platform, ""), "").strip()
+        if source.chat_type in {"group", "forum"} and source.platform == Platform.TELEGRAM:
+            group_user_allowlist = os.getenv("TELEGRAM_GROUP_ALLOWED_USERS", "").strip()
+            group_chat_allowlist = os.getenv("TELEGRAM_GROUP_ALLOWED_CHATS", "").strip()
         global_allowlist = os.getenv("GATEWAY_ALLOWED_USERS", "").strip()
 
         if not platform_allowlist and not group_user_allowlist and not group_chat_allowlist and not global_allowlist:
@@ -5836,27 +5823,11 @@ class GatewayRunner:
         # if any allowlist is configured for this platform, silently drop
         # unauthorized messages instead of sending pairing codes.
         if platform:
-            platform_env_map = {
-                Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-                Platform.DISCORD:  "DISCORD_ALLOWED_USERS",
-                Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-                Platform.SLACK:    "SLACK_ALLOWED_USERS",
-                Platform.SIGNAL:   "SIGNAL_ALLOWED_USERS",
-                Platform.EMAIL:    "EMAIL_ALLOWED_USERS",
-                Platform.SMS:      "SMS_ALLOWED_USERS",
-                Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-            }
-            platform_group_env_map = {
-                Platform.TELEGRAM: (
-                    "TELEGRAM_GROUP_ALLOWED_USERS",
-                    "TELEGRAM_GROUP_ALLOWED_CHATS",
-                ),
-            }
-            if os.getenv(platform_env_map.get(platform, ""), "").strip():
+            env_keys = [_platform_auth_env(platform)[0]]
+            if platform == Platform.TELEGRAM:
+                env_keys += ["TELEGRAM_GROUP_ALLOWED_USERS", "TELEGRAM_GROUP_ALLOWED_CHATS"]
+            if any(os.getenv(k, "").strip() for k in env_keys if k):
                 return "ignore"
-            for env_key in platform_group_env_map.get(platform, ()):
-                if os.getenv(env_key, "").strip():
-                    return "ignore"
 
         if os.getenv("GATEWAY_ALLOWED_USERS", "").strip():
             return "ignore"
@@ -14536,6 +14507,23 @@ class GatewayRunner:
             except Exception:
                 pass
 
+        def _stale_result(what: str) -> dict:
+            logger.info(
+                "Discarding stale proxy %s for %s — generation %d is no longer current",
+                what,
+                session_key or "?",
+                run_generation or 0,
+            )
+            return {
+                "final_response": "",
+                "messages": [],
+                "api_calls": 0,
+                "tools": [],
+                "history_offset": len(history),
+                "session_id": session_id,
+                "response_previewed": False,
+            }
+
         # Make the HTTP request with SSE streaming -----------------------
         full_response = ""
         _start = time.time()
@@ -14565,20 +14553,7 @@ class GatewayRunner:
                     buffer = ""
                     async for chunk in resp.content.iter_any():
                         if not _run_still_current():
-                            logger.info(
-                                "Discarding stale proxy stream for %s — generation %d is no longer current",
-                                session_key or "?",
-                                run_generation or 0,
-                            )
-                            return {
-                                "final_response": "",
-                                "messages": [],
-                                "api_calls": 0,
-                                "tools": [],
-                                "history_offset": len(history),
-                                "session_id": session_id,
-                                "response_previewed": False,
-                            }
+                            return _stale_result("stream")
                         text = chunk.decode("utf-8", errors="replace")
                         buffer += text
 
@@ -14629,20 +14604,7 @@ class GatewayRunner:
 
         _elapsed = time.time() - _start
         if not _run_still_current():
-            logger.info(
-                "Discarding stale proxy result for %s — generation %d is no longer current",
-                session_key or "?",
-                run_generation or 0,
-            )
-            return {
-                "final_response": "",
-                "messages": [],
-                "api_calls": 0,
-                "tools": [],
-                "history_offset": len(history),
-                "session_id": session_id,
-                "response_previewed": False,
-            }
+            return _stale_result("result")
         logger.info(
             "proxy response: url=%s session=%s time=%.1fs response=%d chars",
             proxy_url, (session_id or "")[:20], _elapsed, len(full_response),
