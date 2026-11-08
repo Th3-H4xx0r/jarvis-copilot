@@ -75,13 +75,11 @@ def test_opus_round_trip_keeps_length():
 
 
 @needs_opus
-def test_split_ws_message_is_reassembled_before_decode():
+def test_a_client_packet_decodes_to_pcm():
     st = _state()
     st["codec"] = "opus"
     packet = vo.OpusEncoder(16000, 1).encode(_tone(16000, 60))[0]
-    assert voice._opus_packet_to_pcm(st, packet[:5], False) == b""
-    pcm = voice._opus_packet_to_pcm(st, packet[5:], True)
-    assert len(pcm) == 960 * 2
+    assert len(voice._opus_packet_to_pcm(st, packet)) == 960 * 2
 
 
 @needs_opus

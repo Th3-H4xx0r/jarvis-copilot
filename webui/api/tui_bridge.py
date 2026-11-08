@@ -26,24 +26,6 @@ _RECV_CHUNK = 8192
 _MAX_FRAME_BYTES = 16 * 1024 * 1024
 
 
-def _take_complete_frame(buf, data, finished: bool, max_bytes: int):
-    """Reassemble a WS message split across recv chunks.
-
-    wsproto emits one event per chunk with ``message_finished=True`` only on the
-    last. Append ``data`` to ``buf``; return ``(line, new_buf, dropped)``:
-      - not finished → ``(None, buf, False)`` (keep accumulating)
-      - finished + within limit → ``(complete, empty_buf, False)``
-      - finished + oversize → ``(None, empty_buf, True)`` (drop, reset)
-    Works for both str and bytes buffers (``buf[:0]`` yields the right empty)."""
-    if data:
-        buf = buf + data
-    if not finished:
-        return None, buf, False
-    if len(buf) > max_bytes:
-        return None, buf[:0], True
-    return buf, buf[:0], False
-
-
 def _write_to_gateway(proc, text: str) -> bool:
     """Write one newline-terminated JSON-RPC line to the gateway's stdin."""
     try:
@@ -91,13 +73,8 @@ def handle_websocket(handler, parsed) -> bool:
 
 
 def _run_bridge(conn, sock) -> None:
-    from wsproto.events import TextMessage, BytesMessage, CloseConnection, Ping, Pong
-    # text_buf/bytes_buf accumulate a WS message that wsproto splits across recv
-    # chunks (it emits one event per chunk, message_finished=True only on the
-    # last). We must reassemble before writing a line to the gateway, or any
-    # RPC over ~8 KB gets chopped into invalid partial JSON lines. (Same bug as
-    # device_bridge.py commit afc1c9039.)
-    state = {"closed": False, "text_buf": "", "bytes_buf": b""}
+    from wsproto.events import CloseConnection
+    state = {"closed": False}
     lock = threading.Lock()
 
     def send_text(line: str) -> bool:
@@ -116,45 +93,10 @@ def _run_bridge(conn, sock) -> None:
     )
     reader.start()
     try:
-        while not state["closed"] and proc.poll() is None:
-            try:
-                data = sock.recv(_RECV_CHUNK)
-            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError, OSError):
-                break
-            if not data:
-                break
-            conn.receive_data(data)
-            for event in conn.events():
-                if isinstance(event, TextMessage):
-                    line, state["text_buf"], dropped = _take_complete_frame(
-                        state["text_buf"], event.data or "",
-                        getattr(event, "message_finished", True), _MAX_FRAME_BYTES)
-                    if dropped:
-                        logger.warning("tui WS oversize text frame — dropping")
-                    elif line is not None:
-                        _write_to_gateway(proc, line)
-                elif isinstance(event, BytesMessage):
-                    raw, state["bytes_buf"], dropped = _take_complete_frame(
-                        state["bytes_buf"], event.data or b"",
-                        getattr(event, "message_finished", True), _MAX_FRAME_BYTES)
-                    if dropped:
-                        logger.warning("tui WS oversize binary frame — dropping")
-                    elif raw is not None:
-                        _write_to_gateway(proc, raw.decode("utf-8", "replace"))
-                elif isinstance(event, Ping):
-                    with lock:
-                        try:
-                            sock.sendall(conn.send(Pong(event.payload)))
-                        except Exception:
-                            state["closed"] = True
-                elif isinstance(event, CloseConnection):
-                    with lock:
-                        try:
-                            sock.sendall(conn.send(event.response()))
-                        except Exception:
-                            pass
-                    state["closed"] = True
-                    break
+        ws_upgrade.serve(conn, sock, lock=lock, max_message=_MAX_FRAME_BYTES, chunk=_RECV_CHUNK,
+                         alive=lambda: not state["closed"] and proc.poll() is None,
+                         on_text=lambda line: _write_to_gateway(proc, line),
+                         on_bytes=lambda raw: _write_to_gateway(proc, raw.decode("utf-8", "replace")))
     except Exception:
         print("[webui] tui WS error: " + traceback.format_exc(), flush=True)
     finally:

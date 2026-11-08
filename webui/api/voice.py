@@ -2211,9 +2211,6 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
     so we don't need locking for ordering — the lock just guards the mic
     buffer against simultaneous appends while the handler is reading it.
     """
-    from wsproto.events import (
-        TextMessage, BytesMessage, CloseConnection, Ping, Pong,
-    )
     # plan 1.5 — warm the realtime STT model on first connection rather than
     # at import time (see _spawn_stt_warm's docstring for why).
     _spawn_stt_warm()
@@ -2230,44 +2227,26 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
     # the session left running (see _clear_stale_session_stream), so the phone
     # can skip doing it over HTTP.
     _ws_send_text(conn, sock, json.dumps({"type": "ready", "mode": "bridge", "clears_stale_stream": True}))
+    def on_bytes(payload: bytes) -> None:
+        if state.get("codec") == "opus":
+            payload = _opus_packet_to_pcm(state, payload)
+            if not payload:
+                return
+        with state["lock"]:
+            if len(state["pcm_buf"]) + len(payload) <= _WS_BUFFER_LIMIT_BYTES:
+                state["pcm_buf"].extend(payload)
+                _feed_turn_stream(state, payload, conn, sock)
+
+    def on_text(raw: str) -> None:
+        try:
+            msg = json.loads(raw or "{}")
+        except Exception:
+            msg = {}
+        _handle_control_frame(msg, state, conn, sock)
+
     try:
-        while not state["closed"]:
-            try:
-                data = sock.recv(_WS_RECV_CHUNK)
-            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError, OSError):
-                break
-            if not data:
-                break
-            conn.receive_data(data)
-            for event in conn.events():
-                if isinstance(event, BytesMessage):
-                    payload = event.data or b""
-                    if state.get("codec") == "opus":
-                        payload = _opus_packet_to_pcm(state, payload, event.message_finished)
-                        if not payload:
-                            continue
-                    with state["lock"]:
-                        if len(state["pcm_buf"]) + len(payload) <= _WS_BUFFER_LIMIT_BYTES:
-                            state["pcm_buf"].extend(payload)
-                            _feed_turn_stream(state, payload, conn, sock)
-                elif isinstance(event, TextMessage):
-                    try:
-                        msg = json.loads(event.data or "{}")
-                    except Exception:
-                        msg = {}
-                    _handle_control_frame(msg, state, conn, sock)
-                elif isinstance(event, Ping):
-                    try:
-                        sock.sendall(conn.send(Pong(event.payload)))
-                    except Exception:
-                        state["closed"] = True
-                elif isinstance(event, CloseConnection):
-                    try:
-                        sock.sendall(conn.send(event.response()))
-                    except Exception:
-                        pass
-                    state["closed"] = True
-                    break
+        ws_upgrade.serve(conn, sock, on_text=on_text, on_bytes=on_bytes, lock=_send_lock_for(conn),
+                         alive=lambda: not state["closed"], chunk=_WS_RECV_CHUNK)
     except Exception:
         print("[webui] voice WS error: " + traceback.format_exc(), flush=True)
     finally:
@@ -2825,17 +2804,9 @@ def _decode_mp3_to_pcm24k(mp3_bytes: bytes):
     return _mp3_to_pcm24k(mp3_bytes)
 
 
-def _opus_packet_to_pcm(state: dict, chunk: bytes, finished: bool) -> bytes:
-    """One Opus client packet (one WS binary message) → s16le PCM at the turn's
-    sample rate. wsproto can split a message across recv chunks, so pieces are
-    held until the message is complete. Returns b"" until then, or on a bad
-    packet (dropped rather than killing the turn)."""
-    partial = state.setdefault("opus_partial", bytearray())
-    partial.extend(chunk)
-    if not finished:
-        return b""
-    packet = bytes(partial)
-    partial.clear()
+def _opus_packet_to_pcm(state: dict, packet: bytes) -> bytes:
+    """One Opus client packet (one whole WS binary message) → s16le PCM at the
+    turn's sample rate; b"" for a bad packet (dropped rather than killing the turn)."""
     if state.get("opus_error"):
         return b""
     dec = state.get("opus_dec")

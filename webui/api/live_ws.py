@@ -2894,41 +2894,9 @@ def _origin_allowed(handler) -> bool:
         return False
 
 
-class _Assembler:
-    """Whole messages out of wsproto's events.
-
-    wsproto hands a message over as it arrives: a frame split across two socket
-    reads, or a message the client fragmented, comes out as several
-    `TextMessage`/`BytesMessage` events, and only the last has
-    `message_finished`. Treating each event as a message worked while every
-    frame was small; a `seg` carrying a 256-value voiceprint is ~3 KB, straddled
-    a read, and was parsed in halves — "frame was not JSON", and the line was
-    lost.
-    """
-
-    def __init__(self) -> None:
-        self._text: List[str] = []
-        self._bytes = bytearray()
-
-    def text(self, event) -> Optional[str]:
-        self._text.append(event.data or "")
-        if not getattr(event, "message_finished", True):
-            return None
-        whole, self._text = "".join(self._text), []
-        return whole
-
-    def binary(self, event) -> Optional[bytes]:
-        self._bytes.extend(event.data or b"")
-        if not getattr(event, "message_finished", True):
-            return None
-        whole, self._bytes = bytes(self._bytes), bytearray()
-        return whole
-
-
 def _run_live_ws(conn, sock) -> None:
     """Pump one live socket until the client goes away."""
-    from wsproto.events import (BytesMessage, CloseConnection, Ping, Pong,
-                                TextMessage)
+    from wsproto.events import TextMessage
 
     send_lock = threading.Lock()
     state = {"closed": False, "sid": "", "queue": None, "thread": None}
@@ -2972,40 +2940,9 @@ def _run_live_ws(conn, sock) -> None:
                 return
 
     live = LiveConnection(_send, on_bind=_bind)
-    assembler = _Assembler()
-
     try:
-        while not state["closed"]:
-            try:
-                data = sock.recv(_WS_RECV_CHUNK)
-            except sse.CLIENT_GONE:
-                break
-            if not data:
-                break
-            conn.receive_data(data)
-            for event in conn.events():
-                if isinstance(event, BytesMessage):
-                    payload = assembler.binary(event)
-                    if payload is not None:
-                        live.on_binary(payload)
-                elif isinstance(event, TextMessage):
-                    message = assembler.text(event)
-                    if message is not None:
-                        live.on_text(message or "{}")
-                elif isinstance(event, Ping):
-                    try:
-                        with send_lock:
-                            sock.sendall(conn.send(Pong(event.payload)))
-                    except Exception:
-                        state["closed"] = True
-                elif isinstance(event, CloseConnection):
-                    try:
-                        with send_lock:
-                            sock.sendall(conn.send(event.response()))
-                    except Exception:
-                        pass
-                    state["closed"] = True
-                    break
+        ws_upgrade.serve(conn, sock, lock=send_lock, chunk=_WS_RECV_CHUNK, alive=lambda: not state["closed"],
+                         on_bytes=live.on_binary, on_text=lambda message: live.on_text(message or "{}"))
     except Exception:
         logger.warning("live WS error", exc_info=True)
     finally:

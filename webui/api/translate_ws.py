@@ -150,8 +150,8 @@ def handle_websocket(handler, parsed) -> bool:
 
 
 def _run(conn, sock) -> None:
-    from wsproto.events import TextMessage, BytesMessage, CloseConnection, Ping, Pong
-    state = {"closed": False, "text": "", "bytes": b""}
+    from wsproto.events import TextMessage
+    state = {"closed": False}
     lock = threading.Lock()
     stream = None
 
@@ -175,58 +175,30 @@ def _run(conn, sock) -> None:
             except Exception:
                 current.close()
 
+    def on_text(raw: str) -> None:
+        nonlocal stream
+        try:
+            frame = json.loads(raw)
+        except ValueError:
+            return
+        kind = frame.get("type")
+        if kind == "start":
+            finish()
+            stream, error = start_stream(frame, _Sink(send))
+            send({"type": "error", "message": error} if error else {"type": "ready"})
+        elif kind == "stop":
+            finish()
+            send({"type": "done"})
+
+    def on_bytes(pcm: bytes) -> None:
+        nonlocal stream
+        if stream is not None and not stream.feed(pcm):
+            send({"type": "error", "message": stream.error or "the Soniox stream ended"})
+            stream = None
+
     try:
-        while not state["closed"]:
-            try:
-                data = sock.recv(_RECV_CHUNK)
-            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError, OSError):
-                break
-            if not data:
-                break
-            conn.receive_data(data)
-            for event in conn.events():
-                if isinstance(event, TextMessage):
-                    state["text"] += event.data or ""
-                    if not getattr(event, "message_finished", True):
-                        continue
-                    raw, state["text"] = state["text"], ""
-                    try:
-                        frame = json.loads(raw)
-                    except ValueError:
-                        continue
-                    kind = frame.get("type")
-                    if kind == "start":
-                        finish()
-                        stream, error = start_stream(frame, _Sink(send))
-                        send({"type": "error", "message": error} if error else {"type": "ready"})
-                    elif kind == "stop":
-                        finish()
-                        send({"type": "done"})
-                elif isinstance(event, BytesMessage):
-                    state["bytes"] += event.data or b""
-                    if len(state["bytes"]) > _MAX_FRAME_BYTES:
-                        state["bytes"] = b""
-                        continue
-                    if not getattr(event, "message_finished", True):
-                        continue
-                    pcm, state["bytes"] = state["bytes"], b""
-                    if stream is not None and not stream.feed(pcm):
-                        send({"type": "error", "message": stream.error or "the Soniox stream ended"})
-                        stream = None
-                elif isinstance(event, Ping):
-                    with lock:
-                        try:
-                            sock.sendall(conn.send(Pong(event.payload)))
-                        except Exception:
-                            state["closed"] = True
-                elif isinstance(event, CloseConnection):
-                    with lock:
-                        try:
-                            sock.sendall(conn.send(event.response()))
-                        except Exception:
-                            pass
-                    state["closed"] = True
-                    break
+        ws_upgrade.serve(conn, sock, on_text=on_text, on_bytes=on_bytes, lock=lock,
+                         alive=lambda: not state["closed"], max_message=_MAX_FRAME_BYTES, chunk=_RECV_CHUNK)
     except Exception:
         logger.warning("translate WS error: %s", traceback.format_exc())
     finally:
