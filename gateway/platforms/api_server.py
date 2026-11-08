@@ -2178,8 +2178,8 @@ class APIServerAdapter(BasePlatformAdapter):
         if body.get("truncation") == "auto" and len(conversation_history) > 100:
             conversation_history = conversation_history[-100:]
 
-        # Reuse session from previous_response_id chain so the dashboard
-        # groups the entire conversation under one session entry.
+        # Reuse session from previous_response_id chain so session listings
+        # group the entire conversation under one session entry.
         session_id = stored_session_id or str(uuid.uuid4())
 
         stream = _coerce_request_bool(body.get("stream"), default=False)

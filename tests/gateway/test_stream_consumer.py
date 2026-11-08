@@ -92,7 +92,7 @@ class TestFinalizeCapabilityGate:
     """Verify REQUIRES_EDIT_FINALIZE gates the redundant final edit.
 
     Platforms that don't need an explicit finalize signal (Telegram,
-    Slack, Matrix, …) should skip the redundant final edit when the
+    Slack, …) should skip the redundant final edit when the
     mid-stream edit already delivered the final content.  Platforms that
     *do* need it (e.g. Telegram) must always receive a finalize=True
     edit at the end of the stream.
