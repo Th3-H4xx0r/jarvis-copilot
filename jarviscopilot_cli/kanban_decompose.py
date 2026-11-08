@@ -36,15 +36,14 @@ Design notes
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
 from dataclasses import dataclass
 from typing import Optional
 
 from jarviscopilot_cli import kanban_db as kb
 from jarviscopilot_cli import profiles as profiles_mod
+from jarviscopilot_cli.kanban_specify import _extract_json_blob, _truncate
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +120,6 @@ Default assignee (used when no profile fits a task): {default_assignee}
 """
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 @dataclass
@@ -134,30 +132,6 @@ class DecomposeOutcome:
     fanout: bool = False
     child_ids: list[str] | None = None
     new_title: Optional[str] = None
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
-
-
-def _extract_json_blob(raw: str) -> Optional[dict]:
-    if not raw:
-        return None
-    stripped = _FENCE_RE.sub("", raw.strip())
-    first = stripped.find("{")
-    last = stripped.rfind("}")
-    if first == -1 or last == -1 or last <= first:
-        return None
-    candidate = stripped[first : last + 1]
-    try:
-        val = json.loads(candidate)
-    except (ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(val, dict):
-        return None
-    return val
 
 
 def _profile_author() -> str:
@@ -177,31 +151,16 @@ def _load_config() -> dict:
         return {}
 
 
-def _resolve_orchestrator_profile(cfg: dict) -> str:
-    """Resolve which profile owns decomposition.
+def _configured_profile(cfg: dict, key: str) -> str:
+    """Return the profile named by ``kanban.<key>`` when it exists.
 
-    Falls back to the active default profile when ``kanban.orchestrator_profile``
-    is unset, so a task is never stranded for lack of an orchestrator.
+    Used for ``orchestrator_profile`` (who owns decomposition) and
+    ``default_assignee`` (who catches children the orchestrator can't
+    route). Unset or unknown names fall back to the active profile, so a
+    task is never stranded.
     """
     kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
-    explicit = (kanban_cfg.get("orchestrator_profile") or "").strip()
-    if explicit:
-        try:
-            if profiles_mod.profile_exists(explicit):
-                return explicit
-        except Exception:
-            pass
-    # Fall back to the active default profile.
-    try:
-        return profiles_mod.get_active_profile_name() or "default"
-    except Exception:
-        return "default"
-
-
-def _resolve_default_assignee(cfg: dict) -> str:
-    """Resolve which profile catches child tasks the orchestrator can't route."""
-    kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
-    explicit = (kanban_cfg.get("default_assignee") or "").strip()
+    explicit = (kanban_cfg.get(key) or "").strip()
     if explicit:
         try:
             if profiles_mod.profile_exists(explicit):
@@ -291,8 +250,8 @@ def decompose_task(
         )
 
     cfg = _load_config()
-    orchestrator = _resolve_orchestrator_profile(cfg)
-    default_assignee = _resolve_default_assignee(cfg)
+    orchestrator = _configured_profile(cfg, "orchestrator_profile")
+    default_assignee = _configured_profile(cfg, "default_assignee")
     kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
     auto_promote = bool(kanban_cfg.get("auto_promote_children", True))
     roster, valid_names = _build_roster()

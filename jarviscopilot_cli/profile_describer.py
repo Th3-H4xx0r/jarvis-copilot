@@ -26,15 +26,13 @@ Design notes
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from jarviscopilot_cli import profiles as profiles_mod
+from jarviscopilot_cli.kanban_specify import _extract_json_blob
 from agent.skill_utils import is_excluded_skill_path
 
 logger = logging.getLogger(__name__)
@@ -85,7 +83,6 @@ Notable skills (up to {skill_cap}):
 """
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
 
 @dataclass
@@ -134,24 +131,6 @@ def _collect_skills(profile_dir: Path) -> list[str]:
     step = len(names) / MAX_SKILLS_FOR_PROMPT
     sampled = [names[int(i * step)] for i in range(MAX_SKILLS_FOR_PROMPT)]
     return sampled
-
-
-def _extract_json_blob(raw: str) -> Optional[dict]:
-    if not raw:
-        return None
-    stripped = _FENCE_RE.sub("", raw.strip())
-    first = stripped.find("{")
-    last = stripped.rfind("}")
-    if first == -1 or last == -1 or last <= first:
-        return None
-    candidate = stripped[first : last + 1]
-    try:
-        val = json.loads(candidate)
-    except (ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(val, dict):
-        return None
-    return val
 
 
 def describe_profile(
