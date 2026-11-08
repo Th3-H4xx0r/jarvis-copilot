@@ -398,6 +398,7 @@
 		4A896AABBF3808C8639793C2 /* TodosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50286C204C30CC4F88E81AE1 /* TodosStore.swift */; };
 		4AB014102C5861EE5FD7DE04 /* SkillBoundariesUIKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076740BDA9183D9160871727 /* SkillBoundariesUIKit.swift */; };
 		4AD5DECEC11201E4C826217F /* VoiceEarcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA94FC9CCFDC9B72A6CA1BA /* VoiceEarcon.swift */; };
+		4AE7D673E6DF21022A811AD9 /* MicPCM.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17F878AD759F26EFA8A9791 /* MicPCM.swift */; };
 		4AFFE3EDCA6FAFDD4A8BC366 /* ActionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D81F3D77511AA70B32B057 /* ActionBanner.swift */; };
 		4B094A5B148B84AFD5CE91A7 /* PairStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83547EEF6AC9B210B3E7D813 /* PairStore.swift */; };
 		4B1B20E924DFC1C8BC88DEC2 /* X5TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5645C81A770207FB92F51A /* X5TestSupport.swift */; };
@@ -2096,6 +2097,7 @@
 		A1203E07EA5D17F444878DFA /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A1702051C73E8DD4087418F6 /* PersonaLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaLoaderTests.swift; sourceTree = "<group>"; };
 		A17551F637308DF17659636C /* CarPlaySettingsScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlaySettingsScreen.swift; sourceTree = "<group>"; };
+		A17F878AD759F26EFA8A9791 /* MicPCM.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicPCM.swift; sourceTree = "<group>"; };
 		A1A687417AAF3B91F5B7FB0B /* HabitsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HabitsView.swift; sourceTree = "<group>"; };
 		A1C4C39883A267185DB68992 /* SkillRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillRegistry.swift; sourceTree = "<group>"; };
 		A1DE265BC34482F62295C26B /* DefaultChoiceScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DefaultChoiceScreen.swift; sourceTree = "<group>"; };
@@ -4057,6 +4059,7 @@
 				76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */,
 				B0A19D84E3D1E2F3225A9AE6 /* TalkHere.swift */,
 				CB3DB82EBFC47CDE95434CD1 /* VoiceBargeIn.swift */,
+				A17F878AD759F26EFA8A9791 /* MicPCM.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -6287,6 +6290,7 @@
 				6AB50FC85CC5D7EEF3BF6A34 /* FaceIDApprovals.swift in Sources */,
 				9EED9124FBBB8C2C35718A53 /* WearableStage.swift in Sources */,
 				9C4417974B05BCED55930062 /* WearablePageParts.swift in Sources */,
+				4AE7D673E6DF21022A811AD9 /* MicPCM.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

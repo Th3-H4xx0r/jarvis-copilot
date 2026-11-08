@@ -148,10 +148,10 @@ final class AmbientAudioInput: AudioInput {
 
         let tapGeneration = generation
         input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware) { [weak self] buffer, _ in
-            let peak = Self.peak(buffer)
-            let mono = mixdown ? Self.monoAverage(buffer, to: source) : buffer
+            let peak = MicPCM.peak(buffer)
+            let mono = mixdown ? MicPCM.mono(buffer, to: source, processed: false) : buffer
             guard let mono,
-                  let data = Self.pcm16(mono, converter: converter, target: target, ratio: ratio),
+                  let data = MicPCM.pcm16(mono, converter: converter, target: target, ratio: ratio),
                   !data.isEmpty else { return }
             // `DispatchQueue.main`, not `Task { @MainActor }`: frame ORDER decides
             // every timestamp in the transcript, and enqueue order onto an actor
@@ -224,64 +224,6 @@ final class AmbientAudioInput: AudioInput {
         engine = nil
     }
 
-    // MARK: - Render-thread helpers (must not touch actor state)
-
-    /// Average every channel. With processing off, a mic array's channels are all
-    /// live — the same sound a few centimetres apart — so the mean is the fold they
-    /// want, and it also buys a little noise rejection for free.
-    private nonisolated static func monoAverage(_ buffer: AVAudioPCMBuffer,
-                                                to format: AVAudioFormat) -> AVAudioPCMBuffer? {
-        guard let input = buffer.floatChannelData,
-              let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength),
-              let dst = out.floatChannelData
-        else { return nil }
-        let frames = Int(buffer.frameLength)
-        out.frameLength = buffer.frameLength
-        let channels = Int(buffer.format.channelCount)
-        let scale = 1 / Float(channels)
-        for i in 0..<frames {
-            var sum: Float = 0
-            for c in 0..<channels { sum += input[c][i] }
-            dst[0][i] = sum * scale
-        }
-        return out
-    }
-
-    private nonisolated static func peak(_ buffer: AVAudioPCMBuffer) -> Double {
-        guard let channels = buffer.floatChannelData else { return 0 }
-        var peak: Float = 0
-        for c in 0..<Int(buffer.format.channelCount) {
-            let samples = channels[c]
-            // Every 16th sample: a peak detector does not need every one, and this
-            // runs on the render thread.
-            for i in stride(from: 0, to: Int(buffer.frameLength), by: 16) {
-                peak = max(peak, abs(samples[i]))
-            }
-        }
-        return Double(peak)
-    }
-
-    private nonisolated static func pcm16(_ buffer: AVAudioPCMBuffer,
-                                          converter: AVAudioConverter,
-                                          target: AVAudioFormat,
-                                          ratio: Double) -> Data? {
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
-        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
-        var supplied = false
-        var error: NSError?
-        let status = converter.convert(to: out, error: &error) { _, outStatus in
-            if supplied {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            supplied = true
-            outStatus.pointee = .haveData
-            return buffer
-        }
-        guard status != .error, out.frameLength > 0,
-              let channel = out.int16ChannelData else { return nil }
-        return Data(bytes: channel[0], count: Int(out.frameLength) * 2)
-    }
 }
 
 /// The ambient claim on `AVAudioSession`, mirroring

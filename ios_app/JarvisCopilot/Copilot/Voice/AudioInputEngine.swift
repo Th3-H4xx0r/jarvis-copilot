@@ -34,7 +34,7 @@ final class DefaultAudioInput: AudioInput {
     nonisolated(unsafe) static var lastRawPeak = 0.0
     /// Whether the OS is doing echo cancellation and gain control for us. It
     /// also decides how a multi-channel buffer is folded to mono — see
-    /// `monoMixdown`.
+    /// `MicPCM.mono`.
     private var voiceProcessed = false
 
     /// The mic's tap is on the shared conversation engine (`VoiceAudioEngine`),
@@ -193,10 +193,10 @@ final class DefaultAudioInput: AudioInput {
 
         let tapGeneration = generation
         let tap: AVAudioNodeTapBlock = { [weak self] buffer, _ in
-            Self.lastRawPeak = max(Self.lastRawPeak, Self.rawPeak(buffer))
-            let mono = mixdown ? Self.monoMixdown(buffer, to: source, processed: processed) : buffer
+            Self.lastRawPeak = max(Self.lastRawPeak, MicPCM.peak(buffer))
+            let mono = mixdown ? MicPCM.mono(buffer, to: source, processed: processed) : buffer
             guard let mono,
-                  let data = Self.pcm16(mono, converter: converter, target: target, ratio: ratio),
+                  let data = MicPCM.pcm16(mono, converter: converter, target: target, ratio: ratio),
                   !data.isEmpty else { return }
             // `DispatchQueue.main` and not `Task { @MainActor }`: frame ORDER is
             // audible (and the endpointer's budget depends on it), and Task
@@ -221,86 +221,5 @@ final class DefaultAudioInput: AudioInput {
         generation += 1
         if micStarted { VoiceAudioEngine.shared.stopMic() }
         micStarted = false
-    }
-
-    /// Mix `buffer` down to one channel of `format`.
-    ///
-    /// Which fold is right depends on what produced the buffer, and the two
-    /// cases want opposite things:
-    ///
-    ///  * **Voice processing on.** The unit hands back a nine-channel buffer
-    ///    with its processed, echo-cancelled, gain-controlled stream in channel
-    ///    0 and silence in the rest. Averaging that divides the only real signal
-    ///    by nine — 19 dB thrown away right before the endpointer measures it.
-    ///    Take channel 0.
-    ///  * **Voice processing off.** The bare MacBook mic is a three-element
-    ///    array and every channel is live: the same sound a few centimetres
-    ///    apart. Average them.
-    ///
-    /// Chosen once at engine start, not per buffer: a divisor that changes with
-    /// whichever channels happen to be above a threshold this millisecond is an
-    /// amplitude modulation on the audio the server has to transcribe.
-    ///
-    /// Runs on the render thread, so it allocates only the output buffer and
-    /// touches no actor state.
-    private nonisolated static func monoMixdown(_ buffer: AVAudioPCMBuffer,
-                                                to format: AVAudioFormat,
-                                                processed: Bool) -> AVAudioPCMBuffer? {
-        guard let input = buffer.floatChannelData,
-              let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength),
-              let dst = out.floatChannelData
-        else { return nil }
-        let frames = Int(buffer.frameLength)
-        out.frameLength = buffer.frameLength
-
-        if processed {
-            dst[0].update(from: input[0], count: frames)
-            return out
-        }
-        let channels = Int(buffer.format.channelCount)
-        let scale = 1 / Float(channels)
-        for i in 0..<frames {
-            var sum: Float = 0
-            for c in 0..<channels { sum += input[c][i] }
-            dst[0][i] = sum * scale
-        }
-        return out
-    }
-
-    /// Loudest sample across every channel of one tap buffer.
-    private nonisolated static func rawPeak(_ buffer: AVAudioPCMBuffer) -> Double {
-        guard let channels = buffer.floatChannelData else { return 0 }
-        var peak: Float = 0
-        for c in 0..<Int(buffer.format.channelCount) {
-            let samples = channels[c]
-            for i in stride(from: 0, to: Int(buffer.frameLength), by: 16) {
-                peak = max(peak, abs(samples[i]))
-            }
-        }
-        return Double(peak)
-    }
-
-    /// One tap buffer → mono PCM16 LE at the target rate. Runs on the render
-    /// thread, so it must not touch actor state.
-    private nonisolated static func pcm16(_ buffer: AVAudioPCMBuffer,
-                                          converter: AVAudioConverter,
-                                          target: AVAudioFormat,
-                                          ratio: Double) -> Data? {
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
-        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
-        var supplied = false
-        var error: NSError?
-        let status = converter.convert(to: out, error: &error) { _, outStatus in
-            if supplied {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            supplied = true
-            outStatus.pointee = .haveData
-            return buffer
-        }
-        guard status != .error, out.frameLength > 0,
-              let channel = out.int16ChannelData else { return nil }
-        return Data(bytes: channel[0], count: Int(out.frameLength) * 2)
     }
 }
