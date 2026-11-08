@@ -400,9 +400,9 @@ final class BandDevice: WearableDevice {
 
     /// Recent days are synced first when stale and the band is here.
     private var days: WearableDays {
-        WearableDays(store: backend.store, connected: isConnected,
+        WearableDays(store: backend.store, connected: { [backend] in backend.isConnected },
                      noData: "no band data yet — the band has never connected", source: WearableKeepAlive.band,
-                     battery: session.battery, lastSync: backend.sync.lastSync) { [backend] daysAgo, seconds in
+                     battery: { [backend] in backend.session.battery }, lastSync: { [backend] in backend.sync.lastSync }) { [backend] daysAgo, seconds in
             guard daysAgo <= 2, backend.isConnected, backend.sync.isStale else { return }
             _ = await WearableDays.bounded(seconds) { _ = await backend.sync.sync() }
         }

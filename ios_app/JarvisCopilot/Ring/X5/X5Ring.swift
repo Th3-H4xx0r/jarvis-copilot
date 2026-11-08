@@ -249,9 +249,9 @@ final class X5Ring: WearableDevice {
 
     /// Today is synced first when it is stale and the ring is here.
     private var days: WearableDays {
-        WearableDays(store: backend.store, connected: isConnected,
+        WearableDays(store: backend.store, connected: { [backend] in backend.isConnected },
                      noData: "no X5 data yet — the ring has never connected", source: WearableKeepAlive.x5ring,
-                     battery: session.battery, lastSync: backend.sync.lastSync) { [backend] daysAgo, seconds in
+                     battery: { [backend] in backend.session.battery }, lastSync: { [backend] in backend.sync.lastSync }) { [backend] daysAgo, seconds in
             guard daysAgo == 0, backend.isConnected, backend.sync.isStale else { return }
             _ = await WearableDays.bounded(seconds) { _ = await backend.sync.sync() }
         }

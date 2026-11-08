@@ -797,9 +797,9 @@ final class ColmiR12: WearableDevice {
 
     /// A day that is still in the ring's history is synced first when stale and the ring is here.
     private var days: WearableDays {
-        WearableDays(store: backend.store, connected: isConnected,
+        WearableDays(store: backend.store, connected: { [backend] in backend.isConnected },
                      noData: "no ring data yet — the ring has never connected", source: WearableKeepAlive.ring,
-                     battery: session.battery, lastSync: backend.sync.lastTodaySync) { [backend] daysAgo, seconds in
+                     battery: { [backend] in backend.session.battery }, lastSync: { [backend] in backend.sync.lastTodaySync }) { [backend] daysAgo, seconds in
             guard (0...backend.sync.historyDays).contains(daysAgo), backend.isConnected, backend.sync.isStale else { return }
             _ = await WearableDays.bounded(seconds) { _ = await backend.sync.sync(days: daysAgo) }
         }
