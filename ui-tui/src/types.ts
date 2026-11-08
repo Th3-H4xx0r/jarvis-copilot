@@ -20,6 +20,15 @@ export interface ActivityItem {
 
 export type SubagentStatus = 'completed' | 'error' | 'failed' | 'interrupted' | 'queued' | 'running' | 'timeout'
 
+const SUBAGENT_STATUSES = new Set<SubagentStatus>(['completed', 'error', 'failed', 'interrupted', 'queued', 'running', 'timeout'])
+
+/** A status as the gateway sent it, if it is one this UI knows; else `fallback`. */
+export const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): SubagentStatus => {
+  const normalized = typeof status === 'string' ? (status.toLowerCase() as SubagentStatus) : undefined
+
+  return normalized && SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
+}
+
 export interface SubagentProgress {
   apiCalls?: number
   costUsd?: number

@@ -1,7 +1,7 @@
 import { atom } from 'nanostores'
 
 import type { SpawnTreeLoadResponse } from '../gatewayTypes.js'
-import type { SubagentProgress, SubagentStatus } from '../types.js'
+import { normalizeSubagentStatus, type SubagentProgress } from '../types.js'
 
 export interface SpawnSnapshot {
   finishedAt: number
@@ -20,26 +20,6 @@ export interface SpawnDiffPair {
 }
 
 const HISTORY_LIMIT = 10
-
-const KNOWN_SUBAGENT_STATUSES = new Set<SubagentStatus>([
-  'completed',
-  'error',
-  'failed',
-  'interrupted',
-  'queued',
-  'running',
-  'timeout'
-])
-
-const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): SubagentStatus => {
-  if (typeof status !== 'string') {
-    return fallback
-  }
-
-  const normalized = status.toLowerCase() as SubagentStatus
-
-  return KNOWN_SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
-}
 
 export const $spawnHistory = atom<SpawnSnapshot[]>([])
 export const $spawnDiff = atom<null | SpawnDiffPair>(null)

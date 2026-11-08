@@ -13,7 +13,7 @@ import { rpcErrorMessage } from '../lib/rpc.js'
 import { topLevelSubagents } from '../lib/subagentTree.js'
 import { formatToolCall, stripAnsi } from '../lib/text.js'
 import { fromSkin } from '../theme.js'
-import type { Msg, SubagentProgress, SubagentStatus } from '../types.js'
+import { type Msg, normalizeSubagentStatus, type SubagentProgress } from '../types.js'
 
 import { applyDelegationStatus, getDelegationState } from './delegationStore.js'
 import type { GatewayEventHandlerContext } from './interfaces.js'
@@ -53,26 +53,6 @@ const pushUnique =
 const pushThinking = pushUnique(6)
 const pushNote = pushUnique(6)
 const pushTool = pushUnique(8)
-
-const KNOWN_SUBAGENT_STATUSES = new Set<SubagentStatus>([
-  'completed',
-  'error',
-  'failed',
-  'interrupted',
-  'queued',
-  'running',
-  'timeout'
-])
-
-const normalizeSubagentStatus = (status: unknown, fallback: SubagentStatus): SubagentStatus => {
-  if (typeof status !== 'string') {
-    return fallback
-  }
-
-  const normalized = status.toLowerCase() as SubagentStatus
-
-  return KNOWN_SUBAGENT_STATUSES.has(normalized) ? normalized : fallback
-}
 
 export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev: GatewayEvent) => void {
   const { rpc } = ctx.gateway
