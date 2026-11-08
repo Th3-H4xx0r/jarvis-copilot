@@ -391,16 +391,12 @@ def get_project_root() -> Path:
 def _secure_dir(path):
     """Set directory to owner-only access (0700 by default). No-op on Windows.
 
-    Skipped in managed mode — the package manager owns permissions there.
-
     The mode can be overridden via the HERMES_HOME_MODE environment variable
     (e.g. HERMES_HOME_MODE=0701) for deployments where a web server (nginx,
     caddy, etc.) needs to traverse HERMES_HOME to reach a served subdirectory.
     The execute-only bit on a directory permits cd-through without exposing
     directory listings.
     """
-    if is_managed():
-        return
     try:
         mode_str = os.environ.get("HERMES_HOME_MODE", "").strip()
         mode = int(mode_str, 8) if mode_str else 0o700
@@ -440,12 +436,10 @@ def _is_container() -> bool:
 def _secure_file(path):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
-    Skipped in managed mode — the package manager owns permissions there.
-
     Skipped in containers — Docker/Podman volume mounts often need broader
     permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
     """
-    if is_managed() or _is_container():
+    if _is_container():
         return
     try:
         if os.path.exists(str(path)):
@@ -464,27 +458,18 @@ def _ensure_default_soul_md(home: Path) -> None:
 
 
 def ensure_hermes_home():
-    """Ensure ~/.jarviscopilot directory structure exists with secure permissions.
-
-    In managed mode the package manager owns permissions: directories are
-    not chmod-ed and files are created group-writable (umask 0o007).
-    """
+    """Ensure ~/.jarviscopilot directory structure exists with secure permissions."""
     home = get_hermes_home()
-    old_umask = os.umask(0o007) if is_managed() else None
-    try:
-        home.mkdir(parents=True, exist_ok=True)
-        _secure_dir(home)
-        for subdir in (
-            "cron", "sessions", "logs", "logs/curator", "memories",
-            "pairing", "hooks", "image_cache", "audio_cache", "skills",
-        ):
-            d = home / subdir
-            d.mkdir(parents=True, exist_ok=True)
-            _secure_dir(d)
-        _ensure_default_soul_md(home)
-    finally:
-        if old_umask is not None:
-            os.umask(old_umask)
+    home.mkdir(parents=True, exist_ok=True)
+    _secure_dir(home)
+    for subdir in (
+        "cron", "sessions", "logs", "logs/curator", "memories",
+        "pairing", "hooks", "image_cache", "audio_cache", "skills",
+    ):
+        d = home / subdir
+        d.mkdir(parents=True, exist_ok=True)
+        _secure_dir(d)
+    _ensure_default_soul_md(home)
 
 
 # =============================================================================
