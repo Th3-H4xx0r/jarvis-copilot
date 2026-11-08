@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Optional
 
 from api.helpers import j
+from api import ws_upgrade
 
 # plan 0.1 — structured per-turn latency logging. Schema owned by WS-A (see
 # docs/superpowers/plans/2026-09-04-sub-second-latency-rehaul.md Phase 0):
@@ -2198,57 +2199,13 @@ def handle_websocket(handler, parsed) -> bool:
     """
     if parsed.path != "/api/voice/s2s/ws":
         return False
-    try:
-        from wsproto import WSConnection, ConnectionType
-        from wsproto.events import Request, AcceptConnection
-    except Exception:
-        try:
-            handler.send_response(503)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"wsproto not installed"}')
-        except Exception:
-            pass
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
-    sock = handler.connection
-    # Long-lived connection: drop the read timeout so blocking recv()s don't
-    # cycle the socket out from under us. Each thread owns one socket so the
-    # timeout change is request-local.
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-    conn = WSConnection(ConnectionType.SERVER)
-    raw_request = _reconstruct_http_request(handler)
-    conn.receive_data(raw_request)
-    accepted = False
-    for event in conn.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(conn.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if not accepted:
-        return True
+    conn, sock = upgraded
     from api import turn_origin
     _run_voice_ws(conn, sock, origin=turn_origin.origin_for_handler(handler))
     return True
-
-
-def _reconstruct_http_request(handler) -> bytes:
-    """Synthesize the raw HTTP request bytes from the BaseHTTPRequestHandler
-    state. The handler has already consumed the request line + headers from
-    the wire by the time do_GET runs; wsproto's SERVER state machine needs
-    them to issue an AcceptConnection response.
-    """
-    lines = [f"{handler.command} {handler.path} HTTP/1.1"]
-    for k, v in handler.headers.items():
-        lines.append(f"{k}: {v}")
-    lines.append("")
-    lines.append("")
-    return ("\r\n".join(lines)).encode("latin-1")
 
 
 # Bound the per-turn mic buffer to keep memory predictable. 4 MB at 16kHz mono

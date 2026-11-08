@@ -61,6 +61,7 @@ from api import live_config, live_deliver, live_store
 from api import sse
 from api.helpers import bad, j
 from api.session_events import SessionEventBus
+from api import ws_upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -2865,42 +2866,10 @@ def handle_websocket(handler, parsed) -> bool:
             pass
         return True
 
-    try:
-        from wsproto import ConnectionType, WSConnection
-        from wsproto.events import AcceptConnection, Request
-    except Exception:
-        try:
-            handler.send_response(503)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"wsproto not installed"}')
-        except Exception:
-            pass
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
-
-    sock = handler.connection
-    # Long-lived connection: a read timeout would cycle the socket out from
-    # under a blocking recv. One thread owns one socket, so this is local.
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-
-    from api.voice import _reconstruct_http_request
-
-    conn = WSConnection(ConnectionType.SERVER)
-    conn.receive_data(_reconstruct_http_request(handler))
-    accepted = False
-    for event in conn.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(conn.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if not accepted:
-        return True
+    conn, sock = upgraded
     _run_live_ws(conn, sock)
     return True
 

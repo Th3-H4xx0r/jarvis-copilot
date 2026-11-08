@@ -25,6 +25,7 @@ import logging
 import threading
 import traceback
 from typing import Any, Callable, Dict, Optional
+from api import ws_upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -136,48 +137,15 @@ def start_stream(frame: Dict[str, Any], sink, engine=None):
     return stream, ""
 
 
-def _reconstruct_http_request(handler) -> bytes:
-    lines = [f"{handler.command} {handler.path} HTTP/1.1"]
-    for k, v in handler.headers.items():
-        lines.append(f"{k}: {v}")
-    lines += ["", ""]
-    return "\r\n".join(lines).encode("latin-1")
-
-
 def handle_websocket(handler, parsed) -> bool:
     """Claims /api/translate/ws. True iff this handler took the request."""
     if parsed.path != _PATH:
         return False
-    try:
-        from wsproto import WSConnection, ConnectionType
-        from wsproto.events import Request, AcceptConnection
-    except Exception:
-        try:
-            handler.send_response(503)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"wsproto not installed"}')
-        except Exception:
-            pass
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
-    sock = handler.connection
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-    conn = WSConnection(ConnectionType.SERVER)
-    conn.receive_data(_reconstruct_http_request(handler))
-    accepted = False
-    for event in conn.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(conn.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if accepted:
-        _run(conn, sock)
+    conn, sock = upgraded
+    _run(conn, sock)
     return True
 
 

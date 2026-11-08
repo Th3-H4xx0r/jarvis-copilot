@@ -20,6 +20,7 @@ import logging
 import os
 import socket
 import threading
+from api import ws_upgrade
 
 log = logging.getLogger(__name__)
 
@@ -304,45 +305,20 @@ def handle_tcp_relay(handler, parsed) -> bool:
     claims the path (so the caller doesn't fall through to other WS handlers)."""
     if parsed.path != "/api/devices/tcp-relay":
         return False
-    try:
-        from wsproto import WSConnection, ConnectionType
-        from wsproto.events import Request, AcceptConnection
-    except Exception:
-        _plain(handler, 503, '{"error":"wsproto not installed"}')
-        return True
-
     # Auth: same gate as the device bridge — must map to a paired device.
     try:
-        from api.device_bridge import _resolve_device_for_handler, _reconstruct_request
+        from api.device_bridge import _resolve_device_for_handler
     except Exception:
-        _plain(handler, 500, '{"error":"relay unavailable"}')
+        ws_upgrade.reply(handler, 500, b'{"error":"relay unavailable"}')
         return True
     device = _resolve_device_for_handler(handler)
     if not device:
-        _plain(handler, 401, '{"error":"no matching paired device for this session"}')
+        ws_upgrade.reply(handler, 401, b'{"error":"no matching paired device for this session"}')
         return True
-
-    sock = handler.connection
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-    ws = WSConnection(ConnectionType.SERVER)
-    try:
-        ws.receive_data(_reconstruct_request(handler))
-    except Exception:
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
-    accepted = False
-    for event in ws.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(ws.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if not accepted:
-        return True
+    ws, sock = upgraded
 
     # Connect to the LOCAL sshd only. Enforce loopback — never let a (mis)set
     # JC_SYNC_SSH_HOST turn this authenticated relay into a pivot to an internal
@@ -408,12 +384,3 @@ def handle_tcp_relay(handler, parsed) -> bool:
         log.info("tcp-relay: device=%s closed", device.get("id"))
     return True
 
-
-def _plain(handler, status: int, body: str) -> None:
-    try:
-        handler.send_response(status)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        handler.wfile.write(body.encode("utf-8"))
-    except Exception:
-        pass

@@ -42,6 +42,7 @@ import threading
 import time
 import uuid
 from typing import Optional
+from api import ws_upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -1217,49 +1218,15 @@ def handle_websocket(handler, parsed) -> bool:
     to the chat WS handler)."""
     if parsed.path != "/api/devices/bridge/ws":
         return False
-    try:
-        from wsproto import WSConnection, ConnectionType
-        from wsproto.events import Request, AcceptConnection
-    except Exception:
-        try:
-            handler.send_response(503)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"wsproto not installed"}')
-        except Exception:
-            pass
-        return True
-
     device = _resolve_device_for_handler(handler)
     if not device:
-        try:
-            handler.send_response(401)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"no matching paired device for this session"}')
-        except Exception:
-            pass
+        ws_upgrade.reply(handler, 401, b'{"error":"no matching paired device for this session"}')
         return True
 
-    sock = handler.connection
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-    ws = WSConnection(ConnectionType.SERVER)
-    raw = _reconstruct_request(handler)
-    ws.receive_data(raw)
-    accepted = False
-    for event in ws.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(ws.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if not accepted:
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
+    ws, sock = upgraded
 
     conn = _DeviceConn(
         device_id=device["id"],
@@ -1339,15 +1306,6 @@ def _resolve_device_for_handler(handler) -> Optional[dict]:
     except Exception:
         pass
     return matches[0]
-
-
-def _reconstruct_request(handler) -> bytes:
-    lines = [f"{handler.command} {handler.path} HTTP/1.1"]
-    for k, v in handler.headers.items():
-        lines.append(f"{k}: {v}")
-    lines.append("")
-    lines.append("")
-    return ("\r\n".join(lines)).encode("latin-1")
 
 
 _RECV_CHUNK = 65536  # 64 KB per recv; reassembly handles larger messages

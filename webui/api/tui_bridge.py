@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from api import ws_upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,6 @@ _RECV_CHUNK = 8192
 # Bound a reassembled inbound frame so a pathological client can't balloon
 # memory. Generous enough for large pasted prompts.
 _MAX_FRAME_BYTES = 16 * 1024 * 1024
-
-
-def _reconstruct_http_request(handler) -> bytes:
-    """Synthesize the raw HTTP request bytes the wsproto SERVER state machine
-    needs (the handler already consumed the request line + headers)."""
-    lines = [f"{handler.command} {handler.path} HTTP/1.1"]
-    for k, v in handler.headers.items():
-        lines.append(f"{k}: {v}")
-    lines.append("")
-    lines.append("")
-    return ("\r\n".join(lines)).encode("latin-1")
 
 
 def _take_complete_frame(buf, data, finished: bool, max_bytes: int):
@@ -92,36 +82,10 @@ def handle_websocket(handler, parsed) -> bool:
     Returns True iff this handler claimed the request (path matched)."""
     if parsed.path != _PATH:
         return False
-    try:
-        from wsproto import WSConnection, ConnectionType
-        from wsproto.events import Request, AcceptConnection
-    except Exception:
-        try:
-            handler.send_response(503)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(b'{"error":"wsproto not installed"}')
-        except Exception:
-            pass
+    upgraded = ws_upgrade.accept(handler)
+    if upgraded is None:
         return True
-    sock = handler.connection
-    try:
-        sock.settimeout(None)
-    except Exception:
-        pass
-    conn = WSConnection(ConnectionType.SERVER)
-    conn.receive_data(_reconstruct_http_request(handler))
-    accepted = False
-    for event in conn.events():
-        if isinstance(event, Request):
-            try:
-                sock.sendall(conn.send(AcceptConnection()))
-                accepted = True
-            except Exception:
-                return True
-            break
-    if not accepted:
-        return True
+    conn, sock = upgraded
     _run_bridge(conn, sock)
     return True
 
