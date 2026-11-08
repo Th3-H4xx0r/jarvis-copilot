@@ -769,6 +769,8 @@ from api.helpers import (
     _security_headers,
     _sanitize_error,
     _redact_text,
+    STATIC_MIME,
+    HttpError,
     answers_http_errors,
     need,
     query_sid,
@@ -915,6 +917,7 @@ from api.providers import get_providers, get_provider_quota, get_all_provider_qu
 from api.onboarding import (
     apply_onboarding_setup,
     get_onboarding_status,
+    onboarding_network_allowed,
     complete_onboarding,
     probe_provider_endpoint,
 )
@@ -3327,29 +3330,8 @@ def handle_post(handler, parsed) -> bool:
             return bad(handler, str(e))
 
     if parsed.path == "/api/onboarding/setup":
-        # Writing API keys to disk - restrict to local/private networks unless auth is active.
-        # In Docker, requests arrive from the bridge network (172.x.x.x), not 127.0.0.1,
-        # even when the user accesses via localhost:8787 on the host.
-        # Behind a reverse proxy (nginx/Caddy/Traefik) or SSH tunnel, X-Forwarded-For
-        # carries the real origin IP — read it first before falling back to the raw socket addr.
-        # HERMES_WEBUI_ONBOARDING_OPEN=1 lets operators on remote servers explicitly bypass
-        # the check when they control network access themselves (e.g. firewall + VPN).
-        from api.auth import is_auth_enabled
-        import os as _os
-        if not is_auth_enabled() and not _os.getenv("HERMES_WEBUI_ONBOARDING_OPEN"):
-            import ipaddress
-            try:
-                # Prefer forwarded headers set by reverse proxies
-                _xff = handler.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                _xri = handler.headers.get("X-Real-IP", "").strip()
-                _raw = handler.client_address[0]
-                _ip_str = _xff or _xri or _raw
-                addr = ipaddress.ip_address(_ip_str)
-                is_local = addr.is_loopback or addr.is_private
-            except ValueError:
-                is_local = False
-            if not is_local:
-                return bad(handler, "Onboarding setup is only available from local networks when auth is not enabled. To bypass this on a remote server, set HERMES_WEBUI_ONBOARDING_OPEN=1.", 403)
+        if not onboarding_network_allowed(handler):
+            return bad(handler, "Onboarding setup is only available from local networks when auth is not enabled. To bypass this on a remote server, set HERMES_WEBUI_ONBOARDING_OPEN=1.", 403)
         try:
             return j(handler, apply_onboarding_setup(body))
         except ValueError as e:
@@ -3367,21 +3349,8 @@ def handle_post(handler, parsed) -> bool:
         # Read-only: no config.yaml or .env writes happen here.  Same local-
         # network gate as /api/onboarding/setup (also writing-adjacent in
         # spirit because it carries an api_key the user typed).
-        from api.auth import is_auth_enabled
-        import os as _os
-        if not is_auth_enabled() and not _os.getenv("HERMES_WEBUI_ONBOARDING_OPEN"):
-            import ipaddress
-            try:
-                _xff = handler.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                _xri = handler.headers.get("X-Real-IP", "").strip()
-                _raw = handler.client_address[0]
-                _ip_str = _xff or _xri or _raw
-                addr = ipaddress.ip_address(_ip_str)
-                is_local = addr.is_loopback or addr.is_private
-            except ValueError:
-                is_local = False
-            if not is_local:
-                return bad(handler, "Onboarding probe is only available from local networks when auth is not enabled. To bypass this on a remote server, set HERMES_WEBUI_ONBOARDING_OPEN=1.", 403)
+        if not onboarding_network_allowed(handler):
+            return bad(handler, "Onboarding probe is only available from local networks when auth is not enabled. To bypass this on a remote server, set HERMES_WEBUI_ONBOARDING_OPEN=1.", 403)
         provider = str((body or {}).get("provider") or "").strip().lower()
         base_url = str((body or {}).get("base_url") or "")
         api_key = str((body or {}).get("api_key") or "").strip() or None
@@ -3775,23 +3744,6 @@ def handle_delete(handler, parsed) -> bool:
 
 # ── GET route helpers ─────────────────────────────────────────────────────────
 
-# MIME types for static file serving. Hoisted to module scope to avoid
-# rebuilding the dict on every request.
-_STATIC_MIME = {
-    "css": "text/css",
-    "js": "application/javascript",
-    "html": "text/html",
-    "svg": "image/svg+xml",
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "ico": "image/x-icon",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "woff": "font/woff",
-    "woff2": "font/woff2",
-    "ttf": "font/ttf",
-}
 # MIME types that are text-based and should carry charset=utf-8
 _TEXT_MIME_TYPES = {"text/css", "application/javascript", "text/html", "image/svg+xml", "text/plain"}
 
@@ -3858,7 +3810,7 @@ def _serve_static(handler, parsed):
     if not static_file.exists() or not static_file.is_file():
         return j(handler, {"error": "not found"}, status=404)
     ext = static_file.suffix.lower()
-    ct = _STATIC_MIME.get(ext.lstrip("."), "text/plain")
+    ct = STATIC_MIME.get(ext.lstrip("."), "text/plain")
     ct_header = f"{ct}; charset=utf-8" if ct in _TEXT_MIME_TYPES else ct
     stat = static_file.stat()
     etag = f'W/"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
@@ -5260,29 +5212,31 @@ def _handle_background(handler, body):
     return j(handler, {"task_id": task_id, "stream_id": stream_id, "session_id": bg.session_id})
 
 
+def _adopt_request_profile(s, body) -> None:
+    """An empty session runs under the profile the request names: it is a
+    placeholder, stamped with whatever profile was active when it was created,
+    and the user may have switched since. HttpError 400 for a malformed name."""
+    requested = str(body.get("profile") or "").strip()
+    if not requested:
+        return
+    from api.profiles import _PROFILE_ID_RE
+    if requested != "default" and not _PROFILE_ID_RE.fullmatch(requested):
+        raise HttpError("invalid profile", 400)
+    if _profiles_match(getattr(s, "profile", None), requested):
+        return
+    if not (getattr(s, "messages", None)
+            or getattr(s, "context_messages", None)
+            or getattr(s, "pending_user_message", None)):
+        s.profile = requested
+
+
 @answers_http_errors
 def _handle_goal_command(handler, body):
     """Handle WebUI /goal command controls and optional kickoff stream."""
     need(body, "session_id")
     s = session_or_404(body["session_id"])
 
-    requested_profile = str(body.get("profile") or "").strip()
-    if requested_profile:
-        try:
-            from api.profiles import _PROFILE_ID_RE
-
-            if requested_profile != "default" and not _PROFILE_ID_RE.fullmatch(requested_profile):
-                return bad(handler, "invalid profile", 400)
-        except ImportError:
-            requested_profile = ""
-    if requested_profile and not _profiles_match(getattr(s, "profile", None), requested_profile):
-        has_persisted_turns = bool(
-            getattr(s, "messages", None)
-            or getattr(s, "context_messages", None)
-            or getattr(s, "pending_user_message", None)
-        )
-        if not has_persisted_turns:
-            s.profile = requested_profile
+    _adopt_request_profile(s, body)
 
     current_stream_id = getattr(s, "active_stream_id", None)
     stream_running = False
@@ -5390,27 +5344,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
         diag.stage("get_session") if diag else None
         s = session_or_404(body["session_id"])
         diag.stage("validate_profile") if diag else None
-        requested_profile = str(body.get("profile") or "").strip()
-        if requested_profile:
-            try:
-                from api.profiles import _PROFILE_ID_RE
-
-                if requested_profile != "default" and not _PROFILE_ID_RE.fullmatch(requested_profile):
-                    return bad(handler, "invalid profile", 400)
-            except ImportError:
-                requested_profile = ""
-        if requested_profile and not _profiles_match(getattr(s, "profile", None), requested_profile):
-            has_persisted_turns = bool(
-                getattr(s, "messages", None)
-                or getattr(s, "context_messages", None)
-                or getattr(s, "pending_user_message", None)
-            )
-            if not has_persisted_turns:
-                # Empty sessions are placeholders. If the user switches profiles
-                # before sending the first turn, run the placeholder under the
-                # currently-selected profile instead of the stale one stamped at
-                # creation time.
-                s.profile = requested_profile
+        _adopt_request_profile(s, body)
         diag.stage("normalize_message") if diag else None
         msg = str(body.get("message", "")).strip()
         if not msg:

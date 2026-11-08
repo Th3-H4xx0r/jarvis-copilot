@@ -5,7 +5,26 @@ import json as _json
 import os
 import re as _re
 from pathlib import Path
-from api.config import IMAGE_EXTS, MD_EXTS
+
+
+# Content types for the static and extension asset trees, by extension.
+STATIC_MIME = {
+    "css": "text/css",
+    "js": "application/javascript",
+    "html": "text/html",
+    "svg": "image/svg+xml",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "ico": "image/x-icon",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "woff": "font/woff",
+    "woff2": "font/woff2",
+    "ttf": "font/ttf",
+    "otf": "font/otf",
+    "wasm": "application/wasm",
+}
 
 
 def require(body: dict, *fields) -> None:

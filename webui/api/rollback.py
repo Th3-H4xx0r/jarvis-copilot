@@ -182,6 +182,24 @@ def _inspect_checkpoint(ckpt_path: Path, git: str) -> dict[str, Any] | None:
         return None
 
 
+def _open_checkpoint(workspace: str, checkpoint: str):
+    """(workspace path, checkpoint dir, files in the checkpoint);
+    ValueError for an unknown checkpoint or one git can't list."""
+    resolved = _resolve_workspace(workspace)
+    checkpoint = _validate_checkpoint_id(checkpoint)
+    ckpt_dir = _checkpoint_root() / _workspace_hash(resolved) / checkpoint
+    if not ckpt_dir.is_dir():
+        raise ValueError(f"Checkpoint not found: {checkpoint}")
+    git = _find_git()
+    ls_result = subprocess.run(
+        [git, "-C", str(ckpt_dir), "ls-files"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if ls_result.returncode != 0:
+        raise ValueError("Failed to list checkpoint files")
+    return resolved, ckpt_dir, [f for f in ls_result.stdout.strip().split("\n") if f]
+
+
 def get_checkpoint_diff(workspace: str, checkpoint: str) -> dict[str, Any]:
     """Show the diff between a checkpoint and the current workspace state.
 
@@ -189,25 +207,7 @@ def get_checkpoint_diff(workspace: str, checkpoint: str) -> dict[str, Any]:
         diff: unified diff text
         files_changed: list of changed file paths
     """
-    resolved = _resolve_workspace(workspace)
-    checkpoint = _validate_checkpoint_id(checkpoint)
-    ws_hash = _workspace_hash(resolved)
-    ckpt_dir = _checkpoint_root() / ws_hash / checkpoint
-
-    if not ckpt_dir.is_dir():
-        raise ValueError(f"Checkpoint not found: {checkpoint}")
-
-    git = _find_git()
-
-    # Get list of files in the checkpoint
-    ls_result = subprocess.run(
-        [git, "-C", str(ckpt_dir), "ls-files"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if ls_result.returncode != 0:
-        raise ValueError("Failed to list checkpoint files")
-
-    ckpt_files = [f for f in ls_result.stdout.strip().split("\n") if f]
+    resolved, ckpt_dir, ckpt_files = _open_checkpoint(workspace, checkpoint)
     files_changed = []
     diff_lines = []
 
@@ -273,25 +273,7 @@ def restore_checkpoint(workspace: str, checkpoint: str) -> dict[str, Any]:
         ok: True
         files_restored: list of restored file paths
     """
-    resolved = _resolve_workspace(workspace)
-    checkpoint = _validate_checkpoint_id(checkpoint)
-    ws_hash = _workspace_hash(resolved)
-    ckpt_dir = _checkpoint_root() / ws_hash / checkpoint
-
-    if not ckpt_dir.is_dir():
-        raise ValueError(f"Checkpoint not found: {checkpoint}")
-
-    git = _find_git()
-
-    # Get list of files in the checkpoint
-    ls_result = subprocess.run(
-        [git, "-C", str(ckpt_dir), "ls-files"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if ls_result.returncode != 0:
-        raise ValueError("Failed to list checkpoint files")
-
-    ckpt_files = [f for f in ls_result.stdout.strip().split("\n") if f]
+    resolved, ckpt_dir, ckpt_files = _open_checkpoint(workspace, checkpoint)
     restored = []
     errors = []
 

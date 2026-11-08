@@ -8,14 +8,32 @@ import time
 from pathlib import Path
 
 from api.helpers import (
+    HttpError,
     _sanitize_error,
+    answers_http_errors,
     bad,
     j,
-    require,
+    need,
 )
 
 logger = logging.getLogger(__name__)
 
+def _rounds_request(body) -> tuple[str, float | None]:
+    """(session_id, since) from a rounds/summary request body; HttpError 400 when unusable."""
+    need(body, "session_id")
+    sid = str(body.get("session_id") or "").strip()
+    if not sid:
+        raise HttpError("session_id is required")
+    since = body.get("since")
+    if since is not None:
+        try:
+            since = float(since)
+        except (TypeError, ValueError):
+            raise HttpError("since must be a unix timestamp (number)") from None
+    return sid, since
+
+
+@answers_http_errors
 def _handle_conversation_rounds(handler, body):
     """Return conversation-round count for a gateway session.
 
@@ -27,21 +45,7 @@ def _handle_conversation_rounds(handler, body):
 
         { "ok": true, "rounds": 12, "threshold": 10, "should_show": true }
     """
-    try:
-        require(body, "session_id")
-    except ValueError as e:
-        return bad(handler, str(e))
-
-    sid = str(body.get("session_id") or "").strip()
-    if not sid:
-        return bad(handler, "session_id is required")
-
-    since = body.get("since")
-    if since is not None:
-        try:
-            since = float(since)
-        except (TypeError, ValueError):
-            return bad(handler, "since must be a unix timestamp (number)")
+    sid, since = _rounds_request(body)
 
     from api.models import count_conversation_rounds, CONVERSATION_ROUND_THRESHOLD
 
@@ -252,6 +256,7 @@ def _persist_handoff_summary(sid: str, summary: str, channel: str | None, rounds
     return marker if _persist_handoff_summary_to_state_db(sid, marker) else marker
 
 
+@answers_http_errors
 def _handle_handoff_summary(handler, body):
     """Generate an on-demand handoff summary for a gateway session.
 
@@ -263,21 +268,7 @@ def _handle_handoff_summary(handler, body):
     recent conversation activity.  Returns the summary text so the caller
     can display it in a tool-card.
     """
-    try:
-        require(body, "session_id")
-    except ValueError as e:
-        return bad(handler, str(e))
-
-    sid = str(body.get("session_id") or "").strip()
-    if not sid:
-        return bad(handler, "session_id is required")
-
-    since = body.get("since")
-    if since is not None:
-        try:
-            since = float(since)
-        except (TypeError, ValueError):
-            return bad(handler, "since must be a unix timestamp (number)")
+    sid, since = _rounds_request(body)
 
     from api.models import get_cli_session_messages, count_conversation_rounds, CONVERSATION_ROUND_THRESHOLD
 
@@ -448,6 +439,22 @@ def _handle_handoff_summary(handler, body):
             pass
         return channel_label
 
+    def _fallback_reply(**extra):
+        """The deterministic summary, kept (best effort) and returned."""
+        summary_text = _fallback_handoff_summary(msgs)
+        try:
+            _persist_handoff_summary(sid, summary_text, _resolve_handoff_channel_label(), rounds, fallback=True)
+        except Exception:
+            pass
+        return j(handler, {
+            "ok": True,
+            "summary": summary_text,
+            "message_count": len(msgs),
+            "rounds": rounds,
+            "fallback": True,
+            **extra,
+        })
+
     def _agent_text_completion(agent, system_prompt, user_text, max_tokens=700):
         from api.agent_completion import complete
         text, resp = complete(agent, system_prompt, user_text, max_tokens=max_tokens,
@@ -486,24 +493,7 @@ def _handle_handoff_summary(handler, body):
             resolved_provider, resolved_base_url, what="handoff summary")
 
         if not resolved_api_key:
-            summary_text = _fallback_handoff_summary(msgs)
-            try:
-                _persist_handoff_summary(
-                    sid,
-                    summary_text,
-                    _resolve_handoff_channel_label(),
-                    rounds,
-                    fallback=True,
-                )
-            except Exception:
-                pass
-            return j(handler, {
-                "ok": True,
-                "summary": summary_text,
-                "message_count": len(msgs),
-                "rounds": rounds,
-                "fallback": True,
-            })
+            return _fallback_reply()
 
         agent = _run_agent.AIAgent(
             model=resolved_model,
@@ -587,22 +577,4 @@ def _handle_handoff_summary(handler, body):
         })
     except Exception as e:
         logger.warning("Handoff summary generation failed: %s", e)
-        summary_text = _fallback_handoff_summary(msgs)
-        try:
-            _persist_handoff_summary(
-                sid,
-                summary_text,
-                _resolve_handoff_channel_label(),
-                rounds,
-                fallback=True,
-            )
-        except Exception:
-            pass
-        return j(handler, {
-            "ok": True,
-            "summary": summary_text,
-            "message_count": len(msgs),
-            "rounds": rounds,
-            "fallback": True,
-            "warning": f"Summary generation used local fallback: {_sanitize_error(e)}",
-        })
+        return _fallback_reply(warning=f"Summary generation used local fallback: {_sanitize_error(e)}")

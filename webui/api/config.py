@@ -400,6 +400,48 @@ def _save_yaml_config_file(config_path: Path, config_data: dict) -> None:
     )
 
 
+def edit_config_yaml(handler, mutate, *, failure: str, what: str):
+    """Load config.yaml under the config lock, ``mutate(stored)``, save and reload.
+
+    Returns ``(stored, path)``, or None after answering: 409 when a non-empty
+    file can't be parsed (a YAML slip in a hand edit -- saving would replace the
+    whole file with just this change), 500 with ``failure`` when writing fails
+    (details only to the log: they can carry a filesystem path)."""
+    from api.helpers import j
+    path = _get_config_path()
+    try:
+        with _cfg_lock:
+            stored = _load_yaml_config_file(path)
+            if not stored and path.exists() and path.stat().st_size > 0:
+                j(handler, {"error": "config.yaml could not be read, so nothing was saved; "
+                                     "fix the file and try again"}, status=409)
+                return None
+            mutate(stored)
+            _save_yaml_config_file(path, stored)
+        reload_config()
+    except Exception:
+        logger.warning("%s: writing the settings failed", what, exc_info=True)
+        j(handler, {"error": failure}, status=500)
+        return None
+    return stored, path
+
+
+def held_agents_for_home(home: Path) -> list:
+    """The agents this server holds (SESSION_AGENT_CACHE) for the profile at ``home``."""
+    def same(a) -> bool:
+        try:
+            return bool(a) and Path(str(a)).expanduser().resolve() == home.expanduser().resolve()
+        except Exception:
+            return False
+    try:
+        with SESSION_AGENT_CACHE_LOCK:
+            entries = list(SESSION_AGENT_CACHE.values())
+    except Exception:
+        return []
+    agents = [entry[0] if isinstance(entry, tuple) and entry else None for entry in entries]
+    return [a for a in agents if a is not None and same(getattr(a, "_webui_profile_home", ""))]
+
+
 # Initial load
 reload_config()
 cfg = _cfg_cache  # alias for backward compat with existing references

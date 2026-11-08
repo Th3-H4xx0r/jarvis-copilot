@@ -601,7 +601,8 @@ def test_chat_start_rejects_invalid_request_profile(monkeypatch):
         errors.append((message, status))
         return {"error": message}
 
-    monkeypatch.setattr(routes, "bad", fake_bad)
+    # The profile check raises an HttpError; @answers_http_errors replies via helpers.bad.
+    monkeypatch.setattr("api.helpers.bad", fake_bad)
 
     result = routes._handle_chat_start(
         object(),

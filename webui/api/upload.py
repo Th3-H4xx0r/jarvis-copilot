@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from api.config import MAX_UPLOAD_BYTES, STATE_DIR
-from api.helpers import j, bad
+from api.helpers import j
 from api.models import get_session
 from api.workspace import safe_resolve_ws
 
@@ -92,20 +92,32 @@ def _session_attachment_dir(session_id: str, *, root: Path | None = None) -> Pat
     return dest_dir
 
 
+def _one_file(handler):
+    """(form fields, filename, bytes) of a one-file multipart upload, or None
+    after answering 413 / 400."""
+    content_length = int(handler.headers.get('Content-Length', 0) or 0)
+    if content_length > MAX_UPLOAD_BYTES:
+        j(handler, {'error': f'File too large (max {MAX_UPLOAD_BYTES//1024//1024}MB)'}, status=413)
+        return None
+    fields, files = parse_multipart(handler.rfile, handler.headers.get('Content-Type', ''), content_length)
+    if 'file' not in files:
+        j(handler, {'error': 'No file field in request'}, status=400)
+        return None
+    filename, file_bytes = files['file']
+    if not filename:
+        j(handler, {'error': 'No filename in upload'}, status=400)
+        return None
+    return fields, filename, file_bytes
+
+
 def handle_upload(handler):
     import traceback as _tb
     try:
-        content_type = handler.headers.get('Content-Type', '')
-        content_length = int(handler.headers.get('Content-Length', 0) or 0)
-        if content_length > MAX_UPLOAD_BYTES:
-            return j(handler, {'error': f'File too large (max {MAX_UPLOAD_BYTES//1024//1024}MB)'}, status=413)
-        fields, files = parse_multipart(handler.rfile, content_type, content_length)
+        upload = _one_file(handler)
+        if upload is None:
+            return None
+        fields, filename, file_bytes = upload
         session_id = fields.get('session_id', '')
-        if 'file' not in files:
-            return j(handler, {'error': 'No file field in request'}, status=400)
-        filename, file_bytes = files['file']
-        if not filename:
-            return j(handler, {'error': 'No filename in upload'}, status=400)
         try:
             s = get_session(session_id)
         except KeyError:
@@ -126,6 +138,23 @@ def handle_upload(handler):
     except Exception:
         print('[webui] upload error: ' + _tb.format_exc(), flush=True)
         return j(handler, {'error': 'Upload failed'}, status=500)
+
+
+def _copy_capped(src, dst, total: int) -> int:
+    """Copy src to dst in chunks; the running total of extracted bytes must stay
+    under _MAX_EXTRACTED_BYTES (a zip bomb's real size only shows while reading)."""
+    while True:
+        chunk = src.read(65536)
+        if not chunk:
+            return total
+        total += len(chunk)
+        if total > _MAX_EXTRACTED_BYTES:
+            raise ValueError(
+                f'Extraction too large (> '
+                f'{_MAX_EXTRACTED_BYTES // (1024*1024)} MB limit). '
+                f'Possible zip bomb.'
+            )
+        dst.write(chunk)
 
 
 def extract_archive(file_bytes: bytes, filename: str, workspace: Path):
@@ -179,19 +208,7 @@ def extract_archive(file_bytes: bytes, filename: str, workspace: Path):
                         )
                     member_path.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, open(member_path, 'wb') as dst:
-                        _chunk_size = 65536
-                        while True:
-                            chunk = src.read(_chunk_size)
-                            if not chunk:
-                                break
-                            total_extracted += len(chunk)
-                            if total_extracted > _MAX_EXTRACTED_BYTES:
-                                raise ValueError(
-                                    f'Extraction too large (> '
-                                    f'{_MAX_EXTRACTED_BYTES // (1024*1024)} MB limit). '
-                                    f'Possible zip bomb.'
-                                )
-                            dst.write(chunk)
+                        total_extracted = _copy_capped(src, dst, total_extracted)
                     extracted_files.append(str(member_path.relative_to(workspace.resolve())))
 
         elif _mode == 'tar':
@@ -214,19 +231,7 @@ def extract_archive(file_bytes: bytes, filename: str, workspace: Path):
                     src_obj = tf.extractfile(member)
                     if src_obj:
                         with src_obj as src, open(member_path, 'wb') as dst:
-                            _chunk_size = 65536
-                            while True:
-                                chunk = src.read(_chunk_size)
-                                if not chunk:
-                                    break
-                                total_extracted += len(chunk)
-                                if total_extracted > _MAX_EXTRACTED_BYTES:
-                                    raise ValueError(
-                                        f'Extraction too large (> '
-                                        f'{_MAX_EXTRACTED_BYTES // (1024*1024)} MB limit). '
-                                        f'Possible zip bomb.'
-                                    )
-                                dst.write(chunk)
+                            total_extracted = _copy_capped(src, dst, total_extracted)
                     extracted_files.append(str(member_path.relative_to(workspace.resolve())))
     except Exception:
         # Clean up partially-extracted directory to avoid orphaned folders
@@ -243,17 +248,11 @@ def handle_upload_extract(handler):
     """Handle archive upload and extraction."""
     import traceback as _tb
     try:
-        content_type = handler.headers.get('Content-Type', '')
-        content_length = int(handler.headers.get('Content-Length', 0) or 0)
-        if content_length > MAX_UPLOAD_BYTES:
-            return j(handler, {'error': f'File too large (max {MAX_UPLOAD_BYTES//1024//1024}MB)'}, status=413)
-        fields, files = parse_multipart(handler.rfile, content_type, content_length)
+        upload = _one_file(handler)
+        if upload is None:
+            return None
+        fields, filename, file_bytes = upload
         session_id = fields.get('session_id', '')
-        if 'file' not in files:
-            return j(handler, {'error': 'No file field in request'}, status=400)
-        filename, file_bytes = files['file']
-        if not filename:
-            return j(handler, {'error': 'No filename in upload'}, status=400)
         try:
             s = get_session(session_id)
         except KeyError:
@@ -272,16 +271,10 @@ def handle_transcribe(handler):
     import traceback as _tb
     temp_path = None
     try:
-        content_type = handler.headers.get('Content-Type', '')
-        content_length = int(handler.headers.get('Content-Length', 0) or 0)
-        if content_length > MAX_UPLOAD_BYTES:
-            return j(handler, {'error': f'File too large (max {MAX_UPLOAD_BYTES//1024//1024}MB)'}, status=413)
-        fields, files = parse_multipart(handler.rfile, content_type, content_length)
-        if 'file' not in files:
-            return j(handler, {'error': 'No file field in request'}, status=400)
-        filename, file_bytes = files['file']
-        if not filename:
-            return j(handler, {'error': 'No filename in upload'}, status=400)
+        upload = _one_file(handler)
+        if upload is None:
+            return None
+        fields, filename, file_bytes = upload
         safe_name = _sanitize_upload_name(filename)
         suffix = Path(safe_name).suffix or '.webm'
         with tempfile.NamedTemporaryFile(prefix='webui-stt-', suffix=suffix, delete=False) as tmp:

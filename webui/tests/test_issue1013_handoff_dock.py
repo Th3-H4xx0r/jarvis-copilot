@@ -199,8 +199,6 @@ def test_no_api_key_handoff_summary_persists_fallback_summary(monkeypatch):
     import api.config as cfg
     import api.models as models
 
-    # Force API-path validation to focus on fallback behavior only.
-    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
     monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
     monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
@@ -254,7 +252,6 @@ def test_exception_handoff_summary_persists_fallback_summary(monkeypatch):
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
     monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
     monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
@@ -345,7 +342,6 @@ def test_handoff_summary_retries_once_when_length_limit_reached(monkeypatch):
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
     monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
     monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 
@@ -451,7 +447,6 @@ def test_handoff_summary_falls_back_when_retry_still_incomplete(monkeypatch):
     import api.config as cfg
     import api.models as models
 
-    monkeypatch.setattr(handoff_summary, "require", lambda body, *keys: None)
     monkeypatch.setattr(handoff_summary, "bad", lambda _handler, msg, status=400: {"ok": False, "error": msg, "status": status})
     monkeypatch.setattr(handoff_summary, "j", lambda _handler, payload, status=200, extra_headers=None: payload)
 

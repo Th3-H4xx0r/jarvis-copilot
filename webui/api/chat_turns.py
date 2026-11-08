@@ -15,6 +15,19 @@ from api.workspace import get_last_workspace, resolve_trusted_workspace, set_las
 logger = logging.getLogger(__name__)
 
 
+def _clear_stream_fields(obj) -> None:
+    """Forget a session object's stream: its id and the pending turn it carried.
+    Never raises (a caller's cached stub may be any shape)."""
+    try:
+        obj.active_stream_id = None
+        for name, empty in (("pending_user_message", None), ("pending_attachments", []),
+                            ("pending_started_at", None)):
+            if hasattr(obj, name):
+                setattr(obj, name, empty)
+    except Exception:
+        pass
+
+
 def clear_stale_stream_state(session) -> bool:
     """Clear persisted streaming flags when the in-memory stream no longer exists.
 
@@ -68,16 +81,7 @@ def clear_stale_stream_state(session) -> bool:
             # field (matches the Opus SHOULD-FIX #1 — without this, /api/session
             # would briefly return the stale active_stream_id and the frontend
             # would attempt one ghost SSE reconnect before recovering).
-            try:
-                original_stub.active_stream_id = None
-                if hasattr(original_stub, "pending_user_message"):
-                    original_stub.pending_user_message = None
-                if hasattr(original_stub, "pending_attachments"):
-                    original_stub.pending_attachments = []
-                if hasattr(original_stub, "pending_started_at"):
-                    original_stub.pending_started_at = None
-            except Exception:
-                pass
+            _clear_stream_fields(original_stub)
             return False
 
     # ── #1533 race fix: acquire the per-session lock and re-read
@@ -107,27 +111,12 @@ def clear_stale_stream_state(session) -> bool:
                 repaired = False
             if repaired:
                 if original_stub is not session:
-                    try:
-                        original_stub.active_stream_id = None
-                        if hasattr(original_stub, "pending_user_message"):
-                            original_stub.pending_user_message = None
-                        if hasattr(original_stub, "pending_attachments"):
-                            original_stub.pending_attachments = []
-                        if hasattr(original_stub, "pending_started_at"):
-                            original_stub.pending_started_at = None
-                    except Exception:
-                        pass
+                    _clear_stream_fields(original_stub)
                 return True
             if getattr(session, "active_stream_id", None) != stream_id:
                 return False
         _materialize_pending_user_turn_before_error(session)
-        session.active_stream_id = None
-        if hasattr(session, "pending_user_message"):
-            session.pending_user_message = None
-        if hasattr(session, "pending_attachments"):
-            session.pending_attachments = []
-        if hasattr(session, "pending_started_at"):
-            session.pending_started_at = None
+        _clear_stream_fields(session)
         try:
             # Runtime cleanup is not user activity; do not bubble old sessions
             # to the top of the sidebar just because a stale stream flag was
@@ -139,16 +128,7 @@ def clear_stale_stream_state(session) -> bool:
                 getattr(session, "session_id", "?"),
             )
     if original_stub is not session:
-        try:
-            original_stub.active_stream_id = None
-            if hasattr(original_stub, "pending_user_message"):
-                original_stub.pending_user_message = None
-            if hasattr(original_stub, "pending_attachments"):
-                original_stub.pending_attachments = []
-            if hasattr(original_stub, "pending_started_at"):
-                original_stub.pending_started_at = None
-        except Exception:
-            pass
+        _clear_stream_fields(original_stub)
     return True
 
 

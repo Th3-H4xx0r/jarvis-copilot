@@ -1969,28 +1969,17 @@ def _post_branch(handler, parsed, body):
     })
 
 
-def _post_retry(handler, parsed, body):
+def _rewind(handler, body, op_name: str):
+    """retry / undo: drop the last user turn (and what followed) via session_ops."""
     need(body, "session_id")
+    from api import session_ops
     try:
-        from api.session_ops import retry_last
-        result = retry_last(body["session_id"])
-        return j(handler, {"ok": True, **result})
+        result = getattr(session_ops, op_name)(body["session_id"])
     except KeyError:
         return bad(handler, "Session not found", 404)
     except ValueError as e:
         return j(handler, {"error": str(e)})
-
-
-def _post_undo(handler, parsed, body):
-    need(body, "session_id")
-    try:
-        from api.session_ops import undo_last
-        result = undo_last(body["session_id"])
-        return j(handler, {"ok": True, **result})
-    except KeyError:
-        return bad(handler, "Session not found", 404)
-    except ValueError as e:
-        return j(handler, {"error": str(e)})
+    return j(handler, {"ok": True, **result})
 
 
 # Session-scoped only — stored in-memory on the server side.
@@ -2138,8 +2127,8 @@ _POST = {
     "/api/session/compress": lambda h, p, b: _handle_session_compress(h, b),
     "/api/session/conversation-rounds": lambda h, p, b: _handle_conversation_rounds(h, b),
     "/api/session/handoff-summary": lambda h, p, b: _handle_handoff_summary(h, b),
-    "/api/session/retry": _post_retry,
-    "/api/session/undo": _post_undo,
+    "/api/session/retry": lambda h, p, b: _rewind(h, b, "retry_last"),
+    "/api/session/undo": lambda h, p, b: _rewind(h, b, "undo_last"),
     "/api/session/yolo": _post_yolo,
     "/api/session/pin": _post_pin,
     "/api/session/archive": _post_archive,

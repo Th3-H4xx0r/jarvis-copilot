@@ -77,25 +77,15 @@ def _write(handler, body: Dict[str, Any]) -> bool:
     except ValueError as exc:
         bad(handler, str(exc))
         return True
-    path = api_config._get_config_path()
-    try:
-        with api_config._cfg_lock:
-            stored = api_config._load_yaml_config_file(path)
-            if not stored and path.exists() and path.stat().st_size > 0:
-                # Unreadable (a YAML slip in a hand edit): saving would replace the
-                # whole file with just this section.
-                j(handler, {"error": "config.yaml could not be read, so nothing was saved; "
-                                     "fix the file and try again"}, status=409)
-                return True
-            current = stored.get("speech") if isinstance(stored.get("speech"), dict) else {}
-            stored["speech"] = speech.merge(current, clean)
-            api_config._save_yaml_config_file(path, stored)
-        api_config.reload_config()
-    except Exception:
-        # Details to the log only: a write failure can carry a filesystem path.
-        logger.warning("speech: writing the settings failed", exc_info=True)
-        j(handler, {"error": "could not write the speech settings"}, status=500)
+    def mutate(stored):
+        current = stored.get("speech") if isinstance(stored.get("speech"), dict) else {}
+        stored["speech"] = speech.merge(current, clean)
+
+    saved = api_config.edit_config_yaml(handler, mutate, what="speech",
+                                        failure="could not write the speech settings")
+    if saved is None:
         return True
+    stored = saved[0]
     payload = {"ok": True, "config": speech.coerce(stored["speech"])}
     ignored = speech.unknown_keys(patch)
     if ignored:

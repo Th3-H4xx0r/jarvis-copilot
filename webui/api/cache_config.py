@@ -70,26 +70,18 @@ def _write(handler, body: Dict[str, Any]) -> bool:
     if retention not in _OPTIONS:
         bad(handler, "retention must be \"standard\" or \"long\"")
         return True
-    path = api_config._get_config_path()
-    try:
-        with api_config._cfg_lock:
-            stored = api_config._load_yaml_config_file(path)
-            if not stored and path.exists() and path.stat().st_size > 0:
-                # Unreadable (a YAML slip in a hand edit): saving would replace the
-                # whole file with just this section.
-                j(handler, {"error": "config.yaml could not be read, so nothing was saved; "
-                                     "fix the file and try again"}, status=409)
-                return True
-            section = stored.get("prompt_caching") if isinstance(stored.get("prompt_caching"), dict) else {}
-            section["retention"] = retention
-            stored["prompt_caching"] = section
-            api_config._save_yaml_config_file(path, stored)
-        api_config.reload_config()
-    except Exception:
-        # Details to the log only: a write failure can carry a filesystem path.
-        logger.warning("cache settings: writing failed", exc_info=True)
-        j(handler, {"error": "could not write the prompt-cache setting"}, status=500)
+    section = {}
+
+    def mutate(stored):
+        section.update(stored.get("prompt_caching") if isinstance(stored.get("prompt_caching"), dict) else {})
+        section["retention"] = retention
+        stored["prompt_caching"] = section
+
+    saved = api_config.edit_config_yaml(handler, mutate, what="cache settings",
+                                        failure="could not write the prompt-cache setting")
+    if saved is None:
         return True
+    path = saved[1]
     _apply_to_live_agents(retention, path.parent)
     payload = _payload(section)
     payload["ok"] = True
@@ -97,26 +89,11 @@ def _write(handler, body: Dict[str, Any]) -> bool:
     return True
 
 
-def _same_home(a: Any, b: Path) -> bool:
-    try:
-        return bool(a) and Path(str(a)).expanduser().resolve() == b.expanduser().resolve()
-    except Exception:
-        return False
-
-
 def _apply_to_live_agents(retention: str, home: Path) -> int:
     """Switch the retention on every agent this server holds for this profile
     (the next request uses it; held agents also idle out on the new timer)."""
-    try:
-        with api_config.SESSION_AGENT_CACHE_LOCK:
-            entries = list(api_config.SESSION_AGENT_CACHE.values())
-    except Exception:
-        return 0
     updated = 0
-    for entry in entries:
-        agent = entry[0] if isinstance(entry, tuple) and entry else None
-        if agent is None or not _same_home(getattr(agent, "_webui_profile_home", ""), home):
-            continue
+    for agent in api_config.held_agents_for_home(home):
         agent._cache_retention = retention
         agent._cache_ttl = "1h" if retention == "long" else "5m"
         updated += 1

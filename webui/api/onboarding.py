@@ -205,6 +205,26 @@ _UNSUPPORTED_PROVIDER_NOTE = (
 )
 
 
+def onboarding_network_allowed(handler) -> bool:
+    """Onboarding writes API keys: without auth it is open only to local and
+    private networks (Docker's bridge 172.x included), unless
+    HERMES_WEBUI_ONBOARDING_OPEN is set by an operator who controls access.
+
+    Behind a reverse proxy or SSH tunnel the client is the first
+    X-Forwarded-For entry, then X-Real-IP, then the socket address."""
+    import ipaddress
+    if is_auth_enabled() or os.getenv("HERMES_WEBUI_ONBOARDING_OPEN"):
+        return True
+    ip = (handler.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+          or handler.headers.get("X-Real-IP", "").strip()
+          or handler.client_address[0])
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private
+
+
 def _normalize_model_for_provider(provider: str, model: str) -> str:
     clean = (model or "").strip()
     if not clean:

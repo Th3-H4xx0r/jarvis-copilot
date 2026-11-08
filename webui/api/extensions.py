@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import unquote, urlsplit
 
-from api.helpers import _security_headers, j
+from api.helpers import STATIC_MIME, _security_headers, j
 
 _log = logging.getLogger(__name__)
 
@@ -32,23 +32,6 @@ _EXTENSION_SCRIPT_URLS_ENV = "HERMES_WEBUI_EXTENSION_SCRIPT_URLS"
 _EXTENSION_STYLESHEET_URLS_ENV = "HERMES_WEBUI_EXTENSION_STYLESHEET_URLS"
 _ALLOWED_ASSET_PREFIXES = ("/extensions/", "/static/")
 
-_EXTENSION_MIME = {
-    "css": "text/css",
-    "js": "application/javascript",
-    "html": "text/html",
-    "svg": "image/svg+xml",
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "ico": "image/x-icon",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "woff": "font/woff",
-    "woff2": "font/woff2",
-    "ttf": "font/ttf",
-    "otf": "font/otf",
-    "wasm": "application/wasm",
-}
 _TEXT_MIME_TYPES = {"text/css", "application/javascript", "text/html", "image/svg+xml", "text/plain"}
 
 
@@ -229,7 +212,7 @@ def serve_extension_static(handler, parsed) -> bool:
     if not static_file.exists() or not static_file.is_file():
         return _not_found(handler)
 
-    ct = _EXTENSION_MIME.get(static_file.suffix.lower().lstrip("."), "text/plain")
+    ct = STATIC_MIME.get(static_file.suffix.lower().lstrip("."), "text/plain")
     ct_header = "{}; charset=utf-8".format(ct) if ct in _TEXT_MIME_TYPES else ct
     try:
         raw = static_file.read_bytes()

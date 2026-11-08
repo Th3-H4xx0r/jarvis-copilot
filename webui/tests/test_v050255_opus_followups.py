@@ -49,10 +49,13 @@ def test_rollback_validates_checkpoint_id_against_path_traversal():
         "the checkpoint parameter; without it, ../<ws>/<sha> escapes the "
         "workspace allowlist."
     )
-    # Both diff + restore call it.
-    assert src.count("_validate_checkpoint_id(checkpoint)") >= 2, (
-        "both get_checkpoint_diff and restore_checkpoint must call "
-        "_validate_checkpoint_id() on their checkpoint parameter."
+    # Both diff + restore open the checkpoint through the one validating path.
+    opener = src[src.index("def _open_checkpoint("):]
+    opener = opener[:opener.index("\ndef ")]
+    assert "_validate_checkpoint_id(checkpoint)" in opener
+    assert src.count("_open_checkpoint(workspace, checkpoint)") >= 2, (
+        "both get_checkpoint_diff and restore_checkpoint must validate their "
+        "checkpoint parameter via _open_checkpoint()."
     )
     # Validator rejects '..' and '.' explicitly.
     assert 'in (".", "..")' in src, (

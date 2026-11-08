@@ -27,9 +27,8 @@ REPO = pathlib.Path(__file__).parent.parent
 from tests._pytest_port import BASE
 
 # ---------------------------------------------------------------------------
-# Unit tests — directly test the IP-resolution + guard logic in routes.py
-# without needing a live server. We replicate the logic to keep tests fast
-# and independent of server startup.
+# Unit tests — the real guard (api.onboarding.onboarding_network_allowed),
+# no live server needed.
 # ---------------------------------------------------------------------------
 
 def _is_local_from_handler(
@@ -38,27 +37,23 @@ def _is_local_from_handler(
     xri: str = "",
     auth_enabled: bool = False,
     open_env: bool = False,
-) -> bool | str:
-    """
-    Mirror of the onboarding IP check in api/routes.py.
-    Returns True if the request would be allowed, False if blocked,
-    or the error message string if blocked.
-    """
-    import ipaddress
+) -> bool:
+    """Whether the onboarding guard lets this request through."""
+    import types
+    from api import onboarding
 
-    if auth_enabled or open_env:
-        return True
-
-    _xff = xff.split(",")[0].strip() if xff else ""
-    _xri = xri.strip()
-    _ip_str = _xff or _xri or raw_ip
-    try:
-        addr = ipaddress.ip_address(_ip_str)
-        is_local = addr.is_loopback or addr.is_private
-    except ValueError:
-        is_local = False
-
-    return is_local
+    headers = {}
+    if xff:
+        headers["X-Forwarded-For"] = xff
+    if xri:
+        headers["X-Real-IP"] = xri
+    handler = types.SimpleNamespace(headers=headers, client_address=(raw_ip, 0))
+    env = {"HERMES_WEBUI_ONBOARDING_OPEN": "1"} if open_env else {}
+    with unittest.mock.patch.object(onboarding, "is_auth_enabled", lambda: auth_enabled), \
+         unittest.mock.patch.dict(os.environ, env, clear=False):
+        if not open_env:
+            os.environ.pop("HERMES_WEBUI_ONBOARDING_OPEN", None)
+        return onboarding.onboarding_network_allowed(handler)
 
 
 class TestOnboardingIPLogic:

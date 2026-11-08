@@ -149,34 +149,28 @@ def _write(handler, body: Dict[str, Any]) -> bool:
     except ValueError as exc:
         bad(handler, str(exc))
         return True
-    path = api_config._get_config_path()
-    try:
-        with api_config._cfg_lock:
-            stored = api_config._load_yaml_config_file(path)
-            if not stored and path.exists() and path.stat().st_size > 0:
-                j(handler, {"error": "config.yaml could not be read, so nothing was saved; "
-                                     "fix the file and try again"}, status=409)
-                return True
-            cloud_touched = bool({"cloud_provider", "cloud_for_interactive"} & set(clean["browser"]))
-            if cloud_touched:
-                # Both keys travel together: the live-browser setup is "tasks start
-                # local; the cloud provider serves the sessions that move to it".
-                current_browser = stored.get("browser") if isinstance(stored.get("browser"), dict) else {}
-                clean["browser"].setdefault("cloud_for_interactive",
-                                            current_browser.get("cloud_for_interactive", True) is not False)
-                if "cloud_provider" not in clean["browser"] and not current_browser.get("cloud_provider"):
-                    clean["browser"]["cloud_provider"] = _cloud_provider(current_browser).replace("none", "local")
-            for section, values in clean.items():
-                if values:
-                    current = stored.get(section) if isinstance(stored.get(section), dict) else {}
-                    current.update(values)
-                    stored[section] = current
-            api_config._save_yaml_config_file(path, stored)
-        api_config.reload_config()
-    except Exception:
-        logger.warning("web config: writing the settings failed", exc_info=True)
-        j(handler, {"error": "could not write the web settings"}, status=500)
+
+    def mutate(stored):
+        cloud_touched = bool({"cloud_provider", "cloud_for_interactive"} & set(clean["browser"]))
+        if cloud_touched:
+            # Both keys travel together: the live-browser setup is "tasks start
+            # local; the cloud provider serves the sessions that move to it".
+            current_browser = stored.get("browser") if isinstance(stored.get("browser"), dict) else {}
+            clean["browser"].setdefault("cloud_for_interactive",
+                                        current_browser.get("cloud_for_interactive", True) is not False)
+            if "cloud_provider" not in clean["browser"] and not current_browser.get("cloud_provider"):
+                clean["browser"]["cloud_provider"] = _cloud_provider(current_browser).replace("none", "local")
+        for section, values in clean.items():
+            if values:
+                current = stored.get(section) if isinstance(stored.get(section), dict) else {}
+                current.update(values)
+                stored[section] = current
+
+    saved = api_config.edit_config_yaml(handler, mutate, what="web config",
+                                        failure="could not write the web settings")
+    if saved is None:
         return True
+    stored = saved[0]
     if clean["browser"]:
         # browser_tool caches the engine and the cloud provider per process:
         # re-read them on the next call.
