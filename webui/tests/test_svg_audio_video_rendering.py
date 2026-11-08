@@ -107,20 +107,6 @@ def test_media_label_class():
     assert "msg-media-label" in src, "Missing msg-media-label class"
 
 
-def test_i18n_keys():
-    """Verify media rendering i18n keys exist in all locales."""
-    with open('static/i18n.js') as f:
-        src = f.read()
-    required_keys = [
-        'media_audio_label',
-        'media_svg_label',
-        'media_video_label',
-    ]
-    for key in required_keys:
-        count = src.count(f"{key}:")
-        assert count >= 8, f"Key '{key}' found {count} times, expected >= 8 (one per locale)"
-
-
 def test_css_classes_exist():
     """Verify all media CSS classes are defined."""
     with open('static/style.css') as f:

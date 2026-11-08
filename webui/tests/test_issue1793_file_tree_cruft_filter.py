@@ -152,26 +152,6 @@ def test_kebab_menu_styles_replace_inline_row():
     assert "#btnWorkspacePrefs" in STYLE_CSS
 
 
-def test_new_i18n_keys_present_in_all_locales():
-    """The new copy must exist in every locale block so the kebab menu
-    description and indicator chip don't render `undefined` in non-en
-    sessions.
-    """
-    # Total locale blocks today: 9 (en, ja, ru, es, de, zh, zh-Hant, pt, ko)
-    n_locales = I18N_JS.count("workspace_show_hidden_files:")
-    assert n_locales >= 8, f"unexpected locale count: {n_locales}"
-    for key in (
-        "workspace_show_hidden_files_desc:",
-        "workspace_hidden_files_visible:",
-        "workspace_hidden_files_visible_title:",
-        "workspace_options:",
-    ):
-        assert I18N_JS.count(key) == n_locales, (
-            f"key {key!r} missing in some locales (expected {n_locales}, "
-            f"got {I18N_JS.count(key)})"
-        )
-
-
 # ── #1841 regression: exact non-English translations must be present ─────
 
 

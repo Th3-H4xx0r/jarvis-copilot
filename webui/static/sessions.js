@@ -1732,7 +1732,7 @@ function _openSessionActionMenu(session, anchorEl){
         if(row && typeof row._startRename === 'function'){
           row._startRename();
         } else if(typeof showToast==='function'){
-          showToast(t('session_rename_failed_no_row')||'Could not start rename — row not found.', 3000, 'error');
+          showToast(t('session_rename_failed_no_row'), 3000, 'error');
         }
       }
     ));

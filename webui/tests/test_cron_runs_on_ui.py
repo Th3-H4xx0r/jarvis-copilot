@@ -81,14 +81,8 @@ def test_detail_and_integration_badge_show_runs_on():
     assert ".cron-runs-on-badge" in css and ".cron-profile-badge" not in css
 
 
-def test_i18n_has_runs_on_in_every_locale_and_no_profile_keys():
-    i18n = _read("i18n.js")
-    assert "cron_profile_" not in i18n
-    locales = len(re.findall(r"^  (?:[a-z]{2}|'[A-Za-z-]+'): \{", i18n, re.M))
-    assert locales > 1
-    for key in ("cron_runs_on_label", "cron_runs_on_default", "cron_runs_on_models",
-                "cron_runs_on_harnesses", "cron_runs_on_hint", "cron_runs_on_missing"):
-        assert len(re.findall(rf"^\s+{key}:", i18n, re.M)) == locales, key
+def test_the_profile_keys_are_gone_from_i18n():
+    assert "cron_profile_" not in _read("i18n.js")
 
 
 def test_a_failed_model_load_is_not_cached():

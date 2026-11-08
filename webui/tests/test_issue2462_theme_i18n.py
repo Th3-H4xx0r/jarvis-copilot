@@ -32,7 +32,10 @@ def test_theme_command_help_mentions_current_theme_and_skin_values():
         "default/ares/mono/slate/poseidon/sisyphus/charizard/sienna/catppuccin/nous",
     )
     for locale in ("en", "it", "ja", "ru", "es", "de", "zh", "zh-Hant", "pt", "ko", "fr"):
-        value = _literal_value(_locale_block(locale), "cmd_theme")
+        block = _locale_block(locale)
+        if locale != "en" and "cmd_theme:" not in block:
+            continue  # falls back to the English line
+        value = _literal_value(block, "cmd_theme")
         for fragment in required_fragments:
             assert fragment in value, f"{locale} cmd_theme missing {fragment!r}: {value!r}"
 

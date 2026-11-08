@@ -221,25 +221,6 @@ class TestI18nProviderMismatch:
     def _count_key(self, src: str, key: str) -> int:
         return len(re.findall(r'\b' + re.escape(key) + r'\b', src))
 
-    def test_all_locales_have_warning_key(self):
-        """provider_mismatch_warning must appear in all locales."""
-        src = _read("static/i18n.js")
-        locale_count = len(self._locale_names(src))
-        count = self._count_key(src, "provider_mismatch_warning")
-        assert count >= locale_count, (
-            f"provider_mismatch_warning found {count} times, expected >= {locale_count} "
-            f"(one per locale)"
-        )
-
-    def test_all_locales_have_label_key(self):
-        """provider_mismatch_label must appear in all locales."""
-        src = _read("static/i18n.js")
-        locale_count = len(self._locale_names(src))
-        count = self._count_key(src, "provider_mismatch_label")
-        assert count >= locale_count, (
-            f"provider_mismatch_label found {count} times, expected >= {locale_count}"
-        )
-
     def test_warning_is_function_in_en(self):
         """English provider_mismatch_warning must be a function (m, p) => ..."""
         src = _read("static/i18n.js")

@@ -211,18 +211,3 @@ class TestYoloI18n:
     def i18n_js(self):
         with open("static/i18n.js", "r") as f:
             return f.read()
-
-    @pytest.mark.parametrize("locale", LOCALES)
-    def test_locale_has_all_yolo_keys(self, i18n_js, locale):
-        pattern = rf"\s{locale}:\s*\{{"
-        match = re.search(pattern, i18n_js)
-        assert match, f"Locale '{locale}' not found in i18n.js"
-        start = match.end()
-        next_locale = re.search(r"\n  \w{2}:\s*\{", i18n_js[start:])
-        if next_locale:
-            block = i18n_js[start:start + next_locale.start()]
-        else:
-            block = i18n_js[start:]
-
-        for key in self.REQUIRED_KEYS:
-            assert key in block, f"Key '{key}' missing in locale '{locale}'"

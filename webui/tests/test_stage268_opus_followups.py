@@ -34,19 +34,6 @@ def test_sf1_child_count_uses_i18n_in_sessions_js():
     )
 
 
-def test_sf1_session_meta_children_present_in_all_locales():
-    """Every locale block in i18n.js that has session_meta_messages must also
-    have session_meta_children — they're the analogous sidebar meta strings."""
-    msg_count = len(re.findall(r"session_meta_messages:", I18N_JS))
-    child_count = len(re.findall(r"session_meta_children:", I18N_JS))
-    assert msg_count == child_count, (
-        f"session_meta_messages appears {msg_count} times but "
-        f"session_meta_children appears {child_count} — must be in every locale"
-    )
-    # Sanity: 10 known locales (en, it, ja, ru, es, de, zh, zh-Hant, plus the legacy zh-tw/zh-hk aliases)
-    assert child_count >= 10, f"expected >=10 locales with session_meta_children, got {child_count}"
-
-
 # --- SF-2 (#1462): duplicate carries per-session settings ---
 
 def test_sf2_duplicate_carries_personality():

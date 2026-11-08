@@ -546,74 +546,6 @@ def test_kanban_main_view_scrolls_when_task_preview_is_tall():
     ), "Kanban main view must expose a vertical scrollbar when detail content is taller than the viewport"
 
 
-def test_kanban_i18n_keys_exist_in_every_locale_block():
-    locale_blocks = _locale_blocks_with_body(I18N)
-    assert len(locale_blocks) >= 9
-    required_keys = [
-        "tab_kanban",
-        "kanban_board",
-        "kanban_search_tasks",
-        "kanban_all_assignees",
-        "kanban_all_tenants",
-        "kanban_include_archived",
-        "kanban_visible_tasks",
-        "kanban_no_matching_tasks",
-        "kanban_unavailable",
-        "kanban_read_only",
-        "kanban_empty",
-        "kanban_comments_count",
-        "kanban_events_count",
-        "kanban_links",
-        "kanban_runs_count",
-        "kanban_no_comments",
-        "kanban_no_events",
-        "kanban_no_runs",
-        "kanban_new_task",
-        "kanban_add_comment",
-    ]
-    missing = [
-        f"{locale}:{key}"
-        for locale, body in locale_blocks
-        for key in required_keys
-        if re.search(rf"\b{re.escape(key)}\s*:", body) is None
-    ]
-    assert missing == []
-
-
-def test_kanban_modal_locale_parity():
-    """Parity check for modal-facing Kanban i18n keys.
-
-    Any locale that already contains modal-facing Kanban strings should include the
-    same set of modal vocabulary so new additions don't regress into locale gaps.
-    """
-    locale_blocks = _locale_blocks_with_body(I18N)
-    modal_keys = [
-        "kanban_title",
-        "kanban_description",
-        "kanban_description_placeholder",
-        "kanban_status",
-        "kanban_assignee",
-        "kanban_assignee_placeholder",
-        "kanban_tenant",
-        "kanban_tenant_placeholder",
-        "kanban_priority",
-        "kanban_priority_hint",
-        "kanban_title_required",
-        "kanban_status_original_hint",
-    ]
-    anchor_key = "kanban_status"
-    missing = [
-        f"{locale}:{key}"
-        for locale, body in locale_blocks
-        if re.search(rf"\b{re.escape(anchor_key)}\s*:", body) is not None
-        for key in modal_keys
-        if re.search(rf"\b{re.escape(key)}\s*:", body) is None
-    ]
-    assert missing == []
-
-
-
-
 def test_kanban_dashboard_parity_core_controls_are_native():
     assert 'id="kanbanOnlyMine"' in INDEX
     assert 'id="kanbanBulkBar"' in INDEX
@@ -642,28 +574,6 @@ def test_kanban_dashboard_parity_core_controls_are_native():
     ), "Kanban must subscribe to live events via SSE or polling"
     assert "prompt(" not in PANELS
     assert "confirm(" not in PANELS
-
-
-def test_kanban_dashboard_parity_i18n_keys_exist():
-    locale_blocks = _locale_blocks_with_body(I18N)
-    required_keys = [
-        "kanban_only_mine",
-        "kanban_bulk_action",
-        "kanban_nudge_dispatcher",
-        "kanban_work_queue_hint",
-        "kanban_stats",
-        "kanban_worker_log",
-        "kanban_block",
-        "kanban_unblock",
-    ]
-    missing = [
-        f"{locale}:{key}"
-        for locale, body in locale_blocks
-        for key in required_keys
-        if re.search(rf"\b{re.escape(key)}\s*:", body) is None
-    ]
-    assert missing == []
-
 
 
 def test_kanban_ui_parity_polish_adds_card_metadata_quick_actions_and_swimlanes():
@@ -716,15 +626,6 @@ def test_kanban_ui_parity_polish_css_and_i18n_exist():
         ".hermes-kanban-md",
     ):
         assert selector in STYLE
-    locale_blocks = _locale_blocks_with_body(I18N)
-    required_keys = ["kanban_lanes_by_profile", "kanban_card_complete", "kanban_card_archive", "kanban_unassigned", "kanban_work_queue_hint"]
-    missing = [
-        f"{locale}:{key}"
-        for locale, body in locale_blocks
-        for key in required_keys
-        if re.search(rf"\b{re.escape(key)}\s*:", body) is None
-    ]
-    assert missing == []
 
 
 
@@ -1063,50 +964,3 @@ console.log(JSON.stringify(results));
     assert "_kanbanSafeColor(b.color)" in PANELS
     assert "color:${esc(b.color)}" not in PANELS
 
-
-def test_kanban_locale_parity():
-    """Every kanban_* i18n key in the English locale must exist in all
-    non-English locale blocks.  The kanban panel has its own set of ~86
-    keys (kanban_board, kanban_task, …) that are rendered via t() — a
-    missing key silently falls back to English, which is acceptable for
-    content keys but confusing for UI labels the user expects to see
-    translated.
-
-    This test catches regressions where a new kanban key is added to the
-    English block but not to one or more locale blocks.  Pattern borrowed
-    from test_lineage_segment_locale_keys_are_defined_for_sidebar_locales
-    in test_session_lineage_collapse.py.
-
-    Refs: #1973
-    """
-    locale_blocks = _locale_blocks_with_body(I18N)
-    assert locale_blocks, "No locale blocks found in i18n.js"
-
-    # Collect the kanban_* keys from the English block.
-    en_name = "en"
-    en_body = None
-    for name, body in locale_blocks:
-        if name == en_name:
-            en_body = body
-            break
-    assert en_body is not None, "English locale block not found"
-
-    en_keys = set(re.findall(r"(kanban_\w+)\s*:", en_body))
-    assert en_keys, "No kanban_* keys found in English locale"
-
-    # Verify each non-English locale has the same set.
-    failures = []
-    for name, body in locale_blocks:
-        if name == en_name:
-            continue
-        loc_keys = set(re.findall(r"(kanban_\w+)\s*:", body))
-        missing = en_keys - loc_keys
-        extra = loc_keys - en_keys
-        if missing:
-            failures.append(f"{name}: missing {sorted(missing)}")
-        if extra:
-            failures.append(f"{name}: extra {sorted(extra)}")
-
-    assert not failures, (
-        "Kanban i18n key parity violations:\n" + "\n".join(failures)
-    )

@@ -671,7 +671,7 @@ async function _loadRunContent(jobId, filename, runId){
     if (data.content && data.snippet && data.content.length > data.snippet.length) {
       const btn = document.createElement('button');
       btn.style.cssText = 'margin-top:8px;padding:4px 12px;border-radius:var(--radius-btn);border:1px solid var(--border-subtle);background:var(--surface-subtle);color:var(--text-secondary);cursor:pointer;font-size:12px';
-      btn.textContent = t('cron_view_full_output') || 'View full output';
+      btn.textContent = t('cron_view_full_output');
       btn.onclick = () => {
         body.innerHTML = renderMd ? renderMd(data.content) : '';
         btn.remove();
@@ -7794,11 +7794,11 @@ function _refreshModelDropdownsAfterProviderChange(){
 async function _refreshProviderModels(providerId, btn){
   btn.disabled=true;
   const orig=btn.innerHTML;
-  btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refreshing')||'Refreshing...'}`;
+  btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refreshing')}`;
   try{
     const res=await api('/api/models/refresh',{method:'POST',body:JSON.stringify({provider:providerId})});
     if(res.ok){
-      showToast(t('providers_models_refreshed')||('Models refreshed for '+res.provider));
+      showToast(t('providers_models_refreshed', res.provider));
     }else{
       showToast(res.error||'Failed to refresh models');
     }

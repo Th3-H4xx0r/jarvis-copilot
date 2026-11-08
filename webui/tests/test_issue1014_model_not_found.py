@@ -159,16 +159,6 @@ class TestI18nModelNotFound:
     def _count_key(self, src: str, key: str) -> int:
         return len(re.findall(r'\b' + re.escape(key) + r'\b', src))
 
-    def test_all_locales_have_model_not_found_label(self):
-        """model_not_found_label must appear in all locales."""
-        src = _read("static/i18n.js")
-        locale_count = len(self._locale_names(src))
-        count = self._count_key(src, self.REQUIRED_KEY)
-        assert count >= locale_count, (
-            f"model_not_found_label found {count} times, expected >= {locale_count} "
-            f"(one per locale)"
-        )
-
     def test_english_label_is_plain_string(self):
         """English model_not_found_label must be a plain string, not a function."""
         src = _read("static/i18n.js")

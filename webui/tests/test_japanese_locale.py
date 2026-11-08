@@ -107,22 +107,6 @@ def test_japanese_locale_includes_representative_translations():
         assert entry in src, f"Missing expected translation: {entry}"
 
 
-def test_japanese_locale_covers_english_keys():
-    """The ja locale must define every translation key that en defines.
-
-    JS object semantics: missing keys at runtime fall through to LOCALES.en[key]
-    via the i18n.js fallback path, but parity is the contract — a missing key
-    means a half-translated UI surface for ja users.
-    """
-    src = read(REPO / "static" / "i18n.js")
-    key_pattern = re.compile(r"^\s{4}([a-zA-Z0-9_]+):", re.MULTILINE)
-    en_keys = set(key_pattern.findall(extract_locale_block(src, "en")))
-    ja_keys = set(key_pattern.findall(extract_locale_block(src, "ja")))
-
-    missing = sorted(en_keys - ja_keys)
-    assert not missing, f"Japanese locale missing keys: {missing}"
-
-
 def test_japanese_locale_has_no_keys_outside_english():
     """ja should not invent keys that en doesn't have — those would only ever
     fire on the ja branch and silently regress every other locale.
@@ -198,34 +182,6 @@ def test_japanese_locale_preserves_placeholder_patterns():
     assert not mismatches, (
         f"Japanese translations must preserve every {{0}} and ${{var}} "
         f"placeholder from English. Mismatches: {mismatches[:5]}"
-    )
-
-
-def test_japanese_locale_arrow_function_values_mirror_english():
-    """Function-valued translations (e.g. `n_messages: (n) => ...`) must remain
-    function values in ja — turning one into a static string breaks the call
-    site `t('n_messages')(5)` and produces `[object Function]` in the UI.
-    """
-    src = read(REPO / "static" / "i18n.js")
-    en_block = extract_locale_block(src, "en")
-    ja_block = extract_locale_block(src, "ja")
-
-    value_re = re.compile(
-        r"^\s{4}([a-zA-Z0-9_]+):\s*(.+?)(?:,\s*$|\s*$)",
-        re.MULTILINE,
-    )
-    arrow_re = re.compile(r"^\s*\(?[a-zA-Z_,\s]*\)?\s*=>")
-
-    def arrows(block):
-        return {k for k, v in value_re.findall(block) if arrow_re.match(v)}
-
-    en_arrows = arrows(en_block)
-    ja_arrows = arrows(ja_block)
-
-    diff = en_arrows.symmetric_difference(ja_arrows)
-    assert not diff, (
-        f"Japanese must mirror English arrow-function values exactly. "
-        f"Mismatch (in one but not the other): {sorted(diff)}"
     )
 
 

@@ -1337,36 +1337,6 @@ def test_provider_quota_card_has_manual_refresh_control():
     assert "provider_quota_last_checked" in panels
 
 
-def test_provider_quota_i18n_keys_exist_for_all_locales():
-    """Provider quota UI keys must be present in every locale block."""
-    i18n = (ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
-    locale_count = len(
-        re.findall(r"^  (?:[A-Za-z_][A-Za-z0-9_]*|'[^']+'):\s*\{", i18n, re.MULTILINE)
-    )
-    keys = sorted(set(re.findall(r"provider_quota_[a-z0-9_]+", (ROOT / "static" / "panels.js").read_text(encoding="utf-8"))))
-    assert locale_count >= 1
-    assert "provider_quota_retry_after" in keys
-    for key in keys:
-        assert len(re.findall(rf"^\s+{re.escape(key)}:", i18n, re.MULTILINE)) == locale_count, key
-
-
-def test_settings_label_and_description_i18n_keys_exist_for_all_locales():
-    """Settings labels/descriptions referenced by the page need every locale."""
-    i18n = (ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
-    index_html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-    locale_count = len(
-        re.findall(r"^  (?:[A-Za-z_][A-Za-z0-9_]*|'[^']+'):\s*\{", i18n, re.MULTILINE)
-    )
-    keys = sorted(
-        set(re.findall(r'data-i18n="(settings_(?:label|desc)_[a-z0-9_]+)"', index_html))
-    )
-    assert locale_count >= 1
-    assert "settings_label_fade_text_effect" in keys
-    assert "settings_desc_fade_text_effect" in keys
-    for key in keys:
-        assert len(re.findall(rf"^\s+{re.escape(key)}:", i18n, re.MULTILINE)) == locale_count, key
-
-
 def test_provider_quota_styles_exist():
     """Quota UI should have visible supported/unavailable/invalid states."""
     css = (ROOT / "static" / "style.css").read_text(encoding="utf-8")

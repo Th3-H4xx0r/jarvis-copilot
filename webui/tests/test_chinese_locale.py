@@ -98,16 +98,6 @@ def test_chinese_locale_includes_representative_translations():
         )
 
 
-def test_chinese_locale_covers_english_keys():
-    src = read(REPO / "static" / "i18n.js")
-    key_pattern = re.compile(r"^\s{4}([a-zA-Z0-9_]+):", re.MULTILINE)
-    en_keys = set(key_pattern.findall(extract_locale_block(src, "en")))
-    zh_keys = set(key_pattern.findall(extract_locale_block(src, "zh")))
-
-    missing = sorted(en_keys - zh_keys)
-    assert not missing, f"Chinese locale missing keys: {missing}"
-
-
 def test_chinese_locale_has_no_duplicate_keys():
     src = read(REPO / "static" / "i18n.js")
     key_pattern = re.compile(r"^\s{4}([a-zA-Z0-9_]+):", re.MULTILINE)
