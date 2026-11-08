@@ -1090,6 +1090,27 @@ class HermesACPAgent(acp.Agent):
             modes=self._session_modes(state),
         )
 
+    async def _replay_then_schedule_updates(self, state, op: str) -> None:
+        """Replay the session's history, then queue the commands/usage updates.
+
+        Replay is best-effort — a corrupted or unexpected message shape must
+        not turn a successful session/load or session/resume into a JSON-RPC
+        error. Per-notification failures are already caught inside
+        ``_replay_session_history``; this guard covers anything raised by the
+        helpers themselves before reaching ``_send``.
+        """
+        try:
+            await self._replay_session_history(state)
+        except Exception:
+            logger.warning(
+                "ACP history replay raised during session/%s for %s — "
+                "%s will still succeed, partial transcript may be missing",
+                op, state.session_id, op,
+                exc_info=True,
+            )
+        self._schedule_available_commands_update(state.session_id)
+        self._schedule_usage_update(state)
+
     async def load_session(
         self,
         cwd: str,
@@ -1113,22 +1134,7 @@ class HermesACPAgent(acp.Agent):
         # via `loop.call_soon` (as we did briefly in May 2026) broke every
         # spec-compliant ACP client that measures notifications synchronously
         # against the load response — see #12285 follow-up.
-        try:
-            await self._replay_session_history(state)
-        except Exception:
-            # Replay is best-effort — a corrupted or unexpected message shape
-            # must not turn a successful session/load into a JSON-RPC error
-            # response. Per-notification failures are already caught inside
-            # ``_replay_session_history``; this outer guard covers anything
-            # raised by the helpers themselves before reaching ``_send``.
-            logger.warning(
-                "ACP history replay raised during session/load for %s — "
-                "load will still succeed, partial transcript may be missing",
-                session_id,
-                exc_info=True,
-            )
-        self._schedule_available_commands_update(session_id)
-        self._schedule_usage_update(state)
+        await self._replay_then_schedule_updates(state, "load")
         return LoadSessionResponse(
             models=self._build_model_state(state),
             modes=self._session_modes(state),
@@ -1150,17 +1156,7 @@ class HermesACPAgent(acp.Agent):
         # See `load_session` above for the spec rationale — replay must
         # complete before the response so clients receive the full transcript
         # within the request's lifetime.
-        try:
-            await self._replay_session_history(state)
-        except Exception:
-            logger.warning(
-                "ACP history replay raised during session/resume for %s — "
-                "resume will still succeed, partial transcript may be missing",
-                state.session_id,
-                exc_info=True,
-            )
-        self._schedule_available_commands_update(state.session_id)
-        self._schedule_usage_update(state)
+        await self._replay_then_schedule_updates(state, "resume")
         return ResumeSessionResponse(
             models=self._build_model_state(state),
             modes=self._session_modes(state),

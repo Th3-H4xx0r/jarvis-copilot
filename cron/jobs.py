@@ -927,7 +927,19 @@ def resume_job(job_id: str) -> Optional[Dict[str, Any]]:
     if not job:
         return None
 
-    next_run_at = compute_next_run(job["schedule"])
+    return _schedule(job, compute_next_run(job["schedule"]))
+
+
+def trigger_job(job_id: str) -> Optional[Dict[str, Any]]:
+    """Schedule a job to run on the next scheduler tick. Accepts a job ID or name."""
+    job = resolve_job_ref(job_id)
+    if not job:
+        return None
+    return _schedule(job, _hermes_now().isoformat())
+
+
+def _schedule(job: Dict[str, Any], next_run_at) -> Optional[Dict[str, Any]]:
+    """Enable ``job``, clear any pause, and set its next run."""
     return update_job(
         job["id"],
         {
@@ -936,23 +948,6 @@ def resume_job(job_id: str) -> Optional[Dict[str, Any]]:
             "paused_at": None,
             "paused_reason": None,
             "next_run_at": next_run_at,
-        },
-    )
-
-
-def trigger_job(job_id: str) -> Optional[Dict[str, Any]]:
-    """Schedule a job to run on the next scheduler tick. Accepts a job ID or name."""
-    job = resolve_job_ref(job_id)
-    if not job:
-        return None
-    return update_job(
-        job["id"],
-        {
-            "enabled": True,
-            "state": "scheduled",
-            "paused_at": None,
-            "paused_reason": None,
-            "next_run_at": _hermes_now().isoformat(),
         },
     )
 
