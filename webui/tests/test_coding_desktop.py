@@ -118,6 +118,24 @@ def test_start_sync_refuses_server_path_outside_allowed_roots(monkeypatch):
     assert t.frames("coding_sync_start") == []
 
 
+def test_start_sync_refuses_when_the_safety_check_crashes(monkeypatch, caplog):
+    # A guard that cannot run must refuse the sync, not wave it through.
+    import agent.coding_sync_safety as safety
+
+    def boom(*_a, **_k):
+        raise RuntimeError("guard broke")
+
+    monkeypatch.setattr(safety, "validate_endpoints_for_server_gate", boom)
+    bridge, t = make_bridge()
+    with caplog.at_level("ERROR"):
+        out = cd.start_sync_for_launch(
+            "dev-G", session_id="cs_G", cwd="/root/codingprojects/proj",
+            sync={"enabled": True, "remote_path": "/Users/me/code/proj"}, bridge=bridge)
+    assert out is None
+    assert t.frames("coding_sync_start") == []
+    assert "safety check failed" in caplog.text
+
+
 def test_start_sync_blocked_by_disk_guard():
     bridge, t = make_bridge()
     cd.set_sync_blocked(True, "disk full")

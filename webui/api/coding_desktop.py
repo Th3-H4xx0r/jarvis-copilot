@@ -515,8 +515,10 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
             SyncSafetyConfig, validate_endpoints_for_server_gate)
         ok, why = validate_endpoints_for_server_gate(
             local_path, cwd, SyncSafetyConfig.from_env())
-    except Exception:  # never let the guard import/logic crash a launch
-        ok, why = True, ""
+    except Exception:  # a guard that cannot run must refuse, not wave it through
+        log.exception("coding sync REFUSED: the safety check failed: local=%r server=%r",
+                      local_path, cwd)
+        return None
     if not ok:
         log.warning("coding sync REFUSED (%s): local=%r server=%r",
                     why, local_path, cwd)
