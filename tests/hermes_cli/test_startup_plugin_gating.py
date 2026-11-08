@@ -132,7 +132,7 @@ def test_discovery_skipped_for_builtins(argv):
     "argv",
     [
         ["jarviscopilot", "meet", "join"],          # potential google_meet plugin
-        ["jarviscopilot", "honcho", "status"],      # potential memory plugin
+        ["jarviscopilot", "holographic", "status"], # potential memory plugin
         ["jarviscopilot", "unknown-subcmd"],
     ],
 )

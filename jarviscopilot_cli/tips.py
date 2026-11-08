@@ -369,14 +369,11 @@ TIPS = [
     'provider_routing.data_collection: deny excludes data-storing providers on OpenRouter.',
     'provider_routing.require_parameters: true only routes to providers that support every param in your request.',
 
-    # --- TUI & Dashboard ---
+    # --- TUI ---
     'HERMES_TUI_RESUME=1 auto-re-attaches to the most recent TUI session on launch — handy after SSH drops.',
     "HERMES_TUI_THEME=light|dark|<hex> forces the TUI theme on terminals that don't set COLORFGBG.",
     'Ctrl+G or Ctrl+X Ctrl+E in the TUI opens the input buffer in $EDITOR for long multi-line prompts.',
     'The TUI renders LaTeX inline — $E=mc^2$ becomes Unicode math instead of raw TeX.',
-    'Drop a YAML in ~/.jarviscopilot/dashboard-themes/ with two palette colors to reskin the entire dashboard.',
-    'Dashboard plugins are drop-in: manifest.json + JS bundle in ~/.jarviscopilot/dashboard-plugins/ — no npm build required.',
-    'layoutVariant: cockpit in a dashboard theme adds a 260px left rail that plugins can populate via the sidebar slot.',
 
     # --- Env Vars & Config Gates ---
     "display.tool_progress_command: true exposes /verbose on messaging platforms; it's CLI-only by default.",
@@ -463,7 +460,6 @@ TIPS = [
 
     # --- Misc ---
     'API_SERVER_MODEL_NAME customizes the model name on /v1/models — essential for multi-profile Open WebUI setups.',
-    'Dashboard plugins are served from /dashboard-plugins/<name>/ — drop files into ~/.jarviscopilot/dashboard-plugins/.',
 ]
 
 
