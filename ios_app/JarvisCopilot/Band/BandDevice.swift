@@ -313,9 +313,9 @@ final class BandDevice: WearableDevice {
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
         case "band_get_status": return status()
-        case "band_get_day": return try await day(args)
-        case "band_get_health_day": return try await healthDay(args)
-        case "band_get_history": return try history(args)
+        case "band_get_day": return try await days.day(args)
+        case "band_get_health_day": return try await days.healthDay(args)
+        case "band_get_history": return try days.history(args)
         case "band_sync": return await syncNow(args)
         case "band_measure": return try await measure(args)
         case "band_workout": return try await workout(args)
@@ -398,6 +398,16 @@ final class BandDevice: WearableDevice {
 
     private func iso(_ date: Date) -> String { RingDayJSON.iso(date) }
 
+    /// Recent days are synced first when stale and the band is here.
+    private var days: WearableDays {
+        WearableDays(store: backend.store, connected: isConnected,
+                     noData: "no band data yet — the band has never connected", source: WearableKeepAlive.band,
+                     battery: session.battery, lastSync: backend.sync.lastSync) { [backend] daysAgo, seconds in
+            guard daysAgo <= 2, backend.isConnected, backend.sync.isStale else { return }
+            _ = await WearableDays.bounded(seconds) { _ = await backend.sync.sync() }
+        }
+    }
+
     // MARK: Reads
 
     private func status() -> [String: Any] {
@@ -431,60 +441,6 @@ final class BandDevice: WearableDevice {
         if let store = backend.store {
             out["today"] = RingDayJSON.summary(store.day(RingDates.dayKey(Date())).summary, metrics: nil)
         }
-        return out
-    }
-
-    private func dayKey(_ args: [String: Any]) throws -> (key: String, daysAgo: Int) {
-        let key = (args["date"] as? String)?.trimmingCharacters(in: .whitespaces) ?? RingDates.dayKey(Date())
-        guard let daysAgo = RingDates.daysAgo(key: key) else { throw DeviceError.badArgument("'date' must be YYYY-MM-DD") }
-        return (key, daysAgo)
-    }
-
-    /// Recent days are synced first when stale and the band is here, for up to `seconds`.
-    private func freshen(daysAgo: Int, seconds: TimeInterval) async {
-        guard daysAgo <= 2, backend.isConnected, backend.sync.isStale else { return }
-        var done = false
-        Task { @MainActor in
-            _ = await self.backend.sync.sync()
-            done = true
-        }
-        let deadline = Date().addingTimeInterval(seconds)
-        while !done, Date() < deadline { try? await Task.sleep(nanoseconds: 200_000_000) }
-    }
-
-    private func day(_ args: [String: Any]) async throws -> [String: Any] {
-        let (key, daysAgo) = try dayKey(args)
-        let metrics = try RingDayJSON.parseMetrics(args["metrics"])
-        let detail = args["detail"] as? Bool ?? false
-        guard let store = backend.store else {
-            return ["date": key, "connected": isConnected, "note": "no band data yet — the band has never connected"]
-        }
-        await freshen(daysAgo: daysAgo, seconds: 20)
-        let value = store.day(key)
-        var out: [String: Any] = ["date": key, "connected": isConnected,
-                                  "summary": RingDayJSON.summary(value.summary, metrics: metrics)]
-        if let synced = value.syncedAt { out["synced_at"] = iso(synced) }
-        if detail { out["detail"] = RingDayJSON.detail(value, metrics: metrics) }
-        return out
-    }
-
-    private func healthDay(_ args: [String: Any]) async throws -> [String: Any] {
-        let (key, daysAgo) = try dayKey(args)
-        guard let store = backend.store else { throw DeviceError.notConnected }
-        await freshen(daysAgo: daysAgo, seconds: 25)
-        return HealthDayPayload.make(store.day(key), key: key, source: WearableKeepAlive.band, battery: session.battery)
-    }
-
-    private func history(_ args: [String: Any]) throws -> [String: Any] {
-        let days = max(1, min(30, args["days"] as? Int ?? 7))
-        let metrics = try RingDayJSON.parseMetrics(args["metrics"])
-        guard let store = backend.store else { return ["days": [Any](), "connected": isConnected] }
-        let rows: [[String: Any]] = store.recentDays(days).map {
-            ["date": $0.date, "timezone": TimeZone.current.identifier,
-             "summary": RingDayJSON.summary($0.summary, metrics: metrics)]
-        }
-        var out: [String: Any] = ["days": rows, "connected": isConnected]
-        if let last = backend.sync.lastSync { out["last_sync"] = iso(last) }
         return out
     }
 

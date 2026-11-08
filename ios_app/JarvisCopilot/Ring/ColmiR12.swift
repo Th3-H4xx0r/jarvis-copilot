@@ -306,9 +306,9 @@ final class ColmiR12: WearableDevice {
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
         case "ring_get_status": return status()
-        case "ring_get_day": return try await day(args)
-        case "ring_get_health_day": return try await healthDay(args)
-        case "ring_get_history": return try history(args)
+        case "ring_get_day": return try await days.day(args)
+        case "ring_get_health_day": return try await days.healthDay(args)
+        case "ring_get_history": return try days.history(args)
         case "ring_sync": return try await syncNow(args)
         case "ring_measure": return try await measure(args)
         case "ring_workout": return try workout(args)
@@ -356,20 +356,6 @@ final class ColmiR12: WearableDevice {
         return try await body(max(0, deadline.timeIntervalSinceNow))
     }
 
-    /// Starts `work` and waits at most `seconds`; the work carries on if it takes longer.
-    private func runBounded(_ seconds: TimeInterval, _ work: @escaping @MainActor () async -> Void) async -> Bool {
-        var finished = false
-        Task { @MainActor in
-            await work()
-            finished = true
-        }
-        let deadline = Date().addingTimeInterval(seconds)
-        while !finished, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        return finished
-    }
-
     private func status() -> [String: Any] {
         let caps = session.capabilities
         var out: [String: Any] = [
@@ -396,46 +382,10 @@ final class ColmiR12: WearableDevice {
         if let last = backend.sync.lastTodaySync { out["last_sync"] = iso(last) }
         if backend.sync.isSyncing { out["syncing"] = true }
         if let store = backend.store {
-            out["today"] = summaryJSON(store.day(RingDates.dayKey(Date())).summary, metrics: nil)
+            out["today"] = RingDayJSON.summary(store.day(RingDates.dayKey(Date())).summary, metrics: nil)
         }
         if let live = session.liveActivity { out["live_steps"] = live.steps }
         return out
-    }
-
-    private func day(_ args: [String: Any]) async throws -> [String: Any] {
-        let key = (args["date"] as? String)?.trimmingCharacters(in: .whitespaces) ?? RingDates.dayKey(Date())
-        guard let daysAgo = RingDates.daysAgo(key: key) else {
-            throw DeviceError.badArgument("'date' must be YYYY-MM-DD")
-        }
-        let metrics = try parseMetrics(args["metrics"])
-        let detail = args["detail"] as? Bool ?? false
-        guard let store = backend.store else {
-            return ["date": key, "connected": isConnected, "note": "no ring data yet — the ring has never connected"]
-        }
-        if (0...backend.sync.historyDays).contains(daysAgo), backend.isConnected, backend.sync.isStale {
-            _ = await runBounded(20) { [backend] in _ = await backend.sync.sync(days: daysAgo) }
-        }
-        let value = store.day(key)
-        var out: [String: Any] = ["date": key, "connected": isConnected,
-                                  "summary": summaryJSON(value.summary, metrics: metrics)]
-        if let synced = value.syncedAt { out["synced_at"] = iso(synced) }
-        if detail { out["detail"] = detailJSON(value, metrics: metrics) }
-        return out
-    }
-
-    /// A day in the health SDK's wire shape, synced first when it is today's.
-    private func healthDay(_ args: [String: Any]) async throws -> [String: Any] {
-        let key = (args["date"] as? String)?.trimmingCharacters(in: .whitespaces) ?? RingDates.dayKey(Date())
-        guard let daysAgo = RingDates.daysAgo(key: key) else {
-            throw DeviceError.badArgument("'date' must be YYYY-MM-DD")
-        }
-        guard let store = backend.store else {
-            throw DeviceError.notConnected
-        }
-        if (0...backend.sync.historyDays).contains(daysAgo), backend.isConnected, backend.sync.isStale {
-            _ = await runBounded(25) { [backend] in _ = await backend.sync.sync(days: daysAgo) }
-        }
-        return HealthDayPayload.make(store.day(key), key: key, battery: session.battery)
     }
 
     /// The decoded log, so gesture behaviour can be read from here rather than relayed by hand.
@@ -455,24 +405,12 @@ final class ColmiR12: WearableDevice {
                 "gesture_mode": session.inputMode.rawValue]
     }
 
-    private func history(_ args: [String: Any]) throws -> [String: Any] {
-        let days = max(1, min(30, args["days"] as? Int ?? 7))
-        let metrics = try parseMetrics(args["metrics"])
-        guard let store = backend.store else { return ["days": [Any](), "connected": isConnected] }
-        let rows: [[String: Any]] = store.recentDays(days).map {
-            ["date": $0.date, "summary": summaryJSON($0.summary, metrics: metrics)]
-        }
-        var out: [String: Any] = ["days": rows, "connected": isConnected]
-        if let last = backend.sync.lastTodaySync { out["last_sync"] = iso(last) }
-        return out
-    }
-
     private func syncNow(_ args: [String: Any]) async throws -> [String: Any] {
         let days = args["days"] as? Int ?? 0
         guard (0...6).contains(days) else { throw DeviceError.badArgument("'days' must be 0–6") }
         return try await live { secondsLeft in
             var report: RingSyncReport?
-            let finished = await runBounded(max(2, secondsLeft)) { [backend] in
+            let finished = await WearableDays.bounded(max(2, secondsLeft)) { [backend] in
                 report = await backend.sync.sync(days: days)
             }
             guard finished, let report else {
@@ -774,7 +712,7 @@ final class ColmiR12: WearableDevice {
         let pockets = RingFirmwareUpdate.pocketCount(image)
         return try await live { secondsLeft in
             var failure: String?
-            let finished = await self.runBounded(max(2, secondsLeft)) { [backend] in
+            let finished = await WearableDays.bounded(max(2, secondsLeft)) { [backend] in
                 do {
                     try await RingFirmwareUpdate.run(
                         image: image,
@@ -857,16 +795,14 @@ final class ColmiR12: WearableDevice {
         ISO8601DateFormatter().string(from: date)
     }
 
-    private func parseMetrics(_ raw: Any?) throws -> Set<RingMetric>? {
-        try RingDayJSON.parseMetrics(raw)
-    }
-
-    private func summaryJSON(_ summary: RingDaySummary, metrics: Set<RingMetric>?) -> [String: Any] {
-        RingDayJSON.summary(summary, metrics: metrics)
-    }
-
-    private func detailJSON(_ day: RingDay, metrics: Set<RingMetric>?) -> [String: Any] {
-        RingDayJSON.detail(day, metrics: metrics)
+    /// A day that is still in the ring's history is synced first when stale and the ring is here.
+    private var days: WearableDays {
+        WearableDays(store: backend.store, connected: isConnected,
+                     noData: "no ring data yet — the ring has never connected", source: WearableKeepAlive.ring,
+                     battery: session.battery, lastSync: backend.sync.lastTodaySync) { [backend] daysAgo, seconds in
+            guard (0...backend.sync.historyDays).contains(daysAgo), backend.isConnected, backend.sync.isStale else { return }
+            _ = await WearableDays.bounded(seconds) { _ = await backend.sync.sync(days: daysAgo) }
+        }
     }
 
     private func measurementJSON(_ state: RingMeasurementState) -> [String: Any] {
