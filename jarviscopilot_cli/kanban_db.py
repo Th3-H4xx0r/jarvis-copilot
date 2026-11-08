@@ -5308,6 +5308,51 @@ def dispatch_once(
         remaining = max_in_progress - in_progress
         if max_spawn is None or max_spawn > remaining:
             max_spawn = remaining
+
+    _spawn = spawn_fn if spawn_fn is not None else _default_spawn
+    try:
+        import inspect
+        # Older spawn_fn signatures (test stubs) accept only (task, workspace).
+        _spawn_takes_board = "board" in inspect.signature(_spawn).parameters
+    except (TypeError, ValueError):
+        _spawn_takes_board = False
+
+    def _launch(claimed: Task) -> bool:
+        """Resolve the claimed task's workspace and spawn its worker.
+
+        Failures count toward the task's auto-block circuit breaker. A
+        successful spawn deliberately does NOT reset consecutive_failures:
+        it proves the worker starts, not that the run succeeds, and a task
+        that keeps timing out after spawning would otherwise loop forever.
+        The counter clears only in complete_task.
+        """
+        try:
+            workspace = resolve_workspace(claimed, board=board)
+        except Exception as exc:
+            if _record_spawn_failure(
+                conn, claimed.id, f"workspace: {exc}", failure_limit=failure_limit,
+            ):
+                result.auto_blocked.append(claimed.id)
+            return False
+        # Persist the resolved workspace path so the worker can cd there.
+        set_workspace_path(conn, claimed.id, str(workspace))
+        _maybe_emit_scratch_tip(conn, claimed.id, claimed.workspace_kind)
+        try:
+            if _spawn_takes_board:
+                pid = _spawn(claimed, str(workspace), board=board)
+            else:
+                pid = _spawn(claimed, str(workspace))
+            if pid:
+                _set_worker_pid(conn, claimed.id, int(pid))
+        except Exception as exc:
+            if _record_spawn_failure(
+                conn, claimed.id, str(exc), failure_limit=failure_limit,
+            ):
+                result.auto_blocked.append(claimed.id)
+            return False
+        result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
+        return True
+
     spawned = 0
     for row in ready_rows:
         if max_spawn is not None and running_count + spawned >= max_spawn:
@@ -5363,53 +5408,8 @@ def dispatch_once(
             result.spawned.append((row["id"], row["assignee"], ""))
             continue
         claimed = claim_task(conn, row["id"], ttl_seconds=ttl_seconds)
-        if claimed is None:
-            continue
-        try:
-            workspace = resolve_workspace(claimed, board=board)
-        except Exception as exc:
-            auto = _record_spawn_failure(
-                conn, claimed.id, f"workspace: {exc}",
-                failure_limit=failure_limit,
-            )
-            if auto:
-                result.auto_blocked.append(claimed.id)
-            continue
-        # Persist the resolved workspace path so the worker can cd there.
-        set_workspace_path(conn, claimed.id, str(workspace))
-        _maybe_emit_scratch_tip(conn, claimed.id, claimed.workspace_kind)
-        _spawn = spawn_fn if spawn_fn is not None else _default_spawn
-        try:
-            # Back-compat: older spawn_fn signatures accept only
-            # (task, workspace). Test stubs in the suite rely on that.
-            # Introspect the callable and pass `board` only when supported.
-            import inspect
-            try:
-                sig = inspect.signature(_spawn)
-                if "board" in sig.parameters:
-                    pid = _spawn(claimed, str(workspace), board=board)
-                else:
-                    pid = _spawn(claimed, str(workspace))
-            except (TypeError, ValueError):
-                pid = _spawn(claimed, str(workspace))
-            if pid:
-                _set_worker_pid(conn, claimed.id, int(pid))
-            # NOTE: we intentionally do NOT reset consecutive_failures
-            # here. A successful spawn proves the worker can start but
-            # doesn't prove the run will succeed. Under unified
-            # failure counting, resetting on spawn would let a task
-            # that keeps timing out after spawn loop forever. The
-            # counter is cleared only on successful completion (see
-            # complete_task).
-            result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
+        if claimed is not None and _launch(claimed):
             spawned += 1
-        except Exception as exc:
-            auto = _record_spawn_failure(
-                conn, claimed.id, str(exc),
-                failure_limit=failure_limit,
-            )
-            if auto:
-                result.auto_blocked.append(claimed.id)
 
     # ---- review column dispatch ----
     # Review tasks are tasks that a worker moved to 'review' after
@@ -5444,47 +5444,12 @@ def dispatch_once(
         claimed = claim_review_task(conn, row["id"], ttl_seconds=ttl_seconds)
         if claimed is None:
             continue
-        try:
-            workspace = resolve_workspace(claimed, board=board)
-        except Exception as exc:
-            auto = _record_spawn_failure(
-                conn, claimed.id, f"workspace: {exc}",
-                failure_limit=failure_limit,
-            )
-            if auto:
-                result.auto_blocked.append(claimed.id)
-            continue
-        # Persist the resolved workspace path so the worker can cd there.
-        set_workspace_path(conn, claimed.id, str(workspace))
-        _maybe_emit_scratch_tip(conn, claimed.id, claimed.workspace_kind)
-        # Force-load sdlc-review skill for review agents.  The
-        # _default_spawn function already auto-loads kanban-worker, and
-        # appends task.skills via --skills.  Setting task.skills here
-        # means the review agent gets both kanban-worker (lifecycle)
-        # and sdlc-review (review logic: AC verification, merge, etc.).
+        # _default_spawn auto-loads kanban-worker (lifecycle) and appends
+        # task.skills via --skills, so the review agent also gets
+        # sdlc-review (AC verification, merge, etc.).
         claimed.skills = ["sdlc-review"]
-        _spawn = spawn_fn if spawn_fn is not None else _default_spawn
-        try:
-            import inspect
-            try:
-                sig = inspect.signature(_spawn)
-                if "board" in sig.parameters:
-                    pid = _spawn(claimed, str(workspace), board=board)
-                else:
-                    pid = _spawn(claimed, str(workspace))
-            except (TypeError, ValueError):
-                pid = _spawn(claimed, str(workspace))
-            if pid:
-                _set_worker_pid(conn, claimed.id, int(pid))
-            result.spawned.append((claimed.id, claimed.assignee or "", str(workspace)))
+        if _launch(claimed):
             spawned += 1
-        except Exception as exc:
-            auto = _record_spawn_failure(
-                conn, claimed.id, str(exc),
-                failure_limit=failure_limit,
-            )
-            if auto:
-                result.auto_blocked.append(claimed.id)
     return result
 
 
