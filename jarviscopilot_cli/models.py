@@ -3288,6 +3288,11 @@ def _match_listed_model(
     return None, similar
 
 
+def _accepted_unrecognized(message: str) -> dict[str, Any]:
+    """Validation verdict: switch and persist, but warn the model wasn't verified."""
+    return {"accepted": True, "persist": True, "recognized": False, "message": message}
+
+
 def validate_requested_model(
     model_name: str,
     provider: Optional[str],
@@ -3403,12 +3408,7 @@ def validate_requested_model(
                     f"Consider saving that as your base URL."
                 )
 
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": message,
-            }
+            return _accepted_unrecognized(message)
 
         message = (
             f"Note: could not reach this custom endpoint's model listing at `{probe.get('probed_url')}`. "
@@ -3440,16 +3440,11 @@ def validate_requested_model(
             if verdict:
                 return verdict
             provider_label = "OpenAI Codex" if normalized == "openai-codex" else "xAI Grok OAuth (SuperGrok Subscription)"
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": (
-                    f"Note: `{requested}` was not found in the {provider_label} model listing. "
-                    "It may still work if your account has access to a newer or hidden model ID."
-                    f"{suggestion_text}"
-                ),
-            }
+            return _accepted_unrecognized(
+                f"Note: `{requested}` was not found in the {provider_label} model listing. "
+                "It may still work if your account has access to a newer or hidden model ID."
+                f"{suggestion_text}"
+            )
 
     # MiniMax providers don't expose a /models endpoint — validate against
     # the static catalog instead, similar to openai-codex.
@@ -3465,17 +3460,12 @@ def validate_requested_model(
             )
             if verdict:
                 return verdict
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": (
-                    f"Note: `{requested}` was not found in the MiniMax catalog."
-                    f"{suggestion_text}"
-                    "\n  MiniMax does not expose a /models endpoint, so JarvisCopilot cannot verify the model name."
-                    "\n  The model may still work if it exists on the server."
-                ),
-            }
+            return _accepted_unrecognized(
+                f"Note: `{requested}` was not found in the MiniMax catalog."
+                f"{suggestion_text}"
+                "\n  MiniMax does not expose a /models endpoint, so JarvisCopilot cannot verify the model name."
+                "\n  The model may still work if it exists on the server."
+            )
 
     # Native Anthropic provider: /v1/models requires x-api-key (or Bearer for
     # OAuth) plus anthropic-version headers.  The generic OpenAI-style probe
@@ -3492,16 +3482,11 @@ def validate_requested_model(
             # Accept anyway — Anthropic sometimes gates newer/preview models
             # (e.g. snapshot IDs, early-access releases) behind accounts
             # even though they aren't listed on /v1/models.
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": (
-                    f"Note: `{requested}` was not found in Anthropic's /v1/models listing. "
-                    f"It may still work if you have early-access or snapshot IDs."
-                    f"{suggestion_text}"
-                ),
-            }
+            return _accepted_unrecognized(
+                f"Note: `{requested}` was not found in Anthropic's /v1/models listing. "
+                f"It may still work if you have early-access or snapshot IDs."
+                f"{suggestion_text}"
+            )
         # _fetch_anthropic_models returned None — no token resolvable or
         # network failure.  Fall through to the generic warning below.
 
@@ -3515,17 +3500,12 @@ def validate_requested_model(
                 return verdict
         # Probe failed or model not found — accept anyway (proxy likely
         # doesn't implement the Anthropic Models API).
-        return {
-            "accepted": True,
-            "persist": True,
-            "recognized": False,
-            "message": (
-                f"Note: could not verify `{requested}` against this endpoint's "
-                f"model listing.  Many Anthropic-compatible proxies do not "
-                f"implement GET /v1/models.  The model name has been accepted "
-                f"without verification."
-            ),
-        }
+        return _accepted_unrecognized(
+            f"Note: could not verify `{requested}` against this endpoint's "
+            f"model listing.  Many Anthropic-compatible proxies do not "
+            f"implement GET /v1/models.  The model name has been accepted "
+            f"without verification."
+        )
 
     # Probe the live API to check if the model actually exists
     api_models = fetch_api_models(api_key, base_url)
@@ -3579,16 +3559,11 @@ def validate_requested_model(
             suggestion_text = ""
             if suggestions:
                 suggestion_text = "\n  Similar models: " + ", ".join(f"`{s}`" for s in suggestions)
-            return {
-                "accepted": True,
-                "persist": True,
-                "recognized": False,
-                "message": (
-                    f"Note: `{requested}` was not found in Bedrock model discovery for {region}. "
-                    f"It may still work with custom inference profiles or cross-account access."
-                    f"{suggestion_text}"
-                ),
-            }
+            return _accepted_unrecognized(
+                f"Note: `{requested}` was not found in Bedrock model discovery for {region}. "
+                f"It may still work with custom inference profiles or cross-account access."
+                f"{suggestion_text}"
+            )
         except Exception:
             pass  # Fall through to generic warning
 
@@ -3612,25 +3587,15 @@ def validate_requested_model(
         )
         if verdict:
             return verdict
-        return {
-            "accepted": True,
-            "persist": True,
-            "recognized": False,
-            "message": (
-                f"Note: `{requested}` was not found in the {provider_label} curated catalog "
-                f"and the /models endpoint was unreachable.{suggestion_text}"
-                f"\n  The model may still work if it exists on the provider."
-            ),
-        }
+        return _accepted_unrecognized(
+            f"Note: `{requested}` was not found in the {provider_label} curated catalog "
+            f"and the /models endpoint was unreachable.{suggestion_text}"
+            f"\n  The model may still work if it exists on the provider."
+        )
 
     # No catalog available — accept with a warning, matching the comment's
     # stated intent ("Accept and persist, but warn").
-    return {
-        "accepted": True,
-        "persist": True,
-        "recognized": False,
-        "message": (
-            f"Note: could not reach the {provider_label} API to validate `{requested}`. "
-            f"If the service isn't down, this model may not be valid."
-        ),
-    }
+    return _accepted_unrecognized(
+        f"Note: could not reach the {provider_label} API to validate `{requested}`. "
+        f"If the service isn't down, this model may not be valid."
+    )
