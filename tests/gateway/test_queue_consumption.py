@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from gateway.run import _dequeue_pending_event
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -80,7 +79,7 @@ class TestQueueMessageStorage:
         # Should be consumed (cleared)
         assert adapter.get_pending_message(session_key) is None
 
-    def test_dequeue_pending_event_preserves_voice_media_metadata(self):
+    def test_get_pending_message_preserves_voice_media_metadata(self):
         adapter = _StubAdapter()
         session_key = "telegram:user:voice"
         event = MessageEvent(
@@ -93,7 +92,7 @@ class TestQueueMessageStorage:
         )
         adapter._pending_messages[session_key] = event
 
-        retrieved = _dequeue_pending_event(adapter, session_key)
+        retrieved = adapter.get_pending_message(session_key)
 
         assert retrieved is event
         assert retrieved.media_urls == ["/tmp/voice.ogg"]
@@ -222,28 +221,28 @@ class TestQueueConsumptionAfterCompletion:
             )
 
         # Simulate turn 1 drain: consume slot, promote next.
-        pending_event = _dequeue_pending_event(adapter, session_key)
+        pending_event = adapter.get_pending_message(session_key)
         pending_event = runner._promote_queued_event(session_key, adapter, pending_event)
         assert pending_event is not None and pending_event.text == "A"
         assert adapter._pending_messages[session_key].text == "B"
         assert runner._queue_depth(session_key, adapter=adapter) == 2
 
         # Simulate turn 2 drain.
-        pending_event = _dequeue_pending_event(adapter, session_key)
+        pending_event = adapter.get_pending_message(session_key)
         pending_event = runner._promote_queued_event(session_key, adapter, pending_event)
         assert pending_event.text == "B"
         assert adapter._pending_messages[session_key].text == "C"
         assert session_key not in runner._queued_events  # overflow emptied
 
         # Simulate turn 3 drain.
-        pending_event = _dequeue_pending_event(adapter, session_key)
+        pending_event = adapter.get_pending_message(session_key)
         pending_event = runner._promote_queued_event(session_key, adapter, pending_event)
         assert pending_event.text == "C"
         assert session_key not in adapter._pending_messages
         assert runner._queue_depth(session_key, adapter=adapter) == 0
 
         # Turn 4: nothing pending.
-        pending_event = _dequeue_pending_event(adapter, session_key)
+        pending_event = adapter.get_pending_message(session_key)
         pending_event = runner._promote_queued_event(session_key, adapter, pending_event)
         assert pending_event is None
 
@@ -271,7 +270,7 @@ class TestQueueConsumptionAfterCompletion:
             )
 
         # Drain consumes Q1.
-        pending_event = _dequeue_pending_event(adapter, session_key)
+        pending_event = adapter.get_pending_message(session_key)
         assert pending_event.text == "Q1"
 
         # Someone else (interrupt path) re-populates the slot.

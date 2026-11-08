@@ -689,6 +689,11 @@ def _resolve_runtime_agent_kwargs() -> dict:
     except Exception as exc:
         raise RuntimeError(format_runtime_provider_error(exc)) from exc
 
+    return _runtime_agent_kwargs(runtime)
+
+
+def _runtime_agent_kwargs(runtime: dict) -> dict:
+    """The AIAgent credential kwargs carried by a resolved runtime provider."""
     return {
         "api_key": runtime.get("api_key"),
         "base_url": runtime.get("base_url"),
@@ -729,21 +734,12 @@ def _try_resolve_fallback_provider() -> dict | None:
                     runtime.get("provider"),
                     entry.get("model"),
                 )
-                return {
-                    "api_key": runtime.get("api_key"),
-                    "base_url": runtime.get("base_url"),
-                    "provider": runtime.get("provider"),
-                    "api_mode": runtime.get("api_mode"),
-                    "command": runtime.get("command"),
-                    "args": list(runtime.get("args") or []),
-                    "credential_pool": runtime.get("credential_pool"),
-                    "model": entry.get("model"),
-                }
+                return {**_runtime_agent_kwargs(runtime), "model": entry.get("model")}
             except Exception as fb_exc:
                 logger.debug("Fallback entry %s failed: %s", entry.get("provider"), fb_exc)
                 continue
     except Exception:
-        pass
+        logger.debug("Could not read fallback providers from config.yaml", exc_info=True)
     return None
 
 
@@ -767,16 +763,6 @@ def _build_media_placeholder(event) -> str:
         else:
             parts.append(f"[User sent a file: {url}]")
     return "\n".join(parts)
-
-
-def _dequeue_pending_event(adapter, session_key: str) -> MessageEvent | None:
-    """Consume and return the full pending event for a session.
-
-    Queued follow-ups must preserve their media metadata so they can re-enter
-    the normal image/STT/document preprocessing path instead of being reduced
-    to a placeholder string.
-    """
-    return adapter.get_pending_message(session_key)
 
 
 _INTERRUPT_REASON_STOP = "Stop requested"
@@ -2085,7 +2071,7 @@ class GatewayRunner:
     ) -> Optional["MessageEvent"]:
         """Promote the next overflow item after the slot was drained.
 
-        Called at the drain site after _dequeue_pending_event consumed
+        Called at the drain site after adapter.get_pending_message consumed
         (or failed to consume) the slot.  If there's an overflow item:
           - When pending_event is None (slot was empty), return the
             overflow head as the new pending_event.
@@ -10742,7 +10728,6 @@ class GatewayRunner:
             agent_cfg = user_config.get("agent") or {}
             disabled_toolsets = agent_cfg.get("disabled_toolsets") or None
 
-            pr = self._provider_routing
             max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
             reasoning_config = self._resolve_session_reasoning_config(source=source)
             self._reasoning_config = reasoning_config
@@ -10768,32 +10753,12 @@ class GatewayRunner:
 
             def run_sync():
                 agent = AIAgent(
-                    model=turn_route["model"],
-                    **turn_route["runtime"],
+                    **self._turn_agent_kwargs(source, turn_route, platform_key),
                     max_iterations=max_iterations,
-                    quiet_mode=True,
-                    verbose_logging=False,
                     enabled_toolsets=enabled_toolsets,
                     disabled_toolsets=disabled_toolsets,
                     reasoning_config=reasoning_config,
-                    service_tier=self._service_tier,
-                    request_overrides=turn_route.get("request_overrides"),
-                    providers_allowed=pr.get("only"),
-                    providers_ignored=pr.get("ignore"),
-                    providers_order=pr.get("order"),
-                    provider_sort=pr.get("sort"),
-                    provider_require_parameters=pr.get("require_parameters", False),
-                    provider_data_collection=pr.get("data_collection"),
                     session_id=task_id,
-                    platform=platform_key,
-                    user_id=source.user_id,
-                    user_name=source.user_name,
-                    chat_id=source.chat_id,
-                    chat_name=source.chat_name,
-                    chat_type=source.chat_type,
-                    thread_id=source.thread_id,
-                    session_db=self._session_db,
-                    fallback_model=self._fallback_model,
                 )
                 try:
                     return agent.run_conversation(
@@ -12548,6 +12513,34 @@ class GatewayRunner:
             return cfg if isinstance(cfg, dict) else {}
         except Exception:
             return {}
+
+    def _turn_agent_kwargs(self, source, turn_route: dict, platform_key: str) -> dict:
+        """AIAgent kwargs shared by every gateway turn agent: model/runtime,
+        provider routing, the chat's identity, and the session DB."""
+        pr = self._provider_routing
+        return dict(
+            model=turn_route["model"],
+            **turn_route["runtime"],
+            quiet_mode=True,
+            verbose_logging=False,
+            service_tier=self._service_tier,
+            request_overrides=turn_route.get("request_overrides"),
+            providers_allowed=pr.get("only"),
+            providers_ignored=pr.get("ignore"),
+            providers_order=pr.get("order"),
+            provider_sort=pr.get("sort"),
+            provider_require_parameters=pr.get("require_parameters", False),
+            provider_data_collection=pr.get("data_collection"),
+            platform=platform_key,
+            user_id=source.user_id,
+            user_name=source.user_name,
+            chat_id=source.chat_id,
+            chat_name=source.chat_name,
+            chat_type=source.chat_type,
+            thread_id=source.thread_id,
+            session_db=self._session_db,
+            fallback_model=self._fallback_model,
+        )
 
     def _streaming_settings(self, source, user_config: dict):
         """Return the global streaming config and whether streaming is on for
@@ -15142,7 +15135,6 @@ class GatewayRunner:
                             _msg_plan.plan.node_id, model,
                             f", route: {_msg_plan.plan.route.get('label')}" if _msg_plan.plan.route else "")
 
-            pr = self._provider_routing
             reasoning_config = self._resolve_session_reasoning_config(
                 source=source,
                 session_key=session_key,
@@ -15236,35 +15228,15 @@ class GatewayRunner:
             if agent is None:
                 # Config changed or first message — create fresh agent
                 agent = AIAgent(
-                    model=turn_route["model"],
-                    **turn_route["runtime"],
+                    **self._turn_agent_kwargs(source, turn_route, platform_key),
                     max_iterations=max_iterations,
-                    quiet_mode=True,
-                    verbose_logging=False,
                     enabled_toolsets=enabled_toolsets,
                     disabled_toolsets=disabled_toolsets,
                     ephemeral_system_prompt=combined_ephemeral or None,
                     prefill_messages=self._prefill_messages or None,
                     reasoning_config=reasoning_config,
-                    service_tier=self._service_tier,
-                    request_overrides=turn_route.get("request_overrides"),
-                    providers_allowed=pr.get("only"),
-                    providers_ignored=pr.get("ignore"),
-                    providers_order=pr.get("order"),
-                    provider_sort=pr.get("sort"),
-                    provider_require_parameters=pr.get("require_parameters", False),
-                    provider_data_collection=pr.get("data_collection"),
                     session_id=session_id,
-                    platform=platform_key,
-                    user_id=source.user_id,
-                    user_name=source.user_name,
-                    chat_id=source.chat_id,
-                    chat_name=source.chat_name,
-                    chat_type=source.chat_type,
-                    thread_id=source.thread_id,
                     gateway_session_key=session_key,
-                    session_db=self._session_db,
-                    fallback_model=self._fallback_model,
                 )
                 if _cache_lock and _cache is not None:
                     with _cache_lock:
@@ -15985,7 +15957,7 @@ class GatewayRunner:
                         if agent:
                             # Peek at the pending message text WITHOUT consuming it.
                             # The message must remain in _pending_messages so the
-                            # post-run dequeue at _dequeue_pending_event() can
+                            # post-run dequeue (adapter.get_pending_message) can
                             # retrieve the full MessageEvent (with media metadata).
                             # If we pop here, a race exists: the agent may finish
                             # before checking _interrupt_requested, and the message
@@ -16223,7 +16195,7 @@ class GatewayRunner:
             pending_event = None
             pending = None
             if result and adapter and session_key:
-                pending_event = _dequeue_pending_event(adapter, session_key)
+                pending_event = adapter.get_pending_message(session_key)
                 # /queue overflow: after consuming the adapter's "next-up"
                 # slot, promote the next queued event into it so the
                 # recursive run's drain will see it.  This keeps the slot
