@@ -27,30 +27,16 @@ struct CarLightsCard: View {
     let paired: Bool
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                CarLightsPreview(layout: layout, look: look)
-                    .frame(width: 150, height: 190)
-                    .padding(.trailing, 6)
-                    .allowsHitTesting(false)
-            }
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Car lights").font(.title3.weight(.semibold)).lineLimit(1)
-                Text(paired ? "Magic Lantern · \(layout.lamps.count) lamps" : "Pair your car lights")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
-                Spacer(minLength: 0)
-                MetricPill(icon: paired ? "light.strip.2" : "plus.circle", label: "Status",
-                           value: paired ? status.text : "Not paired",
-                           tint: status.connected ? JcTheme.success : .secondary)
-                    .frame(maxWidth: 200, alignment: .leading)
-            }
-            .padding(16)
+        DeviceCard(name: "Car lights", subtitle: paired ? "Magic Lantern · \(layout.lamps.count) lamps" : "Pair your car lights") {
+            CarLightsPreview(layout: layout, look: look)
+                .frame(width: 150, height: 190)
+                .padding(.trailing, 6)
+                .allowsHitTesting(false)
+        } pills: {
+            MetricPill(icon: paired ? "light.strip.2" : "plus.circle", label: "Status",
+                       value: paired ? status.text : "Not paired",
+                       tint: status.connected ? JcTheme.success : .secondary)
+                .frame(maxWidth: 200, alignment: .leading)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }

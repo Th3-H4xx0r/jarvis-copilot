@@ -38,42 +38,21 @@ struct DoorAlarmCard: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack(alignment: .top) {
-                Spacer()
-                DoorHubView(state: DoorHubView.Look(alarm))
-                    .environment(\.sceneStills, true)
-                    .frame(width: 210, height: 150)
-                    .padding(.trailing, -10)
-                    .padding(.top, 6)
-                    .allowsHitTesting(false)
+        DeviceCard(name: name, subtitle: subtitle, pictureAtTop: true,
+                   border: alarm?.isAlerting == true ? JcTheme.danger.opacity(0.7) : JcTheme.border) {
+            DoorHubView(state: DoorHubView.Look(alarm))
+                .environment(\.sceneStills, true)
+                .frame(width: 210, height: 150)
+                .padding(.trailing, -10)
+                .padding(.top, 6)
+                .allowsHitTesting(false)
+        } pills: {
+            MetricPill(icon: alarm?.isArmed == true ? "lock.shield.fill" : "lock.open",
+                       label: "Alarm", value: alarm?.title ?? "—", tint: stateTint)
+            if let open = state?.openContacts.first {
+                MetricPill(icon: "door.left.hand.open", label: "Open", value: open.name, tint: JcTheme.amber)
             }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(name)
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    MetricPill(icon: alarm?.isArmed == true ? "lock.shield.fill" : "lock.open",
-                               label: "Alarm", value: alarm?.title ?? "—", tint: stateTint)
-                    if let open = state?.openContacts.first {
-                        MetricPill(icon: "door.left.hand.open", label: "Open", value: open.name, tint: JcTheme.amber)
-                    }
-                }
-            }
-            .padding(16)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
-            .strokeBorder(alarm?.isAlerting == true ? JcTheme.danger.opacity(0.7) : JcTheme.border, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(alarm?.title ?? "not loaded")")
     }

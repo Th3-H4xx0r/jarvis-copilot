@@ -1,7 +1,60 @@
 import SwiftUI
 
-/// A wearable's card on Devices: its model turning on the right; name, model, link and battery on
-/// the left. The R12, X5 and band cards are this with their own picture.
+/// A device's card on Devices: its picture at the right, name and subtitle top left, status pills
+/// bottom left, on the app's glass card. Every Devices card is this with its own picture and pills.
+struct DeviceCard<Picture: View, Pills: View>: View {
+    let name: String
+    let subtitle: String
+    /// A long name (a board's) may take two lines, shrinking to fit beside the picture.
+    var nameLines = 1
+    /// Pins the picture to the top instead of centring it.
+    var pictureAtTop = false
+    var lastSeen: Date? = nil
+    /// Whether the "last seen" note shows in the corner.
+    var showsLastSeen = false
+    var border: Color = JcTheme.border
+    /// Sized and placed by the card that owns it.
+    @ViewBuilder let picture: () -> Picture
+    @ViewBuilder let pills: () -> Pills
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            HStack(alignment: .top) {
+                Spacer()
+                picture()
+            }
+            .frame(maxHeight: .infinity, alignment: pictureAtTop ? .top : .center)
+            VStack(alignment: .leading, spacing: 0) {
+                if nameLines > 1 {
+                    Text(name)
+                        .font(JcText.title)
+                        .lineLimit(nameLines)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: 190, alignment: .leading)
+                } else {
+                    Text(name)
+                        .font(JcText.title)
+                        .lineLimit(1)
+                }
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.top, 3)
+                Spacer(minLength: 0)
+                HStack(spacing: 8) { pills() }
+            }
+            .padding(16)
+        }
+        .frame(height: 190)
+        .frame(maxWidth: .infinity)
+        .lastSeenCorner(lastSeen, visible: showsLastSeen)
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(border, lineWidth: 1))
+    }
+}
+
+/// A wearable's card: its model turning at the right, and its link and battery.
 struct WearableCard<Picture: View>: View {
     let name: String
     let model: String
@@ -14,51 +67,29 @@ struct WearableCard<Picture: View>: View {
     @ViewBuilder let picture: () -> Picture
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                picture()
-                    .environment(\.sceneStills, true)
-                    .frame(width: 124, height: 124)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
+        DeviceCard(name: name, subtitle: model, lastSeen: lastSeen, showsLastSeen: !connected && rssi == 0) {
+            picture()
+                .environment(\.sceneStills, true)
+                .frame(width: 124, height: 124)
+                .padding(.trailing, 12)
+                .allowsHitTesting(false)
+        } pills: {
+            if connected {
+                MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
+                           tint: JcTheme.success)
+            } else if rssi == 0 {
+                // Remembered from iOS's own link, not answering: not a signal reading.
+                DisconnectedPill()
+            } else {
+                MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
+                           value: "\(rssi) dBm", tint: JcMetric.activity)
             }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(name)
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text(model)
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if connected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: JcTheme.success)
-                    } else if rssi == 0 {
-                        // Remembered from iOS's own link, not answering: not a signal reading.
-                        DisconnectedPill()
-                    } else {
-                        MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(rssi) dBm", tint: JcMetric.activity)
-                    }
-                    if let battery {
-                        MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
-                                   value: "\(battery.percent)%",
-                                   tint: batteryTint(battery.percent) ?? JcTheme.success)
-                    }
-                }
+            if let battery {
+                MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
+                           value: "\(battery.percent)%",
+                           tint: batteryTint(battery.percent) ?? JcTheme.success)
             }
-            .padding(16)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: !connected && rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 

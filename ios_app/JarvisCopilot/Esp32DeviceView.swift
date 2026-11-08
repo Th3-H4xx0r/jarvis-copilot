@@ -807,56 +807,36 @@ struct Esp32Card: View {
     private var accent: Color { JcTheme.accent }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                JcIcon("cpu", size: 64, weight: .ultraLight)
-                    .foregroundStyle(accent.opacity(0.7))
-                    .padding(.trailing, 34)
-            }
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
-                    .font(JcText.title)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: 190, alignment: .leading)
-                Text("ESP32 DevKit V1")
-                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if let activeLink {
-                        MetricPill(icon: activeLink.icon, label: "Connected", value: activeLink.label,
-                                   tint: JcTheme.success)
-                    } else if board.isOnWifi {
-                        // Visible on the network, not linked: neutral, so green on a
-                        // card always means connected (as the Chat dashboard counts it).
-                        MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi", tint: JcTheme.muted)
-                        if board.record == nil && board.peripheral == nil {
-                            Text("needs Bluetooth setup").font(.caption2).foregroundStyle(JcTheme.muted)
-                        }
-                    } else if board.rssi == 0 {
-                        // Remembered, but neither advertising nor answering on the LAN. Saying
-                        // "Wi‑Fi" here claimed a link the board wasn't on, and the Devices tab
-                        // then added a second "Not found" row for the very same board.
-                        DisconnectedPill()
-                    } else {
-                        MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(board.rssi) dBm", tint: signalTint)
-                    }
-                    if board.isOnWifi && board.rssi != 0 && activeLink == nil {
-                        JcIcon("wifi").font(.caption).foregroundStyle(JcTheme.muted)
-                    }
+        DeviceCard(name: WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name),
+                   subtitle: "ESP32 DevKit V1", nameLines: 2, pictureAtTop: true, lastSeen: lastSeen,
+                   showsLastSeen: activeLink == nil && !board.isOnWifi && board.rssi == 0) {
+            JcIcon("cpu", size: 64, weight: .ultraLight)
+                .foregroundStyle(accent.opacity(0.7))
+                .padding(.trailing, 34)
+        } pills: {
+            if let activeLink {
+                MetricPill(icon: activeLink.icon, label: "Connected", value: activeLink.label,
+                           tint: JcTheme.success)
+            } else if board.isOnWifi {
+                // Visible on the network, not linked: neutral, so green on a
+                // card always means connected (as the Chat dashboard counts it).
+                MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi", tint: JcTheme.muted)
+                if board.record == nil && board.peripheral == nil {
+                    Text("needs Bluetooth setup").font(.caption2).foregroundStyle(JcTheme.muted)
                 }
+            } else if board.rssi == 0 {
+                // Remembered, but neither advertising nor answering on the LAN. Saying
+                // "Wi‑Fi" here claimed a link the board wasn't on, and the Devices tab
+                // then added a second "Not found" row for the very same board.
+                DisconnectedPill()
+            } else {
+                MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
+                           value: "\(board.rssi) dBm", tint: signalTint)
             }
-            .padding(16)
+            if board.isOnWifi && board.rssi != 0 && activeLink == nil {
+                JcIcon("wifi").font(.caption).foregroundStyle(JcTheme.muted)
+            }
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .lastSeenCorner(lastSeen, visible: activeLink == nil && !board.isOnWifi && board.rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 
     private var signalTint: Color {

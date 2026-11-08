@@ -21,51 +21,30 @@ struct GlassesCard: View {
     private var status: GlassesConnectionStatus { .of(control: session.state, audio: route.connected) }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                // Turning costs a continuous render; a card for glasses never seen stays still.
-                GlassesSceneView(spin: route.connected || lastSeen != nil || status.lit, lit: status.lit)
-                    .environment(\.sceneStills, true)
-                    .frame(width: 124, height: 124)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
-            }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(InmoGo3.name)
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text("INMO GO3 smart glasses")
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if status == .offline, lastSeen == nil {
-                        MetricPill(icon: "link", label: "Status", value: "Not paired yet", tint: JcTheme.muted)
-                    } else {
-                        MetricPill(icon: status.symbol, label: "Status", value: status.title,
-                                   tint: status == .offline || status == .audioOnly ? JcTheme.muted : status.tint)
-                    }
-                    if status == .connected, let battery = session.status.battery {
-                        MetricPill(icon: Self.batterySymbol(battery), label: "Battery", value: "\(battery)%",
-                                   tint: battery <= 20 ? JcTheme.danger : JcTheme.success)
-                    } else if route.connected {
-                        MetricPill(icon: "speaker.wave.2.fill", label: "Audio",
-                                   value: route.speakers ? "Glasses" : "iPhone", tint: JcMetric.activity)
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
         // Audio on the route means "now", not "last seen".
-        .lastSeenCorner(lastSeen, visible: status == .offline)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
+        DeviceCard(name: InmoGo3.name, subtitle: "INMO GO3 smart glasses", lastSeen: lastSeen,
+                   showsLastSeen: status == .offline) {
+            // Turning costs a continuous render; a card for glasses never seen stays still.
+            GlassesSceneView(spin: route.connected || lastSeen != nil || status.lit, lit: status.lit)
+                .environment(\.sceneStills, true)
+                .frame(width: 124, height: 124)
+                .padding(.trailing, 12)
+                .allowsHitTesting(false)
+        } pills: {
+            if status == .offline, lastSeen == nil {
+                MetricPill(icon: "link", label: "Status", value: "Not paired yet", tint: JcTheme.muted)
+            } else {
+                MetricPill(icon: status.symbol, label: "Status", value: status.title,
+                           tint: status == .offline || status == .audioOnly ? JcTheme.muted : status.tint)
+            }
+            if status == .connected, let battery = session.status.battery {
+                MetricPill(icon: Self.batterySymbol(battery), label: "Battery", value: "\(battery)%",
+                           tint: battery <= 20 ? JcTheme.danger : JcTheme.success)
+            } else if route.connected {
+                MetricPill(icon: "speaker.wave.2.fill", label: "Audio",
+                           value: route.speakers ? "Glasses" : "iPhone", tint: JcMetric.activity)
+            }
+        }
     }
 
     static func batterySymbol(_ percent: Int) -> String {

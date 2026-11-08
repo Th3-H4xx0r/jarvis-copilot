@@ -7,40 +7,23 @@ struct JarvisPodCard: View {
     let status: JarvisPodStatus?
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                VoiceOrb(state: .idle, amplitude: 0, size: 112, animating: false)
-                    .frame(width: 112, height: 112)
-                    .padding(.trailing, 18)
-                    .allowsHitTesting(false)
-            }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(pod.name).font(JcText.title).lineLimit(1)
-                Text(pod.bridgeConnected ? "Home: \(status?.homeTitle ?? "Orb")" : "Jarvis Pod")
-                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if pod.bridgeConnected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected", tint: JcTheme.success)
-                        if let level = status?.battery {
-                            MetricPill(icon: status?.charging == true ? "bolt.fill" : "battery.75", label: "Battery",
-                                       value: "\(level)%", tint: JcTheme.success)
-                        }
-                    } else {
-                        DisconnectedPill()
-                    }
+        DeviceCard(name: pod.name, subtitle: pod.bridgeConnected ? "Home: \(status?.homeTitle ?? "Orb")" : "Jarvis Pod",
+                   lastSeen: pod.lastSeen, showsLastSeen: !pod.bridgeConnected) {
+            VoiceOrb(state: .idle, amplitude: 0, size: 112, animating: false)
+                .frame(width: 112, height: 112)
+                .padding(.trailing, 18)
+                .allowsHitTesting(false)
+        } pills: {
+            if pod.bridgeConnected {
+                MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected", tint: JcTheme.success)
+                if let level = status?.battery {
+                    MetricPill(icon: status?.charging == true ? "bolt.fill" : "battery.75", label: "Battery",
+                               value: "\(level)%", tint: JcTheme.success)
                 }
+            } else {
+                DisconnectedPill()
             }
-            .padding(16)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(pod.lastSeen, visible: !pod.bridgeConnected)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
