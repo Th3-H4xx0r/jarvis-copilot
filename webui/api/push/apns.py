@@ -240,6 +240,37 @@ def _apns_headers(cfg: dict, jwt: str, *, alert: bool,
     }
 
 
+def _deliver(push_token: str, body: dict, headers, *, timeout: float,
+             topic: Optional[str] = None, sandbox: Optional[bool] = None) -> dict:
+    """Signs one push with the credentials for ``topic``, POSTs it to APNs and reads the answer.
+    ``headers(cfg, jwt)`` gives the push type's headers. Never raises."""
+    cfg = _config_for(topic)
+    if not Path(cfg["_key_path"] if cfg else _KEY_FILE).exists():
+        return {"ok": False, "error": "APNs auth key not configured"}
+    if not cfg:
+        return {"ok": False, "error": "APNs config missing or invalid"}
+    if not _have_httpx():
+        return {"ok": False, "error": "APNs requires httpx[http2]"}
+    try:
+        jwt = _get_jwt(cfg)
+    except Exception as exc:
+        logger.warning("APNs JWT sign failed: %s", exc)
+        return {"ok": False, "error": f"APNs JWT: {exc}"}
+    # A token's environment is fixed by the signing entitlement of the app that
+    # produced it: development-signed apps get sandbox-only tokens. With two clients
+    # on one team — one distribution-signed, one development — a single global flag
+    # can't serve both, so the device's own environment wins when it reports one.
+    use_sandbox = bool(cfg.get("use_sandbox")) if sandbox is None else bool(sandbox)
+    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
+    try:
+        r = _apns_post(f"https://{host}/3/device/{push_token}", headers(cfg, jwt), json.dumps(body), timeout)
+        if r.status_code == 200:
+            return {"ok": True}
+        return {"ok": False, "error": f"APNs HTTP {r.status_code}: {r.text[:200]}", "status": r.status_code}
+    except Exception as exc:
+        return {"ok": False, "error": f"APNs send: {exc}"}
+
+
 def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
               alert: Optional[dict] = None, topic: Optional[str] = None,
               sandbox: Optional[bool] = None) -> dict:
@@ -253,40 +284,9 @@ def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
     different app of ours can be reached with the same auth key. ``sandbox`` overrides
     the APNs host for that device's signing environment.
     """
-    cfg = _config_for(topic)
-    if not cfg:
-        return {"ok": False, "error": "APNs config missing or invalid"}
-    if not Path(cfg["_key_path"]).exists():
-        return {"ok": False, "error": "APNs auth key not configured"}
-    if not _have_httpx():
-        return {"ok": False, "error": "APNs requires httpx[http2]"}
-
-    try:
-        jwt = _get_jwt(cfg)
-    except Exception as exc:
-        logger.warning("APNs JWT sign failed: %s", exc)
-        return {"ok": False, "error": f"APNs JWT: {exc}"}
-
-    body = _build_apns_body(payload, alert)
-    # A token's environment is fixed by the signing entitlement of the app that
-    # produced it: development-signed apps get sandbox-only tokens. With two clients
-    # on one team — one distribution-signed, one development — a single global flag
-    # can't serve both, so the device's own environment wins when it reports one.
-    use_sandbox = bool(cfg.get("use_sandbox")) if sandbox is None else bool(sandbox)
-    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
-    url = f"https://{host}/3/device/{push_token}"
-    headers = _apns_headers(cfg, jwt, alert=bool(alert), topic=topic)
-    try:
-        r = _apns_post(url, headers, json.dumps(body), timeout)
-        if r.status_code == 200:
-            return {"ok": True}
-        return {
-            "ok": False,
-            "error": f"APNs HTTP {r.status_code}: {r.text[:200]}",
-            "status": r.status_code,
-        }
-    except Exception as exc:
-        return {"ok": False, "error": f"APNs send: {exc}"}
+    return _deliver(push_token, _build_apns_body(payload, alert),
+                    lambda cfg, jwt: _apns_headers(cfg, jwt, alert=bool(alert), topic=topic),
+                    timeout=timeout, topic=topic, sandbox=sandbox)
 
 
 # ── Live Activity push (ActivityKit) ─────────────────────────────────────────
@@ -344,37 +344,11 @@ def send_live_activity(push_token: str, content_state: dict, *,
                        expiration: Optional[int] = None) -> dict:
     """Push a Live Activity content-state update (or ``event="end"`` /
     ``event="start"`` — a push-to-start token plus ``extra``) via APNs."""
-    if not _KEY_FILE.exists():
-        return {"ok": False, "error": "APNs auth key not configured"}
-    cfg = _load_config()
-    if not cfg:
-        return {"ok": False, "error": "APNs config missing or invalid"}
-    if not _have_httpx():
-        return {"ok": False, "error": "APNs requires httpx[http2]"}
-    try:
-        jwt = _get_jwt(cfg)
-    except Exception as exc:
-        logger.warning("APNs JWT sign failed: %s", exc)
-        return {"ok": False, "error": f"APNs JWT: {exc}"}
-
-    body = {"aps": build_la_aps(content_state, event=event,
-                                stale_after=stale_after,
+    body = {"aps": build_la_aps(content_state, event=event, stale_after=stale_after,
                                 dismissal_after=dismissal_after, extra=extra)}
-    use_sandbox = bool(cfg.get("use_sandbox"))
-    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
-    url = f"https://{host}/3/device/{push_token}"
-    headers = _apns_la_headers(cfg, jwt, priority=priority, expiration=expiration)
-    try:
-        r = _apns_post(url, headers, json.dumps(body), timeout)
-        if r.status_code == 200:
-            return {"ok": True}
-        return {
-            "ok": False,
-            "error": f"APNs HTTP {r.status_code}: {r.text[:200]}",
-            "status": r.status_code,
-        }
-    except Exception as exc:
-        return {"ok": False, "error": f"APNs send: {exc}"}
+    return _deliver(push_token, body,
+                    lambda cfg, jwt: _apns_la_headers(cfg, jwt, priority=priority, expiration=expiration),
+                    timeout=timeout)
 
 
 # ── Control refresh (WidgetKit push) ─────────────────────────────────────────
@@ -408,31 +382,6 @@ def _apns_widgets_headers(cfg: dict, jwt: str, *,
 def send_control_refresh(push_token: str, *, timeout: float = 10.0,
                          expiration: Optional[int] = None) -> dict:
     """Ask iOS to reload the controls behind a control push token. Never raises."""
-    if not _KEY_FILE.exists():
-        return {"ok": False, "error": "APNs auth key not configured"}
-    cfg = _load_config()
-    if not cfg:
-        return {"ok": False, "error": "APNs config missing or invalid"}
-    if not _have_httpx():
-        return {"ok": False, "error": "APNs requires httpx[http2]"}
-    try:
-        jwt = _get_jwt(cfg)
-    except Exception as exc:
-        logger.warning("APNs JWT sign failed: %s", exc)
-        return {"ok": False, "error": f"APNs JWT: {exc}"}
-
-    use_sandbox = bool(cfg.get("use_sandbox"))
-    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
-    url = f"https://{host}/3/device/{push_token}"
-    headers = _apns_widgets_headers(cfg, jwt, expiration=expiration)
-    try:
-        r = _apns_post(url, headers, json.dumps(build_widgets_body()), timeout)
-        if r.status_code == 200:
-            return {"ok": True}
-        return {
-            "ok": False,
-            "error": f"APNs HTTP {r.status_code}: {r.text[:200]}",
-            "status": r.status_code,
-        }
-    except Exception as exc:
-        return {"ok": False, "error": f"APNs send: {exc}"}
+    return _deliver(push_token, build_widgets_body(),
+                    lambda cfg, jwt: _apns_widgets_headers(cfg, jwt, expiration=expiration),
+                    timeout=timeout)
