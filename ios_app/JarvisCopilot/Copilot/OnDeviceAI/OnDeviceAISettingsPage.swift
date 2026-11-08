@@ -118,9 +118,9 @@ struct OnDeviceAISettingsPage: View {
 
     private var surfaceRows: some View {
         GlassGroup {
-            OnDeviceSwitchRow(symbol: "bubble.left", title: "Chat",
+            SwitchRow(symbol: "bubble.left", title: "Chat",
                               isOn: store.settings.chatEnabled) { store.setChatEnabled($0) }
-            OnDeviceSwitchRow(symbol: "waveform", title: "Voice",
+            SwitchRow(symbol: "waveform", title: "Voice",
                               isOn: store.settings.voiceEnabled,
                               last: true) { store.setVoiceEnabled($0) }
         }
@@ -189,35 +189,15 @@ struct OnDeviceAISettingsPage: View {
                      subtitle: "Each turn runs the on-device model to completion; it chooses "
                              + "to answer, act, or hand off to the server. No time limit.",
                      subtitleLineLimit: 4) { EmptyView() }
-            OnDeviceSwitchRow(symbol: "exclamationmark.shield",
+            SwitchRow(symbol: "exclamationmark.shield",
                               title: "Confirm outward/destructive actions",
                               isOn: store.settings.confirmLocalActions) {
                 store.setConfirmLocalActions($0)
             }
-            OnDeviceSwitchRow(symbol: "bolt",
+            SwitchRow(symbol: "bolt",
                               title: "Device commands short-circuit",
                               isOn: store.settings.commandShortCircuit,
                               last: true) { store.setCommandShortCircuit($0) }
-        }
-    }
-}
-
-/// A toggle row styled like `GlassRow` — the on-device screen's own copy, because
-/// `SettingsPage`'s is file-private there.
-private struct OnDeviceSwitchRow: View {
-    let symbol: String
-    let title: String
-    var subtitle: String? = nil
-    let isOn: Bool
-    var last: Bool = false
-    let onChange: (Bool) -> Void
-
-    var body: some View {
-        GlassRow(symbol: symbol, title: title, subtitle: subtitle,
-                 subtitleLineLimit: 3, last: last) {
-            Toggle("", isOn: Binding(get: { isOn }, set: onChange))
-                .labelsHidden()
-                .tint(JcTheme.accent)
         }
     }
 }
