@@ -4733,10 +4733,7 @@ def sanitize_env_file() -> int:
     if not env_path.exists():
         return 0
 
-    read_kw = {"encoding": "utf-8-sig", "errors": "replace"}
-    write_kw = {"encoding": "utf-8"}
-
-    with open(env_path, **read_kw) as f:
+    with open(env_path, encoding="utf-8-sig", errors="replace") as f:
         original_lines = f.readlines()
 
     sanitized = _sanitize_env_lines(original_lines)
@@ -4751,20 +4748,7 @@ def sanitize_env_file() -> int:
         fixes = sum(1 for a, b in zip(original_lines, sanitized) if a != b)
         fixes += abs(len(sanitized) - len(original_lines))
 
-    fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), suffix=".tmp", prefix=".env_")
-    try:
-        with os.fdopen(fd, "w", **write_kw) as f:
-            f.writelines(sanitized)
-            f.flush()
-            os.fsync(f.fileno())
-        atomic_replace(tmp_path, env_path)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-    _secure_file(env_path)
+    _write_env_lines(env_path, sanitized)
     invalidate_env_cache()
     return fixes
 
@@ -4809,46 +4793,9 @@ def _check_non_ascii_credential(key: str, value: str) -> str:
     return sanitized
 
 
-def save_env_value(key: str, value: str):
-    """Save or update a value in ~/.jarviscopilot/.env."""
-    if is_managed():
-        managed_error(f"set {key}")
-        return
-    validate_env_var_name_for_write(key)
-    value = value.replace("\n", "").replace("\r", "")
-    # API keys / tokens must be ASCII — strip non-ASCII with a warning.
-    value = _check_non_ascii_credential(key, value)
-    ensure_hermes_home()
-    env_path = get_env_path()
-
-    # On Windows, open() defaults to the system locale (cp1252) which can
-    # cause OSError errno 22 on UTF-8 .env files.
-    read_kw = {"encoding": "utf-8-sig", "errors": "replace"}
-    write_kw = {"encoding": "utf-8"}
-
-    lines = []
-    if env_path.exists():
-        with open(env_path, **read_kw) as f:
-            lines = f.readlines()
-        # Sanitize on every read: split concatenated keys, drop stale placeholders
-        lines = _sanitize_env_lines(lines)
-
-    # Find and update or append
-    found = False
-    for i, line in enumerate(lines):
-        if line.strip().startswith(f"{key}="):
-            lines[i] = f"{key}={value}\n"
-            found = True
-            break
-
-    if not found:
-        # Ensure there's a newline at the end of the file before appending
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        lines.append(f"{key}={value}\n")
-    
+def _write_env_lines(env_path: Path, lines: list[str]) -> None:
+    """Atomically rewrite .env, keeping its permissions (Docker volume mounts)."""
     fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), suffix='.tmp', prefix='.env_')
-    # Preserve original permissions so Docker volume mounts aren't clobbered.
     original_mode = None
     if env_path.exists():
         try:
@@ -4856,7 +4803,7 @@ def save_env_value(key: str, value: str):
         except OSError:
             pass
     try:
-        with os.fdopen(fd, 'w', **write_kw) as f:
+        with os.fdopen(fd, 'w', encoding="utf-8") as f:
             f.writelines(lines)
             f.flush()
             os.fsync(f.fileno())
@@ -4874,6 +4821,43 @@ def save_env_value(key: str, value: str):
             pass
         raise
     _secure_file(env_path)
+
+
+def save_env_value(key: str, value: str):
+    """Save or update a value in ~/.jarviscopilot/.env."""
+    if is_managed():
+        managed_error(f"set {key}")
+        return
+    validate_env_var_name_for_write(key)
+    value = value.replace("\n", "").replace("\r", "")
+    # API keys / tokens must be ASCII — strip non-ASCII with a warning.
+    value = _check_non_ascii_credential(key, value)
+    ensure_hermes_home()
+    env_path = get_env_path()
+
+    lines = []
+    if env_path.exists():
+        # Explicit UTF-8: Windows' locale default (cp1252) can raise
+        # OSError errno 22 on UTF-8 .env files.
+        with open(env_path, encoding="utf-8-sig", errors="replace") as f:
+            lines = f.readlines()
+        # Sanitize on every read: split concatenated keys, drop stale placeholders
+        lines = _sanitize_env_lines(lines)
+
+    # Find and update or append
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{key}="):
+            lines[i] = f"{key}={value}\n"
+            found = True
+            break
+
+    if not found:
+        # Ensure there's a newline at the end of the file before appending
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"{key}={value}\n")
+    _write_env_lines(env_path, lines)
 
     os.environ[key] = value
     invalidate_env_cache()
@@ -4894,42 +4878,14 @@ def remove_env_value(key: str) -> bool:
         os.environ.pop(key, None)
         return False
 
-    read_kw = {"encoding": "utf-8-sig", "errors": "replace"}
-    write_kw = {"encoding": "utf-8"}
-
-    with open(env_path, **read_kw) as f:
-        lines = f.readlines()
-    lines = _sanitize_env_lines(lines)
+    with open(env_path, encoding="utf-8-sig", errors="replace") as f:
+        lines = _sanitize_env_lines(f.readlines())
 
     new_lines = [line for line in lines if not line.strip().startswith(f"{key}=")]
     found = len(new_lines) < len(lines)
 
     if found:
-        fd, tmp_path = tempfile.mkstemp(dir=str(env_path.parent), suffix='.tmp', prefix='.env_')
-        # Preserve original permissions so Docker volume mounts aren't clobbered.
-        original_mode = None
-        try:
-            original_mode = stat.S_IMODE(env_path.stat().st_mode)
-        except OSError:
-            pass
-        try:
-            with os.fdopen(fd, 'w', **write_kw) as f:
-                f.writelines(new_lines)
-                f.flush()
-                os.fsync(f.fileno())
-            atomic_replace(tmp_path, env_path)
-            if original_mode is not None:
-                try:
-                    os.chmod(env_path, original_mode)
-                except OSError:
-                    pass
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-        _secure_file(env_path)
+        _write_env_lines(env_path, new_lines)
 
     os.environ.pop(key, None)
     invalidate_env_cache()
