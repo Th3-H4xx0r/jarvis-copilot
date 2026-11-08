@@ -1560,6 +1560,18 @@ def _prompt_toolset_checklist(platform_label: str, enabled: Set[str], platform: 
 
 # ─── Provider-Aware Configuration ────────────────────────────────────────────
 
+def _toolset_label(ts_key: str) -> str:
+    """Display label for a configurable toolset (the key when unknown)."""
+    return next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts_key), ts_key)
+
+
+def _print_toolset_changes(added: set, removed: set, *, indent: str = "  ") -> None:
+    for ts in sorted(added):
+        print(color(f"{indent}+ {_toolset_label(ts)}", Colors.GREEN))
+    for ts in sorted(removed):
+        print(color(f"{indent}- {_toolset_label(ts)}", Colors.RED))
+
+
 def _configure_toolset(ts_key: str, config: dict):
     """Configure a toolset - provider selection + API keys.
     
@@ -2392,7 +2404,7 @@ def _configure_simple_requirements(ts_key: str):
     if not missing:
         return
 
-    ts_label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts_key), ts_key)
+    ts_label = _toolset_label(ts_key)
     print()
     print(color(f"  {ts_label} requires configuration:", Colors.YELLOW))
 
@@ -2469,7 +2481,7 @@ def _reconfigure_simple_requirements(ts_key: str):
     if not requirements:
         return
 
-    ts_label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts_key), ts_key)
+    ts_label = _toolset_label(ts_key)
     print()
     print(color(f"  {ts_label}:", Colors.CYAN))
 
@@ -2519,7 +2531,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
             print(color(f"  {pinfo['label']}", Colors.BOLD) + color(f"  ({count}/{total})", Colors.DIM))
             if enabled:
                 for ts_key in sorted(enabled):
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts_key), ts_key)
+                    label = _toolset_label(ts_key)
                     print(color(f"    ✓ {label}", Colors.GREEN))
             else:
                 print(color("    (none enabled)", Colors.DIM))
@@ -2545,14 +2557,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
 
             added = new_enabled - current_enabled
             removed = current_enabled - new_enabled
-            if added:
-                for ts in sorted(added):
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                    print(color(f"  + {label}", Colors.GREEN))
-            if removed:
-                for ts in sorted(removed):
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                    print(color(f"  - {label}", Colors.RED))
+            _print_toolset_changes(added, removed)
 
             auto_configured = apply_nous_managed_defaults(
                 config,
@@ -2577,7 +2582,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                 print()
                 print(color(f"  Configuring {len(to_configure)} tool(s):", Colors.YELLOW))
                 for ts_key in to_configure:
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts_key), ts_key)
+                    label = _toolset_label(ts_key)
                     print(color(f"    • {label}", Colors.DIM))
                 print(color("  You can skip any tool you don't need right now.", Colors.DIM))
                 print()
@@ -2654,12 +2659,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                     pinfo_inner = PLATFORMS[pk]
                     if added or removed:
                         print(color(f"  {pinfo_inner['label']}:", Colors.DIM))
-                        for ts in sorted(added):
-                            label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                            print(color(f"    + {label}", Colors.GREEN))
-                        for ts in sorted(removed):
-                            label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                            print(color(f"    - {label}", Colors.RED))
+                        _print_toolset_changes(added, removed, indent="    ")
                     # Configure API keys for newly enabled tools
                     for ts_key in sorted(added):
                         if (TOOL_CATEGORIES.get(ts_key) or TOOLSET_ENV_REQUIREMENTS.get(ts_key)):
@@ -2691,14 +2691,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
             added = new_enabled - current_enabled
             removed = current_enabled - new_enabled
 
-            if added:
-                for ts in sorted(added):
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                    print(color(f"  + {label}", Colors.GREEN))
-            if removed:
-                for ts in sorted(removed):
-                    label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
-                    print(color(f"  - {label}", Colors.RED))
+            _print_toolset_changes(added, removed)
 
             # Configure newly enabled toolsets that need API keys
             for ts_key in sorted(added):
