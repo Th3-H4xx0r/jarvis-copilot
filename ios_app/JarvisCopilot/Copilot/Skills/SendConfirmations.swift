@@ -118,7 +118,7 @@ final class SendConfirmations: ObservableObject {
     private let contacts: ContactCardLooking
     private var expiry: Task<Void, Never>?
     private var hold: Task<Void, Never>?
-    private var window: UIWindow?
+    private let window = OverlayWindow()
     private var active = UIApplication.shared.applicationState == .active
     private var observers: [NSObjectProtocol] = []
 
@@ -261,27 +261,6 @@ final class SendConfirmations: ObservableObject {
 
     private func updateWindow() {
         guard !observers.isEmpty else { return }   // only the app's own card has a window
-        if active, card != nil { showWindow() } else { hideWindow() }
-    }
-
-    private func showWindow() {
-        guard window == nil else { return }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
-        let host = UIHostingController(rootView: SendConfirmCard(center: self))
-        host.view.backgroundColor = .clear
-        host.view.accessibilityViewIsModal = true
-        let made = UIWindow(windowScene: scene)
-        made.windowLevel = .alert + 1
-        made.backgroundColor = .clear
-        made.rootViewController = host
-        made.isHidden = false
-        window = made
-        UIAccessibility.post(notification: .screenChanged, argument: host.view)
-    }
-
-    private func hideWindow() {
-        window?.isHidden = true
-        window = nil
+        if active, card != nil { window.show { SendConfirmCard(center: self) } } else { window.hide() }
     }
 }

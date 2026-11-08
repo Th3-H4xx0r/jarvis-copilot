@@ -79,7 +79,7 @@ final class FaceIDApprovals: ObservableObject {
     let domain: FaceIDApprovalDomain
     let approver: ToyotaApprover
     private var active = false
-    private var window: UIWindow?
+    private let window = OverlayWindow()
     private var expiry: Task<Void, Never>?
 
     init(domain: FaceIDApprovalDomain, approver: ToyotaApprover? = nil) {
@@ -176,28 +176,7 @@ final class FaceIDApprovals: ObservableObject {
     // MARK: Window
 
     private func updateWindow() {
-        if active, current != nil { present() } else { dismiss() }
-    }
-
-    private func present() {
-        guard window == nil else { return }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
-        let host = UIHostingController(rootView: FaceIDApprovalCard(center: self))
-        host.view.backgroundColor = .clear
-        host.view.accessibilityViewIsModal = true
-        let made = UIWindow(windowScene: scene)
-        made.windowLevel = .alert + 1
-        made.backgroundColor = .clear
-        made.rootViewController = host
-        made.isHidden = false
-        window = made
-        UIAccessibility.post(notification: .screenChanged, argument: host.view)
-    }
-
-    private func dismiss() {
-        window?.isHidden = true
-        window = nil
+        if active, current != nil { window.show { FaceIDApprovalCard(center: self) } } else { window.hide() }
     }
 }
 

@@ -12,7 +12,7 @@ final class DoorAlarmAlert: ObservableObject {
     @Published private(set) var shown = false
     let store: DoorAlarmStore
     private var active = false
-    private var window: UIWindow?
+    private let window = OverlayWindow(level: .alert + 2)
     private var poller: Task<Void, Never>?
     /// The alarm the user hid ("since" of that state) — it comes back only for a new trip.
     private var hiddenSince: Date?
@@ -70,26 +70,13 @@ final class DoorAlarmAlert: ObservableObject {
                 }
             }
         }
-        guard window == nil else { return }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
-        let host = UIHostingController(rootView: DoorAlarmAlertCard(center: self, store: store))
-        host.view.backgroundColor = .clear
-        host.view.accessibilityViewIsModal = true
-        let made = UIWindow(windowScene: scene)
-        made.windowLevel = .alert + 2
-        made.backgroundColor = .clear
-        made.rootViewController = host
-        made.isHidden = false
-        window = made
-        UIAccessibility.post(notification: .screenChanged, argument: host.view)
+        window.show { DoorAlarmAlertCard(center: self, store: store) }
     }
 
     private func dismiss() {
         poller?.cancel()
         poller = nil
-        window?.isHidden = true
-        window = nil
+        window.hide()
     }
 }
 

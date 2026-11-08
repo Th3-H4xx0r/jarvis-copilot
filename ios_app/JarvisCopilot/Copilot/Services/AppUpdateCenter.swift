@@ -63,7 +63,7 @@ final class AppUpdateCenter: ObservableObject {
     private var foreground = false
     private var wasBackgrounded = true
     private var laterBuild: Int?
-    private var window: UIWindow?
+    private let window = OverlayWindow()
     private var started = false
     private var installWatch: Task<Void, Never>?
 
@@ -202,31 +202,7 @@ final class AppUpdateCenter: ObservableObject {
         let wanted = AppUpdateRules.shouldShow(offer, foreground: foreground,
                                                voiceActive: VoiceStore.shared.isActive,
                                                laterBuild: laterBuild)
-        if wanted { present() } else { dismiss() }
-    }
-
-    // MARK: Window
-
-    private func present() {
-        guard window == nil else { return }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .filter { $0.session.role == .windowApplication }
-        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
-        let host = UIHostingController(rootView: AppUpdateCard(center: self))
-        host.view.backgroundColor = .clear
-        host.view.accessibilityViewIsModal = true
-        let made = UIWindow(windowScene: scene)
-        made.windowLevel = .alert + 1
-        made.backgroundColor = .clear
-        made.rootViewController = host
-        made.isHidden = false
-        window = made
-        UIAccessibility.post(notification: .screenChanged, argument: host.view)
-    }
-
-    private func dismiss() {
-        window?.isHidden = true
-        window = nil
+        if wanted { window.show { AppUpdateCard(center: self) } } else { window.hide() }
     }
 }
 
