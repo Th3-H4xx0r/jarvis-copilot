@@ -19,12 +19,12 @@ import time
 import uuid
 from typing import Callable, Optional
 
-from jc_client.unix_server import UnixSocketServer
-
 try:
     from jc_client import agent_engine
+    from jc_client.unix_server import UnixSocketServer
 except ImportError:  # loaded by file path on the server (agent/agent_engine_shim.py)
     from agent import agent_engine_shim as agent_engine
+    UnixSocketServer = agent_engine.load_unix_server()
 
 log = logging.getLogger(__name__)
 

@@ -37,6 +37,11 @@ def _load_sibling(name, filename):
     return sys.modules[name]
 
 
+def load_unix_server():
+    """jc-client's private Unix socket server, which the hook server is built on."""
+    return _load_sibling("jarvis_unix_server", "unix_server.py").UnixSocketServer
+
+
 def load_hook_server():
     """jc-client's HookServer class, loaded by path for the server's own socket."""
     return _load_sibling("jarvis_hook_server", "hook_server.py").HookServer
