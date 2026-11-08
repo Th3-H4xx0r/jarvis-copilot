@@ -98,14 +98,6 @@ final class FlowDictation {
         SpeechPermissions.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"))
     }
 
-    /// The Flow window's microphone: hands-free straight away, until the key or Done.
-    func startHandsFree() {
-        guard logic.phase == .idle, current == nil else { return }
-        logic.lock()
-        begin()
-        pill.setPhase(.locked)
-    }
-
     /// Done (the Flow window), or the key while hands-free.
     func finishHandsFree() {
         guard logic.phase == .locked else { return }

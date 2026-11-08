@@ -272,7 +272,7 @@ final class ChatTests: XCTestCase {
                        "http://127.0.0.1:8899/api/media?path=%2Ftmp%2Fshot.png")
         XCTAssertNil(ChatMedia.url(for: "/api/media?path=x", origin: nil))
         XCTAssertEqual(ChatMedia.url(for: "https://x.org/a.jpg", origin: nil)?.host, "x.org")
-        XCTAssertNotNil(ChatMedia.inlineData("data:image/png;base64,iVBORw0KGgo="))
+        XCTAssertNotNil(ChatMedia.inlineImageData("data:image/png;base64,iVBORw0KGgo="))
     }
 
     func testMarkdownBlocks() {

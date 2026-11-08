@@ -637,8 +637,6 @@ struct MemoryGraph: Equatable, Sendable {
         nodesByID[entity.id] = node
     }
 
-    mutating func clearHighlight() { highlight = [] }
-
     /// One memory no longer links to `id`.
     mutating func memoryUnlinked(from id: String) {
         guard var node = nodesByID[id] else { return }

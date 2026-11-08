@@ -2,16 +2,6 @@ import WidgetKit
 import SwiftUI
 import ActivityKit
 
-func jcStateLabel(_ s: String) -> String {
-    switch s {
-    case "listening": return "Listening"
-    case "thinking":  return "Thinking"
-    case "speaking":  return "Speaking"
-    case "error":     return "Error"
-    default:          return "Idle"
-    }
-}
-
 /// The JARVIS orb everywhere in the Live Activities: the Voice page's liquid-glass orb,
 /// animated with symbol effects (`JarvisLiveOrb`), its glow tinted by the voice state.
 struct JarvisOrb: View {

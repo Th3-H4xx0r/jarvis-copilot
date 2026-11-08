@@ -105,16 +105,6 @@ func jcAgentStateLabel(_ state: String) -> String {
     }
 }
 
-/// A fleet-bar shorthand (p / w / e / i) as its state colour.
-func jcAgentBarColor(_ short: String) -> Color {
-    switch short {
-    case "p": return jcAgentStateColor("approval")
-    case "w": return jcAgentStateColor("working")
-    case "e": return jcAgentStateColor("error")
-    default: return jcAgentStateColor("idle")
-    }
-}
-
 /// Where a tap on an agent's activity lands: the lead session in the Agents tab.
 func jcAgentWidgetURL(_ st: AgentActivityAttributes.ContentState) -> URL {
     // A coding row no hook talks for ("row:<id>") has no Agents-tab session.

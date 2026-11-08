@@ -188,6 +188,7 @@
 		2487A78DE85FF6052426B6BB /* TodosTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE665D52087C0F184FC8D07E /* TodosTests.swift */; };
 		25212798C281D68D6E3CA637 /* CarLightsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6AE9D63E51A059BA7BC836 /* CarLightsCard.swift */; };
 		25350B7D3A9573372049A13F /* RenderHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09DCE2A73AC7636FCB8673D5 /* RenderHarness.swift */; };
+		253E249DF50FA3F7AD1F84EB /* ChatMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19A47FA115361E31AD829050 /* ChatMedia.swift */; };
 		255DBFED48D33A8559C60008 /* ToolRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4173328AB81A5A728A6B18 /* ToolRow.swift */; };
 		25C5E1F43600B9FCCD36C753 /* AgentProjectSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910B5A33115C4AD2092DD374 /* AgentProjectSettingsSheet.swift */; };
 		25D418A2F0DAA451C657B570 /* CodingSessionsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C3A4C75CBE91EABCDC5AC2 /* CodingSessionsAPI.swift */; };
@@ -1468,6 +1469,7 @@
 		196380367130C91DB782549A /* CarLightSettingsSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightSettingsSheet.swift; sourceTree = "<group>"; };
 		196FE8A2C465C6B144FD2C7F /* StatsLine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StatsLine.swift; sourceTree = "<group>"; };
 		198B5126C253D56E569AAF1B /* GlassesNotesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNotesStore.swift; sourceTree = "<group>"; };
+		19A47FA115361E31AD829050 /* ChatMedia.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatMedia.swift; sourceTree = "<group>"; };
 		19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDemoTests.swift; sourceTree = "<group>"; };
 		19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareSection.swift; sourceTree = "<group>"; };
 		1A2CEB6249AE39EE47DCA065 /* HabitRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HabitRenderTests.swift; sourceTree = "<group>"; };
@@ -2659,6 +2661,7 @@
 				21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */,
 				3C5ED7A98D8AA1D757A1BD24 /* PasteboardAttachments.swift */,
 				E9D3612333A3CC0D360E9F04 /* ChatFilePreview.swift */,
+				19A47FA115361E31AD829050 /* ChatMedia.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -6303,6 +6306,7 @@
 				6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */,
 				D348300301400108F329A8E1 /* WearableDays.swift in Sources */,
 				6E1C77EC4FB070C9BC6424B9 /* DevicePageParts.swift in Sources */,
+				253E249DF50FA3F7AD1F84EB /* ChatMedia.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

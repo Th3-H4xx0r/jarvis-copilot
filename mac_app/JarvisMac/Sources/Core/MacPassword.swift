@@ -72,7 +72,6 @@ enum ApprovalKey {
     static let service = "com.jarviscopilot.mac.approval-key"
     static var pinned: String? { MacKeychain.read(service) }
     static func pin(_ publicKeyB64: String) throws { try MacKeychain.write(service, publicKeyB64) }
-    static func unpin() { MacKeychain.delete(service) }
 
     /// What the Mac and iPhone both show.
     static func fingerprint(_ publicKeyB64: String) -> String { MacPasswordWire.fingerprint(publicKeyB64) ?? "?" }

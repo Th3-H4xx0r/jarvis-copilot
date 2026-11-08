@@ -86,8 +86,6 @@ final class DashcamDownloader: @unchecked Sendable {
         resumeDir.appendingPathComponent(key.map { $0.isLetter || $0.isNumber ? $0 : "_" }.reduce("") { $0 + String($1) } + ".resume")
     }
 
-    func hasResumeData(_ key: String) -> Bool { FileManager.default.fileExists(atPath: resumeURL(key).path) }
-
     /// Downloads `url` to `dest`, continuing a previous attempt for the same `key` if one was cut off.
     /// Progress comes from polling the task's byte counts — the async `download(from:)` API never
     /// calls `didWriteData`.

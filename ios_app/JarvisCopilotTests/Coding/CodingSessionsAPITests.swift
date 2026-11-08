@@ -178,30 +178,6 @@ final class CodingSessionsAPITests: XCTestCase {
         XCTAssertEqual(query(t.lastRequest), ["delete_sessions": "1"])
     }
 
-    func testLaunchInProject() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["session": ["id": "s9", "status": "starting"]])
-        let s = try await api.launchInProject("p1", cwd: "", title: "fix tests",
-                                              prompt: "run the suite", model: "opus",
-                                              host: "desktop", skipPermissions: true,
-                                              sync: CodingSync(enabled: true, device: "mac"))
-        assertRequest(t, "POST", "/api/coding/project/p1/session")
-        let body = t.lastBody()
-        XCTAssertNil(body["cwd"], "an empty cwd falls back to the project's repo_path server-side")
-        XCTAssertEqual(body["title"] as? String, "fix tests")
-        XCTAssertEqual(body["prompt"] as? String, "run the suite")
-        XCTAssertEqual(body["host"] as? String, "desktop")
-        XCTAssertEqual(body["skip_permissions"] as? Bool, true)
-        XCTAssertEqual((body["sync"] as? [String: Any])?["device"] as? String, "mac")
-        XCTAssertEqual(s.id, "s9")
-
-        // A disabled sync block is never sent.
-        t.enqueue(json: ["session": ["id": "s9"]])
-        _ = try await api.launchInProject("p1", sync: CodingSync(enabled: false, device: "mac"))
-        XCTAssertNil(t.lastBody()["sync"])
-        XCTAssertNil(t.lastBody()["skip_permissions"])
-    }
-
     func testLaunchAlwaysSendsHostAndBothPathSpellings() async throws {
         let (api, t) = makeAPI()
         t.enqueue(json: ["session": ["id": "s1"]])
@@ -220,41 +196,6 @@ final class CodingSessionsAPITests: XCTestCase {
         t.enqueue(json: ["id": "s2", "status": "running"])
         let awaited5 = try await api.launch().id
         XCTAssertEqual(awaited5, "s2")
-    }
-
-    func testRelaunchOnDeviceWithAndWithoutAProject() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["session": ["id": "s5", "status": "running"]])
-        let s = try await api.relaunchOnDevice(projectId: "p1", cwd: "/home/p/jc",
-                                               title: "t", resumeSessionId: "claude-1")
-        assertRequest(t, "POST", "/api/coding/project/p1/session")
-        var body = t.lastBody()
-        XCTAssertEqual(body["host"] as? String, "desktop")
-        XCTAssertEqual(body["resume_session_id"] as? String, "claude-1")
-        XCTAssertNil(body["project_id"])
-        XCTAssertEqual(s?.id, "s5")
-
-        t.enqueue(json: ["session": ["id": "s6"]])
-        _ = try await api.relaunchOnDevice(projectId: nil, cwd: "/home/p/jc")
-        assertRequest(t, "POST", "/api/coding/launch")
-        body = t.lastBody()
-        XCTAssertTrue(body["project_id"] is NSNull, "an explicit null clears the project")
-        XCTAssertNil(body["title"])
-    }
-
-    func testRelaunchOnDeviceSurfacesAnOkFalseBody() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["ok": false, "error": "device offline"])
-        do {
-            _ = try await api.relaunchOnDevice(projectId: nil, cwd: "/x")
-            XCTFail("expected a throw")
-        } catch {
-            XCTAssertEqual((error as? CodingServerError)?.message, "device offline")
-        }
-        // A 0 is NOT the bool false — only a real `ok: false` is a failure.
-        t.enqueue(json: ["ok": 0, "session": ["id": "s1"]])
-        let awaited6 = try await api.relaunchOnDevice(projectId: nil, cwd: "/x")?.id
-        XCTAssertEqual(awaited6, "s1")
     }
 
     func testDiscoverRefresh() async throws {
@@ -425,28 +366,6 @@ final class CodingSessionsAPITests: XCTestCase {
     }
 
     // MARK: - Chat transcript
-
-    func testChatMessagesPassesTheAfterCursor() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["messages": [["i": 3, "role": "assistant", "text": "done"]],
-                         "total": 4, "status": "idle"])
-        let page = try await api.chatMessages("s1", after: 3)
-        assertRequest(t, "GET", "/api/coding/session/s1/messages")
-        XCTAssertEqual(query(t.lastRequest), ["after": "3"])
-        XCTAssertEqual(page.total, 4)
-        XCTAssertEqual(page.messages.first?.i, 3)
-    }
-
-    func testChatMessagesThrowsA409BeforeATranscriptExists() async {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["error": "no transcript yet"], status: 409)
-        do {
-            _ = try await api.chatMessages("s1")
-            XCTFail("expected a throw")
-        } catch {
-            XCTAssertEqual(error as? APIError, .http(status: 409, message: "no transcript yet"))
-        }
-    }
 
     func testChatPrompt() async throws {
         let (api, t) = makeAPI()

@@ -796,7 +796,7 @@ final class ChatImageCache {
 
     func cached(_ source: String) -> NSImage? {
         if let hit = images.object(forKey: source as NSString) { return hit }
-        guard let d = ChatMedia.inlineData(source), let image = NSImage(data: d) else { return nil }
+        guard let d = ChatMedia.inlineImageData(source), let image = NSImage(data: d) else { return nil }
         images.setObject(image, forKey: source as NSString, cost: d.count)
         return image
     }

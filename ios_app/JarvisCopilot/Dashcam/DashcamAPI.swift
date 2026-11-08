@@ -466,14 +466,6 @@ struct DashcamAPI: Sendable {
                                            received: received, complete: bool(o["complete"])))
     }
 
-    /// The request for one chunk, for a background upload task (the body comes from a file).
-    func chunkRequest(uploadID: String, index: Int) throws -> URLRequest {
-        var req = try api.request("POST", Self.prefix + "/uploads/\(uploadID)/chunk", query: ["n": String(index)],
-                                  headers: ["Content-Type": "application/octet-stream"], timeout: 600)
-        req.httpBody = nil
-        return req
-    }
-
     func completeUpload(_ uploadID: String) async throws {
         _ = try await api.post(Self.prefix + "/uploads/\(uploadID)/complete", timeout: 120)
     }

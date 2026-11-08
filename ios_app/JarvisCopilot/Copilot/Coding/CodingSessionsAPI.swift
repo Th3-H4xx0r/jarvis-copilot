@@ -147,46 +147,6 @@ struct CodingSessionsAPI {
                                  query: ["delete_sessions": cascade ? "1" : "0"])
     }
 
-    /// `POST /api/coding/project/{id}/session` → `{ session }`. `cwd` defaults
-    /// server-side to the project's repo_path when omitted.
-    func launchInProject(_ projectId: String, cwd: String? = nil, title: String? = nil,
-                         prompt: String? = nil, model: String? = nil, host: String? = nil,
-                         skipPermissions: Bool = false, sync: CodingSync? = nil) async throws -> CodingSession {
-        var body: [String: Any] = [:]
-        put(&body, "cwd", cwd)
-        put(&body, "title", title)
-        put(&body, "prompt", prompt)
-        put(&body, "model", model)
-        put(&body, "host", host)
-        if skipPermissions { body["skip_permissions"] = true }
-        if let sync, sync.enabled { body["sync"] = sync.json }
-        let reply = try await api.post("/api/coding/project/\(projectId)/session", json: body).object()
-        return CodingSession(json: CodingJSON.dict(reply["session"]) ?? reply)
-    }
-
-    /// Relaunch an ENDED discovered/desktop session on its DEVICE — a fresh tmux
-    /// in the same folder, resuming its transcript. Mirrors the WebUI's
-    /// `codingRelaunchDevice`; posts to the project's session endpoint, or the
-    /// top-level launch endpoint when the session has no project.
-    func relaunchOnDevice(projectId: String?, cwd: String, title: String? = nil,
-                          resumeSessionId: String? = nil) async throws -> CodingSession? {
-        let hasProject = !(projectId ?? "").isEmpty
-        var body: [String: Any] = ["host": "desktop", "cwd": cwd]
-        put(&body, "title", title)
-        put(&body, "resume_session_id", resumeSessionId)
-        // An explicit null clears any inherited project on the server side.
-        if !hasProject { body["project_id"] = NSNull() }
-        let path = hasProject ? "/api/coding/project/\(projectId!)/session" : "/api/coding/launch"
-        let reply = try await api.post(path, json: body).object()
-        if let ok = reply["ok"], CodingJSON.isBoolean(ok), !CodingJSON.bool(ok) {
-            throw CodingServerError(message: CodingJSON.str(reply["error"])
-                ?? CodingJSON.str(reply["message"])
-                ?? "Could not relaunch on the device")
-        }
-        guard let session = CodingJSON.dict(reply["session"]) ?? (reply.isEmpty ? nil : reply) else { return nil }
-        return CodingSession(json: session)
-    }
-
     /// `POST /api/coding/discover/refresh` — ask the paired device to re-scan its
     /// live tmux + transcript sessions and re-report. Discovery is async over the
     /// bridge, so callers should refresh the list again shortly after.
@@ -314,24 +274,6 @@ struct CodingSessionsAPI {
     }
 
     // MARK: - Chat transcript
-
-    /// `GET /api/coding/session/{id}/messages?after=N` → the conversation tail.
-    ///
-    /// Messages are indexed 0..total-1; pass `after=<the end you already have>`
-    /// to get only the new tail (after=0 returns everything, capped server-side).
-    /// `limit` makes it a page (after=0&limit=40 → the last 40), `before` pages
-    /// back; the reply's `start` says where its window begins.
-    /// Throws `APIError.http(status: 409, …)` while the session has no transcript
-    /// yet — callers render a friendly empty state for that.
-    func chatMessages(_ id: String, after: Int = 0, before: Int? = nil,
-                      limit: Int? = nil, lite: Bool = false) async throws -> CodingChatPage {
-        var query = ["after": "\(after)"]
-        if let before { query["before"] = "\(before)" }   // the page above (paging back)
-        if let limit { query["limit"] = "\(limit)" }      // a page, not the whole window
-        if lite { query["lite"] = "1" }                     // tools without output/diffs
-        let body = try await api.get("/api/coding/session/\(id)/messages", query: query).object()
-        return CodingChatPage(json: body)
-    }
 
     /// `GET /api/coding/session/{id}/prompt` → what Claude is asking right now
     /// (`{waiting, question, options, raw}`); poll when activity_state==waiting.

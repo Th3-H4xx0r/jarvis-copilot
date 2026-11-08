@@ -228,34 +228,3 @@ struct ChatLinkPreview: View {
         }
     }
 }
-
-/// Fetched link metadata, so a preview scrolled away and back (or the same link
-/// in two replies) is fetched once. `NSCache` evicts under memory pressure.
-@MainActor
-final class ChatLinkMetadataCache {
-    static let shared = ChatLinkMetadataCache()
-
-    private let cache: NSCache<NSURL, LPLinkMetadata> = {
-        let cache = NSCache<NSURL, LPLinkMetadata>()
-        cache.countLimit = 128
-        return cache
-    }()
-    private var inFlight: [URL: Task<LPLinkMetadata?, Never>] = [:]
-
-    func cached(_ url: URL) -> LPLinkMetadata? { cache.object(forKey: url as NSURL) }
-
-    func metadata(for url: URL) async -> LPLinkMetadata? {
-        if let hit = cached(url) { return hit }
-        if let running = inFlight[url] { return await running.value }
-        let task = Task<LPLinkMetadata?, Never> {
-            let provider = LPMetadataProvider()
-            provider.timeout = 10
-            return try? await provider.startFetchingMetadata(for: url)
-        }
-        inFlight[url] = task
-        let metadata = await task.value
-        inFlight[url] = nil
-        if let metadata { cache.setObject(metadata, forKey: url as NSURL) }
-        return metadata
-    }
-}

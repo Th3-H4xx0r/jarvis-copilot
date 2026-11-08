@@ -692,121 +692,7 @@ enum ChatCatalog {
 
 // MARK: - Media
 
-/// The agent's `MEDIA:<ref>` lines (the phone's ChatMedia, the web UI's
-/// renderMd stash): rewritten into markdown images before rendering, so the
-/// line becomes the picture instead of text.
-enum ChatMedia {
-    static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "heic"]
-
-    private static let componentAllowed: CharacterSet = {
-        var set = CharacterSet.alphanumerics
-        set.insert(charactersIn: "-_.!~*'()")
-        return set
-    }()
-
-    /// `http(s)` → `![image](url)`; a local path that looks like an image →
-    /// `<base>/api/media?path=…`; anything else stays as text.
-    static func rewrite(_ input: String, base: String = "") -> String {
-        let input = localImages(holdPartial(input), base: base)
-        guard input.contains("MEDIA:"),
-              let regex = try? NSRegularExpression(pattern: "MEDIA:([^\\s)\\]]+)") else { return input }
-        let text = input as NSString
-        var out = ""
-        var cursor = 0
-        for match in regex.matches(in: input, range: NSRange(location: 0, length: text.length)) {
-            out += text.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-            let ref = text.substring(with: match.range(at: 1))
-            out += replacement(for: ref, whole: text.substring(with: match.range), base: base)
-            cursor = match.range.location + match.range.length
-        }
-        return out + text.substring(from: cursor)
-    }
-
-    private static func replacement(for ref: String, whole: String, base: String) -> String {
-        guard !ref.isEmpty else { return whole }
-        let lower = ref.lowercased()
-        if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return "![image](\(ref))" }
-        let path = ref.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ref
-        guard let dot = path.lastIndex(of: "."),
-              imageExtensions.contains(String(path[path.index(after: dot)...]).lowercased()) else { return ref }
-        let encoded = ref.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? ref
-        return "![image](\(base)/api/media?path=\(encoded))"
-    }
-
-    /// A half-typed image token at the very end of a streaming reply waits
-    /// until it is whole, so a raw `MEDIA:/root/wor…` path never flashes (the
-    /// phone's ChatMedia.holdPartial).
-    static func holdPartial(_ text: String) -> String {
-        let ns = text as NSString
-        guard let match = partialPattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length))
-        else { return text }
-        let token = ns.substring(with: match.range(at: 2))
-        if token.hasPrefix("MEDIA:") {
-            let ref = String(token.dropFirst(6))
-            let lower = ref.lowercased()
-            if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
-                if ref.components(separatedBy: "://").dropFirst().joined().contains("/") { return text }
-            } else {
-                let path = ref.split(separator: "?").first.map(String.init) ?? ""
-                if let dot = path.lastIndex(of: "."),
-                   wholeExtensions.contains(path[path.index(after: dot)...].lowercased()) { return text }
-            }
-        }
-        return ns.substring(to: match.range(at: 2).location)
-    }
-
-    /// File endings that mark a `MEDIA:` path as finished (anything shorter —
-    /// `.jp` mid-stream — is still being typed).
-    private static let wholeExtensions: Set<String> = imageExtensions.union(
-        ["pdf", "html", "htm", "csv", "txt", "md", "json", "mp3", "m4a", "wav", "aac", "ogg", "opus",
-         "flac", "mp4", "mov", "m4v", "webm", "zip", "docx", "xlsx", "pptx", "diff", "patch", "svg"])
-
-    private static let partialPattern = try! NSRegularExpression(
-        pattern: #"(^|\s)(M(?:E(?:D(?:I(?:A(?::\S*)?)?)?)?)?|!\[[^\]\n]*(?:\]\([^)\s]*)?)$"#)
-
-    /// `![caption](/absolute/server/path)` — chat_image's show_with — through
-    /// the media endpoint, keeping the caption.
-    static func localImages(_ text: String, base: String = "") -> String {
-        guard text.contains("](/") else { return text }
-        let ns = text as NSString
-        var out = ""
-        var cursor = 0
-        for match in localImagePattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            out += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-            let path = ns.substring(with: match.range(at: 2))
-            out += path.hasPrefix("/api/")
-                ? ns.substring(with: match.range)
-                : "![\(ns.substring(with: match.range(at: 1)))](\(base)\(mediaSource(path)))"
-            cursor = match.range.location + match.range.length
-        }
-        return out + ns.substring(from: cursor)
-    }
-
-    private static let localImagePattern = try! NSRegularExpression(pattern: #"!\[([^\]\n]*)\]\((/[^)\s]+)\)"#)
-
-    /// Width ÷ height of a saved chat image, from its name (`…_<W>x<H>.<ext>`).
-    static func aspect(of source: String) -> CGFloat? {
-        var path = source
-        if let range = source.range(of: "path=") {
-            let value = source[range.upperBound...].split(separator: "&").first.map(String.init) ?? ""
-            path = value.removingPercentEncoding ?? value
-        }
-        path = path.split(separator: "?").first.map(String.init) ?? path
-        let ns = path as NSString
-        guard let m = sizePattern.firstMatch(in: path, range: NSRange(location: 0, length: ns.length)),
-              let w = Double(ns.substring(with: m.range(at: 1))),
-              let h = Double(ns.substring(with: m.range(at: 2))), w > 0, h > 0 else { return nil }
-        return CGFloat(w / h)
-    }
-
-    private static let sizePattern = try! NSRegularExpression(pattern: #"_(\d+)x(\d+)\.[A-Za-z0-9]+$"#)
-
-    /// The `/api/media` URL behind a file on the server, root-relative (join it
-    /// onto the island's API origin with `url(for:origin:)`).
-    static func mediaSource(_ path: String) -> String {
-        "/api/media?path=" + (path.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? path)
-    }
-
+extension ChatMedia {
     /// Where an image's bytes come from: the web as is; a server path through
     /// the island's API origin (jc-client's loopback, which carries the session).
     static func url(for source: String, origin: String?) -> URL? {
@@ -815,12 +701,6 @@ enum ChatMedia {
         guard source.hasPrefix("/"), var o = origin, !o.isEmpty else { return nil }
         while o.hasSuffix("/") { o.removeLast() }
         return URL(string: o + source)
-    }
-
-    /// A `data:` image's bytes.
-    static func inlineData(_ source: String) -> Data? {
-        guard source.hasPrefix("data:"), let comma = source.firstIndex(of: ",") else { return nil }
-        return Data(base64Encoded: String(source[source.index(after: comma)...]), options: .ignoreUnknownCharacters)
     }
 }
 

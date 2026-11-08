@@ -289,8 +289,6 @@ final class MacScreenSession: NSObject {
         send(message)
     }
 
-    func clearControlError() { controlError = nil }
-
     fileprivate func received(_ data: Data) {
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         switch obj["t"] as? String {
