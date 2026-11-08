@@ -228,13 +228,6 @@ def _holds(state: Dict[str, Any], device: Dict[str, Any], play_kwargs: Dict[str,
     return str((state.get("context") or {}).get("uri") or "") == want_context
 
 
-def _already_playing(client: Any, device: Dict[str, Any], play_kwargs: Dict[str, Any]) -> bool:
-    """Whether ``device`` already plays what was asked (Spotify started the link
-    the phone opened) — then starting it again would only restart it."""
-    state = _playback_state(client)
-    return bool(state.get("is_playing")) and _holds(state, device, play_kwargs)
-
-
 def _describe_state(state: Dict[str, Any]) -> str:
     if state.get("error"):
         return f"no state ({state['error']})"

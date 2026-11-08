@@ -75,13 +75,6 @@ def _get_exa_client() -> Any:
     return client
 
 
-def _reset_client_for_tests() -> None:
-    """Drop the cached Exa client so tests can re-instantiate cleanly."""
-    import tools.web_tools as _wt
-
-    _wt._exa_client = None
-
-
 class ExaWebSearchProvider(WebSearchProvider):
     """Exa search + extract provider.
 

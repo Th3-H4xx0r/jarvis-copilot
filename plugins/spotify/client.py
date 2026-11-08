@@ -473,5 +473,3 @@ def normalize_spotify_uris(values: Iterable[str], expected_type: Optional[str] =
     return uris
 
 
-def compact_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False)

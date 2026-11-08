@@ -93,18 +93,6 @@ _DEFAULT_PORT = 3978
 _WEBHOOK_PATH = "/api/messages"
 
 
-def _parse_bool(value: Any, *, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return default
-
-
 def _coerce_port(value: Any, *, default: int = _DEFAULT_PORT) -> int:
     try:
         return int(value)

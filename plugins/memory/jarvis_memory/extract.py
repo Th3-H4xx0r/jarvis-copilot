@@ -75,11 +75,6 @@ class FactExtractor(ABC):
         """Return durable facts. Raise on unavailability (-> provider falls back)."""
 
 
-class NoopExtractor(FactExtractor):
-    def extract(self, user_text, assistant_text):
-        return []
-
-
 class FakeExtractor(FactExtractor):
     """Test double — returns preset facts (or echoes a canned list)."""
 

@@ -2584,24 +2584,6 @@ class GoogleChatAdapter(BasePlatformAdapter):
     # ``plugins/platforms/google_chat/oauth.py`` for the helper
     # script + library functions backing this path.
     # ------------------------------------------------------------------
-    @staticmethod
-    def _is_app_auth_attachment_error(exc: HttpError) -> bool:
-        """Detect Google Chat's media.upload bot-auth rejection.
-
-        Returns True for the canonical ``"doesn't support app
-        authentication"`` wording (and the legacy
-        ``ACCESS_TOKEN_SCOPE_INSUFFICIENT`` variant some older clients
-        still see). Used to flag a misuse — calling ``media.upload``
-        through the SA-authed Chat API client instead of the user-authed
-        one. With correct routing this error should never fire in the
-        adapter; it remains as a defensive check.
-        """
-        text = str(exc) or ""
-        return (
-            "doesn't support app authentication" in text
-            or "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in text
-        )
-
     _LEGACY_USER_IDENTITY = "__legacy__"
 
     async def _load_per_user_chat_api(self, email: str) -> Optional[Any]:
