@@ -14,6 +14,10 @@ import pytest
 
 from run_agent import AIAgent
 from agent.context_compressor import ContextCompressor
+from agent.conversation_compression import (
+    check_compression_model_feasibility,
+    replay_compression_warning,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -80,7 +84,7 @@ def test_auto_corrects_threshold_when_aux_context_below_threshold(mock_get_clien
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 1
     assert "Compression model" in messages[0]
@@ -112,7 +116,7 @@ def test_rejects_aux_below_minimum_context(mock_get_client, mock_ctx_len):
     agent._emit_status = lambda msg: None
 
     with pytest.raises(ValueError) as exc_info:
-        agent._check_compression_model_feasibility()
+        check_compression_model_feasibility(agent)
 
     err = str(exc_info.value)
     assert "tiny-aux-model" in err
@@ -135,7 +139,7 @@ def test_no_warning_when_aux_context_sufficient(mock_get_client, mock_ctx_len):
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 0
     assert agent._compression_warning is None
@@ -157,7 +161,7 @@ def test_feasibility_check_passes_live_main_runtime():
     with patch("agent.auxiliary_client.get_text_auxiliary_client", return_value=(mock_client, "gpt-5.4")) as mock_get_client, \
          patch("agent.model_metadata.get_model_context_length", return_value=200_000):
         agent._emit_status = lambda msg: None
-        agent._check_compression_model_feasibility()
+        check_compression_model_feasibility(agent)
 
     mock_get_client.assert_called_once_with(
         "compression",
@@ -185,7 +189,7 @@ def test_feasibility_check_passes_config_context_length(mock_get_client, mock_ct
     mock_get_client.return_value = (mock_client, "custom/big-model")
 
     agent._emit_status = lambda msg: None
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     mock_ctx_len.assert_called_once_with(
         "custom/big-model",
@@ -209,7 +213,7 @@ def test_feasibility_check_ignores_invalid_context_length(mock_get_client, mock_
     mock_get_client.return_value = (mock_client, "custom/model")
 
     agent._emit_status = lambda msg: None
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     mock_ctx_len.assert_called_once_with(
         "custom/model",
@@ -227,7 +231,7 @@ def test_init_feasibility_check_uses_aux_context_override_from_config():
     NB: feasibility check is deferred from AIAgent.__init__ to the first
     actual compression attempt (saves ~400ms cold startup on short sessions
     that never trigger compression). The test drives the check explicitly
-    via ``agent._check_compression_model_feasibility()`` to assert the
+    via ``check_compression_model_feasibility(agent)`` to assert the
     config-override threading.
     """
 
@@ -278,7 +282,7 @@ def test_init_feasibility_check_uses_aux_context_override_from_config():
 
         # The expensive feasibility probe is deferred. Drive it manually
         # to validate the call shape still forwards the override correctly.
-        agent._check_compression_model_feasibility()
+        check_compression_model_feasibility(agent)
 
     mock_ctx_len.assert_called_once_with(
         "custom/big-model",
@@ -299,7 +303,7 @@ def test_warns_when_no_auxiliary_provider(mock_get_client):
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 1
     assert "No auxiliary LLM provider" in messages[0]
@@ -313,7 +317,7 @@ def test_skips_check_when_compression_disabled():
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 0
     assert agent._compression_warning is None
@@ -329,7 +333,7 @@ def test_exception_does_not_crash(mock_get_client):
     agent._emit_status = lambda msg: messages.append(msg)
 
     # Should not raise
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     # No user-facing message (error is debug-logged)
     assert len(messages) == 0
@@ -348,7 +352,7 @@ def test_exact_threshold_boundary_no_warning(mock_get_client, mock_ctx_len):
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 0
 
@@ -367,7 +371,7 @@ def test_just_below_threshold_auto_corrects(mock_get_client, mock_ctx_len):
     messages = []
     agent._emit_status = lambda msg: messages.append(msg)
 
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(messages) == 1
     assert "small-model" in messages[0]
@@ -391,7 +395,7 @@ def test_warning_stored_for_gateway_replay(mock_get_client, mock_ctx_len):
     # Phase 1: __init__ — _emit_status prints (CLI) but callback is None
     vprint_messages = []
     agent._emit_status = lambda msg: vprint_messages.append(msg)
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert len(vprint_messages) == 1  # CLI got it
     assert agent._compression_warning is not None  # stored for replay
@@ -399,7 +403,7 @@ def test_warning_stored_for_gateway_replay(mock_get_client, mock_ctx_len):
     # Phase 2: gateway wires callback post-init, then run_conversation replays
     callback_events = []
     agent.status_callback = lambda ev, msg: callback_events.append((ev, msg))
-    agent._replay_compression_warning()
+    replay_compression_warning(agent)
 
     assert any(
         ev == "lifecycle" and "Auto-lowered" in msg
@@ -418,13 +422,13 @@ def test_no_replay_when_no_warning(mock_get_client, mock_ctx_len):
     mock_get_client.return_value = (mock_client, "big-model")
 
     agent._emit_status = lambda msg: None
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert agent._compression_warning is None
 
     callback_events = []
     agent.status_callback = lambda ev, msg: callback_events.append((ev, msg))
-    agent._replay_compression_warning()
+    replay_compression_warning(agent)
 
     assert len(callback_events) == 0
 
@@ -436,7 +440,7 @@ def test_replay_without_callback_is_noop():
     agent.status_callback = None
 
     # Should not raise
-    agent._replay_compression_warning()
+    replay_compression_warning(agent)
 
 
 @patch("agent.model_metadata.get_model_context_length", return_value=80_000)
@@ -451,7 +455,7 @@ def test_run_conversation_clears_warning_after_replay(mock_get_client, mock_ctx_
     mock_get_client.return_value = (mock_client, "small-model")
 
     agent._emit_status = lambda msg: None
-    agent._check_compression_model_feasibility()
+    check_compression_model_feasibility(agent)
 
     assert agent._compression_warning is not None
 
@@ -459,7 +463,7 @@ def test_run_conversation_clears_warning_after_replay(mock_get_client, mock_ctx_
     callback_events = []
     agent.status_callback = lambda ev, msg: callback_events.append((ev, msg))
     if agent._compression_warning:
-        agent._replay_compression_warning()
+        replay_compression_warning(agent)
         agent._compression_warning = None  # as in run_conversation
 
     assert len(callback_events) == 1
@@ -467,7 +471,7 @@ def test_run_conversation_clears_warning_after_replay(mock_get_client, mock_ctx_
     # Second turn — nothing replayed
     callback_events.clear()
     if agent._compression_warning:
-        agent._replay_compression_warning()
+        replay_compression_warning(agent)
         agent._compression_warning = None
 
     assert len(callback_events) == 0

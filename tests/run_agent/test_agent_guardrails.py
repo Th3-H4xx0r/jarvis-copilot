@@ -11,6 +11,7 @@ import types
 from agent.message_sanitization import tool_call_id, tool_call_name
 from run_agent import AIAgent
 from tools.delegate_tool import _get_max_concurrent_children
+from agent.agent_runtime_helpers import sanitize_api_messages
 
 MAX_CONCURRENT_CHILDREN = _get_max_concurrent_children()
 
@@ -47,7 +48,7 @@ class TestSanitizeApiMessages:
             tool_result("c1"),
             tool_result("c_ORPHAN"),
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert len(out) == 2
         assert all(m.get("tool_call_id") != "c_ORPHAN" for m in out)
 
@@ -55,7 +56,7 @@ class TestSanitizeApiMessages:
         msgs = [
             {"role": "assistant", "tool_calls": [assistant_dict_call("c2")]},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert len(out) == 2
         stub = out[1]
         assert stub["role"] == "tool"
@@ -69,7 +70,7 @@ class TestSanitizeApiMessages:
             tool_result("c3"),
             {"role": "assistant", "content": "done"},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert out == msgs
 
     def test_mixed_orphaned_result_and_orphaned_call(self):
@@ -81,21 +82,21 @@ class TestSanitizeApiMessages:
             tool_result("c4"),
             tool_result("c_DANGLING"),
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         ids = [m.get("tool_call_id") for m in out if m.get("role") == "tool"]
         assert "c_DANGLING" not in ids
         assert "c4" in ids
         assert "c5" in ids
 
     def test_empty_list_is_safe(self):
-        assert AIAgent._sanitize_api_messages([]) == []
+        assert sanitize_api_messages([]) == []
 
     def test_no_tool_messages(self):
         msgs = [
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello"},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert out == msgs
 
     def test_sdk_object_tool_calls(self):
@@ -105,7 +106,7 @@ class TestSanitizeApiMessages:
         msgs = [
             {"role": "assistant", "tool_calls": [tc_obj]},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert len(out) == 2
         assert out[1]["tool_call_id"] == "c6"
 

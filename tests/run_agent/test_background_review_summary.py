@@ -1,4 +1,4 @@
-"""Tests for AIAgent._summarize_background_review_actions.
+"""Tests for agent.background_review.summarize_background_review_actions.
 
 Regression coverage for issue #14944: the background memory/skill review used
 to re-surface tool results that were already present in the conversation
@@ -7,10 +7,7 @@ history before the review started (e.g. an earlier "Cron job '...' created.").
 
 import json
 
-from run_agent import AIAgent
-
-
-_summarize = AIAgent._summarize_background_review_actions
+from agent.background_review import summarize_background_review_actions as _summarize
 
 
 def _tool_msg(tool_call_id, payload):

@@ -22,6 +22,15 @@ import run_agent
 from run_agent import AIAgent
 from agent.error_classifier import FailoverReason
 from agent.prompt_builder import DEFAULT_AGENT_IDENTITY
+from agent.agent_runtime_helpers import (
+    copy_reasoning_content_for_api,
+    dump_api_request_debug,
+    extract_api_error_context,
+    sanitize_api_messages,
+    strip_think_blocks,
+)
+from agent.chat_completion_helpers import handle_max_iterations
+from agent.system_prompt import format_tools_for_system_message
 
 
 # ---------------------------------------------------------------------------
@@ -278,52 +287,52 @@ class TestHasContentAfterThinkBlock:
 
 class TestStripThinkBlocks:
     def test_none_returns_empty(self, agent):
-        assert agent._strip_think_blocks(None) == ""
+        assert strip_think_blocks(agent, None) == ""
 
     def test_no_blocks_unchanged(self, agent):
-        assert agent._strip_think_blocks("hello world") == "hello world"
+        assert strip_think_blocks(agent, "hello world") == "hello world"
 
     def test_single_block_removed(self, agent):
-        result = agent._strip_think_blocks("<think>reasoning</think> answer")
+        result = strip_think_blocks(agent, "<think>reasoning</think> answer")
         assert "reasoning" not in result
         assert "answer" in result
 
     def test_multiline_block_removed(self, agent):
         text = "<think>\nline1\nline2\n</think>\nvisible"
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "line1" not in result
         assert "visible" in result
 
     def test_orphaned_closing_think_tag(self, agent):
-        result = agent._strip_think_blocks("some reasoning</think>actual answer")
+        result = strip_think_blocks(agent, "some reasoning</think>actual answer")
         assert "</think>" not in result
         assert "actual answer" in result
 
     def test_orphaned_closing_thinking_tag(self, agent):
-        result = agent._strip_think_blocks("reasoning</thinking>answer")
+        result = strip_think_blocks(agent, "reasoning</thinking>answer")
         assert "</thinking>" not in result
         assert "answer" in result
 
     def test_orphaned_opening_think_tag(self, agent):
-        result = agent._strip_think_blocks("<think>orphaned reasoning without close")
+        result = strip_think_blocks(agent, "<think>orphaned reasoning without close")
         assert "<think>" not in result
 
     def test_mixed_orphaned_and_paired_tags(self, agent):
         text = "stray</think><think>paired reasoning</think> visible"
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "</think>" not in result
         assert "<think>" not in result
         assert "visible" in result
 
     def test_thought_block_removed(self, agent):
         """Gemma 4 uses <thought> tags for inline reasoning."""
-        result = agent._strip_think_blocks("<thought>internal reasoning</thought> answer")
+        result = strip_think_blocks(agent, "<thought>internal reasoning</thought> answer")
         assert "internal reasoning" not in result
         assert "<thought>" not in result
         assert "answer" in result
 
     def test_orphaned_thought_tag(self, agent):
-        result = agent._strip_think_blocks("<thought>orphaned reasoning without close")
+        result = strip_think_blocks(agent, "<thought>orphaned reasoning without close")
         assert "<thought>" not in result
 
     # ─── Unterminated-block coverage (#8878, #9568, #10408) ──────────────
@@ -334,19 +343,19 @@ class TestStripThinkBlocks:
 
     def test_unterminated_think_block_content_stripped(self, agent):
         """Content after unterminated <think> is fully stripped."""
-        result = agent._strip_think_blocks("<think>orphaned reasoning without close")
+        result = strip_think_blocks(agent, "<think>orphaned reasoning without close")
         assert "orphaned reasoning" not in result
         assert result.strip() == ""
 
     def test_unterminated_thought_block_content_stripped(self, agent):
         """Gemma-style <thought> with no close is fully stripped."""
-        result = agent._strip_think_blocks("<thought>orphaned reasoning without close")
+        result = strip_think_blocks(agent, "<thought>orphaned reasoning without close")
         assert "orphaned reasoning" not in result
         assert result.strip() == ""
 
     def test_unterminated_multiline_block_stripped(self, agent):
         """Multi-line unterminated blocks are stripped in full."""
-        result = agent._strip_think_blocks(
+        result = strip_think_blocks(agent,
             "<think>\nmulti\nline\nreasoning\nthat never closes"
         )
         assert "multi" not in result
@@ -354,7 +363,7 @@ class TestStripThinkBlocks:
 
     def test_unterminated_block_after_answer_preserves_prefix(self, agent):
         """Visible answer before a line-starting unterminated tag is kept."""
-        result = agent._strip_think_blocks(
+        result = strip_think_blocks(agent,
             "Answer is 42.\n<think>actually let me reconsider"
         )
         assert "Answer is 42." in result
@@ -364,7 +373,7 @@ class TestStripThinkBlocks:
         """Mid-line `<think>` mentioned in prose must not swallow the rest
         of the content (the block-boundary check prevents this)."""
         text = "Use the <think> tag like this in your prose."
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         # Block-boundary check prevents unterminated-strip from firing
         assert "prose" in result
         assert "Use the" in result
@@ -373,10 +382,10 @@ class TestStripThinkBlocks:
         """Mixed-case variants <THINK>…</THINK>, <Thinking>…</Thinking> are
         handled by case-insensitive closed-pair regex, so the trailing
         content is preserved."""
-        result = agent._strip_think_blocks("<THINK>upper</THINK>final")
+        result = strip_think_blocks(agent, "<THINK>upper</THINK>final")
         assert "upper" not in result
         assert "final" in result
-        result = agent._strip_think_blocks("<Thinking>mixed</Thinking>final")
+        result = strip_think_blocks(agent, "<Thinking>mixed</Thinking>final")
         assert "mixed" not in result
         assert "final" in result
 
@@ -388,14 +397,14 @@ class TestStripThinkBlocks:
 
     def test_tool_call_block_stripped(self, agent):
         text = '<tool_call>{"name": "read_file", "arguments": {"path": "/tmp/x"}}</tool_call> done'
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "<tool_call>" not in result
         assert "read_file" not in result
         assert "done" in result
 
     def test_function_calls_block_stripped(self, agent):
         text = '<function_calls>[{"name":"x"}]</function_calls>after'
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "<function_calls>" not in result
         assert "after" in result
 
@@ -406,7 +415,7 @@ class TestStripThinkBlocks:
             '<function name="read_file"><parameter name="path">/tmp/x.md</parameter></function>\n'
             'Here is the result.'
         )
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert '<function name="read_file">' not in result
         assert "/tmp/x.md" not in result
         assert "Let me check the file." in result
@@ -420,7 +429,7 @@ class TestStripThinkBlocks:
             '</function>\n'
             'Done.'
         )
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "/etc/passwd" not in result
         assert "Reading now." in result
         assert "Done." in result
@@ -429,7 +438,7 @@ class TestStripThinkBlocks:
         """'Use <function> in JavaScript.' — no name attr, not at block boundary
         in a way that suggests tool call. Must survive."""
         text = "In JS you can use <function> declarations for hoisting."
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         # Prose mention has no name="..." attribute -> not stripped
         assert "declarations for hoisting" in result
 
@@ -438,14 +447,14 @@ class TestStripThinkBlocks:
         The sentence-middle position without a preceding punctuation block
         boundary means it is NOT stripped. Prose context remains."""
         text = 'You can write <function name="x">y</function> inline.'
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         # Without a leading block boundary (no punctuation before), leaves intact
         assert "You can write" in result
         assert "inline" in result
 
     def test_stray_function_close_tag_removed(self, agent):
         text = "answer</function> trailing"
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "</function>" not in result
         assert "answer" in result
         assert "trailing" in result
@@ -455,12 +464,12 @@ class TestStripThinkBlocks:
         is intentionally NOT stripped (OpenClaw's asymmetry). The tail of a
         streaming reply may still be valuable to the user."""
         text = 'Checking: <function name="read">'
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "Checking:" in result
 
     def test_mixed_reasoning_and_tool_call_both_stripped(self, agent):
         text = '<think>let me plan</think><tool_call>{"name":"x"}</tool_call>final answer'
-        result = agent._strip_think_blocks(text)
+        result = strip_think_blocks(agent, text)
         assert "let me plan" not in result
         assert "<tool_call>" not in result
         assert "final answer" in result
@@ -1791,18 +1800,18 @@ class TestBuildAssistantMessage:
 class TestFormatToolsForSystemMessage:
     def test_no_tools_returns_empty_array(self, agent):
         agent.tools = []
-        assert agent._format_tools_for_system_message() == "[]"
+        assert format_tools_for_system_message(agent) == "[]"
 
     def test_formats_single_tool(self, agent):
         agent.tools = _make_tool_defs("web_search")
-        result = agent._format_tools_for_system_message()
+        result = format_tools_for_system_message(agent)
         parsed = json.loads(result)
         assert len(parsed) == 1
         assert parsed[0]["name"] == "web_search"
 
     def test_formats_multiple_tools(self, agent):
         agent.tools = _make_tool_defs("web_search", "terminal", "read_file")
-        result = agent._format_tools_for_system_message()
+        result = format_tools_for_system_message(agent)
         parsed = json.loads(result)
         assert len(parsed) == 3
         names = {t["name"] for t in parsed}
@@ -2469,7 +2478,7 @@ class TestHandleMaxIterations:
         agent.client.chat.completions.create.return_value = resp
         agent._cached_system_prompt = "You are helpful."
         messages = [{"role": "user", "content": "do stuff"}]
-        result = agent._handle_max_iterations(messages, 60)
+        result = handle_max_iterations(agent, messages, 60)
         assert isinstance(result, str)
         assert len(result) > 0
         assert "summary" in result.lower()
@@ -2478,7 +2487,7 @@ class TestHandleMaxIterations:
         agent.client.chat.completions.create.side_effect = Exception("API down")
         agent._cached_system_prompt = "You are helpful."
         messages = [{"role": "user", "content": "do stuff"}]
-        result = agent._handle_max_iterations(messages, 60)
+        result = handle_max_iterations(agent, messages, 60)
         assert isinstance(result, str)
         assert "error" in result.lower()
         assert "API down" in result
@@ -2491,7 +2500,7 @@ class TestHandleMaxIterations:
         agent._cached_system_prompt = "You are helpful."
         messages = [{"role": "user", "content": "do stuff"}]
 
-        result = agent._handle_max_iterations(messages, 60)
+        result = handle_max_iterations(agent, messages, 60)
 
         assert result == "Summary"
         kwargs = agent.client.chat.completions.create.call_args.kwargs
@@ -2512,7 +2521,7 @@ class TestHandleMaxIterations:
             {"role": "assistant", "content": "Done."},
         ]
 
-        result = agent._handle_max_iterations(messages, 120)
+        result = handle_max_iterations(agent, messages, 120)
 
         assert result == "Summary of work done."
         kwargs = agent.client.chat.completions.create.call_args.kwargs
@@ -2535,7 +2544,7 @@ class TestHandleMaxIterations:
             {"role": "assistant", "content": "Continuing..."},
         ]
 
-        result = agent._handle_max_iterations(messages, 60)
+        result = handle_max_iterations(agent, messages, 60)
 
         assert result == "Summary"
         kwargs = agent.client.chat.completions.create.call_args.kwargs
@@ -2554,7 +2563,7 @@ class TestHandleMaxIterations:
         agent.client.chat.completions.create.return_value = _mock_response(content="Summary")
         agent._cached_system_prompt = "You are helpful."
 
-        result = agent._handle_max_iterations([{"role": "user", "content": "do stuff"}], 60)
+        result = handle_max_iterations(agent, [{"role": "user", "content": "do stuff"}], 60)
 
         assert result == "Summary"
         kwargs = agent.client.chat.completions.create.call_args.kwargs
@@ -2568,7 +2577,7 @@ class TestHandleMaxIterations:
         agent.client.chat.completions.create.return_value = _mock_response(content="Summary")
         agent._cached_system_prompt = "You are helpful."
 
-        result = agent._handle_max_iterations([{"role": "user", "content": "do stuff"}], 60)
+        result = handle_max_iterations(agent, [{"role": "user", "content": "do stuff"}], 60)
 
         assert result == "Summary"
         kwargs = agent.client.chat.completions.create.call_args.kwargs
@@ -2607,7 +2616,7 @@ class TestHandleMaxIterations:
         ]
 
         with patch.object(agent, "_run_codex_stream", side_effect=fake_run_codex_stream):
-            result = agent._handle_max_iterations(messages, 90)
+            result = handle_max_iterations(agent, messages, 90)
 
         assert result == "Summary"
         input_items = captured["input"]
@@ -2635,7 +2644,7 @@ class TestHandleMaxIterations:
             {"role": "tool", "tool_call_id": "call_123", "content": "result"},
         ]
 
-        sanitized = agent._sanitize_api_messages(messages)
+        sanitized = sanitize_api_messages(messages)
 
         assert [m.get("tool_call_id") for m in sanitized if m.get("role") == "tool"] == [
             "call_123"
@@ -4057,7 +4066,7 @@ class TestCredentialPoolRecovery:
             response=response,
         )
 
-        context = agent._extract_api_error_context(error)
+        context = extract_api_error_context(error)
 
         assert context["reason"] == "device_code_exhausted"
         assert context["message"] == "Weekly credits exhausted."
@@ -4074,7 +4083,7 @@ class TestCredentialPoolRecovery:
             response=SimpleNamespace(headers={}),
         )
 
-        context = agent._extract_api_error_context(error)
+        context = extract_api_error_context(error)
 
         assert context["reason"] == "usage_limit_reached"
         assert context["message"] == "The usage limit has been reached"

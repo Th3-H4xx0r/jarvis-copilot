@@ -36,6 +36,8 @@ from agent.tool_dispatch_helpers import _trajectory_normalize_msg, make_tool_res
 from agent.trajectory import convert_scratchpad_to_think
 from agent.error_classifier import FailoverReason
 from utils import base_url_host_matches, base_url_hostname, env_var_enabled, atomic_json_write
+from agent.background_review import build_memory_write_metadata
+from agent.system_prompt import format_tools_for_system_message
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,7 @@ def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_que
         "with user query, just respond in natural conversational language. Don't make assumptions about what values to plug "
         "into functions. After calling & executing the functions, you will be provided with function results within "
         "<tool_response> </tool_response> XML tags. Here are the available tools:\n"
-        f"<tools>\n{agent._format_tools_for_system_message()}\n</tools>\n"
+        f"<tools>\n{format_tools_for_system_message(agent)}\n</tools>\n"
         "For each function call return a JSON object, with the following pydantic model json schema for each:\n"
         "{'title': 'FunctionCall', 'type': 'object', 'properties': {'name': {'title': 'Name', 'type': 'string'}, "
         "'arguments': {'title': 'Arguments', 'type': 'object'}}, 'required': ['name', 'arguments']}\n"
@@ -1415,7 +1417,7 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
 
     # ── Re-evaluate prompt caching ──
     agent._use_prompt_caching, agent._use_native_cache_layout = (
-        agent._anthropic_prompt_cache_policy(
+        anthropic_prompt_cache_policy(agent,
             provider=new_provider,
             base_url=agent.base_url,
             api_mode=api_mode,
@@ -1602,7 +1604,7 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                     function_args.get("action", ""),
                     target,
                     function_args.get("content", ""),
-                    metadata=agent._build_memory_write_metadata(
+                    metadata=build_memory_write_metadata(agent,
                         task_id=effective_task_id,
                         tool_call_id=tool_call_id,
                     ),
@@ -1757,7 +1759,7 @@ def looks_like_codex_intermediate_ack(
     if any(isinstance(msg, dict) and msg.get("role") == "tool" for msg in messages):
         return False
 
-    assistant_text = agent._strip_think_blocks(assistant_content or "").strip().lower()
+    assistant_text = strip_think_blocks(agent, assistant_content or "").strip().lower()
     if not assistant_text:
         return False
     if len(assistant_text) > 1200:

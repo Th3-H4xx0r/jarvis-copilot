@@ -1,8 +1,7 @@
 """Trajectory saving utilities and static helpers.
 
-_convert_to_trajectory_format stays as an AIAgent method (batch_runner.py
-calls agent._convert_to_trajectory_format). Only the static helpers and
-the file-write logic live here.
+The conversion itself is ``agent.agent_runtime_helpers.convert_to_trajectory_format``;
+only the static helpers and the file-write logic live here.
 """
 
 import json

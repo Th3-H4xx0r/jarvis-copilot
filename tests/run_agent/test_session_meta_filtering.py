@@ -10,6 +10,7 @@ import types
 from unittest.mock import MagicMock, patch
 
 from run_agent import AIAgent
+from agent.agent_runtime_helpers import sanitize_api_messages
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +25,7 @@ class TestSanitizeApiMessagesRoleFilter:
             {"role": "session_meta", "content": {"model": "gpt-4"}},
             {"role": "assistant", "content": "hi"},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert len(out) == 2
         assert all(m["role"] != "session_meta" for m in out)
 
@@ -37,7 +38,7 @@ class TestSanitizeApiMessagesRoleFilter:
         ]
         # Need a matching assistant tool_call so the tool result isn't orphaned
         msgs[2]["tool_calls"] = [{"id": "c1", "function": {"name": "t", "arguments": "{}"}}]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         roles = [m["role"] for m in out]
         assert "system" in roles
         assert "user" in roles
@@ -50,7 +51,7 @@ class TestSanitizeApiMessagesRoleFilter:
             {"role": "session_meta", "content": {"info": "test"}},
         ]
         with caplog.at_level(logging.DEBUG, logger="run_agent"):
-            AIAgent._sanitize_api_messages(msgs)
+            sanitize_api_messages(msgs)
         assert any("invalid role" in r.message and "session_meta" in r.message for r in caplog.records)
 
     def test_drops_multiple_invalid_roles(self):
@@ -60,7 +61,7 @@ class TestSanitizeApiMessagesRoleFilter:
             {"role": "transcript_note", "content": "note"},
             {"role": "assistant", "content": "hi"},
         ]
-        out = AIAgent._sanitize_api_messages(msgs)
+        out = sanitize_api_messages(msgs)
         assert len(out) == 2
         assert [m["role"] for m in out] == ["user", "assistant"]
 

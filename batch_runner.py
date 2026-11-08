@@ -53,6 +53,7 @@ from toolset_distributions import (
     validate_distribution
 )
 from model_tools import TOOL_TO_TOOLSET_MAP
+from agent.agent_runtime_helpers import convert_to_trajectory_format
 
 
 # Global configuration for worker processes
@@ -355,7 +356,7 @@ def _process_single_prompt(
         reasoning_stats = _extract_reasoning_stats(result["messages"])
         
         # Convert to trajectory format (using existing method)
-        trajectory = agent._convert_to_trajectory_format(
+        trajectory = convert_to_trajectory_format(agent,
             result["messages"],
             prompt,
             result["completed"]

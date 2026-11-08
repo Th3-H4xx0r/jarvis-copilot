@@ -34,6 +34,7 @@ from types import SimpleNamespace
 import pytest
 
 from run_agent import AIAgent
+from agent.agent_runtime_helpers import copy_reasoning_content_for_api
 
 
 def _make_agent(provider: str = "", model: str = "", base_url: str = "") -> AIAgent:
@@ -120,7 +121,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg.get("reasoning_content") == " "
 
     def test_deepseek_assistant_no_tool_call_gets_padded(self) -> None:
@@ -128,7 +129,7 @@ class TestCopyReasoningContentForApi:
         agent = _make_agent(provider="deepseek", model="deepseek-v4-flash")
         source = {"role": "assistant", "content": "hello"}
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg.get("reasoning_content") == " "
 
     def test_deepseek_explicit_reasoning_content_preserved(self) -> None:
@@ -140,7 +141,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == "<think>real chain of thought</think>"
 
     def test_deepseek_stale_empty_placeholder_upgraded_to_space(self) -> None:
@@ -157,7 +158,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == " "
 
     def test_non_thinking_provider_preserves_empty_reasoning_content_verbatim(self) -> None:
@@ -176,7 +177,7 @@ class TestCopyReasoningContentForApi:
             "reasoning_content": "",
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == ""
 
     def test_deepseek_reasoning_field_promoted(self) -> None:
@@ -188,7 +189,7 @@ class TestCopyReasoningContentForApi:
             "reasoning": "thought trace",
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == "thought trace"
 
     def test_deepseek_poisoned_cross_provider_history_padded(self) -> None:
@@ -208,7 +209,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == " "
 
     def test_kimi_poisoned_cross_provider_history_padded(self) -> None:
@@ -221,7 +222,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg["reasoning_content"] == " "
 
     def test_kimi_path_still_works(self) -> None:
@@ -233,7 +234,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg.get("reasoning_content") == " "
 
     def test_kimi_moonshot_base_url(self) -> None:
@@ -246,7 +247,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg.get("reasoning_content") == " "
 
     def test_non_thinking_provider_not_padded(self) -> None:
@@ -262,7 +263,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert "reasoning_content" not in api_msg
 
     def test_deepseek_custom_base_url(self) -> None:
@@ -278,7 +279,7 @@ class TestCopyReasoningContentForApi:
             "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
         }
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert api_msg.get("reasoning_content") == " "
 
     def test_non_assistant_role_ignored(self) -> None:
@@ -286,7 +287,7 @@ class TestCopyReasoningContentForApi:
         agent = _make_agent(provider="deepseek", model="deepseek-v4-flash")
         source = {"role": "user", "content": "hi"}
         api_msg: dict = {}
-        agent._copy_reasoning_content_for_api(source, api_msg)
+        copy_reasoning_content_for_api(agent, source, api_msg)
         assert "reasoning_content" not in api_msg
 
 

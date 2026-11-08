@@ -50,6 +50,10 @@ from jarviscopilot_cli.config import cfg_get
 from jarviscopilot_cli.timeouts import get_provider_request_timeout
 from jarviscopilot_constants import get_hermes_home
 from utils import base_url_host_matches
+from agent.agent_runtime_helpers import (
+    anthropic_prompt_cache_policy,
+    strip_think_blocks,
+)
 
 # Use the same logger name as run_agent so tests patching ``run_agent.logger``
 # capture our warnings.  (run_agent.py also does
@@ -470,7 +474,7 @@ def init_agent(
     # strategy (4 breakpoints). See ``_anthropic_prompt_cache_policy``
     # for the layout-vs-transport decision.
     agent._use_prompt_caching, agent._use_native_cache_layout = (
-        agent._anthropic_prompt_cache_policy()
+        anthropic_prompt_cache_policy(agent)
     )
     # Anthropic supports "5m" (default) and "1h" cache TTL tiers. Read from
     # config.yaml under prompt_caching.cache_ttl; unknown values keep "5m".

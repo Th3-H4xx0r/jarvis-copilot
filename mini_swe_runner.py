@@ -29,16 +29,13 @@ Usage:
 import json
 import logging
 import os
-import sys
-import time
-import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional
 
 import fire
 from dotenv import load_dotenv
 from agent.tool_dispatch_helpers import make_tool_result_message
+from agent.system_prompt import format_tools_for_system_message
 
 # Load environment variables
 load_dotenv()
@@ -292,19 +289,6 @@ class MiniSWERunner:
                 "error": str(e)
             }
     
-    def _format_tools_for_system_message(self) -> str:
-        """Format tool definitions for the system message."""
-        formatted_tools = []
-        for tool in self.tools:
-            func = tool["function"]
-            formatted_tools.append({
-                "name": func["name"],
-                "description": func.get("description", ""),
-                "parameters": func.get("parameters", {}),
-                "required": None
-            })
-        return json.dumps(formatted_tools, ensure_ascii=False)
-    
     def _convert_to_hermes_format(
         self,
         messages: List[Dict[str, Any]],
@@ -325,7 +309,7 @@ class MiniSWERunner:
             "with user query, just respond in natural conversational language. Don't make assumptions about what values to plug "
             "into functions. After calling & executing the functions, you will be provided with function results within "
             "<tool_response> </tool_response> XML tags. Here are the available tools:\n"
-            f"<tools>\n{self._format_tools_for_system_message()}\n</tools>\n"
+            f"<tools>\n{format_tools_for_system_message(self)}\n</tools>\n"
             "For each function call return a JSON object, with the following pydantic model json schema for each:\n"
             "{'title': 'FunctionCall', 'type': 'object', 'properties': {'name': {'title': 'Name', 'type': 'string'}, "
             "'arguments': {'title': 'Arguments', 'type': 'object'}}, 'required': ['name', 'arguments']}\n"

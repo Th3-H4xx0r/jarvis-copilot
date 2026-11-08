@@ -25,6 +25,13 @@ import pytest
 
 import run_agent
 from run_agent import AIAgent
+from agent.stream_diag import (
+    emit_stream_drop,
+    flatten_exception_chain,
+    log_stream_retry,
+    stream_diag_capture_response,
+    stream_diag_init,
+)
 
 
 def _make_agent() -> AIAgent:
@@ -38,7 +45,7 @@ def _make_agent() -> AIAgent:
 
 
 def test_stream_diag_init_returns_well_formed_dict():
-    diag = AIAgent._stream_diag_init()
+    diag = stream_diag_init()
     assert "started_at" in diag
     assert diag["chunks"] == 0
     assert diag["bytes"] == 0
@@ -60,7 +67,7 @@ class _FakeResponse:
 
 def test_stream_diag_capture_response_collects_known_headers():
     agent = _make_agent()
-    diag = AIAgent._stream_diag_init()
+    diag = stream_diag_init()
     resp = _FakeResponse({
         "cf-ray": "8f1a2b3c4d5e6f7g-LAX",
         "x-openrouter-provider": "Anthropic",
@@ -69,7 +76,7 @@ def test_stream_diag_capture_response_collects_known_headers():
         "server": "cloudflare",
         "irrelevant-header": "ignored",
     })
-    agent._stream_diag_capture_response(diag, resp)
+    stream_diag_capture_response(agent, diag, resp)
     assert diag["http_status"] == 200
     assert diag["headers"]["cf-ray"] == "8f1a2b3c4d5e6f7g-LAX"
     assert diag["headers"]["x-openrouter-provider"] == "Anthropic"
@@ -81,8 +88,8 @@ def test_stream_diag_capture_response_collects_known_headers():
 
 def test_stream_diag_capture_response_safe_with_none():
     agent = _make_agent()
-    diag = AIAgent._stream_diag_init()
-    agent._stream_diag_capture_response(diag, None)
+    diag = stream_diag_init()
+    stream_diag_capture_response(agent, diag, None)
     # Must not raise; diag stays initialized.
     assert diag["headers"] == {}
 
@@ -93,7 +100,7 @@ def test_flatten_exception_chain_walks_cause():
     middle.__cause__ = inner
     outer = RuntimeError("wrapper")
     outer.__cause__ = middle
-    chain = AIAgent._flatten_exception_chain(outer)
+    chain = flatten_exception_chain(outer)
     assert "RuntimeError" in chain
     assert "TimeoutError" in chain
     assert "ConnectionError" in chain
@@ -108,7 +115,7 @@ def test_flatten_exception_chain_caps_depth():
         nxt = ValueError(str(i))
         nxt.__cause__ = prev
         prev = nxt
-    chain = AIAgent._flatten_exception_chain(prev)
+    chain = flatten_exception_chain(prev)
     # 4 layers + 3 separators max.
     assert chain.count("<-") <= 3
 
@@ -119,7 +126,7 @@ def test_log_stream_retry_includes_diagnostic_fields(caplog):
     agent._subagent_id = "sa-3-deadbeef"
     agent.provider = "openrouter"
 
-    diag = AIAgent._stream_diag_init()
+    diag = stream_diag_init()
     diag["http_status"] = 200
     diag["headers"] = {
         "cf-ray": "8f1a2b3c4d5e6f7g-LAX",
@@ -137,7 +144,7 @@ def test_log_stream_retry_includes_diagnostic_fields(caplog):
     outer.__cause__ = inner
 
     with caplog.at_level(logging.WARNING, logger="run_agent"):
-        agent._log_stream_retry(
+        log_stream_retry(agent,
             kind="drop mid tool-call",
             error=outer,
             attempt=2,
@@ -179,7 +186,7 @@ def test_log_stream_retry_works_without_diag(caplog):
     agent.provider = "openrouter"
 
     with caplog.at_level(logging.WARNING, logger="run_agent"):
-        agent._log_stream_retry(
+        log_stream_retry(agent,
             kind="drop",
             error=ConnectionError("x"),
             attempt=2,
@@ -200,11 +207,11 @@ def test_emit_stream_drop_ui_includes_elapsed_when_available():
     agent = _make_agent()
     agent.provider = "openrouter"
 
-    diag = AIAgent._stream_diag_init()
+    diag = stream_diag_init()
     diag["started_at"] = time.time() - 8.0  # 8s on the wire before drop
 
     with patch.object(agent, "_emit_status") as mock_emit:
-        agent._emit_stream_drop(
+        emit_stream_drop(agent,
             error=ConnectionError("x"),
             attempt=2,
             max_attempts=3,
@@ -224,7 +231,7 @@ def test_emit_stream_drop_ui_omits_suffix_without_diag():
     agent.provider = "openrouter"
 
     with patch.object(agent, "_emit_status") as mock_emit:
-        agent._emit_stream_drop(
+        emit_stream_drop(agent,
             error=ConnectionError("x"),
             attempt=2,
             max_attempts=3,

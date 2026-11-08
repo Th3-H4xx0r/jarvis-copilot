@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 import pytest
+from agent.agent_runtime_helpers import copy_reasoning_content_for_api
 
 
 LIVE = os.environ.get("HERMES_LIVE_TESTS") == "1"
@@ -183,7 +184,7 @@ def test_deepseek_v4_thinking_tool_call_replay_round_trip(live_model: str):
         "content": stored_assistant.get("content") or "",
         "tool_calls": stored_assistant["tool_calls"],
     }
-    agent._copy_reasoning_content_for_api(stored_assistant, replay_assistant)
+    copy_reasoning_content_for_api(agent, stored_assistant, replay_assistant)
     _print_trace(f"{live_model} replay assistant message", replay_assistant)
 
     tool_call_id = stored_assistant["tool_calls"][0]["id"]

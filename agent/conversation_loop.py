@@ -71,6 +71,23 @@ from jarviscopilot_logging import set_session_context
 from tools.schema_sanitizer import strip_pattern_and_format
 from tools.skill_provenance import set_current_write_origin
 from utils import base_url_host_matches, env_var_enabled
+from agent.agent_runtime_helpers import (
+    cleanup_dead_connections,
+    copy_reasoning_content_for_api,
+    drop_thinking_only_and_merge_users,
+    dump_api_request_debug,
+    extract_api_error_context,
+    looks_like_codex_intermediate_ack,
+    repair_message_sequence,
+    repair_tool_call,
+    sanitize_api_messages,
+    sanitize_tool_call_arguments,
+    strip_think_blocks,
+    try_recover_primary_transport,
+)
+from agent.chat_completion_helpers import handle_max_iterations
+from agent.codex_runtime import run_codex_app_server_turn
+from agent.conversation_compression import replay_compression_warning
 
 logger = logging.getLogger(__name__)
 
@@ -488,7 +505,7 @@ def run_conversation(
     # This prevents the next API call from hanging on a zombie socket.
     if agent.api_mode != "anthropic_messages":
         try:
-            if agent._cleanup_dead_connections():
+            if cleanup_dead_connections(agent):
                 agent._emit_status(
                     "🔌 Detected stale connections from a previous provider "
                     "issue — cleaned up automatically. Proceeding with fresh "
@@ -499,7 +516,7 @@ def run_conversation(
     # Replay compression warning through status_callback for gateway
     # platforms (the callback was not wired during __init__).
     if agent._compression_warning:
-        agent._replay_compression_warning()
+        replay_compression_warning(agent)
         agent._compression_warning = None  # send once
 
     # NOTE: _turns_since_memory and _iters_since_skill are NOT reset here.
@@ -814,7 +831,7 @@ def run_conversation(
     # See agent/transports/codex_app_server_session.py for the adapter
     # and references/codex-app-server-runtime.md for the rationale.
     if agent.api_mode == "codex_app_server":
-        return agent._run_codex_app_server_turn(
+        return run_codex_app_server_turn(agent,
             user_message=user_message,
             original_user_message=original_user_message,
             messages=messages,
@@ -957,7 +974,7 @@ def run_conversation(
         # However, providers like Moonshot AI require a separate 'reasoning_content' field
         # on assistant messages with tool_calls. We handle both cases here.
         request_logger = getattr(agent, "logger", None) or logging.getLogger(__name__)
-        repaired_tool_calls = agent._sanitize_tool_call_arguments(
+        repaired_tool_calls = sanitize_tool_call_arguments(
             messages,
             logger=request_logger,
             session_id=agent.session_id,
@@ -976,7 +993,7 @@ def run_conversation(
         # landed after an orphan tool result). Most providers return
         # empty content on malformed sequences, which would otherwise
         # retrigger the empty-retry loop indefinitely.
-        repaired_seq = agent._repair_message_sequence(messages)
+        repaired_seq = repair_message_sequence(agent, messages)
         if repaired_seq > 0:
             request_logger.info(
                 "Repaired %s message-alternation violations before request (session=%s)",
@@ -1014,7 +1031,7 @@ def run_conversation(
 
             # For ALL assistant messages, pass reasoning back to the API
             # This ensures multi-turn reasoning context is preserved
-            agent._copy_reasoning_content_for_api(msg, api_msg)
+            copy_reasoning_content_for_api(agent, msg, api_msg)
 
             # Remove 'reasoning' field - it's for trajectory storage only
             # We've copied it to 'reasoning_content' for the API above
@@ -1093,7 +1110,7 @@ def run_conversation(
         # results before sending to the API.  Runs unconditionally — not
         # gated on context_compressor — so orphans from session loading or
         # manual message manipulation are always caught.
-        api_messages = agent._sanitize_api_messages(api_messages)
+        api_messages = sanitize_api_messages(api_messages)
 
         # Drop thinking-only assistant turns (reasoning but no visible
         # output and no tool_calls) and merge any adjacent user messages
@@ -1103,7 +1120,7 @@ def run_conversation(
         # a thinking-only turn. Runs on the per-call copy only — the
         # stored conversation history keeps the reasoning block for the
         # UI transcript and session persistence.
-        api_messages = agent._drop_thinking_only_and_merge_users(api_messages)
+        api_messages = drop_thinking_only_and_merge_users(api_messages)
 
         # Normalize message whitespace and tool-call JSON for consistent
         # prefix matching.  Ensures bit-perfect prefixes across turns,
@@ -1310,7 +1327,7 @@ def run_conversation(
                     pass
 
                 if env_var_enabled("HERMES_DUMP_REQUESTS"):
-                    agent._dump_api_request_debug(api_kwargs, reason="preflight")
+                    dump_api_request_debug(agent, api_kwargs, reason="preflight")
 
                 # Always prefer the streaming path — even without stream
                 # consumers.  Streaming gives us fine-grained health
@@ -1762,7 +1779,7 @@ def run_conversation(
                                 restart_with_length_continuation = True
                                 break
 
-                            partial_response = agent._strip_think_blocks("".join(truncated_response_parts)).strip()
+                            partial_response = strip_think_blocks(agent, "".join(truncated_response_parts)).strip()
                             return _stop_partial(
                                 agent, messages, conversation_history, api_call_count,
                                 error="Response remained truncated after 3 continuation attempts",
@@ -2261,7 +2278,7 @@ def run_conversation(
                     continue
 
                 status_code = getattr(api_error, "status_code", None)
-                error_context = agent._extract_api_error_context(api_error)
+                error_context = extract_api_error_context(api_error)
 
                 # ── Classify the error for structured recovery decisions ──
                 _compressor = getattr(agent, "context_compressor", None)
@@ -3048,7 +3065,7 @@ def run_conversation(
                         primary_recovery_attempted = False
                         continue
                     if api_kwargs is not None:
-                        agent._dump_api_request_debug(
+                        dump_api_request_debug(agent,
                             api_kwargs, reason="non_retryable_client_error", error=api_error,
                         )
                     agent._emit_status(
@@ -3105,7 +3122,7 @@ def run_conversation(
                     # client once for transient transport errors (stale
                     # connection pool, TCP reset).  Only attempted once
                     # per API call block.
-                    if not primary_recovery_attempted and agent._try_recover_primary_transport(
+                    if not primary_recovery_attempted and try_recover_primary_transport(agent,
                         api_error, retry_count=retry_count, max_retries=max_retries,
                     ):
                         primary_recovery_attempted = True
@@ -3160,7 +3177,7 @@ def run_conversation(
                         _provider, _model, len(api_messages), f"{approx_tokens:,}",
                     )
                     if api_kwargs is not None:
-                        agent._dump_api_request_debug(
+                        dump_api_request_debug(agent,
                             api_kwargs, reason="max_retries_exhausted", error=api_error,
                         )
                     agent._persist_session(messages, conversation_history)
@@ -3456,7 +3473,7 @@ def run_conversation(
                 # Repair mismatched tool names before validating
                 for tc in assistant_message.tool_calls:
                     if tc.function.name not in agent.valid_tool_names:
-                        repaired = agent._repair_tool_call(tc.function.name)
+                        repaired = repair_tool_call(agent, tc.function.name)
                         if repaired:
                             print(f"{agent.log_prefix}🔧 Auto-repaired tool name: '{tc.function.name}' -> '{repaired}'")
                             tc.function.name = repaired
@@ -3642,7 +3659,7 @@ def run_conversation(
                     if _all_housekeeping and agent._has_stream_consumers():
                         agent._mute_post_response = True
                     elif agent._should_emit_quiet_tool_messages():
-                        clean = agent._strip_think_blocks(turn_content).strip()
+                        clean = strip_think_blocks(agent, turn_content).strip()
                         if clean:
                             agent._vprint(f"  ┊ 💬 {clean}")
                 
@@ -3838,7 +3855,7 @@ def run_conversation(
                     )
                     if agent._has_content_after_think_block(_partial_streamed):
                         _turn_exit_reason = "partial_stream_recovery"
-                        _recovered = agent._strip_think_blocks(_partial_streamed).strip()
+                        _recovered = strip_think_blocks(agent, _partial_streamed).strip()
                         logger.info(
                             "Partial stream content delivered (%d chars) "
                             "— using as final response",
@@ -3874,7 +3891,7 @@ def run_conversation(
                         # old code injected "Calling the X tools..." which
                         # poisoned the conversation history.  Just use the
                         # fallback text as the final response and break.
-                        final_response = agent._strip_think_blocks(fallback).strip()
+                        final_response = strip_think_blocks(agent, fallback).strip()
                         agent._response_was_previewed = True
                         break
 
@@ -3988,7 +4005,7 @@ def run_conversation(
                     # always populate reasoning fields via OpenRouter,
                     # so the old `not _has_structured` guard blocked
                     # retries for every reasoning model after prefill.
-                    _truly_empty = not agent._strip_think_blocks(
+                    _truly_empty = not strip_think_blocks(agent,
                         final_response
                     ).strip()
                     _prefill_exhausted = (
@@ -4090,7 +4107,7 @@ def run_conversation(
                     agent.api_mode == "codex_responses"
                     and agent.valid_tool_names
                     and codex_ack_continuations < 2
-                    and agent._looks_like_codex_intermediate_ack(
+                    and looks_like_codex_intermediate_ack(agent,
                         user_message=user_message,
                         assistant_content=final_response,
                         messages=messages,
@@ -4119,7 +4136,7 @@ def run_conversation(
                     truncated_response_parts = []
                     length_continue_retries = 0
                 
-                final_response = agent._strip_think_blocks(final_response).strip()
+                final_response = strip_think_blocks(agent, final_response).strip()
                 
                 final_msg = agent._build_assistant_message(assistant_message, finish_reason)
 
@@ -4213,7 +4230,7 @@ def run_conversation(
                 f"\n⚠️  Iteration budget exhausted ({api_call_count}/{agent.max_iterations}) "
                 "— requesting summary..."
             )
-        final_response = agent._handle_max_iterations(messages, api_call_count)
+        final_response = handle_max_iterations(agent, messages, api_call_count)
 
         # If running as a kanban worker, block the task so the dispatcher
         # knows the worker could not complete (rather than treating it as a

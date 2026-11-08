@@ -10,6 +10,7 @@ recovery every turn.
 """
 
 from run_agent import AIAgent
+from agent.agent_runtime_helpers import repair_message_sequence
 
 
 def _bare_agent():
@@ -85,7 +86,7 @@ def test_repair_merges_consecutive_user_messages():
         {"role": "user", "content": "second"},
     ]
 
-    repairs = AIAgent._repair_message_sequence(agent, messages)
+    repairs = repair_message_sequence(agent, messages)
 
     assert repairs == 1
     assert len(messages) == 1
@@ -100,7 +101,7 @@ def test_repair_preserves_user_content_when_one_side_empty():
         {"role": "user", "content": "real message"},
     ]
 
-    AIAgent._repair_message_sequence(agent, messages)
+    repair_message_sequence(agent, messages)
 
     assert messages == [{"role": "user", "content": "real message"}]
 
@@ -122,7 +123,7 @@ def test_repair_does_not_rewind_ongoing_dialog_tool_pair():
     ]
     original = [dict(m) for m in messages]
 
-    repairs = AIAgent._repair_message_sequence(agent, messages)
+    repairs = repair_message_sequence(agent, messages)
 
     assert repairs == 0
     assert messages == original
@@ -137,7 +138,7 @@ def test_repair_drops_stray_tool_with_unknown_tool_call_id():
         {"role": "user", "content": "real"},
     ]
 
-    repairs = AIAgent._repair_message_sequence(agent, messages)
+    repairs = repair_message_sequence(agent, messages)
 
     assert repairs >= 1
     assert all(m.get("role") != "tool" for m in messages)
@@ -156,7 +157,7 @@ def test_repair_leaves_valid_conversation_unchanged():
     ]
     original = [dict(m) for m in messages]
 
-    repairs = AIAgent._repair_message_sequence(agent, messages)
+    repairs = repair_message_sequence(agent, messages)
 
     assert repairs == 0
     assert messages == original
@@ -171,7 +172,7 @@ def test_repair_preserves_multimodal_user_content():
         {"role": "user", "content": "follow-up"},
     ]
 
-    AIAgent._repair_message_sequence(agent, messages)
+    repair_message_sequence(agent, messages)
 
     # The multimodal user message stays as a distinct message — no merge
     assert len(messages) == 2
@@ -182,7 +183,7 @@ def test_repair_empty_messages_returns_zero():
     agent = _bare_agent()
     messages = []
 
-    repairs = AIAgent._repair_message_sequence(agent, messages)
+    repairs = repair_message_sequence(agent, messages)
 
     assert repairs == 0
     assert messages == []
@@ -196,6 +197,6 @@ def test_repair_preserves_system_messages():
     ]
     original = [dict(m) for m in messages]
 
-    AIAgent._repair_message_sequence(agent, messages)
+    repair_message_sequence(agent, messages)
 
     assert messages == original

@@ -1,4 +1,4 @@
-"""Tests for AIAgent._repair_tool_call — tool-name normalization.
+"""Tests for agent.agent_runtime_helpers.repair_tool_call — tool-name normalization.
 
 Regression guard for #14784: Claude-style models sometimes emit
 class-like tool-call names (``TodoTool_tool``, ``Patch_tool``,
@@ -30,16 +30,16 @@ VALID = {
 
 @pytest.fixture
 def repair():
-    """Return a bound _repair_tool_call built on a minimal shell agent.
+    """Return repair_tool_call bound to a minimal shell agent.
 
     We avoid constructing a real AIAgent (which pulls in credential
     resolution, session DB, etc.) because the repair routine only
     reads self.valid_tool_names. A SimpleNamespace stub is enough to
     bind the unbound function.
     """
-    from run_agent import AIAgent
+    from agent.agent_runtime_helpers import repair_tool_call
     stub = SimpleNamespace(valid_tool_names=VALID)
-    return AIAgent._repair_tool_call.__get__(stub, AIAgent)
+    return lambda name: repair_tool_call(stub, name)
 
 
 class TestExistingBehaviorStillWorks:

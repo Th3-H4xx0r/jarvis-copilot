@@ -1,9 +1,10 @@
-"""Tests for AIAgent._sanitize_tool_call_arguments."""
+"""Tests for agent.agent_runtime_helpers.sanitize_tool_call_arguments."""
 
 import copy
 import logging
 
 from run_agent import AIAgent
+from agent.agent_runtime_helpers import sanitize_tool_call_arguments
 
 
 _MISSING = object()
@@ -44,7 +45,7 @@ def test_valid_arguments_unchanged():
     ]
     original = copy.deepcopy(messages)
 
-    repaired = AIAgent._sanitize_tool_call_arguments(messages)
+    repaired = sanitize_tool_call_arguments(messages)
 
     assert repaired == 0
     assert messages == original
@@ -56,7 +57,7 @@ def test_truncated_arguments_replaced_with_empty_object(caplog):
     ]
 
     with caplog.at_level(logging.WARNING, logger="run_agent"):
-        repaired = AIAgent._sanitize_tool_call_arguments(
+        repaired = sanitize_tool_call_arguments(
             messages,
             logger=logging.getLogger("run_agent"),
             session_id="session-123",
@@ -78,7 +79,7 @@ def test_marker_appended_to_existing_tool_message():
         _tool_message(content="existing tool output"),
     ]
 
-    repaired = AIAgent._sanitize_tool_call_arguments(messages)
+    repaired = sanitize_tool_call_arguments(messages)
 
     assert repaired == 1
     assert messages[1]["content"] == f"{marker}\nexisting tool output"
@@ -98,7 +99,7 @@ def _disabled_test_marker_message_inserted_when_missing():
         {"role": "user", "content": "next turn"},
     ]
 
-    repaired = AIAgent._sanitize_tool_call_arguments(messages)
+    repaired = sanitize_tool_call_arguments(messages)
 
     assert repaired == 1
     assert messages[1] == {
@@ -120,7 +121,7 @@ def test_multiple_corrupted_tool_calls_in_one_message():
         ),
     ]
 
-    repaired = AIAgent._sanitize_tool_call_arguments(messages)
+    repaired = sanitize_tool_call_arguments(messages)
 
     assert repaired == 2
     assert messages[0]["tool_calls"][0]["function"]["arguments"] == "{}"
@@ -138,7 +139,7 @@ def test_empty_string_arguments_treated_as_empty_object(caplog):
     ]
 
     with caplog.at_level(logging.WARNING, logger="run_agent"):
-        repaired = AIAgent._sanitize_tool_call_arguments(
+        repaired = sanitize_tool_call_arguments(
             messages,
             logger=logging.getLogger("run_agent"),
             session_id="session-123",
@@ -159,7 +160,7 @@ def test_non_assistant_messages_ignored():
     ]
     original = copy.deepcopy(messages)
 
-    repaired = AIAgent._sanitize_tool_call_arguments(messages)
+    repaired = sanitize_tool_call_arguments(messages)
 
     assert repaired == 0
     assert messages == original

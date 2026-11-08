@@ -10,6 +10,7 @@ sys.modules.setdefault("firecrawl", types.SimpleNamespace(Firecrawl=object))
 sys.modules.setdefault("fal_client", types.SimpleNamespace())
 
 import run_agent
+from agent.agent_runtime_helpers import dump_api_request_debug
 
 
 @pytest.fixture(autouse=True)
@@ -1565,7 +1566,7 @@ def test_dump_api_request_debug_uses_responses_url(monkeypatch, tmp_path):
     agent.base_url = "http://127.0.0.1:9208/v1"
     agent.logs_dir = tmp_path
 
-    dump_file = agent._dump_api_request_debug(_codex_request_kwargs(), reason="preflight")
+    dump_file = dump_api_request_debug(agent, _codex_request_kwargs(), reason="preflight")
 
     payload = json.loads(dump_file.read_text())
     assert payload["request"]["url"] == "http://127.0.0.1:9208/v1/responses"
@@ -1586,7 +1587,7 @@ def test_dump_api_request_debug_uses_chat_completions_url(monkeypatch, tmp_path)
     )
     agent.logs_dir = tmp_path
 
-    dump_file = agent._dump_api_request_debug(
+    dump_file = dump_api_request_debug(agent,
         {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
         reason="preflight",
     )

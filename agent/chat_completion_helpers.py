@@ -35,6 +35,20 @@ from agent.message_sanitization import (
 )
 from tools.terminal_tool import is_persistent_env
 from utils import base_url_host_matches, base_url_hostname
+from agent.agent_runtime_helpers import (
+    anthropic_prompt_cache_policy,
+    copy_reasoning_content_for_api,
+    drop_thinking_only_and_merge_users,
+    repair_tool_call,
+    sanitize_api_messages,
+    strip_think_blocks,
+)
+from agent.stream_diag import (
+    emit_stream_drop,
+    log_stream_retry,
+    stream_diag_capture_response,
+    stream_diag_init,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -747,7 +761,7 @@ def build_assistant_message(agent, assistant_message, finish_reason: str) -> dic
     # API replay, session transcript, gateway delivery, CLI display,
     # compression, title generation.
     if isinstance(_san_content, str) and _san_content:
-        _san_content = agent._strip_think_blocks(_san_content).strip()
+        _san_content = strip_think_blocks(agent, _san_content).strip()
 
     msg = {
         "role": "assistant",
@@ -1072,7 +1086,7 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
 
         # Re-evaluate prompt caching for the new provider/model
         agent._use_prompt_caching, agent._use_native_cache_layout = (
-            agent._anthropic_prompt_cache_policy(
+            anthropic_prompt_cache_policy(agent,
                 provider=fb_provider,
                 base_url=fb_base_url,
                 api_mode=fb_api_mode,
@@ -1145,7 +1159,7 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
         api_messages = []
         for msg in messages:
             api_msg = msg.copy()
-            agent._copy_reasoning_content_for_api(msg, api_msg)
+            copy_reasoning_content_for_api(agent, msg, api_msg)
             for internal_field in ("reasoning", "finish_reason", "_thinking_prefill"):
                 api_msg.pop(internal_field, None)
             if _needs_sanitize:
@@ -1167,11 +1181,11 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
         # session resume can leave a tool result whose parent assistant
         # tool_call was summarized away; Responses API rejects that as
         # "No tool call found for function call output".
-        api_messages = agent._sanitize_api_messages(api_messages)
+        api_messages = sanitize_api_messages(api_messages)
 
         # Same safety net as the main loop: drop thinking-only assistant
         # turns so Anthropic-family providers don't 400 the summary call.
-        api_messages = agent._drop_thinking_only_and_merge_users(api_messages)
+        api_messages = drop_thinking_only_and_merge_users(api_messages)
 
         summary_extra_body = {}
         try:
@@ -1503,7 +1517,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         # Initialize per-attempt stream diagnostics so the retry block can
         # reach for them after the stream dies.  Lives on
         # ``request_client_slot.diag`` for closure access.
-        _diag = agent._stream_diag_init()
+        _diag = stream_diag_init()
         request_client_slot.diag = _diag
         stream = request_client.chat.completions.create(**stream_kwargs)
 
@@ -1514,7 +1528,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         # Snapshot diagnostic headers (cf-ray, x-openrouter-provider, etc.)
         # so they survive even when the stream dies before any chunk
         # arrives.  Best-effort; never raises.
-        agent._stream_diag_capture_response(_diag, getattr(stream, "response", None))
+        stream_diag_capture_response(agent, _diag, getattr(stream, "response", None))
 
         # Log OpenRouter response cache status when present.
         agent._check_openrouter_cache_status(getattr(stream, "response", None))
@@ -1737,7 +1751,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
         # Drop the bookkeeping before this attempt starts producing new ids.
         _eager_tracker = _build_eager_tracker(agent)
         # Per-attempt diagnostic dict for the retry block to consume.
-        _diag = agent._stream_diag_init()
+        _diag = stream_diag_init()
         request_client_slot.diag = _diag
         # Use the Anthropic SDK's streaming context manager
         with agent._anthropic_client.messages.stream(**api_kwargs) as stream:
@@ -1746,7 +1760,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
             # immediately so they survive a stream that dies before the
             # first event.
             try:
-                agent._stream_diag_capture_response(
+                stream_diag_capture_response(agent,
                     _diag, getattr(stream, "response", None)
                 )
             except Exception:
@@ -1920,7 +1934,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                         result["partial_tool_names"] = []
                         deltas_were_sent["yes"] = False
                         first_delta_fired["done"] = False
-                        agent._emit_stream_drop(
+                        emit_stream_drop(agent,
                             error=e,
                             attempt=_stream_attempt + 2,
                             max_attempts=_max_stream_retries + 1,
@@ -1970,7 +1984,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                         # Transient network / timeout error. Retry the
                         # streaming request with a fresh connection first.
                         if _stream_attempt < _max_stream_retries:
-                            agent._emit_stream_drop(
+                            emit_stream_drop(agent,
                                 error=e,
                                 attempt=_stream_attempt + 2,
                                 max_attempts=_max_stream_retries + 1,
@@ -1994,7 +2008,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                         # mid-flight retries — subagent lines get the
                         # ``[subagent-N]`` log_prefix so the parent can
                         # attribute them.
-                        agent._log_stream_retry(
+                        log_stream_retry(agent,
                             kind="exhausted",
                             error=e,
                             attempt=_max_stream_retries + 1,
