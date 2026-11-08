@@ -217,17 +217,6 @@ def is_stale_connection_error(exc: BaseException) -> bool:
 #   2. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (explicit IAM credentials)
 #   3. AWS_PROFILE (named profile → SSO, assume-role, etc.)
 #   4. Implicit: instance role, ECS task role, Lambda execution role
-_AWS_CREDENTIAL_ENV_VARS = [
-    "AWS_BEARER_TOKEN_BEDROCK",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_PROFILE",
-    # These are checked by boto3's default chain but we list them for
-    # has_aws_credentials() detection:
-    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
-    "AWS_WEB_IDENTITY_TOKEN_FILE",
-]
-
-
 def resolve_aws_auth_env_var(env: Optional[Dict[str, str]] = None) -> Optional[str]:
     """Return the name of the AWS auth source that is active, or None.
 
@@ -706,22 +695,6 @@ def normalize_converse_response(response: Dict) -> SimpleNamespace:
 # Streaming response conversion
 # ---------------------------------------------------------------------------
 
-def normalize_converse_stream_events(event_stream) -> SimpleNamespace:
-    """Consume a Bedrock ConverseStream event stream and build an OpenAI-compatible response.
-
-    Processes the stream events in order:
-      - ``messageStart`` — role info
-      - ``contentBlockStart`` — new text or toolUse block
-      - ``contentBlockDelta`` — incremental text or toolUse input
-      - ``contentBlockStop`` — block complete
-      - ``messageStop`` — stop reason
-      - ``metadata`` — usage stats
-
-    Returns the same shape as ``normalize_converse_response()``.
-    """
-    return stream_converse_with_callbacks(event_stream)
-
-
 def stream_converse_with_callbacks(
     event_stream,
     on_text_delta=None,
@@ -931,87 +904,26 @@ def build_converse_kwargs(
     return kwargs
 
 
-def call_converse(
-    region: str,
-    model: str,
-    messages: List[Dict],
-    tools: Optional[List[Dict]] = None,
-    max_tokens: int = 4096,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    stop_sequences: Optional[List[str]] = None,
-    guardrail_config: Optional[Dict] = None,
-) -> SimpleNamespace:
-    """Call Bedrock Converse API (non-streaming) and return an OpenAI-compatible response.
+def converse(region: str, kwargs: Dict[str, Any], *, stream: bool = False) -> Any:
+    """Run ``converse`` (or ``converse_stream``) on the cached runtime client.
 
-    This is the primary entry point for the agent loop when using the Bedrock provider.
+    Returns the raw boto3 response. A stale-connection error evicts the
+    cached client for *region* before re-raising, so the caller's retry
+    reconnects instead of reusing the dead socket.
     """
     client = _get_bedrock_runtime_client(region)
-    kwargs = build_converse_kwargs(
-        model=model,
-        messages=messages,
-        tools=tools,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        stop_sequences=stop_sequences,
-        guardrail_config=guardrail_config,
-    )
-
     try:
-        response = client.converse(**kwargs)
+        return client.converse_stream(**kwargs) if stream else client.converse(**kwargs)
     except Exception as exc:
         if is_stale_connection_error(exc):
             logger.warning(
-                "bedrock: stale-connection error on converse(region=%s, model=%s): "
+                "bedrock: stale-connection error on %s(region=%s, model=%s): "
                 "%s — evicting cached client so the next call reconnects.",
-                region, model, type(exc).__name__,
+                "converse_stream" if stream else "converse",
+                region, kwargs.get("modelId"), type(exc).__name__,
             )
             invalidate_runtime_client(region)
         raise
-    return normalize_converse_response(response)
-
-
-def call_converse_stream(
-    region: str,
-    model: str,
-    messages: List[Dict],
-    tools: Optional[List[Dict]] = None,
-    max_tokens: int = 4096,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    stop_sequences: Optional[List[str]] = None,
-    guardrail_config: Optional[Dict] = None,
-) -> SimpleNamespace:
-    """Call Bedrock ConverseStream API and return an OpenAI-compatible response.
-
-    Consumes the full stream and returns the assembled response. For true
-    streaming with delta callbacks, use ``iter_converse_stream()`` instead.
-    """
-    client = _get_bedrock_runtime_client(region)
-    kwargs = build_converse_kwargs(
-        model=model,
-        messages=messages,
-        tools=tools,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        stop_sequences=stop_sequences,
-        guardrail_config=guardrail_config,
-    )
-
-    try:
-        response = client.converse_stream(**kwargs)
-    except Exception as exc:
-        if is_stale_connection_error(exc):
-            logger.warning(
-                "bedrock: stale-connection error on converse_stream(region=%s, "
-                "model=%s): %s — evicting cached client so the next call reconnects.",
-                region, model, type(exc).__name__,
-            )
-            invalidate_runtime_client(region)
-        raise
-    return normalize_converse_stream_events(response)
 
 
 # ---------------------------------------------------------------------------
@@ -1167,72 +1079,6 @@ def _extract_provider_from_arn(arn: str) -> str:
     """
     match = re.search(r"foundation-model/([^.]+)", arn)
     return match.group(1) if match else ""
-
-
-def get_bedrock_model_ids(region: str) -> List[str]:
-    """Return a flat list of available Bedrock model IDs for the given region.
-
-    Convenience wrapper around ``discover_bedrock_models()`` for use in
-    the model selection UI.
-    """
-    models = discover_bedrock_models(region)
-    return [m["id"] for m in models]
-
-
-# ---------------------------------------------------------------------------
-# Error classification — Bedrock-specific exceptions
-# ---------------------------------------------------------------------------
-# Mirrors OpenClaw's classifyFailoverReason() and matchesContextOverflowError()
-# in extensions/amazon-bedrock/register.sync.runtime.ts.
-
-# Patterns that indicate the input context exceeded the model's token limit.
-# Used by run_agent.py to trigger context compression instead of retrying.
-CONTEXT_OVERFLOW_PATTERNS = [
-    re.compile(r"ValidationException.*(?:input is too long|max input token|input token.*exceed)", re.IGNORECASE),
-    re.compile(r"ValidationException.*(?:exceeds? the (?:maximum|max) (?:number of )?(?:input )?tokens)", re.IGNORECASE),
-    re.compile(r"ModelStreamErrorException.*(?:Input is too long|too many input tokens)", re.IGNORECASE),
-]
-
-# Patterns for throttling / rate limit errors — should trigger backoff + retry.
-THROTTLE_PATTERNS = [
-    re.compile(r"ThrottlingException", re.IGNORECASE),
-    re.compile(r"Too many concurrent requests", re.IGNORECASE),
-    re.compile(r"ServiceQuotaExceededException", re.IGNORECASE),
-]
-
-# Patterns for transient overload — model is temporarily unavailable.
-OVERLOAD_PATTERNS = [
-    re.compile(r"ModelNotReadyException", re.IGNORECASE),
-    re.compile(r"ModelTimeoutException", re.IGNORECASE),
-    re.compile(r"InternalServerException", re.IGNORECASE),
-]
-
-
-def is_context_overflow_error(error_message: str) -> bool:
-    """Return True if the error indicates the input context was too large.
-
-    When this returns True, the agent should compress context and retry
-    rather than treating it as a fatal error.
-    """
-    return any(p.search(error_message) for p in CONTEXT_OVERFLOW_PATTERNS)
-
-
-def classify_bedrock_error(error_message: str) -> str:
-    """Classify a Bedrock error for retry/failover decisions.
-
-    Returns:
-      - ``"context_overflow"`` — input too long, compress and retry
-      - ``"rate_limit"`` — throttled, backoff and retry
-      - ``"overloaded"`` — model temporarily unavailable, retry with delay
-      - ``"unknown"`` — unclassified error
-    """
-    if is_context_overflow_error(error_message):
-        return "context_overflow"
-    if any(p.search(error_message) for p in THROTTLE_PATTERNS):
-        return "rate_limit"
-    if any(p.search(error_message) for p in OVERLOAD_PATTERNS):
-        return "overloaded"
-    return "unknown"
 
 
 # ---------------------------------------------------------------------------

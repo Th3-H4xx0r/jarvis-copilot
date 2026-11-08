@@ -488,7 +488,7 @@ class TestNormalizeConverseStreamEvents:
     """Test Bedrock ConverseStream event → OpenAI format conversion."""
 
     def test_text_stream(self):
-        from agent.bedrock_adapter import normalize_converse_stream_events
+        from agent.bedrock_adapter import stream_converse_with_callbacks
         events = {"stream": [
             {"messageStart": {"role": "assistant"}},
             {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
@@ -498,14 +498,14 @@ class TestNormalizeConverseStreamEvents:
             {"messageStop": {"stopReason": "end_turn"}},
             {"metadata": {"usage": {"inputTokens": 5, "outputTokens": 3}}},
         ]}
-        result = normalize_converse_stream_events(events)
+        result = stream_converse_with_callbacks(events)
         assert result.choices[0].message.content == "Hello, world!"
         assert result.choices[0].finish_reason == "stop"
         assert result.usage.prompt_tokens == 5
         assert result.usage.completion_tokens == 3
 
     def test_tool_use_stream(self):
-        from agent.bedrock_adapter import normalize_converse_stream_events
+        from agent.bedrock_adapter import stream_converse_with_callbacks
         events = {"stream": [
             {"messageStart": {"role": "assistant"}},
             {"contentBlockStart": {"contentBlockIndex": 0, "start": {
@@ -521,7 +521,7 @@ class TestNormalizeConverseStreamEvents:
             {"messageStop": {"stopReason": "tool_use"}},
             {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 8}}},
         ]}
-        result = normalize_converse_stream_events(events)
+        result = stream_converse_with_callbacks(events)
         assert result.choices[0].finish_reason == "tool_calls"
         tc = result.choices[0].message.tool_calls
         assert len(tc) == 1
@@ -530,7 +530,7 @@ class TestNormalizeConverseStreamEvents:
         assert json.loads(tc[0].function.arguments) == {"path": "/tmp/f"}
 
     def test_mixed_text_and_tool_stream(self):
-        from agent.bedrock_adapter import normalize_converse_stream_events
+        from agent.bedrock_adapter import stream_converse_with_callbacks
         events = {"stream": [
             {"messageStart": {"role": "assistant"}},
             # Text block
@@ -548,18 +548,18 @@ class TestNormalizeConverseStreamEvents:
             {"messageStop": {"stopReason": "tool_use"}},
             {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0}}},
         ]}
-        result = normalize_converse_stream_events(events)
+        result = stream_converse_with_callbacks(events)
         assert result.choices[0].message.content == "Let me check."
         assert len(result.choices[0].message.tool_calls) == 1
 
     def test_empty_stream(self):
-        from agent.bedrock_adapter import normalize_converse_stream_events
+        from agent.bedrock_adapter import stream_converse_with_callbacks
         events = {"stream": [
             {"messageStart": {"role": "assistant"}},
             {"messageStop": {"stopReason": "end_turn"}},
             {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0}}},
         ]}
-        result = normalize_converse_stream_events(events)
+        result = stream_converse_with_callbacks(events)
         assert result.choices[0].message.content is None
         assert result.choices[0].message.tool_calls is None
 
@@ -1051,52 +1051,6 @@ class TestGuardrailConfig:
         assert "guardrailConfig" not in kwargs
 
 
-# ---------------------------------------------------------------------------
-# Error classification
-# ---------------------------------------------------------------------------
-
-class TestBedrockErrorClassification:
-    """Test Bedrock-specific error classification."""
-
-    def test_context_overflow_validation_exception(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error(
-            "ValidationException: input is too long for model"
-        ) == "context_overflow"
-
-    def test_context_overflow_max_tokens(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error(
-            "ValidationException: exceeds the maximum number of input tokens"
-        ) == "context_overflow"
-
-    def test_context_overflow_stream_error(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error(
-            "ModelStreamErrorException: Input is too long"
-        ) == "context_overflow"
-
-    def test_rate_limit_throttling(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error("ThrottlingException: Rate exceeded") == "rate_limit"
-
-    def test_rate_limit_concurrent(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error("Too many concurrent requests") == "rate_limit"
-
-    def test_overloaded_not_ready(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error("ModelNotReadyException") == "overloaded"
-
-    def test_overloaded_timeout(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error("ModelTimeoutException") == "overloaded"
-
-    def test_unknown_error(self):
-        from agent.bedrock_adapter import classify_bedrock_error
-        assert classify_bedrock_error("SomeRandomError: something went wrong") == "unknown"
-
-
 class TestBedrockContextLength:
     """Test Bedrock model context length lookup."""
 
@@ -1365,8 +1319,14 @@ class TestIsStaleConnectionError:
         assert is_stale_connection_error(KeyError("missing")) is False
 
 
-class TestCallConverseInvalidatesOnStaleError:
-    """call_converse / call_converse_stream evict the cached client when the
+_CONVERSE_KWARGS = {
+    "modelId": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+}
+
+
+class TestConverseInvalidatesOnStaleError:
+    """converse() evicts the cached client when the
     boto3 call raises a stale-connection error — so the next invocation
     reconnects instead of reusing the dead socket."""
 
@@ -1374,7 +1334,7 @@ class TestCallConverseInvalidatesOnStaleError:
         pytest.importorskip("botocore", reason="botocore required for Bedrock exception tests")
         from agent.bedrock_adapter import (
             _bedrock_runtime_client_cache,
-            call_converse,
+            converse,
             reset_client_cache,
         )
         from botocore.exceptions import ConnectionClosedError
@@ -1387,11 +1347,7 @@ class TestCallConverseInvalidatesOnStaleError:
         _bedrock_runtime_client_cache["us-east-1"] = dead_client
 
         with pytest.raises(ConnectionClosedError):
-            call_converse(
-                region="us-east-1",
-                model="anthropic.claude-3-sonnet-20240229-v1:0",
-                messages=[{"role": "user", "content": "hi"}],
-            )
+            converse("us-east-1", _CONVERSE_KWARGS)
 
         assert "us-east-1" not in _bedrock_runtime_client_cache, (
             "stale client should have been evicted so the retry reconnects"
@@ -1401,7 +1357,7 @@ class TestCallConverseInvalidatesOnStaleError:
         pytest.importorskip("botocore", reason="botocore required for Bedrock exception tests")
         from agent.bedrock_adapter import (
             _bedrock_runtime_client_cache,
-            call_converse_stream,
+            converse,
             reset_client_cache,
         )
         from botocore.exceptions import ConnectionClosedError
@@ -1414,11 +1370,7 @@ class TestCallConverseInvalidatesOnStaleError:
         _bedrock_runtime_client_cache["us-east-1"] = dead_client
 
         with pytest.raises(ConnectionClosedError):
-            call_converse_stream(
-                region="us-east-1",
-                model="anthropic.claude-3-sonnet-20240229-v1:0",
-                messages=[{"role": "user", "content": "hi"}],
-            )
+            converse("us-east-1", _CONVERSE_KWARGS, stream=True)
 
         assert "us-east-1" not in _bedrock_runtime_client_cache
 
@@ -1427,7 +1379,7 @@ class TestCallConverseInvalidatesOnStaleError:
         pytest.importorskip("botocore", reason="botocore required for Bedrock exception tests")
         from agent.bedrock_adapter import (
             _bedrock_runtime_client_cache,
-            call_converse,
+            converse,
             reset_client_cache,
         )
         from botocore.exceptions import ClientError
@@ -1441,11 +1393,7 @@ class TestCallConverseInvalidatesOnStaleError:
         _bedrock_runtime_client_cache["us-east-1"] = live_client
 
         with pytest.raises(ClientError):
-            call_converse(
-                region="us-east-1",
-                model="anthropic.claude-3-sonnet-20240229-v1:0",
-                messages=[{"role": "user", "content": "hi"}],
-            )
+            converse("us-east-1", _CONVERSE_KWARGS)
 
         assert _bedrock_runtime_client_cache.get("us-east-1") is live_client, (
             "validation errors do not indicate a dead connection — keep the client"
@@ -1454,7 +1402,7 @@ class TestCallConverseInvalidatesOnStaleError:
     def test_converse_leaves_successful_client_in_cache(self):
         from agent.bedrock_adapter import (
             _bedrock_runtime_client_cache,
-            call_converse,
+            converse,
             reset_client_cache,
         )
 
@@ -1467,10 +1415,6 @@ class TestCallConverseInvalidatesOnStaleError:
         }
         _bedrock_runtime_client_cache["us-east-1"] = live_client
 
-        call_converse(
-            region="us-east-1",
-            model="anthropic.claude-3-sonnet-20240229-v1:0",
-            messages=[{"role": "user", "content": "hi"}],
-        )
+        converse("us-east-1", _CONVERSE_KWARGS)
 
         assert _bedrock_runtime_client_cache.get("us-east-1") is live_client
