@@ -874,19 +874,6 @@ class TestPlannedStopMarker:
         assert result is False
         assert not marker_path.exists()
 
-    def test_clear_planned_stop_marker_is_idempotent(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 100)
-
-        status.clear_planned_stop_marker()
-        status.write_planned_stop_marker(target_pid=12345)
-        assert (tmp_path / ".gateway-planned-stop.json").exists()
-
-        status.clear_planned_stop_marker()
-
-        assert not (tmp_path / ".gateway-planned-stop.json").exists()
-        status.clear_planned_stop_marker()
-
     def test_write_marker_returns_false_on_write_failure(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 

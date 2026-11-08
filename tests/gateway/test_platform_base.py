@@ -12,7 +12,7 @@ from gateway.platforms.base import (
     MessageType,
     safe_url_for_log,
     utf16_len,
-    _prefix_within_utf16_limit,
+    _custom_unit_to_cp,
 )
 
 
@@ -622,7 +622,7 @@ class TestGetHumanDelay:
 
 
 # ---------------------------------------------------------------------------
-# utf16_len / _prefix_within_utf16_limit / truncate_message with len_fn
+# utf16_len / _custom_unit_to_cp / truncate_message with len_fn
 # ---------------------------------------------------------------------------
 # Ported from nearai/ironclaw#2304 — Telegram counts message length in UTF-16
 # code units, not Unicode code-points.  Astral-plane characters (emoji, CJK
@@ -653,6 +653,10 @@ class TestUtf16Len:
 
     def test_empty(self):
         assert utf16_len("") == 0
+
+
+def _prefix_within_utf16_limit(s, limit):
+    return s[:_custom_unit_to_cp(s, limit, utf16_len)]
 
 
 class TestPrefixWithinUtf16Limit:

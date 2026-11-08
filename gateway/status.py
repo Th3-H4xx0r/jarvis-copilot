@@ -914,14 +914,6 @@ def consume_planned_stop_marker_for_self() -> bool:
     )
 
 
-def clear_planned_stop_marker() -> None:
-    """Remove the planned-stop marker unconditionally."""
-    try:
-        _get_planned_stop_marker_path().unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
 def get_running_pid(
     pid_path: Optional[Path] = None,
     *,

@@ -140,25 +140,6 @@ def utf16_len(s: str) -> int:
     return len(s.encode("utf-16-le")) // 2
 
 
-def _prefix_within_utf16_limit(s: str, limit: int) -> str:
-    """Return the longest prefix of *s* whose UTF-16 length ≤ *limit*.
-
-    Unlike a plain ``s[:limit]``, this respects surrogate-pair boundaries so
-    we never slice a multi-code-unit character in half.
-    """
-    if utf16_len(s) <= limit:
-        return s
-    # Binary search for the longest safe prefix
-    lo, hi = 0, len(s)
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if utf16_len(s[:mid]) <= limit:
-            lo = mid
-        else:
-            hi = mid - 1
-    return s[:lo]
-
-
 def _custom_unit_to_cp(s: str, budget: int, len_fn) -> int:
     """Return the largest codepoint offset *n* such that ``len_fn(s[:n]) <= budget``.
 

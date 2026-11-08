@@ -3,7 +3,6 @@
 from acp_adapter.auth import (
     TERMINAL_SETUP_AUTH_METHOD_ID,
     build_auth_methods,
-    has_provider,
     detect_provider,
 )
 
@@ -14,21 +13,21 @@ class TestHasProvider:
             "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
             lambda: {"provider": "openrouter", "api_key": "sk-or-test"},
         )
-        assert has_provider() is True
+        assert detect_provider() is not None
 
     def test_has_no_provider_when_runtime_has_no_key(self, monkeypatch):
         monkeypatch.setattr(
             "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
             lambda: {"provider": "openrouter", "api_key": ""},
         )
-        assert has_provider() is False
+        assert detect_provider() is None
 
     def test_has_no_provider_when_runtime_resolution_fails(self, monkeypatch):
         def _boom():
             raise RuntimeError("no provider")
 
         monkeypatch.setattr("jarviscopilot_cli.runtime_provider.resolve_runtime_provider", _boom)
-        assert has_provider() is False
+        assert detect_provider() is None
 
 
 class TestDetectProvider:

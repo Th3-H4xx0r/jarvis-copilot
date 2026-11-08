@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import signal
 import sys
@@ -119,7 +118,7 @@ class TestSnapshotShutdownContext:
 
 
 # ---------------------------------------------------------------------------
-# format_context_for_log / context_as_json
+# format_context_for_log
 # ---------------------------------------------------------------------------
 
 class TestFormatters:
@@ -129,22 +128,6 @@ class TestFormatters:
         assert "signal=SIGTERM" in line
         assert "parent_pid=" in line
         assert "parent_cmdline=" in line
-
-    def test_context_as_json_round_trips(self):
-        ctx = sf.snapshot_shutdown_context(signal.SIGTERM)
-        payload = sf.context_as_json(ctx)
-        decoded = json.loads(payload)
-        assert decoded["pid"] == os.getpid()
-        assert decoded["signal"] == "SIGTERM"
-
-    def test_context_as_json_handles_unserialisable_values(self):
-        ctx = {"signal": "SIGTERM", "weird": object()}
-        payload = sf.context_as_json(ctx)
-        # default=str means objects get repr'd, JSON stays valid
-        decoded = json.loads(payload)
-        assert decoded["signal"] == "SIGTERM"
-        assert "weird" in decoded
-
 
 # ---------------------------------------------------------------------------
 # spawn_async_diagnostic
