@@ -243,7 +243,7 @@ final class AppModel {
         }
     }
 
-    /// What the old tray menu's items did: dashboard, voice_window, repair, logs, restart.
+    /// What the old tray menu's items did: dashboard, repair, logs, restart.
     func trayAction(_ action: String) {
         JcLink.shared.request(["type": "tray", "action": action])
     }

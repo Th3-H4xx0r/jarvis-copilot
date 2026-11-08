@@ -157,3 +157,17 @@ def test_ws_connect_clears_timeout_after_successful_handshake(monkeypatch):
     # otherwise the long-lived read would spuriously time out every few seconds.
     assert sock.timeouts[-1] is None
     assert any(t is not None for t in sock.timeouts[:-1])
+
+
+def test_the_ssh_relay_cannot_hang_on_a_silent_handshake(monkeypatch):
+    """`jc-client tcp-relay` once dropped to no-timeout before its handshake: a tunnel that
+    accepts TCP but never answers the upgrade blocked SSH forever."""
+    from jc_client import credentials, tcp_relay_client
+
+    sock = _StalledSock()
+    monkeypatch.setattr(protocol.socket, "create_connection", lambda *a, **k: sock)
+    monkeypatch.setattr(credentials, "load", lambda: credentials.Credentials(
+        server_url="http://localhost:9", cookie="hermes_session=x", cert_fingerprint="ab"))
+    with pytest.raises(WsConnectionClosed):
+        tcp_relay_client._connect_relay()
+    assert all(t is not None for t in sock.timeouts)

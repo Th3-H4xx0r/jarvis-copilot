@@ -469,7 +469,7 @@ def cmd_status(args) -> int:
     print("  allow_shell:  ", "yes" if creds.allow_shell else "no")
     if sys.platform == "darwin":
         try:
-            from jc_client.mac_popover import voice_panel_health
+            from jc_client.voice_panel import voice_panel_health
             print("  voice panel:  ", voice_panel_health()[1])
         except Exception as exc:  # noqa: BLE001
             print("  voice panel:   unknown (%s)" % exc)
@@ -794,8 +794,7 @@ def cmd_notify(args) -> int:
             print("not paired — run `jc-client pair`", file=sys.stderr)
             return 1
         return 0
-    http = HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint,
-                      cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
+    http = HttpClient.from_creds(creds)
     if args.list:
         try:
             data = http.request_json("GET", "/api/notify/targets").json()
@@ -862,10 +861,7 @@ def cmd_coding_permission(args) -> int:
         body["claude_session_id"] = args.session_id
     if creds.device_id:
         body["device_id"] = creds.device_id
-    http = HttpClient(creds.server_url, cookie=creds.cookie,
-                      expected_fingerprint=creds.cert_fingerprint,
-                      cf_client_id=creds.cf_client_id,
-                      cf_client_secret=creds.cf_client_secret)
+    http = HttpClient.from_creds(creds)
     try:
         resp = http.request_json(
             "POST", "/api/coding/permission/request", body).json()
@@ -974,7 +970,7 @@ def _report_voice_panel() -> None:
     if sys.platform != "darwin":
         return
     try:
-        from jc_client.mac_popover import voice_panel_health
+        from jc_client.voice_panel import voice_panel_health
         ok, detail = voice_panel_health()
     except Exception as exc:  # noqa: BLE001
         print(f"(could not check the voice panel: {exc})", file=sys.stderr)

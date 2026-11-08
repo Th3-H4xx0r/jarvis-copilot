@@ -31,7 +31,7 @@ from jc_client._proxy import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 # Built at import time on macOS only, so importing this module elsewhere (and in
-# tests) stays free of PyObjC. Mirrors `mac_popover`.
+# tests) stays free of PyObjC. Mirrors `voice_panel`.
 #
 # The Obj-C class name is namespaced because that namespace is PROCESS-WIDE and
 # flat: a bare `_AppDelegate` is exactly what another library would also claim
@@ -67,7 +67,7 @@ def _run_native_window(origin: str) -> bool:
     available, so the caller can fall back. A failure once the window is up is
     not a fallback — the user has already seen it — and comes back as True.
     """
-    from jc_client.mac_popover import _voice_panel_class
+    from jc_client.voice_panel import _voice_panel_class
 
     cls = _voice_panel_class()
     if cls is None:
@@ -140,9 +140,7 @@ def run_voice_popup() -> None:
         logger.error("voice-popup: client is not paired — run `jc-client pair` first")
         return
 
-    proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie,
-                        cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
-                        lan_url=creds.lan_url)
+    proxy = PinnedProxy.from_creds(creds)
     port = proxy.start()
     origin = f"http://127.0.0.1:{port}"
     url = origin + _MINI_PATH

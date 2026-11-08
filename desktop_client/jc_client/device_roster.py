@@ -49,10 +49,7 @@ class DeviceRow:
     def title(self) -> str:
         """What the menu item's text is set to.
 
-        Plain text, because that is all pystray can put in a menu. On macOS it is
-        replaced with a styled attributed title and the status dot is drawn —
-        see ``mac_popover._style_rows``. The plain form is the fallback, and the
-        key the two halves match on, so it has to stay unique and stable.
+        Plain text, because that is all pystray can put in a menu.
         """
         return f"{self.name} — {self.detail}" if self.detail else self.name
 
@@ -137,10 +134,7 @@ def _client():
     creds = credentials.load()
     if not creds.paired:
         return None
-    return HttpClient(creds.server_url, cookie=creds.cookie,
-                      expected_fingerprint=creds.cert_fingerprint,
-                      cf_client_id=creds.cf_client_id,
-                      cf_client_secret=creds.cf_client_secret)
+    return HttpClient.from_creds(creds)
 
 
 def fetch() -> tuple:

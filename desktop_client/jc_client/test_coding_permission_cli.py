@@ -38,6 +38,10 @@ def _run(monkeypatch, request_resp, poll_resp):
         def __init__(self, *a, **k):
             pass
 
+        @classmethod
+        def from_creds(cls, creds):
+            return cls()
+
         def request_json(self, method, path, body=None):
             if path == "/api/coding/permission/request":
                 return _Resp(request_resp)

@@ -177,45 +177,17 @@ class _WsClientIO(ByteIO):
 
 def _connect_relay():
     """TLS-connect + WS-handshake to the relay endpoint; return (sock, ws)."""
-    from wsproto import ConnectionType, WSConnection
-    from wsproto.events import AcceptConnection, RejectConnection, Request
     from jc_client import credentials
-    from jc_client.protocol import (
-        _make_ssl_context, _split_url, _verify_fingerprint,
-    )
+    from jc_client.protocol import cf_access_headers, open_websocket
 
     creds = credentials.load()
     if not creds.paired:
         raise RuntimeError("jc-client is not paired (no server creds)")
-    host, port, scheme, prefix = _split_url(creds.server_url)
-    sock = socket.create_connection((host, port), timeout=15)
-    if scheme == "https":
-        ctx = _make_ssl_context()
-        sock = ctx.wrap_socket(sock, server_hostname=host)
-        _verify_fingerprint(sock, creds.cert_fingerprint)
-    sock.settimeout(None)
-
-    ws = WSConnection(ConnectionType.CLIENT)
-    extra = [("Origin", f"{scheme}://{host}"), ("User-Agent", "jc-client/relay")]
+    extra = [("User-Agent", "jc-client/relay")]
     if creds.cookie:
         extra.append(("Cookie", creds.cookie))
-    if creds.cf_client_id and creds.cf_client_secret:
-        extra.append(("CF-Access-Client-Id", creds.cf_client_id))
-        extra.append(("CF-Access-Client-Secret", creds.cf_client_secret))
-    sock.sendall(ws.send(Request(host=f"{host}:{port}", target=prefix + _RELAY_PATH,
-                                 extra_headers=extra)))
-    deadline = time.time() + 15
-    while time.time() < deadline:
-        chunk = sock.recv(_CHUNK)
-        if not chunk:
-            raise RuntimeError("server closed during relay handshake")
-        ws.receive_data(chunk)
-        for ev in ws.events():
-            if isinstance(ev, AcceptConnection):
-                return sock, ws
-            if isinstance(ev, RejectConnection):
-                raise RuntimeError(f"relay handshake rejected: HTTP {ev.status_code}")
-    raise RuntimeError("relay handshake timed out")
+    extra += cf_access_headers(creds.cf_client_id, creds.cf_client_secret)
+    return open_websocket(creds.server_url, _RELAY_PATH, creds.cert_fingerprint, extra)
 
 
 def run(_argv: Optional[list] = None) -> int:

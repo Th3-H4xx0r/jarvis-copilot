@@ -200,11 +200,6 @@ class TrayApp:
         # the macOS main run loop with pystray); track it so the menu item can
         # toggle it open/closed.
         self._voice_proc: subprocess.Popen | None = None
-        # macOS only: the orb hanging off the menubar item itself, so it is not
-        # a separate window unless asked for. None everywhere else, and on any
-        # Mac where PyObjC/WebKit isn't what we expect — the window is the
-        # fallback, so nothing is lost.
-        self._popover = None
         # Devices + wearables shown in the menu, refreshed in the background.
         self._roster = device_roster.DeviceRoster()
         # Cross-process Coding-Session sync indicator: the latest "syncing?"
@@ -306,9 +301,6 @@ class TrayApp:
         )
 
     def _act_voice_menu_item(self, _icon, _item) -> None:
-        # Reached from the right-click menu. With the panel installed the icon
-        # already opens the orb, so this item is the "separate window" option;
-        # without it, it is the only way to the orb.
         self._spawn_voice_window()
 
     def _spawn_voice_window(self) -> None:
@@ -516,14 +508,7 @@ class TrayApp:
             # no way to signal the supervised process to pause from here.
             return self._svc is not None
 
-        # The menubar panel makes the icon itself the way to the orb, so the
-        # item stops duplicating that click and offers the window instead.
-        def _voice_label(_item):
-            return "Voice Orb" if self._popover is None else "Voice Orb in a window"
-
-        # One disabled row per device and wearable: a status dot in the text and,
-        # on macOS, the device's own picture attached to the item (see
-        # mac_popover._apply_icons) — the way the system's Bluetooth menu reads.
+        # One disabled row per device and wearable, with a status dot in the text.
         #
         # A FIXED set of slots whose text is computed per refresh, because
         # pystray expands the item list once when the Menu is built and only
@@ -555,7 +540,7 @@ class TrayApp:
             Sep,
             MenuItem("Settings…", self._act_settings),
             MenuItem("Open dashboard", self._act_open_dashboard),
-            MenuItem(_voice_label, self._act_voice_menu_item),
+            MenuItem("Voice Orb", self._act_voice_menu_item),
             MenuItem("Re-pair…", self._act_repair),
             MenuItem("View logs", self._act_view_logs),
             MenuItem("Restart", self._act_restart),
@@ -652,23 +637,12 @@ class TrayApp:
             menu=self._build_menu(),
         )
         self._icon = icon
-        # Left-click opens the orb, right-click keeps this menu. The status item
-        # exists as soon as pystray's Icon is built, so it can be taken over
-        # before the run loop starts.
-        from jc_client import mac_popover
-        self._popover = mac_popover.install(icon, self._spawn_voice_window)
-        if self._popover is not None:
-            self._popover.rows_for_icons = lambda: list(self._roster.rows)
         # Have something to show the first time the menu is opened.
         self._roster.maybe_refresh(force=True)
-        if self._popover is not None:
-            icon.update_menu()  # relabel "Voice Orb" now the panel owns the click
         try:
             icon.run()  # blocks
         finally:
             self._stop.set()
-            if self._popover is not None:
-                self._popover.shutdown()
             self._stop_service()
 
 

@@ -211,6 +211,13 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 class PinnedProxy:
     """Localhost HTTP/WS reverse proxy → the pinned-TLS gateway."""
 
+    @classmethod
+    def from_creds(cls, creds) -> "PinnedProxy":
+        """A proxy onto the paired server, with its session cookie and pinned cert."""
+        return cls(creds.server_url, creds.cert_fingerprint, creds.cookie,
+                   cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
+                   lan_url=creds.lan_url)
+
     def __init__(self, server_url: str, fingerprint: str, cookie: str,
                  cf_client_id: str = "", cf_client_secret: str = "",
                  lan_url: str = ""):

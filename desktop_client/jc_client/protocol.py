@@ -150,6 +150,26 @@ def _verify_fingerprint(sock: ssl.SSLSocket, expected: str) -> None:
 
 # ── HTTP ───────────────────────────────────────────────────────────────────
 
+def cf_access_headers(client_id: str, client_secret: str) -> list[tuple[str, str]]:
+    """The Cloudflare Access service-token headers, or [] when no token is set. Every request to a
+    tunnel-fronted server needs them, or Access redirects it to the SSO login."""
+    if client_id and client_secret:
+        return [("CF-Access-Client-Id", client_id), ("CF-Access-Client-Secret", client_secret)]
+    return []
+
+
+def _pinned_socket(host: str, port: int, scheme: str, fingerprint: str,
+                   timeout: float) -> tuple[socket.socket, str]:
+    """TCP (+ TLS, pinned to ``fingerprint``) to the server; (sock, the leaf fingerprint seen)."""
+    sock = socket.create_connection((host, port), timeout=timeout)
+    observed = ""
+    if scheme == "https":
+        sock = _make_ssl_context().wrap_socket(sock, server_hostname=host)
+        observed = cert_fingerprint(sock)
+        _verify_fingerprint(sock, fingerprint)
+    return sock, observed
+
+
 @dataclass
 class HttpResponse:
     status: int
@@ -195,55 +215,53 @@ class HttpClient:
         self.cf_client_secret = cf_client_secret
         self._host, self._port, self._scheme, self._prefix = _split_url(server_url)
 
+    @classmethod
+    def from_creds(cls, creds) -> "HttpClient":
+        """A client on the paired server, with its session cookie and pinned cert."""
+        return cls(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint,
+                   cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
+
     def _cf_header_lines(self) -> list[str]:
-        """CF-Access service-token header lines, or [] when not configured."""
-        if self.cf_client_id and self.cf_client_secret:
-            return [
-                f"CF-Access-Client-Id: {self.cf_client_id}",
-                f"CF-Access-Client-Secret: {self.cf_client_secret}",
-            ]
-        return []
+        return [f"{k}: {v}" for k, v in cf_access_headers(self.cf_client_id, self.cf_client_secret)]
 
     def _connect(self) -> tuple[socket.socket, str]:
         """Open TCP + TLS, verify fingerprint, return (sock, observed_fingerprint)."""
-        sock = socket.create_connection(
-            (self._host, self._port), timeout=_DEFAULT_CONNECT_TIMEOUT
-        )
-        observed = ""
-        if self._scheme == "https":
-            ctx = _make_ssl_context()
-            sock = ctx.wrap_socket(sock, server_hostname=self._host)
-            observed = cert_fingerprint(sock)
-            _verify_fingerprint(sock, self.expected_fingerprint)
+        sock, observed = _pinned_socket(self._host, self._port, self._scheme,
+                                        self.expected_fingerprint, _DEFAULT_CONNECT_TIMEOUT)
         sock.settimeout(_DEFAULT_HTTP_TIMEOUT)
         return sock, observed
 
     def post_json(self, path: str, body: dict) -> tuple[HttpResponse, str]:
-        """POST a JSON body. Returns (response, observed_fingerprint).
-
-        The observed fingerprint is the leaf-cert SHA-256 we saw on this
-        connection — the pair UI uses it to decide whether to pin.
+        """POST a JSON body without the session cookie (the pair claim). Returns (response,
+        observed_fingerprint): the pair UI uses the leaf-cert SHA-256 it saw to decide whether to pin.
         """
-        full_path = self._prefix + path
-        payload = json.dumps(body).encode("utf-8")
+        return self._exchange("POST", path, body, with_cookie=False)
+
+    def request_json(self, method: str, path: str, body: dict | None = None) -> "HttpResponse":
+        """Pinned HTTP request (GET/POST/…) with the session cookie. JSON body optional."""
+        return self._exchange(method, path, body, with_cookie=True)[0]
+
+    def _exchange(self, method: str, path: str, body: dict | None,
+                  with_cookie: bool) -> tuple[HttpResponse, str]:
+        # NOTE: we intentionally send no Accept-Encoding, so the server replies
+        # uncompressed and _parse_http_response (Content-Length / close framing)
+        # handles it. Do NOT add gzip here without teaching the parser to decode.
+        payload = b"" if body is None else json.dumps(body).encode("utf-8")
         lines = [
-            f"POST {full_path} HTTP/1.1",
+            f"{method.upper()} {self._prefix + path} HTTP/1.1",
             f"Host: {self._host}:{self._port}",
             "User-Agent: jc-client/0.1",
-            "Content-Type: application/json",
-            f"Content-Length: {len(payload)}",
             "Accept: application/json",
             "X-Requested-With: jc-client",
         ]
-        # CF-Access service-token headers MUST go on the pair-claim POST too —
-        # this is the first request to a tunnel-fronted server, so without them
-        # Cloudflare Access 302-redirects it to the SSO login before it ever
-        # reaches the origin. (post_json is separate from request_json, which is
-        # why it needs its own copy of these header lines.)
+        if with_cookie and self.cookie:
+            lines.append(f"Cookie: {self.cookie}")
         lines.extend(self._cf_header_lines())
+        if body is not None:
+            lines.append("Content-Type: application/json")
+            lines.append(f"Content-Length: {len(payload)}")
         lines.append("Connection: close")
         req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
-
         sock, observed = self._connect()
         try:
             sock.sendall(req)
@@ -258,46 +276,7 @@ class HttpClient:
                 sock.close()
             except OSError:
                 pass
-
         return _parse_http_response(raw), observed
-
-    def request_json(self, method: str, path: str, body: dict | None = None) -> "HttpResponse":
-        """Pinned HTTP request (GET/POST/…) with the session cookie. JSON body optional."""
-        full_path = self._prefix + path
-        # NOTE: we intentionally send no Accept-Encoding, so the server replies
-        # uncompressed and _parse_http_response (Content-Length / close framing)
-        # handles it. Do NOT add gzip here without teaching the parser to decode.
-        payload = b"" if body is None else json.dumps(body).encode("utf-8")
-        lines = [
-            f"{method.upper()} {full_path} HTTP/1.1",
-            f"Host: {self._host}:{self._port}",
-            "User-Agent: jc-client/0.1",
-            "Accept: application/json",
-            "X-Requested-With: jc-client",
-        ]
-        if self.cookie:
-            lines.append(f"Cookie: {self.cookie}")
-        lines.extend(self._cf_header_lines())
-        if body is not None:
-            lines.append("Content-Type: application/json")
-            lines.append(f"Content-Length: {len(payload)}")
-        lines.append("Connection: close")
-        req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
-        sock, _ = self._connect()
-        try:
-            sock.sendall(req)
-            raw = b""
-            while True:
-                chunk = sock.recv(_RECV_CHUNK)
-                if not chunk:
-                    break
-                raw += chunk
-        finally:
-            try:
-                sock.close()
-            except OSError:
-                pass
-        return _parse_http_response(raw)
 
     def get_sse_event(self, path: str, event_name: str, timeout: float = 180.0):
         """GET a Server-Sent-Events stream and return the JSON ``data`` of the
@@ -448,22 +427,15 @@ def probe_lan(lan_url: str, expected_fingerprint: str = "", cf_client_id: str = 
         return False
     sock: Optional[socket.socket] = None
     try:
-        sock = socket.create_connection((host, port), timeout=timeout)
+        sock, _ = _pinned_socket(host, port, scheme, expected_fingerprint, timeout)
         sock.settimeout(timeout)
-        if scheme == "https":
-            ctx = _make_ssl_context()
-            sock = ctx.wrap_socket(sock, server_hostname=host)
-            if expected_fingerprint:
-                _verify_fingerprint(sock, expected_fingerprint)
         lines = [
             f"GET {prefix}/health HTTP/1.1",
             f"Host: {host}:{port}",
             "User-Agent: jc-client/0.1",
             "Connection: close",
         ]
-        if cf_client_id and cf_client_secret:
-            lines.append(f"CF-Access-Client-Id: {cf_client_id}")
-            lines.append(f"CF-Access-Client-Secret: {cf_client_secret}")
+        lines += [f"{k}: {v}" for k, v in cf_access_headers(cf_client_id, cf_client_secret)]
         req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
         sock.sendall(req)
         raw = b""
@@ -490,6 +462,50 @@ class WsConnectionClosed(Exception):
     """Raised when the WS connection is no longer usable."""
 
 
+def open_websocket(server_url: str, path: str, fingerprint: str,
+                   extra_headers: list[tuple[str, str]]) -> tuple[socket.socket, WSConnection]:
+    """Pinned TLS + WebSocket upgrade to ``path`` on the server; (sock, ws) once accepted, the socket
+    then in long-lived no-timeout mode. Raises WsConnectionClosed on reject, close or timeout."""
+    host, port, scheme, prefix = _split_url(server_url)
+    sock, _ = _pinned_socket(host, port, scheme, fingerprint, _DEFAULT_CONNECT_TIMEOUT)
+    ws = WSConnection(ConnectionType.CLIENT)
+    extra = [("Origin", f"{scheme}://{host}")] + list(extra_headers)
+    # Bound the handshake with a SOCKET timeout, not just the wall-clock
+    # deadline below. The deadline is only re-checked BETWEEN recv() calls,
+    # so without a socket timeout a half-open connection — the server/tunnel
+    # accepts our TCP socket but never sends the upgrade response — blocks
+    # recv() forever and the whole reconnect loop hangs in "reconnecting"
+    # even though the server is up. We only drop to the long-lived
+    # no-timeout mode AFTER the handshake completes.
+    sock.settimeout(_HANDSHAKE_TIMEOUT)
+    try:
+        sock.sendall(ws.send(Request(host=f"{host}:{port}", target=prefix + path, extra_headers=extra)))
+        deadline = time.time() + _HANDSHAKE_TIMEOUT
+        while time.time() < deadline:
+            # Cap each recv by the time left so a stalled peer can never exceed
+            # the overall handshake budget.
+            sock.settimeout(max(0.5, deadline - time.time()))
+            try:
+                chunk = sock.recv(_RECV_CHUNK)
+            except socket.timeout:
+                break
+            if not chunk:
+                raise WsConnectionClosed("server closed during handshake")
+            ws.receive_data(chunk)
+            for event in ws.events():
+                if isinstance(event, AcceptConnection):
+                    # The server pings every ~30s and we send our own pings, so a dead idle
+                    # link is caught by the ping/pong path, not by a recv timeout.
+                    sock.settimeout(None)
+                    return sock, ws
+                if isinstance(event, RejectConnection):
+                    raise WsConnectionClosed(f"server rejected WS handshake: HTTP {event.status_code}")
+        raise WsConnectionClosed("WS handshake timed out")
+    except BaseException:
+        sock.close()
+        raise
+
+
 class WsConnection:
     """Long-lived WS bridge to ``<server>/api/devices/bridge/ws``.
 
@@ -514,79 +530,12 @@ class WsConnection:
     # ----- lifecycle ---------------------------------------------------
 
     def connect(self) -> None:
-        sock = socket.create_connection(
-            (self._host, self._port), timeout=_DEFAULT_CONNECT_TIMEOUT
-        )
-        if self._scheme == "https":
-            ctx = _make_ssl_context()
-            sock = ctx.wrap_socket(sock, server_hostname=self._host)
-            _verify_fingerprint(sock, self.expected_fingerprint)
-
-        ws = WSConnection(ConnectionType.CLIENT)
-        target = self._prefix + "/api/devices/bridge/ws"
-        # wsproto's Request takes extra_headers as a list of (name, value).
-        # The Cookie header carries our paired session.
-        extra = [
-            ("Origin", f"{self._scheme}://{self._host}"),
-            ("User-Agent", "jc-client/0.1"),
-        ]
+        extra = [("User-Agent", "jc-client/0.1")]
         if self.cookie:
             extra.append(("Cookie", self.cookie))
-        if self.cf_client_id and self.cf_client_secret:
-            extra.append(("CF-Access-Client-Id", self.cf_client_id))
-            extra.append(("CF-Access-Client-Secret", self.cf_client_secret))
-
-        # Bound the handshake with a SOCKET timeout, not just the wall-clock
-        # deadline below. The deadline is only re-checked BETWEEN recv() calls,
-        # so without a socket timeout a half-open connection — the server/tunnel
-        # accepts our TCP socket but never sends the upgrade response — blocks
-        # recv() forever and the whole reconnect loop hangs in "reconnecting"
-        # even though the server is up. We only drop to the long-lived
-        # no-timeout mode AFTER the handshake completes.
-        sock.settimeout(_HANDSHAKE_TIMEOUT)
-        sock.sendall(
-            ws.send(
-                Request(
-                    host=f"{self._host}:{self._port}",
-                    target=target,
-                    extra_headers=extra,
-                )
-            )
-        )
-
-        # Drain until we see AcceptConnection or RejectConnection.
-        accepted = False
-        deadline = time.time() + _HANDSHAKE_TIMEOUT
-        while time.time() < deadline:
-            # Cap each recv by the time left so a stalled peer can never exceed
-            # the overall handshake budget.
-            sock.settimeout(max(0.5, deadline - time.time()))
-            try:
-                chunk = sock.recv(_RECV_CHUNK)
-            except socket.timeout:
-                break
-            if not chunk:
-                raise WsConnectionClosed("server closed during handshake")
-            ws.receive_data(chunk)
-            for event in ws.events():
-                if isinstance(event, AcceptConnection):
-                    accepted = True
-                    break
-                if isinstance(event, RejectConnection):
-                    raise WsConnectionClosed(
-                        f"server rejected WS handshake: HTTP {event.status_code}"
-                    )
-            if accepted:
-                break
-        if not accepted:
-            raise WsConnectionClosed("WS handshake timed out")
-
-        # Handshake done — go long-lived: no read timeout. The server pings every
-        # ~30s and we send our own pings, so a dead idle link is caught by the
-        # ping/pong path, not by a recv timeout here.
-        sock.settimeout(None)
-        self._sock = sock
-        self._conn = ws
+        extra += cf_access_headers(self.cf_client_id, self.cf_client_secret)
+        self._sock, self._conn = open_websocket(self.server_url, "/api/devices/bridge/ws",
+                                                self.expected_fingerprint, extra)
 
     def close(self) -> None:
         if self._closed:

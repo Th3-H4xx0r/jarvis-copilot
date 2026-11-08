@@ -67,9 +67,7 @@ def _imessage_api_origin() -> str | None:
         creds = credentials.load()
         if not creds.paired:
             return None
-        proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie,
-                            cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
-                            lan_url=creds.lan_url)
+        proxy = PinnedProxy.from_creds(creds)
         _imessage_origin = f"http://127.0.0.1:{proxy.start()}"
     return _imessage_origin
 
@@ -309,7 +307,7 @@ class Service:
         return {"ok": True, "server": _server_url(), "connected": self._ws is not None,
                 "rows": rows, "error": roster.error}
 
-    _TRAY_SPAWN = {"repair": ("pair",), "voice_window": ("voice-popup",), "restart": ("restart",)}
+    _TRAY_SPAWN = {"repair": ("pair",), "restart": ("restart",)}
 
     def _ui_tray(self, action: str) -> dict:
         """What the old tray menu's items did, for the Mac app's menu."""

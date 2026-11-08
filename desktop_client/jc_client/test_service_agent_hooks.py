@@ -267,9 +267,8 @@ def test_ui_tray_actions_run_what_the_old_tray_ran(monkeypatch):
     monkeypatch.setattr(service, "_open", lambda target: opened.append(target))
     monkeypatch.setattr(service, "_server_url", lambda: "https://jarvis.example.dev")
     assert svc._ui_request({"type": "tray", "action": "repair"})["ok"] is True
-    assert svc._ui_request({"type": "tray", "action": "voice_window"})["ok"] is True
     assert svc._ui_request({"type": "tray", "action": "restart"})["ok"] is True
-    assert ran == [("pair",), ("voice-popup",), ("restart",)]
+    assert ran == [("pair",), ("restart",)]
     assert svc._ui_request({"type": "tray", "action": "dashboard"})["ok"] is True
     assert svc._ui_request({"type": "tray", "action": "logs"})["ok"] is True
     assert opened[0] == "https://jarvis.example.dev" and opened[1].endswith(".log")
