@@ -2642,6 +2642,24 @@ class TelegramAdapter(BasePlatformAdapter):
 
     _MODEL_PAGE_SIZE = 8
 
+    async def _show_model_page(self, query, models: list, page: int, provider_name: str, total: int) -> None:
+        """Edit the picker message to show one page of ``models``."""
+        keyboard, page_info = self._build_model_keyboard(models, page)
+        extra = (
+            f"\n_{total - len(models)} more available — type `/model <name>` directly_"
+            if total > len(models) else ""
+        )
+        await query.edit_message_text(
+            text=self.format_message(
+                f"⚙ *Model Configuration*\n\n"
+                f"Provider: *{provider_name}*{page_info}\n"
+                f"Select a model:{extra}"
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+        )
+        await query.answer()
+
     def _build_model_keyboard(self, models: list, page: int) -> tuple:
         """Build paginated model buttons. Returns (keyboard, page_info_text)."""
         page_size = self._MODEL_PAGE_SIZE
@@ -2715,25 +2733,11 @@ class TelegramAdapter(BasePlatformAdapter):
             state["model_list"] = models
             state["model_page"] = 0
 
-            keyboard, page_info = self._build_model_keyboard(models, 0)
-
-            pname = provider.get("name", provider_slug)
-            total = provider.get("total_models", len(models))
-            shown = len(models)
-            extra = f"\n_{total - shown} more available — type `/model <name>` directly_" if total > shown else ""
-
-            await query.edit_message_text(
-                text=self.format_message(
-                    (
-                        f"⚙ *Model Configuration*\n\n"
-                        f"Provider: *{pname}*{page_info}\n"
-                        f"Select a model:{extra}"
-                    )
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
+            await self._show_model_page(
+                query, models, 0,
+                provider.get("name", provider_slug),
+                provider.get("total_models", len(models)),
             )
-            await query.answer()
 
         elif data.startswith("mg:"):
             # --- Page navigation ---
@@ -2746,30 +2750,16 @@ class TelegramAdapter(BasePlatformAdapter):
             models = state.get("model_list", [])
             state["model_page"] = page
 
-            keyboard, page_info = self._build_model_keyboard(models, page)
-
-            pname = state.get("selected_provider_name", "")
             provider_slug = state.get("selected_provider", "")
             provider = next(
                 (p for p in state["providers"] if p["slug"] == provider_slug),
                 None,
             )
-            total = provider.get("total_models", len(models)) if provider else len(models)
-            shown = len(models)
-            extra = f"\n_{total - shown} more available — type `/model <name>` directly_" if total > shown else ""
-
-            await query.edit_message_text(
-                text=self.format_message(
-                    (
-                        f"⚙ *Model Configuration*\n\n"
-                        f"Provider: *{pname}*{page_info}\n"
-                        f"Select a model:{extra}"
-                    )
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
+            await self._show_model_page(
+                query, models, page,
+                state.get("selected_provider_name", ""),
+                provider.get("total_models", len(models)) if provider else len(models),
             )
-            await query.answer()
 
         elif data.startswith("mm:"):
             # --- Model selected: perform the switch ---
