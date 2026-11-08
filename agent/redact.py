@@ -99,7 +99,6 @@ _PREFIX_PATTERNS = [
     r"tvly-[A-Za-z0-9]{10,}",           # Tavily search API key
     r"exa_[A-Za-z0-9]{10,}",            # Exa search API key
     r"gsk_[A-Za-z0-9]{10,}",            # Groq Cloud API key
-    r"syt_[A-Za-z0-9]{10,}",            # Matrix access token
     r"xai-[A-Za-z0-9]{30,}",            # xAI (Grok) API key
 ]
 
