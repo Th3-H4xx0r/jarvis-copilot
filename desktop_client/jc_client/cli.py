@@ -367,18 +367,7 @@ def cmd_start(args) -> int:
 def cmd_stop(args) -> int:
     if _is_mac():
         _quit_mac_app()   # `start` opened it; stopping Jarvis stops it too
-    # Also stop the detached tray UI we launched from `start`, so the menubar
-    # icon doesn't linger after the service is stopped.
-    tray_pid = _read_tray_pid()
-    if tray_pid and _is_running(tray_pid):
-        try:
-            os.kill(tray_pid, signal.SIGTERM)
-        except OSError:
-            pass
-    try:
-        TRAY_PID_FILE.unlink()
-    except FileNotFoundError:
-        pass
+    _stop_old_tray()   # so its menubar icon doesn't linger after the service stops
 
     # Drive the supervisor first — otherwise killing the PID just
     # triggers an instant launchd/systemd respawn.

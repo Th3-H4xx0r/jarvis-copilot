@@ -143,6 +143,23 @@ def read_messages(db, **kwargs) -> list:
     return read_batch(db, **kwargs)[0]
 
 
+def _message_text(db, r) -> str:
+    """A message row's words: its text (or the attributed body newer macOS keeps instead), with
+    a line for each attachment."""
+    text = (r["text"] or relay.decode_attributed_body(r["body"]) or "").replace("\ufffc", "").strip()
+    if r["has_att"]:
+        for mime, name in db.execute(
+                "SELECT a.mime_type, a.transfer_name FROM message_attachment_join maj "
+                "JOIN attachment a ON a.ROWID = maj.attachment_id WHERE maj.message_id = ?",
+                (r["rowid"],)).fetchall():
+            text = (text + " " + _attachment_text(mime, name)).strip()
+    return text
+
+
+def _sender(r, handle: str) -> str:
+    return "Me" if r["is_from_me"] else (contact_name(handle) or handle or "Unknown")
+
+
 def read_batch(db, *, after_rowid=None, start=None, end=None, guids=None, limit=500):
     """``(messages, last_rowid)``: messages (both directions) in ROWID order as
     upload dicts, each carrying its chat's details — guid, rowid, ts, sender,
@@ -179,13 +196,7 @@ def read_batch(db, *, after_rowid=None, start=None, end=None, guids=None, limit=
     chats: dict = {}
     out = []
     for r in rows:
-        text = (r["text"] or relay.decode_attributed_body(r["body"]) or "").replace("￼", "").strip()
-        if r["has_att"]:
-            for mime, name in db.execute(
-                    "SELECT a.mime_type, a.transfer_name FROM message_attachment_join maj "
-                    "JOIN attachment a ON a.ROWID = maj.attachment_id WHERE maj.message_id = ?",
-                    (r["rowid"],)).fetchall():
-                text = (text + " " + _attachment_text(mime, name)).strip()
+        text = _message_text(db, r)
         if not text:
             continue
         if r["chat_rowid"] not in chats:
@@ -195,7 +206,7 @@ def read_batch(db, *, after_rowid=None, start=None, end=None, guids=None, limit=
                 "is_group": r["style"] == 43, "participants": people}
         handle = "" if r["is_from_me"] else (r["handle"] or "")
         out.append({"guid": r["guid"], "rowid": r["rowid"], "ts": apple_ts(r["date"]),
-                    "sender": "Me" if r["is_from_me"] else (contact_name(handle) or handle or "Unknown"),
+                    "sender": _sender(r, handle),
                     "handle": handle, "is_from_me": bool(r["is_from_me"]), "text": text[:4000],
                     **chats[r["chat_rowid"]]})
     return out, last_rowid
@@ -213,20 +224,14 @@ def read_recent(db, guid: str, limit: int = PREVIEW_MESSAGES) -> list:
         if r["rowid"] in seen:
             continue
         seen.add(r["rowid"])
-        text = (r["text"] or relay.decode_attributed_body(r["body"]) or "").replace("￼", "").strip()
-        if r["has_att"]:
-            for mime, name in db.execute(
-                    "SELECT a.mime_type, a.transfer_name FROM message_attachment_join maj "
-                    "JOIN attachment a ON a.ROWID = maj.attachment_id WHERE maj.message_id = ?",
-                    (r["rowid"],)).fetchall():
-                text = (text + " " + _attachment_text(mime, name)).strip()
+        text = _message_text(db, r)
         if not text:
             continue
         if is_code_message(text):
             text = "[code hidden]"
         handle = "" if r["is_from_me"] else (r["handle"] or "")
         out.append({"ts": apple_ts(r["date"]), "is_from_me": bool(r["is_from_me"]), "text": text[:2000],
-                    "sender": "Me" if r["is_from_me"] else (contact_name(handle) or handle or "Unknown")})
+                    "sender": _sender(r, handle)})
         if len(out) >= limit:
             break
     out.reverse()
