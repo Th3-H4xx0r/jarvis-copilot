@@ -252,12 +252,14 @@ struct ScanView: View {
             get: {
                 manager.strictNameMatch && scaleManager.strictNameMatch
                     && esp32Manager.strictNameMatch && ringManager.strictNameMatch
+                    && x5Manager.strictNameMatch
             },
             set: { enabled in
                 manager.strictNameMatch = enabled
                 scaleManager.strictNameMatch = enabled
                 esp32Manager.strictNameMatch = enabled
                 ringManager.strictNameMatch = enabled
+                x5Manager.strictNameMatch = enabled
             }
         ))
         .tint(JcTheme.accent)

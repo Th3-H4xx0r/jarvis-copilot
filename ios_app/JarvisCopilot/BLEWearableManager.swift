@@ -320,7 +320,9 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
         }
         let rssi = RSSI.intValue
         Task { @MainActor in
-            guard self.matchesAdvertisement(name: name, services: services, manufacturer: maker) else { return }
+            let isLastUsed = p.identifier.uuidString == UserDefaults.standard.string(forKey: self.lastPeripheralKey)
+            guard isLastUsed || self.matchesAdvertisement(name: name, services: services, manufacturer: maker)
+            else { return }
             if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
                 self.discovered[i].rssi = rssi
                 if !name.isEmpty { self.discovered[i].name = name }

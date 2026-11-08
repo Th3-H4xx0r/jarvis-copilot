@@ -16,7 +16,7 @@ final class X5Manager: BLEWearableManager {
 
     /// FFF0 is a generic service, so by default the list only shows X5-named devices; off shows
     /// anything advertising FFF0 (each is still checked before it is remembered).
-    @Published var strictNameMatch = false {
+    @Published var strictNameMatch = true {
         didSet {
             guard oldValue != strictNameMatch else { return }
             if connected == nil { startScan() }
