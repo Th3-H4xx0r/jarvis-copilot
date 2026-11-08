@@ -4880,20 +4880,59 @@ def _model_flow_stepfun(config, current_model=""):
         print("No change.")
 
 
-def _model_flow_bedrock_api_key(config, region, current_model=""):
-    """Bedrock API Key mode — uses the OpenAI-compatible bedrock-mantle endpoint.
+def _pick_and_save_bedrock_model(
+    model_list: list, current_model: str, region: str, *,
+    provider: str, base_url: str, via: str, env: Optional[dict] = None,
+) -> Optional[str]:
+    """Pick a Bedrock model (or type one) and make it the default.
 
-    For developers who don't have an AWS account but received a Bedrock API Key
-    from their AWS admin. Works like any OpenAI-compatible endpoint.
+    Records the region under ``bedrock.region`` and writes ``env`` to
+    .env. Returns the chosen model, or None when the user picked nothing.
     """
     from jarviscopilot_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
         deactivate_provider,
     )
+    from jarviscopilot_cli.config import load_config, save_config, save_env_value
+
+    if model_list:
+        selected = _prompt_model_selection(model_list, current_model=current_model)
+    else:
+        try:
+            selected = input("  Model ID: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            selected = None
+    if not selected:
+        print("  No change.")
+        return None
+
+    _save_model_choice(selected)
+    cfg = load_config()
+    model = model_section(cfg)
+    model["provider"] = provider
+    model["base_url"] = base_url
+    model.pop("api_mode", None)
+    bedrock_cfg = cfg.get("bedrock", {})
+    if not isinstance(bedrock_cfg, dict):
+        bedrock_cfg = {}
+    bedrock_cfg["region"] = region
+    cfg["bedrock"] = bedrock_cfg
+    for key, value in (env or {}).items():
+        save_env_value(key, value)
+    save_config(cfg)
+    deactivate_provider()
+    print(f"  Default model set to: {selected} (via {via}, {region})")
+    return selected
+
+
+def _model_flow_bedrock_api_key(config, region, current_model=""):
+    """Bedrock API Key mode — uses the OpenAI-compatible bedrock-mantle endpoint.
+
+    For developers who don't have an AWS account but received a Bedrock API Key
+    from their AWS admin. Works like any OpenAI-compatible endpoint.
+    """
     from jarviscopilot_cli.config import (
-        load_config,
-        save_config,
         get_env_value,
         save_env_value,
     )
@@ -4927,42 +4966,14 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
     model_list = _PROVIDER_MODELS.get("bedrock", [])
     print(f"  Showing {len(model_list)} curated models")
 
-    if model_list:
-        selected = _prompt_model_selection(model_list, current_model=current_model)
-    else:
-        try:
-            selected = input("  Model ID: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            selected = None
-
-    if selected:
-        _save_model_choice(selected)
-
-        # Save as custom provider pointing to bedrock-mantle
-        cfg = load_config()
-        model = model_section(cfg)
-        model["provider"] = "custom"
-        model["base_url"] = mantle_base_url
-        model.pop("api_mode", None)  # chat_completions is the default
-
-        # Also save region in bedrock config for reference
-        bedrock_cfg = cfg.get("bedrock", {})
-        if not isinstance(bedrock_cfg, dict):
-            bedrock_cfg = {}
-        bedrock_cfg["region"] = region
-        cfg["bedrock"] = bedrock_cfg
-
-        # Save the API key env var name so jarviscopilot knows where to find it
-        save_env_value("OPENAI_API_KEY", existing_key)
-        save_env_value("OPENAI_BASE_URL", mantle_base_url)
-
-        save_config(cfg)
-        deactivate_provider()
-
-        print(f"  Default model set to: {selected} (via Bedrock API Key, {region})")
+    # A custom provider pointing at bedrock-mantle (chat_completions); the
+    # OpenAI env vars tell the runtime where the key and endpoint are.
+    if _pick_and_save_bedrock_model(
+        model_list, current_model, region,
+        provider="custom", base_url=mantle_base_url, via="Bedrock API Key",
+        env={"OPENAI_API_KEY": existing_key, "OPENAI_BASE_URL": mantle_base_url},
+    ):
         print(f"  Endpoint: {mantle_base_url}")
-    else:
-        print("  No change.")
 
 
 def _model_flow_bedrock(config, current_model=""):
@@ -4972,12 +4983,6 @@ def _model_flow_bedrock(config, current_model=""):
     Auth is handled by the AWS SDK default credential chain (env vars, profile,
     instance role), so no API key prompt is needed.
     """
-    from jarviscopilot_cli.auth import (
-        _prompt_model_selection,
-        _save_model_choice,
-        deactivate_provider,
-    )
-    from jarviscopilot_cli.config import load_config, save_config
     from jarviscopilot_cli.models import _PROVIDER_MODELS
 
     # 1. Check for AWS credentials
@@ -5113,36 +5118,13 @@ def _model_flow_bedrock(config, current_model=""):
             )
             return
 
-    # 4. Model selection
-    if model_list:
-        selected = _prompt_model_selection(model_list, current_model=current_model)
-    else:
-        try:
-            selected = input("  Model ID: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            selected = None
-
-    if selected:
-        _save_model_choice(selected)
-
-        cfg = load_config()
-        model = model_section(cfg)
-        model["provider"] = "bedrock"
-        model["base_url"] = f"https://bedrock-runtime.{region}.amazonaws.com"
-        model.pop("api_mode", None)  # bedrock_converse is auto-detected
-
-        bedrock_cfg = cfg.get("bedrock", {})
-        if not isinstance(bedrock_cfg, dict):
-            bedrock_cfg = {}
-        bedrock_cfg["region"] = region
-        cfg["bedrock"] = bedrock_cfg
-
-        save_config(cfg)
-        deactivate_provider()
-
-        print(f"  Default model set to: {selected} (via AWS Bedrock, {region})")
-    else:
-        print("  No change.")
+    # 4. Model selection (bedrock_converse is auto-detected from the URL)
+    _pick_and_save_bedrock_model(
+        model_list, current_model, region,
+        provider="bedrock",
+        base_url=f"https://bedrock-runtime.{region}.amazonaws.com",
+        via="AWS Bedrock",
+    )
 
 
 def _model_flow_api_key_provider(config, provider_id, current_model=""):
