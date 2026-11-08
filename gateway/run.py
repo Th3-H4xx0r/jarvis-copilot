@@ -2581,11 +2581,13 @@ class GatewayRunner:
             if agent is not _AGENT_PENDING_SENTINEL
         }
 
-    def _queue_or_replace_pending_event(self, session_key: str, event: MessageEvent) -> None:
+    def _queue_or_replace_pending_event(
+        self, session_key: str, event: MessageEvent, *, merge_text: bool = False
+    ) -> None:
         adapter = self.adapters.get(event.source.platform)
         if not adapter:
             return
-        merge_pending_message_event(adapter._pending_messages, session_key, event)
+        merge_pending_message_event(adapter._pending_messages, session_key, event, merge_text=merge_text)
 
     async def _handle_active_session_busy_message(self, event: MessageEvent, session_key: str) -> bool:
         # --- Authorization gate (#17775) ---
@@ -6275,20 +6277,8 @@ class GatewayRunner:
                 if not steer_text:
                     return "Usage: /steer <prompt>"
                 running_agent = self._running_agents.get(_quick_key)
-                if running_agent is _AGENT_PENDING_SENTINEL:
-                    # Agent hasn't started yet — queue as turn-boundary fallback.
-                    adapter = self.adapters.get(source.platform)
-                    if adapter:
-                        queued_event = MessageEvent(
-                            text=steer_text,
-                            message_type=MessageType.TEXT,
-                            source=event.source,
-                            message_id=event.message_id,
-                            channel_prompt=event.channel_prompt,
-                        )
-                        adapter._pending_messages[_quick_key] = queued_event
-                    return "Agent still starting — /steer queued for the next turn."
-                if running_agent and hasattr(running_agent, "steer"):
+                starting = running_agent is _AGENT_PENDING_SENTINEL
+                if not starting and running_agent and hasattr(running_agent, "steer"):
                     try:
                         accepted = running_agent.steer(steer_text)
                     except Exception as exc:
@@ -6298,17 +6288,19 @@ class GatewayRunner:
                         preview = steer_text[:60] + ("..." if len(steer_text) > 60 else "")
                         return f"⏩ Steer queued — arrives after the next tool call: '{preview}'"
                     return "Steer rejected (empty payload)."
-                # Running agent is missing or lacks steer() — fall back to queue.
+                # Agent still starting, missing, or without steer() — queue
+                # the text as a turn-boundary fallback.
                 adapter = self.adapters.get(source.platform)
                 if adapter:
-                    queued_event = MessageEvent(
+                    adapter._pending_messages[_quick_key] = MessageEvent(
                         text=steer_text,
                         message_type=MessageType.TEXT,
                         source=event.source,
                         message_id=event.message_id,
                         channel_prompt=event.channel_prompt,
                     )
-                    adapter._pending_messages[_quick_key] = queued_event
+                if starting:
+                    return "Agent still starting — /steer queued for the next turn."
                 return "No active agent — /steer queued for the next turn."
 
             # /model must not be used while the agent is running.
@@ -6411,9 +6403,7 @@ class GatewayRunner:
 
             if event.message_type == MessageType.PHOTO:
                 logger.debug("PRIORITY photo follow-up for session %s — queueing without interrupt", _quick_key)
-                adapter = self.adapters.get(source.platform)
-                if adapter:
-                    merge_pending_message_event(adapter._pending_messages, _quick_key, event)
+                self._queue_or_replace_pending_event(_quick_key, event)
                 return None
 
             _telegram_followup_grace = float(
@@ -6432,14 +6422,7 @@ class GatewayRunner:
                     time.time() - _started_at,
                     _quick_key,
                 )
-                adapter = self.adapters.get(source.platform)
-                if adapter:
-                    merge_pending_message_event(
-                        adapter._pending_messages,
-                        _quick_key,
-                        event,
-                        merge_text=True,
-                    )
+                self._queue_or_replace_pending_event(_quick_key, event, merge_text=True)
                 return None
 
             running_agent = self._running_agents.get(_quick_key)
@@ -6452,14 +6435,7 @@ class GatewayRunner:
                     return EphemeralReply("⚡ Force-stopped. The agent was still starting — session unlocked.")
                 # Queue the message so it will be picked up after the
                 # agent starts.
-                adapter = self.adapters.get(source.platform)
-                if adapter:
-                    merge_pending_message_event(
-                        adapter._pending_messages,
-                        _quick_key,
-                        event,
-                        merge_text=True,
-                    )
+                self._queue_or_replace_pending_event(_quick_key, event, merge_text=True)
                 return None
             if self._draining:
                 if self._queue_during_drain_enabled():
@@ -9341,7 +9317,6 @@ class GatewayRunner:
           /model <name> --provider <provider> — switch provider + model
           /model --provider <provider>        — switch to provider, auto-detect model
         """
-        import yaml
         from jarviscopilot_cli.model_switch import (
             switch_model as _switch_model, parse_model_flags,
             list_authenticated_providers,
@@ -9361,7 +9336,6 @@ class GatewayRunner:
         current_api_key = ""
         user_provs = None
         custom_provs = None
-        config_path = _hermes_home / "config.yaml"
         try:
             cfg = _load_gateway_config()
             if cfg:
@@ -9439,81 +9413,13 @@ class GatewayRunner:
                         if not result.success:
                             return f"Error: {result.error_message}"
 
-                        # Update cached agent in-place
-                        cached_entry = None
-                        _cache_lock = getattr(_self, "_agent_cache_lock", None)
-                        _cache = getattr(_self, "_agent_cache", None)
-                        if _cache_lock and _cache is not None:
-                            with _cache_lock:
-                                cached_entry = _cache.get(_session_key)
-                        if cached_entry and cached_entry[0] is not None:
-                            try:
-                                cached_entry[0].switch_model(
-                                    new_model=result.new_model,
-                                    new_provider=result.target_provider,
-                                    api_key=result.api_key,
-                                    base_url=result.base_url,
-                                    api_mode=result.api_mode,
-                                )
-                            except Exception as exc:
-                                logger.warning("Picker model switch failed for cached agent: %s", exc)
-
-                        # Store model note + session override
-                        if not hasattr(_self, "_pending_model_notes"):
-                            _self._pending_model_notes = {}
-                        _self._pending_model_notes[_session_key] = (
-                            f"[Note: model was just switched from {_cur_model} to {result.new_model} "
-                            f"via {result.provider_label or result.target_provider}. "
-                            f"Adjust your self-identification accordingly.]"
-                        )
-                        _self._session_model_overrides[_session_key] = {
-                            "model": result.new_model,
-                            "provider": result.target_provider,
-                            "api_key": result.api_key,
-                            "base_url": result.base_url,
-                            "api_mode": result.api_mode,
-                        }
-
-                        # Evict cached agent so the next turn creates a fresh
-                        # agent from the override rather than relying on the
-                        # stale cache signature to trigger a rebuild.
-                        _self._evict_cached_agent(_session_key)
-
-                        # Build confirmation text
-                        plabel = result.provider_label or result.target_provider
-                        lines = [f"Model switched to `{result.new_model}`"]
-                        lines.append(f"Provider: {plabel}")
-                        mi = result.model_info
-                        from jarviscopilot_cli.model_switch import resolve_display_context_length
-                        _sw_config_ctx = None
-                        try:
-                            _sw_cfg = _load_gateway_config()
-                            _sw_model_cfg = _sw_cfg.get("model", {})
-                            if isinstance(_sw_model_cfg, dict):
-                                _sw_raw = _sw_model_cfg.get("context_length")
-                                if _sw_raw is not None:
-                                    _sw_config_ctx = int(_sw_raw)
-                        except Exception:
-                            pass
-                        ctx = resolve_display_context_length(
-                            result.new_model,
-                            result.target_provider,
-                            base_url=result.base_url or current_base_url or "",
-                            api_key=result.api_key or current_api_key or "",
-                            model_info=mi,
+                        return _self._apply_model_switch(
+                            _session_key, result,
+                            previous_model=_cur_model,
+                            current_base_url=_cur_base_url,
+                            current_api_key=_cur_api_key,
                             custom_providers=custom_provs,
-                            config_context_length=_sw_config_ctx,
                         )
-                        if ctx:
-                            lines.append("Context: {tokens} tokens".format(tokens=f"{ctx:,}"))
-                        if mi:
-                            if mi.max_output:
-                                lines.append("Max output: {tokens} tokens".format(tokens=f"{mi.max_output:,}"))
-                            if mi.has_cost_data():
-                                lines.append(f"Cost: {mi.format_cost()}")
-                            lines.append(f"Capabilities: {mi.format_capabilities()}")
-                        lines.append("_(session only — add `--global` to persist)_")
-                        return "\n".join(lines)
 
                     metadata = _thread_metadata_for_source(source, _reply_anchor_for_event(event))
                     result = await adapter.send_model_picker(
@@ -9575,14 +9481,39 @@ class GatewayRunner:
         if not result.success:
             return f"Error: {result.error_message}"
 
-        # If there's a cached agent, update it in-place
+        return self._apply_model_switch(
+            session_key, result,
+            previous_model=current_model,
+            current_base_url=current_base_url,
+            current_api_key=current_api_key,
+            custom_providers=custom_provs,
+            persist_global=persist_global,
+        )
+
+    def _apply_model_switch(
+        self,
+        session_key: str,
+        result,
+        *,
+        previous_model: str,
+        current_base_url: str,
+        current_api_key: str,
+        custom_providers,
+        persist_global: bool = False,
+    ) -> str:
+        """Apply a successful /model switch to this session and describe it.
+
+        Switches the cached agent in place, leaves a note for the next user
+        message (so the model knows it changed without a mid-history system
+        message), stores the session override, evicts the cached agent, and
+        with ``persist_global`` writes the choice to config.yaml.
+        """
         cached_entry = None
         _cache_lock = getattr(self, "_agent_cache_lock", None)
         _cache = getattr(self, "_agent_cache", None)
         if _cache_lock and _cache is not None:
             with _cache_lock:
                 cached_entry = _cache.get(session_key)
-
         if cached_entry and cached_entry[0] is not None:
             try:
                 cached_entry[0].switch_model(
@@ -9595,17 +9526,13 @@ class GatewayRunner:
             except Exception as exc:
                 logger.warning("In-place model switch failed for cached agent: %s", exc)
 
-        # Store a note to prepend to the next user message so the model
-        # knows about the switch (avoids system messages mid-history).
         if not hasattr(self, "_pending_model_notes"):
             self._pending_model_notes = {}
         self._pending_model_notes[session_key] = (
-            f"[Note: model was just switched from {current_model} to {result.new_model} "
+            f"[Note: model was just switched from {previous_model} to {result.new_model} "
             f"via {result.provider_label or result.target_provider}. "
             f"Adjust your self-identification accordingly.]"
         )
-
-        # Store session override so next agent creation uses the new model
         self._session_model_overrides[session_key] = {
             "model": result.new_model,
             "provider": result.target_provider,
@@ -9613,19 +9540,16 @@ class GatewayRunner:
             "base_url": result.base_url,
             "api_mode": result.api_mode,
         }
-
-        # Evict cached agent so the next turn creates a fresh agent from the
-        # override rather than relying on cache signature mismatch detection.
         self._evict_cached_agent(session_key)
 
-        # Persist to config if --global
         if persist_global:
             try:
+                import yaml
+                config_path = _hermes_home / "config.yaml"
+                cfg = {}
                 if config_path.exists():
                     with open(config_path, encoding="utf-8") as f:
                         cfg = yaml.safe_load(f) or {}
-                else:
-                    cfg = {}
                 model_cfg = cfg.setdefault("model", {})
                 model_cfg["default"] = result.new_model
                 model_cfg["provider"] = result.target_provider
@@ -9636,24 +9560,20 @@ class GatewayRunner:
             except Exception as e:
                 logger.warning("Failed to persist model switch: %s", e)
 
-        # Build confirmation message with full metadata
-        provider_label = result.provider_label or result.target_provider
-        lines = [f"Model switched to `{result.new_model}`"]
-        lines.append(f"Provider: {provider_label}")
-
+        lines = [
+            f"Model switched to `{result.new_model}`",
+            f"Provider: {result.provider_label or result.target_provider}",
+        ]
         # Context: always resolve via the provider-aware chain so Codex OAuth,
         # Copilot, and Nous-enforced caps win over the raw models.dev entry.
         mi = result.model_info
         from jarviscopilot_cli.model_switch import resolve_display_context_length
-        _sw2_config_ctx = None
+        config_ctx = None
         try:
-            _sw2_cfg = _load_gateway_config()
-            _sw2_model_cfg = _sw2_cfg.get("model", {})
-            if isinstance(_sw2_model_cfg, dict):
-                _sw2_raw = _sw2_model_cfg.get("context_length")
-                if _sw2_raw is not None:
-                    _sw2_config_ctx = int(_sw2_raw)
-        except Exception:
+            raw_ctx = cfg_get(_load_gateway_config(), "model", "context_length")
+            if raw_ctx is not None:
+                config_ctx = int(raw_ctx)
+        except (TypeError, ValueError):
             pass
         ctx = resolve_display_context_length(
             result.new_model,
@@ -9661,34 +9581,30 @@ class GatewayRunner:
             base_url=result.base_url or current_base_url or "",
             api_key=result.api_key or current_api_key or "",
             model_info=mi,
-            custom_providers=custom_provs,
-            config_context_length=_sw2_config_ctx,
+            custom_providers=custom_providers,
+            config_context_length=config_ctx,
         )
         if ctx:
-            lines.append("Context: {tokens} tokens".format(tokens=f"{ctx:,}"))
+            lines.append(f"Context: {ctx:,} tokens")
         if mi:
             if mi.max_output:
-                lines.append("Max output: {tokens} tokens".format(tokens=f"{mi.max_output:,}"))
+                lines.append(f"Max output: {mi.max_output:,} tokens")
             if mi.has_cost_data():
                 lines.append(f"Cost: {mi.format_cost()}")
             lines.append(f"Capabilities: {mi.format_capabilities()}")
 
-        # Cache notice
         cache_enabled = (
             (base_url_host_matches(result.base_url or "", "openrouter.ai") and "claude" in result.new_model.lower())
             or result.api_mode == "anthropic_messages"
         )
         if cache_enabled:
             lines.append("Prompt caching: enabled")
-
         if result.warning_message:
             lines.append(f"Warning: {result.warning_message}")
-
         if persist_global:
             lines.append("Saved to config.yaml (`--global`)")
         else:
             lines.append("_(session only — add `--global` to persist)_")
-
         return "\n".join(lines)
 
     async def _handle_codex_runtime_command(self, event: MessageEvent) -> str:
