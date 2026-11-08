@@ -523,8 +523,29 @@ def _cleanup_ephemeral_cancelled_turn(session) -> None:
         logger.debug("Failed to clean up ephemeral cancelled session", exc_info=True)
 
 
-def _finalize_cancelled_turn(session, *, ephemeral: bool = False, message: str = 'Task cancelled.') -> None:
-    """Finalize a cancelled turn for persistent or ephemeral sessions."""
+def _append_interrupted_journal(session_id: str, stream_id: str, reason: str = 'cancelled') -> None:
+    """Record in the turn journal that this stream's turn ended unfinished
+    (``reason``: ``cancelled``, or the provider error type). Never raises."""
+    try:
+        append_turn_journal_event_for_stream(
+            session_id,
+            stream_id,
+            {
+                "event": "interrupted",
+                "created_at": time.time(),
+                "reason": reason,
+            },
+        )
+    except Exception:
+        logger.debug("Failed to append %s turn journal event", reason, exc_info=True)
+
+
+def _finalize_cancelled_turn(session, *, ephemeral: bool = False, message: str = 'Task cancelled.',
+                             stream_id: str | None = None) -> None:
+    """Finalize a cancelled turn for persistent or ephemeral sessions.
+
+    With ``stream_id``, a persistent session's turn is also journaled as
+    interrupted (reason ``cancelled``), after the cancel marker is saved."""
     if ephemeral:
         _cleanup_ephemeral_cancelled_turn(session)
         return
@@ -533,6 +554,8 @@ def _finalize_cancelled_turn(session, *, ephemeral: bool = False, message: str =
         session.save()
     except Exception:
         logger.debug("Failed to persist cancelled turn", exc_info=True)
+    if stream_id is not None:
+        _append_interrupted_journal(session.session_id, stream_id)
 
 
 def _aiagent_import_error_detail() -> str:
@@ -3162,6 +3185,18 @@ def _run_agent_streaming(
         except Exception:
             logger.debug("Failed to put event to queue")
 
+    def _end_cancelled_turn(*, message: str = 'Task cancelled.', payload: dict | None = None,
+                            lock=None) -> None:
+        """A cancelled turn, end to end: persist its cancel marker (or clean up an
+        ephemeral session), journal it as interrupted, then send the client its
+        ``cancel`` event. ``lock`` is the session lock to take for the write, or
+        None when the caller already holds it (it is not reentrant)."""
+        if s is not None:
+            with (lock if lock is not None else contextlib.nullcontext()):
+                _finalize_cancelled_turn(s, ephemeral=ephemeral, message=message,
+                                         stream_id=stream_id)
+        put('cancel', payload or {'message': 'Cancelled by user'})
+
     # Latency rehaul plan 2.5 — let a background escalation job push its
     # `escalation_result` event onto this session's live stream. Registering here
     # also flushes anything a PREVIOUS turn's escalation finished after its
@@ -4248,24 +4283,8 @@ def _run_agent_streaming(
                 _pre_err = str(getattr(agent, '_last_error', None) or result.get('error') or '').strip()
                 _cancel_msg = (f'Cancelled while retrying after a provider error: {_pre_err}'
                                if _pre_err else 'Task cancelled.')
-                if ephemeral:
-                    _cleanup_ephemeral_cancelled_turn(s)
-                else:
-                    with _agent_lock:
-                        _finalize_cancelled_turn(s, ephemeral=False, message=_cancel_msg)
-                        try:
-                            append_turn_journal_event_for_stream(
-                                s.session_id,
-                                stream_id,
-                                {
-                                    "event": "interrupted",
-                                    "created_at": time.time(),
-                                    "reason": "cancelled",
-                                },
-                            )
-                        except Exception:
-                            logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                put('cancel', {'message': 'Cancelled by user'})
+                _end_cancelled_turn(message=_cancel_msg,
+                                    lock=None if ephemeral else _agent_lock)
                 return
             # ── Ephemeral mode (/btw): deliver answer, skip persistence, cleanup ──
             if ephemeral:
@@ -4293,21 +4312,7 @@ def _run_agent_streaming(
             if _ckpt_thread is not None:
                 _ckpt_thread.join(timeout=15)
             if cancel_event.is_set():
-                with _agent_lock:
-                    _finalize_cancelled_turn(s, ephemeral=False)
-                    try:
-                        append_turn_journal_event_for_stream(
-                            s.session_id,
-                            stream_id,
-                            {
-                                "event": "interrupted",
-                                "created_at": time.time(),
-                                "reason": "cancelled",
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                put('cancel', {'message': 'Cancelled by user'})
+                _end_cancelled_turn(lock=_agent_lock)
                 return
             with _agent_lock:
                 if not ephemeral and not _stream_writeback_is_current(s, stream_id):
@@ -4320,20 +4325,7 @@ def _run_agent_streaming(
                     return
                 _result_messages = result.get('messages') or _previous_context_messages
                 if cancel_event.is_set():
-                    _finalize_cancelled_turn(s, ephemeral=False)
-                    try:
-                        append_turn_journal_event_for_stream(
-                            s.session_id,
-                            stream_id,
-                            {
-                                "event": "interrupted",
-                                "created_at": time.time(),
-                                "reason": "cancelled",
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                    put('cancel', {'message': 'Cancelled by user'})
+                    _end_cancelled_turn()
                     return
                 _next_context_messages = _restore_reasoning_metadata(
                     _previous_context_messages,
@@ -4384,23 +4376,15 @@ def _run_agent_streaming(
                 # _token_sent tracks whether on_token() was called (any streamed text)
                 if not _assistant_added and not _token_sent:
                     if cancel_event.is_set():
-                        _finalize_cancelled_turn(s, ephemeral=ephemeral)
-                        if not ephemeral:
-                            try:
-                                append_turn_journal_event_for_stream(
-                                    s.session_id,
-                                    stream_id,
-                                    {
-                                        "event": "interrupted",
-                                        "created_at": time.time(),
-                                        "reason": "cancelled",
-                                    },
-                                )
-                            except Exception:
-                                logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                        put('cancel', {'message': _cancel_msg if _pre_err else 'Cancelled by user',
-                                       'type': 'quota_exhausted' if _is_quota_error_text(_pre_err) else ('rate_limit' if '429' in _pre_err else 'cancel'),
-                                       'hint': _pre_err})
+                        # The provider error the agent was retrying, if any, rides
+                        # along so the client can say why the turn stopped.
+                        _pre_err = str(getattr(agent, '_last_error', None) or result.get('error') or '').strip()
+                        _cancel_msg = (f'Cancelled while retrying after a provider error: {_pre_err}'
+                                       if _pre_err else 'Task cancelled.')
+                        _end_cancelled_turn(payload={
+                            'message': _cancel_msg if _pre_err else 'Cancelled by user',
+                            'type': 'quota_exhausted' if _is_quota_error_text(_pre_err) else ('rate_limit' if '429' in _pre_err else 'cancel'),
+                            'hint': _pre_err})
                         return
                     _last_err = getattr(agent, '_last_error', None) or result.get('error') or ''
                     _err_str = str(_last_err) if _last_err else ''
@@ -4806,38 +4790,15 @@ def _run_agent_streaming(
                             )
                         except Exception:
                             logger.debug("Failed to append assistant_started turn journal event", exc_info=True)
+                # Checked on both sides of the save: before it so a cancelled
+                # turn is never written out as completed, after it for a cancel
+                # that landed during the write.
                 if cancel_event.is_set():
-                    _finalize_cancelled_turn(s, ephemeral=False)
-                    try:
-                        append_turn_journal_event_for_stream(
-                            s.session_id,
-                            stream_id,
-                            {
-                                "event": "interrupted",
-                                "created_at": time.time(),
-                                "reason": "cancelled",
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                    put('cancel', {'message': 'Cancelled by user'})
+                    _end_cancelled_turn()
                     return
                 s.save()
                 if cancel_event.is_set():
-                    _finalize_cancelled_turn(s, ephemeral=False)
-                    try:
-                        append_turn_journal_event_for_stream(
-                            s.session_id,
-                            stream_id,
-                            {
-                                "event": "interrupted",
-                                "created_at": time.time(),
-                                "reason": "cancelled",
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                    put('cancel', {'message': 'Cancelled by user'})
+                    _end_cancelled_turn()
                     return
                 if not ephemeral:
                     try:
@@ -5106,23 +5067,7 @@ def _run_agent_streaming(
                     _checkpoint_stop.set()
                 if _ckpt_thread is not None:
                     _ckpt_thread.join(timeout=15)
-                _lock_ctx = _agent_lock if _agent_lock is not None else contextlib.nullcontext()
-                with _lock_ctx:
-                    _finalize_cancelled_turn(s, ephemeral=ephemeral)
-                    if not ephemeral:
-                        try:
-                            append_turn_journal_event_for_stream(
-                                s.session_id,
-                                stream_id,
-                                {
-                                    "event": "interrupted",
-                                    "created_at": time.time(),
-                                    "reason": "cancelled",
-                                },
-                            )
-                        except Exception:
-                            logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-            put('cancel', {'message': 'Cancelled by user'})
+            _end_cancelled_turn(lock=_agent_lock)
             return
         _exc_is_quota = _classification['type'] == 'quota_exhausted'
         # Exception quota text still includes: 'more credits' in _exc_lower, 'can only afford' in _exc_lower, 'fewer max_tokens' in _exc_lower.
@@ -5266,18 +5211,7 @@ def _run_agent_streaming(
                 except Exception:
                     pass
                 if not ephemeral:
-                    try:
-                        append_turn_journal_event_for_stream(
-                            s.session_id,
-                            stream_id,
-                            {
-                                "event": "interrupted",
-                                "created_at": time.time(),
-                                "reason": _exc_type,
-                            },
-                        )
-                    except Exception:
-                        logger.debug("Failed to append interrupted turn journal event", exc_info=True)
+                    _append_interrupted_journal(s.session_id, stream_id, reason=_exc_type)
         put('apperror', _error_payload)
     finally:
         # plan 2.5 — detach this stream's fan-out from the escalation delivery

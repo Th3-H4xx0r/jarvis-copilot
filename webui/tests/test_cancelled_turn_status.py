@@ -163,8 +163,11 @@ class TestCancelledTurnPersistenceGuards:
             "If cancellation arrives after tokens streamed but before run_conversation returns, "
             "the worker must emit/persist cancel before normal merge/save/completed handling."
         )
-        assert "put('cancel'" in block
-        assert "_cleanup_ephemeral_cancelled_turn" in block or "_finalize_cancelled_turn" in block, (
+        # _end_cancelled_turn finalizes (or cleans up an ephemeral session) and
+        # then emits the cancel event.
+        assert "put('cancel'" in block or "_end_cancelled_turn(" in block
+        assert ("_cleanup_ephemeral_cancelled_turn" in block or "_finalize_cancelled_turn" in block
+                or "_end_cancelled_turn(" in block), (
             "Ephemeral cancels must clean up their temporary session before returning."
         )
         assert "return" in block

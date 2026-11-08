@@ -41,7 +41,7 @@ def test_streaming_appends_completed_after_final_save():
 def test_streaming_appends_interrupted_on_provider_error_path():
     src = Path("api/streaming.py").read_text(encoding="utf-8")
     err_idx = src.index("err_str = str(e)")
-    interrupted_idx = src.index('"event": "interrupted"', err_idx)
+    interrupted_idx = src.index("_append_interrupted_journal(s.session_id, stream_id, reason=_exc_type)", err_idx)
     apperror_idx = src.index("put('apperror'", interrupted_idx)
 
     assert err_idx < interrupted_idx < apperror_idx
