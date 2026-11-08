@@ -97,6 +97,22 @@ def reset_transport(token) -> None:
     _current_transport.reset(token)
 
 
+def _is_peer_gone(exc: BaseException) -> bool:
+    """True when a write/flush error means the peer closed the pipe.
+
+    ``ValueError("I/O operation on closed file")`` is the only ValueError
+    that means "peer gone"; anything else, including UnicodeEncodeError (a
+    ValueError subclass, for misconfigured locales), is a real bug.
+    """
+    if isinstance(exc, BrokenPipeError):
+        return True
+    if isinstance(exc, UnicodeEncodeError):
+        return False
+    if isinstance(exc, ValueError):
+        return "closed file" in str(exc)
+    return isinstance(exc, OSError) and exc.errno in _PEER_GONE_ERRNOS
+
+
 class StdioTransport:
     """Writes JSON frames to a stream (usually ``sys.stdout``).
 
@@ -140,42 +156,16 @@ class StdioTransport:
             stream = self._stream_getter()
             try:
                 stream.write(line)
-            except BrokenPipeError:
-                return False
-            except ValueError as e:
-                # ValueError("I/O operation on closed file") is the
-                # ONLY ValueError that means "peer gone".  Anything
-                # else — including UnicodeEncodeError, which is a
-                # ValueError subclass for misconfigured locales —
-                # is a real bug; re-raise so it surfaces in the crash log.
-                if isinstance(e, UnicodeEncodeError) or "closed file" not in str(e):
-                    raise
-                return False
-            except OSError as e:
-                if e.errno not in _PEER_GONE_ERRNOS:
-                    raise
-                logger.debug("StdioTransport write peer gone: %s", e)
-                return False
-
-            # A flush that *raises* with a peer-gone errno means the
-            # dispatcher should exit cleanly.  A flush that *hangs* on
-            # a half-closed pipe holds the lock until it returns — see
-            # ``_DISABLE_FLUSH`` for the "skip flush entirely" escape
-            # hatch.
-            if not _DISABLE_FLUSH:
-                try:
+                # A flush that *hangs* on a half-closed pipe holds the lock
+                # until it returns — see ``_DISABLE_FLUSH`` for the "skip
+                # flush entirely" escape hatch.
+                if not _DISABLE_FLUSH:
                     stream.flush()
-                except BrokenPipeError:
-                    return False
-                except ValueError as e:
-                    if isinstance(e, UnicodeEncodeError) or "closed file" not in str(e):
-                        raise
-                    return False
-                except OSError as e:
-                    if e.errno not in _PEER_GONE_ERRNOS:
-                        raise
-                    logger.debug("StdioTransport flush peer gone: %s", e)
-                    return False
+            except (ValueError, OSError) as e:
+                if not _is_peer_gone(e):
+                    raise
+                logger.debug("StdioTransport peer gone: %s", e)
+                return False
 
         return True
 

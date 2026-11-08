@@ -2929,7 +2929,6 @@ def _(rid, params: dict) -> dict:
 
 
 def _spawn_trees_root():
-    from pathlib import Path as _P
     from jarviscopilot_constants import get_hermes_home
 
     root = get_hermes_home() / "spawn-trees"
@@ -3202,42 +3201,14 @@ def _notification_poller_loop(
     even if the process was started by a different session. This matches
     CLI/gateway behavior (single session per process).
     """
-    from tools.process_registry import process_registry, format_process_notification
+    from tools.process_registry import process_registry
 
     while not stop_event.is_set() and not session.get("_finalized"):
         try:
             evt = process_registry.completion_queue.get(timeout=0.5)
         except Exception:
             continue
-
-        _evt_sid = evt.get("session_id", "")
-        if evt.get("type") == "completion" and process_registry.is_completion_consumed(_evt_sid):
-            continue
-
-        text = format_process_notification(evt)
-        if not text:
-            continue
-
-        _emit("status.update", sid, {"kind": "process", "text": text})
-
-        with session["history_lock"]:
-            if session.get("running"):
-                process_registry.completion_queue.put(evt)
-                continue
-            session["running"] = True
-
-        rid = f"__notif__{int(time.time() * 1000)}"
-        try:
-            _emit("message.start", sid)
-            _run_prompt_submit(rid, sid, session, text)
-        except Exception as exc:
-            print(
-                f"[tui_gateway] notification poller dispatch failed: "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            with session["history_lock"]:
-                session["running"] = False
+        _dispatch_notification(evt, sid, session)
 
     # Drain any remaining events after stop signal (process all pending
     # before exiting so nothing is lost on shutdown).
@@ -3246,33 +3217,45 @@ def _notification_poller_loop(
             evt = process_registry.completion_queue.get_nowait()
         except Exception:
             break
-        _evt_sid = evt.get("session_id", "")
-        if evt.get("type") == "completion" and process_registry.is_completion_consumed(_evt_sid):
-            continue
-        text = format_process_notification(evt)
-        if not text:
-            continue
+        if not _dispatch_notification(evt, sid, session):
+            break
 
-        _emit("status.update", sid, {"kind": "process", "text": text})
 
+def _dispatch_notification(evt: dict, sid: str, session: dict) -> bool:
+    """Show one process event and, when the session is idle, run an agent
+    turn on it.  Returns False when the session was busy and the event went
+    back on the queue."""
+    from tools.process_registry import process_registry, format_process_notification
+
+    if evt.get("type") == "completion" and process_registry.is_completion_consumed(
+        evt.get("session_id", "")
+    ):
+        return True
+    text = format_process_notification(evt)
+    if not text:
+        return True
+
+    _emit("status.update", sid, {"kind": "process", "text": text})
+
+    with session["history_lock"]:
+        if session.get("running"):
+            process_registry.completion_queue.put(evt)
+            return False
+        session["running"] = True
+
+    rid = f"__notif__{int(time.time() * 1000)}"
+    try:
+        _emit("message.start", sid)
+        _run_prompt_submit(rid, sid, session, text)
+    except Exception as exc:
+        print(
+            f"[tui_gateway] notification poller dispatch failed: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         with session["history_lock"]:
-            if session.get("running"):
-                process_registry.completion_queue.put(evt)
-                break
-            session["running"] = True
-
-        rid = f"__notif__{int(time.time() * 1000)}"
-        try:
-            _emit("message.start", sid)
-            _run_prompt_submit(rid, sid, session, text)
-        except Exception as exc:
-            print(
-                f"[tui_gateway] notification poller dispatch failed: "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            with session["history_lock"]:
-                session["running"] = False
+            session["running"] = False
+    return True
 
 
 def _start_notification_poller(sid: str, session: dict) -> threading.Event:
@@ -6454,33 +6437,38 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5030, str(e))
 
 
+def _toolset_rows(params: dict, *, with_tools: bool) -> list:
+    """Every toolset with its description, tool count and enabled flag for
+    the session (or the configured CLI toolsets without one)."""
+    from toolsets import get_all_toolsets, get_toolset_info
+
+    session = _sessions.get(params.get("session_id", ""))
+    enabled = (
+        set(getattr(session["agent"], "enabled_toolsets", []) or [])
+        if session
+        else set(_load_enabled_toolsets() or [])
+    )
+    items = []
+    for name in sorted(get_all_toolsets().keys()):
+        info = get_toolset_info(name)
+        if not info:
+            continue
+        item = {
+            "name": name,
+            "description": info["description"],
+            "tool_count": info["tool_count"],
+            "enabled": name in enabled if enabled else True,
+        }
+        if with_tools:
+            item["tools"] = info["resolved_tools"]
+        items.append(item)
+    return items
+
+
 @method("tools.list")
 def _(rid, params: dict) -> dict:
     try:
-        from toolsets import get_all_toolsets, get_toolset_info
-
-        session = _sessions.get(params.get("session_id", ""))
-        enabled = (
-            set(getattr(session["agent"], "enabled_toolsets", []) or [])
-            if session
-            else set(_load_enabled_toolsets() or [])
-        )
-
-        items = []
-        for name in sorted(get_all_toolsets().keys()):
-            info = get_toolset_info(name)
-            if not info:
-                continue
-            items.append(
-                {
-                    "name": name,
-                    "description": info["description"],
-                    "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
-                    "tools": info["resolved_tools"],
-                }
-            )
-        return _ok(rid, {"toolsets": items})
+        return _ok(rid, {"toolsets": _toolset_rows(params, with_tools=True)})
     except Exception as e:
         return _err(rid, 5031, str(e))
 
@@ -6597,29 +6585,7 @@ def _(rid, params: dict) -> dict:
 @method("toolsets.list")
 def _(rid, params: dict) -> dict:
     try:
-        from toolsets import get_all_toolsets, get_toolset_info
-
-        session = _sessions.get(params.get("session_id", ""))
-        enabled = (
-            set(getattr(session["agent"], "enabled_toolsets", []) or [])
-            if session
-            else set(_load_enabled_toolsets() or [])
-        )
-
-        items = []
-        for name in sorted(get_all_toolsets().keys()):
-            info = get_toolset_info(name)
-            if not info:
-                continue
-            items.append(
-                {
-                    "name": name,
-                    "description": info["description"],
-                    "tool_count": info["tool_count"],
-                    "enabled": name in enabled if enabled else True,
-                }
-            )
-        return _ok(rid, {"toolsets": items})
+        return _ok(rid, {"toolsets": _toolset_rows(params, with_tools=False)})
     except Exception as e:
         return _err(rid, 5032, str(e))
 
