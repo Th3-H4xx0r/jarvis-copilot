@@ -47,27 +47,26 @@ final class TrainingStore: ObservableObject {
     private var revision = 0
     /// The workout under way, written on every change so a crash loses nothing.
     private(set) var activeLog: StrengthLog?
-    private(set) var queue: [TrainingOp] = []
+    var queue: [TrainingOp] { outbox.ops }
     /// Send each change as it is made; tests turn this off to drive `flush`.
     var sendsAtOnce = true
 
-    private let directory: URL
+    private let files: JSONFolder
+    private let outbox: HealthOutbox<TrainingOp>
     private let sync: TrainingSyncing?
-    private var flushing: Task<Void, Never>?
 
     init(directory: URL? = nil, sync: TrainingSyncing?) {
-        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Training", isDirectory: true)
+        files = JSONFolder(directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Training", isDirectory: true), label: "training file")
+        outbox = HealthOutbox(files, label: "training sync")
         self.sync = sync
-        try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
-        templates = read([WorkoutTemplate].self, "templates") ?? []
-        customExercises = read([Exercise].self, "exercises") ?? []
-        settings = read([String: ExerciseSettings].self, "settings") ?? [:]
-        history = read([RingWorkout].self, "history") ?? []
+        templates = files.read([WorkoutTemplate].self, "templates") ?? []
+        customExercises = files.read([Exercise].self, "exercises") ?? []
+        settings = files.read([String: ExerciseSettings].self, "settings") ?? [:]
+        history = files.read([RingWorkout].self, "history") ?? []
         logs = history.compactMap(\.strength)
-        activeLog = read(StrengthLog.self, "active")
-        finishedWorkout = read(RingWorkout.self, "finished")
-        queue = read([TrainingOp].self, "queue") ?? []
+        activeLog = files.read(StrengthLog.self, "active")
+        finishedWorkout = files.read(RingWorkout.self, "finished")
     }
 
     // MARK: Templates
@@ -82,13 +81,13 @@ final class TrainingStore: ObservableObject {
             templates.append(template)
         }
         templates.sort { $0.order < $1.order }
-        write(templates, "templates")
+        files.write(templates, "templates")
         enqueue(.putTemplate(template))
     }
 
     func deleteTemplate(id: String) {
         templates.removeAll { $0.id == id }
-        write(templates, "templates")
+        files.write(templates, "templates")
         enqueue(.deleteTemplate(id))
     }
 
@@ -98,7 +97,7 @@ final class TrainingStore: ObservableObject {
             templates[i].order = i
             enqueue(.putTemplate(templates[i]))
         }
-        write(templates, "templates")
+        files.write(templates, "templates")
     }
 
     @discardableResult
@@ -131,13 +130,13 @@ final class TrainingStore: ObservableObject {
         } else {
             customExercises.append(exercise)
         }
-        write(customExercises, "exercises")
+        files.write(customExercises, "exercises")
         enqueue(.putExercise(exercise))
     }
 
     func deleteExercise(id: String) {
         customExercises.removeAll { $0.id == id }
-        write(customExercises, "exercises")
+        files.write(customExercises, "exercises")
         enqueue(.deleteExercise(id))
     }
 
@@ -154,7 +153,7 @@ final class TrainingStore: ObservableObject {
             settings[exerciseID] = value
             enqueue(.putSettings([exerciseID: value]))
         }
-        write(settings, "settings")
+        files.write(settings, "settings")
     }
 
     /// Exercises done lately, most recent first.
@@ -177,69 +176,55 @@ final class TrainingStore: ObservableObject {
         history.removeAll { abs($0.start.timeIntervalSince(workout.start)) < 1 }
         history.append(workout)
         history.sort { $0.start > $1.start }
-        write(history, "history")
+        files.write(history, "history")
     }
 
     /// Take a workout out of the history and off the server. `device` is the
     /// key the server filed it under, when known; `deviceID` rebuilds it.
     func removeWorkout(start: Date, device: String?, deviceID: String?) {
         history.removeAll { abs($0.start.timeIntervalSince(start)) < 1 }
-        write(history, "history")
+        files.write(history, "history")
         enqueue(.deleteWorkout(start, device: device, deviceID: deviceID))
     }
 
     /// The workout in progress (nil once it is saved or thrown away).
     func saveActive(_ log: StrengthLog?) {
         activeLog = log
-        if let log { write(log, "active") } else { try? FileManager.default.removeItem(at: url("active")) }
+        if let log { files.write(log, "active") } else { files.remove("active") }
     }
 
     /// The finished workout waiting on Save or Discard (nil once it has one).
     func saveFinished(_ workout: RingWorkout?) {
         finishedWorkout = workout
-        if let workout { write(workout, "finished") } else { try? FileManager.default.removeItem(at: url("finished")) }
+        if let workout { files.write(workout, "finished") } else { files.remove("finished") }
     }
 
     // MARK: Sync
 
     private func enqueue(_ op: TrainingOp) {
         revision += 1
-        if let subject = op.subject { queue.removeAll { $0.subject == subject } }
-        queue.append(op)
-        write(queue, "queue")
+        if let subject = op.subject { outbox.removeAll { $0.subject == subject } }
+        outbox.append(op)
         if sendsAtOnce { Task { await flush() } }
     }
 
-    /// Send what is waiting, in order; stop at the first failure and keep the rest.
+    /// Send what is waiting, in order. A refusal drops that change; anything else (offline, a
+    /// 5xx, a 401) stops and keeps the rest.
     func flush() async {
-        if let flushing { return await flushing.value }
-        let task = Task { await sendQueued() }
-        flushing = task
-        await task.value
-        flushing = nil
-    }
-
-    private func sendQueued() async {
         guard let sync else { return }
-        while let op = queue.first {
-            do {
-                switch op {
-                case .putTemplate(let t): try await sync.put(template: t)
-                case .deleteTemplate(let id): try await sync.deleteTemplate(id: id)
-                case .putExercise(let e): try await sync.put(exercise: e)
-                case .deleteExercise(let id): try await sync.deleteExercise(id: id)
-                case .putSettings(let s): try await sync.putSettings(s)
-                case .deleteWorkout(let start, let device, let deviceID):
-                    try await sync.deleteWorkout(start: start, device: device, deviceID: deviceID)
-                }
-            } catch {
-                JcLog.dropped(JcLog.devices, "training sync", error)
-                return
+        await outbox.flush(send: { op in
+            switch op {
+            case .putTemplate(let t): try await sync.put(template: t)
+            case .deleteTemplate(let id): try await sync.deleteTemplate(id: id)
+            case .putExercise(let e): try await sync.put(exercise: e)
+            case .deleteExercise(let id): try await sync.deleteExercise(id: id)
+            case .putSettings(let s): try await sync.putSettings(s)
+            case .deleteWorkout(let start, let device, let deviceID):
+                try await sync.deleteWorkout(start: start, device: device, deviceID: deviceID)
             }
-            // Only this loop removes, so the first is still the one just sent.
-            if queue.first == op { queue.removeFirst() }
-            write(queue, "queue")
-        }
+        }, refused: { status, message in
+            JcLog.devices.error("training: Jarvis Health refused a change (\(status, privacy: .public)): \(message, privacy: .public)")
+        })
     }
 
     /// Send what is waiting, then take the server's copy — unless something
@@ -256,9 +241,9 @@ final class TrainingStore: ObservableObject {
             templates = snapshot.templates.sorted { $0.order < $1.order }
             customExercises = snapshot.exercises.map { var e = $0; e.custom = true; return e }
             settings = snapshot.settings
-            write(templates, "templates")
-            write(customExercises, "exercises")
-            write(settings, "settings")
+            files.write(templates, "templates")
+            files.write(customExercises, "exercises")
+            files.write(settings, "settings")
         }
         guard wanted || history.isEmpty, let server = try? await sync.strengthWorkouts() else { return }
         var merged = server
@@ -266,27 +251,7 @@ final class TrainingStore: ObservableObject {
             merged.append(local)
         }
         history = merged.sorted { $0.start > $1.start }
-        write(history, "history")
+        files.write(history, "history")
     }
 
-    // MARK: Files
-
-    private func url(_ name: String) -> URL { directory.appendingPathComponent("\(name).json") }
-
-    private func read<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
-        guard let data = try? Data(contentsOf: url(name)) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(type, from: data)
-    }
-
-    private func write<T: Encodable>(_ value: T, _ name: String) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        do {
-            try encoder.encode(value).write(to: url(name), options: .atomic)
-        } catch {
-            JcLog.dropped(JcLog.devices, "training file", error)
-        }
-    }
 }

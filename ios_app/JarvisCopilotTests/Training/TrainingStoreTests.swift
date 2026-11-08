@@ -10,9 +10,12 @@ final class FakeTrainingSync: TrainingSyncing {
     /// Runs while the snapshot is "in flight".
     var duringSnapshot: (() -> Void)?
     var workouts: [RingWorkout] = []
+    /// Calls the server answers with this status, as it does for a change it will never take.
+    var refusing: [String: Int] = [:]
 
     private func call(_ name: String) throws {
         if failing { throw URLError(.notConnectedToInternet) }
+        if let status = refusing[name] { throw APIError.http(status: status, message: "gone") }
         calls.append(name)
     }
 
@@ -93,6 +96,17 @@ final class TrainingStoreTests: XCTestCase {
         XCTAssertEqual(store().queue.count, 1, "the queue is on disk")
         sync.failing = false
         await s.flush()
+        XCTAssertTrue(s.queue.isEmpty)
+    }
+
+    func testARefusedChangeIsDroppedSoTheRestStillGo() async {
+        let s = store()
+        let gone = template("Gone")
+        sync.refusing["delete template \(gone.id)"] = 404
+        s.deleteTemplate(id: gone.id)
+        s.saveTemplate(template("Push"))
+        await s.flush()
+        XCTAssertEqual(sync.calls, ["put template Push"], "a change the server refuses must not hold up the next")
         XCTAssertTrue(s.queue.isEmpty)
     }
 

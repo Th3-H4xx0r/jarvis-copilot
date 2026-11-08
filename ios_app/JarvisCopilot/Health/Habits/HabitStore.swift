@@ -79,26 +79,24 @@ final class HabitStore: ObservableObject {
     @Published private(set) var relapses: [HabitRelapse] = []
     /// Why the server refused the last change, shown under the cards.
     @Published var error: String?
-    private(set) var queue: [HabitOp] = []
+    var queue: [HabitOp] { outbox.ops }
     /// Send each change as it is made; tests turn this off to drive `flush`.
     var sendsAtOnce = true
 
-    private let directory: URL
+    private let files: JSONFolder
+    private let outbox: HealthOutbox<HabitOp>
     private let sync: HabitSyncing?
     private let topics: BridgeTopics?
     /// Bumped by every change made here, so a refresh can tell its snapshot went stale in flight.
     private var revision = 0
-    private var flushing: Task<Void, Never>?
-
     init(directory: URL? = nil, sync: HabitSyncing?, topics: BridgeTopics? = nil) {
-        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Habits", isDirectory: true)
+        files = JSONFolder(directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Habits", isDirectory: true), label: "habit file")
+        outbox = HealthOutbox(files, label: "habit sync")
         self.sync = sync
         self.topics = topics
-        try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
-        habits = read([Habit].self, "habits") ?? []
-        relapses = read([HabitRelapse].self, "relapses") ?? []
-        queue = read([HabitOp].self, "queue") ?? []
+        habits = files.read([Habit].self, "habits") ?? []
+        relapses = files.read([HabitRelapse].self, "relapses") ?? []
         topics?.on("habits") { [weak self] _ in Task { await self?.refresh() } }
         // Back online: what was logged offline goes now, page open or not; a
         // page that is open fetches what chat changed meanwhile.
@@ -124,16 +122,16 @@ final class HabitStore: ObservableObject {
         } else {
             habits.append(habit)
         }
-        write(habits, "habits")
+        files.write(habits, "habits")
         enqueue(.putHabit(habit))
     }
 
     func delete(_ habit: Habit) {
         habits.removeAll { $0.id == habit.id }
         relapses.removeAll { $0.habit == habit.id }
-        queue.removeAll { $0.habitID == habit.id }
-        write(habits, "habits")
-        write(relapses, "relapses")
+        outbox.removeAll { $0.habitID == habit.id }
+        files.write(habits, "habits")
+        files.write(relapses, "relapses")
         enqueue(.deleteHabit(habit.id))
     }
 
@@ -143,19 +141,19 @@ final class HabitStore: ObservableObject {
                                    tz: TimeZone.current.identifier, note: note)
         relapses.append(relapse)
         relapses.sort { $0.at < $1.at }
-        write(relapses, "relapses")
+        files.write(relapses, "relapses")
         enqueue(.putRelapse(relapse))
         return relapse
     }
 
     func undo(_ relapse: HabitRelapse) {
         relapses.removeAll { $0.uid == relapse.uid }
-        write(relapses, "relapses")
+        files.write(relapses, "relapses")
         // Not sent yet: it never goes. Either way the server is asked to delete it — a
         // send in flight, or one that timed out here after the server stored it, may
         // have reached it, and deleting a relapse it never had is harmless.
-        let inFlight = flushing != nil && queue.first == .putRelapse(relapse)
-        if !inFlight { queue.removeAll { $0 == .putRelapse(relapse) } }
+        let inFlight = outbox.isSending && queue.first == .putRelapse(relapse)
+        if !inFlight { outbox.removeAll { $0 == .putRelapse(relapse) } }
         enqueue(.deleteRelapse(relapse.uid))
     }
 
@@ -167,46 +165,24 @@ final class HabitStore: ObservableObject {
 
     private func enqueue(_ op: HabitOp) {
         revision += 1
-        queue.append(op)
-        write(queue, "queue")
+        outbox.append(op)
         if sendsAtOnce { Task { await flush() } }
     }
-
-    /// What the server answers when it will never take a change (a habit chat
-    /// deleted, a bad field). An expired session (401/403), a timeout (408) or a
-    /// rate limit (429) is not one of them: those changes wait and go later.
-    static let refusals: Set<Int> = [400, 404, 409, 410, 422]
 
     /// Send what is waiting, in order. A refusal drops that change and says
     /// why; anything else (offline, a 5xx, a 401) stops and keeps the rest.
     func flush() async {
-        if let flushing { return await flushing.value }
-        let task = Task { await sendQueued() }
-        flushing = task
-        await task.value
-        flushing = nil
-    }
-
-    private func sendQueued() async {
         guard let sync else { return }
-        while let op = queue.first {
-            do {
-                switch op {
-                case .putHabit(let h): try await sync.put(habit: h)
-                case .deleteHabit(let id): try await sync.deleteHabit(id: id)
-                case .putRelapse(let r): try await sync.put(relapse: r)
-                case .deleteRelapse(let uid): try await sync.deleteRelapse(uid: uid)
-                }
-            } catch APIError.http(let status, let message) where Self.refusals.contains(status) {
-                error = message.isEmpty ? "Jarvis Health refused a change (\(status))" : message
-            } catch {
-                JcLog.dropped(JcLog.devices, "habit sync", error)
-                return
+        await outbox.flush(send: { op in
+            switch op {
+            case .putHabit(let h): try await sync.put(habit: h)
+            case .deleteHabit(let id): try await sync.deleteHabit(id: id)
+            case .putRelapse(let r): try await sync.put(relapse: r)
+            case .deleteRelapse(let uid): try await sync.deleteRelapse(uid: uid)
             }
-            // Only this loop removes from the front, so the first is still the one just sent.
-            if queue.first == op { queue.removeFirst() }
-            write(queue, "queue")
-        }
+        }, refused: { [weak self] status, message in
+            self?.error = message.isEmpty ? "Jarvis Health refused a change (\(status))" : message
+        })
     }
 
     /// Send what is waiting, then take the server's copy — unless something
@@ -220,28 +196,8 @@ final class HabitStore: ObservableObject {
         error = nil
         habits = snapshot.habits
         relapses = snapshot.relapses.sorted { $0.at < $1.at }
-        write(habits, "habits")
-        write(relapses, "relapses")
+        files.write(habits, "habits")
+        files.write(relapses, "relapses")
     }
 
-    // MARK: Files
-
-    private func url(_ name: String) -> URL { directory.appendingPathComponent("\(name).json") }
-
-    private func read<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
-        guard let data = try? Data(contentsOf: url(name)) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(type, from: data)
-    }
-
-    private func write<T: Encodable>(_ value: T, _ name: String) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        do {
-            try encoder.encode(value).write(to: url(name), options: .atomic)
-        } catch {
-            JcLog.dropped(JcLog.devices, "habit file", error)
-        }
-    }
 }
