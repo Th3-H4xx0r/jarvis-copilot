@@ -55,10 +55,10 @@ def test_coding_changes_tell_widgets(monkeypatch):
 
 
 def test_energy_reports_are_appended_and_capped(tmp_path, monkeypatch):
-    from api import routes
-    monkeypatch.setattr(routes, "_ENERGY_KEEP", 3)
+    from api import devices_routes
+    monkeypatch.setattr(devices_routes, "_ENERGY_KEEP", 3)
     for n in range(5):
-        routes._append_energy_report("phone-1", {"cpuSeconds": n, "backgroundSeconds": 3600, "junk": "x",
+        devices_routes._append_energy_report("phone-1", {"cpuSeconds": n, "backgroundSeconds": 3600, "junk": "x",
                                                  "received": "2026-10-14T06:00:00Z", "flag": True}, state_dir=tmp_path)
     rows = [json.loads(line) for line in (tmp_path / "energy.jsonl").read_text().splitlines()]
     assert [r["cpuSeconds"] for r in rows] == [2.0, 3.0, 4.0]
@@ -80,39 +80,39 @@ def test_bg_traffic_summary():
 
 
 def test_hourly_probe_rows_keep_their_fields(tmp_path):
-    from api import routes
-    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 42.5, "wallSeconds": 3600,
+    from api import devices_routes
+    row = devices_routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 42.5, "wallSeconds": 3600,
                                                    "background": 1}, state_dir=tmp_path)
     assert (row["kind"], row["cpuSeconds"], row["wallSeconds"], row["background"]) == ("probe", 42.5, 3600.0, 1.0)
 
 
 def test_probe_thread_breakdown_is_kept_small(tmp_path):
-    from api import routes
+    from api import devices_routes
     threads = {f"t{i}": float(i) for i in range(12)} | {"bad": "x", "flag": True}
-    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "threads": threads},
+    row = devices_routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "threads": threads},
                                        state_dir=tmp_path)
     assert len(row["threads"]) <= 8 and all(isinstance(v, float) for v in row["threads"].values())
 
 
 def test_probe_rows_keep_the_ledger_hour_bounded(tmp_path):
-    from api import routes
+    from api import devices_routes
     hour = {"start": 1792000000, "end": 1792003600, "batteryStart": 0.8, "batteryEnd": 0.77,
             "seconds": {"foreground": 600, "background": 3000, "bg.keepalive": 3000, "junk": "x"},
             "cpu": {f"where.chat|S{i}": float(i) for i in range(300)},
             "counts": {"bridge.in": 90, "bridge.out": 90, "net.Chat": 4, "flag": True}}
-    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "hour": hour,
+    row = devices_routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "hour": hour,
                                                    "backgroundExits": {"memory pressure": 2, "x": "y"}},
                                        state_dir=tmp_path)
     kept = row["hour"]
     assert kept["batteryEnd"] == 0.77 and kept["seconds"]["bg.keepalive"] == 3000.0
     assert "junk" not in kept["seconds"] and "flag" not in kept["counts"]
-    assert len(kept["cpu"]) <= routes._ENERGY_MAP_KEYS
+    assert len(kept["cpu"]) <= devices_routes._ENERGY_MAP_KEYS
     assert row["backgroundExits"] == {"memory pressure": 2}
 
 
 def test_the_hour_line_says_where_the_battery_went():
-    from api import routes
-    line = routes._energy_hour_line({
+    from api import devices_routes
+    line = devices_routes._energy_hour_line({
         "batteryStart": 0.8, "batteryEnd": 0.77,
         "seconds": {"foreground": 600, "background": 3000, "bg.keepalive": 3000, "bg.cellular": 1200},
         "cpu": {"foreground": 150, "background": 20, "where.health|Sleep": 100, "where.chat|": 50},

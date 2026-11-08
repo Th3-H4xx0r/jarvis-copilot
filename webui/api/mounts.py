@@ -1,9 +1,9 @@
 """Feature routers, each mounted once by path prefix for every HTTP method.
 
-A mounted module exposes ``route(req) -> bool``: True when it answered, False
-when the path is not one of its own (the dispatcher then carries on to the
-routes in api/routes.py, and finally a 404). Prefixes here own their whole
-subtree, so the order of this list does not matter.
+A mounted module exposes ``route(req)``. It returns False when the path is not
+one of its own (the dispatcher then carries on to the routes in api/routes.py,
+and finally a 404); anything else means it answered. Prefixes here own their
+whole subtree, so the order of this list does not matter.
 """
 import importlib
 from functools import cached_property
@@ -22,10 +22,12 @@ MOUNTS = (
     ("/api/coding", "api.coding_routes"),
     ("/api/compression", "api.compression_config"),
     ("/api/dashcam", "api.dashcam_routes"),
+    ("/api/devices", "api.devices_routes"),
     ("/api/door", "api.door_routes"),
     ("/api/edge", "api.edge"),
     ("/api/harnesses", "api.harness_routes"),
     ("/api/island", "api.island_routes"),
+    ("/api/jarvis-memory", "api.jarvis_memory_routes"),
     ("/api/kanban", "api.kanban_bridge"),
     ("/api/live", "api.live_ws"),
     ("/api/screen", "api.screen_share"),
@@ -96,4 +98,6 @@ def dispatch(req: Request) -> bool:
     if module is None:
         return False
     req.prefix = prefix
-    return bool(importlib.import_module(module).route(req))
+    # Only False means "not mine": a route that replied may return None (j() does), as
+    # server.py treats every handle_* result.
+    return importlib.import_module(module).route(req) is not False
