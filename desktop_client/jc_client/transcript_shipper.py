@@ -115,10 +115,6 @@ class TranscriptShipper:
                 self._watch[ckey].update(path=path, cwd=cwd or self._watch[ckey]["cwd"])
         self.poke(ckey)
 
-    def unwatch(self, ckey: str) -> None:
-        with self._lock:
-            self._watch.pop(ckey, None)
-
     def watching(self) -> list:
         with self._lock:
             return list(self._watch)
@@ -169,15 +165,6 @@ class TranscriptShipper:
                 w["sent"] = max(w["sent"], w["acked"])
             else:
                 w["acked"] = w["sent"] = int(size)
-        self.poke(ckey)
-
-    def on_need(self, ckey: str, offset: int) -> None:
-        with self._lock:
-            w = self._watch.get(ckey)
-            if w is None:
-                return
-            w["acked"] = w["sent"] = int(offset)
-            w["inflight"] = False
         self.poke(ckey)
 
     def flush_all(self, deadline_s: float = 3.0) -> None:

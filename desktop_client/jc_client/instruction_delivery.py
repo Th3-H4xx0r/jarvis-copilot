@@ -116,8 +116,3 @@ def type_into(terminal: dict, text: str, *, pid=None, vscode=None,
             return False, "iTerm couldn't type into that session"
         return True, "typed into iTerm"
     return False, "can't type into this terminal"
-
-
-def _exists(path: str) -> bool:
-    import os
-    return os.path.exists(path)

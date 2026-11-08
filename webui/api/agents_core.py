@@ -282,11 +282,6 @@ class AgentsCore:
         self._sync_tenth[ckey] = tenth
         return True
 
-    def on_need(self, device_id, data) -> None:
-        row = self.conv.get(str(data.get("ckey") or ""))
-        if row and row.get("owner") == "server" and row.get("moved_from") == device_id:
-            self.handoff._send_sync(device_id, row, then="merge")
-
     def on_merge_done(self, device_id, data) -> None:
         self.handoff.on_merge_done(device_id, str(data.get("ckey") or ""), bool(data.get("ok")),
                                    then=data.get("then"),
@@ -872,7 +867,7 @@ def start(store) -> AgentsCore:
                      ("mac_password_done", power.on_password_done)):
         device_bridge.on_device_event(name, fn)
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
-                     ("agent_transcript_chunk", c.on_chunk), ("agent_transcript_need", c.on_need),
+                     ("agent_transcript_chunk", c.on_chunk),
                      ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery),
                      ("agent_continue_mac", c.on_continue_mac)):
         device_bridge.on_device_event(name, fn)

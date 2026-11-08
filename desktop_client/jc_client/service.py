@@ -125,7 +125,6 @@ class Service:
             thread_name_prefix="skill-invoke",
         )
         self._ws: Optional[WsConnection] = None
-        self._registered_count = 0
         self._connected = False
         self._last_connect_attempt = 0.0
         self._last_error = ""
@@ -602,19 +601,6 @@ class Service:
         except Exception:
             return 0
 
-    @property
-    def status_summary(self) -> dict:
-        creds = credentials.load()
-        return {
-            "paired": creds.paired,
-            "server": creds.server_url,
-            "device_name": creds.device_name,
-            "connected": self._connected,
-            "paused": self.is_paused,
-            "skills_registered": self._registered_count,
-            "last_error": self._last_error,
-        }
-
     # ── loop ──────────────────────────────────────────────────────────
 
     def run(self) -> int:
@@ -793,7 +779,6 @@ class Service:
         # supports it accumulates. Older servers (no append support) end
         # up with only the last chunk's skills — degraded but not broken.
         manifest = skills.all_manifest(disabled=creds.skills_disabled)
-        self._registered_count = len(manifest)
         chunks = _chunk_manifest(manifest, max_bytes=6 * 1024)
         for i, chunk in enumerate(chunks):
             frame = {"type": "register", "skills": chunk}
