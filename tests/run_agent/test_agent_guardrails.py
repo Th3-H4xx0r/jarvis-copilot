@@ -8,6 +8,7 @@ Covers three static methods on AIAgent (inspired by PR #1321 — @alireza78a):
 
 import types
 
+from agent.message_sanitization import tool_call_id, tool_call_name
 from run_agent import AIAgent
 from tools.delegate_tool import _get_max_concurrent_children
 
@@ -238,59 +239,59 @@ class TestDeduplicateToolCalls:
 
 
 # ---------------------------------------------------------------------------
-# _get_tool_call_id_static
+# tool_call_id
 # ---------------------------------------------------------------------------
 
 class TestGetToolCallIdStatic:
 
     def test_dict_with_valid_id(self):
-        assert AIAgent._get_tool_call_id_static({"id": "call_123"}) == "call_123"
+        assert tool_call_id({"id": "call_123"}) == "call_123"
 
     def test_dict_with_none_id(self):
-        assert AIAgent._get_tool_call_id_static({"id": None}) == ""
+        assert tool_call_id({"id": None}) == ""
 
     def test_dict_without_id_key(self):
-        assert AIAgent._get_tool_call_id_static({"function": {}}) == ""
+        assert tool_call_id({"function": {}}) == ""
 
     def test_object_with_valid_id(self):
         tc = types.SimpleNamespace(id="call_456")
-        assert AIAgent._get_tool_call_id_static(tc) == "call_456"
+        assert tool_call_id(tc) == "call_456"
 
     def test_object_with_none_id(self):
         tc = types.SimpleNamespace(id=None)
-        assert AIAgent._get_tool_call_id_static(tc) == ""
+        assert tool_call_id(tc) == ""
 
     def test_object_without_id_attr(self):
         tc = types.SimpleNamespace()
-        assert AIAgent._get_tool_call_id_static(tc) == ""
+        assert tool_call_id(tc) == ""
 
 
 # ---------------------------------------------------------------------------
-# _get_tool_call_name_static
+# tool_call_name
 # ---------------------------------------------------------------------------
 
 class TestGetToolCallNameStatic:
 
     def test_dict_with_valid_name(self):
-        assert AIAgent._get_tool_call_name_static(
+        assert tool_call_name(
             {"id": "call_1", "function": {"name": "terminal", "arguments": "{}"}}
         ) == "terminal"
 
     def test_dict_with_missing_function(self):
-        assert AIAgent._get_tool_call_name_static({"id": "call_1"}) == ""
+        assert tool_call_name({"id": "call_1"}) == ""
 
     def test_dict_with_none_function(self):
-        assert AIAgent._get_tool_call_name_static({"id": "call_1", "function": None}) == ""
+        assert tool_call_name({"id": "call_1", "function": None}) == ""
 
     def test_dict_with_none_name(self):
-        assert AIAgent._get_tool_call_name_static(
+        assert tool_call_name(
             {"function": {"name": None, "arguments": "{}"}}
         ) == ""
 
     def test_object_with_valid_name(self):
         tc = make_tc("read_file")
-        assert AIAgent._get_tool_call_name_static(tc) == "read_file"
+        assert tool_call_name(tc) == "read_file"
 
     def test_object_without_function_attr(self):
         tc = types.SimpleNamespace(id="call_1")
-        assert AIAgent._get_tool_call_name_static(tc) == ""
+        assert tool_call_name(tc) == ""

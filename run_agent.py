@@ -2211,30 +2211,6 @@ class AIAgent:
         from agent.system_prompt import build_system_prompt
         return build_system_prompt(self, system_message=system_message)
 
-    @staticmethod
-    def _get_tool_call_id_static(tc) -> str:
-        """Extract call ID from a tool_call entry (dict or object)."""
-        if isinstance(tc, dict):
-            return tc.get("call_id", "") or tc.get("id", "") or ""
-        return getattr(tc, "call_id", "") or getattr(tc, "id", "") or ""
-
-    @staticmethod
-    def _get_tool_call_name_static(tc) -> str:
-        """Extract function name from a tool_call entry (dict or object).
-
-        Gemini's OpenAI-compatibility endpoint requires every `role: tool`
-        message to carry the matching function name. OpenAI/Anthropic/ollama
-        tolerate its absence, so the field is best-effort: callers fall back
-        to "" and the message still works elsewhere.
-        """
-        if isinstance(tc, dict):
-            fn = tc.get("function")
-            if isinstance(fn, dict):
-                return fn.get("name", "") or ""
-            return ""
-        fn = getattr(tc, "function", None)
-        return getattr(fn, "name", "") or ""
-
     _VALID_API_ROLES = frozenset({"system", "user", "assistant", "tool", "function", "developer"})
 
     @staticmethod

@@ -429,15 +429,16 @@ def _sanitize_structure_non_ascii(payload: Any) -> bool:
     return found
 
 
-def _tool_call_id(tc: Any) -> str:
+def tool_call_id(tc: Any) -> str:
     """Call ID of a tool_call entry (dict or object)."""
     if isinstance(tc, dict):
         return tc.get("call_id", "") or tc.get("id", "") or ""
     return getattr(tc, "call_id", "") or getattr(tc, "id", "") or ""
 
 
-def _tool_call_name(tc: Any) -> str:
-    """Function name of a tool_call entry (dict or object), or ""."""
+def tool_call_name(tc: Any) -> str:
+    """Function name of a tool_call entry (dict or object), or "". Gemini's OpenAI-compatible
+    endpoint needs it on every tool message; the others tolerate "" without it."""
     fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
     if isinstance(fn, dict):
         return fn.get("name", "") or ""
@@ -467,7 +468,7 @@ def repair_tool_call_pairs(messages: list, *, stub_content: str) -> tuple[list, 
     call_ids = {
         cid
         for msg in messages if msg.get("role") == "assistant"
-        for cid in map(_tool_call_id, msg.get("tool_calls") or []) if cid
+        for cid in map(tool_call_id, msg.get("tool_calls") or []) if cid
     }
     result_ids = {
         msg.get("tool_call_id")
@@ -490,11 +491,11 @@ def repair_tool_call_pairs(messages: list, *, stub_content: str) -> tuple[list, 
             if msg.get("role") != "assistant":
                 continue
             for tc in msg.get("tool_calls") or []:
-                cid = _tool_call_id(tc)
+                cid = tool_call_id(tc)
                 if cid in missing_results:
                     patched.append({
                         "role": "tool",
-                        "name": _tool_call_name(tc),
+                        "name": tool_call_name(tc),
                         "content": stub_content,
                         "tool_call_id": cid,
                     })

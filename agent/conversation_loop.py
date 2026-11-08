@@ -36,6 +36,7 @@ from agent.iteration_budget import IterationBudget
 from agent.memory_manager import build_memory_context_block
 from agent.message_sanitization import (
     _repair_tool_call_arguments,
+    tool_call_name,
     _sanitize_messages_non_ascii,
     _sanitize_messages_surrogates,
     _sanitize_structure_non_ascii,
@@ -4173,7 +4174,7 @@ def run_conversation(
                         if tc["id"] not in answered_ids:
                             err_msg = {
                                 "role": "tool",
-                                "name": _ra().AIAgent._get_tool_call_name_static(tc),
+                                "name": tool_call_name(tc),
                                 "tool_call_id": tc["id"],
                                 "content": f"Error executing tool: {error_msg}",
                             }
