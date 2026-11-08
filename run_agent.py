@@ -643,20 +643,10 @@ class AIAgent:
 
         CLI users see the message via ``_vprint(force=True)`` so it is always
         visible regardless of verbose/quiet mode.  Gateway consumers receive
-        it through ``status_callback("lifecycle", ...)``.
-
-        This helper never raises — exceptions are swallowed so it cannot
-        interrupt the retry/fallback logic.
+        it through ``status_callback("lifecycle", ...)``.  Never raises, so it
+        cannot interrupt the retry/fallback logic.
         """
-        try:
-            self._vprint(f"{self.log_prefix}{message}", force=True)
-        except Exception:
-            pass
-        if self.status_callback:
-            try:
-                self.status_callback("lifecycle", message)
-            except Exception:
-                logger.debug("status_callback error in _emit_status", exc_info=True)
+        self._emit_to_user("lifecycle", message)
 
     def _emit_warning(self, message: str) -> None:
         """Emit a user-visible warning through the same status plumbing.
@@ -665,15 +655,18 @@ class AIAgent:
         such as auxiliary compression or memory flushes where the main turn can
         continue but the user needs to know something important failed.
         """
+        self._emit_to_user("warn", message)
+
+    def _emit_to_user(self, kind: str, message: str) -> None:
         try:
             self._vprint(f"{self.log_prefix}{message}", force=True)
         except Exception:
-            pass
+            logger.debug("_vprint failed for %s message", kind, exc_info=True)
         if self.status_callback:
             try:
-                self.status_callback("warn", message)
+                self.status_callback(kind, message)
             except Exception:
-                logger.debug("status_callback error in _emit_warning", exc_info=True)
+                logger.debug("status_callback error for %s message", kind, exc_info=True)
 
     # Stream-diagnostic class header preserved for backward compat —
     # actual list lives in ``agent.stream_diag.STREAM_DIAG_HEADERS``.
@@ -1770,49 +1763,44 @@ class AIAgent:
         NOT called per-turn — only at CLI exit, /reset, gateway
         session expiry, etc.
         """
-        if self._memory_manager:
-            try:
-                self._memory_manager.on_session_end(messages or [])
-            except Exception:
-                pass
-            try:
-                self._memory_manager.shutdown_all()
-            except Exception:
-                pass
-        # Notify context engine of session end (flush DAG, close DBs, etc.)
-        if hasattr(self, "context_compressor") and self.context_compressor:
-            try:
-                self.context_compressor.on_session_end(
-                    self.session_id or "",
-                    messages or [],
-                )
-            except Exception:
-                pass
+        self._end_memory_session(messages, shutdown=True)
 
     def commit_memory_session(self, messages: list = None) -> None:
         """Trigger end-of-session extraction without tearing providers down.
+
         Called when session_id rotates (e.g. /new, context compression);
         providers keep their state and continue running under the old
-        session_id — they just flush pending extraction now."""
+        session_id — they just flush pending extraction now.
+        """
+        self._end_memory_session(messages, shutdown=False)
+
+    def _end_memory_session(self, messages: list, *, shutdown: bool) -> None:
+        """on_session_end for the memory manager (then shutdown_all when
+        *shutdown*) and the context engine.
+
+        The context engine needs it at rotation too: engines that keep
+        per-session state (DAGs, summaries) would otherwise leak it from the
+        rotated-out session into the next one on the same compressor
+        (#22394).  A failing provider or engine never blocks the boundary.
+        """
         if self._memory_manager:
             try:
                 self._memory_manager.on_session_end(messages or [])
             except Exception:
-                pass
-        # Notify context engine of session end too — same lifecycle moment as
-        # the memory manager's on_session_end. Without this, engines that
-        # accumulate per-session state (DAGs, summaries) leak that state from
-        # the rotated-out session into whatever comes next under the same
-        # compressor instance. Mirrors the call in shutdown_memory_provider().
-        # See issue #22394.
-        if hasattr(self, "context_compressor") and self.context_compressor:
+                logger.warning("Memory provider on_session_end failed", exc_info=True)
+            if shutdown:
+                try:
+                    self._memory_manager.shutdown_all()
+                except Exception:
+                    logger.warning("Memory provider shutdown failed", exc_info=True)
+        if getattr(self, "context_compressor", None):
             try:
                 self.context_compressor.on_session_end(
                     self.session_id or "",
                     messages or [],
                 )
             except Exception:
-                pass
+                logger.warning("Context engine on_session_end failed", exc_info=True)
 
     def _sync_external_memory_for_turn(
         self,

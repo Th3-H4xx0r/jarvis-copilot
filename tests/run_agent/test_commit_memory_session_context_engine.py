@@ -28,6 +28,7 @@ def _make_minimal_agent(memory_manager, context_compressor, session_id="abc"):
         session_id=session_id,
     )
     obj.commit_memory_session = AIAgent.commit_memory_session.__get__(obj)
+    obj._end_memory_session = AIAgent._end_memory_session.__get__(obj)
     return obj
 
 
