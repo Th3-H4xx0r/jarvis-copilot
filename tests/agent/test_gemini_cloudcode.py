@@ -635,6 +635,24 @@ class TestBuildGeminiRequest:
         assert fr_part["functionResponse"]["name"] == "get_weather"
         assert fr_part["functionResponse"]["response"] == {"temp": 72}
 
+    def test_replayed_calls_carry_the_code_assist_sentinel_signature(self):
+        from agent.gemini_cloudcode_adapter import build_gemini_request
+
+        req = build_gemini_request(messages=[
+            {"role": "user", "content": "q"},
+            {"role": "assistant", "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "get_weather", "arguments": "{}"},
+                "extra_content": {"google": {"thought_signature": "from-gemini"}},
+            }]},
+            # No "name" on the tool message: the call id maps back to it.
+            {"role": "tool", "tool_call_id": "c1", "content": "sunny"},
+        ])
+        fc_part = req["contents"][1]["parts"][0]
+        assert fc_part["thoughtSignature"] == "skip_thought_signature_validator"
+        fr_part = req["contents"][2]["parts"][0]
+        assert fr_part["functionResponse"]["name"] == "get_weather"
+
     def test_tools_translated_to_function_declarations(self):
         from agent.gemini_cloudcode_adapter import build_gemini_request
 

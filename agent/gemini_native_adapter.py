@@ -225,7 +225,15 @@ def _tool_call_extra_signature(tool_call: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _translate_tool_call_to_gemini(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+def _translate_tool_call_to_gemini(
+    tool_call: Dict[str, Any],
+    thought_signature: Optional[str] = None,
+) -> Dict[str, Any]:
+    """OpenAI tool_call -> Gemini functionCall part.
+
+    *thought_signature* overrides the signature the call carried in
+    ``extra_content`` (see ``build_gemini_request``).
+    """
     fn = tool_call.get("function") or {}
     args_raw = fn.get("arguments", "")
     try:
@@ -241,7 +249,7 @@ def _translate_tool_call_to_gemini(tool_call: Dict[str, Any]) -> Dict[str, Any]:
             "args": args,
         }
     }
-    thought_signature = _tool_call_extra_signature(tool_call)
+    thought_signature = thought_signature or _tool_call_extra_signature(tool_call)
     if thought_signature:
         part["thoughtSignature"] = thought_signature
     return part
@@ -273,7 +281,11 @@ def _translate_tool_result_to_gemini(
     }
 
 
-def _build_gemini_contents(messages: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+def _build_gemini_contents(
+    messages: List[Dict[str, Any]],
+    thought_signature: Optional[str] = None,
+) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """OpenAI messages[] -> Gemini contents[] + systemInstruction."""
     system_text_parts: List[str] = []
     contents: List[Dict[str, Any]] = []
     tool_name_by_call_id: Dict[str, str] = {}
@@ -315,7 +327,7 @@ def _build_gemini_contents(messages: List[Dict[str, Any]]) -> tuple[List[Dict[st
                     tool_name = str(((tool_call.get("function") or {}).get("name") or ""))
                     if tool_call_id and tool_name:
                         tool_name_by_call_id[tool_call_id] = tool_name
-                    parts.append(_translate_tool_call_to_gemini(tool_call))
+                    parts.append(_translate_tool_call_to_gemini(tool_call, thought_signature))
 
         if parts:
             contents.append({"role": gemini_role, "parts": parts})
@@ -395,8 +407,14 @@ def build_gemini_request(
     top_p: Optional[float] = None,
     stop: Any = None,
     thinking_config: Any = None,
+    thought_signature: Optional[str] = None,
 ) -> Dict[str, Any]:
-    contents, system_instruction = _build_gemini_contents(messages)
+    """Build a Gemini ``generateContent`` request body from OpenAI-shaped args.
+
+    *thought_signature*, when set, is stamped on every replayed function call
+    in place of the signature Gemini returned with it.
+    """
+    contents, system_instruction = _build_gemini_contents(messages, thought_signature)
     request: Dict[str, Any] = {"contents": contents}
     if system_instruction:
         request["systemInstruction"] = system_instruction
@@ -697,8 +715,15 @@ def translate_stream_event(event: Dict[str, Any], model: str, tool_call_indices:
     return chunks
 
 
-def gemini_http_error(response: httpx.Response) -> GeminiAPIError:
-    status = response.status_code
+def parse_google_error(response: httpx.Response) -> Dict[str, Any]:
+    """Pull the useful fields out of Google's error envelope.
+
+    The body looks like ``{"error": {"code", "message", "status", "details":
+    [{"@type": ".../google.rpc.ErrorInfo", "reason", "metadata"},
+    {"@type": ".../google.rpc.RetryInfo", "retryDelay": "30s"}]}}``.
+    Returns ``body_text``, ``status``, ``message``, ``reason``, ``metadata``
+    and ``retry_after`` (seconds from RetryInfo, else the Retry-After header).
+    """
     body_text = ""
     body_json: Dict[str, Any] = {}
     try:
@@ -713,34 +738,65 @@ def gemini_http_error(response: httpx.Response) -> GeminiAPIError:
         except (ValueError, TypeError):
             body_json = {}
 
-    err_obj = body_json.get("error") if isinstance(body_json, dict) else None
+    err_obj = body_json.get("error")
     if not isinstance(err_obj, dict):
         err_obj = {}
-    err_status = str(err_obj.get("status") or "").strip()
-    err_message = str(err_obj.get("message") or "").strip()
-    _raw_details = err_obj.get("details")
-    details_list = _raw_details if isinstance(_raw_details, list) else []
+    raw_details = err_obj.get("details")
 
     reason = ""
-    retry_after: Optional[float] = None
     metadata: Dict[str, Any] = {}
-    for detail in details_list:
+    retry_after: Optional[float] = None
+    for detail in raw_details if isinstance(raw_details, list) else []:
         if not isinstance(detail, dict):
             continue
         type_url = str(detail.get("@type") or "")
         if not reason and type_url.endswith("/google.rpc.ErrorInfo"):
             reason_value = detail.get("reason")
-            if isinstance(reason_value, str):
+            if isinstance(reason_value, str) and reason_value:
                 reason = reason_value
             md = detail.get("metadata")
             if isinstance(md, dict):
                 metadata = md
-    header_retry = response.headers.get("Retry-After") or response.headers.get("retry-after")
-    if header_retry:
+        elif retry_after is None and type_url.endswith("/google.rpc.RetryInfo"):
+            # retryDelay is a google.protobuf.Duration string like "30s".
+            delay_raw = detail.get("retryDelay")
+            if isinstance(delay_raw, str) and delay_raw.endswith("s"):
+                try:
+                    retry_after = float(delay_raw[:-1])
+                except ValueError:
+                    pass
+            elif isinstance(delay_raw, (int, float)):
+                retry_after = float(delay_raw)
+
+    if retry_after is None:
         try:
-            retry_after = float(header_retry)
-        except (TypeError, ValueError):
-            retry_after = None
+            header_val = response.headers.get("Retry-After") or response.headers.get("retry-after")
+        except Exception:
+            header_val = None
+        if header_val:
+            try:
+                retry_after = float(header_val)
+            except (TypeError, ValueError):
+                retry_after = None
+
+    return {
+        "body_text": body_text,
+        "status": str(err_obj.get("status") or "").strip(),
+        "message": str(err_obj.get("message") or "").strip(),
+        "reason": reason,
+        "metadata": metadata,
+        "retry_after": retry_after,
+    }
+
+
+def google_error_details(err: Dict[str, Any]) -> Dict[str, Any]:
+    """The ``details`` payload Gemini errors carry for the error classifier."""
+    return {key: err[key] for key in ("status", "reason", "metadata", "message")}
+
+
+def gemini_http_error(response: httpx.Response) -> GeminiAPIError:
+    status = response.status_code
+    err = parse_google_error(response)
 
     code = f"gemini_http_{status}"
     if status == 401:
@@ -750,15 +806,15 @@ def gemini_http_error(response: httpx.Response) -> GeminiAPIError:
     elif status == 404:
         code = "gemini_model_not_found"
 
-    if err_message:
-        message = f"Gemini HTTP {status} ({err_status or 'error'}): {err_message}"
+    if err["message"]:
+        message = f"Gemini HTTP {status} ({err['status'] or 'error'}): {err['message']}"
     else:
-        message = f"Gemini returned HTTP {status}: {body_text[:500]}"
+        message = f"Gemini returned HTTP {status}: {err['body_text'][:500]}"
 
     # Free-tier quota exhaustion -> append actionable guidance so users who
     # bypassed the setup wizard (direct GOOGLE_API_KEY in .env) still learn
     # that the free tier cannot sustain an agent session.
-    if status == 429 and is_free_tier_quota_error(err_message or body_text):
+    if status == 429 and is_free_tier_quota_error(err["message"] or err["body_text"]):
         message = message + _FREE_TIER_GUIDANCE
 
     return GeminiAPIError(
@@ -766,13 +822,8 @@ def gemini_http_error(response: httpx.Response) -> GeminiAPIError:
         code=code,
         status_code=status,
         response=response,
-        retry_after=retry_after,
-        details={
-            "status": err_status,
-            "reason": reason,
-            "metadata": metadata,
-            "message": err_message,
-        },
+        retry_after=err["retry_after"],
+        details=google_error_details(err),
     )
 
 
