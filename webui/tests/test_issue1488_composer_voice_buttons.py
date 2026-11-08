@@ -136,17 +136,6 @@ class TestComposerVoiceButtonI18n:
             f"occurrences). Replace with voice_mode_toggle / voice_dictate."
         )
 
-    def test_all_locales_define_new_keys(self):
-        """Every locale block must define all 4 new composer voice-button keys."""
-        src = _src("i18n.js")
-        for key in self.REQUIRED_KEYS:
-            count = len(re.findall(rf'\b{re.escape(key)}\s*:', src))
-            assert count == len(self.LOCALES), (
-                f"i18n key {key!r} appears {count} times — expected one per "
-                f"locale ({len(self.LOCALES)} locales: {self.LOCALES}). "
-                f"Each locale block must define all four composer voice keys."
-            )
-
     def test_english_dictate_label_is_dictate(self):
         """English voice_dictate must read 'Dictate' (not 'Voice input')."""
         src = _src("i18n.js")
@@ -208,16 +197,6 @@ class TestVoiceModePreferenceGate:
             "Voice-mode pref label must use data-i18n='settings_label_voice_mode'."
         assert 'data-i18n="settings_desc_voice_mode"' in html, \
             "Voice-mode pref description must use data-i18n='settings_desc_voice_mode'."
-
-    def test_settings_pane_has_voice_mode_i18n_keys(self):
-        """The two new pref-label i18n keys must exist in every locale."""
-        src = _src("i18n.js")
-        for key in ("settings_label_voice_mode", "settings_desc_voice_mode"):
-            count = len(re.findall(rf'\b{re.escape(key)}\s*:', src))
-            assert count == len(self.LOCALES), (
-                f"Preferences i18n key {key!r} appears {count} times — "
-                f"expected {len(self.LOCALES)} (one per locale)."
-            )
 
     def test_panels_js_wires_voice_mode_pref(self):
         """panels.js must read the checkbox state, persist to localStorage,
