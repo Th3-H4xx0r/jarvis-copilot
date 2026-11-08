@@ -1751,6 +1751,40 @@ def _replay_output_history() -> None:
         _OUTPUT_HISTORY_REPLAYING = False
 
 
+def _panel_box_width(title: str, content_lines: list[str], min_width: int = 46, max_width: int = 76) -> int:
+    """Choose a stable panel width wide enough for the title and content.
+
+    The result counts the single leading/trailing spaces inside the borders.
+    """
+    term_cols = shutil.get_terminal_size((100, 20)).columns
+    longest = max([len(title)] + [len(line) for line in content_lines] + [min_width - 4])
+    inner = min(max(longest + 4, min_width - 2), max_width - 2, max(24, term_cols - 6))
+    return inner + 2
+
+
+def _wrap_panel_text(text: str, width: int, subsequent_indent: str = "") -> list[str]:
+    """Wrap panel text keeping its whitespace (code / command previews)."""
+    wrapped = textwrap.wrap(
+        text,
+        width=max(8, width),
+        replace_whitespace=False,
+        drop_whitespace=False,
+        subsequent_indent=subsequent_indent,
+    )
+    return wrapped or [""]
+
+
+def _append_panel_line(lines, border_style: str, content_style: str, text: str, box_width: int) -> None:
+    inner_width = max(0, box_width - 2)
+    lines.append((border_style, "│ "))
+    lines.append((content_style, text.ljust(inner_width)))
+    lines.append((border_style, " │\n"))
+
+
+def _append_blank_panel_line(lines, border_style: str, box_width: int) -> None:
+    lines.append((border_style, "│" + (" " * box_width) + "│\n"))
+
+
 def _cprint(text: str):
     """Print ANSI-colored text through prompt_toolkit's native renderer.
 
@@ -6796,31 +6830,6 @@ class HermesCLI:
         choices = state.get("choices") or []
         selected = state.get("selected", 0)
 
-        def _panel_box_width(title_text: str, content_lines: list[str], min_width: int = 56, max_width: int = 86) -> int:
-            term_cols = shutil.get_terminal_size((100, 20)).columns
-            longest = max([len(title_text)] + [len(line) for line in content_lines] + [min_width - 4])
-            inner = min(max(longest + 4, min_width - 2), max_width - 2, max(24, term_cols - 6))
-            return inner + 2
-
-        def _wrap_panel_text(text: str, width: int, subsequent_indent: str = "") -> list[str]:
-            wrapped = textwrap.wrap(
-                text,
-                width=max(8, width),
-                replace_whitespace=False,
-                drop_whitespace=False,
-                subsequent_indent=subsequent_indent,
-            )
-            return wrapped or [""]
-
-        def _append_panel_line(lines, border_style: str, content_style: str, text: str, box_width: int) -> None:
-            inner_width = max(0, box_width - 2)
-            lines.append((border_style, "│ "))
-            lines.append((content_style, text.ljust(inner_width)))
-            lines.append((border_style, " │\n"))
-
-        def _append_blank_panel_line(lines, border_style: str, box_width: int) -> None:
-            lines.append((border_style, "│" + (" " * box_width) + "│\n"))
-
         preview_lines = []
         for line in detail.splitlines():
             preview_lines.extend(_wrap_panel_text(line, 72))
@@ -6829,7 +6838,7 @@ class HermesCLI:
             preview_lines.extend(_wrap_panel_text(f"{marker} [{idx + 1}] {label} — {desc}", 72, subsequent_indent="    "))
         preview_lines.append("Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.")
 
-        box_width = _panel_box_width(title, preview_lines)
+        box_width = _panel_box_width(title, preview_lines, min_width=56, max_width=86)
         inner_text_width = max(8, box_width - 2)
         detail_wrapped = []
         for line in detail.splitlines():
@@ -10602,31 +10611,6 @@ class HermesCLI:
         if not state:
             return []
 
-        def _panel_box_width(title_text: str, content_lines: list[str], min_width: int = 46, max_width: int = 76) -> int:
-            term_cols = shutil.get_terminal_size((100, 20)).columns
-            longest = max([len(title_text)] + [len(line) for line in content_lines] + [min_width - 4])
-            inner = min(max(longest + 4, min_width - 2), max_width - 2, max(24, term_cols - 6))
-            return inner + 2
-
-        def _wrap_panel_text(text: str, width: int, subsequent_indent: str = "") -> list[str]:
-            wrapped = textwrap.wrap(
-                text,
-                width=max(8, width),
-                replace_whitespace=False,
-                drop_whitespace=False,
-                subsequent_indent=subsequent_indent,
-            )
-            return wrapped or [""]
-
-        def _append_panel_line(lines, border_style: str, content_style: str, text: str, box_width: int) -> None:
-            inner_width = max(0, box_width - 2)
-            lines.append((border_style, "│ "))
-            lines.append((content_style, text.ljust(inner_width)))
-            lines.append((border_style, " │\n"))
-
-        def _append_blank_panel_line(lines, border_style: str, box_width: int) -> None:
-            lines.append((border_style, "│" + (" " * box_width) + "│\n"))
-
         command = state["command"]
         description = state["description"]
         choices = state["choices"]
@@ -12988,14 +12972,9 @@ class HermesCLI:
 
         # --- Clarify tool: dynamic display widget for questions + choices ---
 
-        def _panel_box_width(title: str, content_lines: list[str], min_width: int = 46, max_width: int = 76) -> int:
-            """Choose a stable panel width wide enough for the title and content."""
-            term_cols = shutil.get_terminal_size((100, 20)).columns
-            longest = max([len(title)] + [len(line) for line in content_lines] + [min_width - 4])
-            inner = min(max(longest + 4, min_width - 2), max_width - 2, max(24, term_cols - 6))
-            return inner + 2  # account for the single leading/trailing spaces inside borders
-
         def _wrap_panel_text(text: str, width: int, subsequent_indent: str = "") -> list[str]:
+            # Prose panels: unlike the module-level wrapper, never split
+            # words or hyphenated terms and collapse whitespace.
             wrapped = textwrap.wrap(
                 text,
                 width=max(8, width),
@@ -13004,15 +12983,6 @@ class HermesCLI:
                 subsequent_indent=subsequent_indent,
             )
             return wrapped or [""]
-
-        def _append_panel_line(lines, border_style: str, content_style: str, text: str, box_width: int) -> None:
-            inner_width = max(0, box_width - 2)
-            lines.append((border_style, "│ "))
-            lines.append((content_style, text.ljust(inner_width)))
-            lines.append((border_style, " │\n"))
-
-        def _append_blank_panel_line(lines, border_style: str, box_width: int) -> None:
-            lines.append((border_style, "│" + (" " * box_width) + "│\n"))
 
         def _get_clarify_display():
             """Build styled text for the clarify question/choices panel.
