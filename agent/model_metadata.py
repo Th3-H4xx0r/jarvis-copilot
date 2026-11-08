@@ -5,6 +5,7 @@ and run_agent.py for pre-flight context checks.
 """
 
 import ipaddress
+import itertools
 import logging
 import os
 import re
@@ -325,6 +326,12 @@ def _normalize_base_url(base_url: str) -> str:
     return (base_url or "").strip().rstrip("/")
 
 
+def _server_root(base_url: str) -> str:
+    """Strip a trailing ``/v1`` to reach a local server's native API root."""
+    server_url = base_url.rstrip("/")
+    return server_url[:-3] if server_url.endswith("/v1") else server_url
+
+
 def _auth_headers(api_key: str = "") -> Dict[str, str]:
     token = str(api_key or "").strip()
     if not token:
@@ -474,10 +481,7 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
     """
     import httpx
 
-    normalized = _normalize_base_url(base_url)
-    server_url = normalized
-    if server_url.endswith("/v1"):
-        server_url = server_url[:-3]
+    server_url = _server_root(_normalize_base_url(base_url))
 
     headers = _auth_headers(api_key)
 
@@ -605,6 +609,22 @@ def _extract_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+def _endpoint_model_entry(
+    model: Dict[str, Any], model_id: str, context_length: Optional[int],
+) -> Dict[str, Any]:
+    """The metadata cache entry for one model listed by an endpoint."""
+    entry: Dict[str, Any] = {"name": model.get("name", model_id)}
+    if context_length is not None:
+        entry["context_length"] = context_length
+    max_completion_tokens = _extract_max_completion_tokens(model)
+    if max_completion_tokens is not None:
+        entry["max_completion_tokens"] = max_completion_tokens
+    pricing = _extract_pricing(model)
+    if pricing:
+        entry["pricing"] = pricing
+    return entry
+
+
 def _add_model_aliases(cache: Dict[str, Dict[str, Any]], model_id: str, entry: Dict[str, Any]) -> None:
     cache[model_id] = entry
     if "/" in model_id:
@@ -698,8 +718,6 @@ def fetch_endpoint_model_metadata(
                     model_id = model.get("key") or model.get("id")
                     if not model_id:
                         continue
-                    entry: Dict[str, Any] = {"name": model.get("name", model_id)}
-
                     context_length = None
                     for inst in model.get("loaded_instances", []) or []:
                         if not isinstance(inst, dict):
@@ -709,17 +727,7 @@ def fetch_endpoint_model_metadata(
                         if isinstance(ctx, int) and ctx > 0:
                             context_length = ctx
                             break
-                    if context_length is not None:
-                        entry["context_length"] = context_length
-
-                    max_completion_tokens = _extract_max_completion_tokens(model)
-                    if max_completion_tokens is not None:
-                        entry["max_completion_tokens"] = max_completion_tokens
-
-                    pricing = _extract_pricing(model)
-                    if pricing:
-                        entry["pricing"] = pricing
-
+                    entry = _endpoint_model_entry(model, model_id, context_length)
                     _add_model_aliases(cache, model_id, entry)
                     alt_id = model.get("id")
                     if isinstance(alt_id, str) and alt_id and alt_id != model_id:
@@ -744,16 +752,7 @@ def fetch_endpoint_model_metadata(
                 model_id = model.get("id")
                 if not model_id:
                     continue
-                entry: Dict[str, Any] = {"name": model.get("name", model_id)}
-                context_length = _extract_context_length(model)
-                if context_length is not None:
-                    entry["context_length"] = context_length
-                max_completion_tokens = _extract_max_completion_tokens(model)
-                if max_completion_tokens is not None:
-                    entry["max_completion_tokens"] = max_completion_tokens
-                pricing = _extract_pricing(model)
-                if pricing:
-                    entry["pricing"] = pricing
+                entry = _endpoint_model_entry(model, model_id, _extract_context_length(model))
                 _add_model_aliases(cache, model_id, entry)
 
             # If this is a llama.cpp server, query /props for actual allocated context
@@ -977,6 +976,27 @@ def _model_id_matches(candidate_id: str, lookup_model: str) -> bool:
     return False
 
 
+def _ollama_num_ctx_values(show: Dict[str, Any]):
+    """Yield each ``num_ctx`` set in an Ollama ``/api/show`` Modelfile ``parameters``."""
+    params = show.get("parameters", "")
+    if "num_ctx" in params:
+        for line in params.split("\n"):
+            if "num_ctx" in line:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        yield int(parts[-1])
+                    except ValueError:
+                        pass
+
+
+def _ollama_model_info_contexts(show: Dict[str, Any]):
+    """Yield each GGUF ``model_info.*context_length`` (training max) in an ``/api/show`` reply."""
+    for key, value in show.get("model_info", {}).items():
+        if "context_length" in key and isinstance(value, (int, float)):
+            yield int(value)
+
+
 def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Optional[int]:
     """Query an Ollama server for the model's context length.
 
@@ -990,9 +1010,7 @@ def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Option
     import httpx
 
     bare_model = _strip_provider_prefix(model)
-    server_url = base_url.rstrip("/")
-    if server_url.endswith("/v1"):
-        server_url = server_url[:-3]
+    server_url = _server_root(base_url)
 
     try:
         server_type = detect_local_server_type(base_url, api_key=api_key)
@@ -1009,24 +1027,12 @@ def query_ollama_num_ctx(model: str, base_url: str, api_key: str = "") -> Option
             if resp.status_code != 200:
                 return None
             data = resp.json()
-
-            # Prefer explicit num_ctx from Modelfile parameters (user override)
-            params = data.get("parameters", "")
-            if "num_ctx" in params:
-                for line in params.split("\n"):
-                    if "num_ctx" in line:
-                        parts = line.strip().split()
-                        if len(parts) >= 2:
-                            try:
-                                return int(parts[-1])
-                            except ValueError:
-                                pass
-
-            # Fall back to GGUF model_info context_length (training max)
-            model_info = data.get("model_info", {})
-            for key, value in model_info.items():
-                if "context_length" in key and isinstance(value, (int, float)):
-                    return int(value)
+            # An explicit Modelfile num_ctx (user override) beats the GGUF
+            # training max.
+            return next(
+                itertools.chain(_ollama_num_ctx_values(data), _ollama_model_info_contexts(data)),
+                None,
+            )
     except Exception:
         pass
     return None
@@ -1053,10 +1059,7 @@ def _query_ollama_api_show(model: str, base_url: str, api_key: str = "") -> Opti
     """
     import httpx
 
-    server_url = base_url.rstrip("/")
-    if server_url.endswith("/v1"):
-        server_url = server_url[:-3]
-
+    server_url = _server_root(base_url)
     headers = _auth_headers(api_key)
 
     try:
@@ -1065,29 +1068,11 @@ def _query_ollama_api_show(model: str, base_url: str, api_key: str = "") -> Opti
             if resp.status_code != 200:
                 return None
             data = resp.json()
-
             # Hosted Ollama: GGUF model_info is the real max — prefer it over
-            # num_ctx which the Cloud operator may have capped arbitrarily.
-            model_info = data.get("model_info", {})
-            for key, value in model_info.items():
-                if "context_length" in key and isinstance(value, (int, float)):
-                    ctx = int(value)
-                    if ctx >= 1024:
-                        return ctx
-
-            # Fall back to num_ctx from Modelfile parameters (rare on Cloud)
-            params = data.get("parameters", "")
-            if "num_ctx" in params:
-                for line in params.split("\n"):
-                    if "num_ctx" in line:
-                        parts = line.strip().split()
-                        if len(parts) >= 2:
-                            try:
-                                ctx = int(parts[-1])
-                                if ctx >= 1024:
-                                    return ctx
-                            except ValueError:
-                                pass
+            # num_ctx which the Cloud operator may have capped arbitrarily
+            # (num_ctx is rare on Cloud).
+            candidates = itertools.chain(_ollama_model_info_contexts(data), _ollama_num_ctx_values(data))
+            return next((ctx for ctx in candidates if ctx >= 1024), None)
     except Exception:
         pass
     return None
@@ -1113,11 +1098,7 @@ def _query_local_context_length(model: str, base_url: str, api_key: str = "") ->
     # Ollama "model:tag" colons (e.g. "qwen3.5:27b") are intentionally preserved.
     model = _strip_provider_prefix(model)
 
-    # Strip /v1 suffix to get the server root
-    server_url = base_url.rstrip("/")
-    if server_url.endswith("/v1"):
-        server_url = server_url[:-3]
-
+    server_url = _server_root(base_url)
     headers = _auth_headers(api_key)
 
     try:
@@ -1138,21 +1119,12 @@ def _query_local_context_length(model: str, base_url: str, api_key: str = "") ->
                     # which can be larger than num_ctx — using it here would let
                     # JarvisCopilot grow conversations past the runtime limit and Ollama
                     # would silently truncate. Matches query_ollama_num_ctx().
-                    params = data.get("parameters", "")
-                    if "num_ctx" in params:
-                        for line in params.split("\n"):
-                            if "num_ctx" in line:
-                                parts = line.strip().split()
-                                if len(parts) >= 2:
-                                    try:
-                                        return int(parts[-1])
-                                    except ValueError:
-                                        pass
-                    # Fall back to GGUF model_info context_length (training max)
-                    model_info = data.get("model_info", {})
-                    for key, value in model_info.items():
-                        if "context_length" in key and isinstance(value, (int, float)):
-                            return int(value)
+                    ctx = next(
+                        itertools.chain(_ollama_num_ctx_values(data), _ollama_model_info_contexts(data)),
+                        None,
+                    )
+                    if ctx is not None:
+                        return ctx
 
             # LM Studio native API: /api/v1/models returns max_context_length.
             # This is more reliable than the OpenAI-compat /v1/models which
@@ -1218,10 +1190,7 @@ def _query_anthropic_context_length(model: str, base_url: str, api_key: str) -> 
     if not api_key or api_key.startswith("sk-ant-oat"):
         return None  # OAuth tokens can't access /v1/models
     try:
-        base = base_url.rstrip("/")
-        if base.endswith("/v1"):
-            base = base[:-3]
-        url = f"{base}/v1/models?limit=1000"
+        url = f"{_server_root(base_url)}/v1/models?limit=1000"
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
