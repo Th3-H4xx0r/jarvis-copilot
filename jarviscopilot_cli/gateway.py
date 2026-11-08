@@ -3947,6 +3947,51 @@ def _configure_platform(platform: dict) -> None:
         print_info(f"  {platform['install_hint']}")
 
 
+def run_service_action(action: str, *, system: bool = False) -> None:
+    """Start or restart the gateway service from a setup wizard.
+
+    ``action`` is ``"start"`` or ``"restart"``. Failures are printed, never
+    raised, so they can't abort the wizard. A restart on a platform with no
+    service manager stops the running gateway and says how to start it.
+    """
+    restart = action == "restart"
+    label = "Restart" if restart else "Start"
+    try:
+        if supports_systemd_services():
+            (systemd_restart if restart else systemd_start)(system=system)
+        elif is_macos():
+            (launchd_restart if restart else launchd_start)()
+        elif is_windows():
+            from jarviscopilot_cli import gateway_windows
+            (gateway_windows.restart if restart else gateway_windows.start)()
+        elif restart:
+            stop_profile_gateway()
+            print_info("Start manually: hermes gateway")
+    except UserSystemdUnavailableError as e:
+        print_error(f"  {label} failed — user systemd not reachable:")
+        for line in str(e).splitlines():
+            print(f"  {line}")
+    except SystemScopeRequiresRootError as e:
+        # The caller's root pre-check should catch this; a unit file
+        # appearing mid-run can still land here.
+        print_error(f"  {label} failed: {e}")
+        _print_system_scope_remediation(action)
+    except Exception as e:
+        print_error(f"  {label} failed: {e}")
+
+
+def offer_service_action(action: str, question: str) -> None:
+    """Ask, then start/restart the installed service (see run_service_action).
+
+    A system-scope unit the wizard can't touch without root gets the
+    remediation hint instead of the question.
+    """
+    if supports_systemd_services() and _system_scope_wizard_would_need_root():
+        _print_system_scope_remediation(action)
+    elif prompt_yes_no(question, True):
+        run_service_action(action)
+
+
 def gateway_setup():
     """Interactive setup for messaging platforms + gateway service."""
     if is_managed():
@@ -3978,26 +4023,7 @@ def gateway_setup():
         print_success("Gateway service is installed and running.")
     elif service_installed:
         print_warning("Gateway service is installed but not running.")
-        if supports_systemd_services() and _system_scope_wizard_would_need_root():
-            _print_system_scope_remediation("start")
-        elif prompt_yes_no("  Start it now?", True):
-            try:
-                if supports_systemd_services():
-                    systemd_start()
-                elif is_macos():
-                    launchd_start()
-            except UserSystemdUnavailableError as e:
-                print_error("  Failed to start — user systemd not reachable:")
-                for line in str(e).splitlines():
-                    print(f"  {line}")
-            except SystemScopeRequiresRootError as e:
-                # Defense in depth: the pre-check above should have caught
-                # this, but handle the race/edge case gracefully instead of
-                # letting the exception escape the wizard.
-                print_error(f"  Failed to start: {e}")
-                _print_system_scope_remediation("start")
-            except subprocess.CalledProcessError as e:
-                print_error(f"  Failed to start: {e}")
+        offer_service_action("start", "  Start it now?")
     else:
         print_info("Gateway service is not installed yet.")
         print_info("You'll be offered to install it after configuring platforms.")
@@ -4045,50 +4071,9 @@ def gateway_setup():
         service_running = _is_service_running()
 
         if service_running:
-            if supports_systemd_services() and _system_scope_wizard_would_need_root():
-                _print_system_scope_remediation("restart")
-            elif prompt_yes_no("  Restart the gateway to pick up changes?", True):
-                try:
-                    if supports_systemd_services():
-                        systemd_restart()
-                    elif is_macos():
-                        launchd_restart()
-                    elif is_windows():
-                        from jarviscopilot_cli import gateway_windows
-                        gateway_windows.restart()
-                    else:
-                        stop_profile_gateway()
-                        print_info("Start manually: hermes gateway")
-                except UserSystemdUnavailableError as e:
-                    print_error("  Restart failed — user systemd not reachable:")
-                    for line in str(e).splitlines():
-                        print(f"  {line}")
-                except SystemScopeRequiresRootError as e:
-                    print_error(f"  Restart failed: {e}")
-                    _print_system_scope_remediation("restart")
-                except subprocess.CalledProcessError as e:
-                    print_error(f"  Restart failed: {e}")
+            offer_service_action("restart", "  Restart the gateway to pick up changes?")
         elif service_installed:
-            if supports_systemd_services() and _system_scope_wizard_would_need_root():
-                _print_system_scope_remediation("start")
-            elif prompt_yes_no("  Start the gateway service?", True):
-                try:
-                    if supports_systemd_services():
-                        systemd_start()
-                    elif is_macos():
-                        launchd_start()
-                    elif is_windows():
-                        from jarviscopilot_cli import gateway_windows
-                        gateway_windows.start()
-                except UserSystemdUnavailableError as e:
-                    print_error("  Start failed — user systemd not reachable:")
-                    for line in str(e).splitlines():
-                        print(f"  {line}")
-                except SystemScopeRequiresRootError as e:
-                    print_error(f"  Start failed: {e}")
-                    _print_system_scope_remediation("start")
-                except subprocess.CalledProcessError as e:
-                    print_error(f"  Start failed: {e}")
+            offer_service_action("start", "  Start the gateway service?")
         else:
             print()
             if supports_systemd_services() or is_macos() or is_windows():
@@ -4122,20 +4107,7 @@ def gateway_setup():
                             did_install = True
                         print()
                         if did_install and start_now:
-                            try:
-                                if supports_systemd_services():
-                                    systemd_start(system=installed_scope == "system")
-                                elif is_macos():
-                                    launchd_start()
-                                elif is_windows():
-                                    from jarviscopilot_cli import gateway_windows
-                                    gateway_windows.start()
-                            except UserSystemdUnavailableError as e:
-                                print_error("  Start failed — user systemd not reachable:")
-                                for line in str(e).splitlines():
-                                    print(f"  {line}")
-                            except subprocess.CalledProcessError as e:
-                                print_error(f"  Start failed: {e}")
+                            run_service_action("start", system=installed_scope == "system")
                     except subprocess.CalledProcessError as e:
                         print_error(f"  Install failed: {e}")
                         print_info("  You can try manually: hermes gateway install")
