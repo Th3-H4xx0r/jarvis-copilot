@@ -320,22 +320,23 @@ def get_nous_subscription_features(
     )
 
     web_managed = web_backend == "firecrawl" and managed_web_available and not direct_firecrawl
+    direct_web = {
+        "exa": direct_exa,
+        "firecrawl": direct_firecrawl,
+        "parallel": direct_parallel,
+        "tavily": direct_tavily,
+        "searxng": direct_searxng,
+    }
+    # search_backend / extract_backend may be set without web.backend
+    # (the split config from #20061).
     web_active = bool(
         web_tool_enabled
         and (
             web_managed
-            or (web_backend == "exa" and direct_exa)
-            or (web_backend == "firecrawl" and direct_firecrawl)
-            or (web_backend == "parallel" and direct_parallel)
-            or (web_backend == "tavily" and direct_tavily)
-            or (web_backend == "searxng" and direct_searxng)
-            # Per-capability overrides: search_backend or extract_backend may be set
-            # without web.backend (using the new split config from #20061)
-            or (web_search_backend == "searxng" and direct_searxng)
-            or (web_search_backend == "exa" and direct_exa)
-            or (web_search_backend == "firecrawl" and direct_firecrawl)
-            or (web_search_backend == "parallel" and direct_parallel)
-            or (web_search_backend == "tavily" and direct_tavily)
+            or any(
+                direct_web.get(backend)
+                for backend in (web_backend, web_search_backend, web_extract_backend)
+            )
         )
     )
     web_available = bool(
