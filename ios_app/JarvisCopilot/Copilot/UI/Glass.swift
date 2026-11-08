@@ -37,8 +37,7 @@ struct GlassCard<Content: View>: View {
     }
 }
 
-/// A rounded frosted container that groups `GlassRow`s (iOS inset-list style) —
-/// the same card as `JcCard(padding: 0)`.
+/// Groups `GlassRow`s (iOS inset-list style): the unified card with no inner padding.
 struct GlassGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -46,18 +45,10 @@ struct GlassGroup<Content: View>: View {
         self.content = content()
     }
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous) }
-
-    var body: some View {
-        VStack(spacing: 0) { content }
-            .background(shape.fill(JcTheme.glassFill))
-            .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            .clipShape(shape)
-    }
+    var body: some View { JcCard(padding: 0) { content } }
 }
 
-/// A tappable list row, drawn as the unified `JcRow`: a 28pt muted icon square,
-/// title (+ subtitle), and a chevron.
+/// A tappable list row: the unified `JcRow`, with one subtitle line by default.
 /// Pass `trailing` for a control (a `Toggle`, a value label) instead of the chevron.
 struct GlassRow<Trailing: View>: View {
     let symbol: String
@@ -88,39 +79,9 @@ struct GlassRow<Trailing: View>: View {
         self.trailing = trailing()
     }
 
-    @Environment(\.isEnabled) private var isEnabled
-    private var tint: Color { danger ? JcTheme.danger : JcTheme.text }
-
     var body: some View {
-        VStack(spacing: 0) {
-            // A disabled row looks it, like every other control.
-            if let action {
-                Button(action: action) { row }.buttonStyle(.plain).opacity(isEnabled ? 1 : 0.45)
-            } else {
-                row.opacity(isEnabled ? 1 : 0.45)
-            }
-            if !last { JcRowSeparator(inset: 56) }
-        }
-    }
-
-    private var row: some View {
-        HStack(spacing: 12) {
-            JcIconSquare(symbol: symbol, tint: danger ? JcTheme.danger : nil)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(tint)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
-                        .lineLimit(subtitleLineLimit)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            Spacer(minLength: 8)
-            trailing
-        }
-        .padding(.horizontal, JcUnified.cardPadding)
-        .padding(.vertical, 12)
-        .frame(minHeight: 52)
-        .contentShape(Rectangle())
+        JcRow(symbol: symbol, title: title, subtitle: subtitle, subtitleLines: subtitleLineLimit,
+              last: last, danger: danger, action: action) { trailing }
     }
 }
 

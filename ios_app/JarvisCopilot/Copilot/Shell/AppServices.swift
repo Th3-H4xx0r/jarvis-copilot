@@ -368,7 +368,6 @@ final class AppServices {
         AgentDecisionBridge.decide = { fingerprint, decision in
             (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
         }
-        ControlButtonBridge.set = { press in await ControlButtonStore.shared.run(press) }
         // Log a set, change its weight / reps, move a rest, pause: the workout Live Activity's buttons.
         WorkoutLiveBridge.perform = { action in WearablesHub.shared.ring.workout.liveAction(action) }
         // Listening / thinking sounds: every car turn (the widget's, and the CarPlay voice tab).

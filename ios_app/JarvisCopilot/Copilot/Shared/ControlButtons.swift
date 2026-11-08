@@ -134,9 +134,8 @@ struct ButtonPress: Equatable, Sendable {
 /// nil and the press is queued instead.
 @MainActor
 enum ControlButtonBridge {
+    /// A press, or a switch flipped to a value (`press.on`).
     static var run: ((ButtonPress) async -> Void)?
-    /// A switch flipped to a value (`press.on`).
-    static var set: ((ButtonPress) async -> Void)?
 }
 
 struct ControlButtonEntity: AppEntity {
@@ -306,8 +305,7 @@ extension ControlButtonShelf {
     /// Hands a press to the app, or queues it when this is the widget extension.
     @MainActor
     static func dispatch(_ press: ButtonPress) async {
-        let handler = press.on == nil ? ControlButtonBridge.run : ControlButtonBridge.set
-        if let handler {
+        if let handler = ControlButtonBridge.run {
             await handler(press)
         } else {
             queue(press.queueEntry)
