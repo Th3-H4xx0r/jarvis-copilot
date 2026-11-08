@@ -2392,6 +2392,30 @@ def _spotify_wait_for_callback(
 
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
     thread.start()
+    return _await_loopback_callback(
+        server, thread, result,
+        timeout_seconds=timeout_seconds,
+        timeout_error=AuthError(
+            "Spotify authorization timed out waiting for the local callback.",
+            provider="spotify",
+            code="spotify_callback_timeout",
+        ),
+    )
+
+
+def _await_loopback_callback(
+    server: HTTPServer,
+    thread: threading.Thread,
+    result: dict[str, Any],
+    *,
+    timeout_seconds: float,
+    timeout_error: AuthError,
+) -> dict[str, Any]:
+    """Poll an OAuth loopback server until it records a code or error.
+
+    The server is shut down either way; ``timeout_error`` is raised when
+    nothing arrives in time (never less than 5 s).
+    """
     deadline = time.monotonic() + max(5.0, timeout_seconds)
     try:
         while time.monotonic() < deadline:
@@ -2402,11 +2426,7 @@ def _spotify_wait_for_callback(
         server.shutdown()
         server.server_close()
         thread.join(timeout=1.0)
-    raise AuthError(
-        "Spotify authorization timed out waiting for the local callback.",
-        provider="spotify",
-        code="spotify_callback_timeout",
-    )
+    raise timeout_error
 
 
 def _xai_validate_loopback_redirect_uri(redirect_uri: str) -> tuple[str, int, str]:
@@ -2579,20 +2599,14 @@ def _xai_wait_for_callback(
     *,
     timeout_seconds: float = 180.0,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + max(5.0, timeout_seconds)
-    try:
-        while time.monotonic() < deadline:
-            if result["code"] or result["error"]:
-                return result
-            time.sleep(0.1)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=1.0)
-    raise AuthError(
-        "xAI authorization timed out waiting for the local callback.",
-        provider="xai-oauth",
-        code="xai_callback_timeout",
+    return _await_loopback_callback(
+        server, thread, result,
+        timeout_seconds=timeout_seconds,
+        timeout_error=AuthError(
+            "xAI authorization timed out waiting for the local callback.",
+            provider="xai-oauth",
+            code="xai_callback_timeout",
+        ),
     )
 
 
