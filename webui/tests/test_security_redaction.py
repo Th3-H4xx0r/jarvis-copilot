@@ -363,15 +363,67 @@ def _create_session_with_credentials() -> str:
     return sid
 
 
-def test_api_session_redacts_messages():
-    """GET /api/session route must call redact_session_data() before returning."""
-    import inspect
+class _CaptureHandler:
+    """Just enough of BaseHTTPRequestHandler to capture what a GET route sends back."""
+
+    def __init__(self):
+        import io
+        self.headers = {}
+        self.wfile = io.BytesIO()
+        self.client_address = ("127.0.0.1", 0)
+        self.command = "GET"
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, *_):
+        pass
+
+    def end_headers(self):
+        pass
+
+
+def _get_in_process(path, tmp_path, monkeypatch):
+    """Serve ``path`` through routes.handle_get with an isolated session store."""
+    from urllib.parse import urlparse
+    import api.config as config
+    import api.models as models
     import api.routes as routes
-    src = inspect.getsource(routes.handle_get)
-    # Verify redact_session_data is applied to the session payload
-    assert "redact_session_data" in src, (
-        "api/routes.py handle_get must call redact_session_data() on /api/session response"
-    )
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(exist_ok=True)
+    for mod in (models, routes, config):
+        monkeypatch.setattr(mod, "SESSION_DIR", sessions, raising=False)
+        monkeypatch.setattr(mod, "SESSION_INDEX_FILE", sessions / "_index.json", raising=False)
+    models.SESSIONS.clear()
+    sid = _create_session_with_credentials_in(sessions)
+    handler = _CaptureHandler()
+    routes.handle_get(handler, urlparse(path.format(sid=sid)))
+    return handler.wfile.getvalue().decode("utf-8", "replace")
+
+
+def _create_session_with_credentials_in(sessions_dir) -> str:
+    import time, uuid
+    sid = "sec_test_" + uuid.uuid4().hex[:8]
+    now = time.time()
+    (sessions_dir / f"{sid}.json").write_text(json.dumps({
+        "session_id": sid, "title": f"session with {_FAKE_GITHUB_PAT}", "workspace": "/tmp",
+        "model": "test", "created_at": now, "updated_at": now, "pinned": False, "archived": False,
+        "project_id": None, "profile": "default", "input_tokens": 0, "output_tokens": 0,
+        "estimated_cost": None, "personality": None,
+        "messages": [
+            {"role": "user", "content": f"my PAT is {_FAKE_GITHUB_PAT}"},
+            {"role": "assistant", "content": f"sk key is {_FAKE_SK_KEY}"},
+        ],
+        "tool_calls": [{"name": "terminal", "args": {"command": f"gh auth login --token {_FAKE_GITHUB_PAT}"}}],
+    }))
+    return sid
+
+
+def test_api_session_redacts_messages(tmp_path, monkeypatch):
+    """GET /api/session never hands a stored credential back."""
+    body = _get_in_process("/api/session?session_id={sid}", tmp_path, monkeypatch)
+    assert "sec_test_" in body, body[:300]
+    _assert_no_plaintext_credentials(body, "GET /api/session")
 
 
 def test_api_session_redacts_title():
@@ -399,15 +451,11 @@ def test_api_sessions_list_redacts_titles(test_server):
     _assert_no_plaintext_credentials(dump, "GET /api/sessions titles")
 
 
-def test_api_session_export_redacts():
-    """GET /api/session/export must call redact_session_data() in _handle_session_export."""
-    import inspect
-    import api.routes as routes
-    # The export handler is a separate function (_handle_session_export)
-    src = inspect.getsource(routes._handle_session_export)
-    assert "redact_session_data" in src, (
-        "_handle_session_export must call redact_session_data() before serving download"
-    )
+def test_api_session_export_redacts(tmp_path, monkeypatch):
+    """GET /api/session/export never puts a stored credential in the download."""
+    body = _get_in_process("/api/session/export?session_id={sid}", tmp_path, monkeypatch)
+    assert "sec_test_" in body, body[:300]
+    _assert_no_plaintext_credentials(body, "GET /api/session/export")
 
 
 @_needs_server

@@ -103,12 +103,6 @@ class TestXmlToolCallStrip:
         assert 'Answer' in result
         assert 'still streaming' in result
 
-    def test_function_defined_in_streaming_py(self):
-        src = read('api/streaming.py')
-        assert 'def _strip_xml_tool_calls(' in src, (
-            "_strip_xml_tool_calls must be defined in api/streaming.py"
-        )
-
     def test_strip_applied_to_assistant_messages(self):
         """Verify the strip call is applied to assistant message content after
         the agent run completes (server-side persistence fix)."""

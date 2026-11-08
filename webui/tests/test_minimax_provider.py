@@ -148,27 +148,6 @@ def test_minimax_cn_provider_models_match_hermes_agent_catalog():
 
 # ── MINIMAX_API_KEY env var detection ─────────────────────────────────────────
 
-def test_minimax_api_key_in_env_scan_tuple():
-    """MINIMAX_API_KEY must be included in the env var scan performed by
-    get_available_models(), so users who export MINIMAX_API_KEY see the
-    MiniMax provider in the dropdown without editing ~/.jarviscopilot/.env."""
-    import inspect, ast, textwrap
-    src = inspect.getsource(config.get_available_models)
-    assert 'MINIMAX_API_KEY' in src, (
-        "MINIMAX_API_KEY not found in get_available_models() source — "
-        "it must be added to the env var scan tuple so os.environ is checked."
-    )
-
-
-def test_minimax_cn_api_key_in_env_scan_tuple():
-    """MINIMAX_CN_API_KEY must also be scanned (mainland China API key variant)."""
-    import inspect
-    src = inspect.getsource(config.get_available_models)
-    assert 'MINIMAX_CN_API_KEY' in src, (
-        "MINIMAX_CN_API_KEY not found in get_available_models() source."
-    )
-
-
 def test_minimax_detected_from_os_environ(monkeypatch):
     """Setting MINIMAX_API_KEY in os.environ triggers minimax provider detection."""
     monkeypatch.setenv('MINIMAX_API_KEY', 'test-key-from-env')

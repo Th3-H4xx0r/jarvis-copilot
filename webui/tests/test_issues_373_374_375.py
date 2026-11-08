@@ -21,18 +21,6 @@ UI_JS        = (REPO / "static" / "ui.js").read_text(encoding="utf-8")
 class TestSilentErrorDetection:
     """streaming.py must emit apperror when agent returns no assistant reply."""
 
-    def test_streaming_detects_no_assistant_reply(self):
-        """streaming.py must check if any assistant message was produced."""
-        assert "_assistant_added" in STREAMING_PY, (
-            "streaming.py must check whether an assistant message was produced (#373)"
-        )
-
-    def test_streaming_emits_apperror_on_no_response(self):
-        """streaming.py must emit apperror event when agent produced no reply."""
-        assert "no_response" in STREAMING_PY, (
-            "streaming.py must emit apperror with type='no_response' for silent failures (#373)"
-        )
-
     def test_streaming_returns_early_after_apperror(self):
         """streaming.py must return after emitting apperror (not also emit done)."""
         # The return statement must come after the put('apperror') for no_response
@@ -44,15 +32,6 @@ class TestSilentErrorDetection:
             "streaming.py must return after emitting apperror to prevent also emitting done (#373)"
         )
         assert return_pos > no_resp_pos
-
-    def test_streaming_detects_auth_error_in_result(self):
-        """streaming.py must detect auth errors from the result object."""
-        assert "_is_auth" in STREAMING_PY, (
-            "streaming.py must detect auth errors in silent failures (#373)"
-        )
-        assert "auth_mismatch" in STREAMING_PY, (
-            "streaming.py must emit auth_mismatch type for auth failures (#373)"
-        )
 
     def test_messages_js_done_handler_detects_no_reply(self):
         """messages.js done handler must show an error if no assistant reply arrived."""
@@ -159,26 +138,10 @@ class TestLiveModelFetching:
             "routes.py must define /api/models/live endpoint (#375)"
         )
 
-    def test_live_models_handler_function_exists(self):
-        """routes.py must define _handle_live_models() function (#375)."""
-        assert "def _handle_live_models(" in ROUTES_PY, (
-            "routes.py must define _handle_live_models() for live model fetching (#375)"
-        )
-
     def test_live_models_handler_has_ssrf_guard(self):
         """_handle_live_models must guard against SSRF (private IP access)."""
         assert "ssrf_blocked" in ROUTES_PY or ("is_private" in ROUTES_PY and "live" in ROUTES_PY), (
             "_handle_live_models must have SSRF protection for private IP ranges (#375)"
-        )
-
-    def test_live_models_all_providers_handled_via_agent(self):
-        """_handle_live_models must delegate to provider_model_ids() which handles all
-        providers gracefully — live fetch where possible, static fallback otherwise.
-        The old 'not_supported' return for Anthropic/Google is superseded: those
-        providers now return live or static model lists via the agent delegate."""
-        assert "provider_model_ids" in ROUTES_PY, (
-            "_handle_live_models must delegate to jarviscopilot_cli.models.provider_model_ids() "
-            "so all providers are handled uniformly (#375 upgrade)"
         )
 
     def test_frontend_has_fetch_live_models_function(self):

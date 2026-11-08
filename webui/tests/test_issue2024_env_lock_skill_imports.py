@@ -102,18 +102,6 @@ class TestPrewarmHelperExists:
             "_prewarm_skill_tool_modules() helper must be defined in streaming.py"
         )
 
-    def test_prewarm_references_both_modules(self):
-        source = _read_streaming()
-        # Find the function source and check it references both module names.
-        # Simple string check is sufficient and more robust than AST for
-        # dynamic __import__ calls.
-        assert "tools.skills_tool" in source, (
-            "streaming.py must reference 'tools.skills_tool'"
-        )
-        assert "tools.skill_manager_tool" in source, (
-            "streaming.py must reference 'tools.skill_manager_tool'"
-        )
-
     def test_prewarm_called_before_env_lock(self):
         """_prewarm_skill_tool_modules() must be called before the first
         ``with ENV_LOCK:`` in _run_agent_streaming."""

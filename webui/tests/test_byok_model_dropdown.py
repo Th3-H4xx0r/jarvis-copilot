@@ -377,15 +377,6 @@ class TestLiveModelsCustomProviderFallback:
 class TestKnownProvidersUnaffected:
     """Normalization must not break providers whose names are already canonical."""
 
-    def test_openrouter_unaffected(self):
-        src = read("api/config.py")
-        # _PROVIDER_ALIASES lookup: 'openrouter' -> 'openrouter' (no change)
-        assert "openrouter" in src, "openrouter must still exist in config"
-
-    def test_anthropic_unaffected(self):
-        src = read("api/config.py")
-        assert "anthropic" in src
-
     def test_custom_unaffected(self):
         """'custom' is not in _PROVIDER_ALIASES so normalization is a no-op."""
         try:

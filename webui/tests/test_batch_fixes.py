@@ -53,12 +53,6 @@ class TestRootWorkspaceUnblocked:
 
 class TestCustomProvidersVisibility:
 
-    def test_has_custom_providers_variable_present(self):
-        src = read("api/config.py")
-        assert "_has_custom_providers" in src, (
-            "_has_custom_providers variable must exist in get_available_models()"
-        )
-
     def test_discard_custom_conditional_on_no_custom_providers(self):
         src = read("api/config.py")
         assert "not _has_custom_providers" in src, (

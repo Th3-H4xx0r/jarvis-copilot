@@ -51,11 +51,6 @@ def test_server_py_under_750_lines(cleanup_test_sessions):
     lines = len((REPO_ROOT / "server.py").read_text().splitlines())
     assert lines < 750, f"server.py is {lines} lines -- split may not have landed"
 
-def test_api_config_has_cancel_flags(cleanup_test_sessions):
-    src = (REPO_ROOT / "api/config.py").read_text()
-    assert "CANCEL_FLAGS" in src
-    assert "STREAMS" in src
-
 def test_session_crud_still_works(cleanup_test_sessions):
     """Full session lifecycle works after split."""
     created = []

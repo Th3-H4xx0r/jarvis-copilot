@@ -23,117 +23,77 @@ import uuid
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
-ROUTES_SRC = (REPO_ROOT / "api" / "routes.py").read_text(encoding="utf-8")
 MESSAGES_JS = (REPO_ROOT / "static" / "messages.js").read_text(encoding="utf-8")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 1. Static-analysis tests (no server needed)
+# 1. The stream itself
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestSSEStaticAnalysis:
-    """Verify the SSE infrastructure exists and is wired correctly in routes.py."""
+class TestApprovalStream:
+    """GET /api/approval/stream: the snapshot on connect, each approval as it lands, and
+    the subscriber gone once the client is."""
 
-    def test_sse_route_registered(self):
-        """The /api/approval/stream route must be registered."""
-        assert '"/api/approval/stream"' in ROUTES_SRC, \
-            "Route /api/approval/stream must be registered in the URL dispatch"
+    def setup_method(self):
+        from api import routes as r
+        with r._lock:
+            r._approval_sse_subscribers.clear()
 
-    def test_sse_handler_function_exists(self):
-        """_handle_approval_sse_stream handler must exist."""
-        assert "def _handle_approval_sse_stream(" in ROUTES_SRC, \
-            "_handle_approval_sse_stream handler function must exist"
+    def test_snapshot_then_live_approval_then_cleanup_on_disconnect(self):
+        from urllib.parse import urlparse
+        from api import routes as r
 
-    def test_subscribe_function_exists(self):
-        """_approval_sse_subscribe must exist and use a Queue."""
-        assert "def _approval_sse_subscribe(" in ROUTES_SRC, \
-            "_approval_sse_subscribe must be defined"
+        sid = f"sse-stream-{uuid.uuid4().hex[:8]}"
 
-    def test_unsubscribe_function_exists(self):
-        """_approval_sse_unsubscribe must exist and clean up empty lists."""
-        assert "def _approval_sse_unsubscribe(" in ROUTES_SRC, \
-            "_approval_sse_unsubscribe must be defined"
+        class Wire:
+            def __init__(self):
+                self.chunks = []
 
-    def test_notify_function_exists(self):
-        """_approval_sse_notify must exist and push to subscriber queues."""
-        assert "def _approval_sse_notify(" in ROUTES_SRC, \
-            "_approval_sse_notify must be defined"
+            def write(self, data):
+                self.chunks.append(data)
 
-    def test_sse_subscribers_dict_exists(self):
-        """Module-level _approval_sse_subscribers dict must exist."""
-        assert "_approval_sse_subscribers" in ROUTES_SRC, \
-            "_approval_sse_subscribers module-level dict must exist"
+            def flush(self):
+                # The client goes away right after it gets the approval.
+                if any(b"event: approval" in c for c in self.chunks):
+                    raise BrokenPipeError()
 
-    def test_sse_content_type(self):
-        """SSE handler must set text/event-stream content type."""
-        assert "text/event-stream" in ROUTES_SRC, \
-            "SSE handler must set Content-Type to text/event-stream"
+        class Handler:
+            def __init__(self):
+                self.wfile = Wire()
+                self.headers_sent = {}
 
-    def test_sse_keepalive(self):
-        """SSE handler must send keepalive comments to prevent proxy timeout."""
-        assert "keepalive" in ROUTES_SRC, \
-            "SSE handler must send keepalive comments"
+            def send_response(self, status):
+                self.status = status
 
-    def test_sse_cache_control(self):
-        """SSE handler must set Cache-Control: no-cache."""
-        assert "no-cache" in ROUTES_SRC, \
-            "SSE handler must set Cache-Control: no-cache"
+            def send_header(self, key, value):
+                self.headers_sent[key] = value
 
-    def test_sse_initial_snapshot(self):
-        """SSE handler must send initial snapshot on connect."""
-        assert "'initial'" in ROUTES_SRC, \
-            "SSE handler must send an 'initial' event with snapshot data"
+            def end_headers(self):
+                pass
 
-    def test_sse_approval_event(self):
-        """SSE handler must send 'approval' events on push."""
-        assert "'approval'" in ROUTES_SRC, \
-            "SSE handler must send 'approval' events when pushing notifications"
+        handler = Handler()
+        worker = threading.Thread(
+            target=r._handle_approval_sse_stream,
+            args=(handler, urlparse(f"/api/approval/stream?session_id={sid}")), daemon=True)
+        worker.start()
+        for _ in range(100):
+            with r._lock:
+                if r._approval_sse_subscribers.get(sid):
+                    break
+            time.sleep(0.02)
+        with r._lock:
+            r._approval_sse_notify_locked(sid, {"command": "rm -rf build"}, 1)
+        worker.join(5)
 
-    def test_notify_called_from_submit_pending(self):
-        """submit_pending must call _approval_sse_notify_locked."""
-        # Pinned to the inner-lock variant: must run inside the same `with _lock:`
-        # block as the queue mutation so two parallel submit_pending calls can't
-        # deliver out-of-order with stale pending_count. Tracks the v0.50.248
-        # MUST-FIX A fix.
-        assert "_approval_sse_notify_locked(session_key, head, total)" in ROUTES_SRC, \
-            ("submit_pending() must call _approval_sse_notify_locked(session_key, head, total) "
-             "from inside the `with _lock:` block — not the unlocked _approval_sse_notify wrapper, "
-             "and head must be queue_list[0] (the head, not the just-appended entry).")
+        body = b"".join(handler.wfile.chunks).decode()
+        assert handler.status == 200
+        assert handler.headers_sent["Content-Type"].startswith("text/event-stream")
+        assert body.index("event: initial") < body.index("event: approval")
+        assert "rm -rf build" in body
+        assert not worker.is_alive()
+        with r._lock:
+            assert sid not in r._approval_sse_subscribers
 
-    def test_unsubscribe_in_finally(self):
-        """SSE handler must unsubscribe in a finally block."""
-        # Find the finally block that calls _approval_sse_unsubscribe
-        assert re.search(r"finally:.*\n.*_approval_sse_unsubscribe\(", ROUTES_SRC, re.DOTALL), \
-            "SSE handler must call _approval_sse_unsubscribe in a finally block"
-
-    def test_subscriber_queue_maxsize(self):
-        """Subscriber queues must have a bounded maxsize to prevent memory leaks."""
-        assert "queue.Queue(maxsize=" in ROUTES_SRC, \
-            "Subscriber queues must have maxsize set to prevent unbounded memory growth"
-
-    def test_notify_drops_on_full(self):
-        """_approval_sse_notify must silently drop events when subscriber is slow."""
-        # The queue.Full exception handler
-        assert "queue.Full" in ROUTES_SRC, \
-            "_approval_sse_notify must handle queue.Full to drop events for slow subscribers"
-
-    def test_subscribe_uses_shared_lock(self):
-        """subscribe/unsubscribe/notify must all use the same _lock."""
-        # All three functions must use _lock
-        for func in ["_approval_sse_subscribe", "_approval_sse_unsubscribe", "_approval_sse_notify"]:
-            # Find the function and verify it uses "with _lock"
-            func_start = ROUTES_SRC.find(f"def {func}(")
-            assert func_start != -1, f"{func} must exist"
-            # Find the next function definition after this one
-            next_func = ROUTES_SRC.find("\ndef ", func_start + 1)
-            func_body = ROUTES_SRC[func_start:next_func] if next_func != -1 else ROUTES_SRC[func_start:]
-            assert "with _lock:" in func_body, \
-                f"{func} must use 'with _lock:' for thread safety"
-
-    def test_unsubscribe_cleans_empty_session(self):
-        """Unsubscribe must remove empty session keys from the dict."""
-        assert "_approval_sse_subscribers.pop(session_id, None)" in ROUTES_SRC, \
-            "_approval_sse_unsubscribe must pop session_id when subscriber list is empty"
 
 
 class TestFrontendSSEImplementation:

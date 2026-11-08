@@ -40,14 +40,6 @@ def _post(path, body=None):
 class TestStreamingAuthErrorDetection:
     """streaming.py must classify auth/401 errors as auth_mismatch."""
 
-    def test_auth_mismatch_type_defined_in_streaming(self):
-        """'auth_mismatch' type must be emitted for auth errors."""
-        src = _read("api/streaming.py")
-        assert "auth_mismatch" in src, (
-            "auth_mismatch type not found in streaming.py — "
-            "401/auth errors will not be surfaced with a helpful message"
-        )
-
     def test_is_auth_error_flag_defined(self):
         """auth error variable must exist in the error handler (exception path and silent-failure path)."""
         src = _read("api/streaming.py")

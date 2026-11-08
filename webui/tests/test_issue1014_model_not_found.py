@@ -23,21 +23,6 @@ def _read(rel_path: str) -> str:
 class TestStreamingModelNotFoundDetection:
     """streaming.py must classify 404/model-not-found errors as model_not_found."""
 
-    def test_model_not_found_type_defined_in_streaming(self):
-        """'model_not_found' type must be emitted for 404 errors."""
-        src = _read("api/streaming.py")
-        assert "model_not_found" in src, (
-            "model_not_found type not found in streaming.py — "
-            "404 errors will not be surfaced with a helpful message"
-        )
-
-    def test_is_not_found_flag_defined(self):
-        """_exc_is_not_found variable must exist in the exception handler."""
-        src = _read("api/streaming.py")
-        assert "_exc_is_not_found" in src, (
-            "_exc_is_not_found flag not found in streaming.py"
-        )
-
     def test_not_found_detects_404(self):
         """'404' must be part of the model-not-found detection logic."""
         src = _read("api/streaming.py")

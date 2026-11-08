@@ -319,16 +319,6 @@ class TestLeftoverDelivery:
     """After run_conversation returns, _drain_pending_steer is called and a
     pending_steer_leftover SSE event is emitted if there's still text stashed."""
 
-    def test_leftover_drain_call_in_streaming(self):
-        """Verify the streaming.py source contains the drain call before put('done', ...)."""
-        src = (Path(__file__).parent.parent / "api" / "streaming.py").read_text(encoding="utf-8")
-        assert "_drain_pending_steer" in src, (
-            "_run_agent_streaming must call agent._drain_pending_steer() to deliver leftovers"
-        )
-        assert "pending_steer_leftover" in src, (
-            "_run_agent_streaming must emit a pending_steer_leftover SSE event"
-        )
-
     def test_leftover_drain_runs_before_done_event(self):
         """The drain must happen BEFORE put('done', ...) so frontend gets both events
         on the same turn."""

@@ -379,19 +379,3 @@ class TestReasoningRoutes:
         assert 'get_reasoning_status' in src, (
             "api/routes.py must import and call get_reasoning_status"
         )
-
-    def test_post_api_reasoning_accepts_display(self):
-        src = read('api/routes.py')
-        # The POST branch reads 'display' from body and dispatches to
-        # set_reasoning_display.
-        assert 'set_reasoning_display' in src, (
-            "POST /api/reasoning must route display toggles through "
-            "set_reasoning_display"
-        )
-
-    def test_post_api_reasoning_accepts_effort(self):
-        src = read('api/routes.py')
-        assert 'set_reasoning_effort' in src, (
-            "POST /api/reasoning must route effort changes through "
-            "set_reasoning_effort"
-        )

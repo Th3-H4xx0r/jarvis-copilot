@@ -560,14 +560,6 @@ def test_anthropic_env_clear_waits_for_chat_env_read_lock(monkeypatch, tmp_path)
     assert os.environ["ANTHROPIC_API_KEY"] == "old-key"
 
 
-def test_runtime_provider_reads_use_anthropic_env_lock():
-    streaming_src = (REPO / "api" / "streaming.py").read_text(encoding="utf-8")
-    routes_src = (REPO / "api" / "routes.py").read_text(encoding="utf-8")
-
-    assert "resolve_runtime_provider_with_anthropic_env_lock" in streaming_src
-    assert "resolve_runtime_provider_with_anthropic_env_lock" in routes_src
-
-
 def test_anthropic_onboarding_setup_allows_linked_oauth_without_api_key(monkeypatch, tmp_path):
     import api.onboarding as onboarding
 

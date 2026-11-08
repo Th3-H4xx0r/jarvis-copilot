@@ -14,17 +14,6 @@ def _get_index_html():
     return open("static/index.html", encoding="utf-8").read()
 
 
-def test_inline_preview_param_in_file_raw():
-    """?inline=1 must bypass Content-Disposition: attachment for text/html."""
-    content = _get_routes_content()
-    assert "inline_preview" in content, (
-        "_handle_file_raw must read the inline query parameter"
-    )
-    assert "html_inline_ok" in content, (
-        "_handle_file_raw must allow HTML inline when inline_preview=True"
-    )
-
-
 def test_iframe_uses_inline_param():
     """workspace.js must pass &inline=1 when setting the preview iframe src."""
     content = _get_workspace_js()

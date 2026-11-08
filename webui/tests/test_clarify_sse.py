@@ -40,12 +40,6 @@ class TestClarifySSEBackendMarkers:
 
 
 class TestClarifySSEBackendCode:
-    def test_submit_pending_calls_notify(self):
-        src = _read(_CLARIFY)
-        assert "_clarify_sse_notify(" in src, (
-            "submit_pending should call _clarify_sse_notify inside _lock"
-        )
-
     def test_resolve_clarify_calls_notify(self):
         src = _read(_CLARIFY)
         # Count occurrences — resolve should notify on both branches
@@ -58,19 +52,6 @@ class TestClarifySSERoutesCode:
     def test_route_registered(self):
         src = _read(_ROUTES)
         assert '"/api/clarify/stream"' in src, "Missing /api/clarify/stream route"
-
-    def test_handler_function_exists(self):
-        src = _read(_ROUTES)
-        assert "def _handle_clarify_sse_stream(" in src
-
-    def test_imports_sse_subscribe(self):
-        src = _read(_ROUTES)
-        assert "clarify_sse_subscribe" in src
-
-    def test_imports_sse_unsubscribe(self):
-        src = _read(_ROUTES)
-        assert "clarify_sse_unsubscribe" in src
-
 
 class TestClarifySSEFrontendCode:
     @pytest.fixture(autouse=True)

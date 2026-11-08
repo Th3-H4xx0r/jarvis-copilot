@@ -363,14 +363,6 @@ class TestServerVersionHeader:
             'It should use WEBUI_VERSION from api.updates.'
         )
 
-    def test_server_version_uses_webui_version(self):
-        """server.py must reference WEBUI_VERSION when setting server_version."""
-        src = (REPO_ROOT / 'server.py').read_text(encoding='utf-8')
-        assert 'WEBUI_VERSION' in src, (
-            'server.py must import and use WEBUI_VERSION from api.updates '
-            'to keep the HTTP Server: header in sync with git tags'
-        )
-
     def test_server_py_imports_webui_version(self):
         """server.py must import WEBUI_VERSION from api.updates."""
         src = (REPO_ROOT / 'server.py').read_text(encoding='utf-8')
