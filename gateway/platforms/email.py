@@ -523,20 +523,25 @@ class EmailAdapter(BasePlatformAdapter):
         to_addr: str,
         body: str,
         reply_to_msg_id: Optional[str] = None,
+        attachments: Tuple[Tuple[str, str], ...] = (),
+        skip_unreadable: bool = False,
     ) -> str:
-        """Send an email via SMTP. Runs in executor thread."""
+        """Send a threaded reply via SMTP, with optional ``(path, filename)``
+        attachments.  Runs in an executor thread; returns the Message-ID.
+
+        An attachment that can't be read raises, unless ``skip_unreadable``
+        is set, in which case it is logged and left out.
+        """
         msg = MIMEMultipart()
         msg["From"] = self._address
         msg["To"] = to_addr
 
-        # Thread context for reply
         ctx = self._thread_context.get(to_addr, {})
         subject = ctx.get("subject", "JarvisCopilot")
         if not subject.startswith("Re:"):
             subject = f"Re: {subject}"
         msg["Subject"] = subject
 
-        # Threading headers
         original_msg_id = reply_to_msg_id or ctx.get("message_id")
         if original_msg_id:
             msg["In-Reply-To"] = original_msg_id
@@ -546,7 +551,22 @@ class EmailAdapter(BasePlatformAdapter):
         msg_id = f"<hermes-{uuid.uuid4().hex[:12]}@{self._address.split('@')[1]}>"
         msg["Message-ID"] = msg_id
 
-        msg.attach(MIMEText(body, "plain", "utf-8"))
+        if body or not attachments:
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        for file_path, filename in attachments:
+            try:
+                with open(file_path, "rb") as f:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(f.read())
+            except Exception as e:
+                if not skip_unreadable:
+                    raise
+                logger.warning("[Email] Failed to attach %s: %s", file_path, e)
+                continue
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={filename}")
+            msg.attach(part)
 
         smtp = smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=30)
         try:
@@ -559,7 +579,7 @@ class EmailAdapter(BasePlatformAdapter):
             except Exception:
                 smtp.close()
 
-        logger.info("[Email] Sent reply to %s (subject: %s)", to_addr, subject)
+        logger.info("[Email] Sent reply to %s (subject: %s, %d attachment(s))", to_addr, subject, len(attachments))
         return msg_id
 
     async def send_typing(self, chat_id: str, metadata: Optional[Dict[str, Any]] = None) -> None:
@@ -620,69 +640,15 @@ class EmailAdapter(BasePlatformAdapter):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
-                self._send_email_with_attachments,
-                chat_id,
-                body,
-                local_paths,
+                lambda: self._send_email(
+                    chat_id, body,
+                    attachments=tuple((lp, Path(lp).name) for lp in local_paths),
+                    skip_unreadable=True,
+                ),
             )
         except Exception as e:
             logger.error("[Email] Multi-image send failed, falling back: %s", e, exc_info=True)
             await super().send_multiple_images(chat_id, images, metadata, human_delay)
-
-    def _send_email_with_attachments(
-        self,
-        to_addr: str,
-        body: str,
-        file_paths: List[str],
-    ) -> str:
-        """Send an email with multiple file attachments via SMTP."""
-        msg = MIMEMultipart()
-        msg["From"] = self._address
-        msg["To"] = to_addr
-
-        ctx = self._thread_context.get(to_addr, {})
-        subject = ctx.get("subject", "JarvisCopilot")
-        if not subject.startswith("Re:"):
-            subject = f"Re: {subject}"
-        msg["Subject"] = subject
-
-        original_msg_id = ctx.get("message_id")
-        if original_msg_id:
-            msg["In-Reply-To"] = original_msg_id
-            msg["References"] = original_msg_id
-
-        msg["Date"] = formatdate(localtime=True)
-        msg_id = f"<hermes-{uuid.uuid4().hex[:12]}@{self._address.split('@')[1]}>"
-        msg["Message-ID"] = msg_id
-
-        if body:
-            msg.attach(MIMEText(body, "plain", "utf-8"))
-
-        for file_path in file_paths:
-            p = Path(file_path)
-            try:
-                with open(p, "rb") as f:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(f.read())
-                    encoders.encode_base64(part)
-                    part.add_header("Content-Disposition", f"attachment; filename={p.name}")
-                    msg.attach(part)
-            except Exception as e:
-                logger.warning("[Email] Failed to attach %s: %s", file_path, e)
-
-        smtp = smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=30)
-        try:
-            smtp.starttls(context=ssl.create_default_context())
-            smtp.login(self._address, self._password)
-            smtp.send_message(msg)
-        finally:
-            try:
-                smtp.quit()
-            except Exception:
-                smtp.close()
-
-        logger.info("[Email] Sent multi-attachment email to %s (%d files)", to_addr, len(file_paths))
-        return msg_id
 
     async def send_document(
         self,
@@ -698,69 +664,15 @@ class EmailAdapter(BasePlatformAdapter):
             loop = asyncio.get_running_loop()
             message_id = await loop.run_in_executor(
                 None,
-                self._send_email_with_attachment,
-                chat_id,
-                caption or "",
-                file_path,
-                file_name,
+                lambda: self._send_email(
+                    chat_id, caption or "",
+                    attachments=((file_path, file_name or Path(file_path).name),),
+                ),
             )
             return SendResult(success=True, message_id=message_id)
         except Exception as e:
             logger.error("[Email] Send document failed: %s", e)
             return SendResult(success=False, error=str(e))
-
-    def _send_email_with_attachment(
-        self,
-        to_addr: str,
-        body: str,
-        file_path: str,
-        file_name: Optional[str] = None,
-    ) -> str:
-        """Send an email with a file attachment via SMTP."""
-        msg = MIMEMultipart()
-        msg["From"] = self._address
-        msg["To"] = to_addr
-
-        ctx = self._thread_context.get(to_addr, {})
-        subject = ctx.get("subject", "JarvisCopilot")
-        if not subject.startswith("Re:"):
-            subject = f"Re: {subject}"
-        msg["Subject"] = subject
-
-        original_msg_id = ctx.get("message_id")
-        if original_msg_id:
-            msg["In-Reply-To"] = original_msg_id
-            msg["References"] = original_msg_id
-
-        msg["Date"] = formatdate(localtime=True)
-        msg_id = f"<hermes-{uuid.uuid4().hex[:12]}@{self._address.split('@')[1]}>"
-        msg["Message-ID"] = msg_id
-
-        if body:
-            msg.attach(MIMEText(body, "plain", "utf-8"))
-
-        # Attach file
-        p = Path(file_path)
-        fname = file_name or p.name
-        with open(p, "rb") as f:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f"attachment; filename={fname}")
-            msg.attach(part)
-
-        smtp = smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=30)
-        try:
-            smtp.starttls(context=ssl.create_default_context())
-            smtp.login(self._address, self._password)
-            smtp.send_message(msg)
-        finally:
-            try:
-                smtp.quit()
-            except Exception:
-                smtp.close()
-
-        return msg_id
 
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
         """Return basic info about the email chat."""

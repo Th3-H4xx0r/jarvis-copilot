@@ -368,14 +368,14 @@ class TestEmailMultiImage:
         images = [(f"file://{p}", f"alt {i}") for i, p in enumerate(paths)]
 
         with patch.object(
-            adapter, "_send_email_with_attachments", MagicMock(return_value="<msgid@x>")
+            adapter, "_send_email", MagicMock(return_value="<msgid@x>")
         ) as mock_send:
             _run(adapter.send_multiple_images("user@example.com", images))
 
         mock_send.assert_called_once()
-        to_addr, body, file_paths = mock_send.call_args.args
+        to_addr, body = mock_send.call_args.args
         assert to_addr == "user@example.com"
-        assert len(file_paths) == 3
+        assert len(mock_send.call_args.kwargs["attachments"]) == 3
         assert "alt 0" in body
 
     def test_remote_urls_linked_in_body(self, adapter, tmp_path):
@@ -385,19 +385,19 @@ class TestEmailMultiImage:
             ("https://x.com/b.png", "second"),
         ]
         with patch.object(
-            adapter, "_send_email_with_attachments", MagicMock(return_value="<msgid@x>")
+            adapter, "_send_email", MagicMock(return_value="<msgid@x>")
         ) as mock_send:
             _run(adapter.send_multiple_images("user@example.com", images))
 
         mock_send.assert_called_once()
-        to_addr, body, file_paths = mock_send.call_args.args
-        assert file_paths == []
+        to_addr, body = mock_send.call_args.args
+        assert mock_send.call_args.kwargs["attachments"] == ()
         assert "https://x.com/a.png" in body
         assert "https://x.com/b.png" in body
 
     def test_empty_noop(self, adapter):
         with patch.object(
-            adapter, "_send_email_with_attachments", MagicMock()
+            adapter, "_send_email", MagicMock()
         ) as mock_send:
             _run(adapter.send_multiple_images("user@example.com", []))
         mock_send.assert_not_called()
