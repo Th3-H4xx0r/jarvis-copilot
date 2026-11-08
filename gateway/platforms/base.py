@@ -613,30 +613,18 @@ def cache_image_from_bytes(data: bytes, ext: str = ".jpg") -> str:
     return str(filepath)
 
 
-async def cache_image_from_url(url: str, ext: str = ".jpg", retries: int = 2) -> str:
-    """
-    Download an image from a URL and save it to the local cache.
+async def _download_media(url: str, accept: str, retries: int, kind: str) -> bytes:
+    """GET ``url`` and return the body, retrying timeouts, 429 and 5xx with
+    linear backoff so a single slow CDN response doesn't lose the media.
 
-    Retries on transient failures (timeouts, 429, 5xx) with exponential
-    backoff so a single slow CDN response doesn't lose the media.
-
-    Args:
-        url: The HTTP/HTTPS URL to download from.
-        ext: File extension including the dot (e.g. ".jpg", ".png").
-        retries: Number of retry attempts on transient failures.
-
-    Returns:
-        Absolute path to the cached image file as a string.
-
-    Raises:
-        ValueError: If the URL targets a private/internal network (SSRF protection).
+    Raises ValueError when the URL targets a private/internal network
+    (SSRF protection); redirects are re-checked by ``_ssrf_redirect_guard``.
     """
     from tools.url_safety import is_safe_url
     if not is_safe_url(url):
         raise ValueError(f"Blocked unsafe URL (SSRF protection): {safe_url_for_log(url)}")
 
     import httpx
-    _log = logging.getLogger(__name__)
 
     async with httpx.AsyncClient(
         timeout=30.0,
@@ -649,38 +637,28 @@ async def cache_image_from_url(url: str, ext: str = ".jpg", retries: int = 2) ->
                     url,
                     headers={
                         "User-Agent": "Mozilla/5.0 (compatible; HermesAgent/1.0)",
-                        "Accept": "image/*,*/*;q=0.8",
+                        "Accept": accept,
                     },
                 )
                 response.raise_for_status()
-                return cache_image_from_bytes(response.content, ext)
+                return response.content
             except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 429:
                     raise
                 if attempt < retries:
                     wait = 1.5 * (attempt + 1)
-                    _log.debug(
-                        "Media cache retry %d/%d for %s (%.1fs): %s",
-                        attempt + 1,
-                        retries,
-                        safe_url_for_log(url),
-                        wait,
-                        exc,
+                    logger.debug(
+                        "%s cache retry %d/%d for %s (%.1fs): %s",
+                        kind, attempt + 1, retries, safe_url_for_log(url), wait, exc,
                     )
                     await asyncio.sleep(wait)
                     continue
                 raise
 
 
-def cleanup_image_cache(max_age_hours: int = 24) -> int:
-    """
-    Delete cached images older than *max_age_hours*.
-
-    Returns the number of files removed.
-    """
+def _remove_files_older_than(cache_dir: Path, max_age_hours: int) -> int:
     import time
 
-    cache_dir = get_image_cache_dir()
     cutoff = time.time() - (max_age_hours * 3600)
     removed = 0
     for f in cache_dir.iterdir():
@@ -691,6 +669,18 @@ def cleanup_image_cache(max_age_hours: int = 24) -> int:
             except OSError:
                 pass
     return removed
+
+
+async def cache_image_from_url(url: str, ext: str = ".jpg", retries: int = 2) -> str:
+    """Download an image (see ``_download_media``) into the image cache and
+    return its absolute path."""
+    data = await _download_media(url, "image/*,*/*;q=0.8", retries, "Media")
+    return cache_image_from_bytes(data, ext)
+
+
+def cleanup_image_cache(max_age_hours: int = 24) -> int:
+    """Delete cached images older than *max_age_hours*; return how many."""
+    return _remove_files_older_than(get_image_cache_dir(), max_age_hours)
 
 
 # ---------------------------------------------------------------------------
@@ -728,62 +718,10 @@ def cache_audio_from_bytes(data: bytes, ext: str = ".ogg") -> str:
 
 
 async def cache_audio_from_url(url: str, ext: str = ".ogg", retries: int = 2) -> str:
-    """
-    Download an audio file from a URL and save it to the local cache.
-
-    Retries on transient failures (timeouts, 429, 5xx) with exponential
-    backoff so a single slow CDN response doesn't lose the media.
-
-    Args:
-        url: The HTTP/HTTPS URL to download from.
-        ext: File extension including the dot (e.g. ".ogg", ".mp3").
-        retries: Number of retry attempts on transient failures.
-
-    Returns:
-        Absolute path to the cached audio file as a string.
-
-    Raises:
-        ValueError: If the URL targets a private/internal network (SSRF protection).
-    """
-    from tools.url_safety import is_safe_url
-    if not is_safe_url(url):
-        raise ValueError(f"Blocked unsafe URL (SSRF protection): {safe_url_for_log(url)}")
-
-    import httpx
-    _log = logging.getLogger(__name__)
-
-    async with httpx.AsyncClient(
-        timeout=30.0,
-        follow_redirects=True,
-        event_hooks={"response": [_ssrf_redirect_guard]},
-    ) as client:
-        for attempt in range(retries + 1):
-            try:
-                response = await client.get(
-                    url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; HermesAgent/1.0)",
-                        "Accept": "audio/*,*/*;q=0.8",
-                    },
-                )
-                response.raise_for_status()
-                return cache_audio_from_bytes(response.content, ext)
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 429:
-                    raise
-                if attempt < retries:
-                    wait = 1.5 * (attempt + 1)
-                    _log.debug(
-                        "Audio cache retry %d/%d for %s (%.1fs): %s",
-                        attempt + 1,
-                        retries,
-                        safe_url_for_log(url),
-                        wait,
-                        exc,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                raise
+    """Download an audio file (see ``_download_media``) into the audio cache
+    and return its absolute path."""
+    data = await _download_media(url, "audio/*,*/*;q=0.8", retries, "Audio")
+    return cache_audio_from_bytes(data, ext)
 
 
 # ---------------------------------------------------------------------------
@@ -1002,24 +940,8 @@ def cache_document_from_bytes(data: bytes, filename: str) -> str:
 
 
 def cleanup_document_cache(max_age_hours: int = 24) -> int:
-    """
-    Delete cached documents older than *max_age_hours*.
-
-    Returns the number of files removed.
-    """
-    import time
-
-    cache_dir = get_document_cache_dir()
-    cutoff = time.time() - (max_age_hours * 3600)
-    removed = 0
-    for f in cache_dir.iterdir():
-        if f.is_file() and f.stat().st_mtime < cutoff:
-            try:
-                f.unlink()
-                removed += 1
-            except OSError:
-                pass
-    return removed
+    """Delete cached documents older than *max_age_hours*; return how many."""
+    return _remove_files_older_than(get_document_cache_dir(), max_age_hours)
 
 
 class MessageType(Enum):
@@ -2662,6 +2584,32 @@ class BasePlatformAdapter(ABC):
         lowered = error.lower()
         return "timed out" in lowered or "readtimeout" in lowered or "writetimeout" in lowered
 
+    async def _dispatch_inline(self, event: MessageEvent, log_label: str = "") -> None:
+        """Run the message handler for ``event`` now (bypassing the
+        active-session guard) and send its reply, scheduling deletion for an
+        :class:`EphemeralReply`."""
+        thread_meta = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
+        text, ttl = self._unwrap_ephemeral(await self._message_handler(event))
+        if not text:
+            return
+        if log_label:
+            logger.info(
+                "[%s] Sending %s response (%d chars) to %s",
+                self.name, log_label, len(text), event.source.chat_id,
+            )
+        result = await self._send_with_retry(
+            chat_id=event.source.chat_id,
+            content=text,
+            reply_to=_reply_anchor_for_event(event),
+            metadata=thread_meta,
+        )
+        if ttl > 0 and result.success and result.message_id:
+            self._schedule_ephemeral_delete(
+                chat_id=event.source.chat_id,
+                message_id=result.message_id,
+                ttl_seconds=ttl,
+            )
+
     def _unwrap_ephemeral(self, response: Any) -> Tuple[Optional[str], int]:
         """Unwrap a handler response into (text, ttl_seconds).
 
@@ -3152,36 +3100,13 @@ class BasePlatformAdapter(ABC):
         current_guard = self._active_sessions.get(session_key)
         command_guard = asyncio.Event()
         self._active_sessions[session_key] = command_guard
-        thread_meta = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
-
         try:
-            response = await self._message_handler(event)
-            _text, _eph_ttl = self._unwrap_ephemeral(response)
             # Send the response BEFORE cancelling the old task so the send
             # cannot be affected by task-cancellation side effects (race
             # condition fix — issue #18912).  Previously the send happened
             # after cancel_session_processing, which could silently drop the
             # "/new" confirmation when an agent was actively running.
-            if _text:
-                logger.info(
-                    "[%s] Sending command '/%s' response (%d chars) to %s",
-                    self.name,
-                    cmd,
-                    len(_text),
-                    event.source.chat_id,
-                )
-                _r = await self._send_with_retry(
-                    chat_id=event.source.chat_id,
-                    content=_text,
-                    reply_to=_reply_anchor_for_event(event),
-                    metadata=thread_meta,
-                )
-                if _eph_ttl > 0 and _r.success and _r.message_id:
-                    self._schedule_ephemeral_delete(
-                        chat_id=event.source.chat_id,
-                        message_id=_r.message_id,
-                        ttl_seconds=_eph_ttl,
-                    )
+            await self._dispatch_inline(event, log_label=f"command '/{cmd}'")
             # Old adapter task (if any) is cancelled AFTER the response has
             # been sent — keeps ordering deterministic and avoids the race.
             await self.cancel_session_processing(
@@ -3267,22 +3192,7 @@ class BasePlatformAdapter(ABC):
                     self.name, cmd, session_key,
                 )
                 try:
-                    _thread_meta = _thread_metadata_for_source(event.source, _reply_anchor_for_event(event))
-                    response = await self._message_handler(event)
-                    _text, _eph_ttl = self._unwrap_ephemeral(response)
-                    if _text:
-                        _r = await self._send_with_retry(
-                            chat_id=event.source.chat_id,
-                            content=_text,
-                            reply_to=_reply_anchor_for_event(event),
-                            metadata=_thread_meta,
-                        )
-                        if _eph_ttl > 0 and _r.success and _r.message_id:
-                            self._schedule_ephemeral_delete(
-                                chat_id=event.source.chat_id,
-                                message_id=_r.message_id,
-                                ttl_seconds=_eph_ttl,
-                            )
+                    await self._dispatch_inline(event)
                 except Exception as e:
                     logger.error("[%s] Command '/%s' dispatch failed: %s", self.name, cmd, e, exc_info=True)
                 return
@@ -3315,24 +3225,7 @@ class BasePlatformAdapter(ABC):
                         self.name, session_key,
                     )
                     try:
-                        _thread_meta = _thread_metadata_for_source(
-                            event.source, _reply_anchor_for_event(event)
-                        )
-                        response = await self._message_handler(event)
-                        _text, _eph_ttl = self._unwrap_ephemeral(response)
-                        if _text:
-                            _r = await self._send_with_retry(
-                                chat_id=event.source.chat_id,
-                                content=_text,
-                                reply_to=_reply_anchor_for_event(event),
-                                metadata=_thread_meta,
-                            )
-                            if _eph_ttl > 0 and _r.success and _r.message_id:
-                                self._schedule_ephemeral_delete(
-                                    chat_id=event.source.chat_id,
-                                    message_id=_r.message_id,
-                                    ttl_seconds=_eph_ttl,
-                                )
+                        await self._dispatch_inline(event)
                     except Exception as e:
                         logger.error(
                             "[%s] Clarify text-intercept dispatch failed: %s",
