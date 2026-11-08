@@ -1,5 +1,6 @@
-"""Unit tests for agent/coding_sync_safety.py (pure path + size guards)."""
+"""Unit tests for agent/coding_sync_safety.py (pure server-side path guards)."""
 import os
+import pathlib
 
 from agent.coding_sync_safety import (
     SyncSafetyConfig,
@@ -8,15 +9,12 @@ from agent.coding_sync_safety import (
     looks_like_local_path_on_server,
     under_allowed_root,
     validate_server_path,
-    validate_local_path,
     validate_endpoints_for_server_gate,
-    estimate_tree,
 )
 
 
 def _cfg(**kw):
-    base = dict(allowed_local_roots=["/Users/me/code", "~/projects"],
-                allowed_server_roots=["/root/codingprojects"])
+    base = dict(allowed_server_roots=["/root/codingprojects"])
     base.update(kw)
     return SyncSafetyConfig(**base)
 
@@ -68,16 +66,6 @@ def test_validate_server_path_rejects_the_real_incidents():
     assert ok and why == ""
 
 
-def test_validate_local_path_allowlist():
-    cfg = _cfg()
-    ok, _ = validate_local_path("/Users/me/code/proj", cfg)
-    assert ok
-    ok, why = validate_local_path("/Users/pranavkrishna", cfg)  # home
-    assert not ok
-    ok, why = validate_local_path("/Users/me/Desktop/random", cfg)  # outside roots
-    assert not ok and "allowed sync roots" in why
-
-
 def test_server_gate_blocks_home_local_even_on_server():
     # The whole-home-dir runaway: local=$HOME. The server gate must reject it by
     # pattern even though Mac ~ doesn't resolve on the server.
@@ -91,41 +79,20 @@ def test_server_gate_blocks_home_local_even_on_server():
     assert ok
 
 
-def test_estimate_tree_bounded_and_early_exit(tmp_path):
-    # build a small tree with an ignored dir
-    (tmp_path / "a.txt").write_bytes(b"x" * 100)
-    (tmp_path / "node_modules").mkdir()
-    (tmp_path / "node_modules" / "big.bin").write_bytes(b"y" * 10_000)
-    (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "obj").write_bytes(b"z" * 10_000)
-    sub = tmp_path / "src"
-    sub.mkdir()
-    (sub / "b.txt").write_bytes(b"q" * 50)
-
-    # node_modules + .git pruned → only a.txt + src/b.txt counted (150 bytes, 2 files)
-    total_bytes, total_files, exceeded = estimate_tree(
-        str(tmp_path), ["node_modules"], byte_cap=10_000, file_cap=10_000)
-    assert not exceeded
-    assert total_files == 2
-    assert total_bytes == 150
-
-    # tiny byte cap → early exit (exceeded True), doesn't need to finish the walk
-    _b, _f, exceeded = estimate_tree(
-        str(tmp_path), ["node_modules"], byte_cap=10, file_cap=10_000)
-    assert exceeded
-
-    # tiny file cap → early exit
-    _b, _f, exceeded = estimate_tree(
-        str(tmp_path), ["node_modules"], byte_cap=10_000, file_cap=1)
-    assert exceeded
-
-
 def test_config_from_env_overrides():
-    env = {"JC_SYNC_ALLOWED_LOCAL_ROOTS": "/a/b:/c/d",
-           "JC_SYNC_MAX_TREE_BYTES": "12345", "JC_SYNC_MAX_FILES": "7"}
-    cfg = SyncSafetyConfig.from_env(env)
-    assert cfg.allowed_local_roots == ["/a/b", "/c/d"]
-    assert cfg.max_tree_bytes == 12345
-    assert cfg.max_files == 7
+    cfg = SyncSafetyConfig.from_env({"JC_SYNC_ALLOWED_SERVER_ROOTS": "/a/b:/c/d"})
+    assert cfg.allowed_server_roots == ["/a/b", "/c/d"]
     # default server roots when unset
-    assert cfg.allowed_server_roots == ["~/codingprojects"]
+    assert SyncSafetyConfig.from_env({}).allowed_server_roots == ["~/codingprojects"]
+
+
+def test_shared_predicates_are_the_jc_client_definitions():
+    """The server and the Mac decide which folders are safe with ONE definition:
+    jc-client's sync_safety.py, loaded by path."""
+    import agent.coding_sync_safety as server
+
+    jc_file = (pathlib.Path(__file__).resolve().parents[1]
+               / "desktop_client" / "jc_client" / "sync_safety.py")
+    assert pathlib.Path(server.shared.__file__).resolve() == jc_file
+    for name in ("is_home_like", "is_dangerous_path", "under_allowed_root"):
+        assert getattr(server, name) is getattr(server.shared, name), name

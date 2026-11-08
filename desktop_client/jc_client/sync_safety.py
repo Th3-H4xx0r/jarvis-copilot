@@ -1,9 +1,13 @@
-"""Client-side (Mac) sync safety: validate the LOCAL alpha endpoint + bound the
-tree size BEFORE starting Mutagen. The desktop is the only side that can stat the
-real tree, and the only side where ``~`` expands to the Mac home.
+"""Sync safety: the one definition of which folders may be a sync endpoint.
 
-This MIRRORS the server-side ``agent/coding_sync_safety.py`` (the jc-client is a
-separate install that cannot import ``agent/``). Keep the two in sync.
+Client side (Mac): validate the LOCAL alpha endpoint + bound the tree size BEFORE
+starting Mutagen. The desktop is the only side that can stat the real tree, and
+the only side where ``~`` expands to the Mac home.
+
+The server (``agent/coding_sync_safety.py``) loads THIS file by path for the
+shared predicates (``is_home_like``, ``is_dangerous_path``,
+``under_allowed_root``, ``roots_from_env``) and adds only its own server-path
+checks, so the two sides cannot drift. Keep it pure stdlib.
 """
 from __future__ import annotations
 
@@ -35,12 +39,7 @@ class LocalSyncSafetyConfig:
         env = env if env is not None else os.environ
 
         def _roots(key, default):
-            raw = (env.get(key) or "").strip()
-            if raw:
-                parts = [p.strip() for p in re.split(r"[:,]", raw) if p.strip()]
-                if parts:
-                    return parts
-            return list(default)
+            return roots_from_env(env, key, default)
 
         def _int(key, default):
             try:
@@ -56,11 +55,22 @@ class LocalSyncSafetyConfig:
         )
 
 
+def roots_from_env(env, key, default) -> list:
+    """A ``:``/``,``-separated root list from ``env[key]``, else ``default``."""
+    raw = (env.get(key) or "").strip()
+    if raw:
+        parts = [p.strip() for p in re.split(r"[:,]", raw) if p.strip()]
+        if parts:
+            return parts
+    return list(default)
+
+
 def _norm(path) -> str:
     s = str(path or "").strip()
     if not s:
         return ""
     p = os.path.normpath(os.path.expanduser(s))
+    # normpath("") / normpath(".") collapse to "." — treat as empty (dangerous).
     return p if (p and p != ".") else ""
 
 
@@ -69,6 +79,9 @@ def _segments(path) -> list:
 
 
 def is_home_like(path) -> bool:
+    """A user/system HOME directory: ``$HOME``, ``/Users/<name>``, ``/home/<name>``
+    (exactly two segments), or ``/root``. Host-agnostic — pattern based, so the
+    server catches a Mac ``/Users/<name>`` and the Mac catches its own ``$HOME``."""
     p = _norm(path)
     if not p:
         return False
@@ -83,6 +96,7 @@ def is_home_like(path) -> bool:
 
 
 def is_dangerous_path(path) -> bool:
+    """Never sync this: empty, ``/``, a home dir, or a top-level system dir."""
     p = _norm(path)
     if p in ("", "/"):
         return True
@@ -95,6 +109,7 @@ def is_dangerous_path(path) -> bool:
 
 
 def under_allowed_root(path, roots) -> bool:
+    """True if ``path`` is one of ``roots`` or nested under one of them."""
     p = _norm(path)
     if not p:
         return False
