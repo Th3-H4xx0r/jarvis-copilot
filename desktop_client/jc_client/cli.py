@@ -1097,8 +1097,7 @@ def cmd_hooks(args) -> int:
 
 
 def _ui_socket() -> str:
-    from jc_client.logger import state_dir
-    return str(state_dir() / "ui.sock")
+    return service._ui_socket_path()
 
 
 def cmd_agents(args) -> int:

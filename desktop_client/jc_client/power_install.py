@@ -19,12 +19,13 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from jc_client.mac_power import HELPER_SOCKET
+
 LABEL = "com.jarviscopilot.power"
 HELPER_PATH = "/Library/PrivilegedHelperTools/com.jarviscopilot.power.py"
 ASKPASS_PATH = "/Library/PrivilegedHelperTools/jarvis-askpass"
 PLIST_PATH = f"/Library/LaunchDaemons/{LABEL}.plist"
 SUDO_CONF = "/etc/sudo.conf"
-SOCKET_PATH = "/var/run/com.jarviscopilot.power.sock"
 _HERE = Path(__file__).resolve().parent / "power_helper"
 
 
@@ -102,7 +103,7 @@ def status() -> dict:
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(2)
-            s.connect(SOCKET_PATH)
+            s.connect(HELPER_SOCKET)
             running = True
     except OSError:
         pass
