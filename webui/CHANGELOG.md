@@ -24,6 +24,10 @@
 
 ### Changed
 
+- **No "JarvisCopilot Dashboard" link** — the nav-rail/mobile link and its Settings section (auto-detect / always / never, a loopback URL) are gone, with `GET /api/dashboard/status` and `GET/POST /api/dashboard/config`: the `jarviscopilot dashboard` server they pointed at no longer exists.
+
+- **Onboarding sign-in flows** — cancelling a Codex sign-in now always sticks: a poll that failed or finished after the cancel used to overwrite it as "error" or "success" (Claude Code and Anthropic already let the cancel win).
+
 - **One shared, cached prompt per model** — a chat agent used to start with ~59K tokens (46K of tool definitions) and every agent built its own, so each harness node, chat, Background job and memory review paid to write it into the provider's cache again, and again whenever it went 5 minutes unused. Now every agent on a model starts with the same bytes: one sorted tools list (a harness node's tool setting limits what it may *call*, it no longer changes the list; `handoff` is always listed and refused where no Background node is wired), device tools from the stored device catalogue (a device coming or going no longer changes the list; calling an offline one says so), and a system prompt split into a stable block and a per-agent tail (memory, profile, date). Providers that cache identical prompts on their own share it across agents automatically; for ones that need cache markers the adapter places them after the tools and the stable block, at the 1-hour tier by default. The memory counter ("N items stored") is gone from the prompt.
 
 - **Device tools on demand** — only the device tools you actually use stay loaded (ranked by the last 30 days of calls, up to `agent.device_tools.always_loaded_tokens`, default 8,000, plus `agent.device_tools.pinned`); the rest are in the on-demand catalogue (`tool_search` then `tool_call`) like every other deferred tool. The ranking is recounted daily in the background. Anthropic's server-side tool search is now opt-in (`tools.deferred: true`), so every provider reaches deferred tools the same way.

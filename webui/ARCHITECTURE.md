@@ -58,7 +58,13 @@ actions. The topbar remains focused on conversation context and the workspace/fi
       models.py            Session model + CRUD, per-session profile tracking (~1927 lines)
       profiles.py          Profile state management, hermes_cli wrapper (~1056 lines)
       onboarding.py        First-run onboarding status, real provider config writes, OAuth linking, and readiness detection (~1002 lines)
-      routes.py            All GET + POST route handlers (~9772 lines)
+      routes.py            Dispatcher + the routes no feature module owns yet (~6500 lines)
+      mounts.py            Prefix → feature module table; each module's route(req) serves every method
+      session_routes.py    /api/session* and /api/sessions* (list, detail, edits, import, delete)
+      session_compress.py  Manual context compression (/api/session/compress*)
+      handoff_summary.py   Gateway handoff summaries (/api/session/handoff-summary, conversation-rounds)
+      approvals.py         Approval queue, SSE push and answers (/api/approval/*); clarify.py is its twin
+      agent_completion.py  One no-tools side request on a chat agent's transport (titles, summaries)
       startup.py           Startup helpers: auto_install_agent_deps() (~128 lines)
       streaming.py         SSE engine, run_agent, cancel, HERMES_HOME save/restore (~4420 lines)
       upload.py            Multipart parser, file upload handler (~284 lines)
