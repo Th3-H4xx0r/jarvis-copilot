@@ -16,7 +16,7 @@ import tempfile
 import html as _html
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -1568,7 +1568,6 @@ class TelegramAdapter(BasePlatformAdapter):
                     BotCommandScopeAllPrivateChats,
                     BotCommandScopeAllGroupChats,
                     BotCommandScopeDefault,
-                    BotCommandScopeChat,
                 )
                 from jarviscopilot_cli.commands import telegram_menu_commands
                 # Telegram allows up to 100 commands but has an undocumented
@@ -2349,6 +2348,29 @@ class TelegramAdapter(BasePlatformAdapter):
             )
             return SendResult(success=False, error=str(e))
 
+    async def _send_prompt(self, chat_id, text: str, parse_mode, reply_markup, metadata):
+        """Send an interactive prompt (approval, confirm, clarify, picker)
+        into the chat's thread, honouring the reply-to mode."""
+        thread_id = self._metadata_thread_id(metadata)
+        reply_to_id = self._reply_to_message_id_for_send(None, metadata, reply_to_mode=self._reply_to_mode)
+        kwargs: Dict[str, Any] = {
+            "chat_id": int(chat_id),
+            "text": text,
+            "parse_mode": parse_mode,
+            "reply_to_message_id": reply_to_id,
+            **self._link_preview_kwargs(),
+            **self._thread_kwargs_for_send(
+                chat_id,
+                thread_id,
+                metadata,
+                reply_to_message_id=reply_to_id,
+                reply_to_mode=self._reply_to_mode,
+            ),
+        }
+        if reply_markup is not None:
+            kwargs["reply_markup"] = reply_markup
+        return await self._send_message_with_thread_fallback(**kwargs)
+
     async def _send_message_with_thread_fallback(self, **kwargs):
         """Send a Telegram message, retrying once without message_thread_id
         if Telegram returns 'Message thread not found'.
@@ -2402,23 +2424,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     InlineKeyboardButton("✗ No", callback_data="update_prompt:n"),
                 ]
             ])
-            thread_id = self._metadata_thread_id(metadata)
-            reply_to_id = self._reply_to_message_id_for_send(None, metadata, reply_to_mode=self._reply_to_mode)
-            msg = await self._send_message_with_thread_fallback(
-                chat_id=int(chat_id),
-                text=text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-                reply_to_message_id=reply_to_id,
-                **self._thread_kwargs_for_send(
-                    chat_id,
-                    thread_id,
-                    metadata,
-                    reply_to_message_id=reply_to_id,
-                    reply_to_mode=self._reply_to_mode
-                ),
-                **self._link_preview_kwargs(),
-            )
+            msg = await self._send_prompt(chat_id, text, ParseMode.MARKDOWN_V2, keyboard, metadata)
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
             logger.warning("[%s] send_update_prompt failed: %s", self.name, e)
@@ -2445,9 +2451,6 @@ class TelegramAdapter(BasePlatformAdapter):
                 f"Reason: {_html.escape(description)}"
             )
 
-            # Resolve thread context for thread replies
-            thread_id = self._metadata_thread_id(metadata)
-
             # We'll use the message_id as part of callback_data to look up session_key
             # Send a placeholder first, then update — or use a counter.
             # Simpler: use a monotonic counter to generate short IDs.
@@ -2467,26 +2470,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 ],
             ])
 
-            kwargs: Dict[str, Any] = {
-                "chat_id": int(chat_id),
-                "text": text,
-                "parse_mode": ParseMode.HTML,
-                "reply_markup": keyboard,
-                **self._link_preview_kwargs(),
-            }
-            reply_to_id = self._reply_to_message_id_for_send(None, metadata, reply_to_mode=self._reply_to_mode)
-            kwargs["reply_to_message_id"] = reply_to_id
-            kwargs.update(
-                self._thread_kwargs_for_send(
-                    chat_id,
-                    thread_id,
-                    metadata,
-                    reply_to_message_id=reply_to_id,
-                    reply_to_mode=self._reply_to_mode
-                )
-            )
-
-            msg = await self._send_message_with_thread_fallback(**kwargs)
+            msg = await self._send_prompt(chat_id, text, ParseMode.HTML, keyboard, metadata)
 
             # Store session_key keyed by approval_id for the callback handler
             self._approval_state[approval_id] = session_key
@@ -2517,27 +2501,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 ],
             ])
 
-            thread_id = self._metadata_thread_id(metadata)
-            kwargs: Dict[str, Any] = {
-                "chat_id": int(chat_id),
-                "text": preview,
-                "parse_mode": ParseMode.MARKDOWN_V2,
-                "reply_markup": keyboard,
-                **self._link_preview_kwargs(),
-            }
-            reply_to_id = self._reply_to_message_id_for_send(None, metadata, reply_to_mode=self._reply_to_mode)
-            kwargs["reply_to_message_id"] = reply_to_id
-            kwargs.update(
-                self._thread_kwargs_for_send(
-                    chat_id,
-                    thread_id,
-                    metadata,
-                    reply_to_message_id=reply_to_id,
-                    reply_to_mode=self._reply_to_mode
-                )
-            )
-
-            msg = await self._send_message_with_thread_fallback(**kwargs)
+            msg = await self._send_prompt(chat_id, preview, ParseMode.MARKDOWN_V2, keyboard, metadata)
             self._slash_confirm_state[confirm_id] = session_key
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
@@ -2569,7 +2533,6 @@ class TelegramAdapter(BasePlatformAdapter):
 
         try:
             text = f"❓ {_html.escape(question)}"
-            thread_id = self._metadata_thread_id(metadata)
 
             if choices:
                 # Render full option text in the message body so mobile
@@ -2582,13 +2545,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
                 text += f"\n\n{option_lines}"
 
-            kwargs: Dict[str, Any] = {
-                "chat_id": int(chat_id),
-                "text": text,
-                "parse_mode": ParseMode.HTML,
-                **self._link_preview_kwargs(),
-            }
-
+            keyboard = None
             if choices:
                 # Telegram caps callback_data at 64 bytes; keep "cl:<id>:<idx>"
                 # short.
@@ -2606,20 +2563,9 @@ class TelegramAdapter(BasePlatformAdapter):
                         callback_data=f"cl:{clarify_id}:other",
                     )
                 ])
-                kwargs["reply_markup"] = InlineKeyboardMarkup(rows)
+                keyboard = InlineKeyboardMarkup(rows)
 
-            reply_to_id = self._reply_to_message_id_for_send(None, metadata)
-            kwargs["reply_to_message_id"] = reply_to_id
-            kwargs.update(
-                self._thread_kwargs_for_send(
-                    chat_id,
-                    thread_id,
-                    metadata,
-                    reply_to_message_id=reply_to_id,
-                )
-            )
-
-            msg = await self._send_message_with_thread_fallback(**kwargs)
+            msg = await self._send_prompt(chat_id, text, ParseMode.HTML, keyboard, metadata)
             self._clarify_state[clarify_id] = session_key
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
@@ -2677,23 +2623,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
             )
 
-            thread_id = metadata.get("thread_id") if metadata else None
-            reply_to_id = self._reply_to_message_id_for_send(None, metadata, reply_to_mode=self._reply_to_mode)
-            msg = await self._send_message_with_thread_fallback(
-                chat_id=int(chat_id),
-                text=text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=keyboard,
-                reply_to_message_id=reply_to_id,
-                **self._thread_kwargs_for_send(
-                    chat_id,
-                    thread_id,
-                    metadata,
-                    reply_to_message_id=reply_to_id,
-                    reply_to_mode=self._reply_to_mode
-                ),
-                **self._link_preview_kwargs(),
-            )
+            msg = await self._send_prompt(chat_id, text, ParseMode.MARKDOWN_V2, keyboard, metadata)
 
             # Store picker state keyed by chat_id
             self._model_picker_state[str(chat_id)] = {

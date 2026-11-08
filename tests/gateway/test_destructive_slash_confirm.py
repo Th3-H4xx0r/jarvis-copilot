@@ -72,8 +72,6 @@ def _make_runner():
         emit_collect=AsyncMock(return_value=[]),
         loaded_hooks=False,
     )
-    runner._thread_metadata_for_source = lambda *a, **kw: None
-    runner._reply_anchor_for_event = lambda _e: None
     return runner
 
 
