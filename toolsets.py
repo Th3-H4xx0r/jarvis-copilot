@@ -713,21 +713,15 @@ def resolve_toolset(name: str, visited: Set[str] = None) -> List[str]:
         # into a toolset matching the platform name.
         if name.startswith("hermes-"):
             platform_name = name[len("hermes-"):]
-            try:
-                from gateway.platform_registry import platform_registry
-                if platform_registry.is_registered(platform_name):
-                    plugin_tools = set(_HERMES_CORE_TOOLS)
-                    try:
-                        from tools.registry import registry
-                        plugin_tools.update(
-                            e.name for e in registry._tools.values()
-                            if e.toolset == platform_name
-                        )
-                    except Exception:
-                        pass
-                    return list(plugin_tools)
-            except Exception:
-                pass
+            from gateway.platform_registry import platform_registry
+            from tools.registry import registry
+            if platform_registry.is_registered(platform_name):
+                plugin_tools = set(_HERMES_CORE_TOOLS)
+                plugin_tools.update(
+                    e.name for e in registry._tools.values()
+                    if e.toolset == platform_name
+                )
+                return list(plugin_tools)
 
         return []
 

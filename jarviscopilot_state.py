@@ -994,7 +994,7 @@ class SessionDB:
                      reasoning_tokens, latency_s, composition_json),
                 )
         except Exception:
-            pass
+            logger.debug("record_message_usage failed for %s", session_id, exc_info=True)
 
     def get_message_usage(self, session_id: str, limit: int = 200) -> List[Dict[str, Any]]:
         """Per-API-call usage records for a session, newest first. composition_json
@@ -1696,19 +1696,23 @@ class SessionDB:
                 (session_id,),
             )
             rows = cursor.fetchall()
-        result = []
-        for row in rows:
-            msg = dict(row)
-            if "content" in msg:
-                msg["content"] = self._decode_content(msg["content"])
-            if msg.get("tool_calls"):
-                try:
-                    msg["tool_calls"] = json.loads(msg["tool_calls"])
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning("Failed to deserialize tool_calls in get_messages, falling back to []")
-                    msg["tool_calls"] = []
-            result.append(msg)
-        return result
+        return [self._hydrate_message(row) for row in rows]
+
+    def _hydrate_message(self, row) -> Dict[str, Any]:
+        """A messages row as a dict with decoded content and parsed tool_calls."""
+        msg = dict(row)
+        if "content" in msg:
+            msg["content"] = self._decode_content(msg["content"])
+        if msg.get("tool_calls"):
+            try:
+                msg["tool_calls"] = json.loads(msg["tool_calls"])
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "Failed to deserialize tool_calls for message %s, falling back to []",
+                    msg.get("id"),
+                )
+                msg["tool_calls"] = []
+        return msg
 
     def get_messages_around(
         self,
@@ -1763,20 +1767,7 @@ class SessionDB:
 
         # before_rows is DESC; reverse so it's ASC, then concatenate after_rows.
         rows = list(reversed(before_rows)) + list(after_rows)
-        result = []
-        for row in rows:
-            msg = dict(row)
-            if "content" in msg:
-                msg["content"] = self._decode_content(msg["content"])
-            if msg.get("tool_calls"):
-                try:
-                    msg["tool_calls"] = json.loads(msg["tool_calls"])
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning(
-                        "Failed to deserialize tool_calls in get_messages_around, falling back to []"
-                    )
-                    msg["tool_calls"] = []
-            result.append(msg)
+        result = [self._hydrate_message(row) for row in rows]
 
         # before_rows includes the anchor itself; subtract 1 for the count of
         # messages strictly before the anchor in the returned slice.
@@ -1886,26 +1877,12 @@ class SessionDB:
                 # End rows came back DESC for the LIMIT cap; flip to ASC.
                 bookend_end_rows = list(reversed(bookend_end_rows))
 
-        def _hydrate(row) -> Dict[str, Any]:
-            msg = dict(row)
-            if "content" in msg:
-                msg["content"] = self._decode_content(msg["content"])
-            if msg.get("tool_calls"):
-                try:
-                    msg["tool_calls"] = json.loads(msg["tool_calls"])
-                except (json.JSONDecodeError, TypeError):
-                    logger.warning(
-                        "Failed to deserialize tool_calls in get_anchored_view, falling back to []"
-                    )
-                    msg["tool_calls"] = []
-            return msg
-
         return {
             "window": filtered_window,
             "messages_before": primitive["messages_before"],
             "messages_after": primitive["messages_after"],
-            "bookend_start": [_hydrate(r) for r in bookend_start_rows],
-            "bookend_end": [_hydrate(r) for r in bookend_end_rows],
+            "bookend_start": [self._hydrate_message(r) for r in bookend_start_rows],
+            "bookend_end": [self._hydrate_message(r) for r in bookend_end_rows],
         }
 
     def resolve_resume_session_id(self, session_id: str) -> str:
