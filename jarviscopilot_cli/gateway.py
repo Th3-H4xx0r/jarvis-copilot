@@ -668,33 +668,10 @@ def _read_systemd_unit_environment(system: bool = False) -> dict[str, str]:
     space-separated ``KEY=VALUE`` pairs; values are not quoted in the output
     even when the unit file quoted them. We split on whitespace and ``=``.
     """
-    selected_system = _select_systemd_scope(system)
-    try:
-        result = _run_systemctl(
-            [
-                "show",
-                get_service_name(),
-                "--no-pager",
-                "--property",
-                "Environment",
-            ],
-            system=selected_system,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (RuntimeError, subprocess.TimeoutExpired, OSError):
-        return {}
-    if result.returncode != 0:
-        return {}
+    body = _read_systemd_unit_properties(system, ("Environment",)).get("Environment", "")
     parsed: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        if not line.startswith("Environment="):
-            continue
-        body = line[len("Environment="):].strip()
-        for token in body.split():
-            if "=" not in token:
-                continue
+    for token in body.split():
+        if "=" in token:
             key, value = token.split("=", 1)
             parsed[key] = value
     return parsed
