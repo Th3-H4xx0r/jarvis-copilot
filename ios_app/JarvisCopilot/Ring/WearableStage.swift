@@ -59,55 +59,52 @@ enum Lathe {
     }
 }
 
-/// The scene a wearable's model stands in (R12, X5, band): the studio lights and environment,
-/// the camera, the slow turn, the entrance, the LEDs breathing through a measurement and the
-/// "find" flash. A model hands over its nodes; `RingSceneView` & co. hold the stage.
-class WearableStage {
-    static let idleLED: CGFloat = 0.15
+/// The studio every device's model stands in: the soft environment, the lights, the camera,
+/// the slow turn and the entrance. A model hands over its pivot (posed) and spinner (turned).
+class ModelStage {
+    typealias Light = (type: SCNLight.LightType, intensity: CGFloat, color: UIColor, euler: SCNVector3)
+
+    /// Key, a cool fill from below, a top light, and ambient. `rim` is where the top light comes
+    /// from: the rings' shines up into the band; the glasses' comes down from behind so the frame
+    /// gets a lit top edge rather than bright undersides.
+    static func studio(fill: (intensity: CGFloat, color: UIColor) = (450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1)),
+                       rim: SCNVector3 = SCNVector3(0.9, 2.8, 0)) -> [Light] {
+        [(.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
+         (.directional, fill.intensity, fill.color, SCNVector3(-0.2, -2.3, 0)),
+         (.directional, 350, .white, rim),
+         (.ambient, 120, .white, SCNVector3Zero)]
+    }
 
     let scene = SCNScene()
     let camera = SCNNode()
     let pivot: SCNNode
     let spinner: SCNNode
-    let leds: [SCNNode]
-    let glow: SCNNode
-    /// Whether a measurement wants the LEDs pulsing, so a find flash can hand back to it.
-    private var measuring = false
 
-    /// `roll` leans the model sideways; `fill` is the cool light from below.
-    init(pivot: SCNNode, spinner: SCNNode, leds: [SCNNode], glow: SCNNode, spin: Bool, tilt: Float,
-         roll: Float = 0.32, cameraDistance: Float, spinSeconds: Double, spinAngle: Float,
-         fill: (intensity: CGFloat, color: UIColor) = (450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1))) {
+    /// `tilt` and `roll` lean the model; `spinAngle` poses it at a fixed point in its turn (the
+    /// render harness looks at each side).
+    init(pivot: SCNNode, spinner: SCNNode, spin: Bool, tilt: Float, roll: Float, cameraDistance: Float,
+         spinSeconds: Double, spinAngle: Float, lights: [Light] = ModelStage.studio(), environment: CGFloat = 1.6) {
         self.pivot = pivot
         self.spinner = spinner
-        self.leds = leds
-        self.glow = glow
 
         scene.background.contents = UIColor.clear
         scene.lightingEnvironment.contents = RingModel.environment
-        scene.lightingEnvironment.intensity = 1.6
+        scene.lightingEnvironment.intensity = environment
         scene.rootNode.addChildNode(pivot)
         pivot.eulerAngles = SCNVector3(tilt, 0, roll)
-        // Poses the model at a fixed point in its turn (the render harness looks at each side).
         spinner.eulerAngles.y = spinAngle
         if spin {
             spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)), forKey: "spin")
         }
 
-        let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-            (.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
-            (.directional, fill.intensity, fill.color, SCNVector3(-0.2, -2.3, 0)),
-            (.directional, 350, .white, SCNVector3(0.9, 2.8, 0)),
-            (.ambient, 120, .white, SCNVector3Zero),
-        ]
-        for (type, intensity, color, euler) in lights {
-            let light = SCNLight()
-            light.type = type
-            light.intensity = intensity
-            light.color = color
+        for light in lights {
+            let source = SCNLight()
+            source.type = light.type
+            source.intensity = light.intensity
+            source.color = light.color
             let node = SCNNode()
-            node.light = light
-            node.eulerAngles = euler
+            node.light = source
+            node.eulerAngles = light.euler
             scene.rootNode.addChildNode(node)
         }
 
@@ -125,6 +122,27 @@ class WearableStage {
         grow.timingMode = .easeOut
         pivot.runAction(.group([grow, .fadeIn(duration: 0.35)]))
     }
+}
+
+/// A wearable's stage (R12, X5, band): the studio, plus the LEDs breathing through a measurement
+/// and the "find" flash. `RingSceneView` & co. hold it.
+class WearableStage: ModelStage {
+    static let idleLED: CGFloat = 0.15
+
+    let leds: [SCNNode]
+    let glow: SCNNode
+    /// Whether a measurement wants the LEDs pulsing, so a find flash can hand back to it.
+    private var measuring = false
+
+    /// `fill` is the cool light from below.
+    init(pivot: SCNNode, spinner: SCNNode, leds: [SCNNode], glow: SCNNode, spin: Bool, tilt: Float,
+         roll: Float = 0.32, cameraDistance: Float, spinSeconds: Double, spinAngle: Float,
+         fill: (intensity: CGFloat, color: UIColor) = (450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1))) {
+        self.leds = leds
+        self.glow = glow
+        super.init(pivot: pivot, spinner: spinner, spin: spin, tilt: tilt, roll: roll, cameraDistance: cameraDistance,
+                   spinSeconds: spinSeconds, spinAngle: spinAngle, lights: ModelStage.studio(fill: fill))
+    }
 
     /// The LEDs breathe and cast a green glow while a measurement runs.
     func setPulsing(_ on: Bool) {
@@ -134,6 +152,9 @@ class WearableStage {
 
     /// Each step of the glow's breath (0…1), or nil once it stops: for a model's own marks.
     func pulsed(_ phase: CGFloat?) {}
+
+    /// A gesture landed on the device (the X5 lights its touch target).
+    func touch() {}
 
     private func pulse(_ on: Bool) {
         leds.forEach { $0.removeAction(forKey: "pulse") }

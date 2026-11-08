@@ -7,6 +7,35 @@ struct RingStepMinute: Codable, Equatable {
     var distanceMeters: Int
 }
 
+extension RingStepMinute {
+    /// A day's minutes summed into its 15-minute slots, in order.
+    static func slots(_ minutes: [Int: RingStepMinute]) -> [RingStepSlot] {
+        var bySlot: [Int: RingStepSlot] = [:]
+        for (minute, m) in minutes {
+            let slot = minute / 15
+            var s = bySlot[slot] ?? RingStepSlot(slot: slot, steps: 0, calories: 0, distanceMeters: 0)
+            s.steps += m.steps
+            s.calories += m.calories
+            s.distanceMeters += m.distanceMeters
+            bySlot[slot] = s
+        }
+        return bySlot.values.sorted { $0.slot < $1.slot }
+    }
+}
+
+extension RingSeries {
+    /// Sets one bucket of a day-long series, (re)creating the series at `interval` minutes.
+    static func put(_ series: inout RingSeries?, interval: Int, minute: Int, value: Double) {
+        let count = 1440 / interval
+        var s = series ?? RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
+        if s.intervalMinutes != interval || s.values.count != count {
+            s = RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
+        }
+        s.values[max(0, min(count - 1, minute / interval))] = value
+        series = s
+    }
+}
+
 struct RingMeasurementRecord: Codable, Equatable {
     var type: String
     var time: Date

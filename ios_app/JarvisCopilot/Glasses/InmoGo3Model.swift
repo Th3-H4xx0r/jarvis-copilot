@@ -610,66 +610,17 @@ enum InmoGo3Model {
     // MARK: Scene
 
     /// One scene plus the nodes that animate. Held by `GlassesSceneView`.
-    final class Live {
-        let scene = SCNScene()
-        let camera = SCNNode()
-        private let pivot: SCNNode
-        private let spinner: SCNNode
+    final class Live: ModelStage {
         private let displays: [SCNNode]
 
+        /// A three-quarter pose by default: the lenses turned to the right, the near arm running back.
         init(spin: Bool, tilt: Float = InmoGo3Model.defaultTilt, cameraDistance: Float = 4.2,
              spinSeconds: Double = 40, spinAngle: Float = 0.62) {
             let parts = InmoGo3Model.makeNode()
-            pivot = parts.pivot
-            spinner = parts.spinner
             displays = parts.displays
-
-            scene.background.contents = UIColor.clear
-            // The ring's studio: the same soft reflections across every wearable.
-            scene.lightingEnvironment.contents = RingModel.environment
-            scene.lightingEnvironment.intensity = 1.4
-            scene.rootNode.addChildNode(pivot)
-            pivot.eulerAngles = SCNVector3(tilt, 0, 0)
-            // A three-quarter pose: the lenses turned to the right, the near arm running back.
-            spinner.eulerAngles.y = spinAngle
-            if spin {
-                spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)),
-                                  forKey: "spin")
-            }
-
-            // The ring's rig, except the third light: there it shines up into the band, here it
-            // comes down from behind so the frame and arms get a lit top edge rather than bright
-            // undersides.
-            let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-                (.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
-                (.directional, 450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
-                (.directional, 350, .white, SCNVector3(-0.9, 2.8, 0)),
-                (.ambient, 120, .white, SCNVector3Zero),
-            ]
-            for (type, intensity, color, euler) in lights {
-                let light = SCNLight()
-                light.type = type
-                light.intensity = intensity
-                light.color = color
-                let node = SCNNode()
-                node.light = light
-                node.eulerAngles = euler
-                scene.rootNode.addChildNode(node)
-            }
-
-            let lens = SCNCamera()
-            lens.fieldOfView = 30
-            camera.camera = lens
-            camera.position = SCNVector3(0, 0, cameraDistance)
-            scene.rootNode.addChildNode(camera)
-        }
-
-        func playEntrance() {
-            pivot.scale = SCNVector3(0.6, 0.6, 0.6)
-            pivot.opacity = 0
-            let grow = SCNAction.scale(to: 1, duration: 0.55)
-            grow.timingMode = .easeOut
-            pivot.runAction(.group([grow, .fadeIn(duration: 0.35)]))
+            super.init(pivot: parts.pivot, spinner: parts.spinner, spin: spin, tilt: tilt, roll: 0,
+                       cameraDistance: cameraDistance, spinSeconds: spinSeconds, spinAngle: spinAngle,
+                       lights: ModelStage.studio(rim: SCNVector3(-0.9, 2.8, 0)), environment: 1.4)
         }
 
         /// The display comes up green while the glasses are connected, and fades out when not.

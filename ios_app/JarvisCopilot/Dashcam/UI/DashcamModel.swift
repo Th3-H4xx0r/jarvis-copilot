@@ -188,50 +188,21 @@ enum DashcamModel {
     }
 
     /// One scene plus the nodes that animate. Held by `DashcamSceneView`.
-    final class Live {
-        let scene = SCNScene()
-        let camera = SCNNode()
-        private let pivot: SCNNode
-        private let spinner: SCNNode
+    final class Live: ModelStage {
         private let lit: [SCNNode]
 
+        /// A three-quarter pose by default: lens towards the viewer, the mount on top in view.
         init(spin: Bool, tilt: Float = DashcamModel.defaultTilt, cameraDistance: Float = 4.6,
              spinSeconds: Double = 40, spinAngle: Float = -0.45) {
             let parts = DashcamModel.makeNode()
-            pivot = parts.pivot
-            spinner = parts.spinner
             lit = parts.lit
-            scene.background.contents = UIColor.clear
-            scene.lightingEnvironment.contents = RingModel.environment   // the wearables' shared studio
-            scene.lightingEnvironment.intensity = 1.4
-            scene.rootNode.addChildNode(pivot)
-            pivot.eulerAngles = SCNVector3(tilt, 0, 0)
-            // Three-quarter pose: lens towards the viewer, the mount on top in view.
-            spinner.eulerAngles.y = spinAngle
-            if spin {
-                spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)), forKey: "spin")
-            }
-            let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-                (.directional, 750, .white, SCNVector3(-0.6, 0.5, 0)),
-                (.directional, 450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
-                (.directional, 380, .white, SCNVector3(-0.9, 2.8, 0)),
-                (.ambient, 140, .white, SCNVector3Zero),
-            ]
-            for (type, intensity, color, euler) in lights {
-                let light = SCNLight()
-                light.type = type
-                light.intensity = intensity
-                light.color = color
-                let n = SCNNode()
-                n.light = light
-                n.eulerAngles = euler
-                scene.rootNode.addChildNode(n)
-            }
-            let lens = SCNCamera()
-            lens.fieldOfView = 30
-            camera.camera = lens
-            camera.position = SCNVector3(0, 0, cameraDistance)
-            scene.rootNode.addChildNode(camera)
+            super.init(pivot: parts.pivot, spinner: parts.spinner, spin: spin, tilt: tilt, roll: 0,
+                       cameraDistance: cameraDistance, spinSeconds: spinSeconds, spinAngle: spinAngle,
+                       lights: [(.directional, 750, .white, SCNVector3(-0.6, 0.5, 0)),
+                                (.directional, 450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
+                                (.directional, 380, .white, SCNVector3(-0.9, 2.8, 0)),
+                                (.ambient, 140, .white, SCNVector3Zero)],
+                       environment: 1.4)
         }
 
         func setLit(_ on: Bool) {

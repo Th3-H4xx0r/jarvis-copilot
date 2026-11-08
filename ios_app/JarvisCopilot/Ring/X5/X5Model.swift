@@ -301,7 +301,7 @@ enum X5Model {
         }
 
         /// A gesture: the touch target lights up and fades.
-        func touch() {
+        override func touch() {
             let material = shell
             pivot.removeAction(forKey: "touch")
             pivot.runAction(.customAction(duration: 0.7) { _, elapsed in

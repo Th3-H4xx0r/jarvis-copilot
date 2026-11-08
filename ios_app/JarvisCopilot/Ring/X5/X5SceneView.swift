@@ -17,32 +17,10 @@ struct X5SceneView: View {
     var spinSeconds: Double = 34
     var animatesAnywhere = false
 
-    @State private var live: X5Model.Live?
-    @Environment(AppRouter.self) private var router: AppRouter?
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var animating: Bool {
-        (spin || pulsing) && scenePhase == .active
-            && (animatesAnywhere || (router.map { $0.selectedTab == .devices } ?? true))
-    }
-
     var body: some View {
-        Group {
-            if let live {
-                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating)
-            } else {
-                Color.clear
-            }
+        WearableSceneCanvas(spin: spin, entrance: entrance, pulsing: pulsing, flashToken: flashToken,
+                            touchToken: touchToken, animatesAnywhere: animatesAnywhere) {
+            X5Model.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance, spinSeconds: spinSeconds)
         }
-        .onAppear {
-            guard live == nil else { return }
-            let scene = X5Model.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance, spinSeconds: spinSeconds)
-            if entrance { scene.playEntrance() }
-            if pulsing { scene.setPulsing(true) }
-            live = scene
-        }
-        .onChange(of: pulsing) { _, on in live?.setPulsing(on) }
-        .onChange(of: flashToken) { _, _ in live?.flash() }
-        .onChange(of: touchToken) { _, _ in live?.touch() }
     }
 }

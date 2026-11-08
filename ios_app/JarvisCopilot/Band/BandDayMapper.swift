@@ -30,7 +30,7 @@ enum BandDayMapper {
                 minutes[r.minuteOfDay] = RingStepMinute(steps: r.steps, calories: r.calories, distanceMeters: r.distanceMeters)
             }
             day.stepMinutes = minutes
-            day.stepSlots = slots(from: minutes)
+            day.stepSlots = RingStepMinute.slots(minutes)
             let steps = minutes.values.reduce(0) { $0 + $1.steps }
             let active = minutes.values.filter { $0.steps >= activeSteps }.count * 5
             day.activity = RingActivity(steps: max(steps, day.activity?.steps ?? 0), runningSteps: 0,
@@ -42,12 +42,12 @@ enum BandDayMapper {
             for r in mine {
                 // Heart rate: one value per minute of the slot.
                 for (i, bpm) in r.heartRates.prefix(5).enumerated() where plausibleHeartRate.contains(bpm) {
-                    put(&day.heartRate, interval: 1, minute: r.minuteOfDay + i, value: Double(bpm))
+                    RingSeries.put(&day.heartRate, interval: 1, minute: r.minuteOfDay + i, value: Double(bpm))
                 }
-                if let mean = mean(r.hrv.filter { $0 > 0 }) { put(&day.hrv, interval: 5, minute: r.minuteOfDay, value: mean) }
-                if let mean = mean(r.stress.filter { $0 > 0 }) { put(&day.stress, interval: 5, minute: r.minuteOfDay, value: mean) }
+                if let mean = mean(r.hrv.filter { $0 > 0 }) { RingSeries.put(&day.hrv, interval: 5, minute: r.minuteOfDay, value: mean) }
+                if let mean = mean(r.stress.filter { $0 > 0 }) { RingSeries.put(&day.stress, interval: 5, minute: r.minuteOfDay, value: mean) }
                 if let t = r.temperatureC, plausibleTemperature.contains(t) {
-                    put(&day.temperature, interval: 5, minute: r.minuteOfDay, value: t)
+                    RingSeries.put(&day.temperature, interval: 5, minute: r.minuteOfDay, value: t)
                 }
                 let oxygen = r.spo2.filter { plausibleSpO2.contains($0) }
                 if !oxygen.isEmpty {
@@ -190,27 +190,4 @@ enum BandDayMapper {
         values.isEmpty ? nil : (Double(values.reduce(0, +)) / Double(values.count) * 10).rounded() / 10
     }
 
-    /// Sets one bucket of a day-long series, creating the series at `interval` minutes.
-    private static func put(_ series: inout RingSeries?, interval: Int, minute: Int, value: Double) {
-        let count = 1440 / interval
-        var s = series ?? RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
-        if s.intervalMinutes != interval || s.values.count != count {
-            s = RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
-        }
-        s.values[max(0, min(count - 1, minute / interval))] = value
-        series = s
-    }
-
-    private static func slots(from minutes: [Int: RingStepMinute]) -> [RingStepSlot] {
-        var bySlot: [Int: RingStepSlot] = [:]
-        for (minute, m) in minutes {
-            let slot = minute / 15
-            var s = bySlot[slot] ?? RingStepSlot(slot: slot, steps: 0, calories: 0, distanceMeters: 0)
-            s.steps += m.steps
-            s.calories += m.calories
-            s.distanceMeters += m.distanceMeters
-            bySlot[slot] = s
-        }
-        return bySlot.values.sorted { $0.slot < $1.slot }
-    }
 }

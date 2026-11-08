@@ -18,7 +18,28 @@ struct RingSceneView: View {
     /// the Devices tab.
     var animatesAnywhere = false
 
-    @State private var live: RingModel.Live?
+    var body: some View {
+        WearableSceneCanvas(spin: spin, entrance: entrance, pulsing: pulsing, flashToken: flashToken,
+                            animatesAnywhere: animatesAnywhere) {
+            RingModel.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance, spinSeconds: spinSeconds)
+        }
+    }
+}
+
+/// A wearable's stage drawn live: the turn, the entrance, the LEDs breathing through a measurement,
+/// the find flash. The turn costs a continuous render, so it runs only on the visible Devices tab
+/// unless `animatesAnywhere`.
+struct WearableSceneCanvas<Stage: WearableStage>: View {
+    var spin: Bool
+    var entrance: Bool
+    var pulsing: Bool
+    var flashToken: Int
+    /// Bump when a gesture lands (the X5's touch target lights up).
+    var touchToken = 0
+    var animatesAnywhere: Bool
+    let make: () -> Stage
+
+    @State private var live: Stage?
     /// Optional so previews and tests without the shell still render.
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.scenePhase) private var scenePhase
@@ -38,13 +59,13 @@ struct RingSceneView: View {
         }
         .onAppear {
             guard live == nil else { return }
-            let scene = RingModel.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance,
-                                       spinSeconds: spinSeconds)
+            let scene = make()
             if entrance { scene.playEntrance() }
             if pulsing { scene.setPulsing(true) }
             live = scene
         }
         .onChange(of: pulsing) { _, on in live?.setPulsing(on) }
         .onChange(of: flashToken) { _, _ in live?.flash() }
+        .onChange(of: touchToken) { _, _ in live?.touch() }
     }
 }

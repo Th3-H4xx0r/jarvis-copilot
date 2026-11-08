@@ -92,7 +92,7 @@ enum X5DayMapper {
         for (k, minutes) in hrSums {
             edit(k) { day in
                 for (minute, acc) in minutes {
-                    put(&day.heartRate, interval: 1, minute: minute, value: (acc.sum / Double(acc.count) * 10).rounded() / 10)
+                    RingSeries.put(&day.heartRate, interval: 1, minute: minute, value: (acc.sum / Double(acc.count) * 10).rounded() / 10)
                 }
             }
         }
@@ -107,8 +107,8 @@ enum X5DayMapper {
         for reading in batch.hrv {
             edit(key(reading.date)) { day in
                 let minute = minuteOfDay(reading.date)
-                if reading.hrv > 0 { put(&day.hrv, interval: 5, minute: minute, value: Double(reading.hrv)) }
-                if reading.stress > 0 { put(&day.stress, interval: 5, minute: minute, value: Double(reading.stress)) }
+                if reading.hrv > 0 { RingSeries.put(&day.hrv, interval: 5, minute: minute, value: Double(reading.hrv)) }
+                if reading.stress > 0 { RingSeries.put(&day.stress, interval: 5, minute: minute, value: Double(reading.stress)) }
                 if reading.systolic > 0, reading.diastolic > 0 {
                     day.mergeBloodPressure([RingBloodPressureReading(time: reading.date, systolic: reading.systolic,
                                                                      diastolic: reading.diastolic)])
@@ -118,7 +118,7 @@ enum X5DayMapper {
 
         for reading in batch.temperature {
             edit(key(reading.date)) { day in
-                put(&day.temperature, interval: 5, minute: minuteOfDay(reading.date), value: reading.value)
+                RingSeries.put(&day.temperature, interval: 5, minute: minuteOfDay(reading.date), value: reading.value)
             }
         }
 
@@ -144,7 +144,7 @@ enum X5DayMapper {
 
         // Slots follow the minutes, whichever sync each minute came in.
         for (k, day) in days where day.stepMinutes != nil {
-            days[k]?.stepSlots = slots(from: day.stepMinutes ?? [:])
+            days[k]?.stepSlots = RingStepMinute.slots(day.stepMinutes ?? [:])
         }
 
         let now = Date()
@@ -158,31 +158,6 @@ enum X5DayMapper {
     }
 
     // MARK: Helpers
-
-    /// Sets one bucket of a day-long series, creating the series at `interval` minutes.
-    private static func put(_ series: inout RingSeries?, interval: Int, minute: Int, value: Double) {
-        let count = 1440 / interval
-        var s = series ?? RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
-        if s.intervalMinutes != interval || s.values.count != count {
-            s = RingSeries(intervalMinutes: interval, values: [Double](repeating: 0, count: count))
-        }
-        let index = max(0, min(count - 1, minute / interval))
-        s.values[index] = value
-        series = s
-    }
-
-    private static func slots(from minutes: [Int: RingStepMinute]) -> [RingStepSlot] {
-        var bySlot: [Int: RingStepSlot] = [:]
-        for (minute, m) in minutes {
-            let slot = minute / 15
-            var s = bySlot[slot] ?? RingStepSlot(slot: slot, steps: 0, calories: 0, distanceMeters: 0)
-            s.steps += m.steps
-            s.calories += m.calories
-            s.distanceMeters += m.distanceMeters
-            bySlot[slot] = s
-        }
-        return bySlot.values.sorted { $0.slot < $1.slot }
-    }
 
     /// The ring's minute codes as the R12's stage numbering: 1 deep, 2 light, 3 REM, else awake.
     private static func stage(_ code: Int) -> Int {
