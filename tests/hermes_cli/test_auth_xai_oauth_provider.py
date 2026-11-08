@@ -1825,7 +1825,7 @@ def test_pool_manual_xai_entry_not_synced_from_singleton(tmp_path, monkeypatch):
         )
     )
     manual_entry = next(e for e in pool.entries() if e.source == "manual:xai_pkce")
-    synced = pool._sync_xai_oauth_entry_from_auth_store(manual_entry)
+    synced = pool._sync_token_singleton_entry(manual_entry)
     # Same object — no sync happened.
     assert synced is manual_entry
     assert synced.access_token == manual_at_old

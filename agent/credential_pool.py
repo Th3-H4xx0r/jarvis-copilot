@@ -14,14 +14,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from jarviscopilot_constants import OPENROUTER_BASE_URL
-from jarviscopilot_cli.config import get_env_value, load_env
+from jarviscopilot_cli.config import load_env
 import jarviscopilot_cli.auth as auth_mod
 from jarviscopilot_cli.auth import (
-    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
     DEFAULT_AGENT_KEY_MIN_TTL_SECONDS,
     PROVIDER_REGISTRY,
     _auth_store_lock,
-    _codex_access_token_is_expiring,
     _decode_jwt_claims,
     _load_auth_store,
     _load_provider_state,
@@ -386,6 +384,66 @@ def get_pool_strategy(provider: str) -> str:
 DEFAULT_MAX_CONCURRENT_PER_CREDENTIAL = 1
 
 
+def _with_status(entry: PooledCredential, status: Optional[str], **changes: Any) -> PooledCredential:
+    """Copy *entry* with ``last_status=status`` and every error field cleared."""
+    return replace(
+        entry,
+        last_status=status,
+        last_status_at=None,
+        last_error_code=None,
+        last_error_reason=None,
+        last_error_message=None,
+        last_error_reset_at=None,
+        **changes,
+    )
+
+
+@dataclass(frozen=True)
+class _TokenSingleton:
+    """An OAuth provider whose singleton lives in auth.json ``providers[<id>]["tokens"]``.
+
+    The ``jarviscopilot_cli.auth`` helpers are named, not bound, so they are
+    looked up at call time (tests monkeypatch them on the module).
+    """
+
+    source: str             # pool source of entries seeded from the singleton
+    label: str              # for log lines
+    refresh: str            # (access_token, refresh_token) -> {access_token, refresh_token, last_refresh}
+    is_terminal_error: str  # exc -> True when the refresh token is dead
+    is_expiring: str        # (access_token, skew_seconds) -> bool
+    refresh_skew: str       # skew-seconds constant
+
+
+_TOKEN_SINGLETONS: Dict[str, _TokenSingleton] = {
+    "openai-codex": _TokenSingleton(
+        source="device_code",
+        label="Codex",
+        refresh="refresh_codex_oauth_pure",
+        is_terminal_error="_is_terminal_codex_oauth_refresh_error",
+        is_expiring="_codex_access_token_is_expiring",
+        refresh_skew="CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS",
+    ),
+    "xai-oauth": _TokenSingleton(
+        source="loopback_pkce",
+        label="xAI OAuth",
+        refresh="refresh_xai_oauth_pure",
+        is_terminal_error="_is_terminal_xai_oauth_refresh_error",
+        is_expiring="_xai_access_token_is_expiring",
+        refresh_skew="XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS",
+    ),
+}
+
+# Nous auth.json state fields mirrored onto pool entries (access_token first).
+_NOUS_SYNCED_FIELDS = (
+    "access_token", "refresh_token", "expires_at", "agent_key",
+    "agent_key_expires_at", "inference_base_url",
+)
+_NOUS_EXTRA_STATE_KEYS = (
+    "obtained_at", "expires_in", "agent_key_id",
+    "agent_key_expires_in", "agent_key_reused", "agent_key_obtained_at",
+)
+
+
 class CredentialPool:
     def __init__(self, provider: str, entries: List[PooledCredential]):
         self.provider = provider
@@ -444,6 +502,19 @@ class CredentialPool:
         self._persist()
         return updated
 
+    def _commit(self, old: PooledCredential, new: PooledCredential) -> PooledCredential:
+        """Swap *old* for *new* and persist the pool."""
+        self._replace_entry(old, new)
+        self._persist()
+        return new
+
+    def _drop_singleton_entries(self, sources: Set[str], entry: PooledCredential) -> None:
+        """Remove every entry seeded from a dead singleton credential."""
+        self._entries = [item for item in self._entries if item.source not in sources]
+        if self._current_id == entry.id:
+            self._current_id = None
+        self._persist()
+
     def _sync_anthropic_entry_from_credentials_file(self, entry: PooledCredential) -> PooledCredential:
         """Sync a claude_code pool entry from ~/.claude/.credentials.json if tokens differ.
 
@@ -460,147 +531,61 @@ class CredentialPool:
             if not creds:
                 return entry
             file_refresh = creds.get("refreshToken", "")
-            file_access = creds.get("accessToken", "")
-            file_expires = creds.get("expiresAt", 0)
-            # If the credentials file has a different token pair, sync it
             if file_refresh and file_refresh != entry.refresh_token:
                 logger.debug("Pool entry %s: syncing tokens from credentials file (refresh token changed)", entry.id)
-                updated = replace(
+                return self._commit(entry, _with_status(
                     entry,
-                    access_token=file_access,
+                    None,
+                    access_token=creds.get("accessToken", ""),
                     refresh_token=file_refresh,
-                    expires_at_ms=file_expires,
-                    last_status=None,
-                    last_status_at=None,
-                    last_error_code=None,
-                )
-                self._replace_entry(entry, updated)
-                self._persist()
-                return updated
+                    expires_at_ms=creds.get("expiresAt", 0),
+                ))
         except Exception as exc:
             logger.debug("Failed to sync from credentials file: %s", exc)
         return entry
 
-    def _sync_codex_entry_from_auth_store(self, entry: PooledCredential) -> PooledCredential:
-        """Sync a Codex device_code pool entry from auth.json if tokens differ.
+    def _sync_token_singleton_entry(self, entry: PooledCredential) -> PooledCredential:
+        """Adopt newer Codex / xAI OAuth tokens that another process wrote to auth.json.
 
-        When a Codex OAuth access token expires (or the ChatGPT account hits
-        its 5h/weekly quota), the pool entry gets marked ``STATUS_EXHAUSTED``
-        with a ``last_error_reset_at`` that can be many hours in the future.
-        Meanwhile the user may run ``jarviscopilot model`` / ``jarviscopilot auth`` which
-        performs a fresh device-code login and writes new tokens to
-        ``auth.json`` under ``_auth_store_lock``.  Without this sync the pool
-        entry stays frozen until ``last_error_reset_at`` elapses — even
-        though fresh credentials are sitting on disk — and every request
-        fails with "no available entries (all exhausted or empty)".
+        Both providers use single-use refresh tokens. When another JarvisCopilot
+        process (or a fresh ``jarviscopilot model`` / ``jarviscopilot auth`` login)
+        rotates the pair, it writes ``providers[<id>]["tokens"]`` under
+        ``_auth_store_lock``. Without this sync our entry would replay a
+        consumed refresh token (``refresh_token_reused``) or stay frozen as
+        exhausted while fresh credentials sit on disk.
 
-        Mirrors the Nous/Anthropic resync paths above.  Only applies to
-        device_code-sourced entries; env/API-key-sourced entries have no
-        auth.json shadow to sync from.
+        Only entries seeded from the singleton are synced; manually added
+        entries are independent credentials.
         """
-        if self.provider != "openai-codex" or entry.source != "device_code":
+        spec = _TOKEN_SINGLETONS.get(self.provider)
+        if spec is None or entry.source != spec.source:
             return entry
         try:
             with _auth_store_lock():
-                auth_store = _load_auth_store()
-                state = _load_provider_state(auth_store, "openai-codex")
-            if not isinstance(state, dict):
-                return entry
-            tokens = state.get("tokens")
+                state = _load_provider_state(_load_auth_store(), self.provider)
+            tokens = state.get("tokens") if isinstance(state, dict) else None
             if not isinstance(tokens, dict):
                 return entry
             store_access = tokens.get("access_token", "")
             store_refresh = tokens.get("refresh_token", "")
-            # Adopt auth.json tokens when either side differs.  Codex refresh
-            # tokens are single-use too, so a fresh refresh_token from
-            # another process means our entry's pair is consumed/stale.
-            entry_access = entry.access_token or ""
-            entry_refresh = entry.refresh_token or ""
             if store_access and (
-                store_access != entry_access
-                or (store_refresh and store_refresh != entry_refresh)
+                store_access != (entry.access_token or "")
+                or (store_refresh and store_refresh != (entry.refresh_token or ""))
             ):
                 logger.debug(
-                    "Pool entry %s: syncing Codex tokens from auth.json "
+                    "Pool entry %s: syncing %s tokens from auth.json "
                     "(refreshed by another process)",
-                    entry.id,
+                    entry.id, spec.label,
                 )
-                field_updates: Dict[str, Any] = {
+                changes: Dict[str, Any] = {
                     "access_token": store_access,
                     "refresh_token": store_refresh or entry.refresh_token,
-                    "last_status": None,
-                    "last_status_at": None,
-                    "last_error_code": None,
-                    "last_error_reason": None,
-                    "last_error_message": None,
-                    "last_error_reset_at": None,
                 }
                 if state.get("last_refresh"):
-                    field_updates["last_refresh"] = state["last_refresh"]
-                updated = replace(entry, **field_updates)
-                self._replace_entry(entry, updated)
-                self._persist()
-                return updated
+                    changes["last_refresh"] = state["last_refresh"]
+                return self._commit(entry, _with_status(entry, None, **changes))
         except Exception as exc:
-            logger.debug("Failed to sync Codex entry from auth.json: %s", exc)
-        return entry
-
-    def _sync_xai_oauth_entry_from_auth_store(self, entry: PooledCredential) -> PooledCredential:
-        """Sync an xAI OAuth pool entry from auth.json if tokens differ.
-
-        xAI OAuth refresh tokens are single-use.  When another JarvisCopilot process
-        (or another profile sharing the same auth.json) refreshes the token,
-        it writes the new pair to ``providers["xai-oauth"]["tokens"]`` under
-        ``_auth_store_lock``.  Without this resync, our in-memory pool entry
-        keeps the consumed refresh_token and the next ``_refresh_entry`` call
-        would replay it and get a ``refresh_token_reused``-style 4xx.
-
-        Only applies to entries seeded from the singleton (``loopback_pkce``);
-        manually added entries (``manual:xai_pkce``) are independent
-        credentials with their own refresh-token lifecycle.
-        """
-        if self.provider != "xai-oauth" or entry.source != "loopback_pkce":
-            return entry
-        try:
-            with _auth_store_lock():
-                auth_store = _load_auth_store()
-                state = _load_provider_state(auth_store, "xai-oauth")
-            if not isinstance(state, dict):
-                return entry
-            tokens = state.get("tokens")
-            if not isinstance(tokens, dict):
-                return entry
-            store_access = tokens.get("access_token", "")
-            store_refresh = tokens.get("refresh_token", "")
-            entry_access = entry.access_token or ""
-            entry_refresh = entry.refresh_token or ""
-            if store_access and (
-                store_access != entry_access
-                or (store_refresh and store_refresh != entry_refresh)
-            ):
-                logger.debug(
-                    "Pool entry %s: syncing xAI OAuth tokens from auth.json "
-                    "(refreshed by another process)",
-                    entry.id,
-                )
-                field_updates: Dict[str, Any] = {
-                    "access_token": store_access,
-                    "refresh_token": store_refresh or entry.refresh_token,
-                    "last_status": None,
-                    "last_status_at": None,
-                    "last_error_code": None,
-                    "last_error_reason": None,
-                    "last_error_message": None,
-                    "last_error_reset_at": None,
-                }
-                if state.get("last_refresh"):
-                    field_updates["last_refresh"] = state["last_refresh"]
-                updated = replace(entry, **field_updates)
-                self._replace_entry(entry, updated)
-                self._persist()
-                return updated
-        except Exception as exc:
-            logger.debug("Failed to sync xAI OAuth entry from auth.json: %s", exc)
+            logger.debug("Failed to sync %s entry from auth.json: %s", spec.label, exc)
         return entry
 
     def _sync_nous_entry_from_auth_store(self, entry: PooledCredential) -> PooledCredential:
@@ -617,60 +602,22 @@ class CredentialPool:
             return entry
         try:
             with _auth_store_lock():
-                auth_store = _load_auth_store()
-                state = _load_provider_state(auth_store, "nous")
+                state = _load_provider_state(_load_auth_store(), "nous")
             if not state:
                 return entry
-            store_refresh = state.get("refresh_token", "")
-            store_access = state.get("access_token", "")
-            comparable_updates = {
-                "access_token": store_access,
-                "refresh_token": store_refresh,
-                "expires_at": state.get("expires_at"),
-                "agent_key": state.get("agent_key"),
-                "agent_key_expires_at": state.get("agent_key_expires_at"),
-                "inference_base_url": state.get("inference_base_url"),
-            }
-            should_sync = any(
+            comparable = {key: state.get(key) for key in _NOUS_SYNCED_FIELDS}
+            if any(
                 value not in (None, "") and getattr(entry, key, None) != value
-                for key, value in comparable_updates.items()
-            )
-            if should_sync:
-                logger.debug(
-                    "Pool entry %s: syncing Nous state from auth.json",
-                    entry.id,
-                )
-                field_updates: Dict[str, Any] = {
-                    "last_status": None,
-                    "last_status_at": None,
-                    "last_error_code": None,
-                    "last_error_reason": None,
-                    "last_error_message": None,
-                    "last_error_reset_at": None,
-                }
-                if store_access:
-                    field_updates["access_token"] = store_access
-                if store_refresh:
-                    field_updates["refresh_token"] = store_refresh
-                if state.get("expires_at"):
-                    field_updates["expires_at"] = state["expires_at"]
-                if state.get("agent_key"):
-                    field_updates["agent_key"] = state["agent_key"]
-                if state.get("agent_key_expires_at"):
-                    field_updates["agent_key_expires_at"] = state["agent_key_expires_at"]
-                if state.get("inference_base_url"):
-                    field_updates["inference_base_url"] = state["inference_base_url"]
+                for key, value in comparable.items()
+            ):
+                logger.debug("Pool entry %s: syncing Nous state from auth.json", entry.id)
+                changes = {key: value for key, value in comparable.items() if value}
                 extra_updates = dict(entry.extra)
-                for extra_key in ("obtained_at", "expires_in", "agent_key_id",
-                                  "agent_key_expires_in", "agent_key_reused",
-                                  "agent_key_obtained_at"):
+                for extra_key in _NOUS_EXTRA_STATE_KEYS:
                     val = state.get(extra_key)
                     if val is not None:
                         extra_updates[extra_key] = val
-                updated = replace(entry, extra=extra_updates, **field_updates)
-                self._replace_entry(entry, updated)
-                self._persist()
-                return updated
+                return self._commit(entry, _with_status(entry, None, extra=extra_updates, **changes))
         except Exception as exc:
             logger.debug("Failed to sync Nous entry from auth.json: %s", exc)
         return entry
@@ -697,71 +644,173 @@ class CredentialPool:
         whatever provider happened to refresh last, not whatever the
         user actually chose.
         """
-        # Only sync entries that were seeded *from* a singleton.  Manually
-        # added pool entries (source="manual:*") are independent credentials
-        # and must not write back to the singleton.
+        # Manually added pool entries (source="manual:*") are independent
+        # credentials and must not write back to the singleton.
         if entry.source not in {"device_code", "loopback_pkce"}:
+            return
+        if self.provider != "nous" and self.provider not in _TOKEN_SINGLETONS:
             return
         try:
             with _auth_store_lock():
                 auth_store = _load_auth_store()
+                state = _load_provider_state(auth_store, self.provider)
                 if self.provider == "nous":
-                    state = _load_provider_state(auth_store, "nous")
                     if state is None:
                         return
                     state["access_token"] = entry.access_token
-                    if entry.refresh_token:
-                        state["refresh_token"] = entry.refresh_token
-                    if entry.expires_at:
-                        state["expires_at"] = entry.expires_at
-                    if entry.agent_key:
-                        state["agent_key"] = entry.agent_key
-                    if entry.agent_key_expires_at:
-                        state["agent_key_expires_at"] = entry.agent_key_expires_at
-                    for extra_key in ("obtained_at", "expires_in", "agent_key_id",
-                                      "agent_key_expires_in", "agent_key_reused",
-                                      "agent_key_obtained_at"):
+                    for key in _NOUS_SYNCED_FIELDS[1:]:
+                        if getattr(entry, key):
+                            state[key] = getattr(entry, key)
+                    for extra_key in _NOUS_EXTRA_STATE_KEYS:
                         val = entry.extra.get(extra_key)
                         if val is not None:
                             state[extra_key] = val
-                    if entry.inference_base_url:
-                        state["inference_base_url"] = entry.inference_base_url
-                    _store_provider_state(auth_store, "nous", state, set_active=False)
-
-                elif self.provider == "openai-codex":
-                    state = _load_provider_state(auth_store, "openai-codex")
-                    if not isinstance(state, dict):
-                        return
-                    tokens = state.get("tokens")
-                    if not isinstance(tokens, dict):
-                        return
-                    tokens["access_token"] = entry.access_token
-                    if entry.refresh_token:
-                        tokens["refresh_token"] = entry.refresh_token
-                    if entry.last_refresh:
-                        state["last_refresh"] = entry.last_refresh
-                    _store_provider_state(auth_store, "openai-codex", state, set_active=False)
-
-                elif self.provider == "xai-oauth":
-                    state = _load_provider_state(auth_store, "xai-oauth")
-                    if not isinstance(state, dict):
-                        return
-                    tokens = state.get("tokens")
-                    if not isinstance(tokens, dict):
-                        return
-                    tokens["access_token"] = entry.access_token
-                    if entry.refresh_token:
-                        tokens["refresh_token"] = entry.refresh_token
-                    if entry.last_refresh:
-                        state["last_refresh"] = entry.last_refresh
-                    _store_provider_state(auth_store, "xai-oauth", state, set_active=False)
-
                 else:
-                    return
-
+                    tokens = state.get("tokens") if isinstance(state, dict) else None
+                    if not isinstance(tokens, dict):
+                        return
+                    tokens["access_token"] = entry.access_token
+                    if entry.refresh_token:
+                        tokens["refresh_token"] = entry.refresh_token
+                    if entry.last_refresh:
+                        state["last_refresh"] = entry.last_refresh
+                _store_provider_state(auth_store, self.provider, state, set_active=False)
                 _save_auth_store(auth_store)
         except Exception as exc:
             logger.debug("Failed to sync %s pool entry back to auth store: %s", self.provider, exc)
+
+    def _refresh_anthropic(self, entry: PooledCredential) -> PooledCredential:
+        """Refresh an Anthropic OAuth entry; mirror claude_code tokens to ~/.claude."""
+        from agent.anthropic_adapter import refresh_anthropic_oauth_pure
+
+        refreshed = refresh_anthropic_oauth_pure(
+            entry.refresh_token,
+            use_json=entry.source.endswith("hermes_pkce"),
+        )
+        # Keep ~/.claude/.credentials.json in sync so that the fallback path
+        # (resolve_anthropic_token) and other profiles see the latest tokens.
+        if entry.source == "claude_code":
+            try:
+                from agent.anthropic_adapter import _write_claude_code_credentials
+                _write_claude_code_credentials(
+                    refreshed["access_token"],
+                    refreshed["refresh_token"],
+                    refreshed["expires_at_ms"],
+                )
+            except Exception as wexc:
+                logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
+        return replace(
+            entry,
+            access_token=refreshed["access_token"],
+            refresh_token=refreshed["refresh_token"],
+            expires_at_ms=refreshed["expires_at_ms"],
+        )
+
+    def _clear_dead_token_singleton(self, entry: PooledCredential, exc: Exception, spec: "_TokenSingleton") -> None:
+        """Forget a terminally invalid Codex / xAI refresh token.
+
+        Clears it from auth.json (unless another process already rotated it)
+        so the next session does not re-seed the revoked credentials, then
+        drops every singleton-seeded entry from the pool.
+        """
+        logger.debug("%s refresh token is terminally invalid; clearing local token state", spec.label)
+        try:
+            with _auth_store_lock():
+                auth_store = _load_auth_store()
+                state = _load_provider_state(auth_store, self.provider) or {}
+                tokens = (state.get("tokens") or {}) if isinstance(state, dict) else None
+                if isinstance(tokens, dict):
+                    store_refresh = str(tokens.get("refresh_token") or "").strip()
+                    if not store_refresh or store_refresh == str(entry.refresh_token or "").strip():
+                        tokens.pop("access_token", None)
+                        tokens.pop("refresh_token", None)
+                        state["tokens"] = tokens
+                        state["last_auth_error"] = {
+                            "provider": self.provider,
+                            "code": getattr(exc, "code", "unknown"),
+                            "message": str(exc),
+                            "reason": "credential_pool_refresh_failure",
+                            "relogin_required": True,
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        _save_provider_state(auth_store, self.provider, state)
+                        _save_auth_store(auth_store)
+        except Exception as clear_exc:
+            logger.debug("Failed to clear terminal %s state: %s", spec.label, clear_exc)
+        self._drop_singleton_entries({spec.source}, entry)
+
+    def _clear_dead_nous_singleton(self, entry: PooledCredential, exc: Exception) -> None:
+        """Quarantine a terminally invalid Nous refresh token and drop its entries."""
+        logger.debug("Nous refresh token is terminally invalid; clearing local token state")
+        try:
+            with _auth_store_lock():
+                auth_store = _load_auth_store()
+                state = _load_provider_state(auth_store, "nous") or {
+                    "client_id": entry.client_id,
+                    "portal_base_url": entry.portal_base_url,
+                    "inference_base_url": entry.inference_base_url,
+                    "token_type": entry.token_type,
+                    "scope": entry.scope,
+                    "tls": entry.tls,
+                }
+                store_refresh = str(state.get("refresh_token") or "").strip()
+                if not store_refresh or store_refresh == str(entry.refresh_token or "").strip():
+                    auth_mod._quarantine_nous_oauth_state(
+                        state, exc, reason="credential_pool_refresh_failure",
+                    )
+                    auth_mod._quarantine_nous_pool_entries(
+                        auth_store, exc, reason="credential_pool_refresh_failure",
+                    )
+                    _save_provider_state(auth_store, "nous", state)
+                    _save_auth_store(auth_store)
+        except Exception as clear_exc:
+            logger.debug("Failed to clear terminal Nous OAuth state: %s", clear_exc)
+        self._drop_singleton_entries(
+            {auth_mod.NOUS_DEVICE_CODE_SOURCE, f"manual:{auth_mod.NOUS_DEVICE_CODE_SOURCE}"},
+            entry,
+        )
+
+    def _recover_failed_refresh(self, entry: PooledCredential, exc: Exception) -> Optional[PooledCredential]:
+        """After a refresh failure, adopt tokens another process rotated in, or
+        clear a terminally dead singleton. Returns the usable entry or None."""
+        if self.provider == "anthropic" and entry.source == "claude_code":
+            # The refresh token may have been consumed by another process;
+            # ~/.claude/.credentials.json may hold a newer pair.
+            synced = self._sync_anthropic_entry_from_credentials_file(entry)
+            if synced.refresh_token != entry.refresh_token:
+                logger.debug("Retrying refresh with synced token from credentials file")
+                try:
+                    return self._commit(synced, _with_status(self._refresh_anthropic(synced), STATUS_OK))
+                except Exception as retry_exc:
+                    logger.debug("Retry refresh also failed: %s", retry_exc)
+            elif not self._entry_needs_refresh(synced):
+                logger.debug("Credentials file has valid token, using without refresh")
+                return synced
+
+        # Codex / xAI / Nous: another process may have consumed the refresh
+        # token between our proactive sync and the HTTP call. Re-check
+        # auth.json and adopt the fresh tokens if they rotated.
+        spec = _TOKEN_SINGLETONS.get(self.provider)
+        if spec is not None:
+            synced = self._sync_token_singleton_entry(entry)
+            if synced.refresh_token != entry.refresh_token:
+                logger.debug("%s refresh failed but auth.json has newer tokens — adopting", spec.label)
+                return self._commit(synced, _with_status(synced, STATUS_OK))
+            if getattr(auth_mod, spec.is_terminal_error)(exc):
+                self._clear_dead_token_singleton(entry, exc, spec)
+                return None
+        elif self.provider == "nous":
+            synced = self._sync_nous_entry_from_auth_store(entry)
+            if synced.refresh_token != entry.refresh_token:
+                logger.debug("Nous refresh failed but auth.json has newer tokens — adopting")
+                updated = self._commit(synced, _with_status(synced, STATUS_OK))
+                self._sync_device_code_entry_to_auth_store(updated)
+                return updated
+            if auth_mod._is_terminal_nous_refresh_error(exc):
+                self._clear_dead_nous_singleton(entry, exc)
+                return None
+        self._mark_exhausted(entry, None)
+        return None
 
     def _refresh_entry(self, entry: PooledCredential, *, force: bool) -> Optional[PooledCredential]:
         if entry.auth_type != AUTH_TYPE_OAUTH or not entry.refresh_token:
@@ -769,64 +818,15 @@ class CredentialPool:
                 self._mark_exhausted(entry, None)
             return None
 
+        spec = _TOKEN_SINGLETONS.get(self.provider)
         try:
             if self.provider == "anthropic":
-                from agent.anthropic_adapter import refresh_anthropic_oauth_pure
-
-                refreshed = refresh_anthropic_oauth_pure(
-                    entry.refresh_token,
-                    use_json=entry.source.endswith("hermes_pkce"),
-                )
-                updated = replace(
-                    entry,
-                    access_token=refreshed["access_token"],
-                    refresh_token=refreshed["refresh_token"],
-                    expires_at_ms=refreshed["expires_at_ms"],
-                )
-                # Keep ~/.claude/.credentials.json in sync so that the
-                # fallback path (resolve_anthropic_token) and other profiles
-                # see the latest tokens.
-                if entry.source == "claude_code":
-                    try:
-                        from agent.anthropic_adapter import _write_claude_code_credentials
-                        _write_claude_code_credentials(
-                            refreshed["access_token"],
-                            refreshed["refresh_token"],
-                            refreshed["expires_at_ms"],
-                        )
-                    except Exception as wexc:
-                        logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
-            elif self.provider == "openai-codex":
+                updated = self._refresh_anthropic(entry)
+            elif spec is not None:
                 # Adopt fresher tokens from auth.json before spending the
-                # refresh_token — single-use tokens consumed by another JarvisCopilot
-                # process sharing the same auth.json singleton would otherwise
-                # trigger ``refresh_token_reused`` on the next POST.
-                synced = self._sync_codex_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
-                refreshed = auth_mod.refresh_codex_oauth_pure(
-                    entry.access_token,
-                    entry.refresh_token,
-                )
-                updated = replace(
-                    entry,
-                    access_token=refreshed["access_token"],
-                    refresh_token=refreshed["refresh_token"],
-                    last_refresh=refreshed.get("last_refresh"),
-                )
-            elif self.provider == "xai-oauth":
-                # Adopt fresher tokens from auth.json before spending the
-                # refresh_token — single-use tokens consumed by another
-                # process (or another profile sharing the singleton) would
-                # otherwise trigger ``refresh_token_reused`` on the next
-                # POST.  Only meaningful for singleton-seeded entries.
-                synced = self._sync_xai_oauth_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
-                refreshed = auth_mod.refresh_xai_oauth_pure(
-                    entry.access_token,
-                    entry.refresh_token,
-                )
+                # single-use refresh_token.
+                entry = self._sync_token_singleton_entry(entry)
+                refreshed = getattr(auth_mod, spec.refresh)(entry.access_token, entry.refresh_token)
                 updated = replace(
                     entry,
                     access_token=refreshed["access_token"],
@@ -834,9 +834,7 @@ class CredentialPool:
                     last_refresh=refreshed.get("last_refresh"),
                 )
             elif self.provider == "nous":
-                synced = self._sync_nous_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
+                entry = self._sync_nous_entry_from_auth_store(entry)
                 auth_mod.resolve_nous_runtime_credentials(
                     min_key_ttl_seconds=DEFAULT_AGENT_KEY_MIN_TTL_SECONDS,
                     inference_auth_mode=(
@@ -850,257 +848,9 @@ class CredentialPool:
                 return entry
         except Exception as exc:
             logger.debug("Credential refresh failed for %s/%s: %s", self.provider, entry.id, exc)
-            # For anthropic claude_code entries: the refresh token may have been
-            # consumed by another process. Check if ~/.claude/.credentials.json
-            # has a newer token pair and retry once.
-            if self.provider == "anthropic" and entry.source == "claude_code":
-                synced = self._sync_anthropic_entry_from_credentials_file(entry)
-                if synced.refresh_token != entry.refresh_token:
-                    logger.debug("Retrying refresh with synced token from credentials file")
-                    try:
-                        from agent.anthropic_adapter import refresh_anthropic_oauth_pure
-                        refreshed = refresh_anthropic_oauth_pure(
-                            synced.refresh_token,
-                            use_json=synced.source.endswith("hermes_pkce"),
-                        )
-                        updated = replace(
-                            synced,
-                            access_token=refreshed["access_token"],
-                            refresh_token=refreshed["refresh_token"],
-                            expires_at_ms=refreshed["expires_at_ms"],
-                            last_status=STATUS_OK,
-                            last_status_at=None,
-                            last_error_code=None,
-                        )
-                        self._replace_entry(synced, updated)
-                        self._persist()
-                        try:
-                            from agent.anthropic_adapter import _write_claude_code_credentials
-                            _write_claude_code_credentials(
-                                refreshed["access_token"],
-                                refreshed["refresh_token"],
-                                refreshed["expires_at_ms"],
-                            )
-                        except Exception as wexc:
-                            logger.debug("Failed to write refreshed token to credentials file (retry path): %s", wexc)
-                        return updated
-                    except Exception as retry_exc:
-                        logger.debug("Retry refresh also failed: %s", retry_exc)
-                elif not self._entry_needs_refresh(synced):
-                    # Credentials file had a valid (non-expired) token — use it directly
-                    logger.debug("Credentials file has valid token, using without refresh")
-                    return synced
-            # For xai-oauth: same race as nous — another process may have
-            # consumed the refresh token between our proactive sync and the
-            # HTTP call.  Re-check auth.json and adopt the fresh tokens if
-            # they have rotated since.  Only meaningful for singleton-seeded
-            # (loopback_pkce) entries; manual entries don't share state with
-            # the singleton.
-            if self.provider == "xai-oauth":
-                synced = self._sync_xai_oauth_entry_from_auth_store(entry)
-                if synced.refresh_token != entry.refresh_token:
-                    logger.debug(
-                        "xAI OAuth refresh failed but auth.json has newer tokens — adopting"
-                    )
-                    updated = replace(
-                        synced,
-                        last_status=STATUS_OK,
-                        last_status_at=None,
-                        last_error_code=None,
-                        last_error_reason=None,
-                        last_error_message=None,
-                        last_error_reset_at=None,
-                    )
-                    self._replace_entry(synced, updated)
-                    self._persist()
-                    return updated
-                # Terminal error: auth.json has no newer tokens — the stored
-                # refresh_token is dead.  Clear it from auth.json so the next
-                # session does not re-seed the same revoked credentials, and
-                # remove all singleton-seeded (loopback_pkce) entries from the
-                # in-memory pool.  Mirrors the Nous quarantine path above.
-                if auth_mod._is_terminal_xai_oauth_refresh_error(exc):
-                    logger.debug(
-                        "xAI OAuth refresh token is terminally invalid; clearing local token state"
-                    )
-                    try:
-                        with _auth_store_lock():
-                            auth_store = _load_auth_store()
-                            state = _load_provider_state(auth_store, "xai-oauth") or {}
-                            if isinstance(state, dict):
-                                tokens = state.get("tokens") or {}
-                                if isinstance(tokens, dict):
-                                    store_refresh = str(tokens.get("refresh_token") or "").strip()
-                                    entry_refresh = str(entry.refresh_token or "").strip()
-                                    if not store_refresh or store_refresh == entry_refresh:
-                                        tokens.pop("access_token", None)
-                                        tokens.pop("refresh_token", None)
-                                        state["tokens"] = tokens
-                                        state["last_auth_error"] = {
-                                            "provider": "xai-oauth",
-                                            "code": getattr(exc, "code", "unknown"),
-                                            "message": str(exc),
-                                            "reason": "credential_pool_refresh_failure",
-                                            "relogin_required": True,
-                                            "at": datetime.now(timezone.utc).isoformat(),
-                                        }
-                                        _save_provider_state(auth_store, "xai-oauth", state)
-                                        _save_auth_store(auth_store)
-                    except Exception as clear_exc:
-                        logger.debug(
-                            "Failed to clear terminal xAI OAuth state: %s", clear_exc
-                        )
-                    self._entries = [
-                        item for item in self._entries
-                        if item.source != "loopback_pkce"
-                    ]
-                    if self._current_id == entry.id:
-                        self._current_id = None
-                    self._persist()
-                    return None
-            # For openai-codex: same race as xAI/nous — another JarvisCopilot process
-            # may have consumed the refresh token between our proactive sync
-            # and the HTTP call.  Re-check auth.json and adopt the fresh tokens
-            # if they have rotated since.
-            if self.provider == "openai-codex":
-                synced = self._sync_codex_entry_from_auth_store(entry)
-                if synced.refresh_token != entry.refresh_token:
-                    logger.debug(
-                        "Codex OAuth refresh failed but auth.json has newer tokens — adopting"
-                    )
-                    updated = replace(
-                        synced,
-                        last_status=STATUS_OK,
-                        last_status_at=None,
-                        last_error_code=None,
-                        last_error_reason=None,
-                        last_error_message=None,
-                        last_error_reset_at=None,
-                    )
-                    self._replace_entry(synced, updated)
-                    self._persist()
-                    return updated
-                # Terminal error: auth.json has no newer tokens — the stored
-                # refresh_token is dead.  Clear it from auth.json so the next
-                # session does not re-seed the same revoked credentials, and
-                # remove all singleton-seeded (device_code) entries from the
-                # in-memory pool.  Mirrors the xAI and Nous quarantine paths.
-                if auth_mod._is_terminal_codex_oauth_refresh_error(exc):
-                    logger.debug(
-                        "Codex OAuth refresh token is terminally invalid; clearing local token state"
-                    )
-                    try:
-                        with _auth_store_lock():
-                            auth_store = _load_auth_store()
-                            state = _load_provider_state(auth_store, "openai-codex") or {}
-                            if isinstance(state, dict):
-                                tokens = state.get("tokens") or {}
-                                if isinstance(tokens, dict):
-                                    store_refresh = str(tokens.get("refresh_token") or "").strip()
-                                    entry_refresh = str(entry.refresh_token or "").strip()
-                                    if not store_refresh or store_refresh == entry_refresh:
-                                        tokens.pop("access_token", None)
-                                        tokens.pop("refresh_token", None)
-                                        state["tokens"] = tokens
-                                        state["last_auth_error"] = {
-                                            "provider": "openai-codex",
-                                            "code": getattr(exc, "code", "unknown"),
-                                            "message": str(exc),
-                                            "reason": "credential_pool_refresh_failure",
-                                            "relogin_required": True,
-                                            "at": datetime.now(timezone.utc).isoformat(),
-                                        }
-                                        _save_provider_state(auth_store, "openai-codex", state)
-                                        _save_auth_store(auth_store)
-                    except Exception as clear_exc:
-                        logger.debug(
-                            "Failed to clear terminal Codex OAuth state: %s", clear_exc
-                        )
-                    self._entries = [
-                        item for item in self._entries
-                        if item.source != "device_code"
-                    ]
-                    if self._current_id == entry.id:
-                        self._current_id = None
-                    self._persist()
-                    return None
-            # For nous: another process may have consumed the refresh token
-            # between our proactive sync and the HTTP call.  Re-sync from
-            # auth.json and adopt the fresh tokens if available.
-            if self.provider == "nous":
-                synced = self._sync_nous_entry_from_auth_store(entry)
-                if synced.refresh_token != entry.refresh_token:
-                    logger.debug("Nous refresh failed but auth.json has newer tokens — adopting")
-                    updated = replace(
-                        synced,
-                        last_status=STATUS_OK,
-                        last_status_at=None,
-                        last_error_code=None,
-                        last_error_reason=None,
-                        last_error_message=None,
-                        last_error_reset_at=None,
-                    )
-                    self._replace_entry(synced, updated)
-                    self._persist()
-                    self._sync_device_code_entry_to_auth_store(updated)
-                    return updated
-                if auth_mod._is_terminal_nous_refresh_error(exc):
-                    logger.debug("Nous refresh token is terminally invalid; clearing local token state")
-                    try:
-                        with _auth_store_lock():
-                            auth_store = _load_auth_store()
-                            state = _load_provider_state(auth_store, "nous") or {
-                                "client_id": entry.client_id,
-                                "portal_base_url": entry.portal_base_url,
-                                "inference_base_url": entry.inference_base_url,
-                                "token_type": entry.token_type,
-                                "scope": entry.scope,
-                                "tls": entry.tls,
-                            }
-                            store_refresh = str(state.get("refresh_token") or "").strip()
-                            entry_refresh = str(entry.refresh_token or "").strip()
-                            if not store_refresh or store_refresh == entry_refresh:
-                                auth_mod._quarantine_nous_oauth_state(
-                                    state,
-                                    exc,
-                                    reason="credential_pool_refresh_failure",
-                                )
-                                auth_mod._quarantine_nous_pool_entries(
-                                    auth_store,
-                                    exc,
-                                    reason="credential_pool_refresh_failure",
-                                )
-                                _save_provider_state(auth_store, "nous", state)
-                                _save_auth_store(auth_store)
-                    except Exception as clear_exc:
-                        logger.debug("Failed to clear terminal Nous OAuth state: %s", clear_exc)
+            return self._recover_failed_refresh(entry, exc)
 
-                    singleton_sources = {
-                        auth_mod.NOUS_DEVICE_CODE_SOURCE,
-                        f"manual:{auth_mod.NOUS_DEVICE_CODE_SOURCE}",
-                    }
-                    self._entries = [
-                        item for item in self._entries
-                        if item.source not in singleton_sources
-                    ]
-                    if self._current_id == entry.id:
-                        self._current_id = None
-                    self._persist()
-                    return None
-            self._mark_exhausted(entry, None)
-            return None
-
-        updated = replace(
-            updated,
-            last_status=STATUS_OK,
-            last_status_at=None,
-            last_error_code=None,
-            last_error_reason=None,
-            last_error_message=None,
-            last_error_reset_at=None,
-        )
-        self._replace_entry(entry, updated)
-        self._persist()
+        updated = self._commit(entry, _with_status(updated, STATUS_OK))
         # Sync refreshed tokens back to auth.json providers so that
         # _seed_from_singletons() on the next load_pool() sees fresh state
         # instead of re-seeding stale/consumed tokens.
@@ -1114,21 +864,13 @@ class CredentialPool:
             if entry.expires_at_ms is None:
                 return False
             return int(entry.expires_at_ms) <= int(time.time() * 1000) + 120_000
-        if self.provider == "openai-codex":
-            return _codex_access_token_is_expiring(
-                entry.access_token,
-                CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
+        spec = _TOKEN_SINGLETONS.get(self.provider)
+        if spec is not None:
+            return getattr(auth_mod, spec.is_expiring)(
+                entry.access_token, getattr(auth_mod, spec.refresh_skew),
             )
-        if self.provider == "xai-oauth":
-            return auth_mod._xai_access_token_is_expiring(
-                entry.access_token,
-                auth_mod.XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
-            )
-        if self.provider == "nous":
-            # Nous refresh/mint can require network access and should happen when
-            # runtime credentials are actually resolved, not merely when the pool
-            # is enumerated for listing, migration, or selection.
-            return False
+        # Nous refresh/mint can require network access and happens when
+        # runtime credentials are resolved, not when the pool is enumerated.
         return False
 
     def select(self) -> Optional[PooledCredential]:
@@ -1146,63 +888,28 @@ class CredentialPool:
         cleared_any = False
         available: List[PooledCredential] = []
         for entry in self._entries:
-            # For anthropic claude_code entries, sync from the credentials file
-            # before any status/refresh checks. This picks up tokens refreshed
-            # by other processes (Claude Code CLI, other JarvisCopilot profiles).
-            if (self.provider == "anthropic" and entry.source == "claude_code"
-                    and entry.last_status == STATUS_EXHAUSTED):
-                synced = self._sync_anthropic_entry_from_credentials_file(entry)
-                if synced is not entry:
-                    entry = synced
-                    cleared_any = True
-            # For nous entries, sync from auth.json before status checks.
-            # Another process may have successfully refreshed via
-            # resolve_nous_runtime_credentials(), making this entry's
-            # exhausted status stale.
-            if (self.provider == "nous"
-                    and entry.source == "device_code"
-                    and entry.last_status == STATUS_EXHAUSTED):
-                synced = self._sync_nous_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
-                    cleared_any = True
-            # For openai-codex entries, same pattern: the user may have
-            # re-authed via `jarviscopilot model` / `jarviscopilot auth` after a 429/401,
-            # leaving fresh tokens on disk while the pool entry is still
-            # frozen behind last_error_reset_at (can be hours in the
-            # future for ChatGPT weekly windows).
-            if (self.provider == "openai-codex"
-                    and entry.source == "device_code"
-                    and entry.last_status == STATUS_EXHAUSTED):
-                synced = self._sync_codex_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
-                    cleared_any = True
-            # For xai-oauth singleton-seeded entries, identical pattern:
-            # an entry frozen as exhausted may simply be holding stale
-            # tokens that another process (or a fresh `jarviscopilot model` ->
-            # xAI Grok OAuth login) has since rotated in auth.json.
-            if (self.provider == "xai-oauth"
-                    and entry.source == "loopback_pkce"
-                    and entry.last_status == STATUS_EXHAUSTED):
-                synced = self._sync_xai_oauth_entry_from_auth_store(entry)
-                if synced is not entry:
-                    entry = synced
-                    cleared_any = True
+            if entry.last_status == STATUS_EXHAUSTED:
+                # An exhausted entry may just hold stale tokens: another
+                # process (Claude Code CLI, another profile, a fresh
+                # `jarviscopilot model` / `jarviscopilot auth` login) may have
+                # rotated fresh ones onto disk while this entry sits behind
+                # last_error_reset_at (hours away for ChatGPT weekly windows).
+                # Each sync is a no-op for other providers / sources.
+                for sync in (
+                    self._sync_anthropic_entry_from_credentials_file,
+                    self._sync_nous_entry_from_auth_store,
+                    self._sync_token_singleton_entry,
+                ):
+                    synced = sync(entry)
+                    if synced is not entry:
+                        entry = synced
+                        cleared_any = True
             if entry.last_status == STATUS_EXHAUSTED:
                 exhausted_until = _exhausted_until(entry)
                 if exhausted_until is not None and now < exhausted_until:
                     continue
                 if clear_expired:
-                    cleared = replace(
-                        entry,
-                        last_status=STATUS_OK,
-                        last_status_at=None,
-                        last_error_code=None,
-                        last_error_reason=None,
-                        last_error_message=None,
-                        last_error_reset_at=None,
-                    )
+                    cleared = _with_status(entry, STATUS_OK)
                     self._replace_entry(entry, cleared)
                     entry = cleared
                     cleared_any = True
@@ -1337,17 +1044,7 @@ class CredentialPool:
         new_entries = []
         for entry in self._entries:
             if entry.last_status or entry.last_status_at or entry.last_error_code:
-                new_entries.append(
-                    replace(
-                        entry,
-                        last_status=None,
-                        last_status_at=None,
-                        last_error_code=None,
-                        last_error_reason=None,
-                        last_error_message=None,
-                        last_error_reset_at=None,
-                    )
-                )
+                new_entries.append(_with_status(entry, None))
                 count += 1
             else:
                 new_entries.append(entry)

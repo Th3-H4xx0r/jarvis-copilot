@@ -1723,7 +1723,7 @@ def test_sync_codex_entry_from_auth_store_adopts_newer_tokens(tmp_path, monkeypa
     # Simulate `jarviscopilot auth openai-codex` replacing the token pair on disk.
     _write_auth_store(tmp_path, _codex_auth_store("access-NEW", "refresh-NEW"))
 
-    synced = pool._sync_codex_entry_from_auth_store(entry)
+    synced = pool._sync_token_singleton_entry(entry)
     assert synced is not entry
     assert synced.access_token == "access-NEW"
     assert synced.refresh_token == "refresh-NEW"
@@ -1743,7 +1743,7 @@ def test_sync_codex_entry_noop_when_tokens_match(tmp_path, monkeypatch):
     entry = pool.select()
     assert entry is not None
 
-    synced = pool._sync_codex_entry_from_auth_store(entry)
+    synced = pool._sync_token_singleton_entry(entry)
     assert synced is entry
 
 
