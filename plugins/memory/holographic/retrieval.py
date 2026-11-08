@@ -152,22 +152,7 @@ class FactRetriever:
                 )
 
         # Score against individual fact vectors directly
-        where = "WHERE hrr_vector IS NOT NULL"
-        params: list = []
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-
-        rows = conn.execute(
-            f"""
-            SELECT fact_id, content, category, tags, trust_score,
-                   retrieval_count, helpful_count, created_at, updated_at,
-                   hrr_vector
-            FROM facts
-            {where}
-            """,
-            params,
-        ).fetchall()
+        rows = self._vector_rows(category)
 
         if not rows:
             # Final fallback: keyword search
@@ -206,28 +191,11 @@ class FactRetriever:
         if not hrr._HAS_NUMPY:
             return self.search(entity, category=category, limit=limit)
 
-        conn = self.store._conn
-
         # Encode entity as a bare atom (not role-bound — we want ANY structural match)
         entity_vec = hrr.encode_atom(entity.lower(), self.hrr_dim)
 
         # Get all facts with vectors
-        where = "WHERE hrr_vector IS NOT NULL"
-        params: list = []
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-
-        rows = conn.execute(
-            f"""
-            SELECT fact_id, content, category, tags, trust_score,
-                   retrieval_count, helpful_count, created_at, updated_at,
-                   hrr_vector
-            FROM facts
-            {where}
-            """,
-            params,
-        ).fetchall()
+        rows = self._vector_rows(category)
 
         if not rows:
             return self.search(entity, category=category, limit=limit)
@@ -279,7 +247,6 @@ class FactRetriever:
             query = " ".join(entities)
             return self.search(query, category=category, limit=limit)
 
-        conn = self.store._conn
         role_entity = hrr.encode_atom("__hrr_role_entity__", self.hrr_dim)
 
         # For each entity, compute what the bank "remembers" about it
@@ -291,22 +258,7 @@ class FactRetriever:
             entity_residuals.append(probe_key)
 
         # Get all facts with vectors
-        where = "WHERE hrr_vector IS NOT NULL"
-        params: list = []
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-
-        rows = conn.execute(
-            f"""
-            SELECT fact_id, content, category, tags, trust_score,
-                   retrieval_count, helpful_count, created_at, updated_at,
-                   hrr_vector
-            FROM facts
-            {where}
-            """,
-            params,
-        ).fetchall()
+        rows = self._vector_rows(category)
 
         if not rows:
             query = " ".join(entities)
@@ -441,22 +393,14 @@ class FactRetriever:
         contradictions.sort(key=lambda x: x["contradiction_score"], reverse=True)
         return contradictions[:limit]
 
-    def _score_facts_by_vector(
-        self,
-        target_vec: "np.ndarray",
-        category: str | None = None,
-        limit: int = 10,
-    ) -> list[dict]:
-        """Score facts by similarity to a target vector."""
-        conn = self.store._conn
-
+    def _vector_rows(self, category: str | None = None) -> list:
+        """Facts that carry an HRR vector, optionally limited to ``category``."""
         where = "WHERE hrr_vector IS NOT NULL"
         params: list = []
         if category:
             where += " AND category = ?"
             params.append(category)
-
-        rows = conn.execute(
+        return self.store._conn.execute(
             f"""
             SELECT fact_id, content, category, tags, trust_score,
                    retrieval_count, helpful_count, created_at, updated_at,
@@ -466,6 +410,15 @@ class FactRetriever:
             """,
             params,
         ).fetchall()
+
+    def _score_facts_by_vector(
+        self,
+        target_vec: "np.ndarray",
+        category: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Score facts by similarity to a target vector."""
+        rows = self._vector_rows(category)
 
         scored = []
         for row in rows:
