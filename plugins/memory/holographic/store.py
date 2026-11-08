@@ -188,57 +188,6 @@ class MemoryStore:
 
             return fact_id
 
-    def search_facts(
-        self,
-        query: str,
-        category: str | None = None,
-        min_trust: float = 0.3,
-        limit: int = 10,
-    ) -> list[dict]:
-        """Full-text search over facts using FTS5.
-
-        Returns a list of fact dicts ordered by FTS5 rank, then trust_score
-        descending. Also increments retrieval_count for matched facts.
-        """
-        with self._lock:
-            query = query.strip()
-            if not query:
-                return []
-
-            params: list = [query, min_trust]
-            category_clause = ""
-            if category is not None:
-                category_clause = "AND f.category = ?"
-                params.append(category)
-            params.append(limit)
-
-            sql = f"""
-                SELECT f.fact_id, f.content, f.category, f.tags,
-                       f.trust_score, f.retrieval_count, f.helpful_count,
-                       f.created_at, f.updated_at
-                FROM facts f
-                JOIN facts_fts fts ON fts.rowid = f.fact_id
-                WHERE facts_fts MATCH ?
-                  AND f.trust_score >= ?
-                  {category_clause}
-                ORDER BY fts.rank, f.trust_score DESC
-                LIMIT ?
-            """
-
-            rows = self._conn.execute(sql, params).fetchall()
-            results = [self._row_to_dict(r) for r in rows]
-
-            if results:
-                ids = [r["fact_id"] for r in results]
-                placeholders = ",".join("?" * len(ids))
-                self._conn.execute(
-                    f"UPDATE facts SET retrieval_count = retrieval_count + 1 WHERE fact_id IN ({placeholders})",
-                    ids,
-                )
-                self._conn.commit()
-
-            return results
-
     def update_fact(
         self,
         fact_id: int,
@@ -532,32 +481,6 @@ class MemoryStore:
                 (bank_name, hrr.phases_to_bytes(bank_vector), self.hrr_dim, fact_count),
             )
             self._conn.commit()
-
-    def rebuild_all_vectors(self, dim: int | None = None) -> int:
-        """Recompute all HRR vectors + banks from text. For recovery/migration.
-
-        Returns the number of facts processed.
-        """
-        with self._lock:
-            if not self._hrr_available:
-                return 0
-
-            if dim is not None:
-                self.hrr_dim = dim
-
-            rows = self._conn.execute(
-                "SELECT fact_id, content, category FROM facts"
-            ).fetchall()
-
-            categories: set[str] = set()
-            for row in rows:
-                self._compute_hrr_vector(row["fact_id"], row["content"])
-                categories.add(row["category"])
-
-            for category in categories:
-                self._rebuild_bank(category)
-
-            return len(rows)
 
     # ------------------------------------------------------------------
     # Utilities
