@@ -87,27 +87,45 @@ def _post(path, body=None):
             return {}, e.code
 
 
-@pytest.mark.xfail(reason="Pre-existing isolation issue: test_server fixture conflict (#sprint31)")
+def _isolated_profiles_root() -> pathlib.Path:
+    """The profiles root the test server writes to, refusing the real one.
+
+    The server runs with HERMES_HOME=<test state dir>, and jarviscopilot_cli puts
+    profiles under get_default_hermes_root(): the state dir itself when it lies
+    outside ~/.jarviscopilot, but the REAL ~/.jarviscopilot when the state dir is
+    nested inside it (the default when HERMES_HOME is unset). Creating profiles
+    there would write to, and clean up in, the user's real home, so skip.
+    """
+    from jarviscopilot_constants import get_default_hermes_root
+
+    state_dir = pathlib.Path(os.environ["HERMES_WEBUI_TEST_STATE_DIR"]).resolve()
+    saved = os.environ.get("HERMES_HOME")
+    os.environ["HERMES_HOME"] = str(state_dir)
+    try:
+        root = get_default_hermes_root().resolve()
+    finally:
+        if saved is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = saved
+    real = (pathlib.Path.home() / ".jarviscopilot").resolve()
+    if root == real or real in root.parents:
+        pytest.skip("test server's profile root is the real ~/.jarviscopilot; "
+                    "run with HERMES_HOME outside it")
+    return root / "profiles"
+
+
 class TestProfileCreateAPIWithEndpoint:
     _PROFILE_NAME = "test-ep-sprint31"
 
     def _cleanup(self):
-        """Remove the test profile from wherever jarviscopilot_cli placed it."""
-        home_hermes = pathlib.Path.home() / ".jarviscopilot"
-        # Walk all profile roots: real ~/.jarviscopilot, and any subdirs that might be HERMES_HOME
-        roots_to_check = set()
-        roots_to_check.add(home_hermes)
-        for root, dirs, _ in os.walk(str(home_hermes)):
-            if "profiles" in dirs:
-                roots_to_check.add(pathlib.Path(root))
-            if root.count(os.sep) - str(home_hermes).count(os.sep) > 4:
-                break  # don't recurse too deep
-        for search_root in roots_to_check:
-            candidate = search_root / "profiles" / self._PROFILE_NAME
-            if candidate.exists():
-                shutil.rmtree(candidate)
+        """Remove the test profile from the isolated profiles root only."""
+        candidate = self._profiles_root / self._PROFILE_NAME
+        if candidate.exists():
+            shutil.rmtree(candidate)
 
     def setup_method(self, _):
+        self._profiles_root = _isolated_profiles_root()
         self._cleanup()
 
     def teardown_method(self, _):
@@ -142,3 +160,20 @@ class TestProfileCreateAPIWithEndpoint:
             "base_url": "ftp://localhost:11434",
         })
         assert err == 400, f"Expected 400, got {err}: {data}"
+
+
+def test_profile_api_tests_refuse_a_state_dir_inside_the_real_home(tmp_path, monkeypatch):
+    """Nested in ~/.jarviscopilot, the server's profiles land in the real home, so
+    the API tests must skip rather than create and rmtree profiles there."""
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HERMES_WEBUI_TEST_STATE_DIR",
+                       str(tmp_path / ".jarviscopilot" / "webui-test-x"))
+    with pytest.raises(pytest.skip.Exception):
+        _isolated_profiles_root()
+
+
+def test_profile_api_tests_use_the_isolated_state_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path / "home")
+    state = tmp_path / "state"
+    monkeypatch.setenv("HERMES_WEBUI_TEST_STATE_DIR", str(state))
+    assert _isolated_profiles_root() == state.resolve() / "profiles"
