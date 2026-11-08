@@ -24,50 +24,51 @@ from tools.skills_hub import (
     create_source_router,
     unified_search,
     append_audit_log,
+    _parse_frontmatter,
     _skill_meta_to_dict,
     quarantine_bundle,
 )
 
 
 # ---------------------------------------------------------------------------
-# GitHubSource._parse_frontmatter_quick
+# _parse_frontmatter (hub, strict)
 # ---------------------------------------------------------------------------
 
 
 class TestParseFrontmatterQuick:
     def test_valid_frontmatter(self):
         content = "---\nname: test-skill\ndescription: A test.\n---\n\n# Body\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm["name"] == "test-skill"
         assert fm["description"] == "A test."
 
     def test_no_frontmatter(self):
         content = "# Just a heading\nSome body text.\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm == {}
 
     def test_no_closing_delimiter(self):
         content = "---\nname: test\ndescription: desc\nno closing here\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm == {}
 
     def test_empty_content(self):
-        fm = GitHubSource._parse_frontmatter_quick("")
+        fm = _parse_frontmatter("")
         assert fm == {}
 
     def test_nested_yaml(self):
         content = "---\nname: test\nmetadata:\n  jarviscopilot:\n    tags: [a, b]\n---\n\nBody.\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm["metadata"]["jarviscopilot"]["tags"] == ["a", "b"]
 
     def test_invalid_yaml_returns_empty(self):
         content = "---\n: : : invalid{{\n---\n\nBody.\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm == {}
 
     def test_non_dict_yaml_returns_empty(self):
         content = "---\n- just a list\n- of items\n---\n\nBody.\n"
-        fm = GitHubSource._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         assert fm == {}
 
 

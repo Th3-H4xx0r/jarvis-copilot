@@ -292,6 +292,44 @@ class GitHubAuth:
 # Source adapter interface
 # ---------------------------------------------------------------------------
 
+def _repo_trust_level(identifier: str) -> str:
+    """Trust for an ``owner/repo/path`` identifier: trusted iff the repo is."""
+    parts = identifier.split("/", 2)
+    if len(parts) >= 2 and f"{parts[0]}/{parts[1]}" in TRUSTED_REPOS:
+        return "trusted"
+    return "community"
+
+
+def _parse_frontmatter(content: str) -> dict:
+    """Parse YAML frontmatter from SKILL.md content.
+
+    Strict on purpose (hub content is untrusted): malformed or non-mapping
+    YAML yields ``{}`` rather than a best-effort key:value parse.
+    """
+    if not content.startswith("---"):
+        return {}
+    match = re.search(r'\n---\s*\n', content[3:])
+    if not match:
+        return {}
+    try:
+        parsed = yaml.safe_load(content[3:match.start() + 3])
+    except yaml.YAMLError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _frontmatter_tags(fm: dict) -> List[str]:
+    """Tags from ``metadata.jarviscopilot.tags``, or the pre-rebrand
+    ``metadata.hermes.tags`` that some skills still carry."""
+    metadata = fm.get("metadata")
+    if isinstance(metadata, dict):
+        for namespace in ("jarviscopilot", "hermes"):
+            block = metadata.get(namespace)
+            if isinstance(block, dict) and isinstance(block.get("tags"), list):
+                return [str(t) for t in block["tags"]]
+    return []
+
+
 class SkillSource(ABC):
     """Abstract base for all skill registry adapters."""
 
@@ -356,13 +394,7 @@ class GitHubSource(SkillSource):
         return self._rate_limited
 
     def trust_level_for(self, identifier: str) -> str:
-        # identifier format: "owner/repo/path/to/skill"
-        parts = identifier.split("/", 2)
-        if len(parts) >= 2:
-            repo = f"{parts[0]}/{parts[1]}"
-            if repo in TRUSTED_REPOS:
-                return "trusted"
-        return "community"
+        return _repo_trust_level(identifier)
 
     def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
         """Search all taps for skills matching the query."""
@@ -435,16 +467,11 @@ class GitHubSource(SkillSource):
         if not content:
             return None
 
-        fm = self._parse_frontmatter_quick(content)
+        fm = _parse_frontmatter(content)
         skill_name = fm.get("name", skill_path.split("/")[-1])
         description = fm.get("description", "")
 
-        tags = []
-        metadata = fm.get("metadata", {})
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {})
-            if isinstance(hermes_meta, dict):
-                tags = hermes_meta.get("tags", [])
+        tags = _frontmatter_tags(fm)
         if not tags:
             raw_tags = fm.get("tags", [])
             tags = raw_tags if isinstance(raw_tags, list) else []
@@ -465,7 +492,7 @@ class GitHubSource(SkillSource):
     def _list_skills_in_repo(self, repo: str, path: str) -> List[SkillMeta]:
         """List skill directories in a GitHub repo path, using cached index."""
         cache_key = f"{repo}_{path}".replace("/", "_").replace(" ", "_")
-        cached = self._read_cache(cache_key)
+        cached = _read_index_cache(cache_key)
         if cached is not None:
             return [SkillMeta(**s) for s in cached]
 
@@ -497,7 +524,7 @@ class GitHubSource(SkillSource):
                 skills.append(meta)
 
         # Cache the results
-        self._write_cache(cache_key, [self._meta_to_dict(s) for s in skills])
+        _write_index_cache(cache_key, [_skill_meta_to_dict(s) for s in skills])
         return skills
 
     # -- Repo tree cache (avoids redundant API calls) --
@@ -696,56 +723,6 @@ class GitHubSource(SkillSource):
             logger.debug("GitHub contents API fetch failed: %s", e)
         return None
 
-    def _read_cache(self, key: str) -> Optional[list]:
-        """Read cached index if not expired."""
-        cache_file = INDEX_CACHE_DIR / f"{key}.json"
-        if not cache_file.exists():
-            return None
-        try:
-            stat = cache_file.stat()
-            if time.time() - stat.st_mtime > INDEX_CACHE_TTL:
-                return None
-            return json.loads(cache_file.read_text())
-        except (OSError, json.JSONDecodeError):
-            return None
-
-    def _write_cache(self, key: str, data: list) -> None:
-        """Write index data to cache."""
-        INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file = INDEX_CACHE_DIR / f"{key}.json"
-        try:
-            cache_file.write_text(json.dumps(data, ensure_ascii=False))
-        except OSError as e:
-            logger.debug("Could not write cache: %s", e)
-
-    @staticmethod
-    def _meta_to_dict(meta: SkillMeta) -> dict:
-        return {
-            "name": meta.name,
-            "description": meta.description,
-            "source": meta.source,
-            "identifier": meta.identifier,
-            "trust_level": meta.trust_level,
-            "repo": meta.repo,
-            "path": meta.path,
-            "tags": meta.tags,
-        }
-
-    @staticmethod
-    def _parse_frontmatter_quick(content: str) -> dict:
-        """Parse YAML frontmatter from SKILL.md content."""
-        if not content.startswith("---"):
-            return {}
-        match = re.search(r'\n---\s*\n', content[3:])
-        if not match:
-            return {}
-        yaml_text = content[3:match.start() + 3]
-        try:
-            parsed = yaml.safe_load(yaml_text)
-            return parsed if isinstance(parsed, dict) else {}
-        except yaml.YAMLError:
-            return {}
-
 
 # ---------------------------------------------------------------------------
 # Well-known Agent Skills endpoint source adapter
@@ -758,9 +735,6 @@ class WellKnownSkillSource(SkillSource):
 
     def source_id(self) -> str:
         return "well-known"
-
-    def trust_level_for(self, identifier: str) -> str:
-        return "community"
 
     def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
         index_url = self._query_to_index_url(query)
@@ -806,7 +780,7 @@ class WellKnownSkillSource(SkillSource):
         if skill_md is None:
             return None
 
-        fm = GitHubSource._parse_frontmatter_quick(skill_md)
+        fm = _parse_frontmatter(skill_md)
         description = str(fm.get("description") or entry.get("description") or "")
         name = str(fm.get("name") or parsed["skill_name"])
         return SkillMeta(
@@ -994,9 +968,6 @@ class UrlSource(SkillSource):
     def source_id(self) -> str:
         return "url"
 
-    def trust_level_for(self, identifier: str) -> str:
-        return "community"
-
     # Search is meaningless for a direct URL — skip (return empty).
     def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
         return []
@@ -1031,17 +1002,10 @@ class UrlSource(SkillSource):
         text = self._fetch_text(url)
         if text is None:
             return None
-        fm = GitHubSource._parse_frontmatter_quick(text)
+        fm = _parse_frontmatter(text)
         name = self._resolve_skill_name(fm, url)
         description = str(fm.get("description") or "")
-        tags: List[str] = []
-        metadata = fm.get("metadata", {})
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {})
-            if isinstance(hermes_meta, dict):
-                raw_tags = hermes_meta.get("tags", [])
-                if isinstance(raw_tags, list):
-                    tags = [str(t) for t in raw_tags]
+        tags = _frontmatter_tags(fm)
         return SkillMeta(
             name=name or "",
             description=description,
@@ -1061,7 +1025,7 @@ class UrlSource(SkillSource):
         if text is None:
             return None
 
-        fm = GitHubSource._parse_frontmatter_quick(text)
+        fm = _parse_frontmatter(text)
         name = self._resolve_skill_name(fm, url)
 
         # When auto-resolution fails, return a bundle with an empty name and
@@ -1628,9 +1592,6 @@ class ClawHubSource(SkillSource):
     def source_id(self) -> str:
         return "clawhub"
 
-    def trust_level_for(self, identifier: str) -> str:
-        return "community"
-
     @staticmethod
     def _normalize_tags(tags: Any) -> List[str]:
         if isinstance(tags, list):
@@ -2118,12 +2079,7 @@ class ClaudeMarketplaceSource(SkillSource):
         return "claude-marketplace"
 
     def trust_level_for(self, identifier: str) -> str:
-        parts = identifier.split("/", 2)
-        if len(parts) >= 2:
-            repo = f"{parts[0]}/{parts[1]}"
-            if repo in TRUSTED_REPOS:
-                return "trusted"
-        return "community"
+        return _repo_trust_level(identifier)
 
     def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
         results: List[SkillMeta] = []
@@ -2209,9 +2165,6 @@ class LobeHubSource(SkillSource):
 
     def source_id(self) -> str:
         return "lobehub"
-
-    def trust_level_for(self, identifier: str) -> str:
-        return "community"
 
     def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
         index = self._fetch_index()
@@ -2376,9 +2329,6 @@ class BrowseShSource(SkillSource):
 
     def source_id(self) -> str:
         return "browse-sh"
-
-    def trust_level_for(self, identifier: str) -> str:
-        return "community"
 
     def _fetch_catalog(self) -> List[Dict]:
         cached = _read_index_cache(self._CACHE_KEY)
@@ -2662,15 +2612,10 @@ class OptionalSkillSource(SkillSource):
             except (OSError, UnicodeDecodeError):
                 continue
 
-            fm = self._parse_frontmatter(content)
+            fm = _parse_frontmatter(content)
             name = fm.get("name", parent.name)
             desc = fm.get("description", "")
-            tags = []
-            meta_block = fm.get("metadata", {})
-            if isinstance(meta_block, dict):
-                hermes_meta = meta_block.get("hermes", {})
-                if isinstance(hermes_meta, dict):
-                    tags = hermes_meta.get("tags", [])
+            tags = _frontmatter_tags(fm)
 
             rel_path = str(parent.relative_to(self._optional_dir))
 
@@ -2681,25 +2626,10 @@ class OptionalSkillSource(SkillSource):
                 identifier=f"official/{rel_path}",
                 trust_level="builtin",
                 path=rel_path,
-                tags=tags if isinstance(tags, list) else [],
+                tags=tags,
             ))
 
         return results
-
-    @staticmethod
-    def _parse_frontmatter(content: str) -> dict:
-        """Parse YAML frontmatter from SKILL.md content."""
-        if not content.startswith("---"):
-            return {}
-        match = re.search(r'\n---\s*\n', content[3:])
-        if not match:
-            return {}
-        yaml_text = content[3:match.start() + 3]
-        try:
-            parsed = yaml.safe_load(yaml_text)
-            return parsed if isinstance(parsed, dict) else {}
-        except yaml.YAMLError:
-            return {}
 
 
 # ---------------------------------------------------------------------------

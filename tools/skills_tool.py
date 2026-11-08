@@ -1314,11 +1314,12 @@ def skill_view(
                     )
 
         # Read tags/related_skills with backward compat:
-        # Check metadata.jarviscopilot.* first (agentskills.io convention), fall back to top-level
+        # Check metadata.jarviscopilot.* first (agentskills.io convention), then
+        # the pre-rebrand metadata.hermes.*, then top-level
         hermes_meta = {}
         metadata = frontmatter.get("metadata")
         if isinstance(metadata, dict):
-            hermes_meta = metadata.get("jarviscopilot") or metadata.get("jarviscopilot") or {}
+            hermes_meta = metadata.get("jarviscopilot") or metadata.get("hermes") or {}
 
         tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
         related_skills = _parse_tags(
