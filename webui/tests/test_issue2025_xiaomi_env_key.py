@@ -53,7 +53,7 @@ def test_xiaomi_api_key_env_var_detects_model_group(monkeypatch, tmp_path):
 
 
 def test_xiaomi_provider_settings_detects_env_key(monkeypatch, tmp_path):
-    monkeypatch.setattr(providers, "_get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr("api.profiles.get_active_hermes_home", lambda: tmp_path)
     monkeypatch.setenv("XIAOMI_API_KEY", "test-xiaomi-key")
 
     assert providers._PROVIDER_ENV_VAR["xiaomi"] == "XIAOMI_API_KEY"

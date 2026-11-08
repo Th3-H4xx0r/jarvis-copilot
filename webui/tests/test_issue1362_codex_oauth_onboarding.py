@@ -577,7 +577,7 @@ def test_anthropic_onboarding_setup_allows_linked_oauth_without_api_key(monkeypa
         "credential_pool": {"anthropic": [{"auth_type": "oauth", "source": "claude_code_linked"}]}
     }), encoding="utf-8")
     monkeypatch.setattr(onboarding, "_get_config_path", lambda: cfg_path)
-    monkeypatch.setattr(onboarding, "_get_active_hermes_home", lambda: home)
+    monkeypatch.setattr(onboarding, "get_active_hermes_home", lambda: home)
     monkeypatch.setattr(onboarding, "get_onboarding_status", lambda: {"ok": True})
     monkeypatch.setattr(onboarding, "reload_config", lambda: None)
 

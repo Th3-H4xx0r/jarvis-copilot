@@ -135,15 +135,15 @@ class TestApplyOnboardingKeySync(unittest.TestCase):
 
         mock_cfg = {"model": {"provider": "openai", "default": "gpt-4o"}}
 
-        with patch("api.onboarding._load_yaml_config", return_value=mock_cfg), \
-             patch("api.onboarding._save_yaml_config"), \
+        with patch("api.onboarding._load_yaml_config_file", return_value=mock_cfg), \
+             patch("api.onboarding._save_yaml_config_file"), \
              patch("api.onboarding._write_env_file"), \
              patch("api.onboarding.reload_config"), \
              patch("api.onboarding.get_onboarding_status", return_value={"completed": True}), \
              patch("api.onboarding._get_config_path", return_value=pathlib.Path("/tmp/fake.yaml")), \
              patch("api.onboarding._load_env_file", return_value={}), \
              patch("api.onboarding._provider_api_key_present", return_value=False), \
-             patch("api.onboarding._get_active_hermes_home", return_value=pathlib.Path("/tmp")):
+             patch("api.onboarding.get_active_hermes_home", return_value=pathlib.Path("/tmp")):
 
             mod.apply_onboarding_setup({
                 "provider": "openai",
@@ -163,15 +163,15 @@ class TestApplyOnboardingKeySync(unittest.TestCase):
 
         mock_cfg = {"model": {"provider": "openai", "default": "gpt-4o"}}
 
-        with patch("api.onboarding._load_yaml_config", return_value=mock_cfg), \
-             patch("api.onboarding._save_yaml_config"), \
+        with patch("api.onboarding._load_yaml_config_file", return_value=mock_cfg), \
+             patch("api.onboarding._save_yaml_config_file"), \
              patch("api.onboarding._write_env_file"), \
              patch("api.onboarding.reload_config"), \
              patch("api.onboarding.get_onboarding_status", return_value={"completed": True}), \
              patch("api.onboarding._get_config_path", return_value=pathlib.Path("/tmp/fake.yaml")), \
              patch("api.onboarding._load_env_file", return_value={"OPENAI_API_KEY": "sk-existing-key"}), \
              patch("api.onboarding._provider_api_key_present", return_value=True), \
-             patch("api.onboarding._get_active_hermes_home", return_value=pathlib.Path("/tmp")):
+             patch("api.onboarding.get_active_hermes_home", return_value=pathlib.Path("/tmp")):
 
             mod.apply_onboarding_setup({
                 "provider": "openai",
@@ -192,7 +192,7 @@ class TestApplyOnboardingSkipGuard(unittest.TestCase):
         write_env_mock = unittest.mock.MagicMock()
 
         with patch.dict(os.environ, {"HERMES_WEBUI_SKIP_ONBOARDING": "1"}, clear=False), \
-             patch("api.onboarding._save_yaml_config", save_yaml_mock), \
+             patch("api.onboarding._save_yaml_config_file", save_yaml_mock), \
              patch("api.onboarding._write_env_file", write_env_mock), \
              patch("api.onboarding.save_settings"), \
              patch("api.onboarding.get_onboarding_status", return_value={"completed": True}):
@@ -214,15 +214,15 @@ class TestApplyOnboardingSkipGuard(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != "HERMES_WEBUI_SKIP_ONBOARDING"}
 
         with patch.dict(os.environ, env, clear=True), \
-             patch("api.onboarding._load_yaml_config", return_value=mock_cfg), \
-             patch("api.onboarding._save_yaml_config", save_yaml_mock), \
+             patch("api.onboarding._load_yaml_config_file", return_value=mock_cfg), \
+             patch("api.onboarding._save_yaml_config_file", save_yaml_mock), \
              patch("api.onboarding._write_env_file"), \
              patch("api.onboarding.reload_config"), \
              patch("api.onboarding.get_onboarding_status", return_value={"completed": True}), \
              patch("api.onboarding._get_config_path", return_value=pathlib.Path("/tmp/fake.yaml")), \
              patch("api.onboarding._load_env_file", return_value={"OPENAI_API_KEY": "existing"}), \
              patch("api.onboarding._provider_api_key_present", return_value=True), \
-             patch("api.onboarding._get_active_hermes_home", return_value=pathlib.Path("/tmp")):
+             patch("api.onboarding.get_active_hermes_home", return_value=pathlib.Path("/tmp")):
             mod.apply_onboarding_setup({
                 "provider": "openai",
                 "model": "gpt-4o",

@@ -1189,7 +1189,7 @@ def test_account_usage_profile_fetches_can_overlap_for_different_homes(monkeypat
         events.append(("exit", str(home)))
         return None
 
-    monkeypatch.setattr(providers, "_get_hermes_home", fake_home)
+    monkeypatch.setattr("api.profiles.get_active_hermes_home", fake_home)
     monkeypatch.setattr(providers, "_agent_fetch_account_usage_for_home", fake_fetch)
 
     def worker():

@@ -99,7 +99,7 @@ class TestIssue1500EnvVarAlignment:
         # Redirect every write target to the tmp_path so we don't touch the real
         # ~/.jarviscopilot — pattern from webui-onboarding-provider-readiness skill.
         from api import onboarding as ob
-        monkeypatch.setattr(ob, "_get_active_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr(ob, "get_active_hermes_home", lambda: tmp_path)
         cfg_path = tmp_path / "config.yaml"
         monkeypatch.setattr(ob, "_get_config_path", lambda: cfg_path)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)

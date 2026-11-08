@@ -120,7 +120,7 @@ class TestStatusFromRuntimeUnsupportedProvider:
         with (
             mock.patch("api.onboarding._HERMES_FOUND", True),
             mock.patch("api.onboarding._load_env_file", return_value={}),
-            mock.patch("api.onboarding._get_active_hermes_home", return_value=pathlib.Path("/tmp")),
+            mock.patch("api.onboarding.get_active_hermes_home", return_value=pathlib.Path("/tmp")),
             mock.patch("api.onboarding._provider_api_key_present", return_value=api_key_present),
             mock.patch("api.onboarding._provider_oauth_authenticated", return_value=oauth_present),
         ):

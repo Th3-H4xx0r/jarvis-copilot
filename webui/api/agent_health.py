@@ -43,124 +43,58 @@ def _checked_at() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _state_age_s(runtime_status, state: str, now: datetime | None) -> float | None:
+    """Seconds since ``gateway_state.json`` reported ``state``; None when it reports
+    another state or has no usable ``updated_at``.
+
+    The timestamp is the ISO-8601 that gateway/status.py writes. A naive one
+    could mean anything across containers / hosts, so it is refused rather than
+    assumed UTC. Unparseable input is never fresh."""
+    if not isinstance(runtime_status, dict) or runtime_status.get("gateway_state") != state:
+        return None
+    raw_updated_at = runtime_status.get("updated_at")
+    if not isinstance(raw_updated_at, str) or not raw_updated_at:
+        return None
+    try:
+        updated_at = datetime.fromisoformat(raw_updated_at)
+    except (TypeError, ValueError):
+        return None
+    if updated_at.tzinfo is None:
+        return None
+    return ((now or datetime.now(timezone.utc)) - updated_at).total_seconds()
+
+
 def _runtime_status_is_fresh(
     runtime_status: dict[str, Any] | None,
     *,
     now: datetime | None = None,
     threshold_s: float = GATEWAY_FRESHNESS_THRESHOLD_S,
 ) -> bool:
-    """Return ``True`` when ``gateway_state.json`` looks freshly written.
+    """The gateway self-reported ``running`` within ``threshold_s``: the
+    cross-container liveness signal when ``get_running_pid()`` returns None only
+    because of PID-namespace isolation (#1879).
 
-    "Fresh" means the gateway self-reported ``running`` and the ``updated_at``
-    ISO-8601 timestamp is no older than ``threshold_s`` seconds. This is the
-    cross-container liveness signal used when ``get_running_pid()`` returns
-    ``None`` purely because of PID-namespace isolation (#1879).
-
-    Any unparseable input is treated as "not fresh" — a stale or missing
-    timestamp must never report alive.
-    """
-    if not isinstance(runtime_status, dict):
-        return False
-    if runtime_status.get("gateway_state") != "running":
-        return False
-
-    raw_updated_at = runtime_status.get("updated_at")
-    if not isinstance(raw_updated_at, str) or not raw_updated_at:
-        return False
-
-    # ``datetime.fromisoformat`` accepts the exact format gateway/status.py
-    # writes (``datetime.now(timezone.utc).isoformat()``). We deliberately
-    # don't pull in dateutil — keeping this stdlib-only matches the rest of
-    # this module.
-    try:
-        updated_at = datetime.fromisoformat(raw_updated_at)
-    except (TypeError, ValueError):
-        return False
-
-    if updated_at.tzinfo is None:
-        # A naive timestamp could mean anything across containers / hosts.
-        # Refuse to interpret it rather than assume UTC.
-        return False
-
-    reference = now if now is not None else datetime.now(timezone.utc)
-    age_s = (reference - updated_at).total_seconds()
-    if age_s < 0:
-        # Clock skew between containers can produce small negatives. A future
-        # timestamp is still a "fresh" signal — the gateway clearly wrote it
-        # very recently — so accept it. A wildly-future timestamp (> threshold
-        # in the future) is rejected to avoid trusting a broken clock.
-        return -age_s <= threshold_s
-    return age_s <= threshold_s
+    Clock skew between containers can make the age slightly negative; a future
+    timestamp within the threshold still counts, a wildly-future one does not."""
+    age_s = _state_age_s(runtime_status, "running", now)
+    return age_s is not None and abs(age_s) <= threshold_s
 
 
-def _runtime_status_is_stale_stopped(
+def _runtime_status_is_stale(
     runtime_status: dict[str, Any] | None,
+    state: str,
     *,
     now: datetime | None = None,
     threshold_s: float = GATEWAY_FRESHNESS_THRESHOLD_S,
 ) -> bool:
-    """Return ``True`` for an old clean-stop root gateway state.
+    """The gateway last reported ``state`` longer ago than ``threshold_s``.
 
-    A user may run only profile-scoped gateways while a root
-    ``gateway_state.json`` from an older, intentionally stopped gateway remains
-    on disk (#1944). Treat that stale stopped file like "no root gateway
-    configured" so the heartbeat banner does not keep warning about a service
-    the user is not running. Fresh stopped state still reports down.
-    """
-    if not isinstance(runtime_status, dict):
-        return False
-    if runtime_status.get("gateway_state") != "stopped":
-        return False
-
-    raw_updated_at = runtime_status.get("updated_at")
-    if not isinstance(raw_updated_at, str) or not raw_updated_at:
-        return False
-
-    try:
-        updated_at = datetime.fromisoformat(raw_updated_at)
-    except (TypeError, ValueError):
-        return False
-    if updated_at.tzinfo is None:
-        return False
-
-    reference = now if now is not None else datetime.now(timezone.utc)
-    age_s = (reference - updated_at).total_seconds()
-    return age_s > threshold_s
-
-
-def _runtime_status_is_stale_running(
-    runtime_status: dict[str, Any] | None,
-    *,
-    now: datetime | None = None,
-    threshold_s: float = GATEWAY_FRESHNESS_THRESHOLD_S,
-) -> bool:
-    """Return ``True`` when the gateway last self-reported running, but stale.
-
-    WebUI often runs in a separate container from the gateway. In that shape PID
-    checks can be impossible, and older gateway versions only update
-    ``gateway_state.json`` on lifecycle/platform changes. A stale ``running``
-    file therefore means "not enough information from WebUI" rather than
-    "gateway is down".
-    """
-    if not isinstance(runtime_status, dict):
-        return False
-    if runtime_status.get("gateway_state") != "running":
-        return False
-
-    raw_updated_at = runtime_status.get("updated_at")
-    if not isinstance(raw_updated_at, str) or not raw_updated_at:
-        return False
-
-    try:
-        updated_at = datetime.fromisoformat(raw_updated_at)
-    except (TypeError, ValueError):
-        return False
-    if updated_at.tzinfo is None:
-        return False
-
-    reference = now if now is not None else datetime.now(timezone.utc)
-    age_s = (reference - updated_at).total_seconds()
-    return age_s > threshold_s
+    A stale ``stopped`` root file is a gateway the user no longer runs, e.g.
+    only profile-scoped gateways (#1944). A stale ``running`` file is older
+    gateway builds that only write on lifecycle changes, read from another
+    container: not enough information, rather than "down"."""
+    age_s = _state_age_s(runtime_status, state, now)
+    return age_s is not None and age_s > threshold_s
 
 
 def _gateway_status_module():
@@ -281,27 +215,23 @@ def build_agent_health_payload() -> dict[str, Any]:
         probably not configured with a separate gateway process.
     """
     checked_at = _checked_at()
+
+    def payload(alive, state, reason=None, details=None):
+        out = {"state": state}
+        if reason:
+            out["reason"] = reason
+        return {"alive": alive, "checked_at": checked_at, "details": {**out, **(details or {})}}
+
     try:
         gateway_status = _gateway_status_module()
     except Exception as exc:
-        return {
-            "alive": None,
-            "checked_at": checked_at,
-            "details": {
-                "state": "unknown",
-                "reason": "gateway_status_unavailable",
-                "error": type(exc).__name__,
-            },
-        }
+        return payload(None, "unknown", "gateway_status_unavailable", {"error": type(exc).__name__})
 
     gateway_pid_path = _gateway_root_pid_path()
-
-    runtime_status = None
     try:
         runtime_status = _read_gateway_runtime_status(gateway_status, gateway_pid_path)
     except Exception:
         runtime_status = None
-
     try:
         running_pid = _gateway_running_pid(gateway_status, gateway_pid_path)
     except Exception:
@@ -309,70 +239,15 @@ def build_agent_health_payload() -> dict[str, Any]:
 
     safe_details = _runtime_detail_subset(runtime_status)
     if running_pid is not None:
-        return {
-            "alive": True,
-            "checked_at": checked_at,
-            "details": {
-                "state": "alive",
-                **safe_details,
-            },
-        }
-
-    # Cross-container fallback (#1879): when ``get_running_pid()`` cannot see
-    # the gateway because we're in a different PID namespace, a recent
-    # ``updated_at`` on ``gateway_state.json`` is a reliable equivalent signal
-    # since the gateway writes it on every tick. We only trust this fallback
-    # when the gateway also self-reports ``gateway_state == "running"`` so
-    # crash-without-cleanup scenarios still surface as "down".
+        return payload(True, "alive", None, safe_details)
+    # Cross-container fallback (#1879), trusted only when the gateway itself says
+    # "running", so a crash without cleanup still surfaces as down.
     if _runtime_status_is_fresh(runtime_status):
-        return {
-            "alive": True,
-            "checked_at": checked_at,
-            "details": {
-                "state": "alive",
-                "reason": "cross_container_freshness",
-                **safe_details,
-            },
-        }
-
-    if _runtime_status_is_stale_stopped(runtime_status):
-        return {
-            "alive": None,
-            "checked_at": checked_at,
-            "details": {
-                "state": "unknown",
-                "reason": "gateway_stale_stopped_state",
-                **safe_details,
-            },
-        }
-
-    if _runtime_status_is_stale_running(runtime_status):
-        return {
-            "alive": None,
-            "checked_at": checked_at,
-            "details": {
-                "state": "unknown",
-                "reason": "gateway_stale_running_state",
-                **safe_details,
-            },
-        }
-
+        return payload(True, "alive", "cross_container_freshness", safe_details)
+    if _runtime_status_is_stale(runtime_status, "stopped"):
+        return payload(None, "unknown", "gateway_stale_stopped_state", safe_details)
+    if _runtime_status_is_stale(runtime_status, "running"):
+        return payload(None, "unknown", "gateway_stale_running_state", safe_details)
     if isinstance(runtime_status, dict):
-        return {
-            "alive": False,
-            "checked_at": checked_at,
-            "details": {
-                "state": "down",
-                "reason": "gateway_not_running",
-                **safe_details,
-            },
-        }
-
-    return {
-        "alive": None,
-        "checked_at": checked_at,
-        "details": {
-            "state": "unknown",
-            "reason": "gateway_not_configured",
-        },
-    }
+        return payload(False, "down", "gateway_not_running", safe_details)
+    return payload(None, "unknown", "gateway_not_configured")

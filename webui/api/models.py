@@ -116,6 +116,20 @@ def _write_session_index(updates=None):
     """
     _tmp = SESSION_INDEX_FILE.with_suffix(f'.tmp.{os.getpid()}.{threading.current_thread().ident}')
 
+    def _publish(payload: str) -> None:
+        try:
+            with open(_tmp, 'w', encoding='utf-8') as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(_tmp, SESSION_INDEX_FILE)
+        except Exception:
+            try:  # don't leave a stale tmp behind
+                _tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
+
     with _INDEX_WRITE_LOCK:
         # Lazy full-rebuild path — used when index doesn't exist yet.
         if updates is None or not SESSION_INDEX_FILE.exists():
@@ -139,19 +153,7 @@ def _write_session_index(updates=None):
                 entries.sort(key=lambda s: s.get('updated_at', 0), reverse=True)
                 _payload = json.dumps(entries, ensure_ascii=False, indent=2)
 
-            try:
-                with open(_tmp, 'w', encoding='utf-8') as f:
-                    f.write(_payload)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(_tmp, SESSION_INDEX_FILE)
-            except Exception:
-                # Best-effort cleanup of stale tmp on failure
-                try:
-                    _tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                raise
+            _publish(_payload)
             return
 
         # Fast path: patch existing index with updated sessions.
@@ -190,18 +192,7 @@ def _write_session_index(updates=None):
                 existing.sort(key=lambda s: s.get('updated_at', 0), reverse=True)
                 _payload = json.dumps(existing, ensure_ascii=False, indent=2)
 
-            try:
-                with open(_tmp, 'w', encoding='utf-8') as f:
-                    f.write(_payload)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(_tmp, SESSION_INDEX_FILE)
-            except Exception:
-                try:
-                    _tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                raise
+            _publish(_payload)
         except Exception:
             _fallback = True
 

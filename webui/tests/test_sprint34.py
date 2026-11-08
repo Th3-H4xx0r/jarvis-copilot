@@ -130,9 +130,9 @@ class TestStatusFromRuntimeOAuth:
     def _call(self, provider: str, model: str, hermes_home: pathlib.Path) -> dict:
         from api.onboarding import _status_from_runtime
         import api.onboarding as _ob
-        orig_home = _ob._get_active_hermes_home
+        orig_home = _ob.get_active_hermes_home
         orig_found = _ob._HERMES_FOUND
-        _ob._get_active_hermes_home = lambda: hermes_home
+        _ob.get_active_hermes_home = lambda: hermes_home
         # Simulate jarviscopilot being available so we reach the provider logic
         # (without this, _status_from_runtime short-circuits to agent_unavailable)
         _ob._HERMES_FOUND = True
@@ -140,7 +140,7 @@ class TestStatusFromRuntimeOAuth:
             cfg = {"model": {"provider": provider, "default": model}}
             return _status_from_runtime(cfg, True)
         finally:
-            _ob._get_active_hermes_home = orig_home
+            _ob.get_active_hermes_home = orig_home
             _ob._HERMES_FOUND = orig_found
 
     def test_copilot_ready_when_api_key_in_auth_json(self, tmp_path):
@@ -277,7 +277,7 @@ class TestApplyOnboardingSetupUnsupportedProvider:
         from api.onboarding import apply_onboarding_setup
 
         with tempfile.TemporaryDirectory() as tmp:
-            with unittest.mock.patch("api.onboarding._get_active_hermes_home",
+            with unittest.mock.patch("api.onboarding.get_active_hermes_home",
                                      return_value=pathlib.Path(tmp)), \
                  unittest.mock.patch("api.onboarding._get_config_path",
                                      return_value=pathlib.Path(tmp) / "config.yaml"), \

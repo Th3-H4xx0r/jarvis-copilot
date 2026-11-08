@@ -206,20 +206,20 @@ class TestApplyBaseURL:
         env_path = str(tmp_path / ".env")
 
         monkeypatch.setattr("api.onboarding._get_config_path", lambda: config_path)
-        monkeypatch.setattr("api.onboarding._get_active_hermes_home", lambda: tmp_path)
-        monkeypatch.setattr("api.onboarding._load_yaml_config", lambda p: {})
+        monkeypatch.setattr("api.onboarding.get_active_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr("api.onboarding._load_yaml_config_file", lambda p: {})
         monkeypatch.setattr(
             "api.onboarding._normalize_model_for_provider", lambda prov, m: m
         )
         monkeypatch.setattr("api.onboarding._write_env_file", lambda p, d: None)
-        monkeypatch.setattr("api.onboarding._save_yaml_config", lambda p, c: None)
+        monkeypatch.setattr("api.onboarding._save_yaml_config_file", lambda p, c: None)
         monkeypatch.setattr("api.onboarding._provider_api_key_present", lambda *a: True)
         monkeypatch.setattr("api.onboarding.reload_config", lambda: None)
 
         saved_cfg = {}
         def mock_save(p, cfg):
             saved_cfg.update(cfg)
-        monkeypatch.setattr("api.onboarding._save_yaml_config", mock_save)
+        monkeypatch.setattr("api.onboarding._save_yaml_config_file", mock_save)
 
         apply_onboarding_setup({
             "provider": "ollama",
@@ -236,8 +236,8 @@ class TestApplyBaseURL:
         config_path = str(tmp_path / "config.yaml")
 
         monkeypatch.setattr("api.onboarding._get_config_path", lambda: config_path)
-        monkeypatch.setattr("api.onboarding._get_active_hermes_home", lambda: tmp_path)
-        monkeypatch.setattr("api.onboarding._load_yaml_config", lambda p: {})
+        monkeypatch.setattr("api.onboarding.get_active_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr("api.onboarding._load_yaml_config_file", lambda p: {})
         monkeypatch.setattr(
             "api.onboarding._normalize_model_for_provider", lambda prov, m: m
         )
@@ -248,7 +248,7 @@ class TestApplyBaseURL:
         saved_cfg = {}
         def mock_save(p, cfg):
             saved_cfg.update(cfg)
-        monkeypatch.setattr("api.onboarding._save_yaml_config", mock_save)
+        monkeypatch.setattr("api.onboarding._save_yaml_config_file", mock_save)
 
         apply_onboarding_setup({
             "provider": "openai",
@@ -264,8 +264,8 @@ class TestApplyBaseURL:
         config_path = str(tmp_path / "config.yaml")
 
         monkeypatch.setattr("api.onboarding._get_config_path", lambda: config_path)
-        monkeypatch.setattr("api.onboarding._get_active_hermes_home", lambda: tmp_path)
-        monkeypatch.setattr("api.onboarding._load_yaml_config", lambda p: {})
+        monkeypatch.setattr("api.onboarding.get_active_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr("api.onboarding._load_yaml_config_file", lambda p: {})
         monkeypatch.setattr(
             "api.onboarding._normalize_model_for_provider", lambda prov, m: m
         )
@@ -276,7 +276,7 @@ class TestApplyBaseURL:
         saved_cfg = {}
         def mock_save(p, cfg):
             saved_cfg.update(cfg)
-        monkeypatch.setattr("api.onboarding._save_yaml_config", mock_save)
+        monkeypatch.setattr("api.onboarding._save_yaml_config_file", mock_save)
 
         apply_onboarding_setup({
             "provider": "anthropic",
@@ -335,8 +335,8 @@ class TestApplyBaseURLSpecialized:
         model = self._PROVIDER_DEFAULT_MODELS.get(provider, "test-model")
 
         monkeypatch.setattr("api.onboarding._get_config_path", lambda: config_path)
-        monkeypatch.setattr("api.onboarding._get_active_hermes_home", lambda: tmp_path)
-        monkeypatch.setattr("api.onboarding._load_yaml_config", lambda p: {})
+        monkeypatch.setattr("api.onboarding.get_active_hermes_home", lambda: tmp_path)
+        monkeypatch.setattr("api.onboarding._load_yaml_config_file", lambda p: {})
         monkeypatch.setattr("api.onboarding._normalize_model_for_provider", lambda prov, m: m)
         monkeypatch.setattr("api.onboarding._write_env_file", lambda p, d: None)
         monkeypatch.setattr("api.onboarding._provider_api_key_present", lambda *a: True)
@@ -345,7 +345,7 @@ class TestApplyBaseURLSpecialized:
         saved_cfg = {}
         def mock_save(p, cfg):
             saved_cfg.update(cfg)
-        monkeypatch.setattr("api.onboarding._save_yaml_config", mock_save)
+        monkeypatch.setattr("api.onboarding._save_yaml_config_file", mock_save)
 
         from api.onboarding import apply_onboarding_setup
         apply_onboarding_setup({"provider": provider, "model": model, "api_key": "test-key", "confirm_overwrite": True})

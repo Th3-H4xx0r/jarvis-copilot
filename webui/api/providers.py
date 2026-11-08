@@ -30,6 +30,9 @@ try:  # POSIX-only; Windows-style environments fall back to process-local lockin
 except ImportError:  # pragma: no cover - exercised only where fcntl is unavailable
     fcntl = None  # type: ignore[assignment]
 
+# Called as profiles.get_active_hermes_home(): looked up per call, so a test or a
+# profile switch that rebinds it is seen here too.
+from api import profiles
 from api.config import (
     _PROVIDER_DISPLAY,
     _PROVIDER_MODELS,
@@ -734,15 +737,6 @@ _OAUTH_PROVIDERS = frozenset({
 # SECTION: Helper functions
 
 
-def _get_hermes_home() -> Path:
-    """Return the active JarvisCopilot home directory."""
-    try:
-        from api.profiles import get_active_hermes_home
-        return get_active_hermes_home()
-    except ImportError:
-        return Path.home() / ".jarviscopilot"
-
-
 def _load_env_file(env_path: Path) -> dict[str, str]:
     """Read key=value pairs from a .env file."""
     values: dict[str, str] = {}
@@ -814,7 +808,7 @@ def _provider_has_shadowed_codex_oauth_value(provider_id: str) -> bool:
     values: list[object] = []
     env_var = _PROVIDER_ENV_VAR.get(provider_id)
     if env_var:
-        env_path = _get_hermes_home() / ".env"
+        env_path = profiles.get_active_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
         values.append(env_values.get(env_var))
         values.append(os.getenv(env_var))
@@ -955,7 +949,7 @@ def _provider_has_key(provider_id: str) -> bool:
     """
     env_var = _PROVIDER_ENV_VAR.get(provider_id)
     if env_var:
-        env_path = _get_hermes_home() / ".env"
+        env_path = profiles.get_active_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
         env_file_value = env_values.get(env_var)
         if _provider_value_counts_as_api_key(provider_id, env_file_value):
@@ -1005,7 +999,7 @@ def _get_provider_api_key(provider_id: str) -> str | None:
     provider_id = (provider_id or "").strip().lower()
     env_var = _PROVIDER_ENV_VAR.get(provider_id)
     if env_var:
-        env_path = _get_hermes_home() / ".env"
+        env_path = profiles.get_active_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
         env_file_value = env_values.get(env_var)
         if _provider_value_counts_as_api_key(provider_id, env_file_value):
@@ -1073,6 +1067,20 @@ def _quota_number(value: Any) -> int | float | None:
         return int(number) if number.is_integer() else number
     except (TypeError, ValueError):
         return None
+
+
+def _fetch_openrouter_key(api_key: str) -> Any:
+    """The JSON of OpenRouter's ``/auth/key`` for this key (usage, limit, label)."""
+    req = urllib.request.Request(
+        _OPENROUTER_KEY_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=_PROVIDER_QUOTA_TIMEOUT_SECONDS) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
 
 
 def _sanitize_openrouter_quota(payload: Any) -> dict[str, int | float | None]:
@@ -1323,7 +1331,7 @@ def _fetch_account_usage_with_profile_context(provider: str, *, refresh: bool = 
     A warm worker-pool (reuse of persistent subprocess handles) is a natural
     follow-up if this first slice proves insufficient in production.
     """
-    home = _get_hermes_home()
+    home = profiles.get_active_hermes_home()
     api_key = _get_provider_api_key(provider)
     cache_key = _account_usage_cache_key(provider, home, api_key)
     if not refresh:
@@ -1429,18 +1437,8 @@ def get_provider_quota(provider_id: str | None = None, *, refresh: bool = False)
             "message": "OpenRouter quota status needs an OPENROUTER_API_KEY configured on the server.",
         }
 
-    req = urllib.request.Request(
-        _OPENROUTER_KEY_URL,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=_PROVIDER_QUOTA_TIMEOUT_SECONDS) as resp:
-            raw = resp.read()
-        payload = json.loads(raw.decode("utf-8")) if isinstance(raw, (bytes, bytearray)) else json.loads(raw)
-        quota = _sanitize_openrouter_quota(payload)
+        quota = _sanitize_openrouter_quota(_fetch_openrouter_key(api_key))
         return {
             "ok": True,
             "provider": "openrouter",
@@ -1659,7 +1657,7 @@ def _cost_snapshots_dir() -> Path:
     Uses the JarvisCopilot home directory (profile-aware) so snapshots are
     isolated per profile, matching the existing STATE_DIR convention.
     """
-    return _get_hermes_home() / _COST_SNAPSHOTS_DIR_NAME
+    return profiles.get_active_hermes_home() / _COST_SNAPSHOTS_DIR_NAME
 
 
 @contextmanager
@@ -1684,17 +1682,8 @@ def _fetch_openrouter_key_usage(api_key: str) -> dict[str, Any] | None:
     Returns a dict with ``usage``, ``limit``, ``label`` on success, or
     ``None`` on any failure.  Never raises; callers handle the None case.
     """
-    req = urllib.request.Request(
-        _OPENROUTER_KEY_URL,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=_PROVIDER_QUOTA_TIMEOUT_SECONDS) as resp:
-            raw = resp.read()
-        payload = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
+        payload = _fetch_openrouter_key(api_key)
         sanitized = _sanitize_openrouter_quota(payload)
         label = None
         if isinstance(payload, dict):
@@ -1991,7 +1980,7 @@ def get_providers() -> dict[str, Any]:
         elif has_key:
             env_var = _PROVIDER_ENV_VAR.get(pid)
             if env_var:
-                env_path = _get_hermes_home() / ".env"
+                env_path = profiles.get_active_hermes_home() / ".env"
                 env_values = _load_env_file(env_path)
                 if _provider_value_counts_as_api_key(pid, env_values.get(env_var)):
                     key_source = "env_file"
@@ -2226,7 +2215,7 @@ def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
         if len(api_key) < 8:
             return {"ok": False, "error": "API key appears too short."}
 
-    env_path = _get_hermes_home() / ".env"
+    env_path = profiles.get_active_hermes_home() / ".env"
     try:
         _write_env_file(env_path, {env_var: api_key})
     except ValueError as exc:

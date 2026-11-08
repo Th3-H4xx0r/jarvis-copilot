@@ -70,7 +70,7 @@ def test_set_writes_env(monkeypatch, tmp_path):
                 os.environ[k] = v
 
     monkeypatch.setattr("api.providers._write_env_file", fake_write)
-    monkeypatch.setattr("api.providers._get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr("api.profiles.get_active_hermes_home", lambda: tmp_path)
 
     res = photon_config.set_photon_config({
         "project_id": "pid", "project_secret": "sec",
@@ -87,7 +87,7 @@ def test_set_preserves_secret_when_blank(monkeypatch, tmp_path):
     monkeypatch.setenv("PHOTON_PROJECT_SECRET", "existing")
     written = {}
     monkeypatch.setattr("api.providers._write_env_file", lambda p, u: written.update(u))
-    monkeypatch.setattr("api.providers._get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr("api.profiles.get_active_hermes_home", lambda: tmp_path)
 
     # Re-save with a new notify target but no secret typed → secret untouched.
     res = photon_config.set_photon_config({
@@ -106,7 +106,7 @@ def test_set_rejects_newlines():
 def test_allow_all_bool_roundtrip(monkeypatch, tmp_path):
     written = {}
     monkeypatch.setattr("api.providers._write_env_file", lambda p, u: written.update(u))
-    monkeypatch.setattr("api.providers._get_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr("api.profiles.get_active_hermes_home", lambda: tmp_path)
     monkeypatch.setenv("PHOTON_PROJECT_ID", "pid")
     monkeypatch.setenv("PHOTON_PROJECT_SECRET", "sec")
 

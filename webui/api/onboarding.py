@@ -20,6 +20,8 @@ from api.config import (
     _PROVIDER_DISPLAY,
     _PROVIDER_MODELS,
     _get_config_path,
+    _load_yaml_config_file,
+    _save_yaml_config_file,
     get_available_models,
     get_config,
     load_settings,
@@ -27,7 +29,8 @@ from api.config import (
     save_settings,
     verify_hermes_imports,
 )
-from api.providers import _write_env_file  # shared impl with ENV_LOCK (#1164)
+from api.profiles import get_active_hermes_home
+from api.providers import _load_env_file, _write_env_file  # shared impl with ENV_LOCK (#1164)
 from api.workspace import get_last_workspace, load_workspaces
 
 logger = logging.getLogger(__name__)
@@ -200,60 +203,6 @@ _UNSUPPORTED_PROVIDER_NOTE = (
     "terminal-first. OpenAI Codex and Anthropic Claude Code can be authenticated in this onboarding flow "
     "when your JarvisCopilot config selects the corresponding provider."
 )
-
-
-def _get_active_hermes_home() -> Path:
-    try:
-        from api.profiles import get_active_hermes_home
-
-        return get_active_hermes_home()
-    except ImportError:
-        return Path.home() / ".jarviscopilot"
-
-
-def _load_env_file(env_path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not env_path.exists():
-        return values
-    try:
-        for raw in env_path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            values[key.strip()] = value.strip().strip('"').strip("'")
-    except Exception:
-        return {}
-    return values
-
-
-
-def _load_yaml_config(config_path: Path) -> dict:
-    try:
-        import yaml as _yaml
-    except ImportError:
-        return {}
-
-    if not config_path.exists():
-        return {}
-    try:
-        loaded = _yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        return loaded if isinstance(loaded, dict) else {}
-    except Exception:
-        return {}
-
-
-def _save_yaml_config(config_path: Path, config: dict) -> None:
-    try:
-        import yaml as _yaml
-    except ImportError as exc:
-        raise RuntimeError("PyYAML is required to write JarvisCopilot config.yaml") from exc
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        _yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
 
 
 def _normalize_model_for_provider(provider: str, model: str) -> str:
@@ -693,7 +642,7 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
     provider = _extract_current_provider(cfg)
     model = _extract_current_model(cfg)
     base_url = _extract_current_base_url(cfg)
-    env_values = _load_env_file(_get_active_hermes_home() / ".env")
+    env_values = _load_env_file(get_active_hermes_home() / ".env")
 
     provider_configured = bool(provider and model)
     provider_ready = False
@@ -725,7 +674,7 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
                     provider_ready = _provider_api_key_present(provider, cfg, env_values)
                 if not provider_ready and meta.get("oauth_provider"):
                     provider_ready = _provider_oauth_authenticated(
-                        str(meta.get("oauth_provider")), _get_active_hermes_home()
+                        str(meta.get("oauth_provider")), get_active_hermes_home()
                     )
         else:
             # Unknown provider — may be an OAuth flow (openai-codex, copilot, etc.)
@@ -734,7 +683,7 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
             # third-party providers), then OAuth auth.json.
             provider_ready = (
                 _provider_api_key_present(provider, cfg, env_values)
-                or _provider_oauth_authenticated(provider, _get_active_hermes_home())
+                or _provider_oauth_authenticated(provider, get_active_hermes_home())
             )
 
     chat_ready = bool(_HERMES_FOUND and imports_ok and provider_ready)
@@ -783,7 +732,7 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
         "current_provider": provider or None,
         "current_model": model or None,
         "current_base_url": base_url or None,
-        "env_path": str(_get_active_hermes_home() / ".env"),
+        "env_path": str(get_active_hermes_home() / ".env"),
     }
 
 
@@ -832,7 +781,7 @@ def _build_setup_catalog(cfg: dict) -> dict:
     # of a key input when the user has already authenticated via 'jarviscopilot auth'.
     current_is_oauth = (
         current_provider not in _SUPPORTED_PROVIDER_SETUPS and bool(current_provider)
-    ) or _provider_oauth_authenticated(current_provider, _get_active_hermes_home())
+    ) or _provider_oauth_authenticated(current_provider, get_active_hermes_home())
 
     return {
         "providers": providers,
@@ -990,8 +939,8 @@ def apply_onboarding_setup(body: dict) -> dict:
             "requires_confirm": True,
         }
 
-    cfg = _load_yaml_config(config_path)
-    env_path = _get_active_hermes_home() / ".env"
+    cfg = _load_yaml_config_file(config_path)
+    env_path = get_active_hermes_home() / ".env"
     env_values = _load_env_file(env_path)
 
     if not api_key and not _provider_api_key_present(provider, cfg, env_values):
@@ -1001,7 +950,7 @@ def apply_onboarding_setup(body: dict) -> dict:
         # via Claude Code) are also allowed once their server-side OAuth/link
         # marker is present.
         oauth_ready = bool(provider_meta.get("oauth_provider")) and _provider_oauth_authenticated(
-            str(provider_meta.get("oauth_provider")), _get_active_hermes_home()
+            str(provider_meta.get("oauth_provider")), get_active_hermes_home()
         )
         if not provider_meta.get("key_optional") and not oauth_ready:
             raise ValueError(f"{provider_meta['env_var']} is required")
@@ -1021,7 +970,7 @@ def apply_onboarding_setup(body: dict) -> dict:
         model_cfg.pop("base_url", None)
 
     cfg["model"] = model_cfg
-    _save_yaml_config(config_path, cfg)
+    _save_yaml_config_file(config_path, cfg)
 
     if api_key:
         _write_env_file(env_path, {provider_meta["env_var"]: api_key})
@@ -1030,7 +979,7 @@ def apply_onboarding_setup(body: dict) -> dict:
     # picks up the new key without requiring a server restart.
     try:
         from api.profiles import _reload_dotenv
-        _reload_dotenv(_get_active_hermes_home())
+        _reload_dotenv(get_active_hermes_home())
     except Exception:
         logger.debug("Failed to reload dotenv")
 

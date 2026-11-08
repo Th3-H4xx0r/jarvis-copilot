@@ -395,104 +395,28 @@ class cron_profile_context_for_home:
     """Context manager that pins HERMES_HOME to an explicit profile home path.
 
     Use this variant from worker threads that don't have TLS context (e.g. the
-    background thread started by /api/crons/run). The HTTP-side variant below
-    resolves the home via TLS.
+    background thread started by /api/crons/run). ``cron_profile_context``
+    below resolves the home via TLS. Both serialize on one lock: the cron API
+    is low-frequency, and HERMES_HOME is process-global.
     """
 
     def __init__(self, home: Path):
         self._home = Path(home)
 
-    def __enter__(self):
-        _cron_env_lock.acquire()
-        _push_cron_profile_context_depth()
-        try:
-            self._prev_env = os.environ.get('HERMES_HOME')
-            os.environ['HERMES_HOME'] = str(self._home)
-
-            # Re-patch cron.jobs module-level constants (see main context manager
-            # below for the rationale).
-            self._prev_cj = None
-            try:
-                import cron.jobs as _cj
-                self._prev_cj = (_cj.HERMES_DIR, _cj.CRON_DIR, _cj.JOBS_FILE, _cj.OUTPUT_DIR)
-                _cj.HERMES_DIR = self._home
-                _cj.CRON_DIR = self._home / 'cron'
-                _cj.JOBS_FILE = _cj.CRON_DIR / 'jobs.json'
-                _cj.OUTPUT_DIR = _cj.CRON_DIR / 'output'
-            except (ImportError, AttributeError):
-                logger.debug("cron_profile_context_for_home: cron.jobs unavailable")
-
-            # cron.scheduler snapshots _hermes_home at import time and run_job()
-            # reads config/.env from that module global. Patch it alongside
-            # cron.jobs so manual WebUI runs actually execute under the selected
-            # profile, not merely write output metadata there (#617).
-            self._prev_cs = None
-            try:
-                import cron.scheduler as _cs
-                self._prev_cs = (
-                    getattr(_cs, '_hermes_home', None),
-                    getattr(_cs, '_LOCK_DIR', None),
-                    getattr(_cs, '_LOCK_FILE', None),
-                )
-                _cs._hermes_home = self._home
-                _cs._LOCK_DIR = self._home / 'cron'
-                _cs._LOCK_FILE = _cs._LOCK_DIR / '.tick.lock'
-            except (ImportError, AttributeError):
-                logger.debug("cron_profile_context_for_home: cron.scheduler unavailable")
-        except Exception:
-            _pop_cron_profile_context_depth()
-            _cron_env_lock.release()
-            raise
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            if self._prev_env is None:
-                os.environ.pop('HERMES_HOME', None)
-            else:
-                os.environ['HERMES_HOME'] = self._prev_env
-            if self._prev_cj is not None:
-                try:
-                    import cron.jobs as _cj
-                    _cj.HERMES_DIR, _cj.CRON_DIR, _cj.JOBS_FILE, _cj.OUTPUT_DIR = self._prev_cj
-                except (ImportError, AttributeError):
-                    pass
-            if getattr(self, '_prev_cs', None) is not None:
-                try:
-                    import cron.scheduler as _cs
-                    _cs._hermes_home, _cs._LOCK_DIR, _cs._LOCK_FILE = self._prev_cs
-                except (ImportError, AttributeError):
-                    pass
-        finally:
-            _pop_cron_profile_context_depth()
-            _cron_env_lock.release()
-        return False
-
-
-class cron_profile_context:
-    """Context manager that pins HERMES_HOME to the TLS-active profile.
-
-    Usage:
-        with cron_profile_context():
-            from cron.jobs import list_jobs
-            jobs = list_jobs(include_disabled=True)
-
-    Serializes cron API calls across profiles (cron API is low-frequency;
-    serialization cost is negligible compared to correctness).
-    """
+    def _resolve_home(self) -> Path:
+        return self._home
 
     def __enter__(self):
         _cron_env_lock.acquire()
         _push_cron_profile_context_depth()
         try:
             self._prev_env = os.environ.get('HERMES_HOME')
-            home = get_active_hermes_home()
+            home = self._resolve_home()
             os.environ['HERMES_HOME'] = str(home)
 
-            # Re-patch cron.jobs module-level constants. They are snapshot at
-            # import time (line 68-71 of cron/jobs.py) and don't participate in
-            # the module's __getattr__ lazy path, so env-var alone is not enough
-            # for callers that reference the module constants directly.
+            # cron.jobs snapshots these paths at import time and they don't go
+            # through the module's lazy __getattr__, so the env var alone is not
+            # enough for callers that read the constants directly.
             self._prev_cj = None
             try:
                 import cron.jobs as _cj
@@ -502,8 +426,11 @@ class cron_profile_context:
                 _cj.JOBS_FILE = _cj.CRON_DIR / 'jobs.json'
                 _cj.OUTPUT_DIR = _cj.CRON_DIR / 'output'
             except (ImportError, AttributeError):
-                logger.debug("cron_profile_context: cron.jobs unavailable; env-var only")
+                logger.debug("cron profile context: cron.jobs unavailable; env-var only")
 
+            # cron.scheduler snapshots _hermes_home at import time and run_job()
+            # reads config/.env from it: patched too, so manual WebUI runs execute
+            # under the selected profile, not merely write output there (#617).
             self._prev_cs = None
             try:
                 import cron.scheduler as _cs
@@ -516,7 +443,7 @@ class cron_profile_context:
                 _cs._LOCK_DIR = home / 'cron'
                 _cs._LOCK_FILE = _cs._LOCK_DIR / '.tick.lock'
             except (ImportError, AttributeError):
-                logger.debug("cron_profile_context: cron.scheduler unavailable; env-var only")
+                logger.debug("cron profile context: cron.scheduler unavailable; env-var only")
         except Exception:
             _pop_cron_profile_context_depth()
             _cron_env_lock.release()
@@ -525,20 +452,17 @@ class cron_profile_context:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
-            # Restore env var
             if self._prev_env is None:
                 os.environ.pop('HERMES_HOME', None)
             else:
                 os.environ['HERMES_HOME'] = self._prev_env
-
-            # Restore cron.jobs module constants
             if self._prev_cj is not None:
                 try:
                     import cron.jobs as _cj
                     _cj.HERMES_DIR, _cj.CRON_DIR, _cj.JOBS_FILE, _cj.OUTPUT_DIR = self._prev_cj
                 except (ImportError, AttributeError):
                     pass
-            if getattr(self, '_prev_cs', None) is not None:
+            if self._prev_cs is not None:
                 try:
                     import cron.scheduler as _cs
                     _cs._hermes_home, _cs._LOCK_DIR, _cs._LOCK_FILE = self._prev_cs
@@ -548,6 +472,22 @@ class cron_profile_context:
             _pop_cron_profile_context_depth()
             _cron_env_lock.release()
         return False
+
+
+class cron_profile_context(cron_profile_context_for_home):
+    """``cron_profile_context_for_home`` for the TLS-active profile.
+
+    Usage:
+        with cron_profile_context():
+            from cron.jobs import list_jobs
+            jobs = list_jobs(include_disabled=True)
+    """
+
+    def __init__(self):
+        pass
+
+    def _resolve_home(self) -> Path:
+        return get_active_hermes_home()
 
 
 def get_hermes_home_for_profile(name: str) -> Path:
@@ -1077,9 +1017,10 @@ def _create_profile_fallback(name: str, clone_from: str = None,
     return profile_dir
 
 
-def _write_endpoint_to_config(profile_dir: Path, base_url: str = None, api_key: str = None) -> None:
-    """Write custom endpoint fields into config.yaml for a profile."""
-    if not base_url and not api_key:
+def _set_model_fields(profile_dir: Path, **fields) -> None:
+    """Set the given non-empty fields of config.yaml's ``model`` section for a profile."""
+    fields = {k: v for k, v in fields.items() if v}
+    if not fields:
         return
     config_path = profile_dir / 'config.yaml'
     try:
@@ -1097,12 +1038,14 @@ def _write_endpoint_to_config(profile_dir: Path, base_url: str = None, api_key: 
     model_section = cfg.get('model', {})
     if not isinstance(model_section, dict):
         model_section = {}
-    if base_url:
-        model_section['base_url'] = base_url
-    if api_key:
-        model_section['api_key'] = api_key
+    model_section.update(fields)
     cfg['model'] = model_section
     config_path.write_text(_yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding='utf-8')
+
+
+def _write_endpoint_to_config(profile_dir: Path, base_url: str = None, api_key: str = None) -> None:
+    """Write custom endpoint fields into config.yaml for a profile."""
+    _set_model_fields(profile_dir, base_url=base_url, api_key=api_key)
 
 
 def _clean_profile_config_value(value: Optional[str], field: str) -> Optional[str]:
@@ -1217,30 +1160,7 @@ def _write_model_defaults_to_config(
 ) -> None:
     """Write model default/provider fields into config.yaml for a profile."""
     default_model, model_provider = _split_webui_provider_model_value(default_model, model_provider)
-    if not default_model and not model_provider:
-        return
-    config_path = profile_dir / 'config.yaml'
-    try:
-        import yaml as _yaml
-    except ImportError:
-        return
-    cfg = {}
-    if config_path.exists():
-        try:
-            loaded = _yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                cfg = loaded
-        except Exception:
-            logger.debug("Failed to load config from %s", config_path)
-    model_section = cfg.get('model', {})
-    if not isinstance(model_section, dict):
-        model_section = {}
-    if default_model:
-        model_section['default'] = default_model
-    if model_provider:
-        model_section['provider'] = model_provider
-    cfg['model'] = model_section
-    config_path.write_text(_yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding='utf-8')
+    _set_model_fields(profile_dir, default=default_model, provider=model_provider)
 
 
 def create_profile_api(name: str, clone_from: str = None,

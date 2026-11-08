@@ -78,8 +78,9 @@ def _stored() -> Dict[str, Any]:
 
 def _has_env(name: str) -> bool:
     try:
-        from api.providers import _get_hermes_home, _load_env_file
-        env_file = _load_env_file(_get_hermes_home() / ".env")
+        from api.profiles import get_active_hermes_home
+        from api.providers import _load_env_file
+        env_file = _load_env_file(get_active_hermes_home() / ".env")
     except Exception:
         env_file = {}
     return bool((env_file.get(name) or os.getenv(name) or "").strip())

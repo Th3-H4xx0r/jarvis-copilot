@@ -148,9 +148,10 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip())}
 
     try:
-        from api.providers import _get_hermes_home, _write_env_file
+        from api.profiles import get_active_hermes_home
+        from api.providers import _write_env_file
 
-        env_path = _get_hermes_home() / ".env"
+        env_path = get_active_hermes_home() / ".env"
         _write_env_file(env_path, updates)
     except Exception as exc:  # pragma: no cover - filesystem/permission errors
         return {"ok": False, "error": f"Failed to save Photon config: {exc}"}

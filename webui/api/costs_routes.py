@@ -150,9 +150,10 @@ def _connect(handler, body: Dict[str, Any]) -> bool:
     if not updates:
         bad(handler, "Nothing to save.")
         return True
-    from api.providers import _get_hermes_home, _write_env_file
+    from api.profiles import get_active_hermes_home
+    from api.providers import _write_env_file
     try:
-        _write_env_file(_get_hermes_home() / ".env", updates)
+        _write_env_file(get_active_hermes_home() / ".env", updates)
     except Exception:
         logger.warning("costs: saving %s keys failed", sid, exc_info=True)
         j(handler, {"error": "could not save the key"}, status=500)
@@ -182,9 +183,10 @@ def _disconnect(handler, body: Dict[str, Any]) -> bool:
     # (ElevenLabs, Browserbase…) also runs that service, so it's removed in Settings.
     removable = {f["env"]: None for f in entry.get("fields", []) if f.get("billing_only")}
     if removable:
-        from api.providers import _get_hermes_home, _write_env_file
+        from api.profiles import get_active_hermes_home
+        from api.providers import _write_env_file
         try:
-            _write_env_file(_get_hermes_home() / ".env", removable)
+            _write_env_file(get_active_hermes_home() / ".env", removable)
         except Exception:
             logger.warning("costs: removing %s keys failed", sid, exc_info=True)
             j(handler, {"error": "could not remove the key"}, status=500)

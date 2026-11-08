@@ -87,10 +87,10 @@ class TestApplyOnboardingOAuthPath(unittest.TestCase):
         self.assertEqual(result, mock_status)
 
     def test_unsupported_provider_does_not_write_config_yaml(self):
-        """OAuth path must not call _save_yaml_config — no config mutation."""
+        """OAuth path must not call _save_yaml_config_file — no config mutation."""
         with patch.object(mod, "save_settings"), \
              patch.object(mod, "get_onboarding_status", return_value={}), \
-             patch.object(mod, "_save_yaml_config") as mock_save_yaml:
+             patch.object(mod, "_save_yaml_config_file") as mock_save_yaml:
             mod.apply_onboarding_setup({"provider": "copilot", "model": "gpt-4o"})
 
         mock_save_yaml.assert_not_called()

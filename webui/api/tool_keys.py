@@ -84,9 +84,10 @@ def handle_tool_keys_post(handler, parsed, body) -> bool:
         bad(handler, "That doesn't look like an API key (8+ characters, no spaces).")
         return True
 
-    from api.providers import _get_hermes_home, _write_env_file
+    from api.profiles import get_active_hermes_home
+    from api.providers import _write_env_file
     try:
-        _write_env_file(_get_hermes_home() / ".env", {spec["env"]: key})
+        _write_env_file(get_active_hermes_home() / ".env", {spec["env"]: key})
     except Exception:
         logger.warning("tool keys: writing %s failed", spec["env"], exc_info=True)
         j(handler, {"error": "could not save the key"}, status=500)
@@ -173,8 +174,9 @@ def _forget_browser_provider_cache() -> None:
 
 
 def _tools() -> List[Dict[str, Any]]:
-    from api.providers import _get_hermes_home, _load_env_file
-    env_file = _load_env_file(_get_hermes_home() / ".env")
+    from api.profiles import get_active_hermes_home
+    from api.providers import _load_env_file
+    env_file = _load_env_file(get_active_hermes_home() / ".env")
     stored = api_config._load_yaml_config_file(api_config._get_config_path())
     web = stored.get("web") if isinstance(stored, dict) and isinstance(stored.get("web"), dict) else {}
     search_backend = str(web.get("search_backend") or "").strip().lower()

@@ -478,57 +478,15 @@ def _spawn_claude_code_login_worker(flow_id: str) -> None:
 
 def _run_claude_code_login_worker(flow_id: str) -> None:
     """Poll for a Claude Code login appearing until found, cancelled, or expired."""
-    while True:
-        with _OAUTH_FLOWS_LOCK:
-            flow = dict(_OAUTH_FLOWS.get(flow_id) or {})
-        if not flow:
-            return
-        if flow.get("status") != "pending":
-            return
-        if float(flow.get("expires_at") or 0) <= time.time():
-            _set_flow_status(flow_id, "expired")
-            return
+    def check(_flow):
+        return True if _claude_code_login_status().get("logged_in") else None
 
-        time.sleep(max(
-            1,
-            int(flow.get("poll_interval_seconds") or CLAUDE_CODE_CREDENTIAL_POLL_SECONDS),
-        ))
+    def finish(_flow, _found):
+        _persist_claude_code_default()
+        _settle_pending_flow(flow_id, "success")
 
-        # Re-check status under lock (cancel may have arrived during sleep).
-        with _OAUTH_FLOWS_LOCK:
-            live = _OAUTH_FLOWS.get(flow_id)
-            if not live or live.get("status") != "pending":
-                return
-
-        try:
-            status = _claude_code_login_status()
-            if not status.get("logged_in"):
-                continue
-
-            # Re-check under lock before persisting — cancel must win.
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if not current or current.get("status") != "pending":
-                    return
-
-            _persist_claude_code_default()
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if current and current.get("status") == "pending":
-                    current["status"] = "success"
-                    current["updated_at"] = time.time()
-                    _drop_sensitive_flow_fields(current)
-            return
-        except Exception as exc:
-            logger.warning("Claude Code login polling failed: %s", exc)
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if current and current.get("status") == "pending":
-                    current["status"] = "error"
-                    current["updated_at"] = time.time()
-                    current["error"] = str(exc)
-                    _drop_sensitive_flow_fields(current)
-            return
+    _poll_pending_flow(flow_id, CLAUDE_CODE_CREDENTIAL_POLL_SECONDS, check, finish,
+                       "Claude Code login polling")
 
 
 def _start_claude_code_flow(
@@ -611,60 +569,18 @@ def _spawn_anthropic_credential_worker(flow_id: str) -> None:
 
 def _run_anthropic_credential_worker(flow_id: str) -> None:
     """Poll for Claude Code credential appearance until found, cancelled, or expired."""
-    while True:
-        with _OAUTH_FLOWS_LOCK:
-            flow = dict(_OAUTH_FLOWS.get(flow_id) or {})
-        if not flow:
-            return
-        if flow.get("status") != "pending":
-            return
-        if float(flow.get("expires_at") or 0) <= time.time():
-            _set_flow_status(flow_id, "expired")
-            return
-
-        time.sleep(max(1, int(flow.get("poll_interval_seconds") or ANTHROPIC_CREDENTIAL_POLL_SECONDS)))
-
-        # Re-check status under lock (cancel may have arrived during sleep)
-        with _OAUTH_FLOWS_LOCK:
-            live = _OAUTH_FLOWS.get(flow_id)
-            if not live or live.get("status") != "pending":
-                return
-
-        try:
-            creds = _read_claude_code_credentials()
-            if creds is None:
-                continue
-
-            # Re-check status under lock before linking — cancel must win
+    def finish(flow, _creds):
+        hermes_home = Path(flow["hermes_home"])
+        _link_anthropic_credentials(hermes_home)
+        if not _settle_pending_flow(flow_id, "success"):
             with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if not current or current.get("status") != "pending":
-                    return
-
-            hermes_home = Path(flow["hermes_home"])
-            _link_anthropic_credentials(hermes_home)
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if not current or current.get("status") != "pending":
-                    cancelled = bool(current and current.get("status") == "cancelled")
-                else:
-                    current["status"] = "success"
-                    current["updated_at"] = time.time()
-                    _drop_sensitive_flow_fields(current)
-                    cancelled = False
+                cancelled = (_OAUTH_FLOWS.get(flow_id) or {}).get("status") == "cancelled"
             if cancelled:
                 _remove_anthropic_link_marker(hermes_home)
-            return
-        except Exception as exc:
-            logger.warning("Anthropic credential polling failed: %s", exc)
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if current and current.get("status") == "pending":
-                    current["status"] = "error"
-                    current["updated_at"] = time.time()
-                    current["error"] = str(exc)
-                    _drop_sensitive_flow_fields(current)
-            return
+
+    _poll_pending_flow(flow_id, ANTHROPIC_CREDENTIAL_POLL_SECONDS,
+                       lambda _flow: _read_claude_code_credentials(), finish,
+                       "Anthropic credential polling")
 
 
 def _remove_anthropic_link_marker(hermes_home: Path) -> None:
@@ -827,51 +743,76 @@ def _set_flow_status(flow_id: str, status: str, **fields: Any) -> None:
             _drop_sensitive_flow_fields(flow)
 
 
-def _run_codex_oauth_worker(flow_id: str) -> None:
+def _pending_flow(flow_id: str) -> dict | None:
+    """A copy of the flow while it is still pending, else None."""
+    with _OAUTH_FLOWS_LOCK:
+        flow = _OAUTH_FLOWS.get(flow_id)
+        return dict(flow) if flow and flow.get("status") == "pending" else None
+
+
+def _settle_pending_flow(flow_id: str, status: str, **fields: Any) -> bool:
+    """``_set_flow_status`` only if the flow is still pending: a cancel or an expiry
+    that landed meanwhile wins. False when it did."""
+    with _OAUTH_FLOWS_LOCK:
+        flow = _OAUTH_FLOWS.get(flow_id)
+        if not flow or flow.get("status") != "pending":
+            return False
+        flow["status"] = status
+        flow["updated_at"] = time.time()
+        flow.update(fields)
+        if status in {"success", "expired", "cancelled", "error"}:
+            _drop_sensitive_flow_fields(flow)
+        return True
+
+
+def _poll_pending_flow(flow_id: str, default_interval: float, check, finish, what: str) -> None:
+    """Every poll interval, ``check(flow)`` until it returns something, then
+    ``finish(flow, result)`` -- unless the flow was cancelled or expired first.
+    An exception ends the flow as an error."""
     while True:
-        with _OAUTH_FLOWS_LOCK:
-            flow = dict(_OAUTH_FLOWS.get(flow_id) or {})
-        if not flow:
-            return
-        status = flow.get("status")
-        if status != "pending":
+        flow = _pending_flow(flow_id)
+        if flow is None:
             return
         if float(flow.get("expires_at") or 0) <= time.time():
             _set_flow_status(flow_id, "expired")
             return
-
-        time.sleep(max(1, int(flow.get("poll_interval_seconds") or 5)))
-
-        with _OAUTH_FLOWS_LOCK:
-            live = dict(_OAUTH_FLOWS.get(flow_id) or {})
-        if live.get("status") != "pending":
+        time.sleep(max(1, int(flow.get("poll_interval_seconds") or default_interval)))
+        flow = _pending_flow(flow_id)  # a cancel may have arrived during the sleep
+        if flow is None:
             return
         try:
-            code_resp = _poll_codex_authorization(
-                str(live.get("device_auth_id") or ""),
-                str(live.get("user_code") or ""),
-            )
-            if code_resp is None:
+            result = check(flow)
+            if result is None:
                 continue
-            authorization_code = str(code_resp.get("authorization_code") or "").strip()
-            code_verifier = str(code_resp.get("code_verifier") or "").strip()
-            if not authorization_code or not code_verifier:
-                raise RuntimeError("Device auth response missing authorization_code or code_verifier")
-            tokens = _exchange_codex_authorization(authorization_code, code_verifier)
-            # Re-check status under lock before persisting: a cancel/expire that
-            # raced with the device-token + token-exchange network calls must
-            # win, so we don't persist credentials the user explicitly aborted.
-            with _OAUTH_FLOWS_LOCK:
-                current = _OAUTH_FLOWS.get(flow_id)
-                if not current or current.get("status") != "pending":
-                    return
-            _persist_codex_credentials(Path(live["hermes_home"]), tokens)
-            _set_flow_status(flow_id, "success")
-            return
+            # The check can take network round trips; a cancel in the meantime wins.
+            if _pending_flow(flow_id) is None:
+                return
+            finish(flow, result)
         except Exception as exc:
-            logger.warning("Codex OAuth onboarding flow failed: %s", exc)
-            _set_flow_status(flow_id, "error", error=str(exc))
-            return
+            logger.warning("%s failed: %s", what, exc)
+            _settle_pending_flow(flow_id, "error", error=str(exc))
+        return
+
+
+def _run_codex_oauth_worker(flow_id: str) -> None:
+    def check(flow):
+        code_resp = _poll_codex_authorization(
+            str(flow.get("device_auth_id") or ""),
+            str(flow.get("user_code") or ""),
+        )
+        if code_resp is None:
+            return None
+        authorization_code = str(code_resp.get("authorization_code") or "").strip()
+        code_verifier = str(code_resp.get("code_verifier") or "").strip()
+        if not authorization_code or not code_verifier:
+            raise RuntimeError("Device auth response missing authorization_code or code_verifier")
+        return _exchange_codex_authorization(authorization_code, code_verifier)
+
+    def finish(flow, tokens):
+        _persist_codex_credentials(Path(flow["hermes_home"]), tokens)
+        _settle_pending_flow(flow_id, "success")
+
+    _poll_pending_flow(flow_id, 5, check, finish, "Codex OAuth onboarding flow")
 
 
 def _start_anthropic_flow(hermes_home: Path) -> dict[str, Any]:

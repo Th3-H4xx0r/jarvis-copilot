@@ -205,7 +205,7 @@ class TestApplyOnboardingSetupGuard:
                 # Without patching Path.exists, use a non-existent path so it won't block.
                 # Also redirect _get_active_hermes_home so .env writes go to the temp dir,
                 # never to the real ~/.jarviscopilot/.env.
-                with mock.patch.object(mod, "_get_active_hermes_home", return_value=tmp_home_path):
+                with mock.patch.object(mod, "get_active_hermes_home", return_value=tmp_home_path):
                     result = mod.apply_onboarding_setup(
                         {
                             "provider": "openrouter",
@@ -237,7 +237,7 @@ class TestApplyOnboardingSetupGuard:
                 # never touching the real ~/.jarviscopilot/.env.
                 with (
                     mock.patch.object(mod, "_get_config_path", return_value=fake_config_path),
-                    mock.patch.object(mod, "_get_active_hermes_home", return_value=tmp_home_path),
+                    mock.patch.object(mod, "get_active_hermes_home", return_value=tmp_home_path),
                 ):
                     result = mod.apply_onboarding_setup(
                         {

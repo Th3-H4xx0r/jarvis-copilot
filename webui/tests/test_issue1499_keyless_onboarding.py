@@ -66,7 +66,7 @@ def _isolate_onboarding_writes(monkeypatch, tmp_path):
     ``~/.jarviscopilot`` and clobber the developer's actual config.
     """
     from api import onboarding as ob
-    monkeypatch.setattr(ob, "_get_active_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(ob, "get_active_hermes_home", lambda: tmp_path)
     cfg_path = tmp_path / "config.yaml"
     monkeypatch.setattr(ob, "_get_config_path", lambda: cfg_path)
     monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
