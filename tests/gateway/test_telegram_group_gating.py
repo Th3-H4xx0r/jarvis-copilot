@@ -1005,3 +1005,17 @@ def test_triggered_voice_message_uses_shared_session_in_observe_mode():
         assert "[Alice Example|111]" in event.text
 
     asyncio.run(_run())
+
+
+def test_ignore_root_dm_drops_root_dm_text_but_keeps_commands_and_topics():
+    adapter = _make_adapter()
+    adapter.config.extra["ignore_root_dm"] = True
+    adapter._dm_topic_chat_ids = {"111"}
+
+    assert adapter._should_process_message(_dm_message("hello")) is False
+    assert adapter._should_process_message(_dm_message("/status"), is_command=True) is True
+    topic_msg = _dm_message("in a topic")
+    topic_msg.message_thread_id = 7
+    assert adapter._should_process_message(topic_msg) is True
+    # A DM chat without configured DM topics is unaffected.
+    assert adapter._should_process_message(_dm_message("hello", from_user_id=222)) is True

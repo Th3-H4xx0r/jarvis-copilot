@@ -4484,6 +4484,26 @@ class TelegramAdapter(BasePlatformAdapter):
         cleaned = re.sub(rf"(?i)@{username}\b[,:\-]*\s*", "", text).strip()
         return cleaned or text
 
+    def _group_topic_allowed(self, message: Message, *, reject_bad_thread_id: bool) -> bool:
+        """Apply the ``allowed_topics`` / ``ignored_threads`` filters to a
+        group message.  A non-numeric thread id fails the check only when
+        ``reject_bad_thread_id`` is set (otherwise it is logged and passed)."""
+        thread_id = getattr(message, "message_thread_id", None)
+        allowed_topics = self._telegram_allowed_topics()
+        if allowed_topics:
+            topic_id = str(thread_id) if thread_id is not None else self._GENERAL_TOPIC_THREAD_ID
+            if topic_id not in allowed_topics:
+                return False
+        if thread_id is not None:
+            try:
+                if int(thread_id) in self._telegram_ignored_threads():
+                    return False
+            except (TypeError, ValueError):
+                if reject_bad_thread_id:
+                    return False
+                logger.warning("[%s] Ignoring non-numeric Telegram message_thread_id: %r", self.name, thread_id)
+        return True
+
     def _should_observe_unmentioned_group_message(self, message: Message) -> bool:
         """Return True when a group message should be stored but not dispatched."""
         if not self._telegram_observe_unmentioned_group_messages():
@@ -4491,19 +4511,8 @@ class TelegramAdapter(BasePlatformAdapter):
         if not self._is_group_chat(message):
             return False
 
-        thread_id = getattr(message, "message_thread_id", None)
-        allowed_topics = self._telegram_allowed_topics()
-        if allowed_topics:
-            topic_id = str(thread_id) if thread_id is not None else self._GENERAL_TOPIC_THREAD_ID
-            if topic_id not in allowed_topics:
-                return False
-
-        if thread_id is not None:
-            try:
-                if int(thread_id) in self._telegram_ignored_threads():
-                    return False
-            except (TypeError, ValueError):
-                return False
+        if not self._group_topic_allowed(message, reject_bad_thread_id=True):
+            return False
 
         chat_id_str = str(getattr(getattr(message, "chat", None), "id", ""))
         if self._telegram_exclusive_bot_mentions() and self._explicit_bot_mentions_exclude_self(message):
@@ -4633,30 +4642,19 @@ class TelegramAdapter(BasePlatformAdapter):
         recognised as mentions by :meth:`_message_mentions_bot`.
         """
         if not self._is_group_chat(message):
-            return True
-
-        thread_id = getattr(message, "message_thread_id", None)
-        allowed_topics = self._telegram_allowed_topics()
-        if allowed_topics:
-            topic_id = str(thread_id) if thread_id is not None else self._GENERAL_TOPIC_THREAD_ID
-            if topic_id not in allowed_topics:
+            # Root DM (non-topic) of a chat with DM topics: ignore everything
+            # but commands when ignore_root_dm is configured.
+            if (
+                getattr(message, "message_thread_id", None) is None
+                and self.config.extra.get("ignore_root_dm", False)
+                and not is_command
+                and str(getattr(getattr(message, "chat", None), "id", "")) in self._dm_topic_chat_ids
+            ):
                 return False
-
-        # Check ignored_threads first — applies to both groups and DM topics
-        if thread_id is not None:
-            try:
-                if int(thread_id) in self._telegram_ignored_threads():
-                    return False
-            except (TypeError, ValueError):
-                logger.warning("[%s] Ignoring non-numeric Telegram message_thread_id: %r", self.name, thread_id)
-
-        if not self._is_group_chat(message):
-            # Root DM (non-topic): ignore if ignore_root_dm is configured
-            if thread_id is None and self.config.extra.get("ignore_root_dm", False):
-                chat_id = str(getattr(getattr(message, "chat", None), "id", ""))
-                if not is_command and chat_id in self._dm_topic_chat_ids:
-                    return False
             return True
+
+        if not self._group_topic_allowed(message, reject_bad_thread_id=False):
+            return False
 
         chat_id_str = str(getattr(getattr(message, "chat", None), "id", ""))
 
