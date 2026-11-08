@@ -2462,77 +2462,78 @@ def _cmd_context(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_specify(args: argparse.Namespace) -> int:
-    """Flesh out a triage task (or all of them) via auxiliary LLM,
-    then promote to todo. Thin wrapper over ``kanban_specify``."""
-    from jarviscopilot_cli import kanban_specify as spec
+def _for_each_triage_task(
+    args: argparse.Namespace,
+    verb: str,
+    list_ids,
+    run_one,
+    *,
+    empty_key: str,
+    json_fields: tuple,
+    report_ok,
+) -> int:
+    """Run ``run_one`` on one triage task id or, with ``--all``, every one.
 
+    Shared driver for ``kanban specify`` / ``kanban decompose``: argument
+    checks, JSON-or-text reporting, and the exit code (single id: 0 only on
+    success; ``--all``: 1 only when every candidate failed).
+    """
     all_flag = bool(getattr(args, "all_triage", False))
     tenant = getattr(args, "tenant", None)
     author = getattr(args, "author", None) or _profile_author()
     want_json = bool(getattr(args, "json", False))
 
     if args.task_id and all_flag:
-        print(
-            "kanban: pass either a task id OR --all, not both",
-            file=sys.stderr,
-        )
+        print("kanban: pass either a task id OR --all, not both", file=sys.stderr)
         return 2
-
     if all_flag:
-        ids = spec.list_triage_ids(tenant=tenant)
+        ids = list_ids(tenant=tenant)
         if not ids:
-            msg = (
-                "No triage tasks"
-                + (f" for tenant {tenant!r}" if tenant else "")
-                + "."
-            )
             if want_json:
-                print(json.dumps({"specified": 0, "total": 0}))
+                print(json.dumps({empty_key: 0, "total": 0}))
             else:
-                print(msg)
+                print("No triage tasks" + (f" for tenant {tenant!r}" if tenant else "") + ".")
             return 0
     elif args.task_id:
         ids = [args.task_id]
     else:
-        print(
-            "kanban: specify requires a task id or --all",
-            file=sys.stderr,
-        )
+        print(f"kanban: {verb} requires a task id or --all", file=sys.stderr)
         return 2
 
     ok_count = 0
-    fail_count = 0
     for tid in ids:
-        outcome = spec.specify_task(tid, author=author)
+        outcome = run_one(tid, author=author)
         if outcome.ok:
             ok_count += 1
-        else:
-            fail_count += 1
         if want_json:
-            print(json.dumps({
-                "task_id": outcome.task_id,
-                "ok": outcome.ok,
-                "reason": outcome.reason,
-                "new_title": outcome.new_title,
-            }))
+            print(json.dumps({field: getattr(outcome, field) for field in json_fields}))
         elif outcome.ok:
-            title_suffix = (
-                f" — retitled: {outcome.new_title!r}"
-                if outcome.new_title
-                else ""
-            )
-            print(f"Specified {outcome.task_id} → todo{title_suffix}")
+            report_ok(outcome)
         else:
-            print(
-                f"kanban: specify {outcome.task_id}: {outcome.reason}",
-                file=sys.stderr,
-            )
+            print(f"kanban: {verb} {outcome.task_id}: {outcome.reason}", file=sys.stderr)
     if not all_flag:
         return 0 if ok_count == 1 else 1
-    # --all: succeed if at least one promotion landed; exit 1 only when
-    # every candidate failed (honest signal for scripts).
-    return 0 if (ok_count > 0 or not ids) else 1
+    return 0 if ok_count > 0 else 1
+
+
+def _retitled_suffix(outcome) -> str:
+    return f" — retitled: {outcome.new_title!r}" if outcome.new_title else ""
+
+
+def _cmd_specify(args: argparse.Namespace) -> int:
+    """Flesh out a triage task (or all of them) via auxiliary LLM,
+    then promote to todo. Thin wrapper over ``kanban_specify``."""
+    from jarviscopilot_cli import kanban_specify as spec
+
+    def _report(outcome) -> None:
+        print(f"Specified {outcome.task_id} → todo{_retitled_suffix(outcome)}")
+
+    return _for_each_triage_task(
+        args, "specify", spec.list_triage_ids, spec.specify_task,
+        empty_key="specified",
+        json_fields=("task_id", "ok", "reason", "new_title"),
+        report_ok=_report,
+    )
 
 
 def _cmd_decompose(args: argparse.Namespace) -> int:
@@ -2541,79 +2542,21 @@ def _cmd_decompose(args: argparse.Namespace) -> int:
     description. Thin wrapper over ``kanban_decompose``."""
     from jarviscopilot_cli import kanban_decompose as decomp
 
-    all_flag = bool(getattr(args, "all_triage", False))
-    tenant = getattr(args, "tenant", None)
-    author = getattr(args, "author", None) or _profile_author()
-    want_json = bool(getattr(args, "json", False))
-
-    if args.task_id and all_flag:
-        print(
-            "kanban: pass either a task id OR --all, not both",
-            file=sys.stderr,
-        )
-        return 2
-
-    if all_flag:
-        ids = decomp.list_triage_ids(tenant=tenant)
-        if not ids:
-            msg = (
-                "No triage tasks"
-                + (f" for tenant {tenant!r}" if tenant else "")
-                + "."
-            )
-            if want_json:
-                print(json.dumps({"decomposed": 0, "total": 0}))
-            else:
-                print(msg)
-            return 0
-    elif args.task_id:
-        ids = [args.task_id]
-    else:
-        print(
-            "kanban: decompose requires a task id or --all",
-            file=sys.stderr,
-        )
-        return 2
-
-    ok_count = 0
-    for tid in ids:
-        outcome = decomp.decompose_task(tid, author=author)
-        if outcome.ok:
-            ok_count += 1
-        if want_json:
-            print(json.dumps({
-                "task_id": outcome.task_id,
-                "ok": outcome.ok,
-                "reason": outcome.reason,
-                "fanout": outcome.fanout,
-                "child_ids": outcome.child_ids,
-                "new_title": outcome.new_title,
-            }))
-        elif outcome.ok:
-            if outcome.fanout and outcome.child_ids:
-                child_summary = ", ".join(outcome.child_ids)
-                print(
-                    f"Decomposed {outcome.task_id} → {len(outcome.child_ids)} "
-                    f"children ({child_summary}); root promoted to todo"
-                )
-            else:
-                title_suffix = (
-                    f" — retitled: {outcome.new_title!r}"
-                    if outcome.new_title
-                    else ""
-                )
-                print(
-                    f"Specified {outcome.task_id} → todo "
-                    f"(no fanout){title_suffix}"
-                )
-        else:
+    def _report(outcome) -> None:
+        if outcome.fanout and outcome.child_ids:
             print(
-                f"kanban: decompose {outcome.task_id}: {outcome.reason}",
-                file=sys.stderr,
+                f"Decomposed {outcome.task_id} → {len(outcome.child_ids)} "
+                f"children ({', '.join(outcome.child_ids)}); root promoted to todo"
             )
-    if not all_flag:
-        return 0 if ok_count == 1 else 1
-    return 0 if (ok_count > 0 or not ids) else 1
+        else:
+            print(f"Specified {outcome.task_id} → todo (no fanout){_retitled_suffix(outcome)}")
+
+    return _for_each_triage_task(
+        args, "decompose", decomp.list_triage_ids, decomp.decompose_task,
+        empty_key="decomposed",
+        json_fields=("task_id", "ok", "reason", "fanout", "child_ids", "new_title"),
+        report_ok=_report,
+    )
 
 
 def _cmd_gc(args: argparse.Namespace) -> int:
