@@ -74,11 +74,8 @@ enum ApprovalKey {
     static func pin(_ publicKeyB64: String) throws { try MacKeychain.write(service, publicKeyB64) }
     static func unpin() { MacKeychain.delete(service) }
 
-    /// First 8 hex of SHA-256 of the key: what the Mac and iPhone both show.
-    static func fingerprint(_ publicKeyB64: String) -> String {
-        guard let data = Data(base64Encoded: publicKeyB64) else { return "?" }
-        return SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
-    }
+    /// What the Mac and iPhone both show.
+    static func fingerprint(_ publicKeyB64: String) -> String { MacPasswordWire.fingerprint(publicKeyB64) ?? "?" }
 }
 
 /// Checks a signed iPhone yes: right key, fresh (≤ 300 s), and each nonce once.
@@ -87,13 +84,6 @@ final class ApprovalVerifier: @unchecked Sendable {
     private var used: [String: Date] = [:]
     private let lock = NSLock()
 
-    /// What his iPhone signs: the kind, the request's nonce and time, and a hash of
-    /// the exact text he was shown (so a server can't show one thing and get another).
-    static func message(kind: String, nonce: String, ts: Int, context: String) -> Data {
-        let digest = SHA256.hash(data: Data(context.utf8)).map { String(format: "%02x", $0) }.joined()
-        return Data("jarvis-mac-password|\(kind)|\(nonce)|\(ts)|\(digest)".utf8)
-    }
-
     func verify(context: String, kind: String, nonce: String, ts: Int, signatureB64: String,
                 publicKeyB64: String, now: Date = Date()) -> Bool {
         guard !nonce.isEmpty, abs(now.timeIntervalSince1970 - Double(ts)) <= Self.freshness,
@@ -101,7 +91,7 @@ final class ApprovalVerifier: @unchecked Sendable {
               let key = try? P256.Signing.PublicKey(x963Representation: keyData),
               let sigData = Data(base64Encoded: signatureB64),
               let signature = try? P256.Signing.ECDSASignature(derRepresentation: sigData),
-              key.isValidSignature(signature, for: Self.message(kind: kind, nonce: nonce, ts: ts, context: context))
+              key.isValidSignature(signature, for: MacPasswordWire.message(kind: kind, nonce: nonce, ts: ts, context: context))
         else { return false }
         lock.lock()
         defer { lock.unlock() }

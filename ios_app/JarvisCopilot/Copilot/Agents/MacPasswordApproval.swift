@@ -22,17 +22,11 @@ enum MacPasswordApproval {
         return kind == pushKind || kind == "mac_password_failed"
     }
 
-    /// The exact bytes the Mac verifies (MacPassword.swift `ApprovalVerifier.message`).
-    static func message(kind: String, nonce: String, ts: Int, context: String) -> Data {
-        let digest = SHA256.hash(data: Data(context.utf8)).map { String(format: "%02x", $0) }.joined()
-        return Data("jarvis-mac-password|\(kind)|\(nonce)|\(ts)|\(digest)".utf8)
-    }
-
     /// The code the Mac shows when it pairs: first 8 hex of SHA-256 of this
     /// iPhone's own approval key, worked out here, never taken from the server.
     static func pairingCode(signer: any CarSigner = SecureEnclaveCarSigner.shared) -> String? {
-        guard let key = try? signer.publicKey(), let data = Data(base64Encoded: key) else { return nil }
-        return SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
+        guard let key = try? signer.publicKey() else { return nil }
+        return MacPasswordWire.fingerprint(key)
     }
 
     /// The card's title for what asked.
@@ -60,7 +54,7 @@ enum MacPasswordApproval {
                       signer: any CarSigner = SecureEnclaveCarSigner.shared) async throws {
         let auth = try await signer.authenticate(reason: "Type your Mac password")
         let ts = Int(Date().timeIntervalSince1970)
-        let signature = try await signer.sign(message(kind: request.kind, nonce: request.nonce, ts: ts,
+        let signature = try await signer.sign(MacPasswordWire.message(kind: request.kind, nonce: request.nonce, ts: ts,
                                                       context: request.context), auth: auth)
         try await api.macPasswordAnswer(id: request.id, decision: "allow", ts: ts,
                                         signature: signature.base64EncodedString())

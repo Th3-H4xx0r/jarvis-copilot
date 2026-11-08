@@ -174,8 +174,8 @@ final class AgentsMacPowerTests: XCTestCase {
     // MARK: the signed yes
 
     func testSignedMessageBytes() {
-        // the same bytes the Mac's ApprovalVerifier.message builds (MacPasswordTests.testMessageFormat)
-        let data = MacPasswordApproval.message(kind: "sudo", nonce: "abc123", ts: 1_700_000_000, context: "hi")
+        // the same bytes the Mac checks (MacPasswordTests.testMessageFormat)
+        let data = MacPasswordWire.message(kind: "sudo", nonce: "abc123", ts: 1_700_000_000, context: "hi")
         XCTAssertEqual(String(decoding: data, as: UTF8.self),
                        "jarvis-mac-password|sudo|abc123|1700000000|8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
     }
@@ -228,7 +228,7 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(body["signature"] as? String, Data([0x30, 0x01, 0x02]).base64EncodedString())
         let ts = try XCTUnwrap(body["ts"] as? Int)
         XCTAssertGreaterThanOrEqual(ts, before)
-        XCTAssertEqual(signer.signed, MacPasswordApproval.message(kind: "sudo", nonce: "abc123", ts: ts,
+        XCTAssertEqual(signer.signed, MacPasswordWire.message(kind: "sudo", nonce: "abc123", ts: ts,
                                                                   context: request.context))
     }
 

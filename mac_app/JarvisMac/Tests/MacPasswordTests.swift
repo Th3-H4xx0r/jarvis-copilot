@@ -12,13 +12,13 @@ final class MacPasswordTests: XCTestCase {
 
     private func sign(_ kind: String, _ nonce: String, _ ts: Int, with k: P256.Signing.PrivateKey? = nil,
                       context: String? = nil) -> String {
-        let msg = ApprovalVerifier.message(kind: kind, nonce: nonce, ts: ts, context: context ?? ctx)
+        let msg = MacPasswordWire.message(kind: kind, nonce: nonce, ts: ts, context: context ?? ctx)
         return try! (k ?? key).signature(for: msg).derRepresentation.base64EncodedString()
     }
 
     func testMessageFormat() {
         // sha256("hi") = 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
-        XCTAssertEqual(String(data: ApprovalVerifier.message(kind: "sudo", nonce: "abc123", ts: 1_700_000_000,
+        XCTAssertEqual(String(data: MacPasswordWire.message(kind: "sudo", nonce: "abc123", ts: 1_700_000_000,
                                                              context: "hi"), encoding: .utf8),
                        "jarvis-mac-password|sudo|abc123|1700000000|8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
     }
