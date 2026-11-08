@@ -692,6 +692,21 @@ def _resolve_runtime_agent_kwargs() -> dict:
     return _runtime_agent_kwargs(runtime)
 
 
+async def _await_stream_task(task: "asyncio.Task", timeout: float = 5.0) -> None:
+    """Give a stream consumer task ``timeout`` seconds to finish its final
+    edit, then cancel it."""
+    try:
+        await asyncio.wait_for(task, timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    except Exception as e:
+        logger.debug("Stream consumer task failed: %s", e)
+
+
 def _runtime_agent_kwargs(runtime: dict) -> dict:
     """The AIAgent credential kwargs carried by a resolved runtime provider."""
     return {
@@ -9783,7 +9798,7 @@ class GatewayRunner:
         args = (event.get_command_args() or "").strip()
         lower = args.lower()
 
-        mgr, session_entry = self._get_goal_manager_for_event(event)
+        mgr, _ = self._get_goal_manager_for_event(event)
         if mgr is None:
             return "Goals unavailable on this session."
 
@@ -12966,12 +12981,23 @@ class GatewayRunner:
                 await self._send_update_notification()
             return
 
-        def _strip_ansi(text: str) -> str:
-            return re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
+        from tools.ansi_strip import strip_ansi
 
         bytes_sent = 0
         last_stream_time = loop.time()
         buffer = ""
+
+        def _read_new_output() -> None:
+            nonlocal buffer, bytes_sent
+            if not output_path.exists():
+                return
+            try:
+                content = output_path.read_text()
+            except OSError:
+                return
+            if len(content) > bytes_sent:
+                buffer += content[bytes_sent:]
+                bytes_sent = len(content)
 
         async def _flush_buffer() -> None:
             """Send buffered output to the user."""
@@ -12980,7 +13006,7 @@ class GatewayRunner:
                 buffer = ""
                 return
             # Chunk to fit message limits (Telegram: 4096, others: generous)
-            clean = _strip_ansi(buffer).strip()
+            clean = strip_ansi(buffer).strip()
             buffer = ""
             last_stream_time = loop.time()
             if not clean:
@@ -12997,15 +13023,7 @@ class GatewayRunner:
         while loop.time() < deadline:
             # Check for completion
             if exit_code_path.exists():
-                # Read any remaining output
-                if output_path.exists():
-                    try:
-                        content = output_path.read_text()
-                        if len(content) > bytes_sent:
-                            buffer += content[bytes_sent:]
-                            bytes_sent = len(content)
-                    except OSError:
-                        pass
+                _read_new_output()
                 await _flush_buffer()
 
                 # Send final status
@@ -13032,15 +13050,7 @@ class GatewayRunner:
                 self._update_prompt_pending.pop(session_key, None)
                 return
 
-            # Check for new output
-            if output_path.exists():
-                try:
-                    content = output_path.read_text()
-                    if len(content) > bytes_sent:
-                        buffer += content[bytes_sent:]
-                        bytes_sent = len(content)
-                except OSError:
-                    pass
+            _read_new_output()
 
             # Flush buffer periodically
             if buffer.strip() and (loop.time() - last_stream_time) >= stream_interval:
@@ -14506,10 +14516,7 @@ class GatewayRunner:
             if _stream_consumer:
                 _stream_consumer.finish()
             if stream_task:
-                try:
-                    await asyncio.wait_for(stream_task, timeout=5.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    stream_task.cancel()
+                await _await_stream_task(stream_task)
 
         _elapsed = time.time() - _start
         if not _run_still_current():
@@ -16303,16 +16310,7 @@ class GatewayRunner:
                     # Skip if streaming already delivered it.
                     _sc = stream_consumer_holder[0]
                     if _sc and stream_task:
-                        try:
-                            await asyncio.wait_for(stream_task, timeout=5.0)
-                        except (asyncio.TimeoutError, asyncio.CancelledError):
-                            stream_task.cancel()
-                            try:
-                                await stream_task
-                            except asyncio.CancelledError:
-                                pass
-                        except Exception as e:
-                            logger.debug("Stream consumer wait before queued message failed: %s", e)
+                        await _await_stream_task(stream_task)
                     _previewed = bool(result.get("response_previewed"))
                     _already_streamed = bool(
                         (_sc and getattr(_sc, "final_response_sent", False))
@@ -16425,14 +16423,7 @@ class GatewayRunner:
 
             # Wait for stream consumer to finish its final edit
             if stream_task:
-                try:
-                    await asyncio.wait_for(stream_task, timeout=5.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    stream_task.cancel()
-                    try:
-                        await stream_task
-                    except asyncio.CancelledError:
-                        pass
+                await _await_stream_task(stream_task)
             
             # Clean up tracking
             tracking_task.cancel()
