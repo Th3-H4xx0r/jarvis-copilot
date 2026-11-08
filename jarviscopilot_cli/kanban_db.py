@@ -2223,13 +2223,10 @@ def _end_run(
     existed (e.g. a CLI user calling ``hermes kanban complete`` on a
     task that was never claimed).
     """
-    now = int(time.time())
-    row = conn.execute(
-        "SELECT current_run_id FROM tasks WHERE id = ?", (task_id,),
-    ).fetchone()
-    if not row or not row["current_run_id"]:
+    run_id = _current_run_id(conn, task_id)
+    if run_id is None:
         return None
-    run_id = int(row["current_run_id"])
+    now = int(time.time())
     conn.execute(
         """
         UPDATE task_runs
