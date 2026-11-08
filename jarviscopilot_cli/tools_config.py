@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 
 from jarviscopilot_cli.config import (
@@ -1587,27 +1587,31 @@ def _configure_toolset(ts_key: str, config: dict):
         _configure_simple_requirements(ts_key)
 
 
-def _plugin_image_gen_providers() -> list[dict]:
-    """Build picker-row dicts from plugin-registered image gen providers.
+def _plugin_rows(registry_module: str, markers: Callable[[str], dict]) -> list[dict]:
+    """Build picker-row dicts from the providers a plugin registry holds.
 
-    Each returned dict looks like a regular ``TOOL_CATEGORIES`` provider
-    row but carries an ``image_gen_plugin_name`` marker so downstream
-    code (config writing, model picker) knows to route through the
-    plugin registry. Every image-gen backend is a plugin now — there
-    are no hardcoded rows left in ``TOOL_CATEGORIES["image_gen"]`` for
-    this function to dedupe against (see issue #26241).
+    ``registry_module`` exposes ``list_providers()``; each provider's
+    ``get_setup_schema()`` supplies ``name`` / ``badge`` / ``tag`` /
+    ``env_vars`` / optional ``post_setup``, and ``markers(provider.name)``
+    adds the category's routing fields.  Providers without a name or a
+    usable schema are skipped; a registry that fails to load yields ``[]``.
     """
     try:
-        from agent.image_gen_registry import list_providers
+        import importlib
+
         from jarviscopilot_cli.plugins import _ensure_plugins_discovered
 
+        registry = importlib.import_module(registry_module)
         _ensure_plugins_discovered()
-        providers = list_providers()
+        providers = registry.list_providers()
     except Exception:
         return []
 
     rows: list[dict] = []
     for provider in providers:
+        name = getattr(provider, "name", None)
+        if not name:
+            continue
         try:
             schema = provider.get_setup_schema()
         except Exception:
@@ -1619,163 +1623,54 @@ def _plugin_image_gen_providers() -> list[dict]:
             "badge": schema.get("badge", ""),
             "tag": schema.get("tag", ""),
             "env_vars": schema.get("env_vars", []),
-            "image_gen_plugin_name": provider.name,
+            **markers(name),
         }
         if schema.get("post_setup"):
             row["post_setup"] = schema["post_setup"]
         rows.append(row)
     return rows
+
+
+def _plugin_image_gen_providers() -> list[dict]:
+    """Image Generation rows; every image-gen backend is a plugin (#26241).
+
+    ``image_gen_plugin_name`` tells config writing and the model picker to
+    route through the plugin registry.
+    """
+    return _plugin_rows("agent.image_gen_registry", lambda n: {"image_gen_plugin_name": n})
 
 
 def _plugin_video_gen_providers() -> list[dict]:
-    """Build picker-row dicts from plugin-registered video gen providers.
-
-    Mirrors ``_plugin_image_gen_providers`` exactly — every video backend
-    is a plugin, so this function is the *only* source of provider rows
-    for the Video Generation category. The hardcoded ``TOOL_CATEGORIES``
-    entry for ``video_gen`` keeps an empty providers list.
-    """
-    try:
-        from agent.video_gen_registry import list_providers
-        from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-        _ensure_plugins_discovered()
-        providers = list_providers()
-    except Exception:
-        return []
-
-    rows: list[dict] = []
-    for provider in providers:
-        try:
-            schema = provider.get_setup_schema()
-        except Exception:
-            continue
-        if not isinstance(schema, dict):
-            continue
-        row = {
-            "name": schema.get("name", provider.display_name),
-            "badge": schema.get("badge", ""),
-            "tag": schema.get("tag", ""),
-            "env_vars": schema.get("env_vars", []),
-            "video_gen_plugin_name": provider.name,
-        }
-        if schema.get("post_setup"):
-            row["post_setup"] = schema["post_setup"]
-        rows.append(row)
-    return rows
+    """Video Generation rows; ``TOOL_CATEGORIES["video_gen"]`` has none of its own."""
+    return _plugin_rows("agent.video_gen_registry", lambda n: {"video_gen_plugin_name": n})
 
 
-# Mirror of _plugin_image_gen_providers for web search backends. Surfaces
-# every plugin-registered web provider so it appears in the
-# "Web Search & Extract" picker. All seven providers (brave-free, ddgs,
-# searxng, exa, parallel, tavily, firecrawl) live as plugins after
-# PR #25182 — this helper is the sole source of truth for the category's
-# provider rows. The hardcoded entries that used to drive the category
-# were deleted in the same PR; only the two non-provider UX rows
-# ("Nous Subscription" managed-gateway entry, "Firecrawl Self-Hosted")
-# remain in TOOL_CATEGORIES because they describe alternative *setup
-# flows* for the firecrawl backend rather than distinct providers.
 def _plugin_web_search_providers() -> list[dict]:
-    """Build picker-row dicts from plugin-registered web search providers.
+    """Web Search & Extract rows; all web providers are plugins (PR #25182).
 
-    Each returned dict is a regular ``TOOL_CATEGORIES`` provider row. It
-    populates both ``web_backend`` (legacy field consumed by setup +
-    selection helpers) and ``web_search_plugin_name`` (informational
-    marker) so the picker behaves identically whether a provider is
-    hardcoded or plugin-registered.
-
-    After PR #25182, all seven web providers (brave-free, ddgs, searxng,
-    exa, parallel, tavily, firecrawl) are plugins; this helper is the sole
-    source of provider rows for the Web Search & Extract category.
+    ``web_backend`` is the legacy field setup and selection read;
+    ``web_search_plugin_name`` is informational.  The "Nous Subscription"
+    and "Firecrawl Self-Hosted" rows stay in TOOL_CATEGORIES because they
+    are setup flows, not providers.
     """
-    try:
-        from agent.web_search_registry import list_providers as _list_web_providers
-        from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-        _ensure_plugins_discovered()
-        providers = _list_web_providers()
-    except Exception:
-        return []
-
-    rows: list[dict] = []
-    for provider in providers:
-        name = getattr(provider, "name", None)
-        if not name:
-            continue
-        try:
-            schema = provider.get_setup_schema()
-        except Exception:
-            continue
-        if not isinstance(schema, dict):
-            continue
-        row = {
-            "name": schema.get("name", provider.display_name),
-            "badge": schema.get("badge", ""),
-            "tag": schema.get("tag", ""),
-            "env_vars": schema.get("env_vars", []),
-            "web_backend": name,
-            "web_search_plugin_name": name,
-        }
-        # Optional pass-through fields the schema can opt into.
-        if schema.get("post_setup"):
-            row["post_setup"] = schema["post_setup"]
-        rows.append(row)
-    return rows
+    return _plugin_rows(
+        "agent.web_search_registry",
+        lambda n: {"web_backend": n, "web_search_plugin_name": n},
+    )
 
 
-# Mirror of _plugin_web_search_providers for cloud browser backends. After
-# PR #25214, Browserbase / Browser Use / Firecrawl live as plugins under
-# plugins/browser/<vendor>/; this helper is the sole source of provider rows
-# for those three in the "Browser Automation" picker. The hardcoded
-# ``TOOL_CATEGORIES["browser"]`` entries that drove the category before
-# were deleted in the same PR; only non-provider UX setup-flow rows remain
-# ("Nous Subscription", "Local Browser", "Camofox") — see the comment block
-# in ``TOOL_CATEGORIES["browser"]`` for why each one stays hardcoded.
 def _plugin_browser_providers() -> list[dict]:
-    """Build picker-row dicts from plugin-registered cloud browser providers.
+    """Browser Automation cloud rows (Browserbase, Browser Use, Firecrawl; PR #25214).
 
-    Each returned dict mirrors the legacy ``TOOL_CATEGORIES["browser"]``
-    schema (``name`` / ``badge`` / ``tag`` / ``env_vars`` /
-    ``browser_provider`` / ``post_setup``) so the picker behaves identically
-    whether a provider was hardcoded or plugin-registered.
-
-    Populates ``browser_provider`` (the legacy config key written to
-    ``browser.cloud_provider``) and a ``browser_plugin_name`` marker so
-    setup / write paths can route through the registry when they want to.
+    ``browser_provider`` is the legacy key written to
+    ``browser.cloud_provider``; ``browser_plugin_name`` marks the row as
+    registry-backed.  "Nous Subscription", "Local Browser" and "Camofox"
+    stay hardcoded in TOOL_CATEGORIES as setup flows.
     """
-    try:
-        from agent.browser_registry import list_providers as _list_browser_providers
-        from jarviscopilot_cli.plugins import _ensure_plugins_discovered
-
-        _ensure_plugins_discovered()
-        providers = _list_browser_providers()
-    except Exception:
-        return []
-
-    rows: list[dict] = []
-    for provider in providers:
-        name = getattr(provider, "name", None)
-        if not name:
-            continue
-        try:
-            schema = provider.get_setup_schema()
-        except Exception:
-            continue
-        if not isinstance(schema, dict):
-            continue
-        row = {
-            "name": schema.get("name", provider.display_name),
-            "badge": schema.get("badge", ""),
-            "tag": schema.get("tag", ""),
-            "env_vars": schema.get("env_vars", []),
-            "browser_provider": name,
-            "browser_plugin_name": name,
-        }
-        # Pass-through optional fields the schema can opt into.
-        if schema.get("post_setup"):
-            row["post_setup"] = schema["post_setup"]
-        rows.append(row)
-    return rows
+    return _plugin_rows(
+        "agent.browser_registry",
+        lambda n: {"browser_provider": n, "browser_plugin_name": n},
+    )
 
 
 def _visible_providers(cat: dict, config: dict) -> list[dict]:
