@@ -394,6 +394,81 @@ _SSL_TRANSIENT_PATTERNS = [
 ]
 
 
+# ── Message-pattern rules ───────────────────────────────────────────────
+
+# What a pattern-matched failure means for the retry loop.  Auth errors are
+# not retried directly — the credential is invalid — so the caller rotates
+# the credential or falls back instead.
+_PATTERN_OUTCOMES: Dict[FailoverReason, Dict[str, bool]] = {
+    FailoverReason.payload_too_large: {"retryable": True, "should_compress": True},
+    FailoverReason.multimodal_tool_content_unsupported: {"retryable": True},
+    FailoverReason.image_too_large: {"retryable": True},
+    FailoverReason.context_overflow: {"retryable": True, "should_compress": True},
+    FailoverReason.overloaded: {"retryable": True},
+    FailoverReason.timeout: {"retryable": True},
+    FailoverReason.provider_policy_blocked: {"retryable": False, "should_fallback": False},
+    FailoverReason.model_not_found: {"retryable": False, "should_fallback": True},
+    FailoverReason.rate_limit: {
+        "retryable": True, "should_rotate_credential": True, "should_fallback": True,
+    },
+    FailoverReason.billing: {
+        "retryable": False, "should_rotate_credential": True, "should_fallback": True,
+    },
+    FailoverReason.auth: {
+        "retryable": False, "should_rotate_credential": True, "should_fallback": True,
+    },
+}
+
+# Order matters in both lists:
+# - multimodal tool content before image_too_large (different recovery:
+#   strip tool images and remember the model can't take them), and both
+#   before context_overflow ("exceeds" + "image" trips both; image-shrink is
+#   the cheaper recovery);
+# - provider policy-block (aggregator guardrail) before model_not_found so it
+#   isn't mis-labelled as a missing model.
+_400_RULES = (
+    # Some providers return model-not-found, rate-limit or billing errors as
+    # 400 instead of 404/429/402.
+    (_MULTIMODAL_TOOL_CONTENT_PATTERNS, FailoverReason.multimodal_tool_content_unsupported),
+    (_IMAGE_TOO_LARGE_PATTERNS, FailoverReason.image_too_large),
+    (_CONTEXT_OVERFLOW_PATTERNS, FailoverReason.context_overflow),
+    (_PROVIDER_POLICY_BLOCKED_PATTERNS, FailoverReason.provider_policy_blocked),
+    (_MODEL_NOT_FOUND_PATTERNS, FailoverReason.model_not_found),
+    (_RATE_LIMIT_PATTERNS, FailoverReason.rate_limit),
+    (_BILLING_PATTERNS, FailoverReason.billing),
+)
+
+# Applied when no status code is available.  Overload (503/529) can surface
+# only in message text: the local claude-code shim raises a plain
+# RuntimeError like "... API Error: 529 Overloaded ..." with no .status_code.
+_MESSAGE_RULES_BEFORE_USAGE_LIMIT = (
+    (_PAYLOAD_TOO_LARGE_PATTERNS, FailoverReason.payload_too_large),
+    (_MULTIMODAL_TOOL_CONTENT_PATTERNS, FailoverReason.multimodal_tool_content_unsupported),
+    (_IMAGE_TOO_LARGE_PATTERNS, FailoverReason.image_too_large),
+    (_OVERLOAD_PATTERNS, FailoverReason.overloaded),
+)
+# Timeout patterns catch generic exceptions (e.g. RuntimeError) from local
+# shims or custom providers that wrap a subprocess/HTTP timeout, so the retry
+# loop rebuilds the client instead of treating the turn as an empty response.
+_MESSAGE_RULES = (
+    (_BILLING_PATTERNS, FailoverReason.billing),
+    (_RATE_LIMIT_PATTERNS, FailoverReason.rate_limit),
+    (_CONTEXT_OVERFLOW_PATTERNS, FailoverReason.context_overflow),
+    (_AUTH_PATTERNS, FailoverReason.auth),
+    (_PROVIDER_POLICY_BLOCKED_PATTERNS, FailoverReason.provider_policy_blocked),
+    (_MODEL_NOT_FOUND_PATTERNS, FailoverReason.model_not_found),
+    (_TIMEOUT_MESSAGE_PATTERNS, FailoverReason.timeout),
+)
+
+
+def _match_rules(error_msg: str, rules, result_fn) -> Optional[ClassifiedError]:
+    """Classify by the first rule whose patterns occur in *error_msg*."""
+    for patterns, reason in rules:
+        if any(p in error_msg for p in patterns):
+            return result_fn(reason, **_PATTERN_OUTCOMES[reason])
+    return None
+
+
 # ── Classification pipeline ─────────────────────────────────────────────
 
 def classify_api_error(
@@ -646,12 +721,7 @@ def classify_api_error(
 
     # ── 4. Message pattern matching (no status code) ────────────────
 
-    classified = _classify_by_message(
-        error_msg, error_type,
-        approx_tokens=approx_tokens,
-        context_length=context_length,
-        result_fn=_result,
-    )
+    classified = _classify_by_message(error_msg, _result)
     if classified is not None:
         return classified
 
@@ -865,67 +935,9 @@ def _classify_400(
     result_fn,
 ) -> ClassifiedError:
     """Classify 400 Bad Request — context overflow, format error, or generic."""
-
-    # Multimodal tool content rejected from 400.  Must be checked BEFORE
-    # image_too_large because the recovery is different (strip image parts
-    # from tool messages, mark the model as no-list-tool-content for the
-    # rest of the session) and BEFORE context_overflow because some of the
-    # patterns ("text is not set") are ambiguous in isolation but become
-    # specific when combined with a 400 on a request known to contain
-    # multimodal tool content.
-    if any(p in error_msg for p in _MULTIMODAL_TOOL_CONTENT_PATTERNS):
-        return result_fn(
-            FailoverReason.multimodal_tool_content_unsupported,
-            retryable=True,
-        )
-
-    # Image-too-large from 400 (Anthropic's 5 MB per-image check fires this way).
-    # Must be checked BEFORE context_overflow because messages can trip both
-    # patterns ("exceeds" + "image") and image-shrink is a cheaper recovery.
-    if any(p in error_msg for p in _IMAGE_TOO_LARGE_PATTERNS):
-        return result_fn(
-            FailoverReason.image_too_large,
-            retryable=True,
-        )
-
-    # Context overflow from 400
-    if any(p in error_msg for p in _CONTEXT_OVERFLOW_PATTERNS):
-        return result_fn(
-            FailoverReason.context_overflow,
-            retryable=True,
-            should_compress=True,
-        )
-
-    # Some providers return model-not-found as 400 instead of 404 (e.g. OpenRouter).
-    if any(p in error_msg for p in _PROVIDER_POLICY_BLOCKED_PATTERNS):
-        return result_fn(
-            FailoverReason.provider_policy_blocked,
-            retryable=False,
-            should_fallback=False,
-        )
-    if any(p in error_msg for p in _MODEL_NOT_FOUND_PATTERNS):
-        return result_fn(
-            FailoverReason.model_not_found,
-            retryable=False,
-            should_fallback=True,
-        )
-
-    # Some providers return rate limit / billing errors as 400 instead of 429/402.
-    # Check these patterns before falling through to format_error.
-    if any(p in error_msg for p in _RATE_LIMIT_PATTERNS):
-        return result_fn(
-            FailoverReason.rate_limit,
-            retryable=True,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
-    if any(p in error_msg for p in _BILLING_PATTERNS):
-        return result_fn(
-            FailoverReason.billing,
-            retryable=False,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
+    classified = _match_rules(error_msg, _400_RULES, result_fn)
+    if classified is not None:
+        return classified
 
     # Generic 400 + large session → probable context overflow
     # Anthropic sometimes returns a bare "Error" message when context is too large
@@ -1002,133 +1014,22 @@ def _classify_by_error_code(
 
 # ── Message pattern classification ──────────────────────────────────────
 
-def _classify_by_message(
-    error_msg: str,
-    error_type: str,
-    *,
-    approx_tokens: int,
-    context_length: int,
-    result_fn,
-) -> Optional[ClassifiedError]:
+def _classify_by_message(error_msg: str, result_fn) -> Optional[ClassifiedError]:
     """Classify based on error message patterns when no status code is available."""
-
-    # Payload-too-large patterns (from message text when no status_code)
-    if any(p in error_msg for p in _PAYLOAD_TOO_LARGE_PATTERNS):
-        return result_fn(
-            FailoverReason.payload_too_large,
-            retryable=True,
-            should_compress=True,
-        )
-
-    # Multimodal tool content patterns (from message text when no status_code)
-    if any(p in error_msg for p in _MULTIMODAL_TOOL_CONTENT_PATTERNS):
-        return result_fn(
-            FailoverReason.multimodal_tool_content_unsupported,
-            retryable=True,
-        )
-
-    # Image-too-large patterns (from message text when no status_code)
-    if any(p in error_msg for p in _IMAGE_TOO_LARGE_PATTERNS):
-        return result_fn(
-            FailoverReason.image_too_large,
-            retryable=True,
-        )
-
-    # Overload patterns (HTTP 503/529) surfaced only in message text.  The
-    # local claude-code shim raises a plain RuntimeError whose message is like
-    # "claude-code structured turn failed: ... API Error: 529 Overloaded ..."
-    # with no .status_code, so it never reaches the {503, 529} status path.
-    # Treat as overloaded → retryable so the conversation loop backs off and
-    # retries instead of aborting the worker on a transient claude.ai overload.
-    if any(p in error_msg for p in _OVERLOAD_PATTERNS):
-        return result_fn(FailoverReason.overloaded, retryable=True)
+    classified = _match_rules(error_msg, _MESSAGE_RULES_BEFORE_USAGE_LIMIT, result_fn)
+    if classified is not None:
+        return classified
 
     # Usage-limit patterns need the same disambiguation as 402: some providers
     # surface "usage limit" errors without an HTTP status code.  A transient
     # signal ("try again", "resets at", …) means it's a periodic quota, not
     # billing exhaustion.
-    has_usage_limit = any(p in error_msg for p in _USAGE_LIMIT_PATTERNS)
-    if has_usage_limit:
-        has_transient_signal = any(p in error_msg for p in _USAGE_LIMIT_TRANSIENT_SIGNALS)
-        if has_transient_signal:
-            return result_fn(
-                FailoverReason.rate_limit,
-                retryable=True,
-                should_rotate_credential=True,
-                should_fallback=True,
-            )
-        return result_fn(
-            FailoverReason.billing,
-            retryable=False,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
+    if any(p in error_msg for p in _USAGE_LIMIT_PATTERNS):
+        transient = any(p in error_msg for p in _USAGE_LIMIT_TRANSIENT_SIGNALS)
+        reason = FailoverReason.rate_limit if transient else FailoverReason.billing
+        return result_fn(reason, **_PATTERN_OUTCOMES[reason])
 
-    # Billing patterns
-    if any(p in error_msg for p in _BILLING_PATTERNS):
-        return result_fn(
-            FailoverReason.billing,
-            retryable=False,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
-
-    # Rate limit patterns
-    if any(p in error_msg for p in _RATE_LIMIT_PATTERNS):
-        return result_fn(
-            FailoverReason.rate_limit,
-            retryable=True,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
-
-    # Context overflow patterns
-    if any(p in error_msg for p in _CONTEXT_OVERFLOW_PATTERNS):
-        return result_fn(
-            FailoverReason.context_overflow,
-            retryable=True,
-            should_compress=True,
-        )
-
-    # Auth patterns
-    # Auth errors should NOT be retried directly — the credential is invalid and
-    # retrying with the same key will always fail.  Set retryable=False so the
-    # caller triggers credential rotation (should_rotate_credential=True) or
-    # provider fallback rather than an immediate retry loop.
-    if any(p in error_msg for p in _AUTH_PATTERNS):
-        return result_fn(
-            FailoverReason.auth,
-            retryable=False,
-            should_rotate_credential=True,
-            should_fallback=True,
-        )
-
-    # Provider policy-block (aggregator-side guardrail) — check before
-    # model_not_found so we don't mis-label as a missing model.
-    if any(p in error_msg for p in _PROVIDER_POLICY_BLOCKED_PATTERNS):
-        return result_fn(
-            FailoverReason.provider_policy_blocked,
-            retryable=False,
-            should_fallback=False,
-        )
-
-    # Model not found patterns
-    if any(p in error_msg for p in _MODEL_NOT_FOUND_PATTERNS):
-        return result_fn(
-            FailoverReason.model_not_found,
-            retryable=False,
-            should_fallback=True,
-        )
-
-    # Timeout message patterns — generic exception types (e.g. RuntimeError)
-    # raised by local shims or custom providers that internally wrap a
-    # subprocess/HTTP timeout.  Classified as transport timeout so the retry
-    # loop rebuilds the client instead of treating the turn as an empty
-    # model response.
-    if any(p in error_msg for p in _TIMEOUT_MESSAGE_PATTERNS):
-        return result_fn(FailoverReason.timeout, retryable=True)
-
-    return None
+    return _match_rules(error_msg, _MESSAGE_RULES, result_fn)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
