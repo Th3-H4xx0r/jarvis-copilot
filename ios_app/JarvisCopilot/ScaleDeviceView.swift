@@ -3,7 +3,7 @@ import Charts
 
 struct ScaleDeviceView: View {
     @ObservedObject var manager: ScaleManager
-    let scale: DiscoveredScale
+    let scale: DiscoveredWearable
     @StateObject private var history = ScaleHistoryStore.shared
     @AppStorage("scaleDisplayUnit") private var unit: WeightUnit = .kilograms
     @State private var showingSettings = false
@@ -101,7 +101,7 @@ struct ScaleDeviceView: View {
                            tint: measuring)
                 MetricPill(icon: "dot.radiowaves.left.and.right", label: "Signal",
                            value: scale.rssi == 0 ? "Known" : "\(scale.rssi) dBm",
-                           tint: signalTint)
+                           tint: scale.rssi == 0 ? JcTheme.muted : signalTint(scale.rssi))
                 MetricPill(icon: "person.fill", label: "Profile",
                            value: profile?.name ?? "Me", tint: JcTheme.muted)
             }
@@ -261,9 +261,6 @@ struct ScaleDeviceView: View {
         if observation != nil { return measuring }
         return connected ? accent : JcTheme.muted
     }
-    private var signalTint: Color {
-        switch scale.rssi { case 0: return JcTheme.muted; case (-68)...: return green; case (-82)..<(-68): return JcTheme.amber; default: return JcTheme.danger }
-    }
     private var deltaText: String? {
         guard readings.count >= 2 else { return nil }
         let delta = readings[0].weightKg - readings[1].weightKg
@@ -281,7 +278,7 @@ struct ScaleDeviceView: View {
 /// bottle's Settings page and keeping the live scale view focused on weighing.
 private struct ScaleSettingsView: View {
     @ObservedObject var manager: ScaleManager
-    let scale: DiscoveredScale
+    let scale: DiscoveredWearable
     @StateObject private var bridge = BridgeClient.shared
     @StateObject private var history = ScaleHistoryStore.shared
     @AppStorage("scaleDisplayUnit") private var unit: WeightUnit = .kilograms

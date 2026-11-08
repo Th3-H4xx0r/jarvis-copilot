@@ -26,10 +26,11 @@ struct DiscoveredWearable: Identifiable, Equatable {
     static func == (a: DiscoveredWearable, b: DiscoveredWearable) -> Bool { a.id == b.id }
 }
 
-/// The Bluetooth link every on-demand wearable shares (R12, X5, band): one central, scanning,
-/// connecting, a watchdog on service discovery, reconnects, state restoration, and the
-/// background/foreground rules. A device subclass says what it is (its services, how its
-/// advertisement reads, its fallback name) and does its own setup once services are found.
+/// The Bluetooth link every wearable shares (R12, X5, band, bottle, scale): one central,
+/// scanning, connecting, a watchdog on service discovery, reconnects, state restoration, the
+/// background/foreground rules, and its listing with Jarvis. A device subclass says what it is
+/// (its services, how its advertisement reads, its fallback name, its Jarvis face) and does its
+/// own setup once services are found.
 ///
 /// Subclasses declare `CBPeripheralDelegate` themselves: an optional Objective-C callback is
 /// only exposed to CoreBluetooth from the type that declares the conformance.
@@ -41,6 +42,11 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     @Published var connected: DiscoveredWearable?
     /// Devices forgotten this session: their page must not reconnect them on the way out.
     @Published var forgottenIDs: Set<UUID> = []
+    /// The scanner's "Only Jarvis devices": off, a device's subclass may also list look-alikes
+    /// (any peripheral with its service, any named one).
+    @Published var strictNameMatch = true {
+        didSet { if oldValue != strictNameMatch, connected == nil { startScan() } }
+    }
 
     /// True while the device's own screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {
@@ -52,6 +58,10 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     }
 
     let linkLogName: String
+    /// `WearableKeepAlive` key: what the device is remembered, kept alive and shared under.
+    let identityKey: String
+    /// How the device is listed with Jarvis.
+    let model: String
     let lastPeripheralKey: String
     let fallbackName: String
     /// The service a connected device is found by (a held device doesn't advertise).
@@ -71,9 +81,15 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     var wasConnectedBeforeBackground: DiscoveredWearable?
     var isBackgrounded = false
 
-    init(logName: String, restoreIdentifier: String, lastPeripheralKey: String, fallbackName: String,
+    /// The device's skills, made the first time it is published and kept while its link is down.
+    private(set) var exposedDevice: (any WearableDevice)?
+
+    init(logName: String, identity: String, model: String, restoreIdentifier: String,
+         lastPeripheralKey: String, fallbackName: String,
          primaryService: CBUUID, servicesToDiscover: [CBUUID], discoveryFailure: String) {
         self.linkLogName = logName
+        self.identityKey = identity
+        self.model = model
         self.lastPeripheralKey = lastPeripheralKey
         self.fallbackName = fallbackName
         self.primaryService = primaryService
@@ -121,6 +137,15 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
     func foregroundWhileReady() {}
 
     func dropIdleLink() async { disconnect() }
+
+    /// The device's Jarvis face: the skills it offers.
+    func makeExposedDevice() -> any WearableDevice { preconditionFailure("\(Self.self) has no Jarvis device") }
+
+    /// Whether a device in the list is the one just heard. A device that changes its address
+    /// (the scale) is matched by name too, so it stays one card.
+    func isSameDevice(_ listed: DiscoveredWearable, as p: CBPeripheral, name: String) -> Bool {
+        listed.id == p.identifier
+    }
 
     private var peripheralDelegate: CBPeripheralDelegate? { self as? CBPeripheralDelegate }
 
@@ -243,16 +268,55 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
         }
     }
 
-    /// Drops the link and its link-level traces: this session won't reconnect the device, and
-    /// the next launch won't reopen it. The device's own history stays.
-    func forgetLink(identity: String) {
+    /// The link is usable: the discovery watchdog stops.
+    func markReady() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        discoveryAttempts = 0
+        state = .ready
+    }
+
+    /// Drops the link and its link-level traces, and takes the device off Jarvis: this session
+    /// won't reconnect it, and the next launch won't reopen it. The device's own history stays.
+    func forgetLink() {
         if let id = connected?.id ?? peripheral?.identifier {
             forgottenIDs.insert(id)
             discovered.removeAll { $0.id == id }
         }
         disconnect()
-        WearableIdentity.forget(identity)
+        WearableIdentity.forget(identityKey)
         UserDefaults.standard.removeObject(forKey: lastPeripheralKey)
+        if let exposedDevice { DeviceRegistry.shared.remove(deviceID: exposedDevice.deviceID) }
+        exposedDevice = nil
+    }
+
+    // MARK: Jarvis
+
+    var exposedDeviceID: String? { exposedDevice?.deviceID }
+
+    /// `p` is this device (proven, where the device has to prove it): it is the one reopened
+    /// next launch, and it is listed with Jarvis.
+    func adopt(_ p: CBPeripheral) {
+        UserDefaults.standard.set(p.identifier.uuidString, forKey: lastPeripheralKey)
+        guard state == .ready else { return }
+        if exposedDevice == nil { exposedDevice = makeExposedDevice() }
+        refreshRegistryMembership()
+    }
+
+    /// Adds or removes the device to match its "Share with Jarvis" setting.
+    func refreshRegistryMembership() {
+        guard let exposedDevice else { return }
+        DeviceRegistry.shared.syncMembership(of: exposedDevice, identity: identityKey, model: model)
+    }
+
+    /// Lists a remembered device with no live link: `invoke` reconnects on demand, so Jarvis
+    /// keeps its skills between launch and the first connect.
+    func publishRemembered() {
+        if exposedDevice == nil {
+            guard WearableIdentity.remembered(identityKey) != nil else { return }
+            exposedDevice = makeExposedDevice()
+        }
+        refreshRegistryMembership()
     }
 
     // MARK: Foreground / background
@@ -323,9 +387,10 @@ class BLEWearableManager: NSObject, ObservableObject, OnDemandWearable, CBCentra
             let isLastUsed = p.identifier.uuidString == UserDefaults.standard.string(forKey: self.lastPeripheralKey)
             guard isLastUsed || self.matchesAdvertisement(name: name, services: services, manufacturer: maker)
             else { return }
-            if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
-                self.discovered[i].rssi = rssi
-                if !name.isEmpty { self.discovered[i].name = name }
+            if let i = self.discovered.firstIndex(where: { self.isSameDevice($0, as: p, name: name) }) {
+                self.discovered[i] = DiscoveredWearable(id: p.identifier,
+                                                        name: name.isEmpty ? self.discovered[i].name : name,
+                                                        rssi: rssi, peripheral: p)
             } else {
                 self.discovered.append(DiscoveredWearable(id: p.identifier, name: self.displayName(name),
                                                       rssi: rssi, peripheral: p))

@@ -831,19 +831,11 @@ struct Esp32Card: View {
                 DisconnectedPill()
             } else {
                 MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                           value: "\(board.rssi) dBm", tint: signalTint)
+                           value: "\(board.rssi) dBm", tint: signalTint(board.rssi))
             }
             if board.isOnWifi && board.rssi != 0 && activeLink == nil {
                 JcIcon("wifi").font(.caption).foregroundStyle(JcTheme.muted)
             }
-        }
-    }
-
-    private var signalTint: Color {
-        switch board.rssi {
-        case (-68)...:      return JcTheme.success
-        case (-82)..<(-68): return .orange
-        default:            return JcTheme.danger
         }
     }
 }

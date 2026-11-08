@@ -20,11 +20,6 @@ final class BottleManager: BLEWearableManager {
     @Published private(set) var autoCleanSlots: [TimeSlot] = []
     @Published private(set) var traffic: [TrafficEntry] = []
 
-    /// Set false to see every bottle-like peripheral, not just name-matched ones.
-    @Published var strictNameMatch = true {
-        didSet { if oldValue != strictNameMatch, connected == nil { startScan() } }
-    }
-
     /// Opt-in continuous polling, for watching traffic while reverse-engineering.
     /// Off by default: an idle connection should generate no traffic at all.
     @Published var liveUpdates = false { didSet { updatePolling() } }
@@ -40,15 +35,12 @@ final class BottleManager: BLEWearableManager {
     private var timeoutTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
 
-    /// The `WearableDevice` face of this bottle, registered while connected so the
-    /// JarvisCopilot bridge can advertise its commands.
-    private var exposedDevice: VsitooS1Pro?
-
     init() {
         // The restore identifier is what actually enables background CoreBluetooth.
         // `UIBackgroundModes: [bluetooth-central]` on its own does nothing — without
         // this, iOS suspends the app on background and drops the connection.
-        super.init(logName: "bottle", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.central",
+        super.init(logName: "bottle", identity: WearableKeepAlive.bottle, model: VsitooS1Pro.model,
+                   restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.central",
                    lastPeripheralKey: "lastConnectedPeripheral", fallbackName: "VSITOO-S1-Pro",
                    primaryService: BottleProtocol.service, servicesToDiscover: [BottleProtocol.service],
                    discoveryFailure: "the bottle never answered — move closer, or toggle Bluetooth")
@@ -75,36 +67,7 @@ final class BottleManager: BLEWearableManager {
         writeChar = nil
     }
 
-    // MARK: Registry
-
-    private func publishToRegistry() {
-        guard state == .ready else { return }
-        if exposedDevice == nil {
-            exposedDevice = VsitooS1Pro(manager: self)
-        }
-        refreshRegistryMembership()
-    }
-
-    /// Adds or removes this bottle from the registry to match its "Share with Jarvis"
-    /// setting. Called on connect and whenever the user flips that toggle.
-    func refreshRegistryMembership() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.bottle,
-                                             model: VsitooS1Pro.model)
-    }
-
-    /// The stable id this bottle is exposed under, for the settings toggle.
-    var exposedDeviceID: String? { exposedDevice?.deviceID }
-
-    /// Register this device's catalogue with no live link: `invoke` reconnects on
-    /// demand, so Jarvis keeps the skills between launch and the first connect.
-    func publishRemembered() {
-        if exposedDevice == nil {
-            guard WearableIdentity.remembered(WearableKeepAlive.bottle) != nil else { return }
-            exposedDevice = VsitooS1Pro(manager: self)
-        }
-        refreshRegistryMembership()
-    }
+    override func makeExposedDevice() -> any WearableDevice { VsitooS1Pro(manager: self) }
 
     // MARK: Sending
 
@@ -261,9 +224,8 @@ extension BottleManager: CBPeripheralDelegate {
                 return
             }
             p.setNotifyValue(true, for: n)
-            self.state = .ready
-            UserDefaults.standard.set(p.identifier.uuidString, forKey: self.lastPeripheralKey)
-            self.publishToRegistry()
+            self.markReady()
+            self.adopt(p)
             // Same opening sequence the app performs.
             self.send([.status, .macAddress, .version, .setClock(Date())])
         }

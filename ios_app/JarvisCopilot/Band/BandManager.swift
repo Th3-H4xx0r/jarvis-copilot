@@ -44,7 +44,6 @@ final class BandManager: BLEWearableManager {
     }
 
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
-    var exposedDeviceID: String? { exposedDevice?.deviceID }
 
     /// True while the band's screen is open: the link stays up whatever Keep Alive says.
     override var screenIsOpen: Bool {
@@ -59,7 +58,6 @@ final class BandManager: BLEWearableManager {
     private var writeCharacteristic: CBCharacteristic?
     /// The ECG waveform channel, subscribed while an ECG runs.
     private var waveCharacteristic: CBCharacteristic?
-    private var exposedDevice: BandDevice?
     /// Backgrounded mid-reading: the link drops once the reading ends.
     private var backgroundDropTask: Task<Void, Never>?
     private var periodicSync: Task<Void, Never>?
@@ -69,7 +67,8 @@ final class BandManager: BLEWearableManager {
     static let lastPeripheralKey = "lastConnectedBandPeripheral"
 
     init() {
-        super.init(logName: "band", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral",
+        super.init(logName: "band", identity: WearableKeepAlive.band, model: BandDevice.model,
+                   restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral",
                    lastPeripheralKey: Self.lastPeripheralKey, fallbackName: BandDevice.fallbackName,
                    primaryService: BandGATT.service, servicesToDiscover: [BandGATT.service, BandGATT.waveService],
                    discoveryFailure: "the band never answered — toggle Bluetooth, or unbind it in its own app")
@@ -274,18 +273,13 @@ final class BandManager: BLEWearableManager {
 
     /// Forgets the band: drops the link and every local trace of it but its history.
     func forget() async {
-        forgetLink(identity: WearableKeepAlive.band)
+        forgetLink()
         session.forgetIdentity()
-        if let device = exposedDevice { DeviceRegistry.shared.remove(deviceID: device.deviceID) }
-        exposedDevice = nil
     }
 
     private func becomeReady(_ p: CBPeripheral) {
         guard state != .ready else { return }
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        discoveryAttempts = 0
-        state = .ready
+        markReady()
         setupTask?.cancel()
         setupTask = Task { [weak self] in
             guard let self else { return }
@@ -313,8 +307,7 @@ final class BandManager: BLEWearableManager {
             // An app sport nobody is tracking (the app was closed mid-workout) is ended, so the
             // band isn't left recording and the next start isn't refused as busy.
             if !self.holdsLinkForWorkout { _ = await self.session.sport(.stop) }
-            UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastPeripheralKey)
-            self.publishToRegistry()
+            self.adopt(p)
             self.setupTask = nil
             guard self.state == .ready else { return }
             // Only while someone is looking: a skill or a workout that connected on demand
@@ -328,25 +321,7 @@ final class BandManager: BLEWearableManager {
 
     // MARK: Registry
 
-    private func publishToRegistry() {
-        guard state == .ready else { return }
-        if exposedDevice == nil { exposedDevice = BandDevice(backend: self) }
-        refreshRegistryMembership()
-    }
-
-    func refreshRegistryMembership() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.band, model: BandDevice.model)
-    }
-
-    /// Registers the catalogue with no live link; `invoke` reconnects on demand.
-    func publishRemembered() {
-        if exposedDevice == nil {
-            guard WearableIdentity.remembered(WearableKeepAlive.band) != nil else { return }
-            exposedDevice = BandDevice(backend: self)
-        }
-        refreshRegistryMembership()
-    }
+    override func makeExposedDevice() -> any WearableDevice { BandDevice(backend: self) }
 
     // MARK: Foreground / background
 

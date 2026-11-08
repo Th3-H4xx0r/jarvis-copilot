@@ -241,13 +241,10 @@ final class WearablesHub: ObservableObject {
             state: band.$state.eraseToAnyPublisher()))
         band.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.band) ?? false }
         band.workouts = workout
-        stateWatch = Publishers.MergeMany(bottle.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          scale.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          esp32.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          ring.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          x5.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          band.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-                                          glasses.objectWillChange.map { _ in () }.eraseToAnyPublisher())
+        let changes = bluetoothWearables.map { $0.manager.objectWillChange.map { _ in () }.eraseToAnyPublisher() }
+            + [esp32.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+               glasses.objectWillChange.map { _ in () }.eraseToAnyPublisher()]
+        stateWatch = Publishers.MergeMany(changes)
             // A manager may publish off the main thread (a Bluetooth callback): hop first.
             .receive(on: DispatchQueue.main)
             .sink { _ in MainActor.assumeIsolated { WearablesHub.shared.sendStateSoon() } }
@@ -280,8 +277,16 @@ final class WearablesHub: ObservableObject {
         }
     }
 
+    typealias BluetoothWearable = (kind: WearableKind, manager: BLEWearableManager, model: String, fallbackName: String)
+
     /// The wearables on the shared Bluetooth link (BLEWearableManager), with what their card shows.
-    var linkedWearables: [(kind: WearableKind, manager: BLEWearableManager, model: String, fallbackName: String)] {
+    var bluetoothWearables: [BluetoothWearable] {
+        linkedWearables + [(.scale, scale, Esf551Scale.model, Esf551Scale.model)]
+    }
+
+    /// Those whose link is reopened by identifier and held by Keep Alive. Not the scale: it sleeps
+    /// between weighings and may change its address, so only a scan finds it.
+    var linkedWearables: [BluetoothWearable] {
         [(.bottle, bottle, VsitooS1Pro.model, VsitooS1Pro.model),
          (.ring, ring, ColmiR12.model, ColmiR12.model),
          (.x5ring, x5, X5Ring.model, X5Ring.model),
@@ -338,19 +343,6 @@ final class WearablesHub: ObservableObject {
         noteWhatWeCanSee()
         var out: [WearableEntry] = []
 
-        if let id = WearableIdentity.remembered(WearableKeepAlive.scale) {
-            let live = scale.discovered.first
-            out.append(WearableEntry(kind: WearableKeepAlive.scale,
-                                     deviceID: id,
-                                     model: Esf551Scale.model,
-                                     name: WearableNames.shared.name(WearableKeepAlive.scale,
-                                                                     fallback: live?.name ?? scale.connected?.name ?? Esf551Scale.model),
-                                     connected: scale.connected != nil && scale.state == .ready,
-                                     rssi: live?.rssi,
-                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.scale),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.scale),
-                                     listed: live != nil))
-        }
         if let id = WearableIdentity.remembered(WearableKeepAlive.esp32) {
             let live = esp32.discovered.first { $0.id == id } ?? esp32.discovered.first
             out.append(WearableEntry(kind: WearableKeepAlive.esp32,
@@ -366,7 +358,7 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.esp32),
                                      listed: live != nil))
         }
-        for linked in linkedWearables {
+        for linked in bluetoothWearables {
             let kind = linked.kind.rawValue, manager = linked.manager
             guard let id = WearableIdentity.remembered(kind) else { continue }
             let live = manager.discovered.first { $0.id == manager.connected?.id } ?? manager.discovered.first
@@ -404,11 +396,9 @@ final class WearablesHub: ObservableObject {
     /// Record signal for anything the current scan turned up, so a device that drops
     /// out of range keeps a last-known reading to show.
     private func noteWhatWeCanSee() {
-        note(WearableKeepAlive.scale, connected: scale.state == .ready,
-             rssi: scale.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.esp32, connected: esp32.state == .ready,
              rssi: esp32.discovered.first(where: { $0.rssi != 0 })?.rssi)
-        for linked in linkedWearables {
+        for linked in bluetoothWearables {
             note(linked.kind.rawValue, connected: linked.manager.state == .ready,
                  rssi: linked.manager.discovered.first(where: { $0.rssi != 0 })?.rssi)
         }
@@ -439,13 +429,9 @@ final class WearablesHub: ObservableObject {
         // Here rather than on foreground only: a background launch reads the roster too.
         GlassesAudioLink.shared.start()
         WearableIdentity.seedFromSharedRecords(BridgeClient.sharedRecords)
-        bottle.publishRemembered()
-        scale.publishRemembered()
+        for wearable in bluetoothWearables { wearable.manager.publishRemembered() }
         esp32.publishRemembered()
         esp32.holdRelayLink()
-        ring.publishRemembered()
-        x5.publishRemembered()
-        band.publishRemembered()
         InmoTeleprompter.shared.install(on: glasses)
         InmoAIChannel.shared.install(on: glasses)
         GlassesNoteRecorder.shared.install()
@@ -597,8 +583,7 @@ final class WearablesHub: ObservableObject {
 
     /// The Devices tab's "Rescan".
     func rescanAll() {
-        scale.startScan()
         esp32.startScan()
-        for linked in linkedWearables { linked.manager.startScan() }
+        for wearable in bluetoothWearables { wearable.manager.startScan() }
     }
 }

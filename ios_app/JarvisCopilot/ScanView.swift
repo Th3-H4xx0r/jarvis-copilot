@@ -193,6 +193,8 @@ struct ScanView: View {
         entries.first { $0.kind == kind }?.lastSeen
     }
 
+    private var wearableScanners: [BLEWearableManager] { [manager, scaleManager, ringManager, x5Manager, bandManager] }
+
     // MARK: Chrome
 
     @ViewBuilder private var emptyState: some View {
@@ -249,17 +251,10 @@ struct ScanView: View {
 
     private var scannerFooter: some View {
         Toggle("Only Jarvis devices", isOn: Binding(
-            get: {
-                manager.strictNameMatch && scaleManager.strictNameMatch
-                    && esp32Manager.strictNameMatch && ringManager.strictNameMatch
-                    && x5Manager.strictNameMatch
-            },
+            get: { esp32Manager.strictNameMatch && wearableScanners.allSatisfy(\.strictNameMatch) },
             set: { enabled in
-                manager.strictNameMatch = enabled
-                scaleManager.strictNameMatch = enabled
                 esp32Manager.strictNameMatch = enabled
-                ringManager.strictNameMatch = enabled
-                x5Manager.strictNameMatch = enabled
+                for scanner in wearableScanners { scanner.strictNameMatch = enabled }
             }
         ))
         .tint(JcTheme.accent)
@@ -314,65 +309,27 @@ private struct ScanRadarRings: View {
 }
 
 private struct ScaleCard: View {
-    let scale: DiscoveredScale
+    let scale: DiscoveredWearable
     var connected = false
     var lastSeen: Date? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            ScaleSceneView(state: .idle, weightText: nil, entrance: false,
-                           presentation: .card)
+        DeviceCard(name: WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name),
+                   subtitle: "Etekcity body scale", nameLines: 2, lastSeen: lastSeen,
+                   showsLastSeen: !connected && scale.rssi == 0) {
+            ScaleSceneView(state: .idle, weightText: nil, entrance: false, presentation: .card)
                 .environment(\.sceneStills, true)
                 .frame(width: 275, height: 190)
                 .offset(x: 116, y: -4)
                 .allowsHitTesting(false)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
-                    .font(JcText.title)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.76)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: 190, alignment: .leading)
-                Text("Etekcity body scale")
-                    .font(.caption).foregroundStyle(JcTheme.muted).padding(.top, 3)
-                Spacer()
-                if connected {
-                    MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                               tint: JcTheme.success)
-                } else if scale.rssi == 0 {
-                    // Remembered, not advertising: say so rather than "Known", which read as a link.
-                    DisconnectedPill()
-                } else {
-                    MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                               value: "\(scale.rssi) dBm", tint: signalTint)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-        }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .lastSeenCorner(lastSeen, visible: !connected && scale.rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
-    }
-
-    private var signalTint: Color {
-        switch scale.rssi {
-        case 0: return JcTheme.accent
-        case (-68)...: return JcTheme.success
-        case (-82)..<(-68): return .orange
-        default: return JcTheme.danger
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } pills: {
+            LinkPill(connected: connected, rssi: scale.rssi)
         }
     }
 }
 
-// MARK: - Card
-
 private struct BottleCard: View {
-    static let cardHeight: CGFloat = 190
     /// How far the model runs past the card's bottom edge.
     static let bleed: CGFloat = 46
 
@@ -382,7 +339,9 @@ private struct BottleCard: View {
     var lastSeen: Date? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        DeviceCard(name: WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name.isEmpty ? "Unnamed" : bottle.name),
+                   nameLines: 2, pictureAtTop: true, lastSeen: lastSeen,
+                   showsLastSeen: !connected && bottle.rssi == 0) {
             if BottleProtocol.hasModel(forName: bottle.name) {
                 // Whole bottle, leaning, sitting in the right of the card and running a
                 // little past its bottom edge — the camera does the placing, so nothing
@@ -390,60 +349,16 @@ private struct BottleCard: View {
                 BottleSceneView(spin: true, tilt: -0.16,
                                 cameraX: -0.31, cameraY: 0.16, cameraZ: 2.6)
                     .environment(\.sceneStills, true)
-                    .frame(height: Self.cardHeight + Self.bleed)
+                    .frame(height: 190 + Self.bleed)
                     .padding(.bottom, -Self.bleed)
             } else {
-                HStack {
-                    Spacer()
-                    JcIcon("antenna.radiowaves.left.and.right", size: 34, weight: .light)
-                        .foregroundStyle(JcTheme.muted)
-                        .padding(.trailing, 34)
-                }
+                JcIcon("antenna.radiowaves.left.and.right", size: 34, weight: .light)
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.trailing, 34)
             }
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name.isEmpty ? "Unnamed" : bottle.name))
-                    .font(JcText.title)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .frame(maxWidth: 190, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 8) {
-                    if connected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: JcTheme.success)
-                    } else if bottle.rssi == 0 {
-                        // Remembered, not advertising. Its 0 read as "0 dBm" with full
-                        // green bars — a link it didn't have.
-                        DisconnectedPill()
-                    } else {
-                        MetricPill(icon: "antenna.radiowaves.left.and.right",
-                                   label: "Signal",
-                                   value: "\(bottle.rssi) dBm",
-                                   tint: signalTint)
-                        SignalBars(rssi: bottle.rssi)
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .frame(height: Self.cardHeight)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: !connected && bottle.rssi == 0)
-        .background(JcTheme.glassFill,
-                    in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous)
-            .strokeBorder(JcTheme.border, lineWidth: 1))
-    }
-
-    private var signalTint: Color {
-        switch bottle.rssi {
-        case (-68)...:      return JcTheme.success
-        case (-82)..<(-68): return .orange
-        default:            return JcTheme.danger
+        } pills: {
+            LinkPill(connected: connected, rssi: bottle.rssi)
+            if !connected && bottle.rssi != 0 { SignalBars(rssi: bottle.rssi) }
         }
     }
 }

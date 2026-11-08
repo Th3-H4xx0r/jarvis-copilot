@@ -14,15 +14,6 @@ final class X5Manager: BLEWearableManager {
     @Published private(set) var gestureFeed: [RingGestureEvent] = []
     @Published private(set) var lastInput: RingInputEvent?
 
-    /// FFF0 is a generic service, so by default the list only shows X5-named devices; off shows
-    /// anything advertising FFF0 (each is still checked before it is remembered).
-    @Published var strictNameMatch = true {
-        didSet {
-            guard oldValue != strictNameMatch else { return }
-            if connected == nil { startScan() }
-        }
-    }
-
     let session = X5Session()
     private(set) lazy var sync: X5Sync = {
         let sync = X5Sync(transport: session.transport, store: { [weak self] in self?.store },
@@ -51,7 +42,6 @@ final class X5Manager: BLEWearableManager {
     }
 
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
-    var exposedDeviceID: String? { exposedDevice?.deviceID }
     var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
 
     /// True while an X5 screen is open: the link stays up whatever Keep Alive says, and the
@@ -65,12 +55,12 @@ final class X5Manager: BLEWearableManager {
     }
 
     private var writeCharacteristic: CBCharacteristic?
-    private var exposedDevice: X5Ring?
     private var lastBackgroundDrain = Date.distantPast
     static let lastPeripheralKey = "lastConnectedX5Peripheral"
 
     init() {
-        super.init(logName: "x5", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.x5Central",
+        super.init(logName: "x5", identity: WearableKeepAlive.x5ring, model: X5Ring.model,
+                   restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.x5Central",
                    lastPeripheralKey: Self.lastPeripheralKey, fallbackName: "X5 ring",
                    primaryService: X5Protocol.service, servicesToDiscover: [X5Protocol.service],
                    discoveryFailure: "the ring never answered — unbind it in its own app, or toggle Bluetooth")
@@ -115,7 +105,6 @@ final class X5Manager: BLEWearableManager {
         let n = name.lowercased()
         return n.contains("esf551") || n.contains("esf-551") || n.contains("etekcity") || n.contains("scale")
     }
-
 
     /// The touch-surface mode an inputs-screen mode asks for.
     static func hid(for mode: RingInputMode) -> (enabled: Bool, mode: X5HIDMode) {
@@ -227,18 +216,13 @@ final class X5Manager: BLEWearableManager {
     func forget() async {
         if state == .ready { await session.unbind() }
         let id = deviceID
-        forgetLink(identity: WearableKeepAlive.x5ring)
-        if let device = exposedDevice { DeviceRegistry.shared.remove(deviceID: device.deviceID) }
-        exposedDevice = nil
+        forgetLink()
         if let id { X5Cursors(deviceID: id).reset() }
     }
 
     private func becomeReady(_ p: CBPeripheral) {
         guard state != .ready else { return }
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        discoveryAttempts = 0
-        state = .ready
+        markReady()
         setupTask?.cancel()
         setupTask = Task { [weak self] in
             guard let self else { return }
@@ -252,8 +236,7 @@ final class X5Manager: BLEWearableManager {
                 self.state = .failed("Not an X5 ring")
                 return
             }
-            UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastPeripheralKey)
-            self.publishToRegistry()
+            self.adopt(p)
             guard let id = self.deviceID else { self.setupTask = nil; return }
             self.session.awakePolicy = self.awakePolicy
             X5Ring.seedDefaultInputs(self.inputs, deviceID: id)
@@ -273,27 +256,7 @@ final class X5Manager: BLEWearableManager {
         }
     }
 
-    // MARK: Registry
-
-    private func publishToRegistry() {
-        guard state == .ready else { return }
-        if exposedDevice == nil { exposedDevice = X5Ring(backend: self) }
-        refreshRegistryMembership()
-    }
-
-    func refreshRegistryMembership() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.x5ring, model: X5Ring.model)
-    }
-
-    /// Registers the catalogue with no live link; `invoke` reconnects on demand.
-    func publishRemembered() {
-        if exposedDevice == nil {
-            guard WearableIdentity.remembered(WearableKeepAlive.x5ring) != nil else { return }
-            exposedDevice = X5Ring(backend: self)
-        }
-        refreshRegistryMembership()
-    }
+    override func makeExposedDevice() -> any WearableDevice { X5Ring(backend: self) }
 
     // MARK: Foreground / background
 

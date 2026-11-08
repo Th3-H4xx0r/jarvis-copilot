@@ -1,111 +1,66 @@
 import Foundation
 import CoreBluetooth
 
-struct DiscoveredScale: Identifiable, Equatable {
-    let id: UUID
-    let name: String
-    let rssi: Int
-    let peripheral: CBPeripheral
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
-}
-
+/// The Etekcity ESF551 on the shared link. The scale sleeps between weighings and some firmware
+/// revisions change their address, so nothing holds its link: the next weighing wakes it and
+/// the scan finds it again.
 @MainActor
-final class ScaleManager: NSObject, ObservableObject {
-    @Published private(set) var state: ConnectionState = .idle
-    @Published private(set) var bluetoothReady = false
-    @Published private(set) var discovered: [DiscoveredScale] = []
-    @Published private(set) var connected: DiscoveredScale?
+final class ScaleManager: BLEWearableManager {
     @Published private(set) var latestObservation: ScaleObservation?
-    /// Mirrors the scanner-wide Jarvis-device filter. When disabled, unknown BLE
-    /// peripherals are visible for discovery; when enabled only ESF551 candidates show.
-    @Published var strictNameMatch = true {
-        didSet { if oldValue != strictNameMatch, connected == nil { startScan() } }
-    }
 
-    private var central: CBCentralManager!
-    private var peripheral: CBPeripheral?
     private var notifyCharacteristic: CBCharacteristic?
     private var writeCharacteristic: CBCharacteristic?
-    private var exposedDevice: Esf551Scale?
     private var lastStable: ScaleObservation?
     private var frameAccumulator = VsV2FrameAccumulator()
-    private let lastScaleIdentifierKey = "lastESF551PeripheralIdentifier"
     private var nextSequence: UInt8 = 0
-    private var scanTimeoutTask: Task<Void, Never>?
 
-    override init() {
-        super.init()
-        central = CBCentralManager(delegate: self, queue: .main,
-            options: [CBCentralManagerOptionRestoreIdentifierKey: "com.jarviscopilot.jarviscopilotMobileAndIOS.scaleCentral"])
+    init() {
+        super.init(logName: "scale", identity: WearableKeepAlive.scale, model: Esf551Scale.model,
+                   restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.scaleCentral",
+                   lastPeripheralKey: "lastESF551PeripheralIdentifier", fallbackName: "ESF551",
+                   primaryService: ScaleProtocol.primaryService,
+                   servicesToDiscover: [ScaleProtocol.primaryService, ScaleProtocol.alternateService],
+                   discoveryFailure: "the scale never answered — step on it to wake it, then try again")
     }
 
-    func startScan() {
-        guard bluetoothReady else { return }
-        discovered.removeAll()
-        state = .scanning
-        restoreKnownPeripheral()
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        // An unfiltered scan is CoreBluetooth's most power-hungry mode; bound it
-        // like the bottle's.
-        scanTimeoutTask?.cancel()
-        scanTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            guard !Task.isCancelled, let self else { return }
-            self.central.stopScan()
-            if self.state == .scanning { self.state = .idle }
-        }
+    // MARK: Link
+
+    /// Only devices Jarvis can identify as this scale, whatever the scanner filter says.
+    override func matchesAdvertisement(name: String, services: [CBUUID], manufacturer: UInt16?) -> Bool {
+        services.contains(ScaleProtocol.primaryService) || services.contains(ScaleProtocol.alternateService)
+            || Self.isScaleName(name)
     }
 
-    /// An awake scale may already be connected/restored and therefore not emit a fresh
-    /// advertisement. Keep its last CoreBluetooth identifier and surface it alongside
-    /// ordinary scan results so it never vanishes from the device list in that state.
-    private func restoreKnownPeripheral() {
-        guard let raw = UserDefaults.standard.string(forKey: lastScaleIdentifierKey),
-              let id = UUID(uuidString: raw) else { return }
-        let candidates = central.retrievePeripherals(withIdentifiers: [id])
-            + central.retrieveConnectedPeripherals(withServices: [ScaleProtocol.primaryService, ScaleProtocol.alternateService])
-        // Do not blindly trust a previously saved identifier. Older builds could save
-        // an unrelated nearby peripheral while broad scanning was enabled; require a
-        // current ESF551 name/service match before restoring a card.
-        for candidate in candidates where accept(candidate) && !discovered.contains(where: { $0.id == candidate.identifier }) {
-            discovered.append(DiscoveredScale(id: candidate.identifier,
-                                              name: candidate.name ?? "ESF551",
-                                              rssi: 0,
-                                              peripheral: candidate))
-        }
+    /// A remembered identifier alone isn't trusted: older builds saved unrelated peripherals.
+    override func belongsInList(_ p: CBPeripheral, isLastUsed: Bool) -> Bool { Self.isScaleName(p.name ?? "") }
+
+    /// Some ESF551 firmware revisions rotate their advertised identity: one scale, one card.
+    override func isSameDevice(_ listed: DiscoveredWearable, as p: CBPeripheral, name: String) -> Bool {
+        listed.id == p.identifier || (!name.isEmpty && listed.name.caseInsensitiveCompare(name) == .orderedSame)
     }
 
-    func connect(_ scale: DiscoveredScale) {
-        central.stopScan(); state = .connecting; peripheral = scale.peripheral; connected = scale
+    private static func isScaleName(_ name: String) -> Bool {
+        let name = name.lowercased()
+        return name.contains("esf551") || name.contains("esf-551") || name.contains("etekcity")
+            || name.contains("smart fitness scale")
+    }
+
+    override func connect(_ device: DiscoveredWearable) {
+        resetLink()
+        super.connect(device)
+    }
+
+    override func resetLink() {
+        notifyCharacteristic = nil
+        writeCharacteristic = nil
         latestObservation = nil
         lastStable = nil
         frameAccumulator.reset()
-        JcLog.devices.debug("scale connecting \(scale.name) \(scale.id)")
-        scale.peripheral.delegate = self
-        central.connect(scale.peripheral)
     }
 
-    /// Ends the link (Disconnect, or the scale going to sleep). The scale stays with Jarvis —
-    /// "Share with Jarvis" decides that — and its skills answer from the saved readings.
-    func disconnect() {
-        if let peripheral { central.cancelPeripheralConnection(peripheral) }
-        peripheral = nil; connected = nil; notifyCharacteristic = nil; writeCharacteristic = nil
-        latestObservation = nil; lastStable = nil
-        frameAccumulator.reset(); state = .idle
-    }
+    override func makeExposedDevice() -> any WearableDevice { Esf551Scale(manager: self) }
 
-    private func accept(_ peripheral: CBPeripheral, advertisementData: [String: Any] = [:]) -> Bool {
-        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-        let name = (advertisedName ?? peripheral.name ?? "").lowercased()
-        let serviceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let isScaleService = serviceUUIDs.contains(ScaleProtocol.primaryService)
-            || serviceUUIDs.contains(ScaleProtocol.alternateService)
-        // The scale scanner must never turn unrelated nearby BLE devices into fake
-        // Etekcity cards. Both modes show devices Jarvis can actually identify; the
-        // broader mode only relaxes future model-specific naming rules.
-        return isScaleService || name.contains("esf551") || name.contains("esf-551")
-            || name.contains("etekcity") || name.contains("smart fitness scale")
-    }
+    // MARK: Readings
 
     private func record(_ observation: ScaleObservation) {
         guard observation.weightKg > 0 else {
@@ -130,8 +85,8 @@ final class ScaleManager: NSObject, ObservableObject {
         AppleHealthSync.shared.syncSoon()
     }
 
-    /// Mirrors the stock app's post-subscription initialization. The scale uses this
-    /// to timestamp a stable weighing and begin its normal live-reporting session.
+    /// The stock app's opening move after subscribing: the scale timestamps a stable weighing
+    /// with it and starts reporting live.
     private func sendTimeSync() {
         guard let peripheral, let writeCharacteristic else {
             JcLog.devices.error("scale time sync skipped: no command characteristic")
@@ -140,118 +95,25 @@ final class ScaleManager: NSObject, ObservableObject {
         let frame = ScaleProtocol.makeTimeSyncFrame(sequence: nextSequence)
         nextSequence &+= 1
         let type: CBCharacteristicWriteType = writeCharacteristic.properties.contains(.write) ? .withResponse : .withoutResponse
-        JcLog.devices.debug("scale time sync to \(writeCharacteristic.uuid)")
         peripheral.writeValue(Data(frame), for: writeCharacteristic, type: type)
     }
-
-    private func publish() {
-        if exposedDevice == nil { exposedDevice = Esf551Scale(manager: self) }
-        refreshRegistryMembership()
-    }
-
-    /// Adds or removes the scale from Jarvis according to its per-device setting.
-    /// The connected scale still works locally when sharing is off.
-    func refreshRegistryMembership() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.scale,
-                                             model: Esf551Scale.model)
-    }
-
-    /// Register this device's catalogue with no live link: `invoke` reconnects on
-    /// demand, so Jarvis keeps the skills between launch and the first connect.
-    func publishRemembered() {
-        if exposedDevice == nil {
-            guard WearableIdentity.remembered(WearableKeepAlive.scale) != nil else { return }
-            exposedDevice = Esf551Scale(manager: self)
-        }
-        refreshRegistryMembership()
-    }
-
-    /// Stable Jarvis identifier used by the scale Settings toggle.
-    var exposedDeviceID: String? { exposedDevice?.deviceID }
-}
-
-extension ScaleManager: CBCentralManagerDelegate {
-    /// Required whenever CoreBluetooth restoration is enabled. Re-adopt a scale that
-    /// iOS restored after suspension or relaunch rather than creating a second link.
-    nonisolated func centralManager(_ central: CBCentralManager,
-                                    willRestoreState dict: [String: Any]) {
-        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
-        Task { @MainActor in
-            guard let peripheral = restored.first(where: {
-                $0.state == .connected || $0.state == .connecting
-            }) else { return }
-            self.peripheral = peripheral
-            peripheral.delegate = self
-            connected = DiscoveredScale(id: peripheral.identifier, name: peripheral.name ?? "ESF551",
-                                        rssi: 0, peripheral: peripheral)
-            state = peripheral.state == .connected ? .discovering : .connecting
-            if peripheral.state == .connected {
-                peripheral.discoverServices([ScaleProtocol.primaryService, ScaleProtocol.alternateService])
-            }
-        }
-    }
-
-    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        Task { @MainActor in
-            bluetoothReady = central.state == .poweredOn
-            if bluetoothReady { startScan() }
-        }
-    }
-
-    nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
-                                    advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        Task { @MainActor in
-            guard accept(peripheral, advertisementData: advertisementData) else { return }
-            UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: lastScaleIdentifierKey)
-            let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-            let scale = DiscoveredScale(id: peripheral.identifier, name: advertisedName ?? peripheral.name ?? "ESF551",
-                                        rssi: RSSI.intValue, peripheral: peripheral)
-            if let index = discovered.firstIndex(where: { $0.id == scale.id }) {
-                discovered[index] = scale
-            } else if let index = discovered.firstIndex(where: {
-                $0.name.caseInsensitiveCompare(scale.name) == .orderedSame
-            }) {
-                // A few ESF551 firmware revisions rotate their advertised identity;
-                // retain the strongest/latest representative rather than duplicating
-                // the same physical scale in the list.
-                discovered[index] = scale
-            } else {
-                discovered.append(scale)
-            }
-        }
-    }
-
-    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        Task { @MainActor in
-            JcLog.devices.debug("scale connected; discovering services")
-            state = .discovering
-            peripheral.discoverServices([ScaleProtocol.primaryService, ScaleProtocol.alternateService])
-        }
-    }
-
-    nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
-                                    error: Error?) { Task { @MainActor in disconnect() } }
 }
 
 extension ScaleManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         Task { @MainActor in
-            JcLog.devices.debug("scale services \(peripheral.services?.map { $0.uuid.uuidString } ?? []) error=\(String(describing: error))")
-            for service in peripheral.services ?? [] {
-                if service.uuid == ScaleProtocol.primaryService || service.uuid == ScaleProtocol.alternateService {
-                    // The ESF551 reports FFF1 as its stream and FFF2 as its command
-                    // endpoint (the reverse of the generic SDK constant names).
-                    peripheral.discoverCharacteristics(nil, for: service)
-                }
+            for service in peripheral.services ?? []
+            where service.uuid == ScaleProtocol.primaryService || service.uuid == ScaleProtocol.alternateService {
+                peripheral.discoverCharacteristics(nil, for: service)
             }
         }
     }
+
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         Task { @MainActor in
-            let details = service.characteristics?.map { "\($0.uuid.uuidString):\($0.properties.rawValue)" } ?? []
-            JcLog.devices.debug("scale characteristics \(service.uuid): \(details) error=\(String(describing: error))")
             guard let characteristics = service.characteristics else { return }
+            // The ESF551 streams on FFF1 and takes commands on FFF2 — the reverse of the generic
+            // SDK constant names.
             let stream = characteristics.first { $0.properties.contains(.notify) || $0.properties.contains(.indicate) }
                 ?? characteristics.first { $0.uuid == ScaleProtocol.primaryWrite || $0.uuid == ScaleProtocol.alternateWrite }
             let command = characteristics.first { $0.uuid == ScaleProtocol.primaryNotify || $0.uuid == ScaleProtocol.alternateNotify }
@@ -265,16 +127,16 @@ extension ScaleManager: CBPeripheralDelegate {
             peripheral.setNotifyValue(true, for: stream)
         }
     }
+
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
-            JcLog.devices.debug("scale notify \(characteristic.uuid) on=\(characteristic.isNotifying) error=\(String(describing: error))")
-            if error == nil, characteristic.isNotifying {
-                state = .ready
-                publish()
-                sendTimeSync()
-            }
+            guard error == nil, characteristic.isNotifying else { return }
+            markReady()
+            adopt(peripheral)
+            sendTimeSync()
         }
     }
+
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let value = characteristic.value else { return }
         Task { @MainActor in

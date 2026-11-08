@@ -11,14 +11,6 @@ import UIKit
 @MainActor
 final class RingManager: BLEWearableManager {
 
-    /// Off shows any peripheral advertising the ring's UART service, not just ring names.
-    @Published var strictNameMatch = true {
-        didSet {
-            guard oldValue != strictNameMatch else { return }
-            if connected == nil { startScan() }
-        }
-    }
-
     let session = RingSession()
     private(set) lazy var sync: RingSync = {
         let sync = RingSync(session: session, store: { [weak self] in self?.store })
@@ -58,7 +50,6 @@ final class RingManager: BLEWearableManager {
         return controller
     }()
 
-
     override var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
 
     /// A workout needs the link the whole time, in the background too: let
@@ -79,17 +70,15 @@ final class RingManager: BLEWearableManager {
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
     /// What each tap, swipe or press on the ring runs.
     var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
-    var exposedDeviceID: String? { exposedDevice?.deviceID }
-
     private var commandWrite: CBCharacteristic?
     private var bigDataWrite: CBCharacteristic?
     private var pendingChunks: [Data] = []
-    private var exposedDevice: ColmiR12?
     private var lastBackgroundDrain = Date.distantPast
     private static let lastPeripheralKey = "lastConnectedRingPeripheral"
 
     init() {
-        super.init(logName: "ring", restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.ringCentral",
+        super.init(logName: "ring", identity: WearableKeepAlive.ring, model: ColmiR12.model,
+                   restoreIdentifier: "com.jarviscopilot.jarviscopilotMobileAndIOS.ringCentral",
                    lastPeripheralKey: Self.lastPeripheralKey, fallbackName: "Ring",
                    primaryService: RingProtocol.commandService,
                    servicesToDiscover: [RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService],
@@ -173,12 +162,8 @@ final class RingManager: BLEWearableManager {
 
     private func becomeReady(_ p: CBPeripheral) {
         guard state != .ready else { return }
-        discoveryTask?.cancel()
-        discoveryTask = nil
-        discoveryAttempts = 0
-        state = .ready
-        UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastPeripheralKey)
-        publishToRegistry()
+        markReady()
+        adopt(p)
         if let id = deviceID {
             session.loadCache(deviceID: id)
             sync.deviceIDForHealth = id
@@ -201,29 +186,15 @@ final class RingManager: BLEWearableManager {
 
     // MARK: Registry
 
-    private func publishToRegistry() {
-        guard state == .ready else { return }
-        if exposedDevice == nil { exposedDevice = ColmiR12(manager: self) }
-        refreshRegistryMembership()
-    }
+    override func makeExposedDevice() -> any WearableDevice { ColmiR12(manager: self) }
 
-    /// Adds or removes the ring to match its "Share with Jarvis" setting.
-    func refreshRegistryMembership() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.ring, model: ColmiR12.model)
-    }
-
-    /// Registers the catalogue with no live link; `invoke` reconnects on demand.
-    func publishRemembered() {
-        if exposedDevice == nil {
-            guard WearableIdentity.remembered(WearableKeepAlive.ring) != nil else { return }
-            exposedDevice = ColmiR12(manager: self)
-        }
-        if let id = deviceID {
+    /// The saved capabilities go in first: they decide which skills the ring lists.
+    override func publishRemembered() {
+        if exposedDevice != nil || WearableIdentity.remembered(identityKey) != nil, let id = deviceID {
             session.loadCache(deviceID: id)
             sync.deviceIDForHealth = id
         }
-        refreshRegistryMembership()
+        super.publishRemembered()
     }
 
     // MARK: Foreground / background

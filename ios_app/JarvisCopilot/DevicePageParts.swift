@@ -4,7 +4,7 @@ import SwiftUI
 /// bottom left, on the app's glass card. Every Devices card is this with its own picture and pills.
 struct DeviceCard<Picture: View, Pills: View>: View {
     let name: String
-    let subtitle: String
+    var subtitle: String? = nil
     /// A long name (a board's) may take two lines, shrinking to fit beside the picture.
     var nameLines = 1
     /// Pins the picture to the top instead of centring it.
@@ -19,11 +19,8 @@ struct DeviceCard<Picture: View, Pills: View>: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            HStack(alignment: .top) {
-                Spacer()
-                picture()
-            }
-            .frame(maxHeight: .infinity, alignment: pictureAtTop ? .top : .center)
+            picture()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pictureAtTop ? .topTrailing : .trailing)
             VStack(alignment: .leading, spacing: 0) {
                 if nameLines > 1 {
                     Text(name)
@@ -36,10 +33,12 @@ struct DeviceCard<Picture: View, Pills: View>: View {
                         .font(JcText.title)
                         .lineLimit(1)
                 }
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(JcTheme.muted)
+                        .padding(.top, 3)
+                }
                 Spacer(minLength: 0)
                 HStack(spacing: 8) { pills() }
             }
@@ -74,22 +73,41 @@ struct WearableCard<Picture: View>: View {
                 .padding(.trailing, 12)
                 .allowsHitTesting(false)
         } pills: {
-            if connected {
-                MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                           tint: JcTheme.success)
-            } else if rssi == 0 {
-                // Remembered from iOS's own link, not answering: not a signal reading.
-                DisconnectedPill()
-            } else {
-                MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                           value: "\(rssi) dBm", tint: JcMetric.activity)
-            }
+            LinkPill(connected: connected, rssi: rssi)
             if let battery {
                 MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
                            value: "\(battery.percent)%",
                            tint: batteryTint(battery.percent) ?? JcTheme.success)
             }
         }
+    }
+}
+
+/// A Bluetooth device's link on its card: connected, remembered but silent, or how well it's heard.
+struct LinkPill: View {
+    let connected: Bool
+    /// 0 when the device was listed from iOS's own link or from memory, not heard in a scan.
+    let rssi: Int
+
+    var body: some View {
+        if connected {
+            MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected", tint: JcTheme.success)
+        } else if rssi == 0 {
+            // Not a signal reading: "0 dBm" with full bars claimed a link it didn't have.
+            DisconnectedPill()
+        } else {
+            MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal", value: "\(rssi) dBm",
+                       tint: signalTint(rssi))
+        }
+    }
+}
+
+/// How well a Bluetooth device is heard: green, amber, red.
+func signalTint(_ rssi: Int) -> Color {
+    switch rssi {
+    case (-68)...:      return JcTheme.success
+    case (-82)..<(-68): return JcTheme.amber
+    default:            return JcTheme.danger
     }
 }
 
