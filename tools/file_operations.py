@@ -227,6 +227,10 @@ class ExecuteResult:
     exit_code: int = 0
 
 
+# Match line in rg/grep output: optional drive letter, path, lineno, content.
+_SEARCH_MATCH_RE = re.compile(r'^([A-Za-z]:)?(.*?):(\d+):(.*)$')
+
+
 def _parse_search_context_line(line: str) -> tuple[str, int, str] | None:
     """Parse grep/rg context output in ``path-line-content`` format.
 
@@ -1700,211 +1704,107 @@ class ShellFileOperations(FileOperations):
     
     def _search_content(self, pattern: str, path: str, file_glob: Optional[str],
                         limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
-        """Search for content inside files (grep-like)."""
-        # Try ripgrep first (fast), fallback to grep (slower but works)
+        """Search for content inside files (grep-like): ripgrep, else grep."""
         if self._has_command('rg'):
-            return self._search_with_rg(pattern, path, file_glob, limit, offset, 
-                                        output_mode, context)
+            tool = "rg"
         elif self._has_command('grep'):
-            return self._search_with_grep(pattern, path, file_glob, limit, offset,
-                                          output_mode, context)
+            tool = "grep"
         else:
             # Neither rg nor grep available (Windows without Git Bash, etc.)
             return SearchResult(
                 error="Content search requires ripgrep (rg) or grep. "
                       "Install ripgrep: https://github.com/BurntSushi/ripgrep#installation"
             )
-    
-    def _search_with_rg(self, pattern: str, path: str, file_glob: Optional[str],
-                        limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
-        """Search using ripgrep."""
-        cmd_parts = ["rg", "--line-number", "--no-heading", "--with-filename"]
-        
-        # Add context if requested
-        if context > 0:
-            cmd_parts.extend(["-C", str(context)])
-        
-        # Add file glob filter (must be quoted to prevent shell expansion)
-        if file_glob:
-            cmd_parts.extend(["--glob", self._escape_shell_arg(file_glob)])
-        
-        # Output mode handling
-        if output_mode == "files_only":
-            cmd_parts.append("-l")  # Files only
-        elif output_mode == "count":
-            cmd_parts.append("-c")  # Count per file
-        
-        # Add pattern and path
-        cmd_parts.append(self._escape_shell_arg(pattern))
-        cmd_parts.append(self._escape_shell_arg(path))
-        
-        # Fetch extra rows so we can report the true total before slicing.
-        # For context mode, rg emits separator lines ("--") between groups,
-        # so we grab generously and filter in Python.
-        fetch_limit = limit + offset + 200 if context > 0 else limit + offset
-        cmd_parts.extend(["|", "head", "-n", str(fetch_limit)])
-        
-        cmd = " ".join(cmd_parts)
-        result = self._exec(cmd, timeout=60)
-        
-        # rg exit codes: 0=matches found, 1=no matches, 2=error
-        if result.exit_code == 2 and not result.stdout.strip():
-            error_msg = result.stderr.strip() if hasattr(result, 'stderr') and result.stderr else "Search error"
-            return SearchResult(error=f"Search failed: {error_msg}", total_count=0)
-        
-        # Parse results based on output mode
-        if output_mode == "files_only":
-            all_files = [f for f in result.stdout.strip().split('\n') if f]
-            total = len(all_files)
-            page = all_files[offset:offset + limit]
-            return SearchResult(files=page, total_count=total)
-        
-        elif output_mode == "count":
-            counts = {}
-            for line in result.stdout.strip().split('\n'):
-                if ':' in line:
-                    parts = line.rsplit(':', 1)
-                    if len(parts) == 2:
-                        try:
-                            counts[parts[0]] = int(parts[1])
-                        except ValueError:
-                            pass
-            return SearchResult(counts=counts, total_count=sum(counts.values()))
-        
+        return self._search_with(tool, pattern, path, file_glob, limit, offset,
+                                 output_mode, context)
+
+    def _search_with(self, tool: str, pattern: str, path: str, file_glob: Optional[str],
+                     limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
+        """Run a content search with ``rg`` or ``grep`` and parse its output.
+
+        Both tools share the output format, exit codes (0 match, 1 none,
+        2 error) and the ``-C``/``-l``/``-c`` flags; only the base command
+        and the glob flag differ.  grep is told to skip hidden directories
+        to match ripgrep's default (keeps ``.hub/index-cache`` and ``.git``
+        out of results).
+        """
+        if tool == "rg":
+            cmd_parts = ["rg", "--line-number", "--no-heading", "--with-filename"]
+            glob_flag = "--glob"
         else:
-            # Parse content matches and context lines.
-            # rg match lines:   "file:lineno:content"  (colon separator)
-            # rg context lines: "file-lineno-content"   (dash separator)
-            # rg group seps:    "--"
-            # Note: on Windows, paths contain drive letters (e.g. C:\path),
-            # so naive split(":") breaks. Use regex to handle both platforms.
-            _match_re = re.compile(r'^([A-Za-z]:)?(.*?):(\d+):(.*)$')
-            matches = []
-            for line in result.stdout.strip().split('\n'):
-                if not line or line == "--":
-                    continue
-                
-                # Try match line first (colon-separated: file:line:content)
-                m = _match_re.match(line)
-                if m:
-                    matches.append(SearchMatch(
-                        path=(m.group(1) or '') + m.group(2),
-                        line_number=int(m.group(3)),
-                        content=m.group(4)[:500]
-                    ))
-                    continue
-                
-                # Try context line (dash-separated: file-line-content)
-                # Only attempt if context was requested to avoid false positives
-                if context > 0:
-                    parsed = _parse_search_context_line(line)
-                    if parsed:
-                        matches.append(SearchMatch(
-                            path=parsed[0],
-                            line_number=parsed[1],
-                            content=parsed[2][:500]
-                        ))
-            
-            total = len(matches)
-            page = matches[offset:offset + limit]
-            return SearchResult(
-                matches=page,
-                total_count=total,
-                truncated=total > offset + limit
-            )
-    
-    def _search_with_grep(self, pattern: str, path: str, file_glob: Optional[str],
-                          limit: int, offset: int, output_mode: str, context: int) -> SearchResult:
-        """Fallback search using grep."""
-        cmd_parts = ["grep", "-rnH"]  # -H forces filename even for single-file searches
-        
-        # Exclude hidden directories (matching ripgrep's default behavior).
-        # This prevents searching inside .hub/index-cache/, .git/, etc.
-        cmd_parts.append("--exclude-dir='.*'")
-        
-        # Add context if requested
+            # -H forces the filename even for single-file searches.
+            cmd_parts = ["grep", "-rnH", "--exclude-dir='.*'"]
+            glob_flag = "--include"
+
         if context > 0:
             cmd_parts.extend(["-C", str(context)])
-        
-        # Add file pattern filter (must be quoted to prevent shell expansion)
+        # The glob must be quoted to prevent shell expansion.
         if file_glob:
-            cmd_parts.extend(["--include", self._escape_shell_arg(file_glob)])
-        
-        # Output mode handling
+            cmd_parts.extend([glob_flag, self._escape_shell_arg(file_glob)])
         if output_mode == "files_only":
             cmd_parts.append("-l")
         elif output_mode == "count":
             cmd_parts.append("-c")
-        
-        # Add pattern and path
         cmd_parts.append(self._escape_shell_arg(pattern))
         cmd_parts.append(self._escape_shell_arg(path))
-        
-        # Fetch generously so we can compute total before slicing
+
+        # Fetch extra rows so we can report the true total before slicing.
+        # Context mode emits "--" separators between groups, so grab
+        # generously and filter in Python.
         fetch_limit = limit + offset + (200 if context > 0 else 0)
         cmd_parts.extend(["|", "head", "-n", str(fetch_limit)])
-        
-        cmd = " ".join(cmd_parts)
-        result = self._exec(cmd, timeout=60)
-        
-        # grep exit codes: 0=matches found, 1=no matches, 2=error
+
+        result = self._exec(" ".join(cmd_parts), timeout=60)
+
         if result.exit_code == 2 and not result.stdout.strip():
             error_msg = result.stderr.strip() if hasattr(result, 'stderr') and result.stderr else "Search error"
             return SearchResult(error=f"Search failed: {error_msg}", total_count=0)
-        
-        if output_mode == "files_only":
-            all_files = [f for f in result.stdout.strip().split('\n') if f]
-            total = len(all_files)
-            page = all_files[offset:offset + limit]
-            return SearchResult(files=page, total_count=total)
-        
-        elif output_mode == "count":
-            counts = {}
-            for line in result.stdout.strip().split('\n'):
-                if ':' in line:
-                    parts = line.rsplit(':', 1)
-                    if len(parts) == 2:
-                        try:
-                            counts[parts[0]] = int(parts[1])
-                        except ValueError:
-                            pass
-            return SearchResult(counts=counts, total_count=sum(counts.values()))
-        
-        else:
-            # grep match lines:   "file:lineno:content" (colon)
-            # grep context lines: "file-lineno-content"  (dash)
-            # grep group seps:    "--"
-            # Note: on Windows, paths contain drive letters (e.g. C:\path),
-            # so naive split(":") breaks. Use regex to handle both platforms.
-            _match_re = re.compile(r'^([A-Za-z]:)?(.*?):(\d+):(.*)$')
-            matches = []
-            for line in result.stdout.strip().split('\n'):
-                if not line or line == "--":
-                    continue
-                
-                m = _match_re.match(line)
-                if m:
-                    matches.append(SearchMatch(
-                        path=(m.group(1) or '') + m.group(2),
-                        line_number=int(m.group(3)),
-                        content=m.group(4)[:500]
-                    ))
-                    continue
-                
-                if context > 0:
-                    parsed = _parse_search_context_line(line)
-                    if parsed:
-                        matches.append(SearchMatch(
-                            path=parsed[0],
-                            line_number=parsed[1],
-                            content=parsed[2][:500]
-                        ))
 
-            
-            total = len(matches)
-            page = matches[offset:offset + limit]
-            return SearchResult(
-                matches=page,
-                total_count=total,
-                truncated=total > offset + limit
-            )
+        lines = result.stdout.strip().split('\n')
+        if output_mode == "files_only":
+            all_files = [f for f in lines if f]
+            return SearchResult(files=all_files[offset:offset + limit], total_count=len(all_files))
+
+        if output_mode == "count":
+            counts = {}
+            for line in lines:
+                name, sep, n = line.rpartition(':')
+                if sep:
+                    try:
+                        counts[name] = int(n)
+                    except ValueError:
+                        pass
+            return SearchResult(counts=counts, total_count=sum(counts.values()))
+
+        # Match lines are "file:lineno:content", context lines
+        # "file-lineno-content", group separators "--".  Windows paths carry
+        # a drive letter (C:\path), so a naive split(":") breaks.
+        matches = []
+        for line in lines:
+            if not line or line == "--":
+                continue
+            m = _SEARCH_MATCH_RE.match(line)
+            if m:
+                matches.append(SearchMatch(
+                    path=(m.group(1) or '') + m.group(2),
+                    line_number=int(m.group(3)),
+                    content=m.group(4)[:500]
+                ))
+                continue
+            # Only parse context lines when context was requested, to
+            # avoid false positives.
+            if context > 0:
+                parsed = _parse_search_context_line(line)
+                if parsed:
+                    matches.append(SearchMatch(
+                        path=parsed[0],
+                        line_number=parsed[1],
+                        content=parsed[2][:500]
+                    ))
+
+        total = len(matches)
+        return SearchResult(
+            matches=matches[offset:offset + limit],
+            total_count=total,
+            truncated=total > offset + limit
+        )

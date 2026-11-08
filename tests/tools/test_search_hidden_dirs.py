@@ -9,7 +9,7 @@ Root cause: `find` and `grep` don't skip hidden directories like ripgrep
 does by default. This made search_files behavior inconsistent depending
 on which backend was available.
 
-Fix: _search_files (find) and _search_with_grep both now exclude hidden
+Fix: _search_files (find) and _search_with('grep') now exclude hidden
 directories, matching ripgrep's default behavior.
 """
 
@@ -73,7 +73,7 @@ class TestFindExcludesHiddenDirs:
 
 
 class TestGrepExcludesHiddenDirs:
-    """_search_with_grep should exclude hidden directories."""
+    """grep search (_search_with) should exclude hidden directories."""
 
     def test_grep_skips_hub_cache(self, searchable_tree):
         """grep --exclude-dir should skip .hub/ directory."""

@@ -341,7 +341,8 @@ class TestSearchContextParsing:
                 exit_code=0,
                 stdout="dir/file-12-name.py-8-context here\n",
             )
-            result = ops._search_with_rg(
+            result = ops._search_with(
+                "rg",
                 "needle",
                 path=".",
                 file_glob=None,
@@ -367,7 +368,8 @@ class TestSearchContextParsing:
                 exit_code=0,
                 stdout="dir/file-12-name.py-8-context here\n",
             )
-            result = ops._search_with_grep(
+            result = ops._search_with(
+                "grep",
                 "needle",
                 path=".",
                 file_glob=None,
