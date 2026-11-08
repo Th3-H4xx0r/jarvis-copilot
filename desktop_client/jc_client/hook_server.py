@@ -19,6 +19,8 @@ import time
 import uuid
 from typing import Callable, Optional
 
+from jc_client.unix_server import UnixSocketServer
+
 try:
     from jc_client import agent_engine
 except ImportError:  # loaded by file path on the server (agent/agent_engine_shim.py)
@@ -35,7 +37,10 @@ _BLOCKING_KINDS = ("permission", "ask")
 _ALWAYS_ALLOWED = frozenset({"AskUserQuestion"})
 
 
-class HookServer:
+class HookServer(UnixSocketServer):
+    backlog = 32
+    thread_name = "hook"
+
     def __init__(self, path: str, engine,
                  forward: Callable[[dict], None], arbiter=None,
                  on_effects: Optional[Callable[[list], None]] = None,
@@ -47,7 +52,7 @@ class HookServer:
                  on_hook: Optional[Callable[[str, str, dict], None]] = None) -> None:
         """``ingest(kind, agent, payload) -> effects`` replaces the local engine
         (the server feeds its own tracker); with it, ``engine`` may be None."""
-        self.path = path
+        super().__init__(path)
         self.host = host
         self._engine = engine
         self._ingest = ingest
@@ -66,42 +71,13 @@ class HookServer:
         self._limits: Optional[dict] = None   # merged plan usage (agent_engine.merge_rate_limits)
         self._sweep_every = sweep_every
         self._lock = threading.RLock()
-        self._sock: Optional[socket.socket] = None
-        self._stop = threading.Event()
 
     # ── lifecycle ──────────────────────────────────────────────────────
     def start(self) -> None:
-        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        try:
-            os.unlink(self.path)
-        except FileNotFoundError:
-            pass
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        old = os.umask(0o177)
-        try:
-            sock.bind(self.path)
-        finally:
-            os.umask(old)
-        os.chmod(self.path, 0o600)
-        sock.listen(32)
-        self._sock = sock
-        threading.Thread(target=self._accept_loop, daemon=True, name="hook-accept").start()
+        super().start()
         if self._sweep_every and self._engine is not None:
             threading.Thread(target=self._sweep_loop, daemon=True, name="hook-sweep").start()
         log.info("hook server listening on %s", self.path)
-
-    def close(self) -> None:
-        self._stop.set()
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
-            self._sock = None
-        try:
-            os.unlink(self.path)
-        except OSError:
-            pass
 
     # ── engine access (thread-safe) ────────────────────────────────────
     def usage(self) -> Optional[dict]:
@@ -121,18 +97,6 @@ class HookServer:
         return effects
 
     # ── loops ──────────────────────────────────────────────────────────
-    def _accept_loop(self) -> None:
-        while not self._stop.is_set():
-            sock = self._sock
-            if sock is None:
-                return
-            try:
-                conn, _ = sock.accept()
-            except OSError:
-                return
-            threading.Thread(target=self._handle, args=(conn,), daemon=True,
-                             name="hook-conn").start()
-
     def _sweep_loop(self) -> None:
         while not self._stop.wait(self._sweep_every):
             try:
@@ -153,7 +117,7 @@ class HookServer:
             buf += chunk
         return buf.split(b"\n", 1)[0]
 
-    def _handle(self, conn: socket.socket) -> None:
+    def _connection(self, conn: socket.socket) -> None:
         keep_open = False
         try:
             line = self._read_line(conn)

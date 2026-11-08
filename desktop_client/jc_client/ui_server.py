@@ -26,6 +26,8 @@ import socket
 import threading
 from typing import Callable, Optional
 
+from jc_client.unix_server import UnixSocketServer
+
 log = logging.getLogger(__name__)
 
 _MAX_LINE = 1024 * 1024
@@ -52,50 +54,22 @@ def _peer_pid(conn: socket.socket) -> int:
         return 0
 
 
-class UiServer:
+class UiServer(UnixSocketServer):
+    thread_name = "ui"
+
     def __init__(self, path: str, hello: Callable[[], dict],
                  on_request: Callable[[dict], dict]) -> None:
-        self.path = path
+        super().__init__(path)
         self._hello = hello
         self._on_request = on_request
-        self._sock: Optional[socket.socket] = None
         self._clients: list[_Client] = []
         self._lock = threading.Lock()
-        self._stop = threading.Event()
 
-    def start(self) -> None:
-        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        try:
-            os.unlink(self.path)
-        except FileNotFoundError:
-            pass
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        old = os.umask(0o177)
-        try:
-            sock.bind(self.path)
-        finally:
-            os.umask(old)
-        os.chmod(self.path, 0o600)
-        sock.listen(8)
-        self._sock = sock
-        threading.Thread(target=self._accept_loop, daemon=True, name="ui-accept").start()
-
-    def close(self) -> None:
-        self._stop.set()
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
-            self._sock = None
+    def _drop_connections(self) -> None:
         with self._lock:
             clients, self._clients = self._clients, []
         for c in clients:
             self._drop(c)
-        try:
-            os.unlink(self.path)
-        except OSError:
-            pass
 
     def client_count(self) -> int:
         with self._lock:
@@ -109,18 +83,7 @@ class UiServer:
             self._enqueue(c, line)
 
     # ── internals ──────────────────────────────────────────────────────
-    def _accept_loop(self) -> None:
-        while not self._stop.is_set():
-            sock = self._sock
-            if sock is None:
-                return
-            try:
-                conn, _ = sock.accept()
-            except OSError:
-                return
-            threading.Thread(target=self._serve, args=(conn,), daemon=True, name="ui-client").start()
-
-    def _serve(self, conn: socket.socket) -> None:
+    def _connection(self, conn: socket.socket) -> None:
         client = _Client(conn)
         conn.settimeout(_SEND_TIMEOUT)
         try:

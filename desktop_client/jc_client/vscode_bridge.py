@@ -30,6 +30,8 @@ import threading
 import time
 from typing import Optional
 
+from jc_client.unix_server import UnixSocketServer
+
 log = logging.getLogger(__name__)
 
 _MAX_LINE = 4 * 1024 * 1024
@@ -89,56 +91,34 @@ class _Conn:
         return {t["pid"] for t in self.hello.get("terminals", []) if isinstance(t.get("pid"), int)}
 
 
-class VSCodeBridge:
+class VSCodeBridge(UnixSocketServer):
+    backlog = 16
+    thread_name = "vscode"
+
     def __init__(self, sock_path: Optional[str] = None) -> None:
-        self.path = sock_path or default_socket_path()
+        super().__init__(sock_path or default_socket_path())
         self._lock = threading.RLock()
         self._conns: list[_Conn] = []
-        self._sock: Optional[socket.socket] = None
-        self._stop = threading.Event()
         self._req = itertools.count(1)
 
     # ── lifecycle ──────────────────────────────────────────────────────
     def start(self) -> None:
-        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        try:
-            os.unlink(self.path)
-        except FileNotFoundError:
-            pass
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        old = os.umask(0o177)
-        try:
-            sock.bind(self.path)
-        finally:
-            os.umask(old)
-        os.chmod(self.path, 0o600)
-        sock.listen(16)
-        self._stop.clear()
-        self._sock = sock
+        super().start()
         global _current
         _current = self
-        threading.Thread(target=self._accept_loop, daemon=True, name="vscode-accept").start()
         log.info("vscode bridge listening on %s", self.path)
 
     def stop(self) -> None:
         global _current
         if _current is self:
             _current = None
-        self._stop.set()
-        if self._sock is not None:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
-            self._sock = None
+        self.close()
+
+    def _drop_connections(self) -> None:
         with self._lock:
             conns = list(self._conns)
         for conn in conns:
             self._drop(conn)
-        try:
-            os.unlink(self.path)
-        except OSError:
-            pass
 
     # ── what the windows told us ───────────────────────────────────────
     def windows(self) -> list[dict]:
@@ -261,20 +241,11 @@ class VSCodeBridge:
             with self._lock:
                 conn.pending.pop(req, None)
 
-    def _accept_loop(self) -> None:
-        while not self._stop.is_set():
-            sock = self._sock
-            if sock is None:
-                return
-            try:
-                raw, _ = sock.accept()
-            except OSError:
-                return
-            conn = _Conn(raw)
-            with self._lock:
-                self._conns.append(conn)
-            threading.Thread(target=self._serve, args=(conn,), daemon=True,
-                             name="vscode-conn").start()
+    def _connection(self, raw: socket.socket) -> None:
+        conn = _Conn(raw)
+        with self._lock:
+            self._conns.append(conn)
+        self._serve(conn)
 
     def _serve(self, conn: _Conn) -> None:
         buf = b""
