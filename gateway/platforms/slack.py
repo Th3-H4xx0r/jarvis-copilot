@@ -2383,6 +2383,40 @@ class SlackAdapter(BasePlatformAdapter):
             logger.error("[Slack] send_slash_confirm failed: %s", e, exc_info=True)
             return SendResult(success=False, error=str(e))
 
+    @staticmethod
+    def _button_click_allowed(user_id: str, user_name: str, what: str) -> bool:
+        """Button clicks bypass the gateway's message auth, so check the
+        SLACK_ALLOWED_USERS allowlist here (open when unset)."""
+        allowed_csv = os.getenv("SLACK_ALLOWED_USERS", "").strip()
+        if not allowed_csv:
+            return True
+        allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+        if "*" in allowed_ids or user_id in allowed_ids:
+            return True
+        logger.warning("[Slack] Unauthorized %s click by %s (%s) — ignoring", what, user_name, user_id)
+        return False
+
+    async def _show_button_decision(self, channel_id: str, message: dict, decision_text: str, fallback_title: str) -> None:
+        """Replace a button prompt with its original text plus the decision,
+        dropping the buttons."""
+        original_text = ""
+        for block in message.get("blocks", []):
+            if block.get("type") == "section":
+                original_text = block.get("text", {}).get("text", "")
+                break
+        try:
+            await self._get_client(channel_id).chat_update(
+                channel=channel_id,
+                ts=message.get("ts", ""),
+                text=decision_text,
+                blocks=[
+                    {"type": "section", "text": {"type": "mrkdwn", "text": original_text or fallback_title}},
+                    {"type": "context", "elements": [{"type": "mrkdwn", "text": decision_text}]},
+                ],
+            )
+        except Exception as e:
+            logger.warning("[Slack] Failed to update button message: %s", e)
+
     async def _handle_slash_confirm_action(self, ack, body, action) -> None:
         """Handle a slash-confirm button click from Block Kit."""
         await ack()
@@ -2395,16 +2429,8 @@ class SlackAdapter(BasePlatformAdapter):
         user_name = body.get("user", {}).get("name", "unknown")
         user_id = body.get("user", {}).get("id", "")
 
-        # Authorization — reuse the exec-approval allowlist.
-        allowed_csv = os.getenv("SLACK_ALLOWED_USERS", "").strip()
-        if allowed_csv:
-            allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
-            if "*" not in allowed_ids and user_id not in allowed_ids:
-                logger.warning(
-                    "[Slack] Unauthorized slash-confirm click by %s (%s) — ignoring",
-                    user_name, user_id,
-                )
-                return
+        if not self._button_click_allowed(user_id, user_name, "slash-confirm"):
+            return
 
         # Parse session_key|confirm_id back out
         if "|" not in value:
@@ -2425,40 +2451,7 @@ class SlackAdapter(BasePlatformAdapter):
             "cancel": f"❌ Cancelled by {user_name}",
         }
         decision_text = label_map.get(choice, f"Resolved by {user_name}")
-
-        # Pull original prompt body out of the section block so we can show
-        # the decision inline without losing context.
-        original_text = ""
-        for block in message.get("blocks", []):
-            if block.get("type") == "section":
-                original_text = block.get("text", {}).get("text", "")
-                break
-
-        updated_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": original_text or "Confirmation prompt",
-                },
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {"type": "mrkdwn", "text": decision_text},
-                ],
-            },
-        ]
-
-        try:
-            await self._get_client(channel_id).chat_update(
-                channel=channel_id,
-                ts=msg_ts,
-                text=decision_text,
-                blocks=updated_blocks,
-            )
-        except Exception as e:
-            logger.warning("[Slack] Failed to update slash-confirm message: %s", e)
+        await self._show_button_decision(channel_id, message, decision_text, "Confirmation prompt")
 
         # Resolve via the module-level primitive and post any follow-up.
         try:
@@ -2493,18 +2486,8 @@ class SlackAdapter(BasePlatformAdapter):
         user_name = body.get("user", {}).get("name", "unknown")
         user_id = body.get("user", {}).get("id", "")
 
-        # Only authorized users may click approval buttons.  Button clicks
-        # bypass the normal message auth flow in gateway/run.py, so we must
-        # check here as well.
-        allowed_csv = os.getenv("SLACK_ALLOWED_USERS", "").strip()
-        if allowed_csv:
-            allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
-            if "*" not in allowed_ids and user_id not in allowed_ids:
-                logger.warning(
-                    "[Slack] Unauthorized approval click by %s (%s) — ignoring",
-                    user_name, user_id,
-                )
-                return
+        if not self._button_click_allowed(user_id, user_name, "approval"):
+            return
 
         # Map action_id to approval choice
         choice_map = {
@@ -2527,39 +2510,7 @@ class SlackAdapter(BasePlatformAdapter):
             "deny": f"❌ Denied by {user_name}",
         }
         decision_text = label_map.get(choice, f"Resolved by {user_name}")
-
-        # Get original text from the section block
-        original_text = ""
-        for block in message.get("blocks", []):
-            if block.get("type") == "section":
-                original_text = block.get("text", {}).get("text", "")
-                break
-
-        updated_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": original_text or "Command approval request",
-                },
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {"type": "mrkdwn", "text": decision_text},
-                ],
-            },
-        ]
-
-        try:
-            await self._get_client(channel_id).chat_update(
-                channel=channel_id,
-                ts=msg_ts,
-                text=decision_text,
-                blocks=updated_blocks,
-            )
-        except Exception as e:
-            logger.warning("[Slack] Failed to update approval message: %s", e)
+        await self._show_button_decision(channel_id, message, decision_text, "Command approval request")
 
         # Resolve the approval — this unblocks the agent thread
         try:
@@ -2888,7 +2839,21 @@ class SlackAdapter(BasePlatformAdapter):
             return False
 
     async def _download_slack_file(self, url: str, ext: str, audio: bool = False, team_id: str = "") -> str:
-        """Download a Slack file using the bot token for auth, with retry."""
+        """Download a Slack image/audio file into the media cache; return its path."""
+        data = await self._fetch_slack_file(url, team_id, "media")
+        if audio:
+            from gateway.platforms.base import cache_audio_from_bytes
+            return cache_audio_from_bytes(data, ext)
+        from gateway.platforms.base import cache_image_from_bytes
+        return cache_image_from_bytes(data, ext)
+
+    async def _download_slack_file_bytes(self, url: str, team_id: str = "") -> bytes:
+        """Download a Slack file and return raw bytes."""
+        return await self._fetch_slack_file(url, team_id, "file bytes")
+
+    async def _fetch_slack_file(self, url: str, team_id: str, what: str) -> bytes:
+        """GET a Slack file with the workspace's bot token, retrying timeouts,
+        429 and 5xx up to twice."""
         import httpx
 
         bot_token = self._team_clients[team_id].token if team_id and team_id in self._team_clients else self.config.token
@@ -2901,25 +2866,6 @@ class SlackAdapter(BasePlatformAdapter):
                         headers={"Authorization": f"Bearer {bot_token}"},
                     )
                     response.raise_for_status()
-
-                    # Slack may return an HTML sign-in/redirect page
-                    # instead of actual media bytes (e.g. expired token,
-                    # restricted file access).  Detect this early so we
-                    # don't cache bogus data and confuse downstream tools.
-                    ct = response.headers.get("content-type", "")
-                    if "text/html" in ct:
-                        raise ValueError(
-                            "Slack returned HTML instead of media "
-                            f"(content-type: {ct}); "
-                            "check bot token scopes and file permissions"
-                        )
-
-                    if audio:
-                        from gateway.platforms.base import cache_audio_from_bytes
-                        return cache_audio_from_bytes(response.content, ext)
-                    else:
-                        from gateway.platforms.base import cache_image_from_bytes
-                        return cache_image_from_bytes(response.content, ext)
                 except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
                     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 429:
                         raise
@@ -2929,40 +2875,17 @@ class SlackAdapter(BasePlatformAdapter):
                         await asyncio.sleep(1.5 * (attempt + 1))
                         continue
                     raise
-
-    async def _download_slack_file_bytes(self, url: str, team_id: str = "") -> bytes:
-        """Download a Slack file and return raw bytes, with retry."""
-        import httpx
-
-        bot_token = self._team_clients[team_id].token if team_id and team_id in self._team_clients else self.config.token
-
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            for attempt in range(3):
-                try:
-                    response = await client.get(
-                        url,
-                        headers={"Authorization": f"Bearer {bot_token}"},
+                # Slack may return an HTML sign-in/redirect page instead of
+                # the file (expired token, restricted file access).  Detect it
+                # so bogus data isn't cached and handed to downstream tools.
+                ct = response.headers.get("content-type", "")
+                if "text/html" in ct:
+                    raise ValueError(
+                        f"Slack returned HTML instead of {what} "
+                        f"(content-type: {ct}); "
+                        "check bot token scopes and file permissions"
                     )
-                    response.raise_for_status()
-                    ct = response.headers.get("content-type", "")
-                    if "text/html" in ct:
-                        raise ValueError(
-                            "Slack returned HTML instead of file bytes "
-                            f"(content-type: {ct}); "
-                            "check bot token scopes and file permissions"
-                        )
-                    return response.content
-                except (httpx.TimeoutException, httpx.HTTPStatusError, ValueError) as exc:
-                    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 429:
-                        raise
-                    if isinstance(exc, ValueError):
-                        raise
-                    if attempt < 2:
-                        logger.debug("Slack file download retry %d/2 for %s: %s",
-                                     attempt + 1, url[:80], exc)
-                        await asyncio.sleep(1.5 * (attempt + 1))
-                        continue
-                    raise
+                return response.content
 
     # ── Channel mention gating ─────────────────────────────────────────────
 
