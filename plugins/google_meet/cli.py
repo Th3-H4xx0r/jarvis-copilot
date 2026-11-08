@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -93,8 +92,9 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
         # If the node module fails to import for any reason (optional dep
         # missing at import time etc.), leave the subparser present but
         # flag it. The argparse dispatch will surface a clear error.
-        def _node_unavailable(args):
-            print(f"jarviscopilot meet node: module unavailable ({e})")
+        # Bind the error now: ``e`` is unbound once the except block ends.
+        def _node_unavailable(args, _err=str(e)):
+            print(f"jarviscopilot meet node: module unavailable ({_err})")
             return 1
         node_p.set_defaults(func=_node_unavailable)
 
@@ -369,6 +369,22 @@ def _cmd_auth() -> int:
     return 0
 
 
+def _node_client(node: str):
+    """Return ``(registry_entry, NodeClient)`` for ``node`` ("auto" = the
+    default node), or ``(None, None)`` after printing why there is none."""
+    try:
+        from plugins.google_meet.node.registry import NodeRegistry
+        from plugins.google_meet.node.client import NodeClient
+    except ImportError as e:
+        print(f"node module unavailable: {e}")
+        return None, None
+    entry = NodeRegistry().resolve(node if node != "auto" else None)
+    if entry is None:
+        print(f"no registered node matches {node!r}")
+        return None, None
+    return entry, NodeClient(url=entry["url"], token=entry["token"])
+
+
 def _cmd_join(
     url: str,
     *,
@@ -383,18 +399,9 @@ def _cmd_join(
         return 2
     if node:
         # Remote: go through NodeClient.
-        try:
-            from plugins.google_meet.node.registry import NodeRegistry
-            from plugins.google_meet.node.client import NodeClient
-        except ImportError as e:
-            print(f"node module unavailable: {e}")
+        entry, client = _node_client(node)
+        if client is None:
             return 1
-        reg = NodeRegistry()
-        entry = reg.resolve(node if node != "auto" else None)
-        if entry is None:
-            print(f"no registered node matches {node!r}")
-            return 1
-        client = NodeClient(url=entry["url"], token=entry["token"])
         try:
             res = client.start_bot(
                 url=url, guest_name=guest_name, duration=duration,
@@ -424,18 +431,9 @@ def _cmd_say(text: str, node: Optional[str] = None) -> int:
         print("refusing: empty text")
         return 2
     if node:
-        try:
-            from plugins.google_meet.node.registry import NodeRegistry
-            from plugins.google_meet.node.client import NodeClient
-        except ImportError as e:
-            print(f"node module unavailable: {e}")
+        entry, client = _node_client(node)
+        if client is None:
             return 1
-        reg = NodeRegistry()
-        entry = reg.resolve(node if node != "auto" else None)
-        if entry is None:
-            print(f"no registered node matches {node!r}")
-            return 1
-        client = NodeClient(url=entry["url"], token=entry["token"])
         try:
             res = client.say(text)
         except Exception as e:

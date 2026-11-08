@@ -557,34 +557,8 @@ def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform:
     if session_id:
         trace_ctx["session_id"] = session_id
 
-    if propagate_attributes is not None:
-        try:
-            with propagate_attributes(
-                session_id=session_id or task_key,
-                trace_name="JarvisCopilot turn",
-                tags=["jarviscopilot", "langfuse"],
-            ):
-                root_ctx = client.start_as_current_observation(
-                    trace_context=trace_ctx,
-                    name="JarvisCopilot turn",
-                    as_type="chain",
-                    input=trace_input,
-                    metadata=metadata,
-                    end_on_exit=False,
-                )
-                root_span = root_ctx.__enter__()
-        except Exception:
-            root_ctx = client.start_as_current_observation(
-                trace_context=trace_ctx,
-                name="JarvisCopilot turn",
-                as_type="chain",
-                input=trace_input,
-                metadata=metadata,
-                end_on_exit=False,
-            )
-            root_span = root_ctx.__enter__()
-    else:
-        root_ctx = client.start_as_current_observation(
+    def _open_root():
+        ctx = client.start_as_current_observation(
             trace_context=trace_ctx,
             name="JarvisCopilot turn",
             as_type="chain",
@@ -592,7 +566,20 @@ def _start_root_trace(task_key: str, *, task_id: str, session_id: str, platform:
             metadata=metadata,
             end_on_exit=False,
         )
-        root_span = root_ctx.__enter__()
+        return ctx, ctx.__enter__()
+
+    if propagate_attributes is not None:
+        try:
+            with propagate_attributes(
+                session_id=session_id or task_key,
+                trace_name="JarvisCopilot turn",
+                tags=["jarviscopilot", "langfuse"],
+            ):
+                root_ctx, root_span = _open_root()
+        except Exception:
+            root_ctx, root_span = _open_root()
+    else:
+        root_ctx, root_span = _open_root()
 
     try:
         root_span.set_trace_io(input=trace_input)
