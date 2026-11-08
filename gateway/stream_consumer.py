@@ -52,7 +52,6 @@ class StreamConsumerConfig:
     edit_interval: float = _DEFAULT_STREAMING_EDIT_INTERVAL
     buffer_threshold: int = _DEFAULT_STREAMING_BUFFER_THRESHOLD
     cursor: str = _DEFAULT_STREAMING_CURSOR
-    buffer_only: bool = False
     # When >0, the final edit for a streamed response is delivered as a
     # fresh message if the original preview has been visible for at least
     # this many seconds.  This makes the platform's visible timestamp
@@ -156,7 +155,7 @@ class GatewayStreamConsumer:
         # subsequently failed.
         self._final_content_delivered = False
         # Cache adapter lifecycle capability: only platforms that need an
-        # explicit finalize call (e.g. DingTalk AI Cards) force us to make
+        # explicit finalize call (e.g. Telegram's MarkdownV2 pass) force us to make
         # a redundant final edit.  Everyone else keeps the fast path.
         # Use ``is True`` (not ``bool(...)``) so MagicMock attribute access
         # in tests doesn't incorrectly enable this path.
@@ -452,17 +451,14 @@ class GatewayStreamConsumer:
                     got_done
                     or got_segment_break
                     or commentary_text is not None
+                    or (elapsed >= self._current_edit_interval
+                        and self._accumulated)
+                    # buffer_threshold is intentionally codepoint-based:
+                    # it's a debounce heuristic ("send updates roughly
+                    # every N visible characters"), not a platform-limit
+                    # check. _len_fn is reserved for overflow detection.
+                    or len(self._accumulated) >= self.cfg.buffer_threshold
                 )
-                if not self.cfg.buffer_only:
-                    should_edit = should_edit or (
-                        (elapsed >= self._current_edit_interval
-                            and self._accumulated)
-                        # buffer_threshold is intentionally codepoint-based:
-                        # it's a debounce heuristic ("send updates roughly
-                        # every N visible characters"), not a platform-limit
-                        # check. _len_fn is reserved for overflow detection.
-                        or len(self._accumulated) >= self.cfg.buffer_threshold
-                    )
 
                 current_update_visible = False
                 if should_edit and self._accumulated:
@@ -535,7 +531,7 @@ class GatewayStreamConsumer:
                         display_text += self.cfg.cursor
 
                     # Segment break: finalize the current message so platforms
-                    # that need explicit closure (e.g. DingTalk AI Cards) don't
+                    # that need explicit closure don't
                     # leave the previous segment stuck in a loading state when
                     # the next segment (tool progress, next chunk) creates a
                     # new message below it.  got_done has its own finalize
@@ -1127,7 +1123,7 @@ class GatewayStreamConsumer:
         # before switching to tool calls; the resulting "X ▉" message risks
         # leaving the cursor permanently visible if the follow-up edit (to
         # strip the cursor on segment break) is rate-limited by the platform.
-        # This was reported on Telegram, Matrix, and other clients where the
+        # This was reported on Telegram and other clients where the
         # ▉ block character renders as a visible white box ("tofu").
         # Existing messages (edits) are unaffected — only first sends gated.
         _MIN_NEW_MSG_CHARS = 4

@@ -1,22 +1,18 @@
 """Shared helper classes for gateway platform adapters.
 
 Extracts common patterns that were duplicated across 5-7 adapters:
-message deduplication, text batch aggregation, markdown stripping,
+message deduplication, markdown stripping,
 and thread participation tracking.
 """
 
-import asyncio
 import json
 import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict
+from typing import Dict
 
 from utils import atomic_json_write
-
-if TYPE_CHECKING:
-    from gateway.platforms.base import MessageEvent
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +24,7 @@ class MessageDeduplicator:
     """TTL-based message deduplication cache.
 
     Replaces the identical ``_seen_messages`` / ``_is_duplicate()`` pattern
-    previously duplicated in discord, slack, dingtalk, wecom, weixin,
-    mattermost, and feishu adapters.
+    previously duplicated in the discord and slack adapters.
 
     Usage::
 
@@ -75,94 +70,6 @@ class MessageDeduplicator:
         self._seen.clear()
 
 
-# ─── Text Batch Aggregation ──────────────────────────────────────────────────
-
-
-class TextBatchAggregator:
-    """Aggregates rapid-fire text events into single messages.
-
-    Replaces the ``_enqueue_text_event`` / ``_flush_text_batch`` pattern
-    previously duplicated in telegram, discord, matrix, wecom, and feishu.
-
-    Usage::
-
-        self._text_batcher = TextBatchAggregator(
-            handler=self._message_handler,
-            batch_delay=0.6,
-            split_threshold=1900,
-        )
-
-        # In message dispatch:
-        if msg_type == MessageType.TEXT and self._text_batcher.is_enabled():
-            self._text_batcher.enqueue(event, session_key)
-            return
-    """
-
-    def __init__(
-        self,
-        handler,
-        *,
-        batch_delay: float = 0.6,
-        split_delay: float = 2.0,
-        split_threshold: int = 4000,
-    ):
-        self._handler = handler
-        self._batch_delay = batch_delay
-        self._split_delay = split_delay
-        self._split_threshold = split_threshold
-        self._pending: Dict[str, "MessageEvent"] = {}
-        self._pending_tasks: Dict[str, asyncio.Task] = {}
-
-    def is_enabled(self) -> bool:
-        """Return True if batching is active (delay > 0)."""
-        return self._batch_delay > 0
-
-    def enqueue(self, event: "MessageEvent", key: str) -> None:
-        """Add *event* to the pending batch for *key*."""
-        chunk_len = len(event.text or "")
-        existing = self._pending.get(key)
-        if not existing:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
-            self._pending[key] = event
-        else:
-            existing.text = f"{existing.text}\n{event.text}"
-            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
-
-        # Cancel prior flush timer, start a new one
-        prior = self._pending_tasks.get(key)
-        if prior and not prior.done():
-            prior.cancel()
-        self._pending_tasks[key] = asyncio.create_task(self._flush(key))
-
-    async def _flush(self, key: str) -> None:
-        """Wait then dispatch the batched event for *key*."""
-        current_task = self._pending_tasks.get(key)
-        pending = self._pending.get(key)
-        last_len = getattr(pending, "_last_chunk_len", 0) if pending else 0
-
-        # Use longer delay when the last chunk looks like a split message
-        delay = self._split_delay if last_len >= self._split_threshold else self._batch_delay
-        await asyncio.sleep(delay)
-
-        event = self._pending.pop(key, None)
-        if event:
-            try:
-                await self._handler(event)
-            except Exception:
-                logger.exception("[TextBatchAggregator] Error dispatching batched event for %s", key)
-
-        if self._pending_tasks.get(key) is current_task:
-            self._pending_tasks.pop(key, None)
-
-    def cancel_all(self) -> None:
-        """Cancel all pending flush tasks."""
-        for task in self._pending_tasks.values():
-            if not task.done():
-                task.cancel()
-        self._pending_tasks.clear()
-        self._pending.clear()
-
-
 # ─── Markdown Stripping ──────────────────────────────────────────────────────
 
 # Pre-compiled regexes for performance
@@ -181,7 +88,7 @@ def strip_markdown(text: str) -> str:
     """Strip markdown formatting for plain-text platforms (SMS, iMessage, etc.).
 
     Replaces the identical ``_strip_markdown()`` functions previously
-    duplicated in sms.py, bluebubbles.py, and feishu.py.
+    duplicated in sms.py and bluebubbles.py.
     """
     text = _RE_BOLD.sub(r"\1", text)
     text = _RE_ITALIC_STAR.sub(r"\1", text)
@@ -203,7 +110,7 @@ class ThreadParticipationTracker:
 
     Replaces the identical ``_load/_save_participated_threads`` +
     ``_mark_thread_participated`` pattern previously duplicated in
-    discord.py and matrix.py.
+    discord.py.
 
     Usage::
 

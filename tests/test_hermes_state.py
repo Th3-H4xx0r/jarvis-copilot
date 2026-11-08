@@ -339,10 +339,10 @@ class TestMessageStorage:
         assert conv[1] == {"role": "assistant", "content": "Hi!"}
 
     def test_platform_message_id_round_trips(self, db):
-        """Platform-side message ids (yuanbao msg_id, telegram update_id, …)
+        """Platform-side message ids (telegram update_id, …)
         survive append → get_messages_as_conversation under the
         ``message_id`` key so platform recall flows can match by exact id."""
-        db.create_session(session_id="s_pmi", source="yuanbao")
+        db.create_session(session_id="s_pmi", source="telegram")
         db.append_message(
             "s_pmi",
             role="user",
@@ -361,8 +361,8 @@ class TestMessageStorage:
     def test_replace_messages_preserves_platform_message_id(self, db):
         """``rewrite_transcript`` (which goes through replace_messages) must
         keep the platform_message_id round-trip working for /retry, /undo,
-        /compress and yuanbao's recall rewrite path."""
-        db.create_session(session_id="s_rep", source="yuanbao")
+        /compress and platform recall paths."""
+        db.create_session(session_id="s_rep", source="telegram")
         db.replace_messages(
             "s_rep",
             [
@@ -636,14 +636,14 @@ class TestFTS5Search:
 
     def test_search_default_includes_all_platforms(self, db):
         """Default search (no source_filter) should find sessions from any platform."""
-        for src in ("cli", "telegram", "signal", "homeassistant", "acp", "matrix"):
+        for src in ("cli", "telegram", "signal", "homeassistant", "acp", "slack"):
             sid = f"s-{src}"
             db.create_session(session_id=sid, source=src)
             db.append_message(sid, role="user", content=f"universal search test from {src}")
 
         results = db.search_messages("universal search test")
         found_sources = {r["source"] for r in results}
-        assert found_sources == {"cli", "telegram", "signal", "homeassistant", "acp", "matrix"}
+        assert found_sources == {"cli", "telegram", "signal", "homeassistant", "acp", "slack"}
 
     def test_search_with_role_filter(self, db):
         db.create_session(session_id="s1", source="cli")

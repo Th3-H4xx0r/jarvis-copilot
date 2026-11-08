@@ -20,7 +20,7 @@ What makes JarvisCopilot different:
 
 - **Self-improving through skills** — JarvisCopilot learns from experience by saving reusable procedures as skills. When it solves a complex problem, discovers a workflow, or gets corrected, it can persist that knowledge as a skill document that loads into future sessions. Skills accumulate over time, making the agent better at your specific tasks and environment.
 - **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends (built-in, Honcho, Mem0, and more) let you choose how memory works.
-- **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Email, and 10+ other platforms with full tool access, not just chat.
+- **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, Signal, Email, and other platforms with full tool access, not just chat.
 - **Provider-agnostic** — swap models and providers mid-workflow without changing anything else. Credential pools rotate across multiple API keys automatically.
 - **Profiles** — run multiple independent JarvisCopilot instances with isolated configs, sessions, skills, and memory.
 - **Extensible** — plugins, MCP servers, custom tools, webhook triggers, cron scheduling, and the full Python ecosystem.
@@ -149,7 +149,7 @@ jarviscopilot gateway status       Check status
 jarviscopilot gateway setup        Configure platforms
 ```
 
-Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Matrix, Mattermost, Home Assistant, DingTalk, Feishu, WeCom, BlueBubbles (iMessage), Weixin (WeChat), API Server, Webhooks. Open WebUI connects via the API Server adapter.
+Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Home Assistant, BlueBubbles (iMessage), API Server, Webhooks. Open WebUI connects via the API Server adapter.
 
 Platform docs: https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/
 
@@ -426,9 +426,6 @@ Enable/disable via `jarviscopilot tools` (interactive) or `jarviscopilot tools e
 | `homeassistant` | Smart home control (off by default) |
 | `discord` | Discord integration tools |
 | `discord_admin` | Discord admin/moderation tools |
-| `feishu_doc` | Feishu (Lark) document tools |
-| `feishu_drive` | Feishu (Lark) drive tools |
-| `yuanbao` | Yuanbao integration tools |
 | `rl` | Reinforcement learning tools (off by default) |
 | `moa` | Mixture of Agents (off by default) |
 

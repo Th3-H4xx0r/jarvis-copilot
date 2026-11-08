@@ -25,8 +25,6 @@ def test_all_builtins_have_checker_or_generic_token_path():
         Platform.TELEGRAM,
         Platform.DISCORD,
         Platform.SLACK,
-        Platform.MATRIX,
-        Platform.MATTERMOST,
         Platform.HOMEASSISTANT,
     }}
 
@@ -67,9 +65,7 @@ def test_checker_returns_true_when_configured(platform, checker, monkeypatch):
     mock_config.enabled = True
 
     # Set up platform-specific mock extra fields so the checker succeeds
-    if platform == Platform.WEIXIN:
-        mock_config.extra = {"account_id": "123", "token": "***"}
-    elif platform == Platform.SIGNAL:
+    if platform == Platform.SIGNAL:
         mock_config.extra = {"http_url": "http://signal:8080"}
     elif platform == Platform.EMAIL:
         mock_config.extra = {"address": "jarviscopilot@example.com"}
@@ -79,24 +75,11 @@ def test_checker_returns_true_when_configured(platform, checker, monkeypatch):
     elif platform in {
         Platform.API_SERVER,
         Platform.WEBHOOK,
-        Platform.MSGRAPH_WEBHOOK,
         Platform.WHATSAPP,
     }:
         mock_config.extra = {}
-    elif platform == Platform.FEISHU:
-        mock_config.extra = {"app_id": "app"}
-    elif platform == Platform.WECOM:
-        mock_config.extra = {"bot_id": "bot"}
-    elif platform == Platform.WECOM_CALLBACK:
-        mock_config.extra = {"corp_id": "corp"}
     elif platform == Platform.BLUEBUBBLES:
         mock_config.extra = {"server_url": "http://bb:1234", "password": "pw"}
-    elif platform == Platform.QQBOT:
-        mock_config.extra = {"app_id": "app", "client_secret": "sec"}
-    elif platform == Platform.YUANBAO:
-        mock_config.extra = {"app_id": "app", "app_secret": "sec"}
-    elif platform == Platform.DINGTALK:
-        mock_config.extra = {"client_id": "id", "client_secret": "sec"}
     else:
         pytest.skip(f"No synthetic config defined for {platform.value}")
 

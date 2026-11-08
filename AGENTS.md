@@ -34,10 +34,9 @@ jarviscopilot/
 ├── tools/                # Tool implementations — auto-discovered via tools/registry.py
 │   └── environments/     # Terminal backends (local, docker, ssh, modal, daytona, singularity)
 ├── gateway/              # Messaging gateway — run.py + session.py + platforms/
-│   ├── platforms/        # Adapter per platform (telegram, discord, slack, whatsapp,
-│   │                     #   homeassistant, signal, matrix, mattermost, email, sms,
-│   │                     #   dingtalk, wecom, weixin, feishu, qqbot, bluebubbles,
-│   │                     #   yuanbao, webhook, api_server, ...). See ADDING_A_PLATFORM.md.
+│   ├── platforms/        # Adapter per platform (telegram, slack, whatsapp,
+│   │                     #   homeassistant, signal, email, sms, bluebubbles,
+│   │                     #   webhook, api_server, ...). See ADDING_A_PLATFORM.md.
 │   └── builtin_hooks/    # Extension point for always-registered gateway hooks (none shipped)
 ├── plugins/              # Plugin system (see "Plugins" section below)
 │   ├── memory/           # Memory-provider plugins (honcho, mem0, supermemory, ...)
@@ -700,10 +699,10 @@ Each platform's adapter picks a base toolset (e.g. Telegram uses
 platforms inherit from.
 
 Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
-`debugging`, `delegation`, `discord`, `discord_admin`, `feishu_doc`,
-`feishu_drive`, `file`, `homeassistant`, `image_gen`, `kanban`, `memory`,
-`messaging`, `moa`, `rl`, `safe`, `search`, `session_search`, `skills`,
-`spotify`, `terminal`, `todo`, `tts`, `video`, `vision`, `web`, `yuanbao`.
+`debugging`, `delegation`, `discord`, `discord_admin`, `file`,
+`homeassistant`, `image_gen`, `kanban`, `memory`, `messaging`, `moa`, `rl`,
+`safe`, `search`, `session_search`, `skills`, `spotify`, `terminal`, `todo`,
+`tts`, `video`, `vision`, `web`.
 
 Enable/disable per platform via `jarviscopilot tools` (the curses UI) or the
 `tools.<platform>.enabled` / `tools.<platform>.disabled` lists in

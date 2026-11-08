@@ -90,37 +90,20 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
 # in cron delivery targets, preventing env var enumeration via crafted names.
 _KNOWN_DELIVERY_PLATFORMS = frozenset({
     "telegram", "discord", "slack", "whatsapp", "signal",
-    "matrix", "mattermost", "homeassistant", "dingtalk", "feishu",
-    "wecom", "wecom_callback", "weixin", "sms", "email", "webhook", "bluebubbles",
-    "qqbot", "yuanbao",
+    "homeassistant", "sms", "email", "webhook", "bluebubbles",
 })
 
 # Platforms that support a configured cron/notification home target, mapped to
 # the environment variable used by gateway setup/runtime config.
 _HOME_TARGET_ENV_VARS = {
-    "matrix": "MATRIX_HOME_ROOM",
     "telegram": "TELEGRAM_HOME_CHANNEL",
     "discord": "DISCORD_HOME_CHANNEL",
     "slack": "SLACK_HOME_CHANNEL",
     "signal": "SIGNAL_HOME_CHANNEL",
-    "mattermost": "MATTERMOST_HOME_CHANNEL",
     "sms": "SMS_HOME_CHANNEL",
     "email": "EMAIL_HOME_ADDRESS",
-    "dingtalk": "DINGTALK_HOME_CHANNEL",
-    "feishu": "FEISHU_HOME_CHANNEL",
-    "wecom": "WECOM_HOME_CHANNEL",
-    "weixin": "WEIXIN_HOME_CHANNEL",
     "bluebubbles": "BLUEBUBBLES_HOME_CHANNEL",
-    "qqbot": "QQBOT_HOME_CHANNEL",
     "whatsapp": "WHATSAPP_HOME_CHANNEL",
-}
-
-# Legacy env var names kept for back-compat.  Each entry is the current
-# primary env var → the previous name.  _get_home_target_chat_id falls
-# back to the legacy name if the primary is unset, so users who set the
-# old name before the rename keep working until they migrate.
-_LEGACY_HOME_TARGET_ENV_VARS = {
-    "QQBOT_HOME_CHANNEL": "QQ_HOME_CHANNEL",
 }
 
 from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run
@@ -438,12 +421,7 @@ def _get_home_target_chat_id(platform_name: str) -> str:
     env_var = _resolve_home_env_var(platform_name)
     if not env_var:
         return ""
-    value = os.getenv(env_var, "")
-    if not value:
-        legacy = _LEGACY_HOME_TARGET_ENV_VARS.get(env_var)
-        if legacy:
-            value = os.getenv(legacy, "")
-    return value
+    return os.getenv(env_var, "")
 
 
 def _get_home_target_thread_id(platform_name: str) -> Optional[str]:
@@ -465,10 +443,6 @@ def _get_home_target_thread_id(platform_name: str) -> Optional[str]:
         if cron_thread:
             return cron_thread
     value = os.getenv(f"{env_var}_THREAD_ID", "").strip()
-    if not value:
-        legacy = _LEGACY_HOME_TARGET_ENV_VARS.get(env_var)
-        if legacy:
-            value = os.getenv(f"{legacy}_THREAD_ID", "").strip()
     return value or None
 
 
@@ -727,8 +701,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
 
     When ``adapters`` and ``loop`` are provided (gateway is running), tries to
-    use the live adapter first — this supports E2EE rooms (e.g. Matrix) where
-    the standalone HTTP path cannot encrypt.  Falls back to standalone send if
+    use the live adapter first, falling back to standalone send if
     the adapter path fails or is unavailable.
 
     Returns None on success, or an error string on failure.
@@ -818,8 +791,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
             delivery_errors.append(msg)
             continue
 
-        # Prefer the live adapter when the gateway is running — this supports E2EE
-        # rooms (e.g. Matrix) where the standalone HTTP path cannot encrypt.
+        # Prefer the live adapter when the gateway is running.
         runtime_adapter = (adapters or {}).get(platform)
         delivered = False
         if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():

@@ -30,7 +30,6 @@ from gateway.config import Platform
 from tools.send_message_tool import (
     _is_telegram_thread_not_found,
     _parse_target_ref,
-    _send_matrix_via_adapter,
     _send_signal,
     _send_telegram,
     _send_to_platform,
@@ -299,47 +298,6 @@ class TestSendMessageTool:
             "C123ABCDEF",
             "hello",
             thread_id="171.000001",
-            media_files=[],
-            force_document=False,
-        )
-
-    def test_resolved_matrix_thread_name_preserves_thread_id(self):
-        matrix_cfg = SimpleNamespace(
-            enabled=True,
-            token="tok",
-            extra={"homeserver": "https://matrix.example.com"},
-        )
-        config = SimpleNamespace(
-            platforms={Platform.MATRIX: matrix_cfg},
-            get_home_channel=lambda _platform: None,
-        )
-
-        with patch("gateway.config.load_gateway_config", return_value=config), \
-             patch("tools.interrupt.is_interrupted", return_value=False), \
-             patch(
-                 "gateway.channel_directory.resolve_channel_name",
-                 return_value="!roomid:matrix.example.org:$thread123:matrix.example.org",
-             ), \
-             patch("model_tools._run_async", side_effect=_run_async_immediately), \
-             patch("tools.send_message_tool._send_to_platform", new=AsyncMock(return_value={"success": True})) as send_mock, \
-             patch("gateway.mirror.mirror_to_session", return_value=True):
-            result = json.loads(
-                send_message_tool(
-                    {
-                        "action": "send",
-                        "target": "matrix:Ops / topic $thread123",
-                        "message": "hello",
-                    }
-                )
-            )
-
-        assert result["success"] is True
-        send_mock.assert_awaited_once_with(
-            Platform.MATRIX,
-            matrix_cfg,
-            "!roomid:matrix.example.org",
-            "hello",
-            thread_id="$thread123:matrix.example.org",
             media_files=[],
             force_document=False,
         )
@@ -696,102 +654,6 @@ class TestSendToPlatformChunking:
         assert all(call == [] for call in sent_calls[:-1])
         assert sent_calls[-1] == media
 
-    def test_matrix_media_uses_native_adapter_helper(self, tmp_path):
-        doc_path = tmp_path / "test-send-message-matrix.pdf"
-        doc_path.write_bytes(b"%PDF-1.4 test")
-
-        try:
-            helper = AsyncMock(return_value={"success": True, "platform": "matrix", "chat_id": "!room:example.com", "message_id": "$evt"})
-            with patch("tools.send_message_tool._send_matrix_via_adapter", helper):
-                result = asyncio.run(
-                    _send_to_platform(
-                        Platform.MATRIX,
-                        SimpleNamespace(enabled=True, token="tok", extra={"homeserver": "https://matrix.example.com"}),
-                        "!room:example.com",
-                        "here you go",
-                        media_files=[(str(doc_path), False)],
-                    )
-                )
-
-            assert result["success"] is True
-            helper.assert_awaited_once()
-            call = helper.await_args
-            assert call.args[1] == "!room:example.com"
-            assert call.args[2] == "here you go"
-            assert call.kwargs["media_files"] == [(str(doc_path), False)]
-        finally:
-            doc_path.unlink(missing_ok=True)
-
-    def test_matrix_text_only_uses_lightweight_path(self):
-        """Text-only Matrix sends should NOT go through the heavy adapter path."""
-        helper = AsyncMock()
-        lightweight = AsyncMock(return_value={"success": True, "platform": "matrix", "chat_id": "!room:ex.com", "message_id": "$txt"})
-        with patch("tools.send_message_tool._send_matrix_via_adapter", helper), \
-             patch("tools.send_message_tool._send_matrix", lightweight):
-            result = asyncio.run(
-                _send_to_platform(
-                    Platform.MATRIX,
-                    SimpleNamespace(enabled=True, token="tok", extra={"homeserver": "https://matrix.example.com"}),
-                    "!room:ex.com",
-                    "just text, no files",
-                )
-            )
-
-        assert result["success"] is True
-        helper.assert_not_awaited()
-        lightweight.assert_awaited_once()
-
-    def test_send_matrix_via_adapter_sends_document(self, tmp_path):
-        file_path = tmp_path / "report.pdf"
-        file_path.write_bytes(b"%PDF-1.4 test")
-
-        calls = []
-
-        class FakeAdapter:
-            def __init__(self, _config):
-                self.connected = False
-
-            async def connect(self):
-                self.connected = True
-                calls.append(("connect",))
-                return True
-
-            async def send(self, chat_id, message, metadata=None):
-                calls.append(("send", chat_id, message, metadata))
-                return SimpleNamespace(success=True, message_id="$text")
-
-            async def send_document(self, chat_id, file_path, metadata=None):
-                calls.append(("send_document", chat_id, file_path, metadata))
-                return SimpleNamespace(success=True, message_id="$file")
-
-            async def disconnect(self):
-                calls.append(("disconnect",))
-
-        fake_module = SimpleNamespace(MatrixAdapter=FakeAdapter)
-
-        with patch.dict(sys.modules, {"gateway.platforms.matrix": fake_module}):
-            result = asyncio.run(
-                _send_matrix_via_adapter(
-                    SimpleNamespace(enabled=True, token="tok", extra={"homeserver": "https://matrix.example.com"}),
-                    "!room:example.com",
-                    "report attached",
-                    media_files=[(str(file_path), False)],
-                )
-            )
-
-        assert result == {
-            "success": True,
-            "platform": "matrix",
-            "chat_id": "!room:example.com",
-            "message_id": "$file",
-        }
-        assert calls == [
-            ("connect",),
-            ("send", "!room:example.com", "report attached", None),
-            ("send_document", "!room:example.com", str(file_path), None),
-            ("disconnect",),
-        ]
-
 
 # ---------------------------------------------------------------------------
 # HTML auto-detection in Telegram send
@@ -1088,49 +950,6 @@ class TestParseTargetRefDiscord:
         assert thread_id == "789"
         assert is_explicit is True
 
-
-class TestParseTargetRefMatrix:
-    """_parse_target_ref correctly handles Matrix room IDs and user MXIDs."""
-
-    def test_matrix_thread_target_is_explicit(self):
-        """Session-derived Matrix thread targets round-trip as room + event id."""
-        chat_id, thread_id, is_explicit = _parse_target_ref(
-            "matrix",
-            "!HLOQwxYGgFPMPJUSNR:matrix.org:$thread123:matrix.org",
-        )
-        assert chat_id == "!HLOQwxYGgFPMPJUSNR:matrix.org"
-        assert thread_id == "$thread123:matrix.org"
-        assert is_explicit is True
-
-    def test_matrix_room_id_is_explicit(self):
-        """Matrix room IDs (!) are recognized as explicit targets."""
-        chat_id, thread_id, is_explicit = _parse_target_ref("matrix", "!HLOQwxYGgFPMPJUSNR:matrix.org")
-        assert chat_id == "!HLOQwxYGgFPMPJUSNR:matrix.org"
-        assert thread_id is None
-        assert is_explicit is True
-
-    def test_matrix_user_mxid_is_explicit(self):
-        """Matrix user MXIDs (@) are recognized as explicit targets."""
-        chat_id, thread_id, is_explicit = _parse_target_ref("matrix", "@jarviscopilot:matrix.org")
-        assert chat_id == "@jarviscopilot:matrix.org"
-        assert thread_id is None
-        assert is_explicit is True
-
-    def test_matrix_alias_is_not_explicit(self):
-        """Matrix room aliases (#) are NOT explicit — they need resolution."""
-        chat_id, thread_id, is_explicit = _parse_target_ref("matrix", "#general:matrix.org")
-        assert chat_id is None
-        assert is_explicit is False
-
-    def test_matrix_prefix_only_matches_matrix_platform(self):
-        """! and @ prefixes are only treated as explicit for the matrix platform."""
-        chat_id, _, is_explicit = _parse_target_ref("telegram", "!something")
-        assert is_explicit is False
-
-        chat_id, _, is_explicit = _parse_target_ref("discord", "@someone")
-        assert is_explicit is False
-
-
 class TestParseTargetRefE164:
     """_parse_target_ref accepts E.164 phone numbers for phone-based platforms."""
 
@@ -1168,7 +987,6 @@ class TestParseTargetRefE164:
         """'+' prefix must NOT be treated as explicit for non-phone platforms."""
         assert _parse_target_ref("telegram", "+15551234567")[2] is False
         assert _parse_target_ref("discord", "+15551234567")[2] is False
-        assert _parse_target_ref("matrix", "+15551234567")[2] is False
 
 
 class TestParseTargetRefSlack:
@@ -1503,43 +1321,6 @@ class TestSendToPlatformDiscordMedia:
         send_mock.assert_awaited_once()
         call_kwargs = send_mock.await_args.kwargs
         assert call_kwargs["media_files"] == [("/fake/img.png", False)]
-
-
-class TestSendMatrixUrlEncoding:
-    """_send_matrix URL-encodes Matrix room IDs in the API path."""
-
-    def test_room_id_is_percent_encoded_in_url(self):
-        """Matrix room IDs with ! and : are percent-encoded in the PUT URL."""
-        import aiohttp
-
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.json = AsyncMock(return_value={"event_id": "$evt123"})
-        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
-        mock_resp.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session = MagicMock()
-        mock_session.put = MagicMock(return_value=mock_resp)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-
-        with patch("aiohttp.ClientSession", return_value=mock_session):
-            from tools.send_message_tool import _send_matrix
-            result = asyncio.get_event_loop().run_until_complete(
-                _send_matrix(
-                    "test_token",
-                    {"homeserver": "https://matrix.example.org"},
-                    "!HLOQwxYGgFPMPJUSNR:matrix.org",
-                    "hello",
-                )
-            )
-
-        assert result["success"] is True
-        # Verify the URL was called with percent-encoded room ID
-        put_url = mock_session.put.call_args[0][0]
-        assert "%21HLOQwxYGgFPMPJUSNR%3Amatrix.org" in put_url
-        assert "!HLOQwxYGgFPMPJUSNR:matrix.org" not in put_url
-
 
 # ---------------------------------------------------------------------------
 # Tests for _derive_forum_thread_name

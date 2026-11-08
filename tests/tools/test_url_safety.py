@@ -172,28 +172,6 @@ class TestIsSafeUrl:
         ]):
             assert is_safe_url("https://example.com/file.jpg") is False
 
-    def test_qq_multimedia_hostname_allowed_with_benchmark_ip(self):
-        with patch("socket.getaddrinfo", return_value=[
-            (2, 1, 6, "", ("198.18.0.23", 0)),
-        ]):
-            assert is_safe_url("https://multimedia.nt.qq.com.cn/download?id=123") is True
-
-    def test_qq_multimedia_hostname_exception_is_exact_match(self):
-        with patch("socket.getaddrinfo", return_value=[
-            (2, 1, 6, "", ("198.18.0.23", 0)),
-        ]):
-            assert is_safe_url("https://sub.multimedia.nt.qq.com.cn/download?id=123") is False
-
-    def test_qq_multimedia_hostname_exception_requires_https(self):
-        with patch("socket.getaddrinfo", return_value=[
-            (2, 1, 6, "", ("198.18.0.23", 0)),
-        ]):
-            assert is_safe_url("http://multimedia.nt.qq.com.cn/download?id=123") is False
-
-    def test_qq_multimedia_hostname_dns_failure_still_blocked(self):
-        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name resolution failed")):
-            assert is_safe_url("https://multimedia.nt.qq.com.cn/download?id=123") is False
-
 
 class TestIsBlockedIp:
     """Direct tests for the _is_blocked_ip helper."""

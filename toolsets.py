@@ -434,33 +434,6 @@ TOOLSETS = {
         "includes": [],
     },
 
-    "yuanbao": {
-        "description": "Yuanbao platform tools - group info, member queries, DM, stickers",
-        "tools": [
-            "yb_query_group_info",
-            "yb_query_group_members",
-            "yb_send_dm",
-            "yb_search_sticker",
-            "yb_send_sticker",
-        ],
-        "includes": []
-    },
-
-    "feishu_doc": {
-        "description": "Read Feishu/Lark document content",
-        "tools": ["feishu_doc_read"],
-        "includes": []
-    },
-
-    "feishu_drive": {
-        "description": "Feishu/Lark document comment operations (list, reply, add)",
-        "tools": [
-            "feishu_drive_list_comments", "feishu_drive_list_comment_replies",
-            "feishu_drive_reply_comment", "feishu_drive_add_comment",
-        ],
-        "includes": []
-    },
-
     "spotify": {
         "description": "Native Spotify playback, search, playlist, album, and library tools",
         "tools": [
@@ -627,72 +600,6 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-mattermost": {
-        "description": "Mattermost bot toolset - self-hosted team messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-matrix": {
-        "description": "Matrix bot toolset - decentralized encrypted messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-dingtalk": {
-        "description": "DingTalk bot toolset - enterprise messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-feishu": {
-        "description": "Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access)",
-        "tools": _HERMES_CORE_TOOLS + [
-            "feishu_doc_read",
-            "feishu_drive_list_comments",
-            "feishu_drive_list_comment_replies",
-            "feishu_drive_reply_comment",
-            "feishu_drive_add_comment",
-        ],
-        "includes": []
-    },
-
-    "hermes-weixin": {
-        "description": "Weixin bot toolset - personal WeChat messaging via iLink (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-qqbot": {
-        "description": "QQBot toolset - QQ messaging via Official Bot API v2 (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-wecom": {
-        "description": "WeCom bot toolset - enterprise WeChat messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-wecom-callback": {
-        "description": "WeCom callback toolset - enterprise self-built app messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
-        "includes": []
-    },
-
-    "hermes-yuanbao": {
-        "description": "Yuanbao Bot 元宝消息平台工具集 - 群信息、成员查询、私聊、贴纸表情",
-        "tools": _HERMES_CORE_TOOLS + [
-            "yb_query_group_info",
-            "yb_query_group_members",
-            "yb_send_dm",
-            "yb_search_sticker",
-            "yb_send_sticker",
-        ],
-        "module": "tools.yuanbao_tools",
-        "includes": []
-    },
 
     "hermes-sms": {
         "description": "SMS bot toolset - interact with JarvisCopilot via SMS (Twilio)",
@@ -709,7 +616,7 @@ TOOLSETS = {
     "jarviscopilot-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-yuanbao"]
+        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-webhook"]
     }
 }
 

@@ -2969,7 +2969,7 @@ class SlackAdapter(BasePlatformAdapter):
     def _slack_require_mention(self) -> bool:
         """Return whether channel messages require an explicit bot mention.
 
-        Uses explicit-false parsing (like Discord/Matrix) rather than
+        Uses explicit-false parsing (like Discord) rather than
         truthy parsing, since the safe default is True (gating on).
         Unrecognised or empty values keep gating enabled.
         """

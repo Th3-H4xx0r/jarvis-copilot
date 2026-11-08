@@ -15,8 +15,8 @@ Design notes:
 * For platforms that send via bot token (Telegram, Discord, Slack, Signal,
   SMS, WhatsApp-CloudAPI, …) no running gateway is required. The tool
   talks directly to each platform's REST endpoint. For platforms that rely
-  on a persistent adapter connection (plugin platforms, Matrix in some
-  modes, …) a live gateway is needed; the underlying tool surfaces that
+  on a persistent adapter connection (plugin platforms, …) a live
+  gateway is needed; the underlying tool surfaces that
   error to the caller.
 * Exit codes follow the classic Unix convention:
     0 — delivery (or list) succeeded

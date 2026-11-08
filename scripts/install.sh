@@ -1064,7 +1064,7 @@ install_deps() {
         fi
 
         log_success "Main package installed"
-        log_info "Termux note: matrix e2ee and local faster-whisper extras are excluded from .[termux-all] due to upstream Android wheel/toolchain blockers."
+        log_info "Termux note: local faster-whisper extras are excluded from .[termux-all] due to upstream Android wheel/toolchain blockers."
         log_info "Termux note: browser/WhatsApp tooling is not installed by default; see the Termux guide for optional follow-up steps."
 
         log_success "All dependencies installed"
@@ -1134,9 +1134,8 @@ install_deps() {
         # Critical flag choice: `--extra all`, NOT `--all-extras`.
         #   --all-extras = every [project.optional-dependencies] key.
         #                  This bypasses the curated `[all]` extra
-        #                  entirely and pulls e.g. [matrix] (which
-        #                  needs python-olm + make on Windows) and
-        #                  [rl] (git+https deps that fail offline).
+        #                  entirely and pulls e.g. [rl] (git+https
+        #                  deps that fail offline).
         #   --extra all  = install just the `[all]` extra's contents.
         #                  This respects the curation in pyproject.toml.
         # uv's own progress UI handles TTY detection and downgrades
@@ -1167,7 +1166,7 @@ install_deps() {
     #         contains, edit pyproject.toml only.
     # Tier 3: bare `.` — last-resort so at least the core CLI launches.
     #         Skipped tiers like "PyPI-only extras (no git deps)" used to
-    #         exist to dodge [rl] / [matrix] git+sdist deps; those are no
+    #         exist to dodge [rl] git+sdist deps; those are no
     #         longer in [all] post-2026-05-12 lazy-install migration, so
     #         a separate PyPI-only tier had no remaining content.
     local _BROKEN_EXTRAS=()  # populate when an extra becomes unresolvable

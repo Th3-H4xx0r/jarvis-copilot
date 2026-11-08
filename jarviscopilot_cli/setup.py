@@ -2153,136 +2153,6 @@ def _write_slack_manifest_and_instruct():
         )
 
 
-def _setup_matrix():
-    """Configure Matrix credentials."""
-    print_header("Matrix")
-    existing = get_env_value("MATRIX_ACCESS_TOKEN") or get_env_value("MATRIX_PASSWORD")
-    if existing:
-        print_info("Matrix: already configured")
-        if not prompt_yes_no("Reconfigure Matrix?", False):
-            return
-
-    print_info("Works with any Matrix homeserver (Synapse, Conduit, Dendrite, or matrix.org).")
-    print_info("   1. Create a bot user on your homeserver, or use your own account")
-    print_info("   2. Get an access token from Element, or provide user ID + password")
-    print()
-    homeserver = prompt("Homeserver URL (e.g. https://matrix.example.org)")
-    if homeserver:
-        save_env_value("MATRIX_HOMESERVER", homeserver.rstrip("/"))
-
-    print()
-    print_info("Auth: provide an access token (recommended), or user ID + password.")
-    token = prompt("Access token (leave empty for password login)", password=True)
-    if token:
-        save_env_value("MATRIX_ACCESS_TOKEN", token)
-        user_id = prompt("User ID (@bot:server — optional, will be auto-detected)")
-        if user_id:
-            save_env_value("MATRIX_USER_ID", user_id)
-        print_success("Matrix access token saved")
-    else:
-        user_id = prompt("User ID (@bot:server)")
-        if user_id:
-            save_env_value("MATRIX_USER_ID", user_id)
-        password = prompt("Password", password=True)
-        if password:
-            save_env_value("MATRIX_PASSWORD", password)
-            print_success("Matrix credentials saved")
-
-    if token or get_env_value("MATRIX_PASSWORD"):
-        print()
-        want_e2ee = prompt_yes_no("Enable end-to-end encryption (E2EE)?", False)
-        if want_e2ee:
-            save_env_value("MATRIX_ENCRYPTION", "true")
-            print_success("E2EE enabled")
-
-        matrix_pkg = "mautrix[encryption]" if want_e2ee else "mautrix"
-        try:
-            __import__("mautrix")
-        except ImportError:
-            print_info(f"Installing {matrix_pkg}...")
-            import subprocess
-            uv_bin = shutil.which("uv")
-            if uv_bin:
-                result = subprocess.run(
-                    [uv_bin, "pip", "install", "--python", sys.executable, matrix_pkg],
-                    capture_output=True, text=True,
-                )
-            else:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", matrix_pkg],
-                    capture_output=True, text=True,
-                )
-            if result.returncode == 0:
-                print_success(f"{matrix_pkg} installed")
-            else:
-                print_warning(f"Install failed — run manually: pip install '{matrix_pkg}'")
-                if result.stderr:
-                    print_info(f"  Error: {result.stderr.strip().splitlines()[-1]}")
-
-        print()
-        print_info("🔒 Security: Restrict who can use your bot")
-        print_info("   Matrix user IDs look like @username:server")
-        print()
-        allowed_users = prompt("Allowed user IDs (comma-separated, leave empty for open access)")
-        if allowed_users:
-            save_env_value("MATRIX_ALLOWED_USERS", allowed_users.replace(" ", ""))
-            print_success("Matrix allowlist configured")
-        else:
-            print_info("⚠️  No allowlist set - anyone who can message the bot can use it!")
-
-        print()
-        print_info("📬 Home Room: where JarvisCopilot delivers cron job results and notifications.")
-        print_info("   Room IDs look like !abc123:server (shown in Element room settings)")
-        print_info("   You can also set this later by typing /set-home in a Matrix room.")
-        home_room = prompt("Home room ID (leave empty to set later with /set-home)")
-        if home_room:
-            save_env_value("MATRIX_HOME_ROOM", home_room)
-
-
-def _setup_mattermost():
-    """Configure Mattermost bot credentials."""
-    print_header("Mattermost")
-    existing = get_env_value("MATTERMOST_TOKEN")
-    if existing:
-        print_info("Mattermost: already configured")
-        if not prompt_yes_no("Reconfigure Mattermost?", False):
-            return
-
-    print_info("Works with any self-hosted Mattermost instance.")
-    print_info("   1. In Mattermost: Integrations → Bot Accounts → Add Bot Account")
-    print_info("   2. Copy the bot token")
-    print()
-    mm_url = prompt("Mattermost server URL (e.g. https://mm.example.com)")
-    if mm_url:
-        save_env_value("MATTERMOST_URL", mm_url.rstrip("/"))
-    token = prompt("Bot token", password=True)
-    if not token:
-        return
-    save_env_value("MATTERMOST_TOKEN", token)
-    print_success("Mattermost token saved")
-
-    print()
-    print_info("🔒 Security: Restrict who can use your bot")
-    print_info("   To find your user ID: click your avatar → Profile")
-    print_info("   or use the API: GET /api/v4/users/me")
-    print()
-    allowed_users = prompt("Allowed user IDs (comma-separated, leave empty for open access)")
-    if allowed_users:
-        save_env_value("MATTERMOST_ALLOWED_USERS", allowed_users.replace(" ", ""))
-        print_success("Mattermost allowlist configured")
-    else:
-        print_info("⚠️  No allowlist set - anyone who can message the bot can use it!")
-
-    print()
-    print_info("📬 Home Channel: where JarvisCopilot delivers cron job results and notifications.")
-    print_info("   To get a channel ID: click channel name → View Info → copy the ID")
-    print_info("   You can also set this later by typing /set-home in a Mattermost channel.")
-    home_channel = prompt("Home channel ID (leave empty to set later with /set-home)")
-    if home_channel:
-        save_env_value("MATTERMOST_HOME_CHANNEL", home_channel)
-    print_info("   Open config in your editor:  hermes config edit")
-
-
 def _setup_bluebubbles():
     """Configure BlueBubbles iMessage gateway."""
     print_header("BlueBubbles (iMessage)")
@@ -2346,12 +2216,6 @@ def _setup_bluebubbles():
     print_info("Requires the BlueBubbles Private API helper for typing indicators,")
     print_info("read receipts, and tapback reactions. Basic messaging works without it.")
     print_info("   Install: https://docs.bluebubbles.app/helper-bundle/installation")
-
-
-def _setup_qqbot():
-    """Configure QQ Bot (Official API v2) via gateway setup."""
-    from jarviscopilot_cli.gateway import _setup_qqbot as _gateway_setup_qqbot
-    _gateway_setup_qqbot()
 
 
 def _setup_webhooks():
@@ -2464,10 +2328,6 @@ def setup_gateway(config: dict):
             missing_home.append("Slack")
         if get_env_value("BLUEBUBBLES_SERVER_URL") and not get_env_value("BLUEBUBBLES_HOME_CHANNEL"):
             missing_home.append("BlueBubbles")
-        if get_env_value("QQ_APP_ID") and not (
-            get_env_value("QQBOT_HOME_CHANNEL") or get_env_value("QQ_HOME_CHANNEL")
-        ):
-            missing_home.append("QQBot")
 
         if missing_home:
             print()
@@ -2757,8 +2617,8 @@ def _get_section_config_summary(config: dict, section_key: str) -> Optional[str]
     elif section_key == "gateway":
         from jarviscopilot_cli.gateway import _all_platforms, _platform_status
         # Count any non-empty status other than the "not configured" sentinel —
-        # platforms like WhatsApp ("enabled, not paired"), Matrix ("configured
-        # + E2EE"), and Signal ("partially configured") all indicate the user
+        # platforms like WhatsApp ("enabled, not paired") and Signal
+        # ("partially configured") indicate the user
         # has already started setup and we shouldn't force the section to rerun.
         configured = [
             _gateway_platform_short_label(plat["label"])

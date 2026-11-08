@@ -111,7 +111,7 @@ class TestGetAndPoll:
 class TestOrphanedPipeReconciliation:
     """Regression tests for issue #17327.
 
-    `jarviscopilot update` in Feishu spawned a background subprocess that restarted
+    `jarviscopilot update` in a chat spawned a background subprocess that restarted
     the gateway; the direct child exited quickly but a descendant daemon
     held the stdout pipe open. `_reader_loop.finally` never ran, so
     `session.exited` stayed False and the agent polled 74 times over 7

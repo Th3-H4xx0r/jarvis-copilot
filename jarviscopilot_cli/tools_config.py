@@ -76,7 +76,6 @@ CONFIGURABLE_TOOLSETS = [
     ("spotify",          "🎵 Spotify",                  "playback, search, playlists, library"),
     ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
     ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
-    ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
     ("computer_use",     "🖱️  Computer Use (macOS)",     "background desktop control via cua-driver"),
     ("coding_sessions",  "🛠️  Coding Sessions",          "launch/monitor/message Claude Code sessions (needs claude + tmux)"),
 ]
@@ -1074,8 +1073,6 @@ def _get_enabled_platforms() -> List[str]:
         enabled.append("slack")
     if get_env_value("WHATSAPP_ENABLED"):
         enabled.append("whatsapp")
-    if get_env_value("QQ_APP_ID"):
-        enabled.append("qqbot")
     return enabled
 
 
@@ -1241,8 +1238,8 @@ def _get_platform_tools(
             default_off.remove("x_search")
         enabled_toolsets -= default_off
 
-    # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
-    # feishu_drive).  These are part of the platform's default composite but
+    # Recover non-configurable platform toolsets (e.g. discord).  These are
+    # part of the platform's default composite but
     # absent from CONFIGURABLE_TOOLSETS, so they can't appear in the TUI
     # checklist or in a user-saved config.  Must run in BOTH branches —
     # otherwise saving via `jarviscopilot tools` (which flips has_explicit_config
