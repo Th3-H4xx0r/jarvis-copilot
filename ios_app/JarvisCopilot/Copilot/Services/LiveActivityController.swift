@@ -129,8 +129,8 @@ final class DefaultActivityController: ActivityControlling {
     static func relevance(_ s: LiveActivityState) -> Double {
         if s.state != "idle" || s.voiceHold { return 100 }
         switch s.mode {
-        case "custom": return 50
-        case "coding": return 40
+        case .custom: return 50
+        case .coding: return 40
         default: return 0
         }
     }

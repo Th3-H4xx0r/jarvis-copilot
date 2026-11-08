@@ -329,11 +329,11 @@ struct JarvisSmallActivity: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            JarvisOrb(state: st.mode == "voice" ? st.state : "idle", size: 34)
+            JarvisOrb(state: st.mode == .voice ? st.state : "idle", size: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(st.mode == "voice" && st.state != "idle" ? jcStateColor(st.state) : .white)
+                    .foregroundStyle(st.mode == .voice && st.state != "idle" ? jcStateColor(st.state) : .white)
                     .lineLimit(1)
                 if !line.isEmpty {
                     Text(line)
@@ -349,17 +349,17 @@ struct JarvisSmallActivity: View {
 
     private var title: String {
         switch st.mode {
-        case "coding": return "Claude Code"
-        case "custom": return "JARVIS"
+        case .coding: return "Claude Code"
+        case .custom: return "JARVIS"
         default: return CarCardText.title(state: st.state)
         }
     }
 
     private var line: String {
         switch st.mode {
-        case "coding":
+        case .coding:
             return "\(st.sessionTotal) sessions" + (st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
-        case "custom": return ""
+        case .custom: return ""
         default: return CarCardText.line(state: st.state, transcript: st.transcript, activity: st.activity)
         }
     }

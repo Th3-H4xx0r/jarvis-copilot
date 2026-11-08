@@ -27,10 +27,7 @@ struct JarvisActivityAttributes: ActivityAttributes {
         // When voice is idle and there are live Claude Code sessions, the same
         // activity flips to a fleet view (Scheme 4). When voice is active it
         // stays "voice" and the fields above drive the (unchanged) voice UI.
-        /// "voice" (existing UI), "coding" (the Claude Code fleet view), or
-        /// "custom" (a data-driven design rendered by JCDesignView from a layout
-        /// tree cached on-device by `designId`).
-        var mode: String = "voice"
+        var mode: ActivityMode = .voice
         /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state[\u{1f}subs]"
         /// where state ∈ working|waiting|idle and the optional 3rd field is a
         /// comma-joined per-session sub-state list (shorthand w/p/i) present only
@@ -53,7 +50,7 @@ struct JarvisActivityAttributes: ActivityAttributes {
         var usageWeekResets: String = ""
 
         // ── Custom mode (Dynamic Island Designs) ─────────────────────────────
-        // When `mode == "custom"`, JCDesignView (in JarvisWidget) renders a
+        // When `mode == .custom`, JCDesignView (in JarvisWidget) renders a
         // data-driven layout tree instead of the voice/coding views. The tree
         // itself is NOT in the ContentState (it would blow the ~4KB cap) — it is
         // cached on-device under the App Group `island/design-<designId>.json`
@@ -111,7 +108,7 @@ extension JarvisActivityAttributes.ContentState {
         activity = try c.decodeIfPresent(String.self, forKey: .activity) ?? d.activity
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? d.connected
         devices = try c.decodeIfPresent([String].self, forKey: .devices) ?? d.devices
-        mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? d.mode
+        mode = (try c.decodeIfPresent(String.self, forKey: .mode)).flatMap(ActivityMode.init(rawValue:)) ?? d.mode
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? d.sessions
         sessionTotal = try c.decodeIfPresent(Int.self, forKey: .sessionTotal) ?? d.sessionTotal
         entryTotal = try c.decodeIfPresent(Int.self, forKey: .entryTotal) ?? d.entryTotal
@@ -133,4 +130,11 @@ extension JarvisActivityAttributes.ContentState {
         leadKey = try c.decodeIfPresent(String.self, forKey: .leadKey) ?? d.leadKey
         stateSince = try c.decodeIfPresent(Double.self, forKey: .stateSince) ?? d.stateSince
     }
+}
+
+/// What the Jarvis activity shows: the voice card, the Claude Code fleet, or a data-driven design
+/// rendered by JCDesignView from a layout tree cached on-device by `designId`. A value this build
+/// doesn't know (from a newer server's push) reads as voice.
+enum ActivityMode: String, Codable, Hashable, Sendable {
+    case voice, coding, custom
 }

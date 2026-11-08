@@ -116,10 +116,10 @@ final class LiveActivityTests: XCTestCase {
     func testAnIdleVoiceOnlyStateIsNotWorthStartingAnActivityFor() {
         XCTAssertFalse(LiveActivityState().isWorthStarting)
         XCTAssertTrue(LiveActivityState(state: "listening").isWorthStarting)
-        XCTAssertTrue(LiveActivityState(mode: "coding", sessionTotal: 2).isWorthStarting)
-        XCTAssertFalse(LiveActivityState(mode: "coding", sessionTotal: 0).isWorthStarting)
-        XCTAssertTrue(LiveActivityState(mode: "custom", designId: "flight").isWorthStarting)
-        XCTAssertFalse(LiveActivityState(mode: "custom", designId: "").isWorthStarting)
+        XCTAssertTrue(LiveActivityState(mode: .coding, sessionTotal: 2).isWorthStarting)
+        XCTAssertFalse(LiveActivityState(mode: .coding, sessionTotal: 0).isWorthStarting)
+        XCTAssertTrue(LiveActivityState(mode: .custom, designId: "flight").isWorthStarting)
+        XCTAssertFalse(LiveActivityState(mode: .custom, designId: "").isWorthStarting)
     }
 
     // MARK: - Coordinator
@@ -155,7 +155,7 @@ final class LiveActivityTests: XCTestCase {
 
         XCTAssertEqual(controller.updates.count, 1)
         let state = controller.updates[0]
-        XCTAssertEqual(state.mode, "voice")
+        XCTAssertEqual(state.mode, .voice)
         XCTAssertEqual(state.state, "listening")
         XCTAssertEqual(state.transcript, "what's the weather")
         XCTAssertEqual(state.devices, ["phone", "laptop"])
@@ -260,7 +260,7 @@ final class LiveActivityTests: XCTestCase {
         await coordinator.refreshCoding()
 
         guard let state = controller.updates.last else { return XCTFail("nothing pushed") }
-        XCTAssertEqual(state.mode, "coding")
+        XCTAssertEqual(state.mode, .coding)
         XCTAssertEqual(state.sessions, ["hermes\u{1f}waiting"])
         XCTAssertEqual(state.sessionTotal, 1)
         XCTAssertEqual(state.waitingCount, 1)
@@ -285,12 +285,12 @@ final class LiveActivityTests: XCTestCase {
                          "enabled": true, "priority": 10]],
         ])
         await coordinator.refreshCoding()
-        XCTAssertEqual(controller.updates.last?.mode, "coding")
+        XCTAssertEqual(controller.updates.last?.mode, .coding)
 
         coordinator.reportVoice(VoiceLiveActivitySnapshot(
             state: "speaking", transcript: "", activity: "", connected: true, devices: []))
 
-        XCTAssertEqual(controller.updates.last?.mode, "voice")
+        XCTAssertEqual(controller.updates.last?.mode, .voice)
         XCTAssertEqual(controller.updates.last?.sessions, [],
                        "the coding fields are cleared so the widget can't render both")
     }
@@ -322,19 +322,19 @@ final class LiveActivityTests: XCTestCase {
                          "enabled": true, "priority": 10]],
         ])
         await coordinator.refreshCoding()
-        XCTAssertEqual(controller.updates.last?.mode, "coding")
+        XCTAssertEqual(controller.updates.last?.mode, .coding)
 
         coordinator.reportVoice(VoiceLiveActivitySnapshot(
             state: "idle", transcript: "how hot is it", activity: "It's 72 degrees.",
             connected: true, devices: [], holdsCard: true))
         let held = controller.updates.last
-        XCTAssertEqual(held?.mode, "voice", "his reply wins the card for its 2 minutes")
+        XCTAssertEqual(held?.mode, .voice, "his reply wins the card for its 2 minutes")
         XCTAssertEqual(held?.voiceHold, true)
         XCTAssertEqual(held?.activity, "It's 72 degrees.")
 
         coordinator.reportVoice(VoiceLiveActivitySnapshot(
             state: "idle", transcript: "", activity: "", connected: true, devices: []))
-        XCTAssertEqual(controller.updates.last?.mode, "coding", "then the card goes back to normal")
+        XCTAssertEqual(controller.updates.last?.mode, .coding, "then the card goes back to normal")
     }
 
     func testHoldRelevanceIsTop() {

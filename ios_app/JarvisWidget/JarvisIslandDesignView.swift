@@ -4,7 +4,7 @@ import WidgetKit
 // The Dynamic Island's custom-design views: the shared renderer
 // (Copilot/Shared/JarvisDesignRenderer.swift) inside a Live Activity.
 
-/// Renders the cached design for `mode == "custom"`. Loads `design-<id>.json`
+/// Renders the cached design for `mode == .custom`. Loads `design-<id>.json`
 /// from the App Group; decodes; falls back to (app name + data.title) when the
 /// design is missing/corrupt. Never crashes, never blank.
 struct JCDesignView: View {

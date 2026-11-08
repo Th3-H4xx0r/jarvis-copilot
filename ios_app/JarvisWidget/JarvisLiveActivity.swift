@@ -24,7 +24,7 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
     // top-level node maps to the native DI regions; otherwise the whole
     // expanded tree lands in the bottom region. Compact/minimal pull from
     // their presentation nodes, with the orb/fallback as a safety net.
-    if st.mode == "custom" {
+    if st.mode == .custom {
         let design = JCDesignCache.load(st.designId)
         let ctx = JCBindingContext(dataJSON: st.data)
         let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
@@ -78,7 +78,7 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         // and under them, centred, "Listening 0:04", his words and Jarvis's answer.
         // Coding keeps its fleet view.
         DynamicIslandExpandedRegion(.leading) {
-            if st.mode == "coding" {
+            if st.mode == .coding {
                 HStack(spacing: 9) {
                     JarvisOrb(state: "idle", size: 38)
                     VStack(alignment: .leading, spacing: 2) {
@@ -97,7 +97,7 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
             }
         }
         DynamicIslandExpandedRegion(.trailing) {
-            if st.mode == "coding" {
+            if st.mode == .coding {
                 JCUsageBlock(st: st).padding(.trailing, 4)
             } else {
                 // The stop that ends the talk; at rest, a mic.
@@ -108,13 +108,13 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
         }
         DynamicIslandExpandedRegion(.center) {
             // Under the camera, between the orb and the stop: "Listening 0:04".
-            if st.mode != "coding" {
+            if st.mode != .coding {
                 JarvisVoiceStateLine(st: st)
                     .padding(.top, 2)
             }
         }
         DynamicIslandExpandedRegion(.bottom) {
-            if st.mode == "coding" {
+            if st.mode == .coding {
                 VStack(alignment: .leading, spacing: 9) {
                     if !st.leadAgent.isEmpty {
                         JCLeadRow(st: st)
@@ -133,20 +133,20 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
             }
         }
     } compactLeading: {
-        if st.mode == "coding" {
+        if st.mode == .coding {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
             JarvisOrbBadge(st: st, size: 34)
         }
     } compactTrailing: {
-        if st.mode == "coding" {
+        if st.mode == .coding {
             JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
         } else {
             JarvisCompactTrailing(st: st)
                 .frame(height: 34)
         }
     } minimal: {
-        if st.mode == "coding" {
+        if st.mode == .coding {
             JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
         } else {
             JarvisOrbBadge(st: st, size: 30)
@@ -159,12 +159,12 @@ func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> Dynamic
 /// the island tab; voice (and fallback) → the Voice screen.
 func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
     switch st.mode {
-    case "coding":
+    case .coding:
         guard !st.leadKey.isEmpty,
               let key = st.leadKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
         else { return "jarviscopilot://agents" }
         return "jarviscopilot://agents?key=\(key)"
-    case "custom": return "jarviscopilot://island"
+    case .custom: return "jarviscopilot://island"
     default: return "jarviscopilot://voice"
     }
 }
@@ -174,11 +174,11 @@ func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
 struct JarvisLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
-        if st.mode == "custom" {
+        if st.mode == .custom {
             // Data-driven custom design (Dynamic Island Designs). Renders the
             // cached layout tree; falls back to app name + data.title if missing.
             JCDesignView(st: st, presentation: .lockScreen)
-        } else if st.mode == "coding" {
+        } else if st.mode == .coding {
             // Coding fleet view (Scheme 4): header + segmented bar + legend.
             JarvisCodingBody(st: st)
                 .padding(.horizontal, 16).padding(.vertical, 13)

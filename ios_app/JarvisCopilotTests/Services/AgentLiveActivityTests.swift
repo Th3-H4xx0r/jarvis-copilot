@@ -319,14 +319,14 @@ final class AgentLiveActivityTests: XCTestCase {
 
     func testWithAgentActivitiesOnTheJarvisActivityStaysTheVoiceIsland() async {
         let (controller, coordinator) = await makeCoordinator(agentsEnabled: true)
-        XCTAssertEqual(coordinator.compose().mode, "voice")
-        XCTAssertTrue(controller.updates.allSatisfy { $0.mode != "coding" },
+        XCTAssertEqual(coordinator.compose().mode, .voice)
+        XCTAssertTrue(controller.updates.allSatisfy { $0.mode != .coding },
                       "each agent has its own activity; the fleet isn't duplicated on Jarvis's")
     }
 
     func testWithAgentActivitiesOffTheJarvisActivityCarriesCodingAsBefore() async {
         let (_, coordinator) = await makeCoordinator(agentsEnabled: false)
-        XCTAssertEqual(coordinator.compose().mode, "coding")
+        XCTAssertEqual(coordinator.compose().mode, .coding)
     }
 
     // MARK: - Needs you
@@ -437,7 +437,7 @@ final class AgentLiveActivityTests: XCTestCase {
 
     func testTheJarvisActivitysOwnButtonsClearToo() {
         var jarvis = JarvisActivityAttributes.ContentState()
-        jarvis.mode = "coding"
+        jarvis.mode = .coding
         jarvis.waitingCount = 2
         jarvis.leadState = "approval"
         jarvis.leadKind = "approval"

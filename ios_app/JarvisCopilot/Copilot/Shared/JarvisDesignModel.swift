@@ -6,7 +6,7 @@ import UIKit
 // MARK: - Dynamic Island Designs — data-driven renderer (JCDesignView)
 // ══════════════════════════════════════════════════════════════════════════
 //
-// When ContentState.mode == "custom", the activity renders a declarative layout
+// When ContentState.mode == .custom, the activity renders a declarative layout
 // tree instead of the hard-coded voice/coding views. The tree is NOT in the
 // ContentState (4KB cap) — it's cached on-device by the Runner app under the
 // shared App Group `island/design-<id>.json` and read here (a SEPARATE process).

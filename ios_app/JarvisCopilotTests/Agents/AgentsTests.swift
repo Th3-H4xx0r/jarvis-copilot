@@ -388,7 +388,7 @@ final class AgentsTests: XCTestCase {
     func testLiveActivityStateDecodesAnOldPayload() throws {
         let json = Data(#"{"state":"idle","mode":"coding","sessions":["app\u001fworking"],"sessionTotal":1}"#.utf8)
         let st = try JSONDecoder().decode(JarvisActivityAttributes.ContentState.self, from: json)
-        XCTAssertEqual(st.mode, "coding")
+        XCTAssertEqual(st.mode, .coding)
         XCTAssertEqual(st.sessionTotal, 1)
         XCTAssertEqual(st.leadAgent, "")
         XCTAssertEqual(st.usage5, -1)

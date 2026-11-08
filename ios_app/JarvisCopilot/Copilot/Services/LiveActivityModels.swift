@@ -22,8 +22,7 @@ struct LiveActivityState: Equatable, Sendable {
     /// When the voice state began (Unix seconds): the island's ring sweeps from here.
     var stateSince: Double = 0
 
-    /// "voice" | "coding" | "custom".
-    var mode = "voice"
+    var mode: ActivityMode = .voice
 
     // Coding fleet
     var sessions: [String] = []
@@ -44,8 +43,8 @@ struct LiveActivityState: Equatable, Sendable {
     /// a live voice turn, live coding sessions, or a selected custom design.
     /// Anything else would put an empty island on the user's Lock Screen.
     var isWorthStarting: Bool {
-        if mode == "coding" && sessionTotal > 0 { return true }
-        if mode == "custom" && !designId.isEmpty { return true }
+        if mode == .coding && sessionTotal > 0 { return true }
+        if mode == .custom && !designId.isEmpty { return true }
         return state != "idle" || voiceHold
     }
 }

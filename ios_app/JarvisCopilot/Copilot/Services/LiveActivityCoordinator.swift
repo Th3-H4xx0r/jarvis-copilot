@@ -318,15 +318,15 @@ final class LiveActivityCoordinator {
             // Catalog not loaded yet (or an older server) → legacy behaviour:
             // voice wins, else coding when sessions are live, else the voice-idle
             // launcher.
-            state.mode = voiceActive ? "voice" : (codingLive ? "coding" : "voice")
-            showCoding = state.mode == "coding"
+            state.mode = voiceActive ? .voice : (codingLive ? .coding : .voice)
+            showCoding = state.mode == .coding
         } else {
             let live = sources()
             let active = IslandAuto.selectActiveDesign(
                 catalog: catalog, voiceActive: voiceActive, codingLive: codingLive,
                 sources: live, now: now())
             if active.isCustom, let id = active.id, let design = catalog.design(id: id) {
-                state.mode = "custom"
+                state.mode = .custom
                 state.designId = design.id
                 // The CONTENT signature, not `version`: any layout edit must
                 // change the pushed state so the widget re-renders and re-reads
@@ -343,10 +343,10 @@ final class LiveActivityCoordinator {
                 let merged = keyframe.isEmpty ? base : base.merging(keyframe) { _, new in new }
                 state.data = MoreJSON.canonicalJSON(merged)
             } else if active.kind == "coding" && !agentsOwnCoding {
-                state.mode = "coding"
+                state.mode = .coding
                 showCoding = true
             } else {
-                state.mode = "voice"
+                state.mode = .voice
             }
         }
 
