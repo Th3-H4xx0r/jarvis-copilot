@@ -56,9 +56,7 @@ def _cmd_list(_args) -> None:
 
     if not specs:
         print("No shell hooks configured in ~/.jarviscopilot/config.yaml.")
-        print("See `jarviscopilot hooks --help` or")
-        print("    website/docs/user-guide/features/hooks.md")
-        print("for the config schema and worked examples.")
+        print("See `jarviscopilot hooks --help` for the config schema.")
         return
 
     by_event: Dict[str, List] = {}

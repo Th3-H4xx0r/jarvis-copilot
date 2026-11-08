@@ -57,7 +57,6 @@ jarviscopilot/
 ├── acp_adapter/          # ACP server (VS Code / Zed / JetBrains integration)
 ├── cron/                 # Scheduler — jobs.py, scheduler.py
 ├── scripts/              # run_tests.sh, release.py, auxiliary scripts
-├── website/              # Docusaurus docs site
 └── tests/                # Pytest suite (~17k tests across ~900 files as of May 2026)
 ```
 
@@ -569,8 +568,6 @@ NOT import them (would double-instantiate `ProviderProfile`). Plugins
 without an explicit `kind:` get auto-coerced via a source-text heuristic
 (`register_provider` + `ProviderProfile` in `__init__.py`).
 
-Full authoring guide: `website/docs/developer-guide/model-provider-plugin.md`.
-
 ### Dashboard / context-engine / image-gen plugin directories
 
 `plugins/context_engine/`, `plugins/image_gen/`, etc. follow the same
@@ -777,8 +774,6 @@ Config section (`curator:` in `config.yaml`):
 `enabled`, `interval_hours`, `min_idle_hours`, `stale_after_days`,
 `archive_after_days`, `backup.*`.
 
-Full user-facing docs: `website/docs/user-guide/features/curator.md`.
-
 ---
 
 ## Cron (scheduled jobs)
@@ -853,8 +848,6 @@ Isolation model:
 - After `kanban.failure_limit` consecutive non-success attempts on the
   same task (default: 2), the dispatcher auto-blocks it to prevent spin
   loops.
-
-Full user-facing docs: `website/docs/user-guide/features/kanban.md`.
 
 ---
 
