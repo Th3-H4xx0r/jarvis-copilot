@@ -13,6 +13,7 @@ Requires:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -406,8 +407,11 @@ class HomeAssistantAdapter(BasePlatformAdapter):
         }
 
         try:
-            if self._rest_session:
-                async with self._rest_session.post(
+            # Reuse the adapter's REST session when connected; otherwise a
+            # one-off session that is closed afterwards.
+            async with contextlib.AsyncExitStack() as stack:
+                session = self._rest_session or await stack.enter_async_context(aiohttp.ClientSession())
+                async with session.post(
                     url,
                     headers=headers,
                     json=payload,
@@ -415,22 +419,8 @@ class HomeAssistantAdapter(BasePlatformAdapter):
                 ) as resp:
                     if resp.status < 300:
                         return SendResult(success=True, message_id=uuid.uuid4().hex[:12])
-                    else:
-                        body = await resp.text()
-                        return SendResult(success=False, error=f"HTTP {resp.status}: {body}")
-            else:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        url,
-                        headers=headers,
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=10),
-                    ) as resp:
-                        if resp.status < 300:
-                            return SendResult(success=True, message_id=uuid.uuid4().hex[:12])
-                        else:
-                            body = await resp.text()
-                            return SendResult(success=False, error=f"HTTP {resp.status}: {body}")
+                    body = await resp.text()
+                    return SendResult(success=False, error=f"HTTP {resp.status}: {body}")
 
         except asyncio.TimeoutError:
             return SendResult(success=False, error="Timeout sending notification to HA")

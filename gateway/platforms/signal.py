@@ -1258,30 +1258,9 @@ class SignalAdapter(BasePlatformAdapter):
                 logger.warning("Signal: failed to download image: %s", e)
                 return SendResult(success=False, error=str(e))
 
-        if not file_path or not Path(file_path).exists():
+        if not file_path:
             return SendResult(success=False, error="Image file not found")
-
-        # Validate size
-        file_size = Path(file_path).stat().st_size
-        if file_size > SIGNAL_MAX_ATTACHMENT_SIZE:
-            return SendResult(success=False, error=f"Image too large ({file_size} bytes)")
-
-        params: Dict[str, Any] = {
-            "account": self.account,
-            "message": caption or "",
-            "attachments": [file_path],
-        }
-
-        if chat_id.startswith("group:"):
-            params["groupId"] = chat_id[6:]
-        else:
-            params["recipient"] = [await self._resolve_recipient(chat_id)]
-
-        result = await self._rpc("send", params)
-        if result is not None:
-            self._track_sent_timestamp(result)
-            return SendResult(success=True)
-        return SendResult(success=False, error="RPC send with attachment failed")
+        return await self._send_attachment(chat_id, file_path, "Image", caption)
 
     async def _send_attachment(
         self,
