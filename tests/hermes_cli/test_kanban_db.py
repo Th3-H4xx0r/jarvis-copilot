@@ -2677,33 +2677,6 @@ def test_dispatch_review_spawns_when_ready_empty(
     assert spawns[0] == t
 
 
-def test_has_spawnable_review_true(kanban_home):
-    """has_spawnable_review returns True when review tasks exist with real profiles."""
-    with kb.connect() as conn:
-        t = kb.create_task(conn, title="review me", assignee="default")
-        _set_task_status(conn, t, "review")
-        # default profile should exist in the test env
-        assert kb.has_spawnable_review(conn) is True
-
-
-def test_has_spawnable_review_false_on_empty(kanban_home):
-    """has_spawnable_review returns False when no review tasks exist."""
-    with kb.connect() as conn:
-        assert kb.has_spawnable_review(conn) is False
-
-
-def test_has_spawnable_review_false_when_only_terminal_lanes(
-    kanban_home, monkeypatch,
-):
-    """has_spawnable_review returns False when review tasks are terminal lanes."""
-    from jarviscopilot_cli import profiles
-    monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
-    with kb.connect() as conn:
-        t = kb.create_task(conn, title="review", assignee="orion-cc")
-        _set_task_status(conn, t, "review")
-        assert kb.has_spawnable_review(conn) is False
-
-
 def test_dispatch_review_skips_nonspawnable(kanban_home, monkeypatch):
     """Review tasks with non-existent profiles go to skipped_nonspawnable."""
     from jarviscopilot_cli import profiles
