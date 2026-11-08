@@ -820,14 +820,7 @@ private struct ApprovalCard: View {
                 }
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(islandAmber.opacity(0.08)))
-        .disabled(!armed)
-        .task {
-            try? await Task.sleep(for: .seconds(ArmGate.delay))
-            armed = true
-        }
-        .onDisappear { ui.pinned = false }
+        .pendingCard(armed: $armed, ui: ui)
     }
 }
 
@@ -877,14 +870,7 @@ private struct QuestionCard: View {
                     .disabled(!complete)
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(islandAmber.opacity(0.08)))
-        .disabled(!armed)
-        .task {
-            try? await Task.sleep(for: .seconds(ArmGate.delay))
-            armed = true
-        }
-        .onDisappear { ui.pinned = false }
+        .pendingCard(armed: $armed, ui: ui)
     }
 
     private func send() {
@@ -925,5 +911,20 @@ private struct FlowOptions: View {
                 .help(question.details.indices.contains(i) ? question.details[i] : "")
             }
         }
+    }
+}
+
+extension View {
+    /// A request card on the island: the amber frame, no clicks until `ArmGate.delay` has passed
+    /// (so a click meant for something else doesn't answer it), and unpinned once it goes.
+    func pendingCard(armed: Binding<Bool>, ui: IslandUI) -> some View {
+        padding(10)
+            .background(RoundedRectangle(cornerRadius: 12).fill(islandAmber.opacity(0.08)))
+            .disabled(!armed.wrappedValue)
+            .task {
+                try? await Task.sleep(for: .seconds(ArmGate.delay))
+                armed.wrappedValue = true
+            }
+            .onDisappear { ui.pinned = false }
     }
 }
