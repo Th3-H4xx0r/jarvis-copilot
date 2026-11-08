@@ -48,28 +48,6 @@ def _get_state_db():
         return None
 
 
-def sync_session_start(session_id: str, model=None) -> None:
-    """Register a WebUI session in state.db (idempotent).
-    Called when a session's first message is sent.
-    """
-    db = _get_state_db()
-    if not db:
-        return
-    try:
-        db.ensure_session(
-            session_id=session_id,
-            source='webui',
-            model=model,
-        )
-    except Exception:
-        logger.debug("Failed to sync session start to state.db")
-    finally:
-        try:
-            db.close()
-        except Exception:
-            logger.debug("Failed to close state.db")
-
-
 def sync_session_usage(session_id: str, input_tokens: int=0, output_tokens: int=0,
                        estimated_cost=None, model=None, title: str=None,
                        message_count: int=None) -> None:

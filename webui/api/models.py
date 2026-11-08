@@ -1858,7 +1858,6 @@ def is_cron_session(session_id: str, source_tag: str = None) -> bool:
     return sid.startswith('cron_')
 
 
-
 def import_cli_session(
     session_id: str,
     title: str,
@@ -2143,15 +2142,6 @@ def _cli_sessions_max_staleness_seconds() -> float:
         return max(0.0, float(_CLI_SESSIONS_MAX_STALENESS_SECONDS))
     except (TypeError, ValueError):
         return 300.0
-
-
-def _path_cache_key(path) -> str | None:
-    if path is None:
-        return None
-    try:
-        return str(Path(path).expanduser().resolve(strict=False))
-    except Exception:
-        return str(path)
 
 
 def _path_stat_cache_key(path):

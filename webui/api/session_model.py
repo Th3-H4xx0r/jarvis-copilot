@@ -333,7 +333,3 @@ def resolve_session_model_state(
     return model, requested_provider, False
 
 
-def resolve_session_model(model_id: str | None) -> tuple[str, bool]:
-    """Return (effective_model, model_was_normalized) for legacy callers."""
-    effective_model, _provider, changed = resolve_session_model_state(model_id)
-    return effective_model, changed

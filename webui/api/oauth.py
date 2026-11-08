@@ -282,11 +282,6 @@ def _persist_codex_credentials(hermes_home: Path, token_data: dict[str, Any]) ->
     return path
 
 
-# Backward-compatible wrapper used by older code/tests.
-def _save_codex_credentials(token_data):
-    return _persist_codex_credentials(_get_active_hermes_home(), token_data)
-
-
 # ── Anthropic / Claude Code credential linking ─────────────────────────────
 
 def _read_claude_code_credentials() -> dict[str, Any] | None:
@@ -977,11 +972,3 @@ def cancel_onboarding_oauth_flow(body: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
-# Backward-compatible names from the abandoned spike. They intentionally do not
-# expose provider device secrets to callers anymore.
-def start_codex_device_code():
-    return start_onboarding_oauth_flow({"provider": "openai-codex"})
-
-
-def poll_codex_token(device_code, interval=5):
-    yield {"status": "error", "error": "Use /api/onboarding/oauth/poll with flow_id"}

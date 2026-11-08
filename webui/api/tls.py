@@ -30,7 +30,6 @@ import datetime
 import ipaddress
 import os
 import socket
-import ssl
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -203,16 +202,6 @@ def ensure_self_signed_cert(
     ips = _collect_local_ipv4s()
     _generate_cert(cert_path, key_path, ips)
     return cert_path, key_path
-
-
-def build_ssl_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
-    """Create an SSLContext configured for serving HTTPS with the given cert."""
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    # No client cert verification — this is a single-user dev/LAN server.
-    ctx.verify_mode = ssl.CERT_NONE
-    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
-    return ctx
 
 
 def cert_fingerprint_sha256(cert_path: Path) -> str:

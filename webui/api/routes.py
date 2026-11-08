@@ -40,7 +40,7 @@ _CSP_REPORT_MAX_BODY_BYTES = 64 * 1024
 
 
 from api.profiles import _profiles_match
-from api.session_model import clean_session_provider, resolve_session_model_state
+from api.session_model import resolve_session_model_state
 from api.chat_turns import turn_options_for_chat, clear_stale_stream_state, _resolve_chat_workspace_with_recovery, start_turn
 from api.auth import check_csrf
 from api.helpers import serve_file_bytes
@@ -232,11 +232,6 @@ def _find_skill_in_dirs(name: str, skills_dirs: list[Path]) -> tuple[Path | None
             if legacy_md.stem == raw_name and _skill_path_within(skills_dir, legacy_md):
                 return legacy_md.parent, legacy_md
     return None, None
-
-
-def _find_skill_in_dir(name: str, skills_dir: Path) -> tuple[Path | None, Path | None]:
-    """Resolve a WebUI skill name inside an explicit skills directory."""
-    return _find_skill_in_dirs(name, [skills_dir])
 
 
 def _skill_not_found_payload(name: str, skills_dir: Path) -> dict:
@@ -855,29 +850,6 @@ def _handle_csp_report(handler) -> bool:
     payload = _read_csp_report_payload(handler)
     _CSP_REPORT_LOGGER.info("CSP report from %s: %s", _client_ip_for_rate_limit(handler), payload)
     return _send_no_content(handler)
-
-
-def _normalize_session_model_in_place(session) -> str:
-    original_model = getattr(session, "model", None) or ""
-    original_provider = clean_session_provider(
-        getattr(session, "model_provider", None)
-    )
-    effective_model, effective_provider, changed = resolve_session_model_state(
-        original_model or None,
-        original_provider,
-    )
-    provider_changed = effective_provider != original_provider
-    # Only persist the correction if the session had an explicit model that needed changing.
-    # Sessions with no model stored (empty/None) get the effective default returned without
-    # a disk write — no need to rebuild the index for a fill-in-blank operation.
-    if original_model and effective_model and (
-        (changed and original_model != effective_model) or provider_changed
-    ):
-        if changed and original_model != effective_model:
-            session.model = effective_model
-        session.model_provider = effective_provider
-        session.save(touch_updated_at=False)
-    return effective_model
 
 
 # Cross-device mirror: the per-session announcement channel that tells every
@@ -6258,7 +6230,7 @@ def _handle_code_memory_write(handler, body):
 
 
 # ── MCP Server helpers ──
-from api.config import get_config, _save_yaml_config_file, _get_config_path, reload_config
+from api.config import get_config
 
 def _mask_secrets(obj):
     """Mask sensitive values in env vars and headers."""
@@ -6563,77 +6535,6 @@ def _handle_mcp_servers_list(handler):
     })
 
 
-def _handle_mcp_server_delete(handler, name):
-    """Delete an MCP server by name."""
-    from urllib.parse import unquote
-    name = unquote(name)
-    if not name:
-        return bad(handler, "name is required")
-    cfg = get_config()
-    servers = cfg.get("mcp_servers", {})
-    if not isinstance(servers, dict):
-        servers = {}
-    if name not in servers:
-        return bad(handler, f"MCP server '{name}' not found", 404)
-    del servers[name]
-    cfg["mcp_servers"] = servers
-    _save_yaml_config_file(_get_config_path(), cfg)
-    reload_config()
-    return j(handler, {"ok": True, "deleted": name})
-
-
 _MASKED_PLACEHOLDER = "••••••"
 
 
-def _strip_masked_values(submitted, existing):
-    """Remove masked placeholder values from submitted dict, keeping originals."""
-    if not isinstance(submitted, dict) or not isinstance(existing, dict):
-        return submitted
-    cleaned = {}
-    for k, v in submitted.items():
-        if isinstance(v, str) and v == _MASKED_PLACEHOLDER:
-            if k in existing and isinstance(existing[k], str):
-                cleaned[k] = existing[k]  # preserve original real value
-                continue
-        elif isinstance(v, dict) and k in existing and isinstance(existing[k], dict):
-            cleaned[k] = _strip_masked_values(v, existing[k])
-        else:
-            cleaned[k] = v
-    return cleaned
-
-
-def _handle_mcp_server_update(handler, name, body):
-    """Add or update an MCP server."""
-    from urllib.parse import unquote
-    name = unquote(name)
-    if not name:
-        return bad(handler, "name is required")
-    # Validate: must have url (http) or command (stdio)
-    server_cfg = {}
-    cfg = get_config()
-    servers = cfg.get("mcp_servers", {})
-    if not isinstance(servers, dict):
-        servers = {}
-    existing_cfg = servers.get(name, {})
-    if body.get("url"):
-        server_cfg["url"] = body["url"].strip()
-        if body.get("headers"):
-            server_cfg["headers"] = _strip_masked_values(body["headers"], existing_cfg.get("headers", {}))
-    elif body.get("command"):
-        server_cfg["command"] = body["command"].strip()
-        if body.get("args"):
-            server_cfg["args"] = body["args"] if isinstance(body["args"], list) else [body["args"]]
-        if body.get("env"):
-            server_cfg["env"] = _strip_masked_values(body["env"], existing_cfg.get("env", {}))
-    else:
-        return bad(handler, "url or command is required")
-    if body.get("timeout") is not None:
-        try:
-            server_cfg["timeout"] = int(body["timeout"])
-        except (ValueError, TypeError):
-            pass
-    servers[name] = server_cfg
-    cfg["mcp_servers"] = servers
-    _save_yaml_config_file(_get_config_path(), cfg)
-    reload_config()
-    return j(handler, {"ok": True, "server": _server_summary(name, server_cfg)})

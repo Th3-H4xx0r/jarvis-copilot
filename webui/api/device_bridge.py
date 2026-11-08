@@ -1352,16 +1352,6 @@ def _ws_send_text(conn: _DeviceConn, text: str) -> None:
         conn.sock.sendall(data)
 
 
-def _ws_send_close(conn: _DeviceConn) -> None:
-    from wsproto.events import CloseConnection
-    try:
-        data = conn.conn.send(CloseConnection(code=1000))
-        with conn.send_lock:
-            conn.sock.sendall(data)
-    except Exception:
-        pass
-
-
 def _pump(conn: _DeviceConn) -> None:
     """Receive loop. Dispatches frames; sends periodic pings to detect
     half-open sockets that NAT timeouts can leave behind."""

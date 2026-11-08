@@ -1149,12 +1149,6 @@ def _serialize_account_usage_snapshot(snapshot: Any) -> dict[str, Any] | None:
     return result
 
 
-def _agent_fetch_account_usage(provider: str, *, base_url: str | None = None, api_key: str | None = None) -> Any:
-    from agent.account_usage import fetch_account_usage
-
-    return fetch_account_usage(provider, base_url=base_url, api_key=api_key)
-
-
 def _account_usage_subprocess_env(home: Path, provider: str, api_key: str | None) -> dict[str, str]:
     env = dict(os.environ)
     env["HERMES_HOME"] = str(Path(home))

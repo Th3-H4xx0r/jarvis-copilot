@@ -158,14 +158,6 @@ def _iter_journal(path: Path, want_payload=None) -> Iterator[tuple[str, dict]]:
             reader.close()
 
 
-def _read_jsonl(path: Path) -> tuple[list[dict], list[dict]]:
-    events: list[dict] = []
-    malformed: list[dict] = []
-    for kind, item in _iter_journal(path):
-        (events if kind == "event" else malformed).append(item)
-    return events, malformed
-
-
 def _headers_only(_header) -> bool:
     return False
 

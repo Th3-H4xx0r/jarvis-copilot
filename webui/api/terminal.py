@@ -245,27 +245,6 @@ def get_terminal(session_id: str) -> TerminalSession | None:
         return term
 
 
-def register_terminal(session_id: str, term) -> None:
-    """Register a TerminalSession-compatible object under ``session_id``.
-
-    Used by non-PTY feeds (output arriving from elsewhere). The object must expose the
-    read surface the SSE route uses (``output`` queue, ``closed`` Event,
-    ``proc.poll()``, ``is_alive()``); it MAY expose ``feed_write(data)`` /
-    ``feed_resize(rows, cols)`` / ``feed_close()`` to override the PTY write
-    path (see ``write_terminal`` / ``resize_terminal`` / ``close_terminal``).
-    Replaces (closing) any terminal already registered under this id.
-    """
-    sid = str(session_id or "").strip()
-    if not sid:
-        raise ValueError("session_id is required")
-    with _LOCK:
-        current = _TERMINALS.get(sid)
-    if current is not None and current is not term:
-        close_terminal(sid)
-    with _LOCK:
-        _TERMINALS[sid] = term
-
-
 def write_terminal(session_id: str, data: str) -> None:
     term = get_terminal(session_id)
     if not term or not term.is_alive():

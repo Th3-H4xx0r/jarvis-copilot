@@ -89,6 +89,3 @@ def record_location(
     return entry
 
 
-def history_path(device_id: str) -> str:
-    """Absolute path to a device's JSONL history (for docs / the agent)."""
-    return str(_file_for(device_id))

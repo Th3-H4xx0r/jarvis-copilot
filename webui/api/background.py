@@ -81,12 +81,6 @@ def get_background_tasks(parent_sid: str) -> list[dict[str, Any]]:
         return list(_BACKGROUND_TASKS.get(parent_sid, []))
 
 
-def cleanup_btw(parent_sid: str) -> dict[str, Any] | None:
-    """Remove and return btw tracking for a parent session."""
-    with _lock:
-        return _BTW_TRACKING.pop(parent_sid, None)
-
-
 # ── fast-lane escalation (latency rehaul plan 2.5) ───────────────────────────
 # Escalation jobs use the same shape as background tasks but live in
 # ``agent.escalation`` (the agent loop starts them, not an HTTP route). These are

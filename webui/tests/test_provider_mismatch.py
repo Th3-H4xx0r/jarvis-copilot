@@ -397,7 +397,7 @@ def test_active_codex_at_provider_session_model_preserved(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@openai-codex:gpt-5.5"
     )
 
@@ -432,43 +432,6 @@ def test_bare_codex_gpt_session_model_gets_separate_provider_context(monkeypatch
     assert changed is False
     assert effective == "gpt-5.5"
     assert provider == "openai-codex"
-
-
-def test_session_model_normalizer_keeps_bare_codex_model_and_saves_provider(monkeypatch):
-    """Write-path normalization must persist model_provider without adding @."""
-    import api.routes as routes
-
-    monkeypatch.setattr(session_model, "get_available_models",
-        lambda: {
-            "active_provider": "openai-codex",
-            "default_model": "gpt-5.5",
-            "groups": [
-                {
-                    "provider": "OpenAI Codex",
-                    "provider_id": "openai-codex",
-                    "models": [{"id": "gpt-5.5", "label": "GPT-5.5"}],
-                },
-            ],
-        },
-    )
-
-    save_calls = []
-
-    class DummySession:
-        def __init__(self):
-            self.model = "gpt-5.5"
-            self.model_provider = None
-
-        def save(self, touch_updated_at=True):
-            save_calls.append(touch_updated_at)
-
-    session = DummySession()
-    effective = routes._normalize_session_model_in_place(session)
-
-    assert effective == "gpt-5.5"
-    assert session.model == "gpt-5.5"
-    assert session.model_provider == "openai-codex"
-    assert save_calls == [False]
 
 
 def test_bare_codex_gpt_runtime_bridge_routes_to_codex(monkeypatch):
@@ -584,7 +547,7 @@ def test_bare_gemini_session_model_normalizes_to_active_provider_default(monkeyp
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "gemini-3.1-pro-preview"
     )
 
@@ -602,7 +565,7 @@ def test_prefixed_google_session_model_normalizes_to_active_provider_default(mon
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "google/gemini-3.1-pro-preview"
     )
 
@@ -627,7 +590,7 @@ def test_legacy_at_provider_session_model_normalizes_when_provider_hidden(monkey
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@copilot:gpt-5.5"
     )
 
@@ -659,7 +622,7 @@ def test_active_at_provider_session_model_preserved_with_hint(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@openai-codex:gpt-5.4-mini"
     )
 
@@ -691,7 +654,7 @@ def test_routable_non_active_at_provider_session_model_is_preserved(monkeypatch)
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@copilot:gpt-5.4"
     )
 
@@ -733,7 +696,7 @@ def test_issue1253_duplicate_model_id_active_provider_hint_preserved(monkeypatch
     )
 
     # User selected the custom:edith model — explicit @provider:model form.
-    effective, changed = session_model.resolve_session_model("@custom:edith")
+    effective, _provider, changed = session_model.resolve_session_model_state("@custom:edith")
 
     # Must NOT be stripped to 'edith' — that would route to the default provider.
     assert changed is False, (
@@ -777,7 +740,7 @@ def test_named_custom_provider_hint_with_colon_is_preserved(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@custom:sub2api:gpt-5.4-mini"
     )
 
@@ -932,7 +895,7 @@ def test_stale_at_provider_model_falls_back_when_family_mismatches(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "@copilot:claude-opus-4.6"
     )
 
@@ -950,40 +913,12 @@ def test_google_active_provider_keeps_valid_gemini_session_model(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "gemini-3.1-pro-preview"
     )
 
     assert changed is False
     assert effective == "gemini-3.1-pro-preview"
-
-
-def test_session_model_normalizer_persists_corrected_model(monkeypatch):
-    """Write-path normalization should still persist corrected models."""
-    import api.routes as routes
-
-    monkeypatch.setattr(session_model, "get_available_models",
-        lambda: {
-            "active_provider": "openai-codex",
-            "default_model": "gpt-5.4-mini",
-        },
-    )
-
-    save_calls = []
-
-    class DummySession:
-        def __init__(self):
-            self.model = "gemini-3.1-pro-preview"
-
-        def save(self, touch_updated_at=True):
-            save_calls.append(touch_updated_at)
-
-    session = DummySession()
-    effective = routes._normalize_session_model_in_place(session)
-
-    assert effective == "gpt-5.4-mini"
-    assert session.model == "gpt-5.4-mini"
-    assert save_calls == [False]
 
 
 def test_session_model_display_resolver_is_read_only(monkeypatch):
@@ -1183,7 +1118,7 @@ def test_unknown_prefix_model_passes_through_unchanged(monkeypatch):
         "my-local-llm/variant-1",
         "lmstudio-community/Qwen2.5-Coder-7B-Instruct-GGUF",
     ):
-        effective, changed = session_model.resolve_session_model(custom_model)
+        effective, _provider, changed = session_model.resolve_session_model_state(custom_model)
         assert changed is False, (
             f"Model '{custom_model}' has an unknown prefix and must pass through unchanged, "
             f"but _resolve_compatible_session_model returned changed=True (effective='{effective}')"
@@ -1191,37 +1126,6 @@ def test_unknown_prefix_model_passes_through_unchanged(monkeypatch):
         assert effective == custom_model, (
             f"Expected '{custom_model}', got '{effective}'"
         )
-
-
-def test_empty_model_session_does_not_trigger_save(monkeypatch):
-    """Sessions with no model stored must not trigger session.save() — index rebuild is expensive."""
-    import api.routes as routes
-
-    monkeypatch.setattr(session_model, "get_available_models",
-        lambda: {
-            "active_provider": "openai-codex",
-            "default_model": "gpt-5.4-mini",
-        },
-    )
-
-    save_calls = []
-
-    class DummySession:
-        def __init__(self):
-            self.model = None  # no model stored
-
-        def save(self, touch_updated_at=True):
-            save_calls.append(touch_updated_at)
-
-    session = DummySession()
-    effective = routes._normalize_session_model_in_place(session)
-
-    # Must return the default, but must NOT write to disk
-    assert effective == "gpt-5.4-mini"
-    assert save_calls == [], (
-        "_normalize_session_model_in_place must not call session.save() when "
-        "the session has no stored model — no correction needed, just a fallback."
-    )
 
 
 # ── Issue #829: stale cross-provider model on custom_providers-only setup ─────
@@ -1241,7 +1145,7 @@ def test_stale_openai_model_cleared_for_custom_only_provider(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "openai/gpt-5.4-mini"
     )
 
@@ -1267,7 +1171,7 @@ def test_stale_openai_model_cleared_for_custom_provider_with_default(monkeypatch
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "openai/gpt-5.4-mini"
     )
 
@@ -1290,7 +1194,7 @@ def test_openrouter_model_preserved_when_openrouter_group_present(monkeypatch):
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "openai/gpt-5.4-mini"
     )
 
@@ -1313,7 +1217,7 @@ def test_custom_namespace_model_always_preserved_on_custom_provider(monkeypatch)
         },
     )
 
-    effective, changed = session_model.resolve_session_model(
+    effective, _provider, changed = session_model.resolve_session_model_state(
         "custom/my-local-llm"
     )
 

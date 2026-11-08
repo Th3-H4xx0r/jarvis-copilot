@@ -478,7 +478,6 @@ def _workspace_candidates(raw: str | Path | None = None) -> list[Path]:
     return candidates
 
 
-
 def _ensure_workspace_dir(path: Path) -> bool:
     """Best-effort check that a workspace directory exists and is writable."""
     try:
@@ -487,7 +486,6 @@ def _ensure_workspace_dir(path: Path) -> bool:
         return path.is_dir() and os.access(path, os.R_OK | os.W_OK | os.X_OK)
     except Exception:
         return False
-
 
 
 def resolve_default_workspace(raw: str | Path | None = None) -> Path:
@@ -499,7 +497,6 @@ def resolve_default_workspace(raw: str | Path | None = None) -> Path:
         "Could not create or access any usable workspace directory. "
         "Set HERMES_WEBUI_DEFAULT_WORKSPACE to a writable path."
     )
-
 
 
 def _discover_default_workspace() -> Path:
@@ -2673,32 +2670,6 @@ def invalidate_credential_pool_cache(provider_id: str):
         invalidate_account_usage_status_cache(_resolve_provider_alias(provider_id))
     except Exception:
         logger.debug("Failed to invalidate account usage status cache", exc_info=True)
-
-
-def invalidate_provider_models_cache(provider_id: str):
-    """Invalidate cached models for a single provider.
-
-    Also invalidates the full cache so that the next get_available_models()
-    call rebuilds all groups cleanly (the rebuilt provider is merged with any
-    other cached groups from the 24h TTL window).  After the next
-    get_available_models() call, _provider_models_invalidated_ts[provider_id]
-    is cleared so the provider's fresh models are used.
-
-    Args:
-        provider_id: canonical provider id (e.g. 'openai', 'anthropic', 'custom:my-key')
-    """
-    global _available_models_cache, _available_models_cache_ts, _available_models_cache_source_fingerprint, _CREDENTIAL_POOL_CACHE
-    with _available_models_cache_lock:
-        _available_models_cache = None
-        _available_models_cache_ts = 0.0
-        _available_models_cache_source_fingerprint = None
-        _provider_models_invalidated_ts[provider_id] = time.time()
-        # Also evict the credential pool so the next cold path re-loads it.
-        # Must evict both the original key and its canonical form (load_pool
-        # may be called with either, and both paths cache under their own key).
-        _CREDENTIAL_POOL_CACHE.pop(provider_id, None)
-        _CREDENTIAL_POOL_CACHE.pop(_resolve_provider_alias(provider_id), None)
-    _delete_models_cache_on_disk()
 
 
 def _get_label_for_model(model_id: str, existing_groups: list) -> str:

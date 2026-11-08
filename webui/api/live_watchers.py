@@ -234,16 +234,6 @@ def _pass_lock(live_session_id: str) -> threading.Lock:
         return lock
 
 
-def _watch_for(live_session_id: str) -> _Watch:
-    with _WATCH_LOCK:
-        watch = _WATCH.get(live_session_id)
-        if watch is None:
-            watch = _Watch()
-            _WATCH[live_session_id] = watch
-        watch.last_seen = time.monotonic()
-        return watch
-
-
 def _reap_idle(now: float) -> None:
     """Drop scheduling state for sessions nothing has touched in a long time.
 

@@ -22,10 +22,6 @@ _SESSION_RE = re.compile(r"^sessions/(b_[0-9a-f]{6,32})(?:/(move|takeover))?$")
 _REPLAY_RE = re.compile(r"^replays/(b_[0-9a-f]{6,32})\.mp4$")
 
 
-def is_browser_path(path: str) -> bool:
-    return path.startswith(PATH_PREFIX)
-
-
 def _turn_running(task_id: Optional[str]) -> bool:
     """Is a chat turn running for this browser task? Browser tasks of a webui turn
     use the chat session id as their task id (api/streaming.py)."""
