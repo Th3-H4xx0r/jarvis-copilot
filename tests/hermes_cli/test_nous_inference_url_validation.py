@@ -11,8 +11,8 @@ outside the allowlist at the source.
 These tests verify:
 
 1. The validator's host + scheme rules.
-2. Each of the five NETWORK call sites in ``auth.py`` calls the validator
-   rather than the unrestricted ``_optional_base_url`` helper.
+2. The refresh / mint response appliers in ``auth.py`` only hand back
+   validated URLs.
 3. The proxy adapter applies the validator as belt-and-suspenders.
 4. The env-var override path (``NOUS_INFERENCE_BASE_URL``) is NOT
    gated by the validator — that's the documented dev/staging escape
@@ -125,7 +125,7 @@ class TestValidatorRules:
 
 
 class TestCallSiteWiring:
-    """Verify the validator is actually wired into all 5 NETWORK call sites.
+    """Verify the validator guards every NETWORK read of inference_base_url.
 
     These are not behaviour-end-to-end tests (the surrounding code is
     several hundred lines per site with extensive HTTP mocking
@@ -161,19 +161,25 @@ class TestCallSiteWiring:
                 f"Use _validate_nous_inference_url_from_network() instead."
             )
 
-    def test_validator_wired_at_all_known_call_sites(self):
-        """All 5 known NETWORK sites use the validator. If this count
-        drops, someone removed protection; if it grows, audit the new
-        site to be sure validation is appropriate."""
-        source = self._read_auth_source()
-        refresh_count = source.count(
-            '_validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))'
-        )
-        mint_count = source.count(
-            '_validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))'
-        )
-        assert refresh_count == 3, f"expected 3 refresh sites, found {refresh_count}"
-        assert mint_count == 2, f"expected 2 mint sites, found {mint_count}"
+    @pytest.mark.parametrize("payload_url, expected", [
+        ("https://inference-api.nousresearch.com/v1/", "https://inference-api.nousresearch.com/v1"),
+        ("https://attacker.example/v1", None),
+        (None, None),
+    ])
+    def test_refresh_and_mint_responses_only_yield_allowlisted_urls(self, payload_url, expected):
+        """Every refresh / mint response goes through these two appliers, so
+        a poisoned inference_base_url never reaches the caller."""
+        from jarviscopilot_cli.auth import _apply_minted_agent_key, _apply_refreshed_access_token
+
+        state = {"refresh_token": "old-refresh"}
+        refreshed = {"access_token": "new-access", "expires_in": 60, "inference_base_url": payload_url}
+        assert _apply_refreshed_access_token(state, refreshed, "old-refresh") == expected
+        assert state["access_token"] == "new-access"
+        assert state["refresh_token"] == "old-refresh"
+
+        minted = {"api_key": "agent-key", "inference_base_url": payload_url}
+        assert _apply_minted_agent_key(state, minted) == expected
+        assert state["agent_key"] == "agent-key"
 
     def test_proxy_adapter_also_validates(self):
         """The Nous proxy adapter applies the validator as defense-in-depth

@@ -4766,18 +4766,7 @@ def resolve_nous_access_token(
                         _save_auth_store(auth_store)
                     raise
 
-            now = datetime.now(timezone.utc)
-            access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-            state["access_token"] = refreshed["access_token"]
-            state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
-            state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-            state["scope"] = refreshed.get("scope") or state.get("scope")
-            state["obtained_at"] = now.isoformat()
-            state["expires_in"] = access_ttl
-            state["expires_at"] = datetime.fromtimestamp(
-                now.timestamp() + access_ttl,
-                tz=timezone.utc,
-            ).isoformat()
+            _apply_refreshed_access_token(state, refreshed, refresh_token)
             state["portal_base_url"] = portal_base_url
             state["client_id"] = client_id
             state["tls"] = {
@@ -4862,20 +4851,9 @@ def refresh_nous_oauth_pure(
                 client_id=state["client_id"],
                 refresh_token=state["refresh_token"],
             )
-            now = datetime.now(timezone.utc)
-            access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-            state["access_token"] = refreshed["access_token"]
-            state["refresh_token"] = refreshed.get("refresh_token") or state["refresh_token"]
-            state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-            state["scope"] = refreshed.get("scope") or state.get("scope")
-            refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
+            refreshed_url = _apply_refreshed_access_token(state, refreshed, state["refresh_token"])
             if refreshed_url:
                 state["inference_base_url"] = refreshed_url
-            state["obtained_at"] = now.isoformat()
-            state["expires_in"] = access_ttl
-            state["expires_at"] = datetime.fromtimestamp(
-                now.timestamp() + access_ttl, tz=timezone.utc
-            ).isoformat()
             if on_state_update is not None:
                 on_state_update(dict(state), "post_refresh_access_token")
 
@@ -4897,18 +4875,47 @@ def refresh_nous_oauth_pure(
                 access_token=state["access_token"],
                 min_ttl_seconds=min_key_ttl_seconds,
             )
-            now = datetime.now(timezone.utc)
-            state["agent_key"] = mint_payload.get("api_key")
-            state["agent_key_id"] = mint_payload.get("key_id")
-            state["agent_key_expires_at"] = mint_payload.get("expires_at")
-            state["agent_key_expires_in"] = mint_payload.get("expires_in")
-            state["agent_key_reused"] = bool(mint_payload.get("reused", False))
-            state["agent_key_obtained_at"] = now.isoformat()
-            minted_url = _validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))
+            minted_url = _apply_minted_agent_key(state, mint_payload)
             if minted_url:
                 state["inference_base_url"] = minted_url
 
     return state
+
+
+def _apply_refreshed_access_token(
+    state: Dict[str, Any], refreshed: Dict[str, Any], fallback_refresh_token: Optional[str],
+) -> Optional[str]:
+    """Write a refresh-grant response into Nous OAuth ``state``.
+
+    Keeps ``fallback_refresh_token`` when the portal doesn't rotate it.
+    Returns the response's validated inference URL, if it carried one.
+    """
+    now = datetime.now(timezone.utc)
+    access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
+    state["access_token"] = refreshed["access_token"]
+    state["refresh_token"] = refreshed.get("refresh_token") or fallback_refresh_token
+    state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
+    state["scope"] = refreshed.get("scope") or state.get("scope")
+    state["obtained_at"] = now.isoformat()
+    state["expires_in"] = access_ttl
+    state["expires_at"] = datetime.fromtimestamp(
+        now.timestamp() + access_ttl, tz=timezone.utc
+    ).isoformat()
+    return _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
+
+
+def _apply_minted_agent_key(state: Dict[str, Any], mint_payload: Dict[str, Any]) -> Optional[str]:
+    """Write a minted agent key into Nous OAuth ``state``.
+
+    Returns the payload's validated inference URL, if it carried one.
+    """
+    state["agent_key"] = mint_payload.get("api_key")
+    state["agent_key_id"] = mint_payload.get("key_id")
+    state["agent_key_expires_at"] = mint_payload.get("expires_at")
+    state["agent_key_expires_in"] = mint_payload.get("expires_in")
+    state["agent_key_reused"] = bool(mint_payload.get("reused", False))
+    state["agent_key_obtained_at"] = datetime.now(timezone.utc).isoformat()
+    return _validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))
 
 
 def refresh_nous_oauth_from_state(
@@ -5175,21 +5182,10 @@ def resolve_nous_runtime_credentials(
                                 )
                                 _persist_state("terminal_runtime_access_refresh_failure")
                             raise
-                        now = datetime.now(timezone.utc)
-                        access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
                         previous_refresh_token = refresh_token
-                        state["access_token"] = refreshed["access_token"]
-                        state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
-                        state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-                        state["scope"] = refreshed.get("scope") or state.get("scope")
-                        refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
+                        refreshed_url = _apply_refreshed_access_token(state, refreshed, refresh_token)
                         if refreshed_url:
                             inference_base_url = refreshed_url
-                        state["obtained_at"] = now.isoformat()
-                        state["expires_in"] = access_ttl
-                        state["expires_at"] = datetime.fromtimestamp(
-                            now.timestamp() + access_ttl, tz=timezone.utc
-                        ).isoformat()
                         access_token = state["access_token"]
                         refresh_token = state["refresh_token"]
                         _oauth_trace(
@@ -5284,20 +5280,11 @@ def resolve_nous_runtime_credentials(
                                         )
                                         _persist_state("terminal_runtime_mint_retry_refresh_failure")
                                     raise
-                                now = datetime.now(timezone.utc)
-                                access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-                                state["access_token"] = refreshed["access_token"]
-                                state["refresh_token"] = refreshed.get("refresh_token") or latest_refresh_token
-                                state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-                                state["scope"] = refreshed.get("scope") or state.get("scope")
-                                refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
+                                refreshed_url = _apply_refreshed_access_token(
+                                    state, refreshed, latest_refresh_token,
+                                )
                                 if refreshed_url:
                                     inference_base_url = refreshed_url
-                                state["obtained_at"] = now.isoformat()
-                                state["expires_in"] = access_ttl
-                                state["expires_at"] = datetime.fromtimestamp(
-                                    now.timestamp() + access_ttl, tz=timezone.utc
-                                ).isoformat()
                                 access_token = state["access_token"]
                                 refresh_token = state["refresh_token"]
                                 _oauth_trace(
@@ -5338,14 +5325,7 @@ def resolve_nous_runtime_credentials(
                         raise
 
             if mint_payload is not None:
-                now = datetime.now(timezone.utc)
-                state["agent_key"] = mint_payload.get("api_key")
-                state["agent_key_id"] = mint_payload.get("key_id")
-                state["agent_key_expires_at"] = mint_payload.get("expires_at")
-                state["agent_key_expires_in"] = mint_payload.get("expires_in")
-                state["agent_key_reused"] = bool(mint_payload.get("reused", False))
-                state["agent_key_obtained_at"] = now.isoformat()
-                minted_url = _validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))
+                minted_url = _apply_minted_agent_key(state, mint_payload)
                 if minted_url:
                     inference_base_url = minted_url
                 _oauth_trace(
