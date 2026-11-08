@@ -1259,23 +1259,12 @@ def list_authenticated_providers(
     from jarviscopilot_cli.providers import HERMES_OVERLAYS
     from jarviscopilot_cli.auth import PROVIDER_REGISTRY as _auth_registry
 
-    # Build reverse mapping: models.dev ID → JarvisCopilot provider ID.
-    # HERMES_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
-    # while _PROVIDER_MODELS and config.yaml use JarvisCopilot IDs ("copilot").
-    # anthropic-api shares models.dev's "anthropic" id; keep that id mapped to
-    # the plain anthropic provider (anthropic-api is listed under its own key).
-    _mdev_to_hermes = {
-        v: k for k, v in PROVIDER_TO_MODELS_DEV.items() if k != "anthropic-api"
-    }
-
+    # HERMES_OVERLAYS is keyed by JarvisCopilot provider ids (the ids
+    # _PROVIDER_MODELS and config.yaml use), so the key is the slug.
     for pid, overlay in HERMES_OVERLAYS.items():
         if pid.lower() in seen_slugs:
             continue
-
-        # Resolve JarvisCopilot slug — e.g. "github-copilot" → "copilot"
-        hermes_slug = _mdev_to_hermes.get(pid, pid)
-        if hermes_slug.lower() in seen_slugs:
-            continue
+        hermes_slug = pid
 
         # Check if credentials exist
         has_creds = False

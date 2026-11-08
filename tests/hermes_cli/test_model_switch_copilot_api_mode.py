@@ -80,7 +80,7 @@ def test_explicit_copilot_switch_uses_selected_model_api_mode():
 
     assert result.success, f"switch_model failed: {result.error_message}"
     assert result.new_model == "claude-opus-4.6"
-    assert result.target_provider == "github-copilot"
+    assert result.target_provider == "copilot"
     assert result.api_mode == "chat_completions"
 
 

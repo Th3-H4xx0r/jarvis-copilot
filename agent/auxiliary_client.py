@@ -128,40 +128,9 @@ def _extract_url_query_params(url: str):
 # Module-level flag: only warn once per process about stale OPENAI_BASE_URL.
 _stale_base_url_warned = False
 
-_PROVIDER_ALIASES = {
-    "google": "gemini",
-    "google-gemini": "gemini",
-    "google-ai-studio": "gemini",
-    "x-ai": "xai",
-    "x.ai": "xai",
-    "grok": "xai",
-    "glm": "zai",
-    "z-ai": "zai",
-    "z.ai": "zai",
-    "zhipu": "zai",
-    "kimi": "kimi-coding",
-    "moonshot": "kimi-coding",
-    "kimi-cn": "kimi-coding-cn",
-    "moonshot-cn": "kimi-coding-cn",
-    "gmi-cloud": "gmi",
-    "gmicloud": "gmi",
-    "minimax-china": "minimax-cn",
-    "minimax_cn": "minimax-cn",
-    "claude": "anthropic",
-    "claude-cli": "claude-code",
-    "claude-code-cli": "claude-code",
-    "claude-max": "claude-code",
-    "github": "copilot",
-    "github-copilot": "copilot",
-    "github-model": "copilot",
-    "github-models": "copilot",
-    "github-copilot-acp": "copilot-acp",
-    "copilot-acp-agent": "copilot-acp",
-    "tencent": "tencent-tokenhub",
-    "tokenhub": "tencent-tokenhub",
-    "tencent-cloud": "tencent-tokenhub",
-    "tencentmaas": "tencent-tokenhub",
-}
+
+# The one provider alias map (built from ProviderProfile.aliases).
+from providers import PROVIDER_ALIASES as _PROVIDER_ALIASES  # noqa: E402
 
 
 def _normalize_aux_provider(provider: Optional[str]) -> str:
@@ -181,7 +150,9 @@ def _normalize_aux_provider(provider: Optional[str]) -> str:
             normalized = main_prov
         else:
             return "custom"
-    return _PROVIDER_ALIASES.get(normalized, normalized)
+    from providers import normalize_provider as _normalize_provider_alias
+
+    return _normalize_provider_alias(normalized)
 
 
 # Sentinel: when returned by _fixed_temperature_for_model(), callers must
@@ -3217,8 +3188,20 @@ def resolve_provider_client(
         return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
                 else (client, final_model))
 
+    # A saved custom provider named after an alias of "custom" (``local``,
+    # ``ollama``, ``vllm``, ...) is the user's target, not the bare endpoint.
+    _named_custom_alias = False
+    if (
+        provider == "custom"
+        and not explicit_base_url
+        and original_provider not in {"", "custom", "main", "auto"}
+    ):
+        from jarviscopilot_cli.runtime_provider import _get_named_custom_provider
+
+        _named_custom_alias = _get_named_custom_provider(original_provider) is not None
+
     # ── Custom endpoint (OPENAI_BASE_URL + OPENAI_API_KEY) ───────────
-    if provider == "custom":
+    if provider == "custom" and not _named_custom_alias:
         if explicit_base_url:
             custom_base = _to_openai_base_url(explicit_base_url).strip()
             custom_key = (

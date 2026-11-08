@@ -84,7 +84,7 @@ class DeepSeekProfile(ProviderProfile):
 
 deepseek = DeepSeekProfile(
     name="deepseek",
-    aliases=("deepseek-chat",),
+    aliases=("deepseek-chat", "deep-seek"),
     env_vars=("DEEPSEEK_API_KEY",),
     display_name="DeepSeek",
     description="DeepSeek — native DeepSeek API",

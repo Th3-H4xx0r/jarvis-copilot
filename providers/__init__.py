@@ -34,6 +34,7 @@ import importlib
 import importlib.util
 import logging
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from providers.base import OMIT_TEMPERATURE, ProviderProfile  # noqa: F401
@@ -60,6 +61,65 @@ def register_provider(profile: ProviderProfile) -> None:
     _REGISTRY[profile.name] = profile
     for alias in profile.aliases:
         _ALIASES[alias] = profile.name
+
+
+# Aliases for providers that have no ProviderProfile of their own (they live
+# only in ``jarviscopilot_cli.auth.PROVIDER_REGISTRY`` / ``CANONICAL_PROVIDERS``).
+# Every other alias is declared on its profile's ``aliases=``.
+_EXTRA_ALIASES: dict[str, str] = {
+    "grok-oauth": "xai-oauth",
+    "x-ai-oauth": "xai-oauth",
+    "xai-grok-oauth": "xai-oauth",
+    "tencent": "tencent-tokenhub",
+    "tokenhub": "tencent-tokenhub",
+    "tencent-cloud": "tencent-tokenhub",
+    "tencentmaas": "tencent-tokenhub",
+    "lm-studio": "lmstudio",
+    "lm_studio": "lmstudio",
+}
+
+
+def _alias_target(key: str) -> str | None:
+    if not _discovered:
+        _discover_providers()
+    return _ALIASES.get(key) or _EXTRA_ALIASES.get(key)
+
+
+class _ProviderAliasView(Mapping):
+    """Read-only, always-current ``alias -> canonical provider id`` map.
+
+    Profile aliases win over ``_EXTRA_ALIASES``; canonical names are not keys.
+    """
+
+    def __getitem__(self, key: str) -> str:
+        target = _alias_target(key)
+        if target is None:
+            raise KeyError(key)
+        return target
+
+    def __iter__(self):
+        if not _discovered:
+            _discover_providers()
+        return iter({**_EXTRA_ALIASES, **_ALIASES})
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+
+# The one provider alias map. ``jarviscopilot_cli.models``,
+# ``jarviscopilot_cli.providers``, ``jarviscopilot_cli.auth`` and
+# ``agent.auxiliary_client`` all read this.
+PROVIDER_ALIASES: Mapping = _ProviderAliasView()
+
+
+def normalize_provider(provider: str | None) -> str:
+    """Lower-case ``provider`` and resolve aliases to a canonical provider id.
+
+    ``"auto"`` and unknown names pass through unchanged; nothing is
+    validated against the registry.
+    """
+    key = (provider or "").strip().lower()
+    return _alias_target(key) or key
 
 
 def get_provider_profile(name: str) -> ProviderProfile | None:

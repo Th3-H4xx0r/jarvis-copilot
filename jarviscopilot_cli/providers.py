@@ -97,7 +97,7 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         auth_type="external_process",
         base_url_override="claude-cli://local",
     ),
-    "github-copilot": HermesOverlay(
+    "copilot": HermesOverlay(
         transport="openai_chat",
         extra_env_vars=("COPILOT_GITHUB_TOKEN", "GH_TOKEN"),
     ),
@@ -114,9 +114,16 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         extra_env_vars=("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
         base_url_env_var="GLM_BASE_URL",
     ),
-    "kimi-for-coding": HermesOverlay(
+    "kimi-coding": HermesOverlay(
         transport="openai_chat",
         base_url_env_var="KIMI_BASE_URL",
+    ),
+    # Shares models.dev's kimi-for-coding catalog but has its own key and
+    # China endpoint.
+    "kimi-coding-cn": HermesOverlay(
+        transport="openai_chat",
+        extra_env_vars=("KIMI_CN_API_KEY",),
+        base_url_override="https://api.moonshot.cn/v1",
     ),
     "stepfun": HermesOverlay(
         transport="openai_chat",
@@ -149,11 +156,11 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         transport="openai_chat",
         base_url_env_var="ALIBABA_CODING_PLAN_BASE_URL",
     ),
-    "vercel": HermesOverlay(
+    "ai-gateway": HermesOverlay(
         transport="openai_chat",
         is_aggregator=True,
     ),
-    "opencode": HermesOverlay(
+    "opencode-zen": HermesOverlay(
         transport="openai_chat",
         is_aggregator=True,
         base_url_env_var="OPENCODE_ZEN_BASE_URL",
@@ -163,7 +170,7 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         is_aggregator=True,
         base_url_env_var="OPENCODE_GO_BASE_URL",
     ),
-    "kilo": HermesOverlay(
+    "kilocode": HermesOverlay(
         transport="openai_chat",
         is_aggregator=True,
         base_url_env_var="KILOCODE_BASE_URL",
@@ -251,139 +258,17 @@ class ProviderDef:
 
 
 # -- Aliases ------------------------------------------------------------------
-# Maps human-friendly / legacy names to canonical provider IDs.
-# Uses models.dev IDs where possible.
+# One alias map for the whole codebase: ``providers.PROVIDER_ALIASES`` (built
+# from ``ProviderProfile.aliases``).  Overlays above are keyed by JarvisCopilot
+# provider ids; ``agent.models_dev.PROVIDER_TO_MODELS_DEV`` is the separate
+# JarvisCopilot id -> models.dev id table used for catalog lookups.
 
-ALIASES: Dict[str, str] = {
-    # openrouter
-    "openai": "openrouter",     # bare "openai" → route through aggregator
+from providers import PROVIDER_ALIASES as ALIASES  # noqa: E402
 
-    # zai
-    "glm": "zai",
-    "z-ai": "zai",
-    "z.ai": "zai",
-    "zhipu": "zai",
-
-    # xai
-    "x-ai": "xai",
-    "x.ai": "xai",
-    "grok": "xai",
-    "grok-oauth": "xai-oauth",
-    "xai-oauth": "xai-oauth",
-    "x-ai-oauth": "xai-oauth",
-    "xai-grok-oauth": "xai-oauth",
-
-    # nvidia
-    "nim": "nvidia",
-    "nvidia-nim": "nvidia",
-    "build-nvidia": "nvidia",
-    "nemotron": "nvidia",
-
-    # kimi-for-coding (models.dev ID)
-    "kimi": "kimi-for-coding",
-    "kimi-coding": "kimi-for-coding",
-    "kimi-coding-cn": "kimi-for-coding",
-    "moonshot": "kimi-for-coding",
-
-    # stepfun
-    "step": "stepfun",
-    "stepfun-coding-plan": "stepfun",
-
-    # minimax-cn
-    "minimax-china": "minimax-cn",
-    "minimax_cn": "minimax-cn",
-
-    # anthropic (API-key path)
-    "claude": "anthropic",
-
-    # claude-code (CLI / subscription path)
-    "claude-cli": "claude-code",
-    "claude-code-cli": "claude-code",
-    "claude-max": "claude-code",
-
-    # github-copilot (models.dev ID)
-    "copilot": "github-copilot",
-    "github": "github-copilot",
-    "github-copilot-acp": "copilot-acp",
-
-    # vercel (models.dev ID for AI Gateway)
-    "ai-gateway": "vercel",
-    "aigateway": "vercel",
-    "vercel-ai-gateway": "vercel",
-
-    # opencode (models.dev ID for OpenCode Zen)
-    "opencode-zen": "opencode",
-    "zen": "opencode",
-
-    # opencode-go
-    "go": "opencode-go",
-    "opencode-go-sub": "opencode-go",
-
-    # kilo (models.dev ID for KiloCode)
-    "kilocode": "kilo",
-    "kilo-code": "kilo",
-    "kilo-gateway": "kilo",
-
-    # deepseek
-    "deep-seek": "deepseek",
-
-    # alibaba
-    "dashscope": "alibaba",
-    "aliyun": "alibaba",
-    "qwen": "alibaba",
-    "alibaba-cloud": "alibaba",
-    "alibaba_coding": "alibaba-coding-plan",
-    "alibaba-coding": "alibaba-coding-plan",
-    "alibaba_coding_plan": "alibaba-coding-plan",
-
-    # google-gemini-cli (OAuth + Code Assist)
-    "gemini-cli": "google-gemini-cli",
-    "gemini-oauth": "google-gemini-cli",
-
-
-    # huggingface
-    "hf": "huggingface",
-    "hugging-face": "huggingface",
-    "huggingface-hub": "huggingface",
-
-    # novita
-    "novita-ai": "novita",
-    "novitaai": "novita",
-
-    # xiaomi
-    "mimo": "xiaomi",
-    "xiaomi-mimo": "xiaomi",
-
-    # tencent
-    "tencent": "tencent-tokenhub",
-    "tokenhub": "tencent-tokenhub",
-    "tencent-cloud": "tencent-tokenhub",
-    "tencentmaas": "tencent-tokenhub",
-
-    # bedrock
-    "aws": "bedrock",
-    "aws-bedrock": "bedrock",
-    "amazon-bedrock": "bedrock",
-    "amazon": "bedrock",
-
-    # arcee
-    "arcee-ai": "arcee",
-    "arceeai": "arcee",
-
-    # gmi
-    "gmi-cloud": "gmi",
-    "gmicloud": "gmi",
-
-    # Local server aliases → virtual "local" concept (resolved via user config)
-    "lmstudio": "lmstudio",
-    "lm-studio": "lmstudio",
-    "lm_studio": "lmstudio",
-    "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
-    "vllm": "local",
-    "llamacpp": "local",
-    "llama.cpp": "local",
-    "llama-cpp": "local",
-}
+# For ``--provider`` resolution only, a bare "openai" means "route through the
+# aggregator".  It is not a general alias: "openai" is its own catalog key in
+# ``jarviscopilot_cli.models``.
+_PROVIDER_DEF_REDIRECTS: Dict[str, str] = {"openai": "openrouter"}
 
 
 # -- Display labels -----------------------------------------------------------
@@ -426,8 +311,10 @@ def normalize_provider(name: str) -> str:
     Returns the canonical id string.  Does *not* validate that the id
     corresponds to a known provider.
     """
-    key = name.strip().lower()
-    return ALIASES.get(key, key)
+    from providers import normalize_provider as _normalize
+
+    canonical = _normalize(name)
+    return _PROVIDER_DEF_REDIRECTS.get(canonical, canonical)
 
 
 def get_provider(name: str) -> Optional[ProviderDef]:

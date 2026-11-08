@@ -29,7 +29,7 @@ minimax_cn = ProviderProfile(
 
 minimax_oauth = ProviderProfile(
     name="minimax-oauth",
-    aliases=("minimax_oauth", "minimax-oauth-io"),
+    aliases=("minimax_oauth", "minimax-oauth-io", "minimax-portal", "minimax-global"),
     api_mode="anthropic_messages",
     display_name="MiniMax (OAuth)",
     description="MiniMax via OAuth browser flow — no API key required",

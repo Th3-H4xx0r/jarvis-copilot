@@ -5,7 +5,7 @@ from providers.base import ProviderProfile
 
 nvidia = ProviderProfile(
     name="nvidia",
-    aliases=("nvidia-nim",),
+    aliases=("nvidia-nim", "nim", "build-nvidia", "nemotron"),
     env_vars=("NVIDIA_API_KEY",),
     display_name="NVIDIA NIM",
     description="NVIDIA NIM — accelerated inference",
