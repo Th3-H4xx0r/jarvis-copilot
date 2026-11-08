@@ -152,7 +152,7 @@ def test_archive_route_reloads_metadata_only_cached_session(temp_session_dir, mo
 
     captured = {}
     monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
-    monkeypatch.setattr(routes, "read_body", lambda handler: {"session_id": sid, "archived": True})
+    monkeypatch.setattr("api.helpers.read_body", lambda handler: {"session_id": sid, "archived": True})
     monkeypatch.setattr(
         routes,
         "j",
@@ -423,7 +423,7 @@ def test_metadata_only_cached_session_mutation_routes_reload_full_session(
     }
     captured = {}
     monkeypatch.setattr(routes, "_check_csrf", lambda handler: True)
-    monkeypatch.setattr(routes, "read_body", lambda handler: request_body)
+    monkeypatch.setattr("api.helpers.read_body", lambda handler: request_body)
     monkeypatch.setattr(
         routes,
         "j",

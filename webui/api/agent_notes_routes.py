@@ -170,3 +170,9 @@ def handle_flow_cleanup(body: Optional[dict], call: Optional[Callable[[list], st
         call = _picked_model_call(model, provider) if model else flow_cleanup.default_model_call
     text, cleaned = flow_cleanup.clean(body["text"], str(body.get("style") or "natural"), app, words, call)
     return 200, {"text": text, "cleaned": cleaned}
+
+
+def route(req) -> bool:
+    """Mounted at /api/agent-notes (api/mounts.py)."""
+    status, payload = handle_agent_notes_request(req.method, req.sub_with_query, req.body)
+    return req.reply(status, payload)

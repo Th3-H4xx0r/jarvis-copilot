@@ -4283,3 +4283,11 @@ def _voice_provider_config(handler, body) -> bool:
         return j(handler, {"error": f"failed to save config: {exc}"}, status=500)
     return j(handler, {"ok": True, "engine": engine})
 
+
+def route(req) -> bool:
+    """Mounted at /api/voice (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_voice_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_voice_post(req.handler, req.parsed, req.body)
+    return False

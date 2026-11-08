@@ -121,3 +121,14 @@ def _apply_to_live_agents(retention: str, home: Path) -> int:
         agent._cache_ttl = "1h" if retention == "long" else "5m"
         updated += 1
     return updated
+
+
+def route(req) -> bool:
+    """Mounted at /api/cache (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_cache_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_cache_post(req.handler, req.parsed, req.body)
+    if req.method == "PUT":
+        return handle_cache_put(req.handler, req.parsed, req.body)
+    return False

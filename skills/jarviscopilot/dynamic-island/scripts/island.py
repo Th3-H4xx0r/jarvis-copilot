@@ -62,7 +62,7 @@ def _webui_origin() -> str:
 def _host_signature(method: str, path: str) -> str | None:
     """Build the X-JC-Host-Sig header value (`<ts>.<hmac>`).
 
-    Matches webui/api/auth.py:_check_host_signature(). Returns None if
+    Matches webui/api/auth.py:check_host_signature(). Returns None if
     the signing key isn't readable (in which case the call will get a 401
     and we surface the error JSON).
     """

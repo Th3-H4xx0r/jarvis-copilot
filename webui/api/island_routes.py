@@ -19,7 +19,10 @@ The webui HTTP server has no ``do_PUT`` — so the API is GET/POST/DELETE only::
 """
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 ISLAND_PATH_PREFIX = "/api/island"
 
@@ -149,3 +152,22 @@ def _delete(store, design_id):
     if not removed:
         return 404, {"error": "design not found or not deletable"}
     return 200, {"ok": True, "removed": True}
+
+
+def route(req) -> bool:
+    """Mounted at /api/island (api/mounts.py)."""
+    from api.island_store import store_for_request
+    status, payload = handle_island_request(req.method, req.sub_with_query, req.body,
+                                            store_for_request(), token_store=_push_tokens())
+    return req.reply(status, payload)
+
+
+def _push_tokens():
+    """The phones' Live Activity push tokens (kept by the coding store); None if it can't open,
+    in which case the change still saves and only the push is skipped."""
+    try:
+        from api.coding_routes import default_manager
+        return default_manager().store
+    except Exception:
+        logger.warning("island: push token store unavailable", exc_info=True)
+        return None

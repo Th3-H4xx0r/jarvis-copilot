@@ -905,3 +905,20 @@ def _stream(handler, store, cid: str, relay) -> None:
                 close()
         return
     j(handler, {"ok": False, "error": "clip is not uploaded yet"}, status=404)
+
+
+def route(req) -> bool:
+    """Mounted at /api/dashcam (api/mounts.py)."""
+    from api import dashcam_relay
+    from api.dashcam_store import store_for_request
+    dashcam_relay.ensure_worker(store_for_request)
+    store = store_for_request()
+    if req.method == "GET" and handle_dashcam_binary_get(req.handler, req.sub, store):
+        return True
+    # Upload chunks and thumbnails are raw bodies, read before anything parses JSON.
+    if req.method == "POST" and handle_dashcam_raw_post(req.handler, req.sub_with_query, store):
+        return True
+    status, payload = handle_dashcam_request(req.method, req.sub_with_query, req.query, req.body, store)
+    if req.method != "GET":
+        tell_phone(req.method, req.sub, status, (req.device or {}).get("id"))
+    return req.reply(status, payload)

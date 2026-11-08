@@ -42,15 +42,6 @@ def test_session_harness_field_round_trips():
     assert s.harness_id == "router" and s.compact()["harness_id"] == "router"
 
 
-def test_routes_dispatch_harness_endpoints():
-    import inspect
-    import api.routes as routes
-    src = inspect.getsource(routes)
-    assert src.count("handle_harness_request(") >= 3  # GET, POST, DELETE
-    assert '"/api/session/harness"' in src
-    assert "_turn_harness_id" in src and "_turn_explicit_model" in src
-
-
 def test_turn_harness_markers_from_chat_start_body():
     from types import SimpleNamespace
     from api.routes import _apply_turn_harness

@@ -253,13 +253,6 @@ def test_cleanup_forgets_old_shares_and_their_replays(reg):
     assert not (reg.root() / "replays" / f"{old}.mp4").exists()
 
 
-def test_the_router_hands_screen_paths_to_the_share_module():
-    src = (__import__("pathlib").Path(ss.__file__).with_name("routes.py")).read_text()
-    assert 'parsed.path.startswith("/api/screen/")' in src
-    # The POST hook sits before the router reads a JSON body (the replay is raw MP4).
-    assert src.index("screen_share.handle_post") < src.index('diag.stage("read_body")')
-
-
 # ── Cloudflare TURN ──────────────────────────────────────────────────────────
 
 class _FakeResp:

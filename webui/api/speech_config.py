@@ -148,3 +148,14 @@ def _test(handler, body: Dict[str, Any]) -> bool:
         ok, message = False, f"check failed ({type(exc).__name__})"
     j(handler, {"ok": bool(ok), "message": str(message)})
     return True
+
+
+def route(req) -> bool:
+    """Mounted at /api/speech (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_speech_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_speech_post(req.handler, req.parsed, req.body)
+    if req.method == "PUT":
+        return handle_speech_put(req.handler, req.parsed, req.body)
+    return False

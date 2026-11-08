@@ -468,7 +468,7 @@ def check_auth(handler, parsed) -> bool:
     # can read it is already trusted at the OS level. Used by the
     # JarvisCopilot `devices` skill and `jarviscopilot devices invoke`
     # to drive the running webui without a paired-device cookie.
-    if _check_host_signature(handler):
+    if check_host_signature(handler):
         return True
     # Not authorized
     if parsed.path.startswith('/api/'):
@@ -514,7 +514,7 @@ def check_auth(handler, parsed) -> bool:
     return False
 
 
-def _check_host_signature(handler) -> bool:
+def check_host_signature(handler) -> bool:
     """Validate an X-JC-Host-Sig HMAC for the current request.
 
     The header carries ``<unix_ts>.<hex_hmac>``. The HMAC is computed

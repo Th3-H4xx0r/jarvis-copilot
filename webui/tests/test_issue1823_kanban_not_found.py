@@ -50,13 +50,6 @@ def test_unknown_kanban_endpoint_get_returns_stale_client_diagnostic():
     assert "Hard refresh now" in error
 
 
-def test_unknown_kanban_endpoint_routes_are_wrapped_for_all_methods():
-    assert 'return _kanban_unknown_endpoint(handler, parsed, "GET")' in ROUTES
-    assert 'return _kanban_unknown_endpoint(handler, parsed, "POST")' in ROUTES
-    assert 'return _kanban_unknown_endpoint(handler, parsed, "PATCH")' in ROUTES
-    assert 'return _kanban_unknown_endpoint(handler, parsed, "DELETE")' in ROUTES
-
-
 def test_kanban_stale_client_error_renders_hard_refresh_escape_hatch():
     assert "function _kanbanLooksLikeStaleClientError(err)" in PANELS
     assert "err.status === 404" in PANELS

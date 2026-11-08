@@ -66,3 +66,12 @@ def handle_edge_post(handler, parsed, body: Dict[str, Any]) -> bool:
         logger.exception("edge POST %s failed", path)
         return j(handler, {"ok": False, "error": str(exc)}, status=500)
     return False
+
+
+def route(req) -> bool:
+    """Mounted at /api/edge (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_edge_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_edge_post(req.handler, req.parsed, req.body)
+    return False

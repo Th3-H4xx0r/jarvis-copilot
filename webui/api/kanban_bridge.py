@@ -1253,3 +1253,28 @@ def handle_kanban_delete(handler, parsed, body) -> bool | None:
     except RuntimeError as exc:
         return bad(handler, str(exc), status=409)
     return False
+
+
+def route(req) -> bool:
+    """Mounted at /api/kanban (api/mounts.py).
+
+    The handlers answer True, None (they already replied via bad()/j()), or False for
+    "no such endpoint" — only False gets our 404, or two JSON bodies go on the wire."""
+    if req.method == "GET":
+        result = handle_kanban_get(req.handler, req.parsed)
+    elif req.method in _WRITES:
+        result = _WRITES[req.method](req.handler, req.parsed, req.body)
+    else:
+        return False
+    if result is False:
+        return bad(
+            req.handler,
+            f"unknown Kanban endpoint: {req.method} {req.path}. "
+            "If this appeared after a WebUI update, your browser may be running "
+            "a stale cached bundle; use Hard refresh now, then reopen Kanban.",
+            status=404,
+        ) or True
+    return True
+
+
+_WRITES = {"POST": handle_kanban_post, "PATCH": handle_kanban_patch, "DELETE": handle_kanban_delete}

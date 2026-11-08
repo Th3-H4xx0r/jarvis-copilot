@@ -65,3 +65,27 @@ def notify(payload: dict | None = None) -> None:
             q.put_nowait(payload)
         except queue.Full:
             pass
+
+
+def stream(handler) -> bool:
+    """SSE: a ``coding`` nudge the moment anything changes, until the client goes."""
+    from api import sse
+    q = subscribe()
+    sse.open_stream(handler)
+    # Greet at once so the client knows it is live and a buffering proxy flushes headers.
+    sse.send(handler, 'ready', {"ok": True})
+    try:
+        while True:
+            try:
+                payload = q.get(timeout=sse.HEARTBEAT_SECONDS)
+            except queue.Empty:
+                sse.keepalive(handler)
+                continue
+            if payload is None:
+                break
+            sse.send(handler, 'coding', payload)
+    except sse.CLIENT_GONE:
+        pass
+    finally:
+        unsubscribe(q)
+    return True

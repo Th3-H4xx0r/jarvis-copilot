@@ -126,3 +126,12 @@ def handle_post(handler, parsed, body) -> bool:
         status, payload = 500, {"error": "could not update the browser session"}
     j(handler, payload, status=status)
     return True
+
+
+def route(req) -> bool:
+    """Mounted at /api/browser (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_post(req.handler, req.parsed, req.body)
+    return False

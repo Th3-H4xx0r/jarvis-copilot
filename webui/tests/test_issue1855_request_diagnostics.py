@@ -99,7 +99,6 @@ def test_issue1855_target_routes_are_wired_to_diagnostics():
     assert 'RequestDiagnostics.maybe_start("POST", parsed.path' in src
     assert "_handle_chat_start(handler, body, diag=diag)" in src
     for stage in (
-        "read_body",
         "resolve_model_provider",
         "session_lock_wait",
         "save_pending_state",

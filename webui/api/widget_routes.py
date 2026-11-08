@@ -84,3 +84,10 @@ def _delete(store, design_id):
     if not store.delete_design(design_id):
         return 404, {"ok": False, "error": "design not found"}
     return 200, {"ok": True}
+
+
+def route(req) -> bool:
+    """Mounted at /api/widgets (api/mounts.py)."""
+    from api.widget_store import store_for_request
+    status, payload = handle_widgets_request(req.method, req.sub_with_query, req.body, store_for_request())
+    return req.reply(status, payload)

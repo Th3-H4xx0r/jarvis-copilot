@@ -3858,3 +3858,23 @@ def _as_int(raw: Any, default: int = 0) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return default
+
+
+_TOKEN_PATHS = ("/control-tokens", "/activity-token")
+
+
+def route(req) -> bool:
+    """Mounted at /api/live (api/mounts.py). The Live Activity tokens live in api/live_routes.py."""
+    if req.method == "POST" and req.sub in _TOKEN_PATHS:
+        from api.live_routes import handle_live_request, live_caller
+        device_id, caller = live_caller(req.handler)
+        status, payload = handle_live_request("POST", req.sub, req.body, host_signed=req.host_signed,
+                                              caller=caller, device_id=device_id)
+        return req.reply(status, payload)
+    if req.method == "GET":
+        return handle_live_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_live_post(req.handler, req.parsed, req.body)
+    if req.method == "PUT":
+        return handle_live_put(req.handler, req.parsed, req.body)
+    return False

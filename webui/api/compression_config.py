@@ -236,3 +236,14 @@ def _apply_to_live_agents(section: Dict[str, Any], home: Path) -> int:
         except Exception:
             logger.debug("compression: could not update a cached agent", exc_info=True)
     return updated
+
+
+def route(req) -> bool:
+    """Mounted at /api/compression (api/mounts.py)."""
+    if req.method == "GET":
+        return handle_compression_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_compression_post(req.handler, req.parsed, req.body)
+    if req.method == "PUT":
+        return handle_compression_put(req.handler, req.parsed, req.body)
+    return False

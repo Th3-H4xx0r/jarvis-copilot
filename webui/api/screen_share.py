@@ -767,3 +767,12 @@ def handle_post(handler, parsed) -> bool:
             return j(handler, {"ok": False, "error": "no such share"}, status=404) or True
         return j(handler, {"ok": True}) or True
     return False
+
+
+def route(req) -> bool:
+    """Mounted at /api/screen (api/mounts.py). Replay uploads are raw MP4: these read their own bodies."""
+    if req.method == "GET":
+        return handle_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_post(req.handler, req.parsed)
+    return False

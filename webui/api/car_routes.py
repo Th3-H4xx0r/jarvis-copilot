@@ -181,3 +181,10 @@ def handle_car_request(method, path, body, ha=None, approver=None, approvals=Non
         return 503, {"ok": False, "error": str(exc)}
     except HAError as exc:
         return 502, {"ok": False, "error": str(exc)}
+
+
+def route(req) -> bool:
+    """Mounted at /api/car (api/mounts.py)."""
+    status, payload = handle_car_request(req.method, req.sub_with_query, req.body,
+                                         host_signed=req.host_signed)
+    return req.reply(status, payload)

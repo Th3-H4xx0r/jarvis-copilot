@@ -1146,3 +1146,21 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
         return _run(_perm_pending)
 
     return _err(404, "not found")
+
+
+def route(req) -> bool:
+    """Mounted at /api/coding (api/mounts.py)."""
+    from api import coding_events
+    if req.method == "GET" and req.sub == "/events/stream":
+        return coding_events.stream(req.handler)
+    if req.method == "GET" and req.sub == "/agents/mac/checkin":
+        # The Mac's quiet timer check-in (jc_client/mac_power.py), keyed by its paired session.
+        from api import mac_power
+        if not req.device:
+            return req.reply(401, {"error": "no matching device for session"})
+        return req.reply(200, mac_power.store().checkin(req.device["id"]))
+    status, payload = handle_coding_request(req.method, req.sub_with_query, req.body,
+                                            manager=default_manager())
+    if status == 200 and req.method != "GET":
+        coding_events.notify()
+    return req.reply(status, payload)

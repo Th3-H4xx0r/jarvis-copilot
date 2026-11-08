@@ -489,3 +489,14 @@ def _cli(argv: list) -> int:
 if __name__ == "__main__":
     import sys
     sys.exit(_cli(sys.argv[1:]))
+
+
+def route(req) -> bool:
+    """Mounted at /ota and /api/app-updates (api/mounts.py)."""
+    if req.prefix == "/ota":
+        return req.method == "GET" and handle_ota(req.handler, req.parsed)
+    if req.method == "GET":
+        return handle_get(req.handler, req.parsed)
+    if req.method == "POST":
+        return handle_post(req.handler, req.parsed)
+    return False

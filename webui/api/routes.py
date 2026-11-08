@@ -947,27 +947,16 @@ from api.helpers import (
     safe_resolve,
     j,
     t,
-    read_body,
     _security_headers,
     _sanitize_error,
     redact_session_data,
     _redact_text,
 )
 from api.agent_health import build_agent_health_payload
+from api.mounts import Request, dispatch as dispatch_mount
 from api.request_diagnostics import RequestDiagnostics
 from api.system_health import build_system_health_payload
 
-
-def _tell_phone_dashcam(handler, method: str, sub: str, status: int) -> None:
-    """A dashcam change the phone's uploads care about, pushed to it unless it made it."""
-    try:
-        from api.auth import parse_cookie
-        from api.dashcam_routes import tell_phone
-        from api.pairing import find_device_by_session
-        caller = find_device_by_session(parse_cookie(handler) or "") or {}
-        tell_phone(method, sub, status, caller.get("id"))
-    except Exception:
-        pass
 
 
 _ENERGY_FILE = "energy.jsonl"
@@ -1055,18 +1044,6 @@ def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
     path.write_text("\n".join(lines) + "\n")
     return row
 
-
-def _kanban_unknown_endpoint(handler, parsed, method: str) -> bool:
-    """Return a Kanban-specific 404 for stale clients/obsolete endpoint shapes."""
-    return bad(
-        handler,
-        (
-            f"unknown Kanban endpoint: {method} {parsed.path}. "
-            "If this appeared after a WebUI update, your browser may be running "
-            "a stale cached bundle; use Hard refresh now, then reopen Kanban."
-        ),
-        status=404,
-    ) or True
 
 
 def _clear_stale_stream_state(session) -> bool:
@@ -3560,127 +3537,8 @@ def _serve_manifest(handler) -> bool:
 
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
-
-    if parsed.path.startswith("/ota/") or parsed.path.startswith("/api/app-updates/"):
-        from api import app_updates
-        if parsed.path.startswith("/ota/"):
-            return app_updates.handle_ota(handler, parsed)
-        if app_updates.handle_get(handler, parsed):
-            return True
-
-    if parsed.path.startswith("/api/edge/"):
-        from api.edge import handle_edge_get
-        if handle_edge_get(handler, parsed):
-            return True
-
-    # Mac screen shares: WebRTC signalling (long polls), TURN credentials, replays.
-    if parsed.path.startswith("/api/screen/"):
-        from api import screen_share
-        if screen_share.handle_get(handler, parsed):
-            return True
-
-    # Instant coding-session updates over SSE — MUST be matched before the
-    # generic /api/coding GET below (which returns a JSON tuple, not a stream).
-    if parsed.path == "/api/coding/events/stream":
-        return _handle_coding_events_sse_stream(handler, parsed)
-
-    if parsed.path == "/api/coding/agents/mac/checkin":
-        # The Mac's quiet timer check-in (jc_client/mac_power.py): which Mac is
-        # asking comes from its paired session cookie.
-        from api.auth import parse_cookie
-        from api.pairing import find_device_by_session
-        from api import mac_power
-        device = find_device_by_session(parse_cookie(handler) or "")
-        if not device:
-            return j(handler, {"error": "no matching device for session"}, status=401)
-        return j(handler, mac_power.store().checkin(device["id"]))
-
-    if parsed.path.startswith("/api/coding"):
-        from api.coding_routes import (
-            CODING_PATH_PREFIX, default_manager, handle_coding_request)
-        sub = parsed.path[len(CODING_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_coding_request(
-            "GET", sub, None, manager=default_manager())
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):
-        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
-        sub = parsed.path[len(AGENT_NOTES_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_agent_notes_request("GET", sub, None)
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/island"):
-        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
-        from api.island_store import store_for_request
-        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_island_request(
-            "GET", sub, None, store_for_request())
-        return j(handler, payload, status=status)
-
-    _job_m = _RE_HARNESS_JOB_VIEW.match(parsed.path)
-    if _job_m:
-        sid, job_id, what = _job_m.groups()
-        if what == "stream":
-            return _handle_harness_job_stream(handler, sid, job_id)
-        from api.harness_runner import job_view
-        view = job_view(sid, job_id)
-        if view is None:
-            return j(handler, {"error": "no such job in this chat"}, status=404)
-        return j(handler, view)
-
-    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
-        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
-        from api.harness_store import store_for_request as harness_store
-        status, payload = handle_harness_request(
-            "GET", parsed.path[len(HARNESS_PATH_PREFIX):], None, harness_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/widgets/"):
-        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
-        from api.widget_store import store_for_request as widget_store
-        status, payload = handle_widgets_request(
-            "GET", parsed.path[len(WIDGETS_PATH_PREFIX):], None, widget_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/browser/"):
-        # The chat's live browser card (Contract A) and its replays.
-        from api.browser_routes import handle_get as _browser_get
-        return _browser_get(handler, parsed)
-
-    if parsed.path.startswith("/api/car/"):
-        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
-        from api.auth import _check_host_signature
-        status, payload = handle_car_request("GET", parsed.path[len(CAR_PATH_PREFIX):], None,
-                                             host_signed=_check_host_signature(handler))
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/door/"):
-        from api.door_routes import DOOR_PATH_PREFIX, door_caller, handle_door_request
-        from api.auth import _check_host_signature
-        sub = parsed.path[len(DOOR_PATH_PREFIX):] + (f"?{parsed.query}" if parsed.query else "")
-        status, payload = handle_door_request("GET", sub, None, host_signed=_check_host_signature(handler),
-                                              caller=door_caller(handler))
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/dashcam" or parsed.path.startswith("/api/dashcam/"):
-        from api import dashcam_relay
-        from api.dashcam_routes import (
-            DASHCAM_PATH_PREFIX, handle_dashcam_binary_get, handle_dashcam_request)
-        from api.dashcam_store import store_for_request as dashcam_store
-        dashcam_relay.ensure_worker(dashcam_store)
-        store = dashcam_store()
-        sub = parsed.path[len(DASHCAM_PATH_PREFIX):]
-        # Thumbnail JPEG, Range-aware clip stream and GPX first; JSON for the rest.
-        if handle_dashcam_binary_get(handler, sub, store):
-            return True
-        status, payload = handle_dashcam_request("GET", sub, parse_qs(parsed.query), None, store)
-        return j(handler, payload, status=status)
+    if dispatch_mount(Request(handler, parsed, "GET")):
+        return True
 
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
@@ -3954,40 +3812,6 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/insights/messages":
         return _handle_insights_messages(handler, parsed)
 
-    if parsed.path.startswith("/api/kanban/"):
-        from api.kanban_bridge import handle_kanban_get
-
-        # Only treat an explicit False as "no route matched". None means the
-        # bridge already sent a response via bad()/j() — emitting our own 404
-        # on top of that produces concatenated JSON bodies on the wire.
-        result = handle_kanban_get(handler, parsed)
-        if result is False:
-            return _kanban_unknown_endpoint(handler, parsed, "GET")
-        return True
-    if parsed.path.startswith("/api/voice/"):
-        from api.voice import handle_voice_get
-        if handle_voice_get(handler, parsed):
-            return True
-        # Fall through to default 404
-    if parsed.path.startswith("/api/live/"):
-        # Live Jarvis (ambient capture). Includes the viewers' SSE feed, which
-        # takes over the socket, so it must be dispatched like the other
-        # streaming routes rather than returning a JSON tuple.
-        from api.live_ws import handle_live_get
-        if handle_live_get(handler, parsed):
-            return True
-    if parsed.path.startswith("/api/speech/"):
-        from api.speech_config import handle_speech_get
-        if handle_speech_get(handler, parsed):
-            return True
-    if parsed.path.startswith("/api/cache/"):
-        from api.cache_config import handle_cache_get
-        if handle_cache_get(handler, parsed):
-            return True
-    if parsed.path.startswith("/api/compression/"):
-        from api.compression_config import handle_compression_get
-        if handle_compression_get(handler, parsed):
-            return True
     if parsed.path == "/api/web/config":
         from api.web_config import handle_web_config_get
         if handle_web_config_get(handler, parsed):
@@ -5047,137 +4871,22 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
 
-    # App-update uploads are raw build files (tens of MB), streamed to disk before
-    # read_body would try to parse them as JSON.
-    if parsed.path.startswith("/api/app-updates/"):
-        from api import app_updates
-        if app_updates.handle_post(handler, parsed):
-            return True
-
-    # Mac screen shares read their own bodies (the replay upload is raw MP4).
-    if parsed.path.startswith("/api/screen/"):
-        from api import screen_share
-        if screen_share.handle_post(handler, parsed):
-            return True
-
-    # Dashcam raw-body POSTs (16 MiB upload chunks, JPEG thumbnails) must be read
-    # before read_body would try to parse them as JSON; other dashcam paths fall through.
-    if parsed.path.startswith("/api/dashcam/"):
-        from api import dashcam_relay
-        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_raw_post
-        from api.dashcam_store import store_for_request as dashcam_store
-        dashcam_relay.ensure_worker(dashcam_store)
-        sub = parsed.path[len(DASHCAM_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        if handle_dashcam_raw_post(handler, sub, dashcam_store()):
-            return True
+    req = Request(handler, parsed, "POST")
+    if dispatch_mount(req):
+        return True
 
     if diag:
         diag.stage("read_body")
     try:
-        body = read_body(handler)
+        body = req.body
     except Exception:
         if diag:
             diag.finish()
         raise
 
-    if parsed.path.startswith("/api/coding"):
-        from api.coding_routes import (
-            CODING_PATH_PREFIX, default_manager, handle_coding_request)
-        sub = parsed.path[len(CODING_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_coding_request(
-            "POST", sub, body, manager=default_manager())
-        # Nudge connected browsers to refetch immediately after any successful
-        # mutation so the list + detail go live without waiting for the poll.
-        if status == 200:
-            try:
-                from api import coding_events
-                coding_events.notify()
-            except Exception:
-                pass
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):
-        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
-        sub = parsed.path[len(AGENT_NOTES_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_agent_notes_request("POST", sub, body)
-        return j(handler, payload, status=status)
-
     if parsed.path == "/api/flow/cleanup":
         from api.agent_notes_routes import handle_flow_cleanup
         status, payload = handle_flow_cleanup(body)
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/island"):
-        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
-        from api.island_store import store_for_request
-        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        token_store = None
-        try:
-            from api.coding_routes import default_manager
-            token_store = default_manager().store
-        except Exception:
-            token_store = None
-        status, payload = handle_island_request(
-            "POST", sub, body, store_for_request(), token_store=token_store)
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
-        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
-        from api.harness_store import store_for_request as harness_store
-        status, payload = handle_harness_request(
-            "POST", parsed.path[len(HARNESS_PATH_PREFIX):], body, harness_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/widgets/"):
-        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
-        from api.widget_store import store_for_request as widget_store
-        status, payload = handle_widgets_request(
-            "POST", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/browser/"):
-        from api.browser_routes import handle_post as _browser_post
-        return _browser_post(handler, parsed, body)
-
-    if parsed.path.startswith("/api/car/"):
-        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
-        from api.auth import _check_host_signature
-        status, payload = handle_car_request("POST", parsed.path[len(CAR_PATH_PREFIX):], body,
-                                             host_signed=_check_host_signature(handler))
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/door/"):
-        from api.door_routes import DOOR_PATH_PREFIX, door_caller, handle_door_request
-        from api.auth import _check_host_signature
-        status, payload = handle_door_request("POST", parsed.path[len(DOOR_PATH_PREFIX):], body,
-                                              host_signed=_check_host_signature(handler),
-                                              caller=door_caller(handler))
-        return j(handler, payload, status=status)
-
-    # The phone's live-button push tokens (exact paths: the rest of /api/live/ is Live Jarvis).
-    if parsed.path in ("/api/live/control-tokens", "/api/live/activity-token"):
-        from api.auth import _check_host_signature
-        from api.live_routes import LIVE_PATH_PREFIX, handle_live_request, live_caller
-        device_id, caller = live_caller(handler)
-        status, payload = handle_live_request("POST", parsed.path[len(LIVE_PATH_PREFIX):], body,
-                                              host_signed=_check_host_signature(handler),
-                                              caller=caller, device_id=device_id)
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/dashcam/"):
-        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
-        from api.dashcam_store import store_for_request as dashcam_store
-        status, payload = handle_dashcam_request(
-            "POST", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
-        _tell_phone_dashcam(handler, "POST", parsed.path[len(DASHCAM_PATH_PREFIX):], status)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -5185,40 +4894,7 @@ def handle_post(handler, parsed) -> bool:
         result = repair_safe_session_recovery(SESSION_DIR, state_db_path=_active_state_db_path())
         return j(handler, result, status=200 if result.get("clean") else 409)
 
-    if parsed.path.startswith("/api/edge/"):
-        from api.edge import handle_edge_post
-        if handle_edge_post(handler, parsed, body):
-            return True
-        # Unknown edge POST endpoint — fall through to default 404
 
-    if parsed.path.startswith("/api/kanban/"):
-        from api.kanban_bridge import handle_kanban_post
-
-        result = handle_kanban_post(handler, parsed, body)
-        if result is False:
-            return _kanban_unknown_endpoint(handler, parsed, "POST")
-        return True
-    if parsed.path.startswith("/api/voice/"):
-        from api.voice import handle_voice_post
-        if handle_voice_post(handler, parsed, body):
-            return True
-        # Unknown voice POST endpoint — fall through to default 404
-    if parsed.path.startswith("/api/live/"):
-        from api.live_ws import handle_live_post
-        if handle_live_post(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/speech/"):
-        from api.speech_config import handle_speech_post
-        if handle_speech_post(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/cache/"):
-        from api.cache_config import handle_cache_post
-        if handle_cache_post(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/compression/"):
-        from api.compression_config import handle_compression_post
-        if handle_compression_post(handler, parsed, body):
-            return True
     if parsed.path == "/api/web/config":
         from api.web_config import handle_web_config_post
         if handle_web_config_post(handler, parsed, body):
@@ -7153,15 +6829,7 @@ def handle_patch(handler, parsed) -> bool:
     """Handle all PATCH routes. Returns True if handled, False for 404."""
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
-    body = read_body(handler)
-    if parsed.path.startswith("/api/kanban/"):
-        from api.kanban_bridge import handle_kanban_patch
-
-        result = handle_kanban_patch(handler, parsed, body)
-        if result is False:
-            return _kanban_unknown_endpoint(handler, parsed, "PATCH")
-        return True
-    return False
+    return dispatch_mount(Request(handler, parsed, "PATCH"))
 
 
 def delete_chat_session(sid: str) -> None:
@@ -7224,35 +6892,15 @@ def delete_chat_session(sid: str) -> None:
 
 
 def handle_put(handler, parsed) -> bool:
-    """Handle all PUT routes. Returns True if handled, False for 404.
-
-    PUT was previously unrouted, so `PUT /api/…` fell through as a 501 from the
-    base handler. Live Jarvis's settings surface is specified as PUT, and the
-    verb is cheap to support correctly — same CSRF gate and body read as the
-    other write verbs.
-    """
+    """Handle all PUT routes. Returns True if handled, False for 404."""
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
-    body = read_body(handler)
-    if parsed.path.startswith("/api/live/"):
-        from api.live_ws import handle_live_put
-        if handle_live_put(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/speech/"):
-        from api.speech_config import handle_speech_put
-        if handle_speech_put(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/cache/"):
-        from api.cache_config import handle_cache_put
-        if handle_cache_put(handler, parsed, body):
-            return True
-    if parsed.path.startswith("/api/compression/"):
-        from api.compression_config import handle_compression_put
-        if handle_compression_put(handler, parsed, body):
-            return True
+    req = Request(handler, parsed, "PUT")
+    if dispatch_mount(req):
+        return True
     if parsed.path == "/api/web/config":
         from api.web_config import handle_web_config_put
-        if handle_web_config_put(handler, parsed, body):
+        if handle_web_config_put(handler, parsed, req.body):
             return True
     return False
 
@@ -7261,7 +6909,10 @@ def handle_delete(handler, parsed) -> bool:
     """Handle all DELETE routes. Returns True if handled, False for 404."""
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
-    body = read_body(handler)
+    req = Request(handler, parsed, "DELETE")
+    if dispatch_mount(req):
+        return True
+    body = req.body
     if parsed.path.startswith("/api/integrations/"):
         from api.integrations_routes import handle_delete as _integrations_delete
         from api.profiles import cron_profile_context
@@ -7272,81 +6923,6 @@ def handle_delete(handler, parsed) -> bool:
             # The body names which parts to remove; absent means all of it.
             if _integrations_delete(handler, parsed, body):
                 return True
-
-    # ── Coding (DELETE /api/coding/project/<id>) ──
-    # The coding dispatcher handles its own DELETE routes; it was only wired into
-    # handle_get/handle_post, so DELETE fell through to a generic 404 "not found"
-    # (e.g. deleting a project).
-    if parsed.path.startswith("/api/coding"):
-        from api.coding_routes import (
-            CODING_PATH_PREFIX, default_manager, handle_coding_request)
-        sub = parsed.path[len(CODING_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_coding_request(
-            "DELETE", sub, body, manager=default_manager())
-        if status == 200:
-            try:
-                from api import coding_events
-                coding_events.notify()
-            except Exception:
-                pass
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/island"):
-        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
-        from api.island_store import store_for_request
-        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_island_request(
-            "DELETE", sub, body, store_for_request())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/agent-notes/"):
-        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
-        status, payload = handle_agent_notes_request(
-            "DELETE", parsed.path[len(AGENT_NOTES_PATH_PREFIX):], body)
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
-        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
-        from api.harness_store import store_for_request as harness_store
-        status, payload = handle_harness_request(
-            "DELETE", parsed.path[len(HARNESS_PATH_PREFIX):], body, harness_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/widgets/"):
-        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
-        from api.widget_store import store_for_request as widget_store
-        status, payload = handle_widgets_request(
-            "DELETE", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/car/"):   # DELETE /api/car/approver/button
-        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
-        from api.auth import _check_host_signature
-        status, payload = handle_car_request("DELETE", parsed.path[len(CAR_PATH_PREFIX):], body,
-                                             host_signed=_check_host_signature(handler))
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/dashcam/"):
-        from api import dashcam_relay
-        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
-        from api.dashcam_store import store_for_request as dashcam_store
-        dashcam_relay.ensure_worker(dashcam_store)
-        status, payload = handle_dashcam_request(
-            "DELETE", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
-        _tell_phone_dashcam(handler, "DELETE", parsed.path[len(DASHCAM_PATH_PREFIX):], status)
-        return j(handler, payload, status=status)
-
-    if parsed.path.startswith("/api/kanban/"):
-        from api.kanban_bridge import handle_kanban_delete
-
-        result = handle_kanban_delete(handler, parsed, body)
-        if result is False:
-            return _kanban_unknown_endpoint(handler, parsed, "DELETE")
-        return True
 
     # ── Device management ──
     # DELETE /api/devices/<id> — revoke pairing + invalidate the session.
@@ -8021,53 +7597,6 @@ def _session_events_snapshot(session_id: str) -> dict:
     return snap
 
 
-_RE_HARNESS_JOB_VIEW = re.compile(
-    r"^/api/harnesses/jobs/([A-Za-z0-9_~-]+)/([A-Za-z0-9_-]+)/(view|stream)$")
-
-
-def _handle_harness_job_stream(handler, session_id, job_id):
-    """SSE: a Background job's own run, in /api/chat/stream's event format —
-    everything so far, then live until it ends. A job that already ended (or
-    is unknown) gets a bare ``stream_end``: its view comes from /view."""
-    from api.harness_runner import job_feed, job_view
-    if job_view(session_id, job_id) is None:
-        return j(handler, {"error": "no such job in this chat"}, status=404)
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
-    try:
-        feed = job_feed(job_id)
-        # A job queued behind the worker's previous one has no feed yet: wait
-        # for it to start rather than telling the viewer it is over.
-        while feed is None:
-            view = job_view(session_id, job_id)
-            if view is None or not view.get("running"):
-                _sse(handler, 'stream_end', {'job_id': job_id})
-                return True
-            handler.wfile.write(b': keepalive\n\n')
-            handler.wfile.flush()
-            time.sleep(1.0)
-            feed = job_feed(job_id)
-        cursor = None
-        while True:
-            events, cursor, closed = feed.read(cursor, _SSE_HEARTBEAT_INTERVAL_SECONDS)
-            for event, data in events:
-                _sse(handler, event, data)
-                if event == 'stream_end':
-                    return True
-            if closed and not events:
-                _sse(handler, 'stream_end', {'job_id': job_id})
-                return True
-            if not events:
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
-    except _CLIENT_DISCONNECT_ERRORS:
-        pass
-    return True
-
 
 def _handle_session_events_sse(handler, parsed):
     """SSE: what changed on this session, for every device that has it open.
@@ -8585,46 +8114,6 @@ def _handle_clarify_sse_stream(handler, parsed):
     finally:
         clarify_sse_unsubscribe(sid, q)
 
-
-def _handle_coding_events_sse_stream(handler, parsed):
-    """SSE feed of coding-session change nudges (instant WebUI updates).
-
-    Long-lived connection that pushes a ``coding`` event the moment a hook
-    changes a session's state or a coding mutation lands, so open pages refetch
-    instead of polling. The payload is just a nudge (same pattern as the kanban
-    events SSE).
-    """
-    from api import coding_events
-
-    q = coding_events.subscribe()
-    handler.send_response(200)
-    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-    handler.send_header('Cache-Control', 'no-cache')
-    handler.send_header('X-Accel-Buffering', 'no')
-    handler.send_header('Connection', 'keep-alive')
-    handler.end_headers()
-
-    from api.streaming import _sse
-
-    # Greet immediately so the client knows the stream is live (and so any
-    # buffering proxy flushes headers right away).
-    _sse(handler, 'ready', {"ok": True})
-
-    try:
-        while True:
-            try:
-                payload = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
-            except queue.Empty:
-                handler.wfile.write(b': keepalive\n\n')
-                handler.wfile.flush()
-                continue
-            if payload is None:
-                break
-            _sse(handler, 'coding', payload)
-    except _CLIENT_DISCONNECT_ERRORS:
-        pass
-    finally:
-        coding_events.unsubscribe(q)
 
 
 def _handle_clarify_inject(handler, parsed):

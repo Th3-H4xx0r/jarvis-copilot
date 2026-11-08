@@ -195,3 +195,10 @@ def handle_door_request(method, path, body, host_signed=False, service=None, cal
         return status, {"ok": False, "error": str(exc), "code": f"tuya_{exc.kind}"}
     except ValueError as exc:
         return 400, {"ok": False, "error": str(exc)}
+
+
+def route(req) -> bool:
+    """Mounted at /api/door (api/mounts.py)."""
+    status, payload = handle_door_request(req.method, req.sub_with_query, req.body,
+                                          host_signed=req.host_signed, caller=door_caller(req.handler))
+    return req.reply(status, payload)

@@ -486,19 +486,6 @@ def test_kanban_events_payload_matches_polling_shape(monkeypatch):
     assert {"id", "task_id", "run_id", "kind", "payload", "created_at"} <= set(events["events"][0])
 
 
-def test_routes_dispatches_api_kanban_get_to_bridge():
-    src = open("api/routes.py", encoding="utf-8").read()
-    assert 'parsed.path.startswith("/api/kanban/")' in src
-    assert "handle_kanban_get(handler, parsed)" in src
-
-
-def test_routes_dispatches_api_kanban_post_to_bridge():
-    src = open("api/routes.py", encoding="utf-8").read()
-    assert 'parsed.path.startswith("/api/kanban/")' in src
-    assert "handle_kanban_post(handler, parsed, body)" in src
-
-
-
 def test_kanban_dashboard_core_api_exposes_stats_assignees_config_and_logs(monkeypatch):
     bridge = _load_bridge(monkeypatch)
 
@@ -533,18 +520,6 @@ def test_kanban_only_mine_bulk_dispatch_and_block_unblock(monkeypatch):
     assert dispatch["dry_run"] is True
     assert dispatch["max_spawn"] == 2
 
-
-
-def test_routes_dispatches_canonical_kanban_patch_and_delete_verbs():
-    src = open("api/routes.py", encoding="utf-8").read()
-    server = open("server.py", encoding="utf-8").read()
-    assert "def do_PATCH" in server
-    assert "def do_DELETE" in server
-    assert "self._handle_write(handle_patch)" in server
-    assert "self._handle_write(handle_delete)" in server
-    assert 'parsed.path.startswith("/api/kanban/")' in src
-    assert "handle_kanban_patch(handler, parsed, body)" in src
-    assert "handle_kanban_delete(handler, parsed, body)" in src
 
 
 def test_patch_status_running_is_rejected_to_protect_dispatcher_contract(monkeypatch):

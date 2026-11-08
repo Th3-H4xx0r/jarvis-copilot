@@ -96,7 +96,7 @@ def _get_signing_key() -> Optional[bytes]:
 
 
 def _host_signature(method: str, path: str) -> Optional[str]:
-    """``<ts>.<hmac>`` host signature (matches webui auth._check_host_signature).
+    """``<ts>.<hmac>`` host signature (matches webui auth.check_host_signature).
     None if the signing key isn't readable."""
     try:
         sk = _get_signing_key()
