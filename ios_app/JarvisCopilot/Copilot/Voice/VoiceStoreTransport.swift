@@ -461,7 +461,6 @@ extension VoiceStore {
                         self.handleQuality(event)
                     }
                     guard let self else { return }
-                    // The stream is done; if nothing is playing, settle to idle.
                     self.raise(.qualityStreamDone(playbackBusy: self.audio.isBusy))
                 } catch is CancellationError {
                     return

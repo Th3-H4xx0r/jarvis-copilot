@@ -27,7 +27,6 @@ struct VoiceStartupTimer: Equatable {
     }
 }
 
-/// Where on-device transcription stands.
 enum VoiceTranscriptionStatus: Equatable, Sendable {
     case idle
     /// Getting ready; the fraction is the language-model download, when there
@@ -54,7 +53,7 @@ typealias VoiceLocalLaneRef = Never
 typealias VoiceLocalLaneRef = VoiceLocalLane
 #endif
 
-/// Drives the voice screen. Port of `voice/voice_controller.dart`.
+/// Drives the voice screen.
 ///
 /// Owns the mic, the FSM (`VoiceTurnMachine`), the playback queue
 /// (`AudioQueue`), the reply + karaoke model (`VoiceReply`) and both
@@ -372,19 +371,8 @@ final class VoiceStore {
     var responsePending: Bool { machine.serverTurnOpen }
     private var teardownTask: Task<Void, Never>?
     var foreground = true
-    /// The last `bargeInWindowMs` of mic frames under the reply: duration and
-    /// whether each counted as voiced.
-    var bargeFrames: [(ms: Int, voiced: Bool, amp: Double)] = []
-    var bargeVoicedMs: Int { bargeFrames.reduce(0) { $0 + ($1.voiced ? $1.ms : 0) } }
-    /// Recent mic frames under the reply, for the echo level.
-    var bargeEchoFrames: [(ms: Int, amp: Double)] = []
-    /// What the mic hears under the reply when nobody is talking: the reply's
-    /// leftover echo. See `bargeInEchoPercentile`.
-    var bargeEchoFloor: Double {
-        guard bargeEchoFrames.reduce(0, { $0 + $1.ms }) >= Self.bargeInEchoMinMs else { return 0 }
-        let sorted = bargeEchoFrames.map(\.amp).sorted()
-        return sorted[Int(Double(sorted.count - 1) * Self.bargeInEchoPercentile)]
-    }
+    /// Whether a sound over the reply is loud and long enough to check for words.
+    var barge = BargeInDetector()
     /// The last moments of mic audio under the reply. When they turn out to be
     /// the user cutting in, they are the start of what was said.
     var bargeHeld: [Data] = []
@@ -1474,8 +1462,8 @@ final class VoiceStore {
             bargeWindowPeak = max(bargeWindowPeak, amp)
             bargeWindowFrames += 1
             if bargeWindowFrames >= 24 {
-                note(String(format: "mic under reply: peak=%.4f echo=%.4f bar=%.4f", bargeWindowPeak, bargeEchoFloor,
-                            max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)))
+                note(String(format: "mic under reply: peak=%.4f echo=%.4f bar=%.4f", bargeWindowPeak, barge.echoFloor,
+                            barge.bar))
                 bargeWindowPeak = 0
                 bargeWindowFrames = 0
             }
@@ -1483,7 +1471,7 @@ final class VoiceStore {
             if let until = bargeSettleUntil, clock.now < until {
                 // The canceller is still settling: this is the reply's echo,
                 // which is what the bar is measured against, never a trigger.
-                noteEchoFrame(amp, frameMs: frameMs)
+                barge.noteEcho(amp, frameMs: frameMs)
                 return
             }
             holdBargeAudio(chunk)
@@ -1494,7 +1482,7 @@ final class VoiceStore {
                 return
             }
             let sounded = detectBargeIn(amp, frameMs: frameMs)
-            let voiced = bargeFrames.last?.voiced ?? false
+            let voiced = barge.lastVoiced
             if bargeCheck != nil {
                 continueBargeCheck(chunk, voiced: voiced, frameMs: frameMs)
             } else if let quiet = bargeCheckCooldownQuietMs {
@@ -1549,28 +1537,11 @@ final class VoiceStore {
         }
     }
 
+    /// Nothing is learned while a sound is being checked or waited out: the reply is turned
+    /// down then, or the sound is not the reply at all, and either would move the bar away
+    /// from the reply's own echo.
     func detectBargeIn(_ amp: Double, frameMs: Int) -> Bool {
-        let voiced = amp >= max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)
-        // A frame under the bar teaches the echo level at once. A frame over it
-        // waits until it leaves the decision window: while it is in the window
-        // it may be the user's first words, and counting those as echo lifted
-        // the bar past the voice trying to clear it. Once it has aged out
-        // without triggering, it was the reply — kept out for good instead, a
-        // reply that grew louder never raised the bar and interrupted itself.
-        //
-        // Nothing is learned while a sound is being checked or waited out: the
-        // reply is turned down then, or the sound is not the reply at all, and
-        // either would move the bar away from the reply's own echo.
-        let learning = bargeCheck == nil && bargeCheckCooldownQuietMs == nil
-        if !voiced, learning { noteEchoFrame(amp, frameMs: frameMs) }
-        bargeFrames.append((frameMs, voiced, amp))
-        var total = bargeFrames.reduce(0) { $0 + $1.ms }
-        while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
-            let aged = bargeFrames.removeFirst()
-            total -= aged.ms
-            if aged.voiced, learning { noteEchoFrame(aged.amp, frameMs: aged.ms) }
-        }
-        return bargeVoicedMs >= Self.bargeInSustainMs
+        barge.feed(amp, frameMs: frameMs, learning: bargeCheck == nil && bargeCheckCooldownQuietMs == nil)
     }
 
     // MARK: - Words check
@@ -1582,7 +1553,7 @@ final class VoiceStore {
         let id = bargeCheckCount
         bargeCheck = BargeCheck(id: id)
         audio.setVolume(Self.bargeInDuckVolume)
-        note("sound over the reply (\(bargeVoicedMs)ms): turned down, listening for words")
+        note("sound over the reply (\(barge.voicedMs)ms): turned down, listening for words")
         Task { [weak self] in
             guard let self else { return }
             // `prompt: false`: never a permission sheet or a model download
@@ -1679,14 +1650,6 @@ final class VoiceStore {
         audio.setVolume(1)
     }
 
-    private func noteEchoFrame(_ amp: Double, frameMs: Int) {
-        bargeEchoFrames.append((frameMs, amp))
-        var total = bargeEchoFrames.reduce(0) { $0 + $1.ms }
-        while total > Self.bargeInEchoWindowMs, bargeEchoFrames.count > 1 {
-            total -= bargeEchoFrames.removeFirst().ms
-        }
-    }
-
     private func holdBargeAudio(_ chunk: Data) {
         bargeHeld.append(chunk)
         // While a check runs, everything since just before the sound: if it
@@ -1702,8 +1665,7 @@ final class VoiceStore {
     private func resetBargeIn() {
         cancelBargeCheck()
         bargeCheckCooldownQuietMs = nil
-        bargeFrames.removeAll()
-        bargeEchoFrames.removeAll()
+        barge.reset()
         bargeHeld.removeAll()
     }
 

@@ -2178,11 +2178,11 @@ class LiveConnection:
         self._said_speech_missing = False
         self.ready = False
         self.closed = False
+        # A mic label that arrived before hello (see on_text).
+        self._pending_source: str = ""
         # Accumulating partials, keyed by the track a device is streaming, so a
         # two-mic device cannot interleave two sentences into one. Ordered so the
         # bound below can drop the oldest unfinished one.
-        # A mic label that arrived before hello (see on_text).
-        self._pending_source: str = ""
         self._partials: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         # Non-None only while a resume replay is in flight (see on_bus_event).
         self._replay_buffer: Optional[List[Dict[str, Any]]] = None

@@ -139,16 +139,6 @@ struct ScanView: View {
         }
     }
 
-    /// Paired devices with no card of their own that this scan didn't turn up.
-    ///
-    /// The list used to be the live scan buffer alone, so a bottle that was merely
-    /// out of range vanished from the Devices tab entirely — indistinguishable from
-    /// one that was never paired. They keep their card and say what's wrong instead.
-    ///
-    /// `listed` is what keeps a device to ONE card: a remembered board or ring is surfaced
-    /// into its manager's `discovered` list with no signal reading, which drew the full card
-    /// AND an "Not found" row beneath it for the same device. The card carries the offline
-    /// status now, and only a device with no card at all gets a row here.
     /// A device's card, opening its page with the zoom from the card.
     private func deviceCard<ID: Hashable, Destination: View, Card: View>(
         id: ID, @ViewBuilder destination: () -> Destination, @ViewBuilder card: () -> Card
@@ -162,6 +152,16 @@ struct ScanView: View {
         .zoomSource(id: id, in: cardNamespace)
     }
 
+    /// Paired devices with no card of their own that this scan didn't turn up.
+    ///
+    /// The list used to be the live scan buffer alone, so a bottle that was merely
+    /// out of range vanished from the Devices tab entirely — indistinguishable from
+    /// one that was never paired. They keep their card and say what's wrong instead.
+    ///
+    /// `listed` is what keeps a device to ONE card: a remembered board or ring is surfaced
+    /// into its manager's `discovered` list with no signal reading, which drew the full card
+    /// AND an "Not found" row beneath it for the same device. The card carries the offline
+    /// status now, and only a device with no card at all gets a row here.
     private func absentDevices(from entries: [WearableEntry]) -> [WearableEntry] {
         entries.filter { !$0.connected && !$0.seenInLastScan && !$0.listed }
     }

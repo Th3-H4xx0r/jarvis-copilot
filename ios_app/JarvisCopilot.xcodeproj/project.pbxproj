@@ -1110,6 +1110,7 @@
 		DE0BCCACE8E1E4D2FFC9965F /* ActionAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A033203704890E4ACBA40D3 /* ActionAgentTests.swift */; };
 		DE813369FE6F1D4ABEA3A8F1 /* ContextSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */; };
 		DE8EE766A101DDB164E2D4BB /* HealthWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */; };
+		DEA5A3C1E3C3EB9F3025F50D /* BargeInDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99768E37F514E21B7DCDD7E /* BargeInDetectorTests.swift */; };
 		DEC2FDC52FB7B31E11FEC74F /* BandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95871CA93FF456CB5A4E83 /* BandTransport.swift */; };
 		DED77038929DE4208090FE52 /* HealthShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 721568243A38A5C9D98D3AD9 /* HealthShared.swift */; };
 		DF2717518E42EE7915EE3A0E /* DashcamDestinationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AFC4A43B57C159790A3A8E /* DashcamDestinationsView.swift */; };
@@ -1221,6 +1222,7 @@
 		F398D9D43A1AC5F598AA8FB1 /* WatchMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FFEFB7BF04D5089068227C /* WatchMenu.swift */; };
 		F3E2E305A3CB9F279A0B3BF7 /* PairPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD85C337C09C2129C82247FA /* PairPayloadTests.swift */; };
 		F4285F20D8FA2F280F1B6EC7 /* DevicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BE84A80E4A907C6B81146B4 /* DevicesTests.swift */; };
+		F49FB5FC78989A1C9BBCE8D1 /* VoiceBargeIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB3DB82EBFC47CDE95434CD1 /* VoiceBargeIn.swift */; };
 		F4BA0431117B123530DDC721 /* InmoAudioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD6D0D1B2B575C6C877BB4A0 /* InmoAudioTests.swift */; };
 		F4EC088AB65F2A55048B368D /* WearableLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AB49951D6DCEFDA46066AF /* WearableLinks.swift */; };
 		F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6731BC35052EE46AE1591D /* LiveCaptureAttributes.swift */; };
@@ -2202,6 +2204,7 @@
 		B9379EFBA47C09851A8E9A52 /* DashcamCamera.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamCamera.swift; sourceTree = "<group>"; };
 		B95869D4E2FEC6BE6541E8F5 /* WearableDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WearableDevice.swift; sourceTree = "<group>"; };
 		B98C18A24786223E46B58DF2 /* SendConfirmations.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SendConfirmations.swift; sourceTree = "<group>"; };
+		B99768E37F514E21B7DCDD7E /* BargeInDetectorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BargeInDetectorTests.swift; sourceTree = "<group>"; };
 		B9C0CF71FB06F08123F843FA /* ChatEntryPoints.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatEntryPoints.swift; sourceTree = "<group>"; };
 		B9CBBCE783C47C420886D98C /* WearableNotification.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableNotification.swift; sourceTree = "<group>"; };
 		BA0858B1378CF509408FC17B /* WidgetBlockInspector.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetBlockInspector.swift; sourceTree = "<group>"; };
@@ -2298,6 +2301,7 @@
 		CACEC2930E15C9759206B2B3 /* LiveActivityAgentController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityAgentController.swift; sourceTree = "<group>"; };
 		CAD3843097850821EB958726 /* AudioInputEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioInputEngine.swift; sourceTree = "<group>"; };
 		CAEAF18B42FBDA8394DFE880 /* CostsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsStore.swift; sourceTree = "<group>"; };
+		CB3DB82EBFC47CDE95434CD1 /* VoiceBargeIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceBargeIn.swift; sourceTree = "<group>"; };
 		CB51502D6B32282610806346 /* RouteStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteStoreTests.swift; sourceTree = "<group>"; };
 		CB853687443BF6D01424F199 /* ExerciseDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
 		CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceState.swift; sourceTree = "<group>"; };
@@ -2780,6 +2784,7 @@
 				B827C9E380C386F53FA9F65D /* SpeechEngineAPITests.swift */,
 				C3B4927D81BDA63DB89CB9EC /* VoiceLogFileTests.swift */,
 				EB153E17DFC6E1E54D4E0D2B /* TalkHereTests.swift */,
+				B99768E37F514E21B7DCDD7E /* BargeInDetectorTests.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -4045,6 +4050,7 @@
 				7736238E3E03F52545366F38 /* VoiceLogFile.swift */,
 				76731B2A41E4AC8774F702F3 /* VoiceEarconSounds.swift */,
 				B0A19D84E3D1E2F3225A9AE6 /* TalkHere.swift */,
+				CB3DB82EBFC47CDE95434CD1 /* VoiceBargeIn.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -5436,6 +5442,7 @@
 				FF4485E0E0420868B9C92D95 /* DashcamSyncActivityRenderTests.swift in Sources */,
 				0CD2572AC5CFA35C3811771A /* DashcamDualPlaybackTests.swift in Sources */,
 				52EC29A7E292FC3FC4579D1F /* OnDemandWearableTests.swift in Sources */,
+				DEA5A3C1E3C3EB9F3025F50D /* BargeInDetectorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6267,6 +6274,7 @@
 				341F4224A525FAC122B25B1E /* OnDemandWearable.swift in Sources */,
 				C15B9CA5A697E047C5492A0F /* BLEWearableManager.swift in Sources */,
 				E333D3A224E1D9DEA05C4412 /* WearableKind.swift in Sources */,
+				F49FB5FC78989A1C9BBCE8D1 /* VoiceBargeIn.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

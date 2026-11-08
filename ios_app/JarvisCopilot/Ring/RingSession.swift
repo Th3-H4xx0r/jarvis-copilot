@@ -81,9 +81,9 @@ final class RingSession: ObservableObject {
     @Published private(set) var liveHeartRate: RingLiveReading?
     @Published private(set) var liveSpO2: RingLiveReading?
     @Published private(set) var liveTemperature: RingLiveReading?
-    /// Newest raw accelerometer sample (needs the patched firmware, 3.11.00+).
+    /// Newest raw accelerometer sample, from the stock firmware's 0xA1 telemetry.
     @Published private(set) var liveAccelerometer: RingAccelSample?
-    /// nil until the first read; false when the ring answered "unsupported" (stock firmware).
+    /// nil until the first read; false when no telemetry sample arrives.
     @Published private(set) var accelerometerSupported: Bool?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
@@ -312,7 +312,6 @@ final class RingSession: ObservableObject {
         do {
             _ = try await transport.perform(request, until: .single)
         } catch RingError.timeout(_) {
-            // Unacknowledged write.
         }
     }
 
@@ -481,8 +480,6 @@ final class RingSession: ObservableObject {
         settings.sedentary = await read(.readSedentary, RingDecode.sedentary) ?? sedentary
     }
 
-    /// Puts the ring where it reports taps and swipes to the phone: its music mode, with the
-    /// reporting channel on. Jarvis runs the user's own action for each one.
     /// Points the ring's taps and swipes at Jarvis, at music, or nowhere, and reads back what
     /// it actually took. Both controls are written whatever the capability flags claim: this
     /// firmware under-reports, and a ring that ignores one may still honour the other.
@@ -640,8 +637,7 @@ final class RingSession: ObservableObject {
         }
     }
 
-    /// A reading from real-time mode. Nothing in the app asks for these now, but a ring left
-    /// streaming by an older build still sends them, and a real pulse is worth keeping.
+    /// A reading from real-time mode (every heart rate switches to it: `armLiveSwitch`).
     private func handleRealtime(_ reading: RingMeasurementReading) {
         if streamingHeartRate, var running = measurement, running.isActive, running.type == .heartRate {
             // Error 2: charging, or no sensor contact.
@@ -937,9 +933,9 @@ final class RingSession: ObservableObject {
     }
 
     /// The ring's firmware keeps real-time heart-rate mode — and its optical sensor —
-    /// running until it is told to stop; a dropped link does not stop it. Nothing in the app
-    /// starts that mode any more, but a build that did may have left the ring streaming, so a
-    /// stop is owed until one is acknowledged, and the debt survives a relaunch.
+    /// running until it is told to stop; a dropped link does not stop it. Each live heart rate
+    /// starts it (`armLiveSwitch`), so a stop is owed until one is acknowledged, and the debt
+    /// survives a relaunch.
     private var realtimeStopOwed: Bool {
         get { defaults.bool(forKey: "jc.ring.realtimeStopOwed") }
         set { defaults.set(newValue, forKey: "jc.ring.realtimeStopOwed") }

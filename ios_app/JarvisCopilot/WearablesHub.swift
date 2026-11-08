@@ -67,7 +67,6 @@ extension View {
     }
 }
 
-/// The ⋯ button at the top of a wearable's page.
 /// One action in a wearable screen's toolbar.
 ///
 /// Icon only, the same shape as the ⋯ beside it. A `Button(title, jcIcon:)` here
@@ -108,6 +107,7 @@ struct JcSyncSpinner: View {
     }
 }
 
+/// The ⋯ button at the top of a wearable's page.
 struct WearableMoreMenu<Extra: View>: View {
     let onRename: () -> Void
     /// Device-specific items — a ring's "Find", say — above Rename.
@@ -280,7 +280,6 @@ final class WearablesHub: ObservableObject {
         }
     }
 
-    /// Foreground: resume links, reconnect the remembered bottle, re-register.
     /// The wearables on the shared Bluetooth link (BLEWearableManager), with what their card shows.
     var linkedWearables: [(kind: WearableKind, manager: BLEWearableManager, model: String, fallbackName: String)] {
         [(.ring, ring, ColmiR12.model, ColmiR12.model),
@@ -288,6 +287,7 @@ final class WearablesHub: ObservableObject {
          (.band, band, BandDevice.model, BandDevice.fallbackName)]
     }
 
+    /// Foreground: resume links, reconnect the remembered bottle, re-register.
     func appDidBecomeActive() {
         restoreSharedDevices()
         bottle.enterForeground()
