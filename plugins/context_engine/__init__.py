@@ -18,12 +18,11 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import logging
-import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from plugins import load_plugin_instance, plugin_description
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +47,7 @@ def discover_context_engines() -> List[Tuple[str, str, bool]]:
         if not init_file.exists():
             continue
 
-        # Read description from plugin.yaml if available
-        desc = ""
-        yaml_file = child / "plugin.yaml"
-        if yaml_file.exists():
-            try:
-                import yaml
-                with open(yaml_file, encoding="utf-8-sig") as f:
-                    meta = yaml.safe_load(f) or {}
-                desc = meta.get("description", "")
-            except Exception:
-                pass
+        desc = plugin_description(child)
 
         # Quick availability check — try loading and calling is_available()
         available = True
@@ -98,122 +87,8 @@ def load_context_engine(name: str) -> Optional["ContextEngine"]:
 
 
 def _load_engine_from_dir(engine_dir: Path) -> Optional["ContextEngine"]:
-    """Import an engine module and extract the ContextEngine instance.
-
-    The module must have either:
-    - A register(ctx) function (plugin-style) — we simulate a ctx
-    - A top-level class that extends ContextEngine — we instantiate it
-    """
-    name = engine_dir.name
-    module_name = f"plugins.context_engine.{name}"
-    init_file = engine_dir / "__init__.py"
-
-    if not init_file.exists():
-        return None
-
-    # Check if already loaded
-    if module_name in sys.modules:
-        mod = sys.modules[module_name]
-    else:
-        # Handle relative imports within the plugin
-        # First ensure the parent packages are registered
-        for parent in ("plugins", "plugins.context_engine"):
-            if parent not in sys.modules:
-                parent_path = Path(__file__).parent
-                if parent == "plugins":
-                    parent_path = parent_path.parent
-                parent_init = parent_path / "__init__.py"
-                if parent_init.exists():
-                    spec = importlib.util.spec_from_file_location(
-                        parent, str(parent_init),
-                        submodule_search_locations=[str(parent_path)]
-                    )
-                    if spec:
-                        parent_mod = importlib.util.module_from_spec(spec)
-                        sys.modules[parent] = parent_mod
-                        try:
-                            spec.loader.exec_module(parent_mod)
-                        except Exception:
-                            pass
-
-        # Now load the engine module
-        spec = importlib.util.spec_from_file_location(
-            module_name, str(init_file),
-            submodule_search_locations=[str(engine_dir)]
-        )
-        if not spec:
-            return None
-
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = mod
-
-        # Register submodules so relative imports work
-        for sub_file in engine_dir.glob("*.py"):
-            if sub_file.name == "__init__.py":
-                continue
-            sub_name = sub_file.stem
-            full_sub_name = f"{module_name}.{sub_name}"
-            if full_sub_name not in sys.modules:
-                sub_spec = importlib.util.spec_from_file_location(
-                    full_sub_name, str(sub_file)
-                )
-                if sub_spec:
-                    sub_mod = importlib.util.module_from_spec(sub_spec)
-                    sys.modules[full_sub_name] = sub_mod
-                    try:
-                        sub_spec.loader.exec_module(sub_mod)
-                    except Exception as e:
-                        logger.debug("Failed to load submodule %s: %s", full_sub_name, e)
-
-        try:
-            spec.loader.exec_module(mod)
-        except Exception as e:
-            logger.debug("Failed to exec_module %s: %s", module_name, e)
-            sys.modules.pop(module_name, None)
-            return None
-
-    # Try register(ctx) pattern first (how plugins are written)
-    if hasattr(mod, "register"):
-        collector = _EngineCollector()
-        try:
-            mod.register(collector)
-            if collector.engine:
-                return collector.engine
-        except Exception as e:
-            logger.debug("register() failed for %s: %s", name, e)
-
-    # Fallback: find a ContextEngine subclass and instantiate it
+    """Import an engine package and return its ContextEngine instance."""
     from agent.context_engine import ContextEngine
-    for attr_name in dir(mod):
-        attr = getattr(mod, attr_name, None)
-        if (isinstance(attr, type) and issubclass(attr, ContextEngine)
-                and attr is not ContextEngine):
-            try:
-                return attr()
-            except Exception:
-                pass
-
-    return None
-
-
-class _EngineCollector:
-    """Fake plugin context that captures register_context_engine calls."""
-
-    def __init__(self):
-        self.engine = None
-
-    def register_context_engine(self, engine):
-        self.engine = engine
-
-    # No-op for other registration methods
-    def register_tool(self, *args, **kwargs):
-        pass
-
-    def register_hook(self, *args, **kwargs):
-        pass
-
-    def register_cli_command(self, *args, **kwargs):
-        pass
-
-    def register_memory_provider(self, *args, **kwargs):
-        pass
+    return load_plugin_instance(
+        engine_dir, f"plugins.context_engine.{engine_dir.name}", "register_context_engine", ContextEngine,
+    )

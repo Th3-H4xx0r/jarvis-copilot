@@ -21,13 +21,14 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import logging
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
+
 from jarviscopilot_cli.config import cfg_get
+from plugins import load_plugin_instance, plugin_description
 
 logger = logging.getLogger(__name__)
 
@@ -129,17 +130,7 @@ def discover_memory_providers() -> List[Tuple[str, str, bool]]:
     results = []
 
     for name, child in _iter_provider_dirs():
-        # Read description from plugin.yaml if available
-        desc = ""
-        yaml_file = child / "plugin.yaml"
-        if yaml_file.exists():
-            try:
-                import yaml
-                with open(yaml_file, encoding="utf-8-sig") as f:
-                    meta = yaml.safe_load(f) or {}
-                desc = meta.get("description", "")
-            except Exception:
-                pass
+        desc = plugin_description(child)
 
         # Quick availability check — try loading and calling is_available()
         available = True
@@ -182,127 +173,23 @@ def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
         return None
 
 
+def _is_bundled(plugin_dir: Path) -> bool:
+    return _MEMORY_PLUGINS_DIR in plugin_dir.parents or plugin_dir.parent == _MEMORY_PLUGINS_DIR
+
+
+def _module_name(plugin_dir: Path) -> str:
+    # User-installed plugins get their own namespace so they don't collide
+    # with bundled providers in sys.modules.
+    prefix = "plugins.memory" if _is_bundled(plugin_dir) else "_hermes_user_memory"
+    return f"{prefix}.{plugin_dir.name}"
+
+
 def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
-    """Import a provider module and extract the MemoryProvider instance.
-
-    The module must have either:
-    - A register(ctx) function (plugin-style) — we simulate a ctx
-    - A top-level class that extends MemoryProvider — we instantiate it
-    """
-    name = provider_dir.name
-    # Use a separate namespace for user-installed plugins so they don't
-    # collide with bundled providers in sys.modules.
-    _is_bundled = _MEMORY_PLUGINS_DIR in provider_dir.parents or provider_dir.parent == _MEMORY_PLUGINS_DIR
-    module_name = f"plugins.memory.{name}" if _is_bundled else f"_hermes_user_memory.{name}"
-    init_file = provider_dir / "__init__.py"
-
-    if not init_file.exists():
-        return None
-
-    # Check if already loaded
-    if module_name in sys.modules:
-        mod = sys.modules[module_name]
-    else:
-        # Handle relative imports within the plugin
-        # First ensure the parent packages are registered
-        for parent in ("plugins", "plugins.memory"):
-            if parent not in sys.modules:
-                parent_path = Path(__file__).parent
-                if parent == "plugins":
-                    parent_path = parent_path.parent
-                parent_init = parent_path / "__init__.py"
-                if parent_init.exists():
-                    spec = importlib.util.spec_from_file_location(
-                        parent, str(parent_init),
-                        submodule_search_locations=[str(parent_path)]
-                    )
-                    if spec:
-                        parent_mod = importlib.util.module_from_spec(spec)
-                        sys.modules[parent] = parent_mod
-                        try:
-                            spec.loader.exec_module(parent_mod)
-                        except Exception:
-                            pass
-
-        # Now load the provider module
-        spec = importlib.util.spec_from_file_location(
-            module_name, str(init_file),
-            submodule_search_locations=[str(provider_dir)]
-        )
-        if not spec:
-            return None
-
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = mod
-
-        # Register submodules so relative imports work
-        # e.g., "from .store import MemoryStore" in holographic plugin
-        for sub_file in provider_dir.glob("*.py"):
-            if sub_file.name == "__init__.py":
-                continue
-            sub_name = sub_file.stem
-            full_sub_name = f"{module_name}.{sub_name}"
-            if full_sub_name not in sys.modules:
-                sub_spec = importlib.util.spec_from_file_location(
-                    full_sub_name, str(sub_file)
-                )
-                if sub_spec:
-                    sub_mod = importlib.util.module_from_spec(sub_spec)
-                    sys.modules[full_sub_name] = sub_mod
-                    try:
-                        sub_spec.loader.exec_module(sub_mod)
-                    except Exception as e:
-                        logger.debug("Failed to load submodule %s: %s", full_sub_name, e)
-
-        try:
-            spec.loader.exec_module(mod)
-        except Exception as e:
-            logger.debug("Failed to exec_module %s: %s", module_name, e)
-            sys.modules.pop(module_name, None)
-            return None
-
-    # Try register(ctx) pattern first (how our plugins are written)
-    if hasattr(mod, "register"):
-        collector = _ProviderCollector()
-        try:
-            mod.register(collector)
-            if collector.provider:
-                return collector.provider
-        except Exception as e:
-            logger.debug("register() failed for %s: %s", name, e)
-
-    # Fallback: find a MemoryProvider subclass and instantiate it
+    """Import a provider package and return its MemoryProvider instance."""
     from agent.memory_provider import MemoryProvider
-    for attr_name in dir(mod):
-        attr = getattr(mod, attr_name, None)
-        if (isinstance(attr, type) and issubclass(attr, MemoryProvider)
-                and attr is not MemoryProvider):
-            try:
-                return attr()
-            except Exception:
-                pass
-
-    return None
-
-
-class _ProviderCollector:
-    """Fake plugin context that captures register_memory_provider calls."""
-
-    def __init__(self):
-        self.provider = None
-
-    def register_memory_provider(self, provider):
-        self.provider = provider
-
-    # No-op for other registration methods
-    def register_tool(self, *args, **kwargs):
-        pass
-
-    def register_hook(self, *args, **kwargs):
-        pass
-
-    def register_cli_command(self, *args, **kwargs):
-        pass  # CLI registration happens via discover_plugin_cli_commands()
+    return load_plugin_instance(
+        provider_dir, _module_name(provider_dir), "register_memory_provider", MemoryProvider,
+    )
 
 
 def _get_active_memory_provider() -> Optional[str]:
@@ -354,8 +241,7 @@ def discover_plugin_cli_commands() -> List[dict]:
     if not cli_file.exists():
         return results
 
-    _is_bundled = _MEMORY_PLUGINS_DIR in plugin_dir.parents or plugin_dir.parent == _MEMORY_PLUGINS_DIR
-    module_name = f"plugins.memory.{active_provider}.cli" if _is_bundled else f"_hermes_user_memory.{active_provider}.cli"
+    module_name = f"{_module_name(plugin_dir)}.cli"
     try:
         # Import the CLI module (lightweight — no SDK needed)
         if module_name in sys.modules:
@@ -374,21 +260,8 @@ def discover_plugin_cli_commands() -> List[dict]:
         if not callable(register_cli):
             return results
 
-        # Read metadata from plugin.yaml if available
-        help_text = f"Manage {active_provider} memory plugin"
-        description = ""
-        yaml_file = plugin_dir / "plugin.yaml"
-        if yaml_file.exists():
-            try:
-                import yaml
-                with open(yaml_file, encoding="utf-8-sig") as f:
-                    meta = yaml.safe_load(f) or {}
-                desc = meta.get("description", "")
-                if desc:
-                    help_text = desc
-                    description = desc
-            except Exception:
-                pass
+        description = plugin_description(plugin_dir)
+        help_text = description or f"Manage {active_provider} memory plugin"
 
         handler_fn = getattr(cli_mod, f"{active_provider}_command", None)
 

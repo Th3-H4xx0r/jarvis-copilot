@@ -173,13 +173,27 @@ class TestMemoryPluginCliDiscovery:
 
 
 class TestProviderCollectorCliNoop:
-    def test_register_cli_command_is_noop(self):
-        """_ProviderCollector.register_cli_command is a no-op (doesn't crash)."""
-        from plugins.memory import _ProviderCollector
+    def test_register_cli_command_in_register_is_ignored(self, tmp_path):
+        """A provider whose register(ctx) also registers CLI commands, tools
+        or hooks still loads; only the provider is kept."""
+        from agent.memory_provider import MemoryProvider
+        from plugins import load_plugin_instance
 
-        collector = _ProviderCollector()
-        collector.register_cli_command(
-            name="test", help="test", setup_fn=lambda s: None
+        plugin_dir = tmp_path / "cliprov"
+        plugin_dir.mkdir()
+        (plugin_dir / "__init__.py").write_text(
+            "from agent.memory_provider import MemoryProvider\n"
+            "class P(MemoryProvider):\n"
+            "    name = 'cliprov'\n"
+            "    def is_available(self): return True\n"
+            "    def initialize(self, session_id, **kw): pass\n"
+            "    def get_tool_schemas(self): return []\n"
+            "def register(ctx):\n"
+            "    ctx.register_cli_command(name='x', help='x', setup_fn=lambda s: None)\n"
+            "    ctx.register_tool('t', None)\n"
+            "    ctx.register_memory_provider(P())\n"
         )
-        # Should not store anything — CLI is discovered via file convention
-        assert not hasattr(collector, "_cli_commands")
+        provider = load_plugin_instance(
+            plugin_dir, "_test_user_memory.cliprov", "register_memory_provider", MemoryProvider,
+        )
+        assert provider is not None and provider.name == "cliprov"
