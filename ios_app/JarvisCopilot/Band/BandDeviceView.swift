@@ -8,46 +8,10 @@ struct BandCard: View {
     var lastSeen: Date? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                BandSceneView(spin: true, cameraDistance: 5.6)
-                    .environment(\.sceneStills, true)
-                    .frame(width: 124, height: 124)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
-            }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.band, fallback: band.name.isEmpty ? BandDevice.fallbackName : band.name))
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text(BandDevice.model)
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if connected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: JcTheme.success)
-                    } else {
-                        DisconnectedPill()
-                    }
-                    if let battery {
-                        MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
-                                   value: "\(battery.percent)%", tint: JcMetric.activity)
-                    }
-                }
-            }
-            .padding(16)
+        WearableCard(name: WearableNames.shared.name(WearableKeepAlive.band, fallback: band.name.isEmpty ? BandDevice.fallbackName : band.name),
+                     model: BandDevice.model, rssi: band.rssi, battery: battery, connected: connected, lastSeen: lastSeen) {
+            BandSceneView(spin: true, cameraDistance: 5.6)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: !connected && band.rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
@@ -106,13 +70,7 @@ struct BandDeviceView: View {
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let actionError {
-                    Text(actionError)
-                        .font(.footnote)
-                        .foregroundStyle(JcTheme.amber)
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                DeviceActionError(text: actionError)
                 measureCard
                 if let id = manager.deviceID { ecgReportsLink(id) }
                 batteryLink
@@ -158,11 +116,7 @@ struct BandDeviceView: View {
         .sheet(item: $ecgReport) { report in
             NavigationStack { BandEcgReportView(report: report) }
         }
-        .sheet(isPresented: $choosingWorkout) {
-            let workout = WearablesHub.shared.ring.workout
-            WorkoutPicker(wearable: WearableKeepAlive.band,
-                          onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
-        }
+        .workoutPicker(isPresented: $choosingWorkout, wearable: WearableKeepAlive.band)
         .toolbar {
             if sync.isSyncing {
                 JcSyncSpinner().accessibilityLabel("Syncing the band")
@@ -309,23 +263,8 @@ struct BandDeviceView: View {
     private func ecgReportsLink(_ deviceID: String) -> some View {
         CardGroup {
             NavigationLink { BandEcgHistoryView(deviceID: deviceID) } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        Image(systemName: BandMeasure.ecg.icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(BandMeasure.ecg.tint)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("ECG reports").font(.body.weight(.medium))
-                            Text("Rhythm, HRV, QTc and risk analysis for each ECG")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
+                DeviceLinkLabel(icon: BandMeasure.ecg.icon, tint: BandMeasure.ecg.tint, title: "ECG reports",
+                                subtitle: "Rhythm, HRV, QTc and risk analysis for each ECG")
             }
             .buttonStyle(.plain)
         }
@@ -341,69 +280,17 @@ struct BandDeviceView: View {
         } else if let charge = report.lastCharge {
             line = "Charged to \(charge.to)% \(charge.end.formatted(.relative(presentation: .named)))"
         }
-        return CardGroup {
-            Button { showingBattery = true } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        Image(systemName: session.battery?.charging == true ? "battery.100percent.bolt" : "battery.75percent")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(JcTheme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Battery").font(.body.weight(.medium))
-                            Text(line)
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        return DeviceLink(icon: session.battery?.charging == true ? "battery.100percent.bolt" : "battery.75percent",
+                          title: "Battery", subtitle: line) { showingBattery = true }
     }
 
     private var workoutLink: some View {
-        CardGroup {
-            Button { choosingWorkout = true } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(JcTheme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Start a workout").font(.body.weight(.medium))
-                            Text("Heart rate, steps, distance and calories from the band")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        DeviceLink(icon: "figure.run", title: "Start a workout",
+                   subtitle: "Heart rate, steps, distance and calories from the band") { choosingWorkout = true }
     }
 
     private var settingsLink: some View {
-        CardGroup {
-            Button { showingSettings = true } label: {
-                Row(minHeight: 50) {
-                    HStack {
-                        Text("Band settings")
-                        Spacer()
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        DeviceSettingsLink(title: "Band settings") { showingSettings = true }
     }
 
     private func run(_ action: @escaping () async throws -> Void) {

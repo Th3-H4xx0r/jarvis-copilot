@@ -779,6 +779,7 @@
 		9BB9EFEDE22E89C70BE53DB8 /* DevicesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D8885A1AEB68E6AF951CDBD /* DevicesUITests.swift */; };
 		9BCA1C00E849DB26FB73A830 /* JarvisWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 220197378345D1B7372B1837 /* JarvisWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */; };
+		9C4417974B05BCED55930062 /* WearablePageParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39D1DAA024673639E32D8904 /* WearablePageParts.swift */; };
 		9C704D83013520394BB10B6D /* JarvisPulse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3147B0BDFA2874440C835FA2 /* JarvisPulse.swift */; };
 		9C8A7ED0A80AAC6C96C4B54D /* CarLightSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 196380367130C91DB782549A /* CarLightSettingsSheet.swift */; };
 		9CA68E281D1D3BF90E6078F2 /* TalkHereIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB267A6EA889793B608DA7B /* TalkHereIntent.swift */; };
@@ -1601,6 +1602,7 @@
 		3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanStore.swift; sourceTree = "<group>"; };
 		39B90E3148926A3EF84DA78D /* RingBandNewSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingBandNewSkillsTests.swift; sourceTree = "<group>"; };
 		39CEA86AF2CC9F1F56F90DA8 /* CarLightsPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsPreview.swift; sourceTree = "<group>"; };
+		39D1DAA024673639E32D8904 /* WearablePageParts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablePageParts.swift; sourceTree = "<group>"; };
 		39D675E0FFE07AB3C4A95C95 /* VoiceBackendFixTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceBackendFixTests.swift; sourceTree = "<group>"; };
 		3A2161B4BF38A3EB23B9DAE2 /* RingManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingManager.swift; sourceTree = "<group>"; };
 		3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotonSetupPage.swift; sourceTree = "<group>"; };
@@ -4474,6 +4476,7 @@
 				595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */,
 				37933DDC2D6B1FBA467514D1 /* WearableKind.swift */,
 				E7701DADDCB4F7209D0E5A72 /* FaceIDApprovals.swift */,
+				39D1DAA024673639E32D8904 /* WearablePageParts.swift */,
 			);
 			name = .;
 			path = .;
@@ -6283,6 +6286,7 @@
 				F49FB5FC78989A1C9BBCE8D1 /* VoiceBargeIn.swift in Sources */,
 				6AB50FC85CC5D7EEF3BF6A34 /* FaceIDApprovals.swift in Sources */,
 				9EED9124FBBB8C2C35718A53 /* WearableStage.swift in Sources */,
+				9C4417974B05BCED55930062 /* WearablePageParts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

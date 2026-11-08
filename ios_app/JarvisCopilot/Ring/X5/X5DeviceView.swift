@@ -35,13 +35,7 @@ struct X5DeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                if let actionError {
-                    Text(actionError)
-                        .font(.footnote)
-                        .foregroundStyle(JcTheme.amber)
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                DeviceActionError(text: actionError)
                 RingMeasureList(items: measure.types.map { type in
                     RingMeasureList.Item(type: type, state: measure.state(of: type), last: measure.lastReading(type),
                                          control: measure.card(type, from: .ring))
@@ -94,33 +88,9 @@ struct X5DeviceView: View {
 
     /// Start a workout on the X5 — the same picker, start screen and live sheet as the R12's.
     private var workoutLink: some View {
-        CardGroup {
-            Button { choosingWorkout = true } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(JcTheme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Start a workout").font(.body.weight(.medium))
-                            Text("Heart rate every second, steps and distance")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .sheet(isPresented: $choosingWorkout) {
-            let workout = WearablesHub.shared.ring.workout
-            WorkoutPicker(wearable: WearableKeepAlive.x5ring,
-                          onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
-        }
+        DeviceLink(icon: "figure.run", title: "Start a workout",
+                   subtitle: "Heart rate every second, steps and distance") { choosingWorkout = true }
+            .workoutPicker(isPresented: $choosingWorkout, wearable: WearableKeepAlive.x5ring)
     }
 
     // MARK: Hero
@@ -166,17 +136,7 @@ struct X5DeviceView: View {
 
     // MARK: Live
 
-    @ViewBuilder private var liveFromRing: some View {
-        let rows = liveRows
-        if !rows.isEmpty {
-            CardGroup("Live from the ring") {
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    if index > 0 { RowDivider() }
-                    Row { LabeledContent(row.0, value: row.1) }
-                }
-            }
-        }
-    }
+    private var liveFromRing: some View { DeviceLiveRows(rows: liveRows) }
 
     private var liveRows: [(String, String)] {
         var rows: [(String, String)] = []
@@ -253,40 +213,14 @@ struct X5DeviceView: View {
     // MARK: Links
 
     private var healthLink: some View {
-        CardGroup {
-            Button { router?.selectedTab = .health } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        JcIcon("heart.text.square.fill").font(.system(size: 18)).foregroundStyle(JcTheme.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Body Battery, sleep and more").font(.body.weight(.medium))
-                            Text(HealthRing.current == .x5 ? "Jarvis Health uses this ring" : "In the Health tab")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                }
-            }
-            .buttonStyle(.plain)
+        DeviceLink(icon: "heart.text.square.fill", title: "Body Battery, sleep and more",
+                   subtitle: HealthRing.current == .x5 ? "Jarvis Health uses this ring" : "In the Health tab") {
+            router?.selectedTab = .health
         }
     }
 
     private var settingsLink: some View {
-        CardGroup {
-            Button { showingSettings = true } label: {
-                Row {
-                    HStack {
-                        Text("Settings & diagnostics")
-                        Spacer()
-                        JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        DeviceSettingsLink { showingSettings = true }
     }
 }
 
@@ -300,49 +234,9 @@ struct X5Card: View {
     var lastSeen: Date? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                X5SceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
-                    .environment(\.sceneStills, true)
-                    .frame(width: 124, height: 124)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
-            }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.x5ring, fallback: ring.name.isEmpty ? "X5 ring" : ring.name))
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text(X5Ring.model)
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if connected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: JcTheme.success)
-                    } else if ring.rssi == 0 {
-                        DisconnectedPill()
-                    } else {
-                        MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(ring.rssi) dBm", tint: JcMetric.activity)
-                    }
-                    if let battery {
-                        MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
-                                   value: "\(battery.percent)%",
-                                   tint: batteryTint(battery.percent) ?? JcTheme.success)
-                    }
-                }
-            }
-            .padding(16)
+        WearableCard(name: WearableNames.shared.name(WearableKeepAlive.x5ring, fallback: ring.name.isEmpty ? "X5 ring" : ring.name),
+                     model: X5Ring.model, rssi: ring.rssi, battery: battery, connected: connected, lastSeen: lastSeen) {
+            X5SceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: !connected && ring.rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }

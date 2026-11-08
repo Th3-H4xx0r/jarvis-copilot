@@ -39,13 +39,7 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                if let actionError {
-                    Text(actionError)
-                        .font(.footnote)
-                        .foregroundStyle(JcTheme.amber)
-                        .padding(.horizontal, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                DeviceActionError(text: actionError)
                 measureCard
                 workoutLink
                 // Sleep, heart, stress and the battery are the person's, not the
@@ -103,59 +97,15 @@ struct RingDeviceView: View {
 
     /// Start a workout: the ring tracks it with its sensor on the whole time.
     private var workoutLink: some View {
-        CardGroup {
-            Button { choosingWorkout = true } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(JcTheme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Start a workout").font(.body.weight(.medium))
-                            Text("Heart rate every second, steps and distance")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .sheet(isPresented: $choosingWorkout) {
-            WorkoutPicker(wearable: WearableKeepAlive.ring,
-                          onTemplate: { manager.workout.startStrength(template: $0) }) { sport in manager.workout.start(sport) }
-        }
+        DeviceLink(icon: "figure.run", title: "Start a workout",
+                   subtitle: "Heart rate every second, steps and distance") { choosingWorkout = true }
+            .workoutPicker(isPresented: $choosingWorkout, wearable: WearableKeepAlive.ring)
     }
 
     /// Where this ring's readings went: the Health tab.
     private var healthLink: some View {
-        CardGroup {
-            Button {
-                router?.selectedTab = .health
-            } label: {
-                Row(minHeight: 56) {
-                    HStack(spacing: 12) {
-                        JcIcon("heart.text.square.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(JcTheme.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Body Battery, sleep and more")
-                                .font(.body.weight(.medium))
-                            Text("In the Health tab, from every linked wearable")
-                                .font(.caption)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        Spacer(minLength: 8)
-                        JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        DeviceLink(icon: "heart.text.square.fill", title: "Body Battery, sleep and more",
+                   subtitle: "In the Health tab, from every linked wearable") { router?.selectedTab = .health }
     }
 
     // MARK: Hero
@@ -224,17 +174,7 @@ struct RingDeviceView: View {
 
     // MARK: Live
 
-    @ViewBuilder private var liveFromRing: some View {
-        let rows = liveRows
-        if !rows.isEmpty {
-            CardGroup("Live from the ring") {
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    if index > 0 { RowDivider() }
-                    Row { LabeledContent(row.0, value: row.1) }
-                }
-            }
-        }
-    }
+    private var liveFromRing: some View { DeviceLiveRows(rows: liveRows) }
 
     private var liveRows: [(String, String)] {
         var rows: [(String, String)] = []
@@ -257,23 +197,7 @@ struct RingDeviceView: View {
     }
 
     private var settingsLink: some View {
-        CardGroup {
-            Button {
-                showingSettings = true
-            } label: {
-                Row {
-                    HStack {
-                        Text("Settings & diagnostics")
-                        Spacer()
-                        JcIcon("chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(JcTheme.muted.opacity(0.7))
-                    }
-                    .contentShape(Rectangle())
-                }
-            }
-            .buttonStyle(.plain)
-        }
+        DeviceSettingsLink { showingSettings = true }
     }
 }
 
@@ -284,55 +208,14 @@ struct RingCard: View {
     let ring: DiscoveredWearable
     let battery: RingBattery?
     let connected: Bool
-    /// When the ring was last in range, for the offline pill.
     var lastSeen: Date? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack {
-                Spacer()
-                RingSceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
-                    .environment(\.sceneStills, true)
-                    .frame(width: 124, height: 124)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
-            }
-            .frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name.isEmpty ? "Smart ring" : ring.name))
-                    .font(JcText.title)
-                    .lineLimit(1)
-                Text("Colmi R12 smart ring")
-                    .font(.caption)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.top, 3)
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    if connected {
-                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
-                                   tint: JcTheme.success)
-                    } else if ring.rssi == 0 {
-                        // Remembered from iOS's own link, not answering: not a signal reading.
-                        DisconnectedPill()
-                    } else {
-                        MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(ring.rssi) dBm", tint: JcMetric.activity)
-                    }
-                    if let battery {
-                        MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
-                                   value: "\(battery.percent)%",
-                                   tint: batteryTint(battery.percent) ?? JcTheme.success)
-                    }
-                }
-            }
-            .padding(16)
+        WearableCard(name: WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name.isEmpty ? "Smart ring" : ring.name),
+                     model: "Colmi R12 smart ring", rssi: ring.rssi, battery: battery, connected: connected,
+                     lastSeen: lastSeen) {
+            RingSceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
         }
-        .frame(height: 190)
-        .frame(maxWidth: .infinity)
-        .lastSeenCorner(lastSeen, visible: !connected && ring.rssi == 0)
-        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: JcUnified.cardRadius, style: .continuous).strokeBorder(JcTheme.border, lineWidth: 1))
     }
 }
 
