@@ -48,6 +48,22 @@ final class MacCommandCenterRenderTests: XCTestCase {
                                 size: CGSize(width: 402, height: 874), name: "mac-pins-editor")
     }
 
+    func testRenderDockMenu() throws {
+        let s = session()
+        s.receivedForTesting(["t": "cc_windows", "pid": 3, "ax": true, "new_window": true, "windows": [
+            ["id": 6106, "title": "jarvis-copilot — MacScreenViewer.swift", "min": false, "front": true],
+            ["id": 8291, "title": "hermes-agent — run_agent.py", "min": false, "front": false],
+            ["id": 8400, "title": "notes", "min": true, "front": false],
+        ]])
+        let code = s.apps.first { $0.pid == 3 }!
+        try RenderHarness.write(MacDockMenu(session: s, app: code) { _ in }.background(JcTheme.surface),
+                                size: CGSize(width: 290, height: 360), name: "mac-dock-menu")
+        let old = session()
+        old.receivedForTesting(["t": "cc_error", "do": "windows", "error": "The Mac app doesn't know “windows” yet"])
+        try RenderHarness.write(MacDockMenu(session: old, app: code) { _ in }.background(JcTheme.surface),
+                                size: CGSize(width: 290, height: 220), name: "mac-dock-menu-old-mac")
+    }
+
     func testRenderCommandCenter() throws {
         try RenderHarness.write(MacCommandCenterSheet(session: session()),
                                 size: CGSize(width: 402, height: 1500), name: "mac-command-center")

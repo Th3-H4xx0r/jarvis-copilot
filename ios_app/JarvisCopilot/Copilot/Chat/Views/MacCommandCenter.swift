@@ -511,6 +511,7 @@ struct MacAppIcon: View {
     let app: MacApp
     let image: UIImage?
     var side: CGFloat = 44
+    var showsActiveDot = true
 
     var body: some View {
         Group {
@@ -527,7 +528,7 @@ struct MacAppIcon: View {
         }
         .frame(width: side, height: side)
         .overlay(alignment: .bottom) {
-            if app.active {
+            if app.active && showsActiveDot {
                 Circle().fill(JcTheme.text).frame(width: 4, height: 4).offset(y: 7)
             }
         }
@@ -536,7 +537,8 @@ struct MacAppIcon: View {
 
 /// The Mac's open apps to switch to (Command Center, the Switch App sheet and the landscape
 /// rail), or what is going on when there are none yet — never a blank box. Opening it asks
-/// the Mac again, so a list missed while the channel opened still arrives.
+/// the Mac again, so a list missed while the channel opened still arrives. Long-press an icon
+/// for its Dock menu (a popover; in the rail's column, the column itself turns into the menu).
 struct MacAppSwitcher: View {
     enum Layout { case grid, column }
 
@@ -545,6 +547,7 @@ struct MacAppSwitcher: View {
     var picked: () -> Void = {}
     @State private var waitedOut = false
     @State private var attempt = 0
+    @State private var menuApp: MacApp?
 
     private var live: Bool { session.phase == .live }
 
@@ -555,7 +558,12 @@ struct MacAppSwitcher: View {
 
     var body: some View {
         Group {
-            if case .apps(let apps) = content {
+            if layout == .column, let app = menuApp {
+                MacDockMenu(session: session, app: app, back: { menuApp = nil }) { showsMac in
+                    menuApp = nil
+                    if showsMac { picked() }
+                }
+            } else if case .apps(let apps) = content {
                 switch layout {
                 case .grid: grid(apps)
                 case .column: column(apps)
@@ -608,14 +616,16 @@ struct MacAppSwitcher: View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: 10), count: 5)
         return LazyVGrid(columns: cols, spacing: 16) {
             ForEach(apps) { app in
-                Button { pick(app) } label: {
-                    VStack(spacing: 10) {
-                        MacAppIcon(app: app, image: session.appIcons[app.bundle])
-                        Text(app.name).font(.system(size: 10)).foregroundStyle(JcTheme.muted).lineLimit(1)
-                    }
+                VStack(spacing: 10) {
+                    MacAppIcon(app: app, image: session.appIcons[app.bundle])
+                    Text(app.name).font(.system(size: 10)).foregroundStyle(JcTheme.muted).lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Switch to \(app.name)")
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .macAppIconPress(name: "Switch to \(app.name)", tap: { pick(app) }, menu: { menuApp = app })
+                .macDockMenuPopover(session: session, app: app, shown: $menuApp) { showsMac in
+                    if showsMac { picked() }
+                }
             }
         }
     }
@@ -624,11 +634,10 @@ struct MacAppSwitcher: View {
         ScrollView(.vertical) {
             VStack(spacing: 16) {
                 ForEach(apps) { app in
-                    Button { pick(app) } label: {
-                        MacAppIcon(app: app, image: session.appIcons[app.bundle], side: 44).padding(.bottom, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Switch to \(app.name)")
+                    MacAppIcon(app: app, image: session.appIcons[app.bundle], side: 44)
+                        .padding(.bottom, 6)
+                        .contentShape(Rectangle())
+                        .macAppIconPress(name: "Switch to \(app.name)", tap: { pick(app) }, menu: { menuApp = app })
                 }
             }
             .frame(maxWidth: .infinity)
@@ -672,9 +681,11 @@ struct MacAppSwitcherSheet: View {
 }
 
 /// The open apps as a Dock-like strip along the bottom in portrait (shown once the Mac sent them).
+/// Tap switches; long-press (or right-click) opens the app's Dock menu.
 struct MacAppStrip: View {
     let session: MacScreenSession
     var side: CGFloat = 40
+    @State private var menuApp: MacApp?
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -685,14 +696,30 @@ struct MacAppStrip: View {
 
     private var icons: some View {
         ForEach(session.apps) { app in
-            Button {
-                session.command("app", ["pid": app.pid])
-            } label: {
-                MacAppIcon(app: app, image: session.appIcons[app.bundle], side: side)
-                    .padding(.bottom, 6)
+            MacAppIcon(app: app, image: session.appIcons[app.bundle], side: side)
+                .padding(.bottom, 6)
+                .contentShape(Rectangle())
+                .macAppIconPress(name: "Switch to \(app.name)",
+                                 tap: { session.command("app", ["pid": app.pid]) },
+                                 menu: { menuApp = app })
+                .macDockMenuPopover(session: session, app: app, shown: $menuApp)
+        }
+    }
+}
+
+extension View {
+    /// The app's Dock menu as a popover from its icon, while `shown` is that app.
+    func macDockMenuPopover(session: MacScreenSession, app: MacApp, shown: Binding<MacApp?>,
+                            done: @escaping (Bool) -> Void = { _ in }) -> some View {
+        popover(isPresented: Binding(get: { shown.wrappedValue?.pid == app.pid },
+                                     set: { if !$0, shown.wrappedValue?.pid == app.pid { shown.wrappedValue = nil } }),
+                arrowEdge: .bottom) {
+            MacDockMenu(session: session, app: app) { showsMac in
+                shown.wrappedValue = nil
+                done(showsMac)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Switch to \(app.name)")
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(JcTheme.surface)
         }
     }
 }

@@ -37,6 +37,10 @@ final class MacScreenSession: NSObject {
     private(set) var appIcons: [String: UIImage] = [:]
     /// The last thing the Mac couldn't do, for the Command Center to show.
     private(set) var controlError: String?
+    /// Each app's windows (by pid) for its Dock menu, from the Mac's `cc_windows`.
+    private(set) var windows: [Int: MacAppWindows] = [:]
+    /// Whether the Mac's Jarvis answers window requests (an older build says it doesn't know them).
+    private(set) var windowSupport: MacWindowSupport = .unknown
     /// The Command Center's one action path, shared by the sheet and the pinned strip.
     @ObservationIgnored lazy var controlActions = MacControlActions(session: self)
 
@@ -77,6 +81,9 @@ final class MacScreenSession: NSObject {
         phase = .connecting
         afterSeq = 0
         endedReason = nil
+        // A reconnect may reach a newer Mac build (he updated it): ask again.
+        windowSupport = .unknown
+        windows = [:]
         remoteSet = false
         pendingCandidates = []
         viewerID = "ios-\(UUID().uuidString.prefix(8).lowercased())"
@@ -308,6 +315,19 @@ final class MacScreenSession: NSObject {
                let png = Data(base64Encoded: b64), let image = UIImage(data: png) {
                 appIcons[bundle] = image
             }
+        case "cc_windows":
+            if let list = MacAppWindows(json: obj) {
+                windows[list.pid] = list
+                windowSupport = .yes
+            }
+        case "cc_error" where Self.windowActions.contains(obj["do"] as? String ?? ""):
+            let why = obj["error"] as? String ?? ""
+            // A Mac app from before the Dock menu: its menu says so; the Command Center stays calm.
+            if why.contains("doesn't know") {
+                windowSupport = .no
+            } else if obj["do"] as? String != "windows" {
+                controlError = why
+            }
         case "cc_error", "error":
             controlError = obj["error"] as? String
         default:
@@ -318,6 +338,41 @@ final class MacScreenSession: NSObject {
     /// Feeds a Mac message in as if it came over the channel (tests, previews).
     func receivedForTesting(_ obj: [String: Any]) {
         if let data = try? JSONSerialization.data(withJSONObject: obj) { received(data) }
+    }
+
+    // MARK: Dock menu (Mac side MacControls.swift "windows" / "window" / "app_*")
+
+    private static let windowActions: Set<String> = ["windows", "window", "app_new_window", "app_show_all",
+                                                     "app_hide", "app_quit"]
+
+    /// Asks the Mac for one app's windows (its Dock menu opening).
+    func requestWindows(_ pid: Int) {
+        send(["t": "cc", "do": "windows", "pid": pid])
+    }
+
+    /// Brings that exact window to the front (one of several VS Code windows).
+    func raiseWindow(pid: Int, id: Int) {
+        controlError = nil
+        run(.raise(pid: pid, window: id))
+    }
+
+    /// A Dock menu action, as the Mac's build can do it.
+    func dock(_ action: MacDockAction, pid: Int) {
+        controlError = nil
+        for step in action.steps(pid: pid, updatedMac: windowSupport == .yes) { run(step) }
+    }
+
+    private func run(_ step: MacDockStep) {
+        let message = step.message.mapValues(\.base)
+        if case .key = step {
+            // After the app had a moment to come forward (the older Mac's Hide).
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.send(message)
+            }
+        } else {
+            send(message)
+        }
     }
 
     fileprivate func channelOpened() {
@@ -588,7 +643,7 @@ private struct MacScreenPreview: View {
 /// Full screen: the Mac live, and control of it — tap to click, double-tap to
 /// double-click, drag with the button held, the keyboard to type. Portrait: the
 /// bar on top (Command Center, esc, ⌫, keyboard), his pinned Command Center controls under
-/// the picture and the open apps along the bottom; turned to
+/// the picture and the open apps along the bottom (long-press one for its Dock menu); turned to
 /// landscape, the Mac fills the left and a slim rail of the same controls runs down the right. `closesShare`: an anytime share ends when
 /// this closes.
 struct MacScreenControlView: View {
