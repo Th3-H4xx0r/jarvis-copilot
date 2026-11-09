@@ -240,10 +240,36 @@ final class SecurityStoreTests: XCTestCase {
 /// looked at before it is installed.
 @MainActor
 final class SecurityPageRenderTests: XCTestCase {
+    func testAlertTitlesSplitIntoAShortHeadlineAndADetailLine() {
+        XCTAssertEqual(SecurityPage.split("Server file added: /etc/ssh/sshd_config").0, "Server file added")
+        XCTAssertEqual(SecurityPage.split("Server file added: /etc/ssh/sshd_config").1, "/etc/ssh/sshd_config")
+        XCTAssertEqual(SecurityPage.split("SSH login from a new IP (198.51.100.4)").0, "SSH login from a new IP")
+        XCTAssertEqual(SecurityPage.split("SSH login from a new IP (198.51.100.4)").1, "198.51.100.4")
+        XCTAssertEqual(SecurityPage.split("New device paired").0, "New device paired")
+        XCTAssertNil(SecurityPage.split("New device paired").1)
+    }
+
+    func testRawIdsReadAsWords() {
+        XCTAssertEqual(SecurityPage.readable("ssh.new_ip"), "SSH new IP")
+        XCTAssertEqual(SecurityPage.readable("auth.failed"), "Auth failed")
+        XCTAssertEqual(SecurityPage.readable("Failed-login bursts"), "Failed-login bursts")
+        XCTAssertEqual(SecurityPage.readable("Session in use"), "Session in use")
+    }
+
     func testRenderSecurityPage() async throws {
         let (jarvis, transport) = JarvisAPI.mocked()
         transport.route("/api/security/status", json: SecurityStoreTests.status)
-        transport.route("/api/security/alerts", json: SecurityStoreTests.alerts)
+        // A long path title like the live ones that used to wrap three lines.
+        let pathAlert: [String: Any] = [
+            "id": 9, "event_id": 5, "rule": "file.sensitive",
+            "title": "Server file added: /etc/systemd/system/multi-user.target.wants/example-firewall.service",
+            "summary": "A file that controls services was added.",
+            "explanation": "A systemd service was installed to start at boot right after a root SSH login from a "
+                + "tailnet address. That could be your own setup, but it is also a common way to keep access "
+                + "on a machine, so confirm you made it.",
+            "severity": "high", "count": 1, "status": "open",
+            "created": "2026-11-08T03:10:00Z", "updated": "2026-11-08T03:10:00Z"]
+        transport.route("/api/security/alerts", json: [pathAlert] + SecurityStoreTests.alerts)
         transport.route("/api/security/events", json: SecurityStoreTests.events)
         transport.route("/api/security/blocks", json: SecurityStoreTests.blocks)
         transport.route("/api/security/digests", json: [["date": "2026-11-08", "text": "Quiet night. 3 code changes from Jarvis, 1 relay SSH login."]])
