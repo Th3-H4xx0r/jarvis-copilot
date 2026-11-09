@@ -16,3 +16,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_approval_request", guard.on_pre_approval_request)
     ctx.register_hook("post_approval_response", guard.on_post_approval_response)
     ctx.register_hook("pre_gateway_dispatch", guard.on_pre_gateway_dispatch)
+    ctx.register_auxiliary_task(
+        "security_advisor", display_name="Security Advisor",
+        description="Explains flagged security events and writes the daily digest",
+        defaults={"provider": "claude-code", "model": "claude-haiku-5-5"})

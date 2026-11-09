@@ -684,6 +684,17 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Door alarm failed to start: {e}', flush=True)
 
+    # The Security Advisor worker (rules, IP blocks, alerts, digest), when its plugin is enabled.
+    _security_service = None
+    try:
+        from jarviscopilot_cli.plugins import _get_enabled_plugins
+        if "security_advisor" in (_get_enabled_plugins() or set()):
+            from plugins.security_advisor.service import SecurityService
+            _security_service = SecurityService.instance()
+            _security_service.start()
+    except Exception as e:
+        print(f'[!!] WARNING: Security Advisor failed to start: {e}', flush=True)
+
     httpd = QuietHTTPServer((HOST, PORT), Handler)
 
     # ── TLS/HTTPS setup (optional) ─────────────────────────────────────────
@@ -721,6 +732,11 @@ def main() -> None:
             agent_hooks.stop()
         except Exception:
             logger.debug("Failed to stop agent tracking during shutdown")
+        if _security_service is not None:
+            try:
+                _security_service.stop()
+            except Exception:
+                logger.debug("Failed to stop the Security Advisor during shutdown")
 
 if __name__ == '__main__':
     main()

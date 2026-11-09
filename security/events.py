@@ -109,7 +109,33 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_kind_ts ON events(kind, ts);
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 CREATE TABLE IF NOT EXISTS chain_gaps (row_id INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    rule TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    explanation TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'medium',
+    dedup_key TEXT NOT NULL DEFAULT '',
+    count INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolved_by TEXT NOT NULL DEFAULT '',
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS alerts_key ON alerts(dedup_key, updated);
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    created TEXT NOT NULL,
+    text TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 """
+
+SEVERITIES = ("low", "medium", "high", "critical")
+ALERT_STATUSES = ("open", "blocked", "allowed", "dismissed")
 
 
 class EventLog:
@@ -236,6 +262,109 @@ class EventLog:
                 self._conn.execute("ROLLBACK")
                 raise
         return len(doomed)
+
+    # ── alerts ────────────────────────────────────────────────────────────
+    _ALERT_COLS = ("a.id, a.event_id, a.rule, a.title, a.summary, a.explanation, a.severity, "
+                   "a.dedup_key, a.count, a.status, a.resolved_by, a.created, a.updated, "
+                   "e.kind, e.actor, e.source")
+
+    def _alert_dict(self, row) -> dict:
+        keys = ("id", "event_id", "rule", "title", "summary", "explanation", "severity",
+                "dedup_key", "count", "status", "resolved_by", "created", "updated", "kind")
+        out = dict(zip(keys, row[:14]))
+        try:
+            out["actor"] = json.loads(row[14]) if row[14] else {}
+        except ValueError:
+            out["actor"] = {}
+        out["source"] = row[15] or ""
+        return out
+
+    def add_alert(self, event_id: int, decision, explanation: str = "") -> int:
+        """Record an alert for a rule decision. A ``block`` decision is stored as ``blocked``."""
+        now = utc_now()
+        status = "blocked" if decision.outcome == "block" else "open"
+        severity = "high" if decision.outcome == "block" else "medium"
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO alerts (event_id, rule, title, summary, explanation, severity, "
+                "dedup_key, status, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (int(event_id), decision.rule, decision.title, decision.summary,
+                 explanation or "", severity, decision.dedup_key, status, now, now))
+        return int(cur.lastrowid)
+
+    def bump_alert(self, dedup_key: str, within_s: int) -> int | None:
+        """If an open (or auto-blocked) alert with this key was updated in the last
+        ``within_s`` seconds, add one to its count and return its id."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=within_s)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM alerts WHERE dedup_key=? AND status IN ('open','blocked') "
+                "AND updated >= ? ORDER BY id DESC LIMIT 1", (dedup_key, cutoff)).fetchone()
+            if row is None:
+                return None
+            self._conn.execute("UPDATE alerts SET count=count+1, updated=? WHERE id=?",
+                               (utc_now(), row[0]))
+        return int(row[0])
+
+    def get_alert(self, alert_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT {self._ALERT_COLS} FROM alerts a LEFT JOIN events e ON e.id=a.event_id "
+                "WHERE a.id=?", (int(alert_id),)).fetchone()
+        return self._alert_dict(row) if row else None
+
+    def list_alerts(self, status: str | None = None, limit: int = 100) -> list[dict]:
+        sql = f"SELECT {self._ALERT_COLS} FROM alerts a LEFT JOIN events e ON e.id=a.event_id"
+        args: list = []
+        if status:
+            sql += " WHERE a.status=?"
+            args.append(status)
+        sql += " ORDER BY a.id DESC LIMIT ?"
+        args.append(max(1, int(limit)))
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        return [self._alert_dict(r) for r in rows]
+
+    def resolve_alert(self, alert_id: int, status: str, by: str) -> dict:
+        if status not in ("blocked", "allowed", "dismissed"):
+            raise ValueError("status must be blocked, allowed or dismissed")
+        with self._lock:
+            self._conn.execute("UPDATE alerts SET status=?, resolved_by=?, updated=? WHERE id=?",
+                               (status, str(by or ""), utc_now(), int(alert_id)))
+        alert = self.get_alert(alert_id)
+        if alert is None:
+            raise KeyError(alert_id)
+        return alert
+
+    def set_explanation(self, alert_id: int, text: str, severity: str) -> None:
+        if severity not in SEVERITIES:
+            severity = "medium"
+        with self._lock:
+            self._conn.execute("UPDATE alerts SET explanation=?, severity=? WHERE id=?",
+                               (str(text or "")[:2000], severity, int(alert_id)))
+
+    # ── digests ───────────────────────────────────────────────────────────
+    def add_digest(self, day: str, text: str, data: dict) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO digests (day, created, text, data) VALUES (?,?,?,?)",
+                (day, utc_now(), text, _dump(data)))
+        return int(cur.lastrowid)
+
+    def list_digests(self, limit: int = 30) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, day, created, text, data FROM digests ORDER BY id DESC LIMIT ?",
+                (max(1, int(limit)),)).fetchall()
+        out = []
+        for rid, day, created, text, data in rows:
+            try:
+                parsed = json.loads(data)
+            except ValueError:
+                parsed = {}
+            out.append({"id": rid, "day": day, "created": created, "text": text, "data": parsed})
+        return out
 
     def close(self) -> None:
         with self._lock:
