@@ -37,6 +37,8 @@ final class MacScreenSession: NSObject {
     private(set) var appIcons: [String: UIImage] = [:]
     /// The last thing the Mac couldn't do, for the Command Center to show.
     private(set) var controlError: String?
+    /// The Command Center's one action path, shared by the sheet and the pinned strip.
+    @ObservationIgnored lazy var controlActions = MacControlActions(session: self)
 
     private let api: JarvisAPI
     private var pc: RTCPeerConnection?
@@ -297,6 +299,7 @@ final class MacScreenSession: NSObject {
         case "cc_state":
             controls = MacControlState(json: obj)
             controlsLoaded = true
+            controlActions.absorb(controls)
         case "cc_apps":
             apps = MacApp.list(from: obj)
             appsLoaded = true
@@ -584,9 +587,9 @@ private struct MacScreenPreview: View {
 
 /// Full screen: the Mac live, and control of it — tap to click, double-tap to
 /// double-click, drag with the button held, the keyboard to type. Portrait: the
-/// bar on top (Command Center, esc, ⌫, keyboard), his chosen Control Center
-/// buttons under the picture and the open apps along the bottom; turned to landscape, the Mac fills the left and a slim rail of the
-/// same controls runs down the right. `closesShare`: an anytime share ends when
+/// bar on top (Command Center, esc, ⌫, keyboard), his pinned Command Center controls under
+/// the picture and the open apps along the bottom; turned to
+/// landscape, the Mac fills the left and a slim rail of the same controls runs down the right. `closesShare`: an anytime share ends when
 /// this closes.
 struct MacScreenControlView: View {
     let session: MacScreenSession
@@ -598,13 +601,15 @@ struct MacScreenControlView: View {
     @State private var dragging = false
     @State private var lastDrag: CGPoint?
     @State private var showCenter = false
+    @State private var showRailControls = false
 
     var body: some View {
         GeometryReader { outer in
             if outer.size.width > outer.size.height {
                 HStack(spacing: 0) {
                     screen
-                    MacScreenRail(session: session, showCenter: $showCenter, keyboard: $keyboardWanted, close: close)
+                    MacScreenRail(session: session, showCenter: $showCenter, keyboard: $keyboardWanted, close: close,
+                                  showControls: $showRailControls)
                 }
                 .background(Color.black.ignoresSafeArea())
                 .statusBarHidden()
@@ -613,8 +618,8 @@ struct MacScreenControlView: View {
                 NavigationStack {
                     VStack(spacing: 0) {
                         screen
-                        // His own Control Center buttons, under the picture so they never cover it.
-                        MacScreenButtonRow()
+                        // His pinned Command Center controls, under the picture so they never cover it.
+                        MacControlStrip(session: session)
                             .background(Color.black)
                         if !session.apps.isEmpty {
                             MacAppStrip(session: session)
@@ -645,6 +650,8 @@ struct MacScreenControlView: View {
             }
         }
         .sheet(isPresented: $showCenter) { MacCommandCenterSheet(session: session) }
+        // Unlock's Face ID and Switch App from the pinned controls (the sheet has its own).
+        .macControlPrompts(session.controlActions, session: session, active: !showCenter && !showRailControls)
         .onChange(of: keyboardWanted) { _, on in keyboard = on }
         .onChange(of: keyboard) { _, on in keyboardWanted = on }
         .onAppear { MacScreenOrientation.allowLandscape(true) }

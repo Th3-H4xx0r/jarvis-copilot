@@ -26,6 +26,28 @@ final class MacCommandCenterRenderTests: XCTestCase {
         return s
     }
 
+    private func pins(_ items: [MacControlItem]) -> MacControlPinsModel {
+        let name = "MacCommandCenterRenderTests.\(UUID().uuidString)"
+        let model = MacControlPinsModel(defaults: UserDefaults(suiteName: name)!)
+        model.update { $0 = MacControlPins(pinned: items.map(\.rawValue)) }
+        return model
+    }
+
+    func testRenderPinnedStripAndEditor() throws {
+        let s = session()
+        let model = pins([.nowPlaying, .sound, .wifi, .dark, .lock, .keepAwake, .missionControl])
+        try RenderHarness.write(VStack(spacing: 0) {
+            MacControlStrip(session: s, model: model)
+            Divider()
+            MacControlStrip(session: s, model: pins([]))
+            Spacer()
+        }.background(Color.black), size: CGSize(width: 402, height: 200), name: "mac-pinned-strip")
+        try RenderHarness.write(MacControlStrip(session: s, layout: .column, model: model).frame(width: 270),
+                                size: CGSize(width: 270, height: 520), name: "mac-pinned-column")
+        try RenderHarness.write(MacControlPinsEditor(model: model),
+                                size: CGSize(width: 402, height: 874), name: "mac-pins-editor")
+    }
+
     func testRenderCommandCenter() throws {
         try RenderHarness.write(MacCommandCenterSheet(session: session()),
                                 size: CGSize(width: 402, height: 1500), name: "mac-command-center")
