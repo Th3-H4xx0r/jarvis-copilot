@@ -39,6 +39,15 @@
       (level === 'all' || e.outcome === level));
   }
 
+  // The row title: the server's readable name ("Failed sign-in"), else the raw
+  // kind ("auth.failed"), else 'event'.
+  function eventTitle(e) {
+    if (!e) return 'event';
+    if (typeof e.title === 'string' && e.title.trim()) return e.title.trim();
+    if (typeof e.kind === 'string' && e.kind.trim()) return e.kind.trim();
+    return 'event';
+  }
+
   // ── page state ─────────────────────────────────────────────────────────────
 
   const BASE = '/api/security';
@@ -194,8 +203,8 @@
     if (SEC.errors.events) return head + filters + failed('events');
     const body = list.length ? list.map(e => `<div class="sec-row">
         <div class="sec-row-main">
-          <div class="sec-row-title">${esc(e.kind || 'event')}</div>
-          <div class="sec-sub">${esc([e.actor, when(e.ts)].filter(Boolean).join(' · '))}</div>
+          <div class="sec-row-title">${esc(eventTitle(e))}</div>
+          <div class="sec-sub">${esc([eventTitle(e) !== e.kind && e.kind, e.actor, when(e.ts)].filter(Boolean).join(' · '))}</div>
         </div>
         ${e.outcome && e.outcome !== 'ignore' ? `<span class="sec-pill sec-out-${esc(e.outcome)}">${esc(e.outcome)}</span>` : ''}
       </div>`).join('') : '<div class="sec-empty">No events match.</div>';
@@ -375,5 +384,5 @@
     await load();
   }
 
-  return { securityStatusLine, filterEvents, load, setFilter, phoneOnly, dismiss, undoBlock, saveSettings };
+  return { securityStatusLine, filterEvents, eventTitle, load, setFilter, phoneOnly, dismiss, undoBlock, saveSettings };
 });

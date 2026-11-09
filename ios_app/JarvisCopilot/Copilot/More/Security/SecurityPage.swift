@@ -154,8 +154,8 @@ struct SecurityPage: View {
                         .padding(JcUnified.cardPadding)
                 } else {
                     ForEach(shown) { event in
-                        JcRow(symbol: Self.symbol(for: event.source), title: event.kind,
-                              subtitle: [event.actor, event.ts.map(Self.when)].compactMap { $0 }.joined(separator: " · "),
+                        JcRow(symbol: Self.symbol(for: event.source), title: event.displayTitle,
+                              subtitle: [event.displayTitle == event.kind ? nil : event.kind, event.actor, event.ts.map(Self.when)].compactMap { $0 }.joined(separator: " · "),
                               last: event.id == shown.last?.id && (showAllEvents || list.count <= shown.count)) {
                             if let outcome = event.outcome, outcome != "ignore" { chip(outcome.capitalized) }
                         }

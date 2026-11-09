@@ -107,6 +107,25 @@ final class SecurityStoreTests: XCTestCase {
         XCTAssertEqual(store.settings?.rules.first?.title, "Failed-login bursts")
     }
 
+    func testEventUsesTheReadableTitle() {
+        let e = SecurityEvent(json: ["id": 9, "source": "device", "kind": "auth.failed", "title": "Failed sign-in"])
+        XCTAssertEqual(e?.title, "Failed sign-in")
+        XCTAssertEqual(e?.kind, "auth.failed")
+        XCTAssertEqual(e?.displayTitle, "Failed sign-in")
+    }
+
+    func testEventWithoutTitleFallsBackToKind() {
+        let missing = SecurityEvent(json: ["id": "10", "source": "host", "kind": "ssh.accepted"])
+        XCTAssertNil(missing?.title)
+        XCTAssertEqual(missing?.displayTitle, "ssh.accepted")
+        let empty = SecurityEvent(json: ["id": "11", "source": "host", "kind": "ssh.accepted", "title": "  "])
+        XCTAssertNil(empty?.title)
+        XCTAssertEqual(empty?.displayTitle, "ssh.accepted")
+        let null = SecurityEvent(json: ["id": "12", "kind": "file.changed", "title": NSNull()])
+        XCTAssertEqual(null?.displayTitle, "file.changed")
+        XCTAssertEqual(SecurityEvent(json: ["id": "13"])?.displayTitle, "event")
+    }
+
     // MARK: Status line — the same strings as the web page
 
     func testStatusLine() {

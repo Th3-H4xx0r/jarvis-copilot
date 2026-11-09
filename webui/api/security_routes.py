@@ -9,7 +9,8 @@ password-only session; Block and Allow also need a Face ID signature
 
     GET  /status                       -> {state, open_alerts, blocks, last_event, sources, chain_ok}
     GET  /events?since=&kind=&outcome=&limit=&after_id=   -> {events: [{id, ts, source, kind,
-                                          actor (one line), actor_info, detail, outcome}]}
+                                          title (plain words), actor (one line), actor_info,
+                                          detail, outcome}]}
     GET  /alerts?status=               -> {alerts: [...]}
     GET  /blocks                       -> {blocks: [{ip, reason, created, until, event_id}]}
     GET  /digests                      -> {digests: [{id, day, created, text, data}]}
@@ -54,7 +55,9 @@ def _actor_line(actor: dict) -> str:
 
 
 def _event_out(e) -> dict:
+    from plugins.security_advisor.labels import title_for
     return {"id": e.id, "ts": e.ts, "source": e.source, "kind": e.kind,
+            "title": title_for(e.kind, e.actor, e.detail),
             "actor": _actor_line(e.actor), "actor_info": e.actor, "detail": e.detail,
             "outcome": e.outcome}
 

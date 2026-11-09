@@ -137,6 +137,8 @@ def test_reads(env):
     _, events = env["call"]("GET", "/events", query={"limit": ["10"]})
     assert "hunter2-secret" not in json.dumps(events)
     assert events["events"][0]["kind"] == "auth.failed"
+    assert events["events"][0]["title"] == "Failed sign-in"
+    assert all(e["title"] for e in events["events"])
     assert isinstance(events["events"][0]["actor"], str) and "203.0.113.50" in events["events"][0]["actor"]
     _, filtered = env["call"]("GET", "/events", query={"kind": ["config.password_changed"]})
     assert [e["kind"] for e in filtered["events"]] == ["config.password_changed"]
@@ -195,3 +197,19 @@ def test_settings_post_cannot_write_exceptions_or_unknown_keys(env):
         assert env["call"]("POST", "/settings", body)[0] == 400, body
     _, got = env["call"]("GET", "/settings")
     assert got["settings"]["exceptions"] == {} and got["settings"]["alert_cap_per_hour"] == 3
+
+
+def test_security_events_tool_output_carries_titles(env, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+    import tools.chrome_device_tool as cdt
+    from plugins.security_advisor import tools as sec_tools
+
+    def through_api(method, path, body=None, timeout=10.0):
+        parts = urlsplit(path)
+        return env["call"](method, parts.path[len("/api/security"):], query=parse_qs(parts.query),
+                           host=True)[1]
+    monkeypatch.setattr(cdt, "_api_request", through_api)
+    env["log"].append("host", "ssh.failed", {"ip": "203.0.113.80", "user": "root"}, {})
+    out = json.loads(sec_tools.security_events({"limit": 5}))
+    assert out["events"][0]["title"] == "SSH login failed"
+    assert out["events"][0]["kind"] == "ssh.failed"

@@ -57,3 +57,20 @@ test('filter: source and level together', () => {
 test('filter: a missing list is an empty feed', () => {
   assert.deepEqual(S.filterEvents(null, { source: 'all', level: 'all' }), []);
 });
+
+test('event title: the readable title wins over the raw kind', () => {
+  assert.equal(S.eventTitle({ kind: 'auth.failed', title: 'Failed sign-in' }), 'Failed sign-in');
+});
+
+test('event title: a missing or empty title falls back to the kind', () => {
+  assert.equal(S.eventTitle({ kind: 'ssh.accepted' }), 'ssh.accepted');
+  assert.equal(S.eventTitle({ kind: 'ssh.accepted', title: '' }), 'ssh.accepted');
+  assert.equal(S.eventTitle({ kind: 'ssh.accepted', title: '   ' }), 'ssh.accepted');
+  assert.equal(S.eventTitle({ kind: 'ssh.accepted', title: null }), 'ssh.accepted');
+});
+
+test('event title: neither title nor kind says "event"', () => {
+  assert.equal(S.eventTitle({}), 'event');
+  assert.equal(S.eventTitle({ title: '', kind: '' }), 'event');
+  assert.equal(S.eventTitle(null), 'event');
+});

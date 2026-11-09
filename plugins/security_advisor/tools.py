@@ -26,8 +26,9 @@ EVENTS_SCHEMA = {
     "name": "security_events",
     "description": (
         "Security events from Pranav's devices, the server and the agent (sign-in failures, "
-        "pairings, SSH logins, file changes, blocked tool calls, ...), newest first, each with the "
-        "outcome the rules gave it: ignore, digest, alert or block. Read-only."
+        "pairings, SSH logins, file changes, blocked tool calls, ...), newest first, each with a "
+        "plain-words title, its kind, and the outcome the rules gave it: ignore, digest, alert or "
+        "block. Read-only."
     ),
     "parameters": {
         "type": "object",

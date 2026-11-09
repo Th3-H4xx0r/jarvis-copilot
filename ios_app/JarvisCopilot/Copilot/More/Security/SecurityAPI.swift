@@ -171,16 +171,24 @@ struct SecurityEvent: Identifiable, Equatable, Sendable {
     /// "device", "host" or "agent".
     let source: String
     let kind: String
+    /// The server's readable name ("Failed sign-in"); older servers don't send it.
+    let title: String?
     let actor: String?
     /// "ignore", "digest", "alert" or "block" once evaluated.
     let outcome: String?
+
+    /// The row title: the readable name when there is one, else the raw kind.
+    var displayTitle: String { title ?? kind }
 
     init?(json o: [String: Any]) {
         guard let id = securityText(o["id"]) else { return nil }
         self.id = id
         ts = securityText(o["ts"])
         source = o["source"] as? String ?? ""
-        kind = o["kind"] as? String ?? "event"
+        kind = (o["kind"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "event"
+        title = (o["title"] as? String)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
         actor = securityText(o["actor"])
         outcome = securityText(o["outcome"])
     }
