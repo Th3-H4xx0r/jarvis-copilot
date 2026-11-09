@@ -20,3 +20,9 @@ def test_save_rejects_bad_values(tmp_path, monkeypatch):
                 {"unknown_key": 1}, {"alert_cap_per_hour": "lots"}):
         with pytest.raises(ValueError):
             settings.save(bad)
+
+
+def test_default_config_matches_plugin_defaults():
+    from jarviscopilot_cli.config import DEFAULT_CONFIG
+    from plugins.security_advisor.settings import DEFAULTS
+    assert DEFAULT_CONFIG["security_advisor"] == DEFAULTS

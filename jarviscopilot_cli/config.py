@@ -1521,6 +1521,21 @@ DEFAULT_CONFIG = {
         "allow_lazy_installs": True,
     },
 
+    # Security Advisor plugin (plugins/security_advisor; on when "security_advisor" is in
+    # plugins.enabled). Its model is auxiliary.security_advisor (default Claude Haiku via
+    # the claude-code provider). Edited from the Security page.
+    "security_advisor": {
+        "alert_cap_per_hour": 3,      # phone alerts per rolling hour; the rest wait on the page
+        "digest_hour": 8,             # local hour of the daily digest
+        "block_ttl_hours": 24,        # how long an automatic IP block lasts
+        "quiet_hours": [23, 7],       # only blocks push between these hours
+        "usual_hours": [6, 23],       # car/door commands outside these alert
+        "file_poll_s": 300,           # file/config watch interval
+        "disabled_rules": [],
+        "known_ssh_ips": [],          # SSH logins from these never alert
+        "exceptions": {},             # ip -> expiry, set by an alert's Allow
+    },
+
     "cron": {
         # Wrap delivered cron responses with a header (task name) and footer
         # ("The agent cannot see this message").  Set to false for clean output.
