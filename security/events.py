@@ -296,7 +296,7 @@ def _ensure_writer() -> None:
             _writer.start()
 
 
-def emit(source: str, kind: str, actor: dict | None = None, **detail) -> None:
+def emit(source: str, kind: str, actor: dict | None = None, /, **detail) -> None:
     """Record a security event. Never raises, never blocks."""
     global _dropped
     try:

@@ -191,7 +191,7 @@ def agent_blocked(event: Event, ctx: RuleContext):
     tool = (event.detail or {}).get("tool") or "a tool"
     return _d("alert", "agent_blocked", event, f"Blocked {tool} after a prompt injection",
               f"Jarvis read content that looked like a prompt injection "
-              f"({(event.detail or {}).get('source') or 'unknown source'}), so {tool} was stopped.")
+              f"({(event.detail or {}).get('origin') or 'unknown source'}), so {tool} was stopped.")
 
 
 _RULE_FUNCS = [
