@@ -32,6 +32,8 @@ final class MacScreenSession: NSObject {
     private(set) var controlsLoaded = false
     /// The Mac's open apps (the Dock's running ones) and their icons by bundle id.
     private(set) var apps: [MacApp] = []
+    /// The Mac sent its open apps at least once (an empty list then really means none).
+    private(set) var appsLoaded = false
     private(set) var appIcons: [String: UIImage] = [:]
     /// The last thing the Mac couldn't do, for the Command Center to show.
     private(set) var controlError: String?
@@ -296,7 +298,8 @@ final class MacScreenSession: NSObject {
             controls = MacControlState(json: obj)
             controlsLoaded = true
         case "cc_apps":
-            apps = (obj["apps"] as? [[String: Any]] ?? []).compactMap(MacApp.init(json:))
+            apps = MacApp.list(from: obj)
+            appsLoaded = true
         case "cc_icon":
             if let bundle = obj["bundle"] as? String, let b64 = obj["png"] as? String,
                let png = Data(base64Encoded: b64), let image = UIImage(data: png) {
@@ -315,6 +318,11 @@ final class MacScreenSession: NSObject {
     }
 
     fileprivate func channelOpened() {
+        command("state")
+    }
+
+    /// Asks the Mac for its switches and open apps again (the app switcher opening).
+    func refreshApps() {
         command("state")
     }
 

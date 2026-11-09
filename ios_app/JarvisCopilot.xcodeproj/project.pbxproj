@@ -895,6 +895,7 @@
 		B1A48C98CB91A20B50E943A9 /* GlassesTranslateWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2C1F4FE59B3E43C5DA5EE /* GlassesTranslateWire.swift */; };
 		B1B785257FD986B2B83B352A /* WatchReplyContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03B77A548BAE82FDD698C5E /* WatchReplyContractTests.swift */; };
 		B1DBE9DD6D5CCA0BE95E2DF0 /* DoorAlarmModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DF8EF513723710DC0762D /* DoorAlarmModels.swift */; };
+		B1EA95B1FF92A99327AF8B3E /* MacAppSwitcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079D9CCB09A33FD5413A78EC /* MacAppSwitcherTests.swift */; };
 		B231AD004EB7606438038EC1 /* CarPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CF0665ECB98CF8EBC50223 /* CarPresence.swift */; };
 		B24EC7F6BA81CEC52F8E02AD /* HabitHoldButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D529970991DA150147C03D34 /* HabitHoldButton.swift */; };
 		B26A74B855608F52BF6B610F /* CarTalkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8525CA4201FDCC140611DEF8 /* CarTalkTests.swift */; };
@@ -1383,6 +1384,7 @@
 		076740BDA9183D9160871727 /* SkillBoundariesUIKit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillBoundariesUIKit.swift; sourceTree = "<group>"; };
 		0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthSessionTests.swift; sourceTree = "<group>"; };
 		07894ECE04B91692C8C31BCC /* VoiceSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSettingsTests.swift; sourceTree = "<group>"; };
+		079D9CCB09A33FD5413A78EC /* MacAppSwitcherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAppSwitcherTests.swift; sourceTree = "<group>"; };
 		07BA14ED0625D8F5D0AC60AD /* MoreToast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreToast.swift; sourceTree = "<group>"; };
 		07D8B4E44FF21777B44EB3F7 /* IMessageFactCards.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IMessageFactCards.swift; sourceTree = "<group>"; };
 		0925E6941A22BD0711B0680B /* InmoMediaWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoMediaWire.swift; sourceTree = "<group>"; };
@@ -3220,6 +3222,7 @@
 				0354C595838F9DD90440E0FC /* LivePreviewCardTests.swift */,
 				78DC954F4B964CD6FB823AD0 /* MacCommandCenterTests.swift */,
 				ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */,
+				079D9CCB09A33FD5413A78EC /* MacAppSwitcherTests.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -5501,6 +5504,7 @@
 				52EC29A7E292FC3FC4579D1F /* OnDemandWearableTests.swift in Sources */,
 				DEA5A3C1E3C3EB9F3025F50D /* BargeInDetectorTests.swift in Sources */,
 				C26DBE3238D78277AC5A081D /* SecurityStoreTests.swift in Sources */,
+				B1EA95B1FF92A99327AF8B3E /* MacAppSwitcherTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -85,6 +85,49 @@ struct MacApp: Identifiable, Equatable {
         bundle = json["bundle"] as? String ?? ""
         active = json["active"] as? Bool ?? false
     }
+
+    /// The apps in a `cc_apps` message, in the Mac's order; an entry without a pid or name is skipped.
+    static func list(from message: [String: Any]) -> [MacApp] {
+        (message["apps"] as? [[String: Any]] ?? []).compactMap(MacApp.init(json:))
+    }
+}
+
+/// What the open-apps switcher shows. It is never a blank box: while the Mac hasn't
+/// answered it says so, and a Mac app that never answers Command Center requests
+/// (an old build still running) gets told how to fix it.
+enum MacAppSwitcherContent: Equatable {
+    case connecting
+    case loading
+    case macTooOld
+    case failed(String)
+    case empty
+    case apps([MacApp])
+
+    /// How long the switcher waits for the Mac before saying it isn't answering.
+    static let patience: Duration = .seconds(6)
+
+    static func resolve(live: Bool, apps: [MacApp], appsLoaded: Bool, controlsLoaded: Bool,
+                        error: String?, waitedOut: Bool) -> MacAppSwitcherContent {
+        if !apps.isEmpty { return .apps(apps) }
+        if appsLoaded { return .empty }
+        guard live else { return .connecting }
+        if let error, !error.isEmpty, waitedOut { return .failed(error) }
+        guard waitedOut else { return .loading }
+        // The Mac answered with its switches but not its apps, or not at all: the second
+        // is the Jarvis Mac app from before the Command Center, which ignores these requests.
+        return controlsLoaded ? .failed("Your Mac didn't send its open apps. Try again.") : .macTooOld
+    }
+
+    var message: String? {
+        switch self {
+        case .connecting: return "Connecting to your Mac…"
+        case .loading: return "Asking your Mac for its open apps…"
+        case .macTooOld: return "Your Mac isn't answering. Quit Jarvis on the Mac and open it again (or update it), then try again."
+        case .failed(let why): return why
+        case .empty: return "No apps are open on your Mac."
+        case .apps: return nil
+        }
+    }
 }
 
 /// A keyboard shortcut sent as a key event (InputInjector on the Mac).
@@ -94,6 +137,10 @@ struct MacShortcut: Identifiable {
     let key: String
     let mods: [String]
     var id: String { title }
+
+    /// "Switch App" opens the phone's list of the Mac's open apps. Sent as ⌘Tab it left the
+    /// Mac's own switcher up, waiting for a ⌘ release that a remote key press never has.
+    var opensAppSwitcher: Bool { key == "Tab" && mods == ["cmd"] }
 
     static let all: [MacShortcut] = [
         MacShortcut(title: "Spotlight", symbol: "magnifyingglass", key: "space", mods: ["cmd"]),
@@ -149,6 +196,7 @@ struct MacCommandCenterSheet: View {
     @State private var busy: String?
     @State private var passwordRequest: MacPasswordRequest?
     @State private var taps = 0
+    @State private var showSwitcher = false
 
     private var c: MacControlState { session.controls }
     private var mac: AgentMacPower? { store.macs.first(where: \.isAwake) ?? store.macs.first }
@@ -173,10 +221,8 @@ struct MacCommandCenterSheet: View {
                     power
                     JcSectionLabel("Shortcuts")
                     shortcuts
-                    if !session.apps.isEmpty {
-                        JcSectionLabel("Open apps")
-                        MacAppGrid(session: session) { dismiss() }
-                    }
+                    JcSectionLabel("Open apps")
+                    MacAppSwitcher(session: session, layout: .grid) { dismiss() }
                 }
                 .padding(.horizontal, JcUnified.pageInset)
                 .padding(.bottom, 28)
@@ -198,6 +244,12 @@ struct MacCommandCenterSheet: View {
         .onChange(of: c.volume, initial: true) { _, v in if let v, sendTask == nil { volume = v } }
         .onChange(of: c.brightness, initial: true) { _, b in if let b, sendTask == nil { brightness = b } }
         .sensoryFeedback(.impact(weight: .light), trigger: taps)
+        .sheet(isPresented: $showSwitcher) {
+            MacAppSwitcherSheet(session: session) {
+                showSwitcher = false
+                dismiss()
+            }
+        }
         .sheet(item: $passwordRequest) { request in
             MacPasswordSheet(request: request,
                              macName: AgentsMacPowerCopy.macName(request.deviceId, in: store.macs),
@@ -409,7 +461,11 @@ struct MacCommandCenterSheet: View {
             MacSquare(symbol: "menubar.dock.rectangle", title: "Show Desktop") { tap { session.command("show_desktop") } }
             ForEach(MacShortcut.all) { s in
                 MacSquare(symbol: s.symbol, title: s.title) {
-                    tap { session.send(["t": "key", "key": s.key, "mods": s.mods]) }
+                    if s.opensAppSwitcher {
+                        tap { showSwitcher = true }
+                    } else {
+                        tap { session.send(["t": "key", "key": s.key, "mods": s.mods]) }
+                    }
                 }
             }
         }
@@ -564,19 +620,81 @@ struct MacAppIcon: View {
     }
 }
 
-/// The open apps in a grid (the Command Center): tap one to bring it forward.
-private struct MacAppGrid: View {
+/// The Mac's open apps to switch to (Command Center, the Switch App sheet and the landscape
+/// rail), or what is going on when there are none yet — never a blank box. Opening it asks
+/// the Mac again, so a list missed while the channel opened still arrives.
+struct MacAppSwitcher: View {
+    enum Layout { case grid, column }
+
     let session: MacScreenSession
-    let picked: () -> Void
+    var layout: Layout = .grid
+    var picked: () -> Void = {}
+    @State private var waitedOut = false
+    @State private var attempt = 0
+
+    private var live: Bool { session.phase == .live }
+
+    private var content: MacAppSwitcherContent {
+        .resolve(live: live, apps: session.apps, appsLoaded: session.appsLoaded,
+                 controlsLoaded: session.controlsLoaded, error: session.controlError, waitedOut: waitedOut)
+    }
 
     var body: some View {
+        Group {
+            if case .apps(let apps) = content {
+                switch layout {
+                case .grid: grid(apps)
+                case .column: column(apps)
+                }
+            } else {
+                notice(content)
+            }
+        }
+        .task(id: "\(live)-\(attempt)") {
+            guard live else { return }
+            waitedOut = false
+            session.refreshApps()
+            try? await Task.sleep(for: MacAppSwitcherContent.patience)
+            if !Task.isCancelled { waitedOut = true }
+        }
+    }
+
+    private func notice(_ content: MacAppSwitcherContent) -> some View {
+        let waiting = content == .loading || content == .connecting
+        let retry: Bool
+        switch content {
+        case .macTooOld, .failed: retry = true
+        default: retry = false
+        }
+        return VStack(alignment: layout == .grid ? .leading : .center, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                if waiting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: content == .empty ? "macwindow" : "exclamationmark.triangle")
+                        .foregroundStyle(JcTheme.muted)
+                }
+                Text(content.message ?? "")
+                    .font(.footnote)
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if retry {
+                Button("Try again") { attempt += 1 }
+                    .buttonStyle(.jcGlass(compact: true))
+            }
+        }
+        .frame(maxWidth: layout == .grid ? .infinity : 240, alignment: .leading)
+        .padding(layout == .grid ? 0 : 16)
+        .padding(.vertical, layout == .grid ? 4 : 0)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func grid(_ apps: [MacApp]) -> some View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: 10), count: 5)
-        LazyVGrid(columns: cols, spacing: 16) {
-            ForEach(session.apps) { app in
-                Button {
-                    session.command("app", ["pid": app.pid])
-                    picked()
-                } label: {
+        return LazyVGrid(columns: cols, spacing: 16) {
+            ForEach(apps) { app in
+                Button { pick(app) } label: {
                     VStack(spacing: 10) {
                         MacAppIcon(app: app, image: session.appIcons[app.bundle])
                         Text(app.name).font(.system(size: 10)).foregroundStyle(JcTheme.muted).lineLimit(1)
@@ -587,23 +705,66 @@ private struct MacAppGrid: View {
             }
         }
     }
+
+    private func column(_ apps: [MacApp]) -> some View {
+        ScrollView(.vertical) {
+            VStack(spacing: 16) {
+                ForEach(apps) { app in
+                    Button { pick(app) } label: {
+                        MacAppIcon(app: app, image: session.appIcons[app.bundle], side: 44).padding(.bottom, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Switch to \(app.name)")
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .contentMargins(.vertical, 18, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .frame(width: 84, height: min(340, CGFloat(apps.count) * 66 + 36))
+    }
+
+    private func pick(_ app: MacApp) {
+        session.command("app", ["pid": app.pid])
+        picked()
+    }
 }
 
-/// The open apps as a Dock-like strip: along the bottom in portrait, in the
-/// rail's popover in landscape.
-struct MacAppStrip: View {
+/// "Switch App": the Mac's open apps on the phone, tap one to bring it forward.
+struct MacAppSwitcherSheet: View {
     let session: MacScreenSession
-    var axis: Axis = .horizontal
-    var side: CGFloat = 40
-    var picked: () -> Void = {}
+    let picked: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ScrollView(axis == .horizontal ? .horizontal : .vertical) {
-            if axis == .horizontal {
-                HStack(spacing: 14) { icons }.padding(.horizontal, 16).padding(.vertical, 10)
-            } else {
-                VStack(spacing: 16) { icons }.padding(14)
+        NavigationStack {
+            ScrollView {
+                MacAppSwitcher(session: session, layout: .grid, picked: picked)
+                    .padding(.horizontal, JcUnified.pageInset)
+                    .padding(.top, 8)
             }
+            .scrollIndicators(.hidden)
+            .jcScreen("Switch app", header: .inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackground(.black)
+    }
+}
+
+/// The open apps as a Dock-like strip along the bottom in portrait (shown once the Mac sent them).
+struct MacAppStrip: View {
+    let session: MacScreenSession
+    var side: CGFloat = 40
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 14) { icons }.padding(.horizontal, 16).padding(.vertical, 10)
         }
         .scrollIndicators(.hidden)
     }
@@ -612,7 +773,6 @@ struct MacAppStrip: View {
         ForEach(session.apps) { app in
             Button {
                 session.command("app", ["pid": app.pid])
-                picked()
             } label: {
                 MacAppIcon(app: app, image: session.appIcons[app.bundle], side: side)
                     .padding(.bottom, 6)
@@ -638,8 +798,7 @@ struct MacScreenRail: View {
             railButton("switch.2", label: "Command Center") { showCenter = true }
             railButton("square.grid.2x2", label: "Open apps") { showApps = true }
                 .popover(isPresented: $showApps, arrowEdge: .trailing) {
-                    MacAppStrip(session: session, axis: .vertical, side: 44) { showApps = false }
-                        .frame(width: 84, height: 320)
+                    MacAppSwitcher(session: session, layout: .column) { showApps = false }
                         .presentationCompactAdaptation(.popover)
                 }
             railButton("keyboard", label: "Keyboard") { keyboard.toggle() }
@@ -649,7 +808,6 @@ struct MacScreenRail: View {
         }
         .padding(.vertical, 12)
         .frame(width: 64)
-        .onAppear { if session.apps.isEmpty { session.command("state") } }
     }
 
     private func railButton(_ symbol: String?, text: String? = nil, label: String,
