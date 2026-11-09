@@ -29,6 +29,12 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def ip_had_session(log, ip: str, days: int = SESSION_TRUST_DAYS) -> bool:
+    """Whether ``ip`` presented a valid session in the last ``days`` days (never auto-block it)."""
+    since = _iso(datetime.now(timezone.utc) - timedelta(days=days))
+    return log.ip_seen(["session.seen"], ip, since)
+
+
 def snapshot(log, blocklist, ssh_state: str = "stopped", files_ts: float | None = None,
              chain_ok: bool = True) -> dict:
     """The status line data: open alerts, active blocks, last event, sources, chain."""
@@ -113,11 +119,7 @@ class SecurityService:
 
     # ── rule context ──────────────────────────────────────────────────────
     def ip_has_valid_session(self, ip: str) -> bool:
-        if not ip:
-            return False
-        since = _iso(datetime.now(timezone.utc) - timedelta(days=SESSION_TRUST_DAYS))
-        return any((e.actor or {}).get("ip") == ip
-                   for e in self.log.query(since=since, kinds=["session.seen"], limit=20000))
+        return bool(ip) and ip_had_session(self.log, ip)
 
     def _context(self, cfg: dict) -> rules.RuleContext:
         def recent(kind: str, window_s: int):

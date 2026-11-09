@@ -94,6 +94,7 @@ def test_blocked_ip_gets_403_before_any_route(events, tmp_path, monkeypatch):
     from security.blocklist import default_blocklist
     default_blocklist().block("203.0.113.43", "test", ttl_s=600)
     import server
+    monkeypatch.setattr(server, "_advisor_enabled", lambda: True)
     reached = []
     monkeypatch.setattr(server, "handle_get", lambda *a: reached.append(a) or True)
     monkeypatch.setattr(server, "check_auth", lambda *a: reached.append(a) or True)
@@ -154,3 +155,48 @@ def test_actor_for_never_raises():
     broken = type("H", (), {"client_address": None, "headers": None})()
     actor = actor_for(broken)
     assert actor["session_kind"] == "none" and actor["ip"] == ""
+
+
+def _blocked_handler(server, ip, cookie=None):
+    headers = {"CF-Connecting-IP": ip}
+    if cookie:
+        headers["Cookie"] = f"{auth.COOKIE_NAME}={cookie}"
+    h = server.Handler.__new__(server.Handler)
+    h.__dict__.update(vars(_Handler("/api/sessions", headers=headers)))
+    h.send_response = lambda s, h=h: setattr(h, "status", s)
+    h.send_header = lambda *a: None
+    h.end_headers = lambda: None
+    return h
+
+
+def test_valid_session_is_never_refused_even_from_a_blocked_ip(events, tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from security.blocklist import default_blocklist
+    default_blocklist().block("203.0.113.44", "test", ttl_s=600)
+    import server
+    monkeypatch.setattr(server, "_advisor_enabled", lambda: True)
+    monkeypatch.setattr(auth, "verify_session", lambda c: c == "good.sig")
+    assert server._advisor_blocked(_blocked_handler(server, "203.0.113.44", "good.sig")) is False
+    h = _blocked_handler(server, "203.0.113.44", "forged.sig")
+    assert server._advisor_blocked(h) is True and h.status == 403
+
+
+def test_blocks_are_not_enforced_when_the_advisor_plugin_is_off(events, tmp_path, monkeypatch):
+    # Break-glass (`jarviscopilot security unblock`) only exists while the plugin is enabled,
+    # so a block must never outlive the plugin being switched off.
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    from security.blocklist import default_blocklist
+    default_blocklist().block("203.0.113.45", "test", ttl_s=600)
+    import server
+    import jarviscopilot_cli.plugins as plugins
+    calls = []
+    enabled = {"value": set()}
+    monkeypatch.setattr(plugins, "_get_enabled_plugins",
+                        lambda: calls.append(1) or enabled["value"])
+    monkeypatch.setattr(server, "_ADVISOR_ENABLED", [False, 0.0])
+    assert server._advisor_blocked(_blocked_handler(server, "203.0.113.45")) is False
+    enabled["value"] = {"security_advisor"}
+    assert server._advisor_blocked(_blocked_handler(server, "203.0.113.45")) is False  # cached
+    assert len(calls) == 1
+    monkeypatch.setattr(server, "_ADVISOR_ENABLED", [False, 0.0])          # cache expired
+    assert server._advisor_blocked(_blocked_handler(server, "203.0.113.45")) is True

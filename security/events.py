@@ -216,6 +216,18 @@ class EventLog:
             rows = self._conn.execute(sql, args).fetchall()
         return [self._event(r) for r in rows]
 
+    def ip_seen(self, kinds: list[str], ip: str, since: str) -> bool:
+        """Whether any event of ``kinds`` since ``since`` has ``actor.ip == ip`` (one indexed
+        lookup; actor JSON is written with fixed separators, so the match is exact)."""
+        if not ip or not kinds:
+            return False
+        needle = '"ip":' + json.dumps(str(ip))
+        sql = (f"SELECT 1 FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
+               "AND ts >= ? AND instr(actor, ?) > 0 LIMIT 1")
+        with self._lock:
+            row = self._conn.execute(sql, [*kinds, since, needle]).fetchone()
+        return row is not None
+
     def last_id(self) -> int:
         with self._lock:
             row = self._conn.execute("SELECT MAX(id) FROM events").fetchone()

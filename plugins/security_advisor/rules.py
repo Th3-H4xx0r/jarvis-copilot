@@ -79,15 +79,22 @@ def _d(outcome: str, rule: str, event: Event, title: str, summary: str, action=N
 
 # ── rules ────────────────────────────────────────────────────────────────
 
+def _counts_as_failure(event: Event) -> bool:
+    # A retry the webui refused under its own login limit is logged, not counted: it
+    # was never checked, and counting it would block an IP for retrying too fast.
+    return (event.detail or {}).get("reason") != "rate_limited"
+
+
 def auth_burst(event: Event, ctx: RuleContext):
-    if event.kind not in AUTH_FAIL_KINDS:
+    if event.kind not in AUTH_FAIL_KINDS or not _counts_as_failure(event):
         return None
     ip = _ip(event)
     if not ip:
         return None
     ids = {event.id}
     for kind in AUTH_FAIL_KINDS:
-        ids.update(e.id for e in ctx.recent(kind, AUTH_BURST_WINDOW_S) if _ip(e) == ip)
+        ids.update(e.id for e in ctx.recent(kind, AUTH_BURST_WINDOW_S)
+                   if _ip(e) == ip and _counts_as_failure(e))
     if len(ids) < AUTH_BURST_COUNT:
         return None
     title = f"{len(ids)} failed sign-ins from {ip}"

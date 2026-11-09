@@ -45,6 +45,15 @@ def test_burst_from_other_ips_does_not_count():
     assert rules.evaluate(events[-1], ctx(events)).outcome == "digest"
 
 
+def test_rate_limited_refusals_do_not_count_toward_a_block():
+    # The webui refuses retries past its own login limit and logs them as rate_limited;
+    # those refusals must not push an IP over the burst threshold.
+    events = burst(n=6) + [ev("login.failed", {"ip": "203.0.113.5"}, eid=100 + i,
+                              reason="rate_limited") for i in range(8)]
+    assert rules.evaluate(events[-1], ctx(events)).outcome == "digest"
+    assert rules.evaluate(events[5], ctx(events)).outcome == "digest"
+
+
 def test_burst_from_ip_with_valid_session_alerts_not_blocks():
     events = burst()
     d = rules.evaluate(events[-1], ctx(events, valid=True))

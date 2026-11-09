@@ -218,18 +218,45 @@ def _is_client_disconnect(exc: BaseException) -> bool:
 
 # Security Advisor deny list: ip -> last time a refusal was recorded for it.
 _BLOCK_LOGGED: dict = {}
+# [enabled, checked-until monotonic time]: whether the security_advisor plugin is on.
+_ADVISOR_ENABLED: list = [False, 0.0]
+_ADVISOR_ENABLED_TTL_S = 60.0
+
+
+def _advisor_enabled() -> bool:
+    """Whether the security_advisor plugin is enabled (config read at most once a minute).
+
+    Blocks are enforced only while it is: its ``jarviscopilot security unblock``
+    break-glass exists only then, so a block can never outlive the way to lift it."""
+    now = time.monotonic()
+    if now < _ADVISOR_ENABLED[1]:
+        return _ADVISOR_ENABLED[0]
+    try:
+        from jarviscopilot_cli.plugins import _get_enabled_plugins
+        enabled = "security_advisor" in (_get_enabled_plugins() or set())
+    except Exception:
+        enabled = False
+    _ADVISOR_ENABLED[:] = [enabled, now + _ADVISOR_ENABLED_TTL_S]
+    return enabled
 
 
 def _advisor_blocked(handler) -> bool:
     """Refuse a request from an IP the Security Advisor has blocked (403).
 
-    Loopback is never refused, so the box itself and host-signed calls always get in.
-    Records ``request.blocked`` at most once per IP per minute."""
+    Never refused: loopback (the box itself and host-signed calls), a request carrying a
+    valid session (he can never be locked out), and anything while the advisor plugin
+    is off. Records ``request.blocked`` at most once per IP per minute."""
     try:
         from security.blocklist import default_blocklist
         from security.netid import client_ip
         ip = client_ip(handler)
         if not ip or ip in ("127.0.0.1", "::1") or not default_blocklist().is_blocked(ip):
+            return False
+        if not _advisor_enabled():
+            return False
+        from api import auth as _auth
+        cookie = _auth.parse_cookie(handler)
+        if cookie and _auth.verify_session(cookie):
             return False
     except Exception:
         return False

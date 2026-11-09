@@ -148,3 +148,23 @@ def test_reads(env):
     assert status == 200 and st["open_alerts"] == 1 and st["blocks"] == 1
     assert env["call"]("GET", "/digests")[1] == {"digests": []}
     assert env["call"]("GET", "/nope")[0] == 404
+
+
+def test_resolve_block_refuses_his_own_networks(env):
+    for ip in ("127.0.0.1", "192.168.1.20", "10.0.0.5", "100.101.102.103", "169.254.1.1"):
+        aid = make_alert(env["log"], ip=ip)
+        status, payload = env["call"]("POST", f"/alerts/{aid}/resolve",
+                                      {"action": "block", **proof(env, f"block:{aid}")})
+        assert status == 409, ip
+        assert payload["code"] == "protected" and payload["error"]
+        assert not env["blocks"].is_blocked(ip)
+        assert env["log"].get_alert(aid)["status"] == "open"
+
+
+def test_resolve_block_refuses_an_ip_with_a_recent_session(env):
+    env["log"].append("device", "session.seen", {"ip": "203.0.113.60", "session_kind": "paired"}, {})
+    aid = make_alert(env["log"], ip="203.0.113.60")
+    status, payload = env["call"]("POST", f"/alerts/{aid}/resolve",
+                                  {"action": "block", **proof(env, f"block:{aid}")})
+    assert status == 409 and payload["code"] == "protected"
+    assert not env["blocks"].is_blocked("203.0.113.60")

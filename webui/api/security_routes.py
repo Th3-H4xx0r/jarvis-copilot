@@ -111,6 +111,19 @@ def _settings_payload(models: bool = True) -> dict:
     }
 
 
+def _block_refusal(ip: str, log) -> str | None:
+    """Why ``ip`` must never be blocked by hand (his networks or devices), or None."""
+    from plugins.security_advisor.rules import is_protected_ip
+    from plugins.security_advisor.service import SESSION_TRUST_DAYS, ip_had_session
+    if is_protected_ip(ip):
+        return (f"{ip} is loopback, your home network, link-local or Tailscale, "
+                "so it can't be blocked.")
+    if ip_had_session(log, ip):
+        return (f"{ip} signed in to Jarvis with a valid session in the last "
+                f"{SESSION_TRUST_DAYS} days, so blocking it could lock you out.")
+    return None
+
+
 def _forbid(msg: str = "Only a paired device can change the Security Advisor."):
     return 403, {"ok": False, "error": msg, "code": "forbidden"}
 
@@ -208,6 +221,9 @@ def handle_security_request(method, path, body, query, host_signed=False, actor=
         if action == "block":
             if not ip:
                 return 400, {"ok": False, "error": "this alert has no IP address to block"}
+            refusal = _block_refusal(ip, log)
+            if refusal:
+                return 409, {"ok": False, "error": refusal, "code": "protected"}
             ttl = int(settings.load().get("block_ttl_hours", 24)) * 3600
             blocklist.block(ip, reason=f"Blocked from alert: {alert['title']}", ttl_s=ttl,
                             event_id=alert.get("event_id"))
