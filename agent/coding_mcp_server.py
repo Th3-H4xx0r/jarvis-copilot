@@ -124,14 +124,13 @@ def _delete_code_memory(eid: str) -> dict:
 
 
 def _query_memory(query: str = "") -> str:
-    """Read JarvisCopilot's general memory (MEMORY.md / USER.md) from the local
-    builtin store. Best-effort across the known locations."""
+    """Read JarvisCopilot's general memory (MEMORY.md / USER.md) from the active profile's
+    builtin store (``memories/``, or its root on older installs)."""
     try:
-        home = os.path.expanduser("~")
-        candidates = [
-            os.path.join(home, ".jarviscopilot", "memories"),
-            os.path.join(home, ".jarviscopilot"),
-        ]
+        from jarviscopilot_constants import get_hermes_home
+
+        home = str(get_hermes_home())
+        candidates = [os.path.join(home, "memories"), home]
         text = ""
         for base in candidates:
             mem = os.path.join(base, "MEMORY.md")
