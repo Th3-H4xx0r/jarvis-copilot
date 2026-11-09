@@ -584,8 +584,8 @@ private struct MacScreenPreview: View {
 
 /// Full screen: the Mac live, and control of it — tap to click, double-tap to
 /// double-click, drag with the button held, the keyboard to type. Portrait: the
-/// bar on top (Command Center, esc, ⌫, keyboard) and the open apps along the
-/// bottom; turned to landscape, the Mac fills the left and a slim rail of the
+/// bar on top (Command Center, esc, ⌫, keyboard), his chosen Control Center
+/// buttons under the picture and the open apps along the bottom; turned to landscape, the Mac fills the left and a slim rail of the
 /// same controls runs down the right. `closesShare`: an anytime share ends when
 /// this closes.
 struct MacScreenControlView: View {
@@ -613,6 +613,9 @@ struct MacScreenControlView: View {
                 NavigationStack {
                     VStack(spacing: 0) {
                         screen
+                        // His own Control Center buttons, under the picture so they never cover it.
+                        MacScreenButtonRow()
+                            .background(Color.black)
                         if !session.apps.isEmpty {
                             MacAppStrip(session: session)
                                 .background(Color.black)

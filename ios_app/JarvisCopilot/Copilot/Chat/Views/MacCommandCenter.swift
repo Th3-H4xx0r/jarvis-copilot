@@ -790,9 +790,10 @@ struct MacScreenRail: View {
     @Binding var keyboard: Bool
     let close: () -> Void
     @State private var showApps = false
+    @State private var showButtons = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             railButton("xmark", label: "Done", action: close)
             Spacer(minLength: 6)
             railButton("switch.2", label: "Command Center") { showCenter = true }
@@ -801,12 +802,20 @@ struct MacScreenRail: View {
                     MacAppSwitcher(session: session, layout: .column) { showApps = false }
                         .presentationCompactAdaptation(.popover)
                 }
+            railButton("button.programmable", label: "Your buttons") { showButtons = true }
+                .popover(isPresented: $showButtons, arrowEdge: .trailing) {
+                    MacScreenButtonRow(layout: .column)
+                        .padding(14)
+                        .frame(width: 230)
+                        .frame(maxHeight: 340)
+                        .presentationCompactAdaptation(.popover)
+                }
             railButton("keyboard", label: "Keyboard") { keyboard.toggle() }
             railButton(nil, text: "esc", label: "Escape") { session.send(["t": "key", "key": "Escape", "mods": [String]()]) }
             railButton("delete.left", label: "Delete") { session.send(["t": "key", "key": "Delete", "mods": [String]()]) }
             Spacer(minLength: 6)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .frame(width: 64)
     }
 
@@ -818,7 +827,7 @@ struct MacScreenRail: View {
             }
                 .font(.system(size: symbol == nil ? 14 : 16, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
-                .frame(width: 44, height: 44)
+                .frame(width: 42, height: 42)
                 .jcButtonSurface(in: Circle())
         }
         .buttonStyle(.plain)
