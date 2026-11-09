@@ -8,10 +8,12 @@ A turn (``task_id``) is tainted when the injection scanner flags content that
 entered it: the inbound message of a gateway/cron/email turn, or the result of a
 content-reading tool. Reading untrusted content alone does not taint. In a
 tainted turn, risky tools are refused. His own next message (from a paired
-surface) starts clean.
+surface, or from his allowlisted account on a gateway platform) starts clean; the
+6 h expiry is a backstop.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -26,9 +28,10 @@ SCAN_MAX_CHARS = 32_000
 TAINT_TTL_S = 6 * 3600
 
 # Tools whose results are untrusted outside content: web pages, the server's
-# browser, his Mac browser, MCP servers, X search, image/video descriptions.
+# browser, his Mac browser, MCP servers, X search, image/video descriptions, and the
+# security log itself (a User-Agent or device name in it is attacker-chosen).
 CONTENT_PREFIXES = ("web_", "browser_", "chrome_", "device_chrome_", "mcp_")
-CONTENT_NAMES = frozenset({"x_search", "vision_analyze", "video_analyze"})
+CONTENT_NAMES = frozenset({"x_search", "vision_analyze", "video_analyze", "security_events"})
 # Email is read with the himalaya CLI through the terminal tool.
 _EMAIL_READ_MARKERS = ("himalaya",)
 
@@ -62,6 +65,16 @@ def is_content_tool(name: str) -> bool:
 def is_risky(name: str) -> bool:
     name = name or ""
     return name in RISKY_NAMES or name.startswith(RISKY_PREFIXES)
+
+
+def _is_his_sender(platform: str, sender_id) -> bool:
+    """Whether ``sender_id`` is on the platform's allowlist (``<PLATFORM>_ALLOWED_USERS``),
+    i.e. one of his own accounts. An env read: no I/O."""
+    sender = str(sender_id or "").strip()
+    if not sender or not platform:
+        return False
+    raw = os.environ.get(f"{platform.upper()}_ALLOWED_USERS") or ""
+    return sender in {s.strip() for s in raw.split(",") if s.strip()}
 
 
 def _emit(kind: str, actor: dict | None = None, **detail) -> None:
@@ -108,10 +121,11 @@ def on_pre_llm_call(task_id="", user_message="", platform="", sender_id="", **kw
         if not task_id:
             return None
         platform = str(platform or "").lower()
-        if platform in TRUSTED_PLATFORMS:
+        if platform in TRUSTED_PLATFORMS or _is_his_sender(platform, sender_id):
             with _LOCK:
                 _TAINT.pop(task_id, None)  # his own new message: the turn starts clean
-            return None
+            if platform in TRUSTED_PLATFORMS:
+                return None
         hit = _flagged(user_message, BLOCK_THRESHOLD)
         if hit:
             source = f"{platform} message"

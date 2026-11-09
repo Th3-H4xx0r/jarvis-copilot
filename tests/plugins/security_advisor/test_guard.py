@@ -165,3 +165,25 @@ def test_huge_tool_result_scans_fast_and_still_sees_head_and_tail(fresh):
     assert time.perf_counter() - t0 < 0.5
     guard.on_post_tool_call(tool_name="web_extract", result=filler + INJECTED, task_id="tail")
     assert guard._tainted_by("tail") == "web_extract"
+
+
+def test_security_events_output_is_content(fresh):
+    # Attacker-chosen strings (a User-Agent, a pairing name) can reach Jarvis through the log.
+    guard.on_post_tool_call(tool_name="security_events", result=STRONG, task_id="sec")
+    assert guard.on_pre_tool_call(tool_name="terminal", args={"command": "ls"},
+                                  task_id="sec")["action"] == "block"
+
+
+def test_his_allowlisted_gateway_message_clears_taint(fresh, monkeypatch):
+    # The gateway reuses the session id as task_id, so taint must clear on his next message.
+    monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "u-other, u-pranav")
+    guard.on_post_tool_call(tool_name="web_extract", result=STRONG, task_id="sess-1")
+    guard.on_pre_llm_call(task_id="sess-1", user_message="ok thanks", platform="telegram",
+                          sender_id="u-stranger")
+    assert guard._tainted_by("sess-1") == "web_extract"          # not his: stays tainted
+    guard.on_pre_llm_call(task_id="sess-1", user_message="ok thanks", platform="telegram",
+                          sender_id="u-pranav")
+    assert guard._tainted_by("sess-1") is None
+    guard.on_pre_llm_call(task_id="sess-1", user_message=STRONG, platform="telegram",
+                          sender_id="u-pranav")
+    assert guard._tainted_by("sess-1") == "telegram message"     # his account, injected text
