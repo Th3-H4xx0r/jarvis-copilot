@@ -453,6 +453,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "security_advisor": {
+        "description": "The Security Advisor, read-only: status, and security events with the rules' outcome",
+        "tools": ["security_status", "security_events"],
+        "includes": []
+    },
+
 
     # Scenario-specific toolsets
     

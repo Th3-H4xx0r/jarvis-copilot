@@ -33,6 +33,7 @@ MOUNTS = (
     ("/api/kanban", "api.kanban_bridge"),
     ("/api/live", "api.live_ws"),
     ("/api/screen", "api.screen_share"),
+    ("/api/security", "api.security_routes"),
     ("/api/session", "api.session_routes"),
     ("/api/sessions", "api.session_routes"),
     ("/api/speech", "api.speech_config"),

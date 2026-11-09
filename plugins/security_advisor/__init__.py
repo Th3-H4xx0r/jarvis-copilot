@@ -7,6 +7,8 @@ and the worker in the webui process acts on the result.
 from __future__ import annotations
 
 from plugins.security_advisor import guard
+from plugins.security_advisor.cli import register_cli, security_command
+from plugins.security_advisor.tools import TOOLS, available
 
 
 def register(ctx) -> None:
@@ -20,3 +22,9 @@ def register(ctx) -> None:
         "security_advisor", display_name="Security Advisor",
         description="Explains flagged security events and writes the daily digest",
         defaults={"provider": "claude-code", "model": "claude-haiku-5-5"})
+    for name, schema, handler, emoji in TOOLS:
+        ctx.register_tool(name=name, toolset="security_advisor", schema=schema, handler=handler,
+                          check_fn=available, emoji=emoji)
+    ctx.register_cli_command(
+        name="security", help="Security Advisor status and break-glass unblock",
+        setup_fn=register_cli, handler_fn=security_command)

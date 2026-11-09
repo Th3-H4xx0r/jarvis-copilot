@@ -29,6 +29,25 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def snapshot(log, blocklist, ssh_state: str = "stopped", files_ts: float | None = None,
+             chain_ok: bool = True) -> dict:
+    """The status line data: open alerts, active blocks, last event, sources, chain."""
+    open_alerts = len(log.list_alerts(status="open", limit=1000))
+    last = log.query(limit=1)
+    return {
+        "state": "alerts" if open_alerts else "quiet",
+        "open_alerts": open_alerts,
+        "blocks": len(blocklist.active()),
+        "last_event": last[0].ts if last else None,
+        "sources": {
+            "ssh": ssh_state,
+            "files": (datetime.fromtimestamp(files_ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                      if files_ts else None),
+        },
+        "chain_ok": chain_ok,
+    }
+
+
 class SecurityService:
     _instance: "SecurityService | None" = None
     _instance_lock = threading.Lock()
@@ -179,21 +198,9 @@ class SecurityService:
             emit("host", kind, {}, **detail)
 
     def status(self) -> dict:
-        open_alerts = len(self.log.list_alerts(status="open", limit=1000))
-        last = self.log.query(limit=1)
-        files_ts = getattr(self.file_watch, "last_poll", None)
-        return {
-            "state": "alerts" if open_alerts else "quiet",
-            "open_alerts": open_alerts,
-            "blocks": len(self.blocklist.active()),
-            "last_event": last[0].ts if last else None,
-            "sources": {
-                "ssh": getattr(self.ssh, "state", "stopped") if self.ssh else "stopped",
-                "files": (datetime.fromtimestamp(files_ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                          if files_ts else None),
-            },
-            "chain_ok": self.chain_ok,
-        }
+        return snapshot(self.log, self.blocklist,
+                        ssh_state=getattr(self.ssh, "state", "stopped") if self.ssh else "stopped",
+                        files_ts=getattr(self.file_watch, "last_poll", None), chain_ok=self.chain_ok)
 
     # ── lifecycle ─────────────────────────────────────────────────────────
     def start(self) -> None:
