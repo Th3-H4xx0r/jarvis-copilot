@@ -2,4 +2,4 @@ name: security_advisor
 version: 1.0.0
 description: "Watches devices, the server box and the agent for misuse; blocks clear attacks, alerts Pranav's phone, digests the rest."
 author: Pranav Krishna
-kind: backend
+kind: standalone

@@ -144,3 +144,14 @@ def test_enabled_plugin_blocks_through_the_real_hook_path(tmp_path, monkeypatch,
                      task_id="int1", session_id="s", tool_call_id="c", duration_ms=1)
     msg = pmod.get_pre_tool_call_block_message("terminal", {"command": "ls"}, task_id="int1")
     assert msg and msg.startswith("Blocked by Security Advisor")
+
+
+def test_plugin_is_opt_in(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    from jarviscopilot_cli import plugins as pmod
+    mgr = pmod.PluginManager()
+    mgr.discover_and_load()
+    loaded = mgr._plugins["security_advisor"]
+    assert not loaded.enabled and "not enabled" in (loaded.error or "")
