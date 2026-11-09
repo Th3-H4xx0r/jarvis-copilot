@@ -122,14 +122,28 @@ class SecurityService:
         return bool(ip) and ip_had_session(self.log, ip)
 
     def _context(self, cfg: dict) -> rules.RuleContext:
+        """Rule inputs for one tick. Lookups are cached for the tick: a burst of 500 events
+        costs one query per kind, not three per event. Every event of the tick is already
+        in the log when the cache fills, so nothing in the batch is missed."""
+        recent_cache: dict = {}
+        session_cache: dict = {}
+
         def recent(kind: str, window_s: int):
-            since = _iso(datetime.now(timezone.utc) - timedelta(seconds=window_s))
-            return self.log.query(since=since, kinds=[kind], limit=5000)
+            key = (kind, window_s)
+            if key not in recent_cache:
+                since = _iso(datetime.now(timezone.utc) - timedelta(seconds=window_s))
+                recent_cache[key] = self.log.query(since=since, kinds=[kind], limit=5000)
+            return recent_cache[key]
+
+        def has_session(ip: str) -> bool:
+            if ip not in session_cache:
+                session_cache[ip] = self.ip_has_valid_session(ip)
+            return session_cache[ip]
         now_ts = time.time()
         exceptions = {ip for ip, exp in (cfg.get("exceptions") or {}).items()
                       if float(exp or 0) > now_ts}
         return rules.RuleContext(
-            recent=recent, ip_has_valid_session=self.ip_has_valid_session,
+            recent=recent, ip_has_valid_session=has_session,
             known_ssh_ips=set(cfg.get("known_ssh_ips") or []),
             usual_hours=tuple(cfg.get("usual_hours") or (6, 23)),
             disabled_rules=set(cfg.get("disabled_rules") or []),
@@ -157,11 +171,11 @@ class SecurityService:
         decision = rules.evaluate(event, ctx)
         if decision.outcome == "block" and decision.action and decision.action.get("type") == "block_ip":
             ip = decision.action.get("ip") or ""
-            if not ip or self.ip_has_valid_session(ip) or ip in ctx.exceptions:
+            if not ip or ctx.ip_has_valid_session(ip) or ip in ctx.exceptions:
                 decision = rules.Decision("alert", decision.rule, decision.title,
                                           decision.summary + " Not blocked: it has a valid session.",
                                           decision.dedup_key, None)
-            else:
+            elif not self.blocklist.is_blocked(ip):  # already blocked: no file rewrite
                 ttl = int(cfg.get("block_ttl_hours", 24)) * 3600
                 self.blocklist.block(ip, reason=decision.title, ttl_s=ttl, event_id=event.id)
         self.log.set_outcome(event.id, decision.outcome, note=decision.title[:200])

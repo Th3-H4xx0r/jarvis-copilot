@@ -29,7 +29,8 @@ _RULES = [
         r"(reveal|show|print|dump|leak|display|repeat)\s+((the|your)\s+)?(system|developer|hidden|initial)\s+"
         r"(prompt|instructions|rules|message)")),
     ("tool.abuse", 0.34, re.compile(
-        r"(call|use|run|execute)\s+(the\s+)?(tool|tools?|function|functions?|command)\b.*"
+        # Bounded gap: an unbounded ``.*`` here backtracks quadratically on long text.
+        r"(call|use|run|execute)\s+(the\s+)?(tool|tools?|function|functions?|command)\b.{0,200}?"
         r"(without\s+approval|even\s+if\s+forbidden|no\s+matter\s+what|silently)")),
 ]
 

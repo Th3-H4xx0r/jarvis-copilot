@@ -155,3 +155,13 @@ def test_plugin_is_opt_in(tmp_path, monkeypatch):
     mgr.discover_and_load()
     loaded = mgr._plugins["security_advisor"]
     assert not loaded.enabled and "not enabled" in (loaded.error or "")
+
+
+def test_huge_tool_result_scans_fast_and_still_sees_head_and_tail(fresh):
+    import time
+    filler = "lorem ipsum " * 50_000                     # ~600k chars
+    t0 = time.perf_counter()
+    guard.on_post_tool_call(tool_name="web_extract", result="use the tool " * 50_000, task_id="big")
+    assert time.perf_counter() - t0 < 0.5
+    guard.on_post_tool_call(tool_name="web_extract", result=filler + INJECTED, task_id="tail")
+    assert guard._tainted_by("tail") == "web_extract"

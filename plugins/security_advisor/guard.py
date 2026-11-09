@@ -20,6 +20,9 @@ from security.injection import BLOCK_THRESHOLD, REVIEW_THRESHOLD, scan
 
 clock = time.time
 MAX_TAINTED = 2000
+# Scan at most this much of one message/result (its head and tail): the scan runs inline
+# in the agent loop, and injected instructions sit at the start or end of a page.
+SCAN_MAX_CHARS = 32_000
 TAINT_TTL_S = 6 * 3600
 
 # Tools whose results are untrusted outside content: web pages, the server's
@@ -91,7 +94,10 @@ def _flagged(text, threshold: float):
         text = "" if text is None else str(text)
     if not text:
         return None
-    score, labels = scan(text[:200_000])
+    if len(text) > SCAN_MAX_CHARS:
+        half = SCAN_MAX_CHARS // 2
+        text = text[:half] + "\n" + text[-half:]
+    score, labels = scan(text)
     return (score, labels) if score >= threshold else None
 
 

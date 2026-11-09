@@ -147,3 +147,19 @@ def test_register_declares_the_triage_task():
     key, kw = calls["aux"]
     assert key == "security_advisor"
     assert kw["defaults"] == {"provider": "claude-code", "model": "claude-haiku-5-5"}
+
+
+def test_tick_queries_recent_failures_once_and_never_rewrites_a_block(svc, monkeypatch):
+    s, log, blocks, pushes = svc
+    for _ in range(14):
+        log.append("device", "login.failed", {"ip": "203.0.113.5"}, {"reason": "bad_password"})
+    calls = []
+    real_query = log.query
+    monkeypatch.setattr(log, "query", lambda *a, **kw: calls.append(kw) or real_query(*a, **kw))
+    writes = []
+    real_block = blocks.block
+    monkeypatch.setattr(blocks, "block", lambda *a, **kw: writes.append(a) or real_block(*a, **kw))
+    assert s.tick() == 14
+    recent_calls = [c for c in calls if c.get("since") and c.get("kinds")]
+    assert len(recent_calls) <= 3                          # once per kind per tick, not per event
+    assert len(writes) == 1 and blocks.is_blocked("203.0.113.5")
