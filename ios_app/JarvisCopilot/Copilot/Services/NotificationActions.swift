@@ -21,6 +21,9 @@ enum NotificationVerdict: String, Equatable, Sendable {
     /// "Store all" / "Skip all" on an iMessage facts push (`IMessageFactsPush`).
     case storeFacts
     case skipFacts
+    /// Block / Allow on a Security Advisor alert (`SecurityPush`): Face ID, then the signed answer.
+    case securityBlock
+    case securityAllow
 }
 
 /// One decoded notification tap.
@@ -41,6 +44,8 @@ struct NotificationAction: Equatable, Sendable {
     var deviceID: String = ""
     /// The conversation an iMessage facts push is about (`"<guid>|<first_rowid>"`).
     var burst: String = ""
+    /// The Security Advisor alert a security push is about.
+    var alertID: String = ""
 
     /// Action identifiers, matching what the server sets on its APNs payload and
     /// what `NotificationCategories` registers.
@@ -53,6 +58,8 @@ struct NotificationAction: Equatable, Sendable {
         static let continueAll = AgentsPushActions.continueAll
         static let storeFacts = IMessageFactsPush.storeAll
         static let skipFacts = IMessageFactsPush.skipAll
+        static let securityBlock = SecurityPush.block
+        static let securityAllow = SecurityPush.allow
     }
 
     /// The envelope the server nests its fields under.
@@ -77,6 +84,8 @@ struct NotificationAction: Equatable, Sendable {
         case Identifier.continueAll: verdict = .continueAll
         case Identifier.storeFacts: verdict = .storeFacts
         case Identifier.skipFacts: verdict = .skipFacts
+        case Identifier.securityBlock: verdict = .securityBlock
+        case Identifier.securityAllow: verdict = .securityAllow
         default:                 verdict = .open
         }
         return NotificationAction(
@@ -88,7 +97,8 @@ struct NotificationAction: Equatable, Sendable {
             text: verdict == .reply ? userText : "",
             deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String,
             deviceID: (envelope["device_id"] as? String) ?? "",
-            burst: IMessageFactsPush.burst(from: userInfo) ?? "")
+            burst: IMessageFactsPush.burst(from: userInfo) ?? "",
+            alertID: SecurityPush.alertID(from: userInfo) ?? "")
     }
 }
 
@@ -132,7 +142,9 @@ enum NotificationCategories {
                 identifier: MacPasswordApproval.category, actions: [],
                 intentIdentifiers: [], options: [])]
         // "MacBook went to sleep" — Continue all on server; iMessage facts — Store / Skip all.
+        // A Security Advisor alert — Block / Allow (Face ID in the app) / Open.
         return base.union(AgentsPushActions.categories()).union(IMessageFactsPush.categories())
+            .union(SecurityPush.categories())
     }
 }
 
@@ -184,6 +196,9 @@ final class NotificationActionHandler {
             // session that asked. The in-app card takes it from there.
             if action.kind == "agents_recap" {
                 router.open(.agentsRecap)
+            } else if action.kind == SecurityPush.pushKind {
+                // A Security Advisor alert: More → Security, where it waits with its buttons.
+                router.open(.security)
             } else if action.kind == IMessageFactsPush.pushKind {
                 // "3 new facts from Sam Lee": the Chat home, where the cards wait.
                 router.open(.chat(session: nil))
@@ -211,6 +226,16 @@ final class NotificationActionHandler {
             _ = await IMessageFactsPush.decideInBackground(burst: action.burst, store: store, api: facts) {
                 await postFailure(title: store ? "Couldn't save the facts" : "Couldn't skip the facts",
                                   body: "Open JARVIS to answer them on the Chat screen.")
+            }
+        case .securityBlock, .securityAllow:
+            guard !action.alertID.isEmpty else {
+                router.open(.security)
+                break
+            }
+            let answer: SecurityStore.Action = action.verdict == .securityBlock ? .block : .allow
+            if !(await SecurityPush.answer(answer, alertID: action.alertID, router: router.router)) {
+                // Cancelled Face ID or a refused answer: the alert stays open on the page.
+                lastVerdictError = "security \(answer.rawValue) not delivered"
             }
         case .allow, .always, .deny, .reply:
             guard !action.requestID.isEmpty else { break }

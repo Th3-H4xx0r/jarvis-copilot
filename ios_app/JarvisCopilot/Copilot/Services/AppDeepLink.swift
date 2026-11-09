@@ -21,6 +21,8 @@ enum AppDeepLink: Equatable, Sendable {
     /// `jarviscopilot://island` — a custom-design Live Activity tap. Bring the
     /// app forward and show the designs screen.
     case island
+    /// `jarviscopilot://security` — More → Security (a Security Advisor alert push lands here).
+    case security
     /// `jarviscopilot://shortcut-result/<rid>` and `…/shortcut-error/<rid>`.
     /// Parsed here only so a caller can *recognise* one; `ShortcutResultBus` owns
     /// the payload.
@@ -45,6 +47,8 @@ enum AppDeepLink: Equatable, Sendable {
             return .agents(key: query(url, "key"))
         case "island", "designs":
             return .island
+        case "security":
+            return .security
         case "shortcut-result", "shortcut-error":
             return .shortcutCallback
         default:
@@ -133,6 +137,9 @@ struct AppDeepLinkRouter {
             // The designs screen lives behind More; the tab is as far as this
             // router goes (More owns its own destination stack).
             router.selectedTab = .more
+            return true
+        case .security:
+            router.openMore(.security)
             return true
         case .shortcutCallback:
             return false

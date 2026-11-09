@@ -81,6 +81,8 @@ struct MorePage: View {
             SelfImprovementPage()
         case .serverLogs:
             ServerLogsPage()
+        case .security:
+            SecurityPage()
         case .islandDesigns:
             IslandDesignsPage()
         case .harnesses:
