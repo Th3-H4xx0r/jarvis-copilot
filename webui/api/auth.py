@@ -195,6 +195,22 @@ def _record_login_attempt(ip: str) -> None:
         _save_login_attempts(_login_attempts)
 
 
+def _check_and_record_login(ip: str) -> bool:
+    """Count one login/pair attempt for ``ip`` and say whether it may proceed.
+
+    Check and record happen under one lock, so a parallel burst cannot slip past
+    the limit between the two (thread-safe)."""
+    with _LOGIN_ATTEMPTS_LOCK:
+        now = time.time()
+        attempts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW]
+        allowed = len(attempts) < _LOGIN_MAX_ATTEMPTS
+        if allowed:
+            attempts.append(now)
+        _login_attempts[ip] = attempts
+        _save_login_attempts(_login_attempts)
+        return allowed
+
+
 def _load_key(filename: str) -> bytes:
     """Load a 32-byte key from STATE_DIR, generating and persisting one if missing."""
     key_file = STATE_DIR / filename

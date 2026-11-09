@@ -3515,12 +3515,13 @@ def handle_post(handler, parsed) -> bool:
             set_auth_cookie,
             is_auth_enabled,
         )
-        from api.auth import _check_login_rate, _record_login_attempt
+        from api.auth import _check_and_record_login
+        from security.netid import client_ip as _client_ip
 
         if not is_auth_enabled():
             return j(handler, {"ok": True, "message": "Auth not enabled"})
-        client_ip = handler.client_address[0]
-        if not _check_login_rate(client_ip):
+        client_ip = _client_ip(handler)
+        if not _check_and_record_login(client_ip):
             return j(
                 handler,
                 {"error": "Too many attempts. Try again in a minute."},
@@ -3528,7 +3529,6 @@ def handle_post(handler, parsed) -> bool:
             )
         password = body.get("password", "")
         if not verify_password(password):
-            _record_login_attempt(client_ip)
             return bad(handler, "Invalid password", 401)
         cookie_val = create_session()
         handler.send_response(200)
@@ -3582,18 +3582,18 @@ def handle_post(handler, parsed) -> bool:
     # ── JarvisCopilot pairing claim (POST) ──
     # Public endpoint — must be reachable without a session so a fresh
     # device can complete the handshake. Rate-limited per IP using the
-    # same _check_login_rate machinery as password login.
+    # same _check_and_record_login machinery as password login.
     if parsed.path == "/api/auth/pair/claim":
         from api.auth import (
             create_session,
             set_auth_cookie,
-            _check_login_rate,
-            _record_login_attempt,
+            _check_and_record_login,
         )
         from api.pairing import claim_pairing_code
+        from security.netid import client_ip as _client_ip
 
-        client_ip = handler.client_address[0]
-        if not _check_login_rate(client_ip):
+        client_ip = _client_ip(handler)
+        if not _check_and_record_login(client_ip):
             return j(
                 handler,
                 {"error": "Too many attempts. Try again in a minute."},
@@ -3611,7 +3611,6 @@ def handle_post(handler, parsed) -> bool:
             user_agent=ua,
         )
         if not cookie_val:
-            _record_login_attempt(client_ip)
             return bad(handler, "Invalid or expired pairing code", 401)
         # If a Cloudflare Access service token is configured for the tunnel,
         # hand it to the freshly-paired device so its native (non-browser)
