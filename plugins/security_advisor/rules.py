@@ -22,6 +22,18 @@ _PROTECTED_NETS = [ipaddress.ip_network(n) for n in (
     "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
     "100.64.0.0/10", "::1/128", "fc00::/7", "fe80::/10")]
 
+# Tailscale's address ranges (CGNAT IPv4 and its fixed IPv6 ULA prefix).
+_TAILNET_NETS = [ipaddress.ip_network(n) for n in ("100.64.0.0/10", "fd7a:115c:a1e0::/48")]
+
+
+def _is_tailnet(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr.version == n.version and addr in n for n in _TAILNET_NETS)
+
+
 # Everything the webui, agent and host sources emit that has no rule of its own.
 DIGEST_KINDS = frozenset({
     "auth.failed", "pair.failed", "login.failed", "login.ok", "session.revoked",
@@ -125,6 +137,9 @@ def ssh_login(event: Event, ctx: RuleContext):
     if ip in ("127.0.0.1", "::1"):
         return _d("digest", "ssh_new_ip", event, f"SSH login as {user} via relay",
                   "An SSH login came through the paired-device relay.")
+    if _is_tailnet(ip):
+        return _d("digest", "ssh_new_ip", event, f"SSH login as {user} via Tailscale",
+                  f"An SSH login came from {ip} on his tailnet (Tailscale authenticates the device).")
     if ip in ctx.known_ssh_ips or ip in ctx.exceptions:
         return _d("digest", "ssh_new_ip", event, f"SSH login as {user}",
                   f"SSH login from a known address ({ip}).")

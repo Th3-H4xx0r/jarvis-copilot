@@ -95,6 +95,13 @@ def test_ssh_login_new_ip_alerts_relay_digests():
     assert d.outcome == "digest"
 
 
+def test_ssh_login_over_tailscale_digests():
+    # Tailscale already authenticates his account; a new tailnet device isn't an intrusion.
+    for ip in ("100.100.1.2", "fd7a:115c:a1e0::1234"):
+        d = rules.evaluate(ev("ssh.accepted", {"ip": ip, "user": "root"}, source="host"), ctx())
+        assert d.outcome == "digest" and "via Tailscale" in d.title
+
+
 def test_ssh_failed_burst_is_digest():
     events = [ev("ssh.failed", {"ip": "203.0.113.9"}, source="host", eid=i) for i in range(20)]
     assert rules.evaluate(events[-1], ctx(events)).outcome == "digest"
