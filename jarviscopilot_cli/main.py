@@ -648,24 +648,6 @@ def _resolve_last_session(source: str = "cli") -> Optional[str]:
     return None
 
 
-def _probe_container(cmd: list, backend: str, via_sudo: bool = False):
-    """Run a container inspect probe, returning the CompletedProcess.
-
-    Catches TimeoutExpired specifically for a human-readable message;
-    all other exceptions propagate naturally.
-    """
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired:
-        label = f"sudo {backend}" if via_sudo else backend
-        print(
-            f"Error: timed out waiting for {label} to respond.\n"
-            f"The {backend} daemon may be unresponsive or starting up.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-
 def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
     """Resolve a session name (title) or ID to a session ID.
 

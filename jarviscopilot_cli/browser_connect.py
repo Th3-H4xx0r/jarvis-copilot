@@ -133,42 +133,6 @@ def _chrome_debug_args(port: int) -> list[str]:
     ]
 
 
-def is_browser_debug_ready(url: str, timeout: float = 1.0) -> bool:
-    """Return True when ``url`` exposes a reachable Chrome DevTools endpoint."""
-    import socket
-    import urllib.request
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url if "://" in url else f"http://{url}")
-    try:
-        port = parsed.port or (443 if parsed.scheme in {"https", "wss"} else 80)
-    except ValueError:
-        return False
-
-    if parsed.scheme in {"ws", "wss"} and parsed.path.startswith("/devtools/browser/"):
-        if not parsed.hostname:
-            return False
-        try:
-            with socket.create_connection((parsed.hostname, port), timeout=timeout):
-                return True
-        except OSError:
-            return False
-
-    scheme = {"ws": "http", "wss": "https"}.get(parsed.scheme, parsed.scheme)
-    if scheme not in {"http", "https"} or not parsed.netloc:
-        return False
-
-    root = f"{scheme}://{parsed.netloc}".rstrip("/")
-    for probe in (f"{root}/json/version", f"{root}/json"):
-        try:
-            with urllib.request.urlopen(probe, timeout=timeout) as resp:
-                if 200 <= getattr(resp, "status", 200) < 300:
-                    return True
-        except Exception:
-            continue
-    return False
-
-
 def manual_chrome_debug_command(port: int = DEFAULT_BROWSER_CDP_PORT, system: str | None = None) -> str | None:
     system = system or platform.system()
     candidates = get_chrome_debug_candidates(system)

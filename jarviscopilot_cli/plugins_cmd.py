@@ -1276,52 +1276,6 @@ def _run_composite_fallback(plugin_names, plugin_labels, plugin_selected,
 
     print()
 
-def _get_plugin_toolset_key(name: str) -> Optional[str]:
-    """Return the toolset key a plugin registers its tools under, or None.
-
-    Queries the live tool registry — the plugin must already be loaded.
-    Falls back to reading ``provides_tools`` from plugin.yaml and looking
-    up the toolset from the registry for the first tool name found.
-    """
-    try:
-        from tools.registry import registry
-    except Exception:
-        return None
-
-    # Check the plugin manager for tools this plugin registered
-    try:
-        from jarviscopilot_cli.plugins import discover_plugins, get_plugin_manager
-        discover_plugins()  # idempotent — ensures plugins are loaded
-        manager = get_plugin_manager()
-        for _key, loaded in manager._plugins.items():
-            if loaded.manifest.name == name or _key == name:
-                for tool_name in loaded.tools_registered:
-                    entry = registry.get_entry(tool_name)
-                    if entry and entry.toolset:
-                        return entry.toolset
-                break
-    except Exception:
-        pass
-
-    # Fallback: read provides_tools from manifest on disk and query registry
-    try:
-        from jarviscopilot_cli.plugins import get_bundled_plugins_dir
-        for base in (get_bundled_plugins_dir(), _plugins_dir()):
-            if not base.is_dir():
-                continue
-            candidate = base / name
-            if candidate.is_dir():
-                manifest = _read_manifest(candidate)
-                for tool_name in manifest.get("provides_tools") or []:
-                    entry = registry.get_entry(tool_name)
-                    if entry and entry.toolset:
-                        return entry.toolset
-    except Exception:
-        pass
-
-    return None
-
-
 def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
     git_exe = _resolve_git_executable()
     if not git_exe:

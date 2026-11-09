@@ -18,11 +18,9 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from typing import Optional
 
 from agent.agent_engine_shim import load_instruction_delivery
-from agent.transcript_mirror import claude_config_dir, encode_project_dir
 
 # Caps keep a huge session renderable + the API payload bounded.
 MAX_MESSAGES = 400        # tail-capped; `total` still reports the full count
@@ -326,25 +324,6 @@ def parse_transcript_text(text: str) -> list[dict]:
             except (TypeError, ValueError):
                 m.pop("usage", None)
     return out
-
-
-def find_transcript_file(cwd: str, csid: str,
-                         projects_dir: str | None = None) -> Path | None:
-    """Locate ``<csid>.jsonl`` — first under the cwd-encoded project dir, then
-    (cwd moved/renamed) anywhere under the projects root."""
-    base = Path(projects_dir) if projects_dir else claude_config_dir() / "projects"
-    name = f"{csid}.jsonl"
-    p = base / encode_project_dir(cwd or "") / name
-    if p.is_file():
-        return p
-    try:
-        for d in base.iterdir():
-            f = d / name
-            if f.is_file():
-                return f
-    except OSError:
-        pass
-    return None
 
 
 _LITE_SUMMARY = 200

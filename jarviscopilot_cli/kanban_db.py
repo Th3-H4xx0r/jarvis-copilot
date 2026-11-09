@@ -3880,29 +3880,6 @@ def delete_archived_task(conn: sqlite3.Connection, task_id: str) -> bool:
         return cur.rowcount == 1
 
 
-def delete_task(conn: sqlite3.Connection, task_id: str) -> bool:
-    """Hard-delete a task and cascade to all related rows.
-
-    Because the schema does not use ``ON DELETE CASCADE`` foreign keys,
-    we explicitly delete from child tables first, then the task row.
-    This keeps the operation atomic (single ``write_txn``).
-
-    Returns ``True`` if the task existed and was deleted, ``False``
-    if the task was not found.
-    """
-    with write_txn(conn):
-        cur = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        if cur.rowcount != 1:
-            return False
-        conn.execute("DELETE FROM task_links WHERE parent_id = ? OR child_id = ?", (task_id, task_id))
-        conn.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM kanban_notify_subs WHERE task_id = ?", (task_id,))
-    recompute_ready(conn)
-    return True
-
-
 # ---------------------------------------------------------------------------
 # Workspace resolution
 # ---------------------------------------------------------------------------
@@ -6711,38 +6688,3 @@ def latest_summary(conn: sqlite3.Connection, task_id: str) -> Optional[str]:
     ).fetchone()
     return row["summary"] if row else None
 
-
-def latest_summaries(
-    conn: sqlite3.Connection, task_ids: Iterable[str]
-) -> dict[str, str]:
-    """Batch-fetch latest non-null summaries for a list of task ids.
-
-    Used by the dashboard board endpoint to attach ``latest_summary`` to
-    every card in a single SQL query, avoiding the N+1 pattern of
-    calling :func:`latest_summary` per task. Returns a dict mapping
-    ``task_id`` → summary string, omitting tasks with no summary.
-
-    Approach: a window function picks the newest non-null-summary row
-    per ``task_id``; works against SQLite ≥ 3.25 (default on every
-    supported platform).
-    """
-    ids = list(task_ids)
-    if not ids:
-        return {}
-    placeholders = ",".join("?" for _ in ids)
-    rows = conn.execute(
-        f"""
-        SELECT task_id, summary FROM (
-            SELECT task_id, summary,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY task_id
-                       ORDER BY COALESCE(ended_at, started_at) DESC, id DESC
-                   ) AS rn
-              FROM task_runs
-             WHERE task_id IN ({placeholders})
-               AND summary IS NOT NULL AND summary != ''
-        ) WHERE rn = 1
-        """,
-        ids,
-    ).fetchall()
-    return {r["task_id"]: r["summary"] for r in rows}

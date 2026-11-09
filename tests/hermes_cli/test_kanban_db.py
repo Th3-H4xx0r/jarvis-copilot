@@ -920,35 +920,6 @@ def test_list_tasks_order_by(kanban_home):
         except ValueError as e:
             assert "order_by must be one of" in str(e)
 
-def test_delete_task_removes_task_and_cascades(kanban_home):
-    with kb.connect() as conn:
-        t = kb.create_task(conn, title="to-delete", assignee="alice")
-        kb.add_comment(conn, t, "user", "comment")
-        kb.add_comment(conn, t, "user", "another")
-        assert kb.delete_task(conn, t)
-        assert kb.get_task(conn, t) is None
-        assert len(kb.list_comments(conn, t)) == 0
-        assert len(kb.list_events(conn, t)) == 0
-        assert len(kb.list_runs(conn, t)) == 0
-
-
-def test_delete_task_returns_false_for_missing_task(kanban_home):
-    with kb.connect() as conn:
-        assert not kb.delete_task(conn, "t_nonexistent")
-
-
-def test_delete_task_cascades_links(kanban_home):
-    with kb.connect() as conn:
-        p = kb.create_task(conn, title="parent")
-        c = kb.create_task(conn, title="child", parents=[p])
-        child = kb.get_task(conn, c)
-        assert child is not None and child.status == "todo"
-        kb.delete_task(conn, p)
-        assert kb.get_task(conn, p) is None
-        child_after = kb.get_task(conn, c)
-        assert child_after is not None and child_after.status == "ready"
-
-
 # ---------------------------------------------------------------------------
 # Comments / events / worker context
 # ---------------------------------------------------------------------------
@@ -1942,23 +1913,6 @@ def test_latest_summary_skips_empty_string(kanban_home):
         )
         conn.commit()
         assert kb.latest_summary(conn, t) == "real handoff"
-
-
-def test_latest_summaries_batch_omits_tasks_without_summary(kanban_home):
-    """``latest_summaries`` is the dashboard's N+1 escape hatch — it
-    must return only entries for tasks that actually have a summary,
-    keep the per-task latest, and accept an empty input gracefully."""
-    with kb.connect() as conn:
-        t1 = kb.create_task(conn, title="a", assignee="alice")
-        t2 = kb.create_task(conn, title="b", assignee="bob")
-        t3 = kb.create_task(conn, title="c", assignee="carol")
-        kb.complete_task(conn, t1, summary="alpha")
-        kb.complete_task(conn, t3, summary="charlie")
-        out = kb.latest_summaries(conn, [t1, t2, t3])
-        assert out == {t1: "alpha", t3: "charlie"}
-        # Empty input → empty dict, no SQL syntax error from "IN ()".
-        assert kb.latest_summaries(conn, []) == {}
-
 
 
 # ---------------------------------------------------------------------------

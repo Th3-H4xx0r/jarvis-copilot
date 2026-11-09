@@ -10,7 +10,6 @@ from unittest.mock import patch
 from cli import HermesCLI
 from jarviscopilot_cli.browser_connect import (
     get_chrome_debug_candidates,
-    is_browser_debug_ready,
     manual_chrome_debug_command,
 )
 
@@ -26,35 +25,7 @@ def _assert_chrome_debug_cmd(cmd, expected_chrome, expected_port):
     assert "chrome-debug" in user_data_args[0]
 
 
-class _FakeResponse:
-    status = 200
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
 class TestChromeDebugLaunch:
-    def test_browser_debug_ready_requires_http_cdp_endpoint(self):
-        requested = []
-
-        def fake_urlopen(url, timeout):
-            requested.append(url)
-            if url.endswith("/json/version"):
-                return _FakeResponse()
-            raise OSError("unexpected probe")
-
-        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            assert is_browser_debug_ready("http://127.0.0.1:9222", timeout=0.1) is True
-
-        assert requested == ["http://127.0.0.1:9222/json/version"]
-
-    def test_browser_debug_ready_rejects_non_cdp_listener(self):
-        with patch("urllib.request.urlopen", side_effect=OSError("not cdp")):
-            assert is_browser_debug_ready("http://127.0.0.1:9222", timeout=0.1) is False
-
     def test_windows_launch_uses_browser_found_on_path(self):
         captured = {}
 
@@ -238,7 +209,7 @@ class TestChromeDebugLaunch:
         cli._pending_input = Queue()
         monkeypatch.delenv("BROWSER_CDP_URL", raising=False)
 
-        with patch("cli.is_browser_debug_ready", return_value=True), \
+        with patch("socket.socket"), \
              patch("tools.browser_tool.cleanup_all_browsers"), \
              patch("tools.browser_tool._ensure_cdp_supervisor"), \
              redirect_stdout(StringIO()):

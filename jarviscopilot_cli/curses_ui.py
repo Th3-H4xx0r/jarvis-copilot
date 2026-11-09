@@ -330,37 +330,6 @@ def _radio_numbered_fallback(
         return cancel_returns
 
 
-def curses_single_select(
-    title: str,
-    items: List[str],
-    default_index: int = 0,
-    *,
-    cancel_label: str = "Cancel",
-) -> int | None:
-    """Curses single-select menu. Returns selected index or None on cancel.
-
-    Works inside prompt_toolkit because curses.wrapper() restores the terminal
-    safely, unlike simple_term_menu which conflicts with /dev/tty.
-    """
-    if not sys.stdin.isatty():
-        return None
-
-    all_items = list(items) + [cancel_label]
-    cancel_idx = len(items)
-    try:
-        idx = _curses_pick(
-            title,
-            all_items,
-            min(default_index, len(all_items) - 1),
-            hint="  ↑↓ navigate  ENTER confirm  ESC/q cancel",
-        )
-        return None if idx is None or idx >= cancel_idx else idx
-    except KeyboardInterrupt:
-        return None
-    except Exception:
-        return _numbered_single_fallback(title, all_items, cancel_idx)
-
-
 def _numbered_single_fallback(
     title: str,
     items: List[str],
