@@ -22,13 +22,17 @@ from jc_client.skills import skill
 log = logging.getLogger(__name__)
 
 
-def _osa(script: str, *, capture: bool = True, timeout: float = 10.0) -> str:
+def _osa(script: str, *args: str, capture: bool = True, timeout: float = 10.0) -> str:
     """Run an AppleScript snippet via osascript and return stdout.
+
+    ``args`` reach the script as ``argv`` (``on run argv``). Anything that isn't
+    a code constant — an app name, a window title (a web page sets its own) —
+    goes there, never into the script text.
 
     Raises subprocess.CalledProcessError on non-zero exit.
     """
     res = subprocess.run(
-        ["osascript", "-e", script],
+        ["osascript", "-e", script, *args],
         capture_output=capture,
         text=True,
         timeout=timeout,
@@ -73,8 +77,7 @@ def open_app(name: str) -> dict:
 def quit_app(name: str) -> dict:
     if not name:
         raise ValueError("name required")
-    safe = name.replace('"', '\\"')
-    _osa(f'tell application "{safe}" to quit')
+    _osa('on run argv\n  tell application (item 1 of argv) to quit\nend run', name)
     return {"ok": True, "name": name}
 
 
@@ -396,19 +399,19 @@ def focus_window(title_substring: str) -> dict:
     rows = list_windows()["windows"]
     for w in rows:
         if sub in (w.get("title", "")).lower() or sub in (w.get("app", "")).lower():
-            app = w["app"].replace('"', '\\"')
-            title = w["title"].replace('"', '\\"')
             script = (
-                f'tell application "{app}" to activate\n'
-                f'tell application "System Events"\n'
-                f'  tell process "{app}"\n'
-                f'    try\n'
-                f'      perform action "AXRaise" of (first window whose name is "{title}")\n'
-                f'    end try\n'
-                f'  end tell\n'
-                f'end tell'
+                'on run argv\n'
+                '  tell application (item 1 of argv) to activate\n'
+                '  tell application "System Events"\n'
+                '    tell process (item 1 of argv)\n'
+                '      try\n'
+                '        perform action "AXRaise" of (first window whose name is (item 2 of argv))\n'
+                '      end try\n'
+                '    end tell\n'
+                '  end tell\n'
+                'end run'
             )
-            _osa(script)
+            _osa(script, w["app"], w["title"])
             return {"ok": True, "matched": w}
     return {"ok": False, "error": f"no window matches {title_substring!r}"}
 
@@ -847,33 +850,34 @@ def _find_window(title_substring: str) -> dict | None:
 
 def _set_window_attr(app: str, title: str, attr: str, value: str) -> None:
     """Set a window attribute via System Events. `attr` is e.g. 'position'
-    or 'size'; `value` is an AppleScript literal like '{120, 80}'."""
-    app_s = app.replace('"', '\\"')
-    title_s = title.replace('"', '\\"')
+    or 'size'; `value` is an AppleScript literal like '{120, 80}' — both are
+    code constants. The app name and window title arrive as argv."""
     script = (
-        f'tell application "System Events"\n'
-        f'  tell process "{app_s}"\n'
-        f'    set targetWin to (first window whose name is "{title_s}")\n'
-        f'    set {attr} of targetWin to {value}\n'
+        f'on run argv\n'
+        f'  tell application "System Events"\n'
+        f'    tell process (item 1 of argv)\n'
+        f'      set targetWin to (first window whose name is (item 2 of argv))\n'
+        f'      set {attr} of targetWin to {value}\n'
+        f'    end tell\n'
         f'  end tell\n'
-        f'end tell'
+        f'end run'
     )
-    _osa(script)
+    _osa(script, app, title)
 
 
 def _set_window_minimized(app: str, title: str, miniaturized: bool) -> None:
-    app_s = app.replace('"', '\\"')
-    title_s = title.replace('"', '\\"')
     flag = "true" if miniaturized else "false"
     script = (
-        f'tell application "System Events"\n'
-        f'  tell process "{app_s}"\n'
-        f'    set value of attribute "AXMinimized" of '
-        f'(first window whose name is "{title_s}") to {flag}\n'
+        f'on run argv\n'
+        f'  tell application "System Events"\n'
+        f'    tell process (item 1 of argv)\n'
+        f'      set value of attribute "AXMinimized" of '
+        f'(first window whose name is (item 2 of argv)) to {flag}\n'
+        f'    end tell\n'
         f'  end tell\n'
-        f'end tell'
+        f'end run'
     )
-    _osa(script)
+    _osa(script, app, title)
 
 
 @skill(
@@ -957,6 +961,5 @@ def window_restore(title_substring: str) -> dict:
         return {"ok": False, "error": f"no window matches {title_substring!r}"}
     _set_window_minimized(w["app"], w["title"], False)
     # Also activate it so it actually surfaces.
-    app_s = w["app"].replace('"', '\\"')
-    _osa(f'tell application "{app_s}" to activate')
+    _osa('on run argv\n  tell application (item 1 of argv) to activate\nend run', w["app"])
     return {"ok": True, "matched": w}
