@@ -37,13 +37,14 @@ struct SpeechSoniox: Equatable, Sendable {
     var liveQuietCloseS = 60
 }
 
-/// What the server holds (`jarvis_speech/config.py` DEFAULTS); these defaults are only what the
-/// screen shows until the GET answers, so they mirror the server's.
+/// What the server holds (`jarvis_speech/config.py`). A section the server leaves out reads as
+/// today's flow ("local", "edge"), not the server's newer defaults: an older server may have no
+/// Soniox engine to fall back on.
 struct SpeechSettings: Equatable, Sendable {
     /// `live` also takes this: the phone transcribes itself (today's lane).
     static let edge = "edge"
 
-    var voice = "soniox"
+    var voice = "local"
     /// The Jarvis Pod's turns (its own choice; the server defaults it to Soniox).
     var pod = "soniox"
     var live = SpeechSettings.edge
