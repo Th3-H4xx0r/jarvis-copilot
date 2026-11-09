@@ -32,26 +32,29 @@ def _extract_handler(name: str) -> str:
 
 
 def test_import_cli_initializes_model_before_metadata_loop():
-    """The fallback `model = 'unknown'` must be set BEFORE the
-    `for cs in get_cli_sessions()` loop so that a metadata-less session
-    cannot leave `model` unbound."""
+    """A metadata-less session must still get a model: either `model =
+    "unknown"` before the `for cs in get_cli_sessions()` loop, or the loop only
+    picks the row (`cli_meta`, initialised to `{}` first) and `model` is then
+    read from it with an "unknown" default."""
     handler = _extract_handler("_handle_session_import_cli")
-    init_idx = handler.find('model = "unknown"')
-    if init_idx == -1:
-        # Allow single quotes too.
-        init_idx = handler.find("model = 'unknown'")
-    assert init_idx != -1, (
-        "Expected `model = \"unknown\"` initialization in "
-        "_handle_session_import_cli before the metadata loop. Without it, "
-        "import crashes when the session has messages but no metadata row."
-    )
     loop_idx = handler.find("for cs in get_cli_sessions()")
     assert loop_idx != -1, "Expected `for cs in get_cli_sessions()` loop"
-    assert init_idx < loop_idx, (
-        "`model` must be initialized BEFORE the `for cs in get_cli_sessions()` "
-        "loop, otherwise a session without a metadata row leaves `model` "
-        "unbound and `import_cli_session(..., model, ...)` raises "
-        "UnboundLocalError."
+    init_idx = handler.find('model = "unknown"')
+    if init_idx == -1:
+        init_idx = handler.find("model = 'unknown'")
+    if init_idx != -1:
+        assert init_idx < loop_idx, (
+            "`model` must be initialized BEFORE the `for cs in get_cli_sessions()` "
+            "loop, otherwise a session without a metadata row leaves `model` "
+            "unbound and `import_cli_session(..., model, ...)` raises "
+            "UnboundLocalError."
+        )
+        return
+    meta_init_idx = handler.find("cli_meta: dict = {}")
+    default_idx = handler.find('model = cli_meta.get("model", "unknown")')
+    assert meta_init_idx != -1 and meta_init_idx < loop_idx < default_idx, (
+        "Expected `model` to default to \"unknown\" for a session without a "
+        "metadata row; without it, import crashes with UnboundLocalError."
     )
 
 
