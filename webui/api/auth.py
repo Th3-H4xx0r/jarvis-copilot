@@ -202,6 +202,10 @@ def _check_and_record_login(ip: str) -> bool:
     the limit between the two (thread-safe)."""
     with _LOGIN_ATTEMPTS_LOCK:
         now = time.time()
+        # Drop IPs whose attempts have all aged out, so the store never grows forever.
+        for other in [k for k, ts in _login_attempts.items()
+                      if not any(now - t < _LOGIN_WINDOW for t in ts)]:
+            del _login_attempts[other]
         attempts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW]
         allowed = len(attempts) < _LOGIN_MAX_ATTEMPTS
         if allowed:

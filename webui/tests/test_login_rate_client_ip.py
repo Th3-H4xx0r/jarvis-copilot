@@ -55,3 +55,12 @@ def test_pair_claim_limit_is_per_cloudflare_ip(tmp_path, monkeypatch):
     h = _Handler({"code": "ZZZZZZ"}, cf_ip="198.51.100.30")
     handle_post(h, urlparse("http://example.test/api/auth/pair/claim"))
     assert h.status == 401
+
+
+def test_stale_ips_are_dropped_from_the_attempts_store(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    old = __import__("time").time() - auth._LOGIN_WINDOW - 10
+    auth._login_attempts.update({f"203.0.113.{i}": [old] for i in range(50)})
+    assert auth._check_and_record_login("198.51.100.40") is True
+    assert set(auth._login_attempts) == {"198.51.100.40"}
+    assert set(json.loads((tmp_path / ".login_attempts.json").read_text())) == {"198.51.100.40"}

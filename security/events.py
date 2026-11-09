@@ -34,6 +34,22 @@ _SECRET_KEY = re.compile(
 _BEARER = re.compile(r"Bearer\s+\S+", re.I)
 _SK_KEY = re.compile(r"sk-[A-Za-z0-9_-]+")
 REDACTED = "[redacted]"
+# Secret shapes inside free text such as a logged shell command: (pattern, replacement).
+_INLINE_SECRETS = [
+    # NAME_KEY=…, *_SECRET=…, *_TOKEN=…, *_PASSWORD=…, AWS_SECRET_ACCESS_KEY=…
+    (re.compile(r"\b((?:[A-Za-z0-9]+_)*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD|PWD)(?:_[A-Za-z0-9]+)*)"
+                r"=(\"[^\"]*\"|'[^']*'|\S+)", re.I), r"\1=" + REDACTED),
+    # --password=…, --password …, --passwd=…
+    (re.compile(r"(--?(?:password|passwd|pwd))(=|\s+)(\"[^\"]*\"|'[^']*'|\S+)", re.I),
+     r"\1\2" + REDACTED),
+    # mysql-style -p<password> (no space)
+    (re.compile(r"(^|\s)-p(?=\S)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1-p" + REDACTED),
+    # GitHub and Slack tokens
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}"), REDACTED),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{8,}"), REDACTED),
+    # any long base64/hex-ish value after "="
+    (re.compile(r"=([A-Za-z0-9+/_-]{32,}={0,2})"), "=" + REDACTED),
+]
 
 
 def utc_now() -> str:
@@ -50,7 +66,10 @@ def redact(detail: dict) -> dict:
         if isinstance(value, (list, tuple)):
             return [walk(v) for v in value]
         if isinstance(value, str):
-            return _SK_KEY.sub(REDACTED, _BEARER.sub("Bearer " + REDACTED, value))
+            value = _SK_KEY.sub(REDACTED, _BEARER.sub("Bearer " + REDACTED, value))
+            for pattern, repl in _INLINE_SECRETS:
+                value = pattern.sub(repl, value)
+            return value
         if value is None or isinstance(value, (bool, int, float)):
             return value
         return walk(str(value))
@@ -233,31 +252,41 @@ class EventLog:
             row = self._conn.execute("SELECT MAX(id) FROM events").fetchone()
         return int(row[0] or 0)
 
-    def verify_chain(self) -> int | None:
-        """The id of the first row whose hash or link is wrong; None if intact."""
-        with self._lock:
-            gaps = {r[0] for r in self._conn.execute("SELECT row_id FROM chain_gaps")}
-            rows = self._conn.execute(
-                "SELECT id, ts, source, kind, actor, detail, prev_hash, hash "
-                "FROM events ORDER BY id").fetchall()
-        prev = ""
-        for rid, ts, source, kind, actor, detail, prev_hash, digest in rows:
-            if prev_hash != prev and rid not in gaps:
-                return rid
-            if _row_hash(prev_hash, ts, source, kind, actor, detail) != digest:
-                return rid
-            prev = digest
-        return None
+    def verify_chain(self, chunk: int = 2000) -> int | None:
+        """The id of the first row whose hash or link is wrong; None if intact.
+
+        Reads ``chunk`` rows at a time and lets go of the lock between chunks, so a
+        large log never stalls the writers. Sanctioned gaps are re-read per chunk in
+        case another process pruned meanwhile."""
+        prev, last_id = "", 0
+        while True:
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT id, ts, source, kind, actor, detail, prev_hash, hash FROM events "
+                    "WHERE id > ? ORDER BY id LIMIT ?", (last_id, max(1, int(chunk)))).fetchall()
+                if not rows:
+                    return None
+                gaps = {r[0] for r in self._conn.execute(
+                    "SELECT row_id FROM chain_gaps WHERE row_id > ? AND row_id <= ?",
+                    (last_id, rows[-1][0]))}
+            for rid, ts, source, kind, actor, detail, prev_hash, digest in rows:
+                if prev_hash != prev and rid not in gaps:
+                    return rid
+                if _row_hash(prev_hash, ts, source, kind, actor, detail) != digest:
+                    return rid
+                prev = digest
+            last_id = rows[-1][0]
 
     def prune(self, digest_days: int = 90) -> int:
-        """Delete digest/ignore events older than ``digest_days``. Alerts and blocks stay."""
+        """Delete events older than ``digest_days`` that were digest/ignore or never got an
+        outcome. Alerts and blocks stay."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=digest_days)).strftime(
             "%Y-%m-%dT%H:%M:%SZ")
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 doomed = {r[0] for r in self._conn.execute(
-                    "SELECT id FROM events WHERE ts < ? AND outcome IN ('digest','ignore')",
+                    "SELECT id FROM events WHERE ts < ? AND outcome IN ('digest','ignore','')",
                     (cutoff,))}
                 if doomed:
                     # Each surviving row right after a deleted one is a sanctioned gap.

@@ -136,6 +136,10 @@ def sensitive_file(event: Event, ctx: RuleContext):
     if event.kind == "file.changed":
         path = (event.detail or {}).get("path") or "a watched file"
         change = (event.detail or {}).get("change") or "changed"
+        if change == "modified" and path.rsplit("/", 1)[-1] == "auth.json":
+            # The credential pool rewrites auth.json whenever it rotates or refreshes a key.
+            return _d("digest", "sensitive_file", event, f"Server file {change}: {path}",
+                      f"{path} was {change} (credentials refreshed).")
         return _d("alert", "sensitive_file", event, f"Server file {change}: {path}",
                   f"{path} was {change}. These files control SSH, services, schedules or keys.")
     if event.kind == "advisor.code_changed":

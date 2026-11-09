@@ -97,12 +97,44 @@ def test_prune_keeps_alerts_and_chain(tmp_path):
     log = EventLog(tmp_path / "e.db")
     old_ts = "2020-01-01T00:00:00Z"
     old = [log.append("host", "ssh.failed", {}, {}, ts=old_ts) for _ in range(3)]
-    keep = log.append("host", "ssh.accepted", {}, {}, ts=old_ts)   # never evaluated: kept
+    never = log.append("host", "session.seen", {}, {}, ts=old_ts)  # never got an outcome: goes too
     tail = log.append("host", "ssh.failed", {}, {})
+    fresh_unrated = log.append("host", "ssh.failed", {}, {})       # recent, no outcome yet: kept
     for e in old:
         log.set_outcome(e.id, "digest")
     log.set_outcome(old[1].id, "alert")
-    assert log.prune(digest_days=90) == 2
+    log.set_outcome(tail.id, "digest")
+    assert log.prune(digest_days=90) == 3
     remaining = sorted(e.id for e in log.query(limit=100))
-    assert remaining == [old[1].id, keep.id, tail.id]
+    assert remaining == [old[1].id, tail.id, fresh_unrated.id]
+    assert never.id not in remaining
     assert log.verify_chain() is None
+
+
+def test_verify_chain_works_in_chunks(tmp_path):
+    from security.events import EventLog
+    log = EventLog(tmp_path / "e.db")
+    rows = [log.append("host", "ssh.failed", {}, {"n": i}) for i in range(10)]
+    assert log.verify_chain(chunk=3) is None
+    log._conn.execute("UPDATE events SET detail='{}' WHERE id=?", (rows[7].id,))
+    assert log.verify_chain(chunk=3) == rows[7].id
+
+
+def test_redacts_secret_shapes_in_command_strings():
+    from security.events import redact
+    secrets = {
+        "mysql -uroot -phunter2pw db": "hunter2pw",
+        "curl --password=s3cr3t-pw https://x": "s3cr3t-pw",
+        "OPENAI_API_KEY=abc123def456 python run.py": "abc123def456",
+        "export STRIPE_SECRET=whsec_live_99 && go": "whsec_live_99",
+        "GITHUB_TOKEN=tok_value_77 gh pr list": "tok_value_77",
+        "AWS_SECRET_ACCESS_KEY=fakeAccessKeyValueForTests000 aws s3 ls": "fakeAccessKeyValue",
+        "git push https://ghp_FAKEfakeFAKEfakeFAKE00@github.com": "ghp_FAKEfake",
+        "curl -H 'x: xoxb-0000-fake-example' slack": "xoxb-0000",
+        "run --sig=QWxhZGRpbjpvcGVuIHNlc2FtZQ0K0123456789abcdef": "QWxhZGRpbjpvcGVuIHNlc2FtZQ0K",
+    }
+    for command, secret in secrets.items():
+        out = redact({"command": command})["command"]
+        assert secret not in out, out
+    plain = "ls -la /var/log && git status -p"
+    assert redact({"command": plain})["command"] == plain

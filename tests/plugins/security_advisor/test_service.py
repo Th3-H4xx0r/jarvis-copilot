@@ -163,3 +163,31 @@ def test_tick_queries_recent_failures_once_and_never_rewrites_a_block(svc, monke
     recent_calls = [c for c in calls if c.get("since") and c.get("kinds")]
     assert len(recent_calls) <= 3                          # once per kind per tick, not per event
     assert len(writes) == 1 and blocks.is_blocked("203.0.113.5")
+
+
+def test_digest_runs_off_the_worker_loop(tmp_path):
+    class Later:
+        def __init__(self):
+            self.jobs = []
+
+        def submit(self, fn, *a, **kw):
+            from concurrent.futures import Future
+            f = Future()
+            self.jobs.append((fn, a, kw, f))
+            return f
+
+    calls = []
+    notifier = type("N", (), {"log": None, "digest": lambda self, now: calls.append(now)})()
+    ex = Later()
+    s = SecurityService(log=EventLog(tmp_path / "e.db"), blocklist=Blocklist(tmp_path / "b.json"),
+                        notifier=notifier, settings=lambda: SETTINGS,
+                        cursor_path=tmp_path / "cursor", executor=ex,
+                        now=lambda: datetime(2026, 11, 8, 9, 0))
+    s.run_digest()
+    s.run_digest()                       # the first is still pending: not queued twice
+    assert calls == [] and len(ex.jobs) == 1
+    fn, a, kw, fut = ex.jobs[0]
+    fut.set_result(fn(*a, **kw))
+    assert calls == [datetime(2026, 11, 8, 9, 0)]
+    s.run_digest()
+    assert len(ex.jobs) == 2

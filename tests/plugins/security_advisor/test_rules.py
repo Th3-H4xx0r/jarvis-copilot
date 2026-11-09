@@ -54,6 +54,17 @@ def test_rate_limited_refusals_do_not_count_toward_a_block():
     assert rules.evaluate(events[5], ctx(events)).outcome == "digest"
 
 
+def test_auth_json_rewrites_are_digest_but_other_secrets_alert():
+    # The credential pool rewrites auth.json on its own; .env and SSH files stay alerts.
+    auth = ev("file.changed", source="host", path="/srv/home/auth.json", change="modified")
+    assert rules.evaluate(auth, ctx()).outcome == "digest"
+    for path in ("/srv/home/.env", "/root/.ssh/authorized_keys", "/etc/ssh/sshd_config"):
+        e = ev("file.changed", source="host", path=path, change="modified")
+        assert rules.evaluate(e, ctx()).outcome == "alert", path
+    gone = ev("file.changed", source="host", path="/srv/home/auth.json", change="removed")
+    assert rules.evaluate(gone, ctx()).outcome == "alert"
+
+
 def test_burst_from_ip_with_valid_session_alerts_not_blocks():
     events = burst()
     d = rules.evaluate(events[-1], ctx(events, valid=True))

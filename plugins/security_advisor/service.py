@@ -93,6 +93,7 @@ class SecurityService:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tick_lock = threading.Lock()
+        self._digest_future = None
 
     # ── cursor ────────────────────────────────────────────────────────────
     def _load_cursor(self) -> int:
@@ -213,6 +214,20 @@ class SecurityService:
         for kind, detail in self.file_watch.poll():
             emit("host", kind, {}, **detail)
 
+    def run_digest(self) -> None:
+        """Queue the daily-digest check on the triage executor: its model call must not
+        hold up the worker loop (blocks, alerts). At most one is queued at a time."""
+        pending = self._digest_future
+        if pending is not None and not pending.done():
+            return
+        self._digest_future = self.executor.submit(self._digest)
+
+    def _digest(self) -> None:
+        try:
+            self.notifier.digest(self.now())
+        except Exception:
+            logger.exception("security advisor digest failed")
+
     def status(self) -> dict:
         return snapshot(self.log, self.blocklist,
                         ssh_state=getattr(self.ssh, "state", "stopped") if self.ssh else "stopped",
@@ -254,7 +269,7 @@ class SecurityService:
                     ("files", file_poll_s, self.poll_files),
                     ("chain", 3600, self.check_chain),
                     ("prune", 86400, lambda: self.log.prune(90)),
-                    ("digest", 60, lambda: self.notifier.digest(self.now()))]
+                    ("digest", 60, self.run_digest)]
             for name, every, job in jobs:
                 if every and now - last[name] < every:
                     continue
