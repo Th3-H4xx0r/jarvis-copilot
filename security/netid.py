@@ -32,3 +32,29 @@ def client_ip(handler) -> str:
             except ValueError:
                 pass
     return peer
+
+
+def actor_for(handler) -> dict:
+    """Who made this webui request: real IP plus the paired device, if any.
+
+    ``session_kind`` is ``paired`` (a valid session of a paired device),
+    ``unpaired`` (a valid session with no device record, e.g. password login),
+    ``host`` (host-signed loopback call from the agent side) or ``none``.
+    Never raises; outside the webui process it reports the IP only."""
+    actor = {"ip": "", "device_id": "", "device_name": "", "session_kind": "none"}
+    try:
+        actor["ip"] = client_ip(handler)
+        from api.auth import check_host_signature, parse_cookie, verify_session
+        from api.pairing import find_device_by_session
+        cookie = parse_cookie(handler) or ""
+        device = find_device_by_session(cookie) if cookie else None
+        if device:
+            actor["device_id"] = str(device.get("id") or "")
+            actor["device_name"] = str(device.get("name") or "")
+        if cookie and verify_session(cookie):
+            actor["session_kind"] = "paired" if device else "unpaired"
+        elif check_host_signature(handler):
+            actor["session_kind"] = "host"
+    except Exception:
+        pass
+    return actor

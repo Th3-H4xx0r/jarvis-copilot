@@ -412,9 +412,12 @@ def revoke_device(device_id: str) -> bool:
     the corresponding session, which we don't track here yet."""
     with _LOCK:
         devices = _read_devices()
-        before = len(devices["devices"])
+        gone = [d for d in devices["devices"] if d.get("id") == device_id]
         devices["devices"] = [d for d in devices["devices"] if d.get("id") != device_id]
-        if len(devices["devices"]) != before:
+        if gone:
             _write_devices(devices)
+            from security.events import emit
+            emit("device", "device.revoked",
+                 {"device_id": str(device_id), "device_name": str(gone[0].get("name") or "")})
             return True
         return False

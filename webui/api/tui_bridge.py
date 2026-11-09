@@ -67,6 +67,9 @@ def handle_websocket(handler, parsed) -> bool:
     upgraded = ws_upgrade.accept(handler)
     if upgraded is None:
         return True
+    from security.events import emit
+    from security.netid import actor_for
+    emit("device", "tui.opened", actor_for(handler))
     conn, sock = upgraded
     _run_bridge(conn, sock)
     return True

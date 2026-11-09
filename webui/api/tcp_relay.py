@@ -358,6 +358,9 @@ def handle_tcp_relay(handler, parsed) -> bool:
         _relay_count += 1
     log.info("tcp-relay: device=%s -> %s:%s open (%d active)",
              device.get("id"), _TARGET_HOST, _target_port(), _relay_count)
+    from security.events import emit
+    from security.netid import actor_for
+    emit("device", "relay.opened", actor_for(handler), target_port=_target_port())
     ws_chan = WsSocketChannel(sock, ws)
     # Relay-level keepalive: a tiny WS TEXT frame every _KEEPALIVE_INTERVAL keeps
     # the proxy chain from holding the last data frame (see send_keepalive). The

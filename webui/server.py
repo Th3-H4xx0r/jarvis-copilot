@@ -216,6 +216,34 @@ def _is_client_disconnect(exc: BaseException) -> bool:
     return False
 
 
+# Security Advisor deny list: ip -> last time a refusal was recorded for it.
+_BLOCK_LOGGED: dict = {}
+
+
+def _advisor_blocked(handler) -> bool:
+    """Refuse a request from an IP the Security Advisor has blocked (403).
+
+    Loopback is never refused, so the box itself and host-signed calls always get in.
+    Records ``request.blocked`` at most once per IP per minute."""
+    try:
+        from security.blocklist import default_blocklist
+        from security.netid import client_ip
+        ip = client_ip(handler)
+        if not ip or ip in ("127.0.0.1", "::1") or not default_blocklist().is_blocked(ip):
+            return False
+    except Exception:
+        return False
+    now = time.time()
+    if now - _BLOCK_LOGGED.get(ip, 0) >= 60:
+        if len(_BLOCK_LOGGED) > 4096:
+            _BLOCK_LOGGED.clear()
+        _BLOCK_LOGGED[ip] = now
+        from security.events import emit
+        emit("device", "request.blocked", {"ip": ip}, path=urlparse(handler.path or "/").path)
+    j(handler, {"error": "blocked"}, status=403)
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     timeout = 30  # seconds — kills idle/incomplete connections to prevent thread exhaustion
     
@@ -300,6 +328,7 @@ class Handler(BaseHTTPRequestHandler):
         if cookie_profile:
             set_request_profile(cookie_profile)
         try:
+            if _advisor_blocked(self): return
             parsed = urlparse(self.path)
             if not check_auth(self, parsed): return
             # WebSocket upgrade dispatch — must run BEFORE handle_get because the
@@ -374,6 +403,7 @@ class Handler(BaseHTTPRequestHandler):
             set_request_profile(cookie_profile)
         # Local alias avoids hoisting the global into every successful path.
         try:
+            if _advisor_blocked(self): return
             parsed = urlparse(self.path)
             # Stage-346 Opus SHOULD-FIX defense-in-depth: scope the CSP-report
             # auth carve-out to POST only. The endpoint is intentionally

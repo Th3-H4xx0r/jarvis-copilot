@@ -201,4 +201,7 @@ def route(req) -> bool:
     """Mounted at /api/door (api/mounts.py)."""
     status, payload = handle_door_request(req.method, req.sub_with_query, req.body,
                                           host_signed=req.host_signed, caller=door_caller(req.handler))
+    if req.method != "GET":
+        from api.car_routes import _emit_command
+        _emit_command("door.command", req, status)
     return req.reply(status, payload)

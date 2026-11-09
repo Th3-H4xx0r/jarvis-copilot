@@ -104,6 +104,10 @@ def handle_tool_keys_post(handler, parsed, body) -> bool:
         logger.warning("tool keys: switching browser.cloud_provider failed", exc_info=True)
         j(handler, {"error": "the key was saved, but the cloud browser could not be switched over"}, status=500)
         return True
+    from security.events import emit
+    from security.netid import actor_for
+    emit("device", "config.secret_changed", actor_for(handler),
+         name=spec["env"], action="saved" if key else "removed")
     j(handler, {"ok": True, "tool": tool_id, "action": "saved" if key else "removed", "tools": _tools()})
     return True
 

@@ -2860,6 +2860,10 @@ def handle_post(handler, parsed) -> bool:
         result = set_provider_key(provider_id, api_key)
         if not result.get("ok"):
             return bad(handler, result.get("error", "Unknown error"))
+        from security.events import emit
+        from security.netid import actor_for
+        emit("device", "config.secret_changed", actor_for(handler),
+             name=f"provider:{provider_id}", action="saved" if api_key else "removed")
         return j(handler, result)
 
     if parsed.path == "/api/providers/delete":
@@ -2869,6 +2873,10 @@ def handle_post(handler, parsed) -> bool:
         result = remove_provider_key(provider_id)
         if not result.get("ok"):
             return bad(handler, result.get("error", "Unknown error"))
+        from security.events import emit
+        from security.netid import actor_for
+        emit("device", "config.secret_changed", actor_for(handler),
+             name=f"provider:{provider_id}", action="removed")
         return j(handler, result)
 
     if parsed.path == "/api/reasoning":
@@ -3243,6 +3251,11 @@ def handle_post(handler, parsed) -> bool:
 
         saved = save_settings(body)
         saved.pop("password_hash", None)  # never expose hash to client
+        if requested_password or requested_clear_password:
+            from security.events import emit
+            from security.netid import actor_for
+            emit("device", "config.password_changed", actor_for(handler),
+                 action="set" if requested_password else "clear")
 
         auth_enabled_after = is_auth_enabled()
         auth_just_enabled = bool(
@@ -3516,12 +3529,15 @@ def handle_post(handler, parsed) -> bool:
             is_auth_enabled,
         )
         from api.auth import _check_and_record_login
-        from security.netid import client_ip as _client_ip
+        from security.events import emit
+        from security.netid import actor_for
 
         if not is_auth_enabled():
             return j(handler, {"ok": True, "message": "Auth not enabled"})
-        client_ip = _client_ip(handler)
-        if not _check_and_record_login(client_ip):
+        actor = actor_for(handler)
+        ua = (handler.headers.get("User-Agent") or "")[:200]
+        if not _check_and_record_login(actor["ip"]):
+            emit("device", "login.failed", actor, reason="rate_limited", ua=ua)
             return j(
                 handler,
                 {"error": "Too many attempts. Try again in a minute."},
@@ -3529,7 +3545,9 @@ def handle_post(handler, parsed) -> bool:
             )
         password = body.get("password", "")
         if not verify_password(password):
+            emit("device", "login.failed", actor, reason="bad_password", ua=ua)
             return bad(handler, "Invalid password", 401)
+        emit("device", "login.ok", actor, ua=ua)
         cookie_val = create_session()
         handler.send_response(200)
         handler.send_header("Content-Type", "application/json")
@@ -3589,11 +3607,15 @@ def handle_post(handler, parsed) -> bool:
             set_auth_cookie,
             _check_and_record_login,
         )
-        from api.pairing import claim_pairing_code
-        from security.netid import client_ip as _client_ip
+        from api.pairing import claim_pairing_code, find_device_by_session
+        from security.events import emit
+        from security.netid import actor_for
 
-        client_ip = _client_ip(handler)
+        actor = actor_for(handler)
+        client_ip = actor["ip"]
         if not _check_and_record_login(client_ip):
+            emit("device", "pair.failed", actor, reason="rate_limited",
+                 ua=(handler.headers.get("User-Agent") or "")[:200])
             return j(
                 handler,
                 {"error": "Too many attempts. Try again in a minute."},
@@ -3611,7 +3633,13 @@ def handle_post(handler, parsed) -> bool:
             user_agent=ua,
         )
         if not cookie_val:
+            emit("device", "pair.failed", actor, reason="bad_code", ua=ua[:200])
             return bad(handler, "Invalid or expired pairing code", 401)
+        device = find_device_by_session(cookie_val) or {}
+        emit("device", "pair.claimed",
+             {**actor, "device_id": str(device.get("id") or ""),
+              "device_name": str(device.get("name") or device_name), "session_kind": "paired"},
+             ua=ua[:200])
         # If a Cloudflare Access service token is configured for the tunnel,
         # hand it to the freshly-paired device so its native (non-browser)
         # requests can clear Access at the edge. Omitted when unconfigured, so

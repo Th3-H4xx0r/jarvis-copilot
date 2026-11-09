@@ -439,6 +439,8 @@ def invalidate_session(cookie_value) -> None:
         if token in _sessions:
             _sessions.pop(token, None)
             _save_sessions(_sessions)
+            from security.events import emit
+            emit("device", "session.revoked", {"session_prefix": token[:8]})
 
 
 def parse_cookie(handler) -> str | None:
@@ -453,6 +455,30 @@ def parse_cookie(handler) -> str | None:
         return None
     morsel = cookie.get(COOKIE_NAME)
     return morsel.value if morsel else None
+
+
+# ip -> last time a valid session was recorded for it (security advisor input).
+_SESSION_SEEN: dict[str, float] = {}
+_SESSION_SEEN_EVERY = 3600
+
+
+def _note_session_seen(handler) -> None:
+    """Record, at most hourly per IP, that this IP presented a valid session.
+
+    The security advisor never auto-blocks an IP seen here in the last 7 days."""
+    try:
+        from security.netid import actor_for, client_ip
+        ip = client_ip(handler)
+        now = time.time()
+        if now - _SESSION_SEEN.get(ip, 0) < _SESSION_SEEN_EVERY:
+            return
+        if len(_SESSION_SEEN) > 4096:
+            _SESSION_SEEN.clear()
+        _SESSION_SEEN[ip] = now
+        from security.events import emit
+        emit("device", "session.seen", actor_for(handler))
+    except Exception:
+        pass
 
 
 def check_auth(handler, parsed) -> bool:
@@ -480,6 +506,7 @@ def check_auth(handler, parsed) -> bool:
                 renew_session(cookie_val)
         except Exception:
             pass
+        _note_session_seen(handler)
         return True
     # Host-local carve-out for CLI/agent automation. The signing key is
     # 0600-owned by the same user the webui runs as, so a process that
@@ -490,6 +517,11 @@ def check_auth(handler, parsed) -> bool:
         return True
     # Not authorized
     if parsed.path.startswith('/api/'):
+        from security.events import emit
+        from security.netid import actor_for
+        emit("device", "auth.failed", actor_for(handler),
+             reason="bad_cookie" if cookie_val else "no_cookie", path=parsed.path,
+             ua=(handler.headers.get('User-Agent') or '')[:200])
         handler.send_response(401)
         handler.send_header('Content-Type', 'application/json')
         handler.end_headers()

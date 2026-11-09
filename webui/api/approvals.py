@@ -229,6 +229,9 @@ def _handle_approval_respond(handler, body):
     if choice not in ("once", "session", "always", "deny"):
         return bad(handler, f"Invalid choice: {choice}")
     respond_approval(sid, choice, body.get("approval_id", ""))
+    from security.events import emit
+    from security.netid import actor_for
+    emit("device", "approval.answered", actor_for(handler), choice=choice, session_id=str(sid)[:80])
     return j(handler, {"ok": True, "choice": choice})
 
 

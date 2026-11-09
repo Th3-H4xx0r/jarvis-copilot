@@ -187,4 +187,17 @@ def route(req) -> bool:
     """Mounted at /api/car (api/mounts.py)."""
     status, payload = handle_car_request(req.method, req.sub_with_query, req.body,
                                          host_signed=req.host_signed)
+    if req.method != "GET" and req.sub != "/refresh":
+        _emit_command("car.command", req, status)
     return req.reply(status, payload)
+
+
+def _emit_command(kind: str, req, status: int) -> None:
+    """Security advisor: what was asked, by whom, and how it went. No secrets: only the
+    path, the body's ``command`` and the HTTP result."""
+    from security.events import emit
+    from security.netid import actor_for
+    body = req.body if isinstance(req.body, dict) else {}
+    caller = "host" if req.host_signed else ("button" if body.get("by") == "button" else "session")
+    emit("device", kind, actor_for(req.handler), path=req.sub, command=str(body.get("command") or "")[:60],
+         result=int(status), caller=caller)

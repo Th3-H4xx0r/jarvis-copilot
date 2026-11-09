@@ -46,6 +46,10 @@ def handle_edge_post(handler, parsed, body: Dict[str, Any]) -> bool:
     """POST /api/edge/* — returns True if handled."""
     path = parsed.path
     body = body or {}
+    if path in ("/api/edge/configure", "/api/edge/enable", "/api/edge/disable"):
+        from security.events import emit
+        from security.netid import actor_for
+        emit("device", "config.edge_changed", actor_for(handler), action=path.rsplit("/", 1)[-1])
     try:
         if path == "/api/edge/configure":
             return j(handler, _mgr().configure(body))
