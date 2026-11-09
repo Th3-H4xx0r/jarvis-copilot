@@ -14970,6 +14970,10 @@ class GatewayRunner:
         
         # Bridge sync step_callback → async hooks.emit for agent:step events
         _loop_for_step = asyncio.get_running_loop()
+        # run_sync fills agent_holder / stream_consumer_holder on a worker
+        # thread and sets these (via call_soon_threadsafe) right after.
+        _agent_ready = asyncio.Event()
+        _stream_consumer_ready = asyncio.Event()
         _hooks_ref = self.hooks
 
         def _step_callback_sync(iteration: int, prev_tools: list) -> None:
@@ -15133,6 +15137,7 @@ class GatewayRunner:
                                 if _run_still_current():
                                     _stream_consumer.on_delta(text)
                         stream_consumer_holder[0] = _stream_consumer
+                        _loop_for_step.call_soon_threadsafe(_stream_consumer_ready.set)
                 except Exception as _sc_err:
                     logger.debug("Could not set up stream consumer: %s", _sc_err)
 
@@ -15371,6 +15376,7 @@ class GatewayRunner:
 
             # Store agent reference for interrupt support
             agent_holder[0] = agent
+            _loop_for_step.call_soon_threadsafe(_agent_ready.set)
             # Capture the full tool definitions for transcript logging
             tools_holder[0] = agent.tools if hasattr(agent, 'tools') else None
             
@@ -15850,26 +15856,26 @@ class GatewayRunner:
         if tool_progress_enabled:
             progress_task = asyncio.create_task(send_progress_messages())
 
-        # Start stream consumer task — polls for consumer creation since it
-        # happens inside run_sync (thread pool) after the agent is constructed.
+        # Start stream consumer task — the consumer is created inside run_sync
+        # (thread pool) after the agent is constructed.
         stream_task = None
 
         async def _start_stream_consumer():
-            """Wait for the stream consumer to be created, then run it."""
-            for _ in range(200):  # Up to 10s wait
-                if stream_consumer_holder[0] is not None:
-                    await stream_consumer_holder[0].run()
-                    return
-                await asyncio.sleep(0.05)
+            """Wait (up to 10s) for the stream consumer to be created, then run it."""
+            try:
+                await asyncio.wait_for(_stream_consumer_ready.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                return
+            if stream_consumer_holder[0] is not None:
+                await stream_consumer_holder[0].run()
 
         stream_task = asyncio.create_task(_start_stream_consumer())
         
         # Track this agent as running for this session (for interrupt support)
         # We do this in a callback after the agent is created
         async def track_agent():
-            # Wait for agent to be created
-            while agent_holder[0] is None:
-                await asyncio.sleep(0.05)
+            # Wait for agent to be created (cancelled with the run if it never is)
+            await _agent_ready.wait()
             if not session_key:
                 return
             # Only promote the sentinel to the real agent if this run is still
