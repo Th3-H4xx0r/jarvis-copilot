@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cron.jobs import (
     AmbiguousJobReference,
+    _normalize_skill_list,
     create_job,
     get_job,
     list_jobs,
@@ -170,24 +171,6 @@ def _repeat_display(job: Dict[str, Any]) -> str:
     return f"{completed}/{times}" if completed else f"{times} times"
 
 
-def _canonical_skills(skill: Optional[str] = None, skills: Optional[Any] = None) -> List[str]:
-    if skills is None:
-        raw_items = [skill] if skill else []
-    elif isinstance(skills, str):
-        raw_items = [skills]
-    else:
-        raw_items = list(skills)
-
-    normalized: List[str] = []
-    for item in raw_items:
-        text = str(item or "").strip()
-        if text and text not in normalized:
-            normalized.append(text)
-    return normalized
-
-
-
-
 def _resolve_model_override(model_obj: Optional[Dict[str, Any]]) -> tuple:
     """Resolve a model override object into (provider, model) for job storage.
 
@@ -316,7 +299,7 @@ def _validate_cron_script_path(script: Optional[str]) -> Optional[str]:
 
 def _format_job(job: Dict[str, Any]) -> Dict[str, Any]:
     prompt = str(job.get("prompt") or "")
-    skills = _canonical_skills(job.get("skill"), job.get("skills"))
+    skills = _normalize_skill_list(job.get("skill"), job.get("skills"))
     job_id = str(job.get("id") or "unknown")
     name = str(job.get("name") or prompt[:50] or (skills[0] if skills else "") or job_id or "cron job")
     result = {
@@ -391,7 +374,7 @@ def cronjob(
         if normalized == "create":
             if not schedule:
                 return tool_error("schedule is required for create", success=False)
-            canonical_skills = _canonical_skills(skill, skills)
+            canonical_skills = _normalize_skill_list(skill, skills)
             _no_agent = bool(no_agent)
             # Job-shape validation differs by mode:
             #   - no_agent=True → script is the job; prompt/skills are optional
@@ -543,7 +526,7 @@ def cronjob(
             if deliver is not None:
                 updates["deliver"] = _normalize_deliver_param(deliver)
             if skills is not None or skill is not None:
-                canonical_skills = _canonical_skills(skill, skills)
+                canonical_skills = _normalize_skill_list(skill, skills)
                 updates["skills"] = canonical_skills
                 updates["skill"] = canonical_skills[0] if canonical_skills else None
             if model is not None:

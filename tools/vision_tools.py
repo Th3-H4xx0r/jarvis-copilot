@@ -476,6 +476,21 @@ def _supports_media_in_tool_results(provider: str, model: str) -> bool:
     return False
 
 
+def _model_sees_images() -> bool:
+    """Whether the ACTIVE main model can be handed image parts in a tool result.
+
+    When it cannot, a multimodal envelope is stringified into the prompt and
+    the model echoes ``data:image/jpeg;base64,…`` back at the user, so callers
+    give a text-only model the written description instead.
+    """
+    try:
+        from agent.auxiliary_client import _read_main_model, _read_main_provider
+
+        return bool(_supports_media_in_tool_results(_read_main_provider(), _read_main_model()))
+    except Exception:
+        return False
+
+
 def _build_native_vision_tool_result(
     image_url: str,
     question: str,

@@ -29,7 +29,7 @@ def _handler(monkeypatch, tmp_path, *, supports_media, described):
     monkeypatch.setattr(device_bridge, "invoke_skill",
                         lambda d, s, a: {"base64": _PNG_1PX, "mime": "image/png"})
     monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: supports_media)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: supports_media)
     monkeypatch.setattr(device_skill_tools, "_describe_image", lambda p, q: described)
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     return tools["device_recent_photo"]["handler"]
@@ -83,7 +83,7 @@ def test_the_bridges_nested_result_envelope_is_unwrapped(monkeypatch, tmp_path):
                    "mime": "image/jpeg", "taken_at": "2026-09-06T22:14:00Z"},
     })
     monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
     monkeypatch.setattr(device_skill_tools, "_describe_image",
                         lambda p, q: "A white mug on a wooden table.")
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
@@ -188,7 +188,7 @@ def test_mac_screenshot_img_b64_is_unwrapped(monkeypatch, tmp_path):
     monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a: {
         "ok": True, "result": {"img_b64": _PNG_1PX, "format": "png", "width": 1, "height": 1}})
     monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
     monkeypatch.setattr(device_skill_tools, "_describe_image", lambda p, q: "A white pixel.")
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     out = tools["device_screenshot"]["handler"]({})
@@ -210,7 +210,7 @@ def test_ui_do_look_reaches_the_model_as_numbers_and_an_image(monkeypatch, tmp_p
             "mime": "image/png", "elements": [{"i": 1, "role": "AXButton", "label": "7"}]}
     monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a: {
         "ok": True, "result": {"ok": True, "did": "click", "via": "ax", "look": look}})
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: True)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: True)
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     out = tools["device_ui_do"]["handler"]({"action": "click", "element": 1})
     assert out["_multimodal"] is True

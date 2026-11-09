@@ -46,7 +46,7 @@ def test_tool_runs_the_loop_with_the_bound_node(monkeypatch):
     from tools import computer_do_tool as T
     monkeypatch.setattr("agent.computer.mac.find_mac", lambda task_id=None: ("dev1", "MacBook", None))
     monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
-    monkeypatch.setattr("tools.device_skill_tools._model_sees_images", lambda: True)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: True)
     seen = {}
 
     def fake_run(goal, steps, cfg, **kw):

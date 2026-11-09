@@ -281,6 +281,8 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     except Exception as exc:
         out["vision_error"] = str(exc)
         return out
+    from tools.vision_tools import _model_sees_images
+
     if _is_multimodal(seen) and not _model_sees_images():
         # The pixels can't reach this model; fall back to whatever prose the
         # envelope carries rather than letting a data: URL into the prompt.
@@ -312,21 +314,6 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
 
 
 _DATA_URL_RE = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{40,}")
-
-
-def _model_sees_images() -> bool:
-    """Whether the ACTIVE model can be handed image parts inside a tool result.
-
-    When it cannot, a multimodal envelope is stringified into the prompt and the
-    model echoes `data:image/jpeg;base64,…` back at the user — so a text-only
-    model gets the written description instead.
-    """
-    try:
-        from agent.auxiliary_client import _read_main_provider, _read_main_model
-        from tools.vision_tools import _supports_media_in_tool_results
-        return bool(_supports_media_in_tool_results(_read_main_provider(), _read_main_model()))
-    except Exception:
-        return False
 
 
 def _strip_data_urls(text: str) -> str:

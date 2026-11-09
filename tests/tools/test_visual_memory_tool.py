@@ -18,7 +18,7 @@ _PNG_1PX = base64.b64decode(
 def _store(tmp_path, monkeypatch):
     monkeypatch.setattr(vm, "_visual_dir", lambda: tmp_path)
     # Assume a vision-capable model unless a test says otherwise.
-    monkeypatch.setattr(vm, "_model_sees_images", lambda: True)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: True)
     return tmp_path
 
 
@@ -136,7 +136,7 @@ def test_recall_gives_a_text_only_model_names_not_a_data_url(tmp_path, monkeypat
     """Same rule as device photos: a model that cannot take image parts must
     never be handed a base64 data URL, or it echoes it into the chat."""
     _store(tmp_path / "vault", monkeypatch)
-    monkeypatch.setattr(vm, "_model_sees_images", lambda: False)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
     vm.visual_memory("save", name="Anjali", description="Pranav's sister",
                      image_path=_photo(tmp_path))
     out = vm.visual_memory("recall", query="anjali")

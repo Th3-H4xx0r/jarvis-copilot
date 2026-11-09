@@ -214,7 +214,7 @@ def _image_skill(monkeypatch, tmp_path, result, described="A cat on a sofa."):
 
     monkeypatch.setattr(device_skill_tools, "_describe_image", fake_describe)
     # Assume a vision-capable main model unless a test says otherwise.
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: True)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: True)
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     return tools["device_recent_photo"]["handler"], calls
 
@@ -502,7 +502,7 @@ def test_materialized_device_image_lands_in_chat_folder_with_show_with(monkeypat
     monkeypatch.setenv("HERMES_SESSION_ID", "chat9")
     monkeypatch.setenv("HERMES_SESSION_PLATFORM", "webui")
     handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _real_png_b64(), "mime": "image/png"})
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
     out = json.loads(handler({}))
     assert Path(out["image_path"]).parent == chat_media.media_dir("chat9")
     assert out["show_with"] == f"![recent photo]({out['image_path']})"
@@ -526,7 +526,7 @@ def test_device_image_without_a_chat_keeps_the_cache_and_media_token(monkeypatch
     monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
     monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
     handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _real_png_b64(), "mime": "image/png"})
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    monkeypatch.setattr("tools.vision_tools._model_sees_images", lambda: False)
     out = json.loads(handler({}))
     assert Path(out["image_path"]).parent == tmp_path
     assert out["show_with"] == f"MEDIA:{out['image_path']}"
