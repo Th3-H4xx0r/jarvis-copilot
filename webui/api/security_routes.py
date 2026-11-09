@@ -3,7 +3,8 @@
 ``handle_security_request(method, path, body, query, host_signed, actor, ...)`` returns
 ``(status, payload)``. Reads are open to any authenticated caller (Jarvis's read-only tools
 use the host-signed loopback). Every change — settings, undo, alert answers — needs a
-device session, never ``host_signed``; Block and Allow also need a Face ID signature
+paired device's session (``actor.session_kind == "paired"``), never ``host_signed`` or a
+password-only session; Block and Allow also need a Face ID signature
 (``plugins/toyota/approver.py``, domain ``jarvis-security``, command ``"<action>:<id>"``)::
 
     GET  /status                       -> {state, open_alerts, blocks, last_event, sources, chain_ok}
@@ -170,13 +171,23 @@ def handle_security_request(method, path, body, query, host_signed=False, actor=
 
     if method != "POST":
         return 405, {"ok": False, "error": "method not allowed"}
-    if host_signed:
+    # Every change comes from one of his paired devices: never the agent's host-signed
+    # loopback, never a password-only browser session.
+    if host_signed or actor.get("session_kind") != "paired":
         return _forbid()
     who = actor.get("device_name") or actor.get("device_id") or actor.get("ip") or "session"
 
     if path == "/settings":
         from plugins.security_advisor import settings
         patch = body.get("settings") if ("settings" in body or "model" in body) else body
+        extra = set(body) - {"settings", "model"} if patch is not body else set()
+        if extra:
+            return 400, {"ok": False, "error": f"unknown field: {sorted(extra)[0]}"}
+        if patch is not None and not isinstance(patch, dict):
+            return 400, {"ok": False, "error": "settings must be an object"}
+        if "exceptions" in (patch or {}):
+            # Only an alert's Face ID–signed Allow may add an exception.
+            return 400, {"ok": False, "error": "exceptions are set from an alert's Allow button"}
         try:
             if patch:
                 settings.save(patch)

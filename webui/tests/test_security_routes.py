@@ -43,9 +43,9 @@ def env(tmp_path, monkeypatch):
     phone = Phone()
     approver.register(phone.public, int(now), phone.sign(register_message(phone.public, int(now))))
 
-    def call(method, path, body=None, query=None, host=False):
+    def call(method, path, body=None, query=None, host=False, actor=ACTOR):
         return handle_security_request(method, path, body or {}, query or {}, host_signed=host,
-                                       actor=ACTOR, log=log, blocklist=blocks, approver=approver)
+                                       actor=actor, log=log, blocklist=blocks, approver=approver)
     return {"call": call, "log": log, "blocks": blocks, "phone": phone, "now": int(now),
             "emitted": emitted}
 
@@ -168,3 +168,30 @@ def test_resolve_block_refuses_an_ip_with_a_recent_session(env):
                                   {"action": "block", **proof(env, f"block:{aid}")})
     assert status == 409 and payload["code"] == "protected"
     assert not env["blocks"].is_blocked("203.0.113.60")
+
+
+def test_every_change_needs_a_paired_device(env):
+    aid = make_alert(env["log"])
+    env["blocks"].block("203.0.113.61", "x", ttl_s=600)
+    for kind in ("unpaired", "none", "host", ""):
+        actor = {**ACTOR, "session_kind": kind}
+        for path, body in (("/settings", {"settings": {"alert_cap_per_hour": 9}}),
+                           ("/blocks/203.0.113.61/undo", {}),
+                           (f"/alerts/{aid}/resolve", {"action": "dismiss"})):
+            status, payload = env["call"]("POST", path, body, actor=actor)
+            assert status == 403 and payload["code"] == "forbidden", (kind, path)
+    assert env["blocks"].is_blocked("203.0.113.61")
+    assert env["log"].get_alert(aid)["status"] == "open"
+    _, got = env["call"]("GET", "/settings")
+    assert got["settings"]["alert_cap_per_hour"] == 3
+
+
+def test_settings_post_cannot_write_exceptions_or_unknown_keys(env):
+    for body in ({"settings": {"exceptions": {"203.0.113.62": time.time() + 600}}},
+                 {"exceptions": {"203.0.113.62": time.time() + 600}},
+                 {"settings": {"alert_cap_per_hour": 4}, "surprise": 1},
+                 {"settings": {"nope": 1}},
+                 {"settings": ["alert_cap_per_hour"]}):
+        assert env["call"]("POST", "/settings", body)[0] == 400, body
+    _, got = env["call"]("GET", "/settings")
+    assert got["settings"]["exceptions"] == {} and got["settings"]["alert_cap_per_hour"] == 3

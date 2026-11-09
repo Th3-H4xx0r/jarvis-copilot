@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import ipaddress
+import time
 
 DEFAULTS = {
     "alert_cap_per_hour": 3,
@@ -16,6 +17,9 @@ DEFAULTS = {
     # ip -> unix time the "Allow" exception expires (set from an alert's Allow button)
     "exceptions": {},
 }
+
+MAX_LIST = 200
+EXCEPTION_MAX_S = 7 * 86400  # an Allow lasts a week at most
 
 _INT_RANGES = {
     "alert_cap_per_hour": (0, 60),
@@ -47,21 +51,27 @@ def _clean(patch: dict) -> dict:
         elif key in ("quiet_hours", "usual_hours"):
             out[key] = _hours(value, key)
         elif key == "disabled_rules":
-            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            from plugins.security_advisor.rules import RULES
+            names = {r["name"] for r in RULES}
+            if (not isinstance(value, list) or len(value) > MAX_LIST
+                    or not all(isinstance(v, str) and v in names for v in value)):
                 raise ValueError("disabled_rules must be a list of rule names")
             out[key] = sorted(set(value))
         elif key == "known_ssh_ips":
-            if not isinstance(value, list):
-                raise ValueError("known_ssh_ips must be a list")
+            if (not isinstance(value, list) or len(value) > MAX_LIST
+                    or not all(isinstance(v, str) for v in value)):
+                raise ValueError(f"known_ssh_ips must be a list of at most {MAX_LIST} addresses")
             try:
                 out[key] = [str(ipaddress.ip_address(str(v).strip())) for v in value]
             except ValueError:
                 raise ValueError("known_ssh_ips must hold IP addresses") from None
         elif key == "exceptions":
-            if not isinstance(value, dict):
+            if not isinstance(value, dict) or len(value) > MAX_LIST:
                 raise ValueError("exceptions must map IP to expiry")
+            cap = time.time() + EXCEPTION_MAX_S
             try:
-                out[key] = {str(ipaddress.ip_address(k)): float(v) for k, v in value.items()}
+                out[key] = {str(ipaddress.ip_address(k)): min(float(v), cap)
+                            for k, v in value.items()}
             except (TypeError, ValueError):
                 raise ValueError("exceptions must map IP to expiry") from None
     return out
