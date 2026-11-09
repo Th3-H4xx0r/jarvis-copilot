@@ -62,7 +62,7 @@ def test_query_memory_reads_local_files(tmp_path, monkeypatch):
     mem_dir.mkdir(parents=True)
     (mem_dir / "MEMORY.md").write_text("# Memory\nalpha fact\n", encoding="utf-8")
     (mem_dir / "USER.md").write_text("user is Pranav\n", encoding="utf-8")
-    monkeypatch.setattr(cms.os.path, "expanduser", lambda p: str(tmp_path) if p == "~" else p)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".jarviscopilot"))  # the active profile
     out = cms._query_memory("alpha")
     assert "alpha fact" in out
 
