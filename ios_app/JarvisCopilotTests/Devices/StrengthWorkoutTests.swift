@@ -52,6 +52,78 @@ final class StrengthWorkoutTests: XCTestCase {
         override func signal() async { signals += 1 }
     }
 
+    /// A wearable that records what it is told; reachable or not.
+    private final class Recorder: WorkoutWearable {
+        var sent: [RingSportCommand] = []
+        var reachable = true
+        override var isPaired: Bool { true }
+        override func ensureConnected() async -> Bool { reachable }
+        override func send(_ command: RingSportCommand, sport: Int) async -> Bool {
+            sent.append(command)
+            return true
+        }
+    }
+
+    /// Reachable on demand, for the R12.
+    private final class Reach { var now = false }
+
+    func testReconnectStartsHeartRateOnceTheRingIsBack() async throws {
+        let reach = Reach()
+        let c = RingWorkoutController(session: ring, ensureConnected: { reach.now }, training: store, library: library,
+                                      clock: { [unowned self] in self.clock })
+        c.startTimeout = 0.3
+        c.startStrength(template: template())
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(c.vitalsNote?.hasPrefix("Can't reach"), true)
+        reach.now = true
+        c.reconnectVitals()
+        XCTAssertNil(c.vitalsNote, "trying again")
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertEqual(link.payloads(0x77).first.map { Array($0.prefix(2)) }, [1, 88])
+    }
+
+    func testChangeMovesHeartRateToAnotherWearable() async throws {
+        let c = controller()
+        let band = Recorder(kind: "test-recorder")
+        c.add(band)
+        c.startStrength(template: template())   // the paired one: the band
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertEqual(band.sent, [.start])
+        c.trackVitals(with: WearableKeepAlive.ring)
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertEqual(band.sent, [.start, .stop], "the band is told to stop")
+        XCTAssertEqual(link.payloads(0x77).first.map { Array($0.prefix(2)) }, [1, 88], "the ring starts")
+        XCTAssertEqual(c.wearable.kind, WearableKeepAlive.ring)
+        c.trackVitals(with: nil)
+        XCTAssertFalse(c.tracksVitals)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(link.payloads(0x77).last.map { Array($0.prefix(2)) }, [4, 88], "no wearable: the ring stops")
+    }
+
+    func testARestoredWorkoutWaitsForItsOwnWearable() async throws {
+        defer { UserDefaults.standard.removeObject(forKey: RingWorkoutController.wearableKey) }
+        let first = controller(connected: false)
+        first.startStrength(template: template())
+        UserDefaults.standard.setValue("test-recorder", forKey: RingWorkoutController.wearableKey)
+        let again = controller()
+        let band = Recorder(kind: "test-recorder")
+        again.add(band)
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertTrue(again.wearable === band)
+        XCTAssertEqual(band.sent, [.start], "heart rate from the band it ran on")
+        XCTAssertTrue(link.payloads(0x77).isEmpty, "not from the R12 meanwhile")
+    }
+
+    func testCancellingStopsAWearableWhoseStartNeverLanded() async throws {
+        let c = controller(connected: false)
+        c.startStrength(template: template())
+        try await Task.sleep(nanoseconds: 100_000_000)
+        c.cancelStrength()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(link.payloads(0x77).last.map { Array($0.prefix(2)) }, [4, 88],
+                       "a session started before a relaunch isn't left running")
+    }
+
     func testARestRunningOutSignalsEveryWearableWhoseSwitchIsOn() async throws {
         let c = controller()
         let on = Signaller(kind: "test-signal-on"), off = Signaller(kind: "test-signal-off")
@@ -79,7 +151,7 @@ final class StrengthWorkoutTests: XCTestCase {
         XCTAssertEqual(c.phase, .running, "no countdown, no failure")
         XCTAssertNotNil(c.strength)
         try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(c.vitalsNote, "No ring — logging sets only.")
+        XCTAssertEqual(c.vitalsNote?.hasPrefix("Can't reach"), true, c.vitalsNote ?? "no note")
         XCTAssertTrue(link.payloads(0x77).isEmpty)
     }
 

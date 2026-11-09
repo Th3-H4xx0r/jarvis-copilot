@@ -251,6 +251,8 @@ final class RingWorkoutController: ObservableObject {
         }
         if let strength {
             strength.resync()
+            // The link may have gone while the app was away: heart rate again.
+            if usesWearable, !vitalsFresh { startRingVitals() }
             liveActivity?.retry()
             return pushStrengthActivity()
         }
@@ -793,9 +795,15 @@ final class RingWorkoutController: ObservableObject {
         if other.kind == pendingWearable {
             wearable = other
             pendingWearable = nil
+            // A strength workout restored at launch waited for this one.
+            if strength != nil, usesWearable { startRingVitals() }
         }
         // The start screen observes this: a wearable's link or battery changing redraws it.
         other.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watching)
+        other.$state.removeDuplicates().sink { [weak self, weak other] state in
+            guard let self, let other else { return }
+            self.linkChanged(other, state)
+        }.store(in: &watching)
         other.onTick = { [weak self, weak other] tick in
             guard let self, let other else { return }
             self.receive(tick, from: other)
@@ -921,8 +929,10 @@ extension RingWorkoutController {
         showsLive = true
         phase = .running
         if !ringRunning {
-            // The start screen's choice: no wearable means no ring session at all.
-            let usesRing = nextStartUsesRing ?? WorkoutMonitorPreference.usesRing
+            // The start screen's choice: no wearable means no ring session at all. A restored
+            // workout ran with one if one was kept for it.
+            let usesRing = restoring ? defaults.string(forKey: Self.wearableKey) != nil
+                : nextStartUsesRing ?? WorkoutMonitorPreference.usesRing
             nextStartUsesRing = nil
             usesWearable = usesRing
             // A restored workout keeps its wearable (`restoreWearable`, finished by `add(_:)`
@@ -932,7 +942,8 @@ extension RingWorkoutController {
                 rememberWearable()
             }
             if usesRing {
-                startRingVitals()
+                // One still to register is started on by `add(_:)`, not on the R12 meanwhile.
+                if pendingWearable == nil { startRingVitals() }
             } else {
                 vitalsNote = "No wearable chosen — logging sets without heart rate."
             }
@@ -956,28 +967,83 @@ extension RingWorkoutController {
         return all.filter { $0.isPaired && $0.canSignal }
     }
 
-    /// Ask the ring for a strength session underneath — unless it already
-    /// sends one (a workout picked up after a relaunch).
+    /// The strength workout on screen takes heart rate from a wearable.
+    var tracksVitals: Bool { strength != nil && usesWearable }
+
+    /// The wearable sent a tick in the last few seconds.
+    private var vitalsFresh: Bool {
+        lastTickAt.map { clock().timeIntervalSince($0) < 10 } ?? false
+    }
+
+    /// The strength screen's Reconnect: the link again, and the session again if it went quiet.
+    func reconnectVitals() {
+        guard strength != nil, phase == .running, usesWearable else { return }
+        vitalsNote = nil
+        startRingVitals()
+    }
+
+    /// The strength screen's Change: heart rate from `kind`'s wearable, or (nil) none. The old
+    /// one is told to stop and lets its link go.
+    func trackVitals(with kind: String?) {
+        guard strength != nil, phase == .running else { return }
+        let old = wearable
+        let next = kind.flatMap { k in wearables.first { $0.kind == k } }
+        if next === old, usesWearable { return }
+        pending?.cancel()
+        if ringStarted, usesWearable { stopRing() }
+        tick = nil
+        lastTickAt = nil
+        if let next {
+            wearable = next
+            usesWearable = true
+        } else {
+            usesWearable = false
+            vitalsNote = "No wearable chosen — logging sets without heart rate."
+        }
+        rememberWearable()
+        if old !== wearable || !usesWearable { old.released() }
+        if usesWearable { startRingVitals() }
+        pushStrengthActivity()
+    }
+
+    /// Ask the wearable for a strength session underneath — unless it already sends one (a
+    /// workout picked up after a relaunch, a link that came back).
     private func startRingVitals() {
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
             let wearable = self.wearable
             guard await wearable.ensureConnected() else {
-                if self.strength != nil { self.vitalsNote = "No ring — logging sets only." }
+                if !Task.isCancelled, self.strength != nil, self.wearable === wearable {
+                    self.vitalsNote = "Can't reach \(wearable.name) — logging sets only."
+                }
                 return
             }
             try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled, self.strength != nil else { return }
-            if self.lastTickAt == nil {
+            let ticks = self.strengthTicks
+            if !self.vitalsFresh {
                 await wearable.send(.start, sport: RingSport.strengthID)
+            }
+            // Cancelled, switched away from or ended while the start was in flight: it isn't
+            // left running with nobody to stop it.
+            guard self.strength != nil, self.usesWearable, self.wearable === wearable else {
+                await wearable.send(.stop, sport: RingSport.strengthID)
+                return
             }
             self.ringStarted = true
             try? await Task.sleep(for: .seconds(self.startTimeout))
-            if !Task.isCancelled, self.strength != nil, self.lastTickAt == nil {
-                self.vitalsNote = "The ring didn't start — logging sets only."
+            if !Task.isCancelled, self.strength != nil, self.strengthTicks == ticks {
+                self.vitalsNote = "\(wearable.name) didn't start — logging sets only."
             }
         }
+    }
+
+    /// The link to the workout's wearable came back after vitals gave up: heart rate again.
+    private func linkChanged(_ source: WorkoutWearable, _ state: ConnectionState) {
+        guard state == .ready, source === wearable, strength != nil, phase == .running,
+              usesWearable, vitalsNote != nil else { return }
+        startRingVitals()
     }
 
     /// Every change is saved and shown a moment later — a keystroke's worth
@@ -1089,7 +1155,8 @@ extension RingWorkoutController {
         pending?.cancel()
         strength.cancelRest()
         strength.focus = nil
-        if ringStarted { stopRing() }
+        // A session started before a relaunch, or still starting, is stopped too.
+        if ringStarted || usesWearable { stopRing() }
         let end = clock()
         endedAt = end
         let profile = profile()
@@ -1129,7 +1196,7 @@ extension RingWorkoutController {
     func cancelStrength() {
         guard strength != nil else { return }
         pending?.cancel()
-        if ringStarted { stopRing() }
+        if ringStarted || usesWearable { stopRing() }
         endedAt = clock()
         liveActivity?.end()
         defaults.removeObject(forKey: Self.wearableKey)

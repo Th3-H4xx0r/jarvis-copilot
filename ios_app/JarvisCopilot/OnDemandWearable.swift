@@ -38,6 +38,11 @@ extension OnDemandWearable {
     /// Reconnects if needed and waits until the link is usable.
     func ensureConnected(timeout: TimeInterval = 12) async -> Bool {
         if state == .ready { return true }
+        // Just after launch the radio hasn't reported in yet: a moment for it, not a failure.
+        let radioDeadline = Date().addingTimeInterval(min(timeout, 3))
+        while !bluetoothReady, Date() < radioDeadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
         guard bluetoothReady else { return false }
         startLink()
         let deadline = Date().addingTimeInterval(timeout)

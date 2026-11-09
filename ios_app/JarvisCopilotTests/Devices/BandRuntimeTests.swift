@@ -220,6 +220,26 @@ final class BandRuntimeTests: XCTestCase {
         _ = await wearable.send(.stop, sport: RingSport.strengthID)
     }
 
+    /// His cancelled strength workout left the band in sport mode, so his blood pressure was
+    /// refused as busy: a status poll answered mid-stop read "not started" and started it again.
+    func testAPollAnsweredMidStopDoesNotStartTheSessionAgain() async throws {
+        let wearable = BandWorkoutWearable(session: session, connect: { true })
+        wearable.statusInterval = 0.1
+        wearable.stepInterval = 60
+        wearable.nudgeInterval = 0
+        link.script(BandOp.sportControl, ["da0101"])
+        _ = await wearable.send(.start, sport: RingSport.strengthID)
+        try await Task.sleep(for: .milliseconds(200))   // a poll is out, unanswered
+        link.script(BandOp.sportControl, ["da0101"])   // the stop's ack
+        let stop = Task { await wearable.send(.stop, sport: RingSport.strengthID) }
+        try await Task.sleep(for: .milliseconds(20))
+        link.push("da020101a00101a1021900a20102a30100a40100a50409000000a60400000000a7014da80400000000a9020000aa020000")
+        _ = await stop.value
+        try await Task.sleep(for: .milliseconds(300))
+        let ops = link.sent.filter { $0.count > 4 && $0[0] == BandOp.sportControl && $0[1] == 0x01 }.map { $0[4] }
+        XCTAssertEqual(ops, [BandSportOp.start.rawValue, BandSportOp.stop.rawValue], "stopped stays stopped")
+    }
+
     func testTheBandBuzzesWithItsFindAndStopsIt() async throws {
         scriptSetup()
         try await session.runSetup(profile: nil)

@@ -111,8 +111,14 @@ final class BandWorkoutWearable: WorkoutWearable {
             _ = await session.sport(.resume, type: bandType)
             return true
         case .stop:
-            _ = await session.sport(.stop, type: bandType)
-            finish()
+            // The polls go first: one landing mid-stop reads "not started" and would start the
+            // session again (`keepRunning`), leaving the band in sport mode and every spot
+            // reading refused as busy.
+            let last = halt()
+            if !(await session.sport(.stop, type: bandType)) {
+                _ = await session.sport(.stop, type: bandType)
+            }
+            if let last { onTick?(last) }
             return true
         case .query:
             return true
@@ -220,7 +226,8 @@ final class BandWorkoutWearable: WorkoutWearable {
         }
         let type = bandType
         Task { [weak self] in
-            guard let self else { return }
+            // Stopped since: the band stays stopped.
+            guard let self, self.startedAt != nil else { return }
             if !(await self.session.sport(op, type: type)), op == .resume {
                 _ = await self.session.sport(.start, type: type)
             }
@@ -262,16 +269,17 @@ final class BandWorkoutWearable: WorkoutWearable {
         }
     }
 
-    private func finish() {
+    /// Stops ticking and polling; the session's last tick, marked ended, if one was running.
+    private func halt() -> RingSportTick? {
         ticker?.cancel()
         stepPoll?.cancel()
         statusPoll?.cancel()
         ticker = nil
         stepPoll = nil
         statusPoll = nil
-        guard startedAt != nil else { return }
+        guard startedAt != nil else { return nil }
         let last = tick(state: .ended)
         startedAt = nil
-        onTick?(last)
+        return last
     }
 }

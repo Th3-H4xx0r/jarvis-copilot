@@ -8,6 +8,8 @@ struct StrengthLiveView: View {
     @State private var confirmingFinish = false
     @State private var confirmingCancel = false
     @State private var showingRest = false
+    /// The wearable picker, for heart rate mid-workout.
+    @State private var choosingMonitor = false
 
     private var undone: Int { session.log.exercises.flatMap(\.sets).filter { !$0.isDone }.count }
 
@@ -138,19 +140,23 @@ struct StrengthLiveView: View {
         let totals = TrainingMath.totals(session.log)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 16) {
-                HStack(spacing: 5) {
-                    RingMetricSymbol(name: "heart.fill", tint: RingMeasurementType.heartRate.tint,
-                                     pulsing: workout.tick?.heartRate != nil, size: 15)
-                    Text(workout.tick?.heartRate.map(String.init) ?? "--")
-                        .font(.system(.headline, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    if let zone = workout.zone {
-                        Text("Zone \(zone)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(WorkoutLiveView.zoneTint(zone))
+                Button { choosingMonitor = true } label: {
+                    HStack(spacing: 5) {
+                        RingMetricSymbol(name: "heart.fill", tint: RingMeasurementType.heartRate.tint,
+                                         pulsing: workout.tick?.heartRate != nil, size: 15)
+                        Text(workout.tick?.heartRate.map(String.init) ?? "--")
+                            .font(.system(.headline, design: .rounded))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        if let zone = workout.zone {
+                            Text("Zone \(zone)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(WorkoutLiveView.zoneTint(zone))
+                        }
                     }
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint("Choose the wearable for heart rate")
                 stat("scalemass", "\(Int(session.unit.show(totals.volumeKg).rounded()).formatted()) \(session.unit.symbol)")
                 stat("checkmark.circle", totals.sets == 1 ? "1 set" : "\(totals.sets) sets")
             }
@@ -158,9 +164,32 @@ struct StrengthLiveView: View {
                 Label(note, systemImage: "antenna.radiowaves.left.and.right.slash")
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(JcTheme.amber)
+                HStack(spacing: 8) {
+                    if workout.tracksVitals { noteButton("Reconnect") { workout.reconnectVitals() } }
+                    noteButton("Change") { choosingMonitor = true }
+                }
             }
         }
         .animation(.snappy, value: workout.tick?.heartRate)
+        .sheet(isPresented: $choosingMonitor) {
+            MonitorPicker(choice: .strength(nil), workout: workout,
+                          ringChosen: Binding(get: { workout.tracksVitals },
+                                              set: { workout.trackVitals(with: $0 ? workout.wearable.kind : nil) }),
+                          wearableKind: Binding(get: { workout.wearable.kind },
+                                                set: { workout.trackVitals(with: $0) }))
+        }
+    }
+
+    private func noteButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: 30)
+                .jcButtonSurface(in: RoundedRectangle(cornerRadius: JcButton.compactRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func stat(_ symbol: String, _ text: String) -> some View {
