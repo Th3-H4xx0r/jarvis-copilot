@@ -12,6 +12,9 @@ import Foundation
 ///   → {"t":"cc","do":"media","key":"play"|"next"|"previous"}
 ///   → {"t":"cc","do":"app","pid":Int}             {"do":"display","id":UInt32}
 ///   → {"t":"cc","do":"lock"|"control_center"|"mission_control"|"show_desktop"}
+///   → {"t":"cc","do":"windows","pid":Int}         ← cc_windows (MacWindows.payload) only
+///   → {"t":"cc","do":"window","pid":Int,"id":Int} raise that window (the Dock menu)
+///   → {"t":"cc","do":"app_new_window"|"app_show_all"|"app_hide"|"app_quit","pid":Int}
 ///
 /// Every action answers with a fresh `cc_state` (and `cc_apps` when apps change),
 /// so the phone's tiles always show what the Mac really is. Runs on its own queue:
@@ -23,7 +26,7 @@ final class MacControls: @unchecked Sendable {
     /// Icons this viewer already has (by bundle id): each goes once. On `queue`.
     private var sentIcons = Set<String>()
 
-    init(pipeline: FramePipeline, reply: @escaping @Sendable ([String: Any]) -> Void) {
+    init(pipeline: FramePipeline?, reply: @escaping @Sendable ([String: Any]) -> Void) {
         self.pipeline = pipeline
         self.reply = reply
     }
@@ -39,7 +42,13 @@ final class MacControls: @unchecked Sendable {
         let on = J.b(m["on"])
         var problem: String?
         var appsChanged = action == "state"
+        /// The app whose windows to send again after the action (the Dock menu stays right).
+        var windowsOf: pid_t?
         switch action {
+        case "windows":
+            // Only the list: the Dock menu asks on every open, and a full state read runs AppleScript.
+            reply(windows(pid_t(J.i(m["pid"]))))
+            return
         case "state":
             break
         case "wifi":
@@ -76,6 +85,16 @@ final class MacControls: @unchecked Sendable {
             }
             if !found { problem = "That app isn't running any more." }
             appsChanged = true
+        case "window":
+            let pid = pid_t(J.i(m["pid"]))
+            problem = MacWindows.raise(pid: pid, id: J.i(m["id"]))
+            appsChanged = true
+            windowsOf = pid
+        case "app_new_window", "app_show_all", "app_hide", "app_quit":
+            let pid = pid_t(J.i(m["pid"]))
+            problem = dock(action, pid: pid)
+            appsChanged = true
+            if action == "app_new_window" { windowsOf = pid }
         case "display":
             let id = CGDirectDisplayID(UInt32(truncatingIfNeeded: J.i(m["id"])))
             problem = Self.blocking { [pipeline] in
@@ -95,9 +114,63 @@ final class MacControls: @unchecked Sendable {
         }
         if let problem { reply(["t": "cc_error", "do": action, "error": problem]) }
         // Let the switch settle (Wi-Fi and Bluetooth report the new state a moment later).
-        if action != "state" { Thread.sleep(forTimeInterval: action == "app" ? 0.25 : 0.4) }
+        if action != "state" { Thread.sleep(forTimeInterval: Self.settle(action)) }
         reply(state())
         if appsChanged { sendApps() }
+        if let windowsOf { reply(windows(windowsOf)) }
+    }
+
+    private static func settle(_ action: String) -> TimeInterval {
+        switch action {
+        case "app", "window", "app_hide", "app_show_all": return 0.25
+        case "app_quit", "app_new_window": return 0.6
+        default: return 0.4
+        }
+    }
+
+    // MARK: the Dock menu (on `queue`)
+
+    /// An app's windows for the phone's Dock menu. Without Accessibility the list is empty
+    /// and `ax` false, so the phone can say why.
+    private func windows(_ pid: pid_t) -> [String: Any] {
+        guard AXIsProcessTrusted() else {
+            return MacWindows.payload(pid: Int(pid), windows: [], canNewWindow: false, ax: false)
+        }
+        let running: Bool = DispatchQueue.main.sync { NSRunningApplication(processIdentifier: pid) != nil }
+        guard running else { return MacWindows.payload(pid: Int(pid), windows: [], canNewWindow: false, ax: true) }
+        return MacWindows.payload(pid: Int(pid), windows: MacWindows.list(pid: pid).map(\.info),
+                                  canNewWindow: MacWindows.newWindowItem(pid: pid) != nil, ax: true)
+    }
+
+    /// The Dock menu's actions: New Window (the app's own menu item), Show All Windows (App
+    /// Exposé, as the Dock does), Hide, Quit (the app may still ask to save). Nil when done.
+    private func dock(_ action: String, pid: pid_t) -> String? {
+        let found: Bool = DispatchQueue.main.sync {
+            guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
+            switch action {
+            case "app_hide": app.hide()
+            case "app_quit": app.terminate()
+            default:
+                app.unhide()
+                app.activate(options: action == "app_show_all" ? [.activateAllWindows] : [])
+            }
+            return true
+        }
+        guard found else { return "That app isn't running any more." }
+        switch action {
+        case "app_show_all":
+            Thread.sleep(forTimeInterval: 0.2)
+            Self.missionControl("2")
+        case "app_new_window":
+            guard AXIsProcessTrusted() else { return "Allow Jarvis in Accessibility on the Mac to open a window." }
+            Thread.sleep(forTimeInterval: 0.2)
+            guard let item = MacWindows.newWindowItem(pid: pid),
+                  AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+            else { return "This app has no New Window in its menus." }
+        default:
+            break
+        }
+        return nil
     }
 
     private var currentDisplay: CGDirectDisplayID { pipeline?.displayID ?? CGMainDisplayID() }
@@ -234,7 +307,7 @@ final class MacControls: @unchecked Sendable {
         }
     }
 
-    /// Mission Control (no argument) or Show Desktop ("1").
+    /// Mission Control (no argument), Show Desktop ("1") or the front app's windows ("2", App Exposé).
     static func missionControl(_ arg: String?) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/System/Applications/Mission Control.app/Contents/MacOS/Mission Control")
