@@ -64,6 +64,10 @@ def _build_argv(
             "--output-format", "stream-json",
             "--verbose",
             "--permission-mode", "bypassPermissions",
+            # None of Claude Code's own tools (Bash, Write, Edit, WebFetch, Cron…):
+            # they run as root inside the CLI and never pass Jarvis's approval,
+            # send/car/door gates or plugin hooks. JC's tools still arrive over MCP.
+            "--tools", "",
             "--setting-sources", "",
             "--system-prompt", system_prompt,
             "--model", model_cli]
@@ -91,9 +95,10 @@ def _build_proc_env(env: dict[str, str] | None) -> dict[str, str]:
     # (--dangerously-skip-permissions) when running as root ("cannot be used with
     # root/sudo privileges"). The hermes webui runs as root, so without this the
     # CLI exits code 1 before reading stdin → broken pipe. IS_SANDBOX=1 tells the
-    # CLI it's in a contained environment and lifts the root block. This is
-    # accurate here: JC owns the entire tool list via the MCP bridge and its
-    # executor enforces JC's own guardrails — there is nothing to "skip".
+    # CLI it's in a contained environment and lifts the root block. That holds
+    # only because _build_argv passes `--tools ""`: the CLI's own tools are off,
+    # JC owns the entire tool list via the MCP bridge, and its executor enforces
+    # JC's own guardrails — there is nothing to "skip".
     proc_env.setdefault("IS_SANDBOX", "1")
     return proc_env
 

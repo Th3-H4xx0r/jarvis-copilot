@@ -89,6 +89,14 @@ class TestArgv:
                                resume_session_id="cli-sess-1")
         assert "--resume" not in argv
 
+    def test_claude_codes_own_tools_are_off_in_every_mode(self):
+        # Its built-in Bash/Write/WebFetch run as root and never pass Jarvis's
+        # approval, send/car/door gates or plugin hooks; only the MCP bridge's
+        # tools may be offered (`--tools ""` leaves MCP tools in place).
+        for kw in ({}, {"persist_session": True}, {"persist_session": True, "resume_session_id": "s"}):
+            argv = ccs._build_argv("claude", "claude-opus-5", "{}", "sys", **kw)
+            assert argv[argv.index("--tools") + 1] == ""
+
 
 # ── config gating ────────────────────────────────────────────────────────────
 
