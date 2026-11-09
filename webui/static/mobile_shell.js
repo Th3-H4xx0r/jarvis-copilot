@@ -17,7 +17,7 @@
   const LABELS = { chat: 'Chat', voice: 'Voice', agents: 'Agents', devices: 'Devices', tasks: 'Integrations',
     kanban: 'Kanban', skills: 'Skills', memory: 'Memory', workspaces: 'Spaces', profiles: 'Profiles',
     todos: 'Todos', insights: 'Insights', logs: 'Server logs', selfimprovement: 'Learning',
-    codememory: 'Code memory', live: 'Live', settings: 'Settings' };
+    codememory: 'Code memory', live: 'Live', security: 'Security', settings: 'Settings' };
   const MORE_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
   const PHONE = window.matchMedia('(max-width: 767px)');
 

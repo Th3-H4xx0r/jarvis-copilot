@@ -1,0 +1,87 @@
+/* Security page (security.js) — the phone's unified look in black and white:
+   small uppercase labels over cards, grey capsule filters that span the width,
+   grey buttons, white fill only for the one main action (Save settings).
+   Uses the --jc-* tokens from jarvis.css with plain fallbacks for other skins. */
+#mainSecurity{
+  --sec-surface:var(--jc-surface,var(--surface));
+  --sec-step:var(--jc-surface-2,var(--hover-bg));
+  --sec-pill:var(--jc-pill,var(--surface));
+  --sec-hair:var(--jc-hair,var(--border));
+  --sec-text:var(--jc-text,var(--text));
+  --sec-text-2:var(--jc-text-2,var(--text));
+  --sec-muted:var(--jc-muted,var(--muted));
+  --sec-danger:var(--jc-danger,#E5484D);
+  --sec-warn:var(--jc-warn,#F5A524);
+}
+#securityContent{padding:8px 24px 40px;overflow-y:auto;}
+.sec-page{max-width:720px;margin:0 auto;display:flex;flex-direction:column;}
+.sec-label{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:24px 4px 8px;
+  font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--sec-muted);}
+.sec-page > .sec-label:first-child{padding-top:8px;}
+.sec-label-extra{letter-spacing:0;text-transform:none;color:var(--sec-text-2);}
+.sec-card{background:var(--sec-surface);border:1px solid var(--sec-hair);border-radius:20px;padding:16px;margin-bottom:10px;}
+.sec-card.sec-list{padding:0;overflow:hidden;}
+.sec-status-line{font-size:22px;font-weight:600;color:var(--sec-text);}
+.sec-status-line.is-alert{color:var(--sec-text);}
+.sec-sub{font-size:12.5px;color:var(--sec-muted);margin-top:3px;line-height:1.45;overflow-wrap:anywhere;}
+.sec-text{font-size:14px;color:var(--sec-text-2);margin-top:8px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
+.sec-warn{color:var(--sec-warn);}
+.sec-error{font-size:13px;color:var(--sec-danger);}
+.sec-empty{font-size:13px;color:var(--sec-muted);padding:16px;}
+.sec-title{font-size:16px;font-weight:600;color:var(--sec-text);}
+.sec-alert-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.sec-pills{display:flex;gap:6px;flex-shrink:0;}
+.sec-pill{font-size:11.5px;font-weight:500;padding:3px 9px;border-radius:999px;background:var(--sec-step);
+  border:1px solid var(--sec-hair);color:var(--sec-text-2);text-transform:capitalize;white-space:nowrap;}
+.sec-pill.sec-out-block{color:var(--sec-text);border-color:rgba(255,255,255,.28);}
+.sec-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;}
+.sec-hint{font-size:12px;color:var(--sec-muted);}
+/* Grey buttons (the Agents tab's), white only for the main action. */
+.sec-btn{height:32px;padding:0 14px;border-radius:12px;border:0;background:rgba(255,255,255,.09);
+  color:var(--sec-text);font:inherit;font-size:13px;font-weight:500;cursor:pointer;
+  transition:background-color .15s ease,opacity .15s ease;}
+.sec-btn:hover{background:rgba(255,255,255,.16);}
+.sec-btn:active{opacity:.72;}
+.sec-btn:disabled{opacity:.45;cursor:default;}
+.sec-btn-main{background:#fff;color:#000;height:40px;padding:0 20px;font-weight:600;}
+.sec-btn-main:hover{background:#e6e6e6;}
+:root:not(.dark) .sec-btn{background:rgba(0,0,0,.06);}
+:root:not(.dark) .sec-btn-main{background:#000;color:#fff;}
+/* Filters: one grey capsule per filter, always the full width. */
+.sec-filters{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
+.sec-seg{display:flex;width:100%;box-sizing:border-box;background:var(--sec-pill);border:1px solid var(--sec-hair);border-radius:999px;padding:3px;}
+.sec-seg-btn{flex:1 1 0;min-width:0;height:30px;border:0;border-radius:999px;background:transparent;color:var(--sec-muted);
+  font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background-color .15s ease,color .15s ease;}
+.sec-seg-btn:hover{color:var(--sec-text);}
+.sec-seg-btn.active{background:rgba(255,255,255,.24);color:var(--sec-text);}
+:root:not(.dark) .sec-seg-btn.active{background:rgba(0,0,0,.12);}
+/* Rows inside a card. */
+.sec-row{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:52px;box-sizing:border-box;border-top:1px solid var(--sec-hair);}
+.sec-row:first-child{border-top:0;}
+.sec-row-main{flex:1;min-width:0;}
+.sec-row-title{font-size:15px;font-weight:500;color:var(--sec-text);overflow-wrap:anywhere;}
+.sec-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;}
+.sec-digest{align-items:flex-start;}
+.sec-subhead{padding:14px 16px 4px;border-top:1px solid var(--sec-hair);font-size:11px;font-weight:500;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--sec-muted);}
+.sec-control{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.sec-to{font-size:12px;color:var(--sec-muted);}
+.sec-input{height:32px;box-sizing:border-box;background:var(--sec-step);border:1px solid var(--sec-hair);border-radius:10px;
+  color:var(--sec-text);font:inherit;font-size:13px;padding:0 8px;max-width:220px;}
+input.sec-input[type="number"]{width:72px;}
+.sec-switch{position:relative;display:inline-block;width:44px;height:26px;cursor:pointer;}
+.sec-switch input{opacity:0;width:0;height:0;position:absolute;}
+.sec-switch span{position:absolute;inset:0;border-radius:999px;background:rgba(255,255,255,.16);transition:background-color .15s ease;}
+.sec-switch span::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s ease;}
+.sec-switch input:checked + span{background:rgba(255,255,255,.55);}
+.sec-switch input:checked + span::after{transform:translateX(18px);background:#000;}
+.sec-switch input:focus-visible + span{outline:2px solid rgba(255,255,255,.6);outline-offset:2px;}
+.sec-save-row{display:flex;justify-content:flex-end;padding:14px 16px;border-top:1px solid var(--sec-hair);}
+@media (max-width:640px){
+  #securityContent{padding:8px 16px 32px;}
+  .sec-field{flex-wrap:wrap;}
+  .sec-field .sec-control{width:100%;}
+  .sec-field .sec-control select.sec-input{flex:1;max-width:none;}
+  .sec-save-row .sec-btn-main{width:100%;}
+}
