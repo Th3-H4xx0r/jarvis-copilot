@@ -13,8 +13,10 @@ final class ButtonActionsTests: XCTestCase {
     private var registered = true
     private var foreground = false
     private var serverHasKey = true
+    private var locked = false
 
     override func setUp() async throws {
+        locked = false
         sentDoor = []
         sentCar = []
         asked = []
@@ -44,8 +46,31 @@ final class ButtonActionsTests: XCTestCase {
         r.buttonKeyRegistered = { [unowned self] in registered }
         r.forgetButtonKey = { [unowned self] in registered = false }
         r.isForeground = { [unowned self] in foreground }
+        r.isDeviceLocked = { [unowned self] in locked }
         r.askOnTap = { [unowned self] action, _ in asked.append(action); return true }
         return r
+    }
+
+    // A thief with his locked iPhone must not disarm the alarm or open the car from Control Center:
+    // Skip Face ID only skips the prompt on an unlocked phone.
+    func testALockedPhonesSkipButtonStillAsksForFaceID() async {
+        locked = true
+        _ = await runner().door(.disarm, skipFaceID: true, physical: true)
+        XCTAssertTrue(sentDoor.isEmpty, "no button-key disarm while the phone is locked")
+        XCTAssertEqual(asked.map(\.command), ["disarm"])
+    }
+
+    func testALockedPhonesSkipCarButtonStillAsksForFaceID() async {
+        locked = true
+        _ = await runner().car("unlock", skipFaceID: true, physical: true)
+        XCTAssertTrue(sentCar.isEmpty, "no button-key unlock while the phone is locked")
+        XCTAssertEqual(asked.map(\.command), ["unlock"])
+    }
+
+    func testTheAlarmCardStillWorksBecauseIOSUnlockedFirst() async {
+        locked = true  // the card's own unlock is the approval; iOS only runs it unlocked
+        let line = await runner().door(.disarm, skipFaceID: false, physical: false, unlocked: true)
+        XCTAssertEqual(line, "Disarmed")
     }
 
     func testAPressedSkipButtonDisarmsWithTheButtonKey() async {

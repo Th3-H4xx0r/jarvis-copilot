@@ -79,6 +79,10 @@ struct SecureActionRunner {
     var isForeground: () -> Bool = {
         UIApplication.shared.applicationState == .active && AppLifecycle.shared.isForeground
     }
+    /// The iPhone is locked (protected data goes away a few seconds after locking). The button key
+    /// has no biometry and works after first unlock, so a Control Center press on a locked phone —
+    /// a thief's — goes to Face ID like any other press; Skip Face ID only skips it when unlocked.
+    var isDeviceLocked: () -> Bool = { !UIApplication.shared.isProtectedDataAvailable }
     /// Posts the "Tap to …" notification and keeps the action; false when it can't be posted.
     var askOnTap: (PendingSecureAction, String) async -> Bool = { action, title in
         await SecureActionPending.ask(action, title: title)
@@ -98,7 +102,7 @@ struct SecureActionRunner {
                 return line(try await doorState())
             case .disarm, .silence:
                 let domain = DoorAlarmAPI.domain
-                if (skipFaceID && physical || unlocked) && buttonKeyRegistered() {
+                if (skipFaceID && physical && !isDeviceLocked() || unlocked) && buttonKeyRegistered() {
                     do {
                         let proof = try buttonProof(command.rawValue, domain)
                         return line(try await sendDoor(command.rawValue, proof, true))
@@ -127,7 +131,7 @@ struct SecureActionRunner {
             guard let toyota = ToyotaCommand(rawValue: command) else { return "unknown car command \(command)" }
             guard toyota.needsFaceID else { return try await runCar(toyota, nil, false) }
             let domain = "jarvis-car"
-            if skipFaceID && physical && buttonKeyRegistered() {
+            if skipFaceID && physical && !isDeviceLocked() && buttonKeyRegistered() {
                 do {
                     return try await runCar(toyota, try buttonProof(command, domain), true)
                 } catch where Self.buttonKeyRefused(error) {
