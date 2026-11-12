@@ -15,6 +15,10 @@ Spec: docs/superpowers/specs/2026-11-12-secure-vault-design.md · Mockup: https:
       oEmbed discovery, title from the link) + "Refresh preview"; old thumbnail-less links refetched once
 - [x] Round 2 deployed (server 491deae6a, webui restarted 14:40 UTC)
 - [x] Round 2 shipped: iPhone build 263161440 via release.sh
+- [x] Round 3: previews fall back to a headless Chromium on the server (plugins/vault/render.py, guard proxy) — deployed 15:02 UTC (6dea44836)
+- [x] Round 3: private in-app browser (VaultBrowser.swift): Open page asks Private / Default; EasyList+EasyPrivacy blocking, pop-up blocker, nothing kept
+- [x] Round 3 shipped: iPhone build 263161502 via release.sh
+- [ ] Live check: the private browser on the phone (blocker compile time on device, pop-up bar, lock closes it)
 - [ ] Live check: his xhamster1.desi link gets a real title/thumbnail (couldn't test that site from here: it serves bots no listings)
 - [ ] Live check on the phone: set passcode, save a YouTube link (thumbnail + duration), import a photo, play a video
 
