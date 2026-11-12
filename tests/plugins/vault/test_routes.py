@@ -276,6 +276,7 @@ def test_folder_delete_is_recursive_and_removes_blobs(svc, phone, clock, tmp_pat
     base, upload_id = _upload(svc, t, os.urandom(5000), parent=b["id"], thumb=_jpeg())
     item = call(svc, "POST", f"{base}/{upload_id}/finish", {}, token=t)[1]["item"]
     assert item["has_thumb"] and item["thumb_w"] == 40
+    assert item["parent_id"] == b["id"]
     blobs = list((tmp_path / "vault" / "blobs").glob(f"{item['id']}.*"))
     assert len(blobs) == 2
     assert call(svc, "DELETE", f"/folders/{a['id']}", {}, token=t) == (200, {"ok": True})
@@ -314,6 +315,20 @@ def test_inbox_is_write_only(svc, phone, clock):
     assert items["note"]["title"] == "Secret"
     assert items["image"]["has_thumb"] and items["image"]["thumb_w"] <= 640 and items["image"]["width"] == 1200
     assert raw_bytes(call(svc, "GET", f"/items/{items['image']['id']}/thumb", token=t))[:2] == b"\xff\xd8"
+
+
+def test_the_inbox_ignores_folder_ids_and_saves_to_the_top(svc, phone, clock):
+    """The share sheet can't see folders, so it can't place (or probe for) one either."""
+    t = unlock(svc, phone, clock)
+    folder = call(svc, "POST", "/folders", {"name": "Private", "parent_id": "root"}, token=t)[1]["folder"]
+    call(svc, "POST", "/inbox", {"kind": "note", "title": "n", "body": "b", "parent_id": folder["id"]})
+    call(svc, "POST", "/inbox", {"kind": "link", "url": "https://example.com/y", "parent_id": folder["id"]})
+    base, upload_id = _upload(svc, None, b"x" * 10, kind="file", mime="application/octet-stream",
+                              parent=folder["id"], inbox=True)
+    assert call(svc, "POST", f"{base}/{upload_id}/finish", {})[0] == 200
+    assert call(svc, "GET", f"/folders/{folder['id']}", token=t)[1]["items"] == []
+    kinds = sorted(i["kind"] for i in call(svc, "GET", "/folders/root", token=t)[1]["items"])
+    assert kinds == ["file", "link", "note"]
 
 
 def test_an_inbox_upload_cant_be_driven_through_the_token_routes_or_back(svc, phone, clock):

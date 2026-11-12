@@ -160,6 +160,14 @@ struct VaultFolderScreen: View {
                 .lineLimit(1)
                 .truncationMode(.head)
                 .padding(.bottom, 4)
+        } else if isRoot, listing != nil {
+            HStack(spacing: 6) {
+                JcIcon("lock.fill", size: 11)
+                Text("Encrypted · Locks when you leave")
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(JcTheme.muted)
+            .padding(.bottom, 4)
         }
         if searching { searchField }
         if let loadError, listing == nil {
@@ -167,40 +175,59 @@ struct VaultFolderScreen: View {
                 .padding(.top, 60)
         } else if listing == nil {
             ProgressView().tint(JcTheme.muted).frame(maxWidth: .infinity).padding(.top, 80)
+        } else if folders.isEmpty && items.isEmpty {
+            emptyState
         } else {
             if !folders.isEmpty {
-                JcSectionLabel("Folders", first: !searching)
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                    ForEach(folders) { folder in folderTile(folder) }
-                }
-            }
-            JcSectionLabel(itemsLabel, first: folders.isEmpty && !searching)
-            if items.isEmpty {
-                JcCard {
-                    Text(results != nil ? "No matches." : "Nothing here yet. Tap + to add a note, link, photo or file.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(JcTheme.muted)
-                        .frame(maxWidth: .infinity)
-                        .multilineTextAlignment(.center)
-                        .padding(.vertical, 10)
-                }
-            } else if listLayout {
+                JcSectionLabel("Folders", first: !searching) { Text("\(folders.count)") }
                 JcCard(padding: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
-                        itemButton(item) {
-                            VaultListRow(item: item, session: session, selecting: selecting,
-                                         selected: selection.contains(item.id), last: i == items.count - 1)
-                        }
+                    ForEach(Array(folders.enumerated()), id: \.element.id) { i, folder in
+                        folderRow(folder, last: i == folders.count - 1)
                     }
                 }
-            } else {
-                grid
+            }
+            if !items.isEmpty {
+                JcSectionLabel(itemsLabel, first: folders.isEmpty && !searching) {
+                    if results == nil { Text("\(items.count)") }
+                }
+                if listLayout {
+                    JcCard(padding: 0) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                            itemButton(item) {
+                                VaultListRow(item: item, session: session, selecting: selecting,
+                                             selected: selection.contains(item.id), last: i == items.count - 1)
+                            }
+                        }
+                    }
+                } else {
+                    grid
+                }
             }
         }
     }
 
+    /// Nothing to show: say why, and offer the one thing to do next.
+    @ViewBuilder
+    private var emptyState: some View {
+        if results != nil {
+            JcEmptyState(symbol: "magnifyingglass", title: "No matches",
+                         subtitle: "Nothing in the vault matches “\(query.trimmingCharacters(in: .whitespaces))”.")
+                .padding(.top, 60)
+        } else {
+            VStack(spacing: 22) {
+                JcEmptyState(symbol: isRoot ? "lock.shield" : "folder",
+                             title: isRoot ? "Your vault is empty" : "This folder is empty",
+                             subtitle: isRoot
+                                ? "Notes, links, photos, videos and files you add here are encrypted on your server."
+                                : "Add something here, or move items in from another folder.")
+                GradientButton(isRoot ? "Add to vault" : "Add to folder", symbol: "plus") { sheet = .add }
+            }
+            .padding(.top, 72)
+        }
+    }
+
     private var itemsLabel: String {
-        if let results { return results.items.count == 1 ? "1 result across all folders" : "\(results.items.count) results across all folders" }
+        if let results { return results.items.count == 1 ? "1 result" : "\(results.items.count) results" }
         return "Items"
     }
 
@@ -257,6 +284,9 @@ struct VaultFolderScreen: View {
                     }
                 }
                 Button("Move", jcIcon: "folder") { moving = MoveRequest(items: [item.id], folder: nil) }
+                if item.kind == .link {
+                    Button("Refresh preview", jcIcon: "arrow.clockwise") { Task { await refreshPreview(item) } }
+                }
                 Button("Share", jcIcon: "square.and.arrow.up") { Task { await share([item]) } }
                 Button("Delete", jcIcon: "trash", role: .destructive) {
                     selection = [item.id]
@@ -266,11 +296,11 @@ struct VaultFolderScreen: View {
         }
     }
 
-    private func folderTile(_ folder: VaultFolder) -> some View {
+    private func folderRow(_ folder: VaultFolder, last: Bool) -> some View {
         NavigationLink {
             VaultFolderScreen(folderID: folder.id, title: folder.name)
         } label: {
-            VaultFolderTile(folder: folder)
+            VaultFolderRow(folder: folder, last: last)
         }
         .buttonStyle(.plain)
         .disabled(selecting)
@@ -311,6 +341,7 @@ struct VaultFolderScreen: View {
 
     // MARK: Pill
 
+    /// Search and Add up front; the rest (layout, select, lock) behind ⋯.
     @ViewBuilder
     private var pill: some View {
         JcPageButton("magnifyingglass", label: searching ? "Close search" : "Search") {
@@ -319,20 +350,27 @@ struct VaultFolderScreen: View {
             results = nil
             searchFocused = searching
         }
-        JcPageButton(listLayout ? "square.grid.2x2" : "list.bullet",
-                     label: listLayout ? "Show as grid" : "Show as list") { listLayout.toggle() }
-        JcPageButton(selecting ? "checkmark.circle.fill" : "checkmark.circle",
-                     label: selecting ? "Done selecting" : "Select") {
-            selecting.toggle()
-            selection.removeAll()
-        }
         JcPageButton("plus", label: "Add") { sheet = .add }
-        if isRoot {
-            JcPageButton("lock", label: "Lock the vault") {
-                session.lock()
-                dismiss()
+        Menu {
+            Picker("View", selection: $listLayout) {
+                Label("Grid", jcIcon: "square.grid.2x2").tag(false)
+                Label("List", jcIcon: "list.bullet").tag(true)
             }
+            .pickerStyle(.inline)
+            Button(selecting ? "Done selecting" : "Select", jcIcon: "checkmark.circle") {
+                selecting.toggle()
+                selection.removeAll()
+            }
+            .disabled(items.isEmpty && !selecting)
+            Divider()
+            Button("Lock vault", jcIcon: "lock") {
+                session.lock()
+                if isRoot { dismiss() }     // deeper down, the lock screen covers the folder in place
+            }
+        } label: {
+            JcIcon("ellipsis", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
         }
+        .accessibilityLabel("More")
     }
 
     // MARK: Selection bar
@@ -473,7 +511,6 @@ struct VaultFolderScreen: View {
         do {
             _ = try await session.call { try await session.api.createFolder(name: name, parent: folderID, token: $0) }
             session.changed()
-            await session.saveFolderNamesForShareSheet()
         } catch {
             toast = apiErrorLine(error)
         }
@@ -487,8 +524,7 @@ struct VaultFolderScreen: View {
         do {
             if r.isFolder {
                 try await session.call { try await session.api.updateFolder(r.id, name: name, token: $0) }
-                await session.saveFolderNamesForShareSheet()
-            } else {
+                } else {
                 try await session.call { try await session.api.updateItem(r.id, fields: ["title": name], token: $0) }
             }
             session.changed()
@@ -502,8 +538,7 @@ struct VaultFolderScreen: View {
         do {
             if let folder = req.folder {
                 try await session.call { try await session.api.updateFolder(folder.id, parent: target, token: $0) }
-                await session.saveFolderNamesForShareSheet()
-                toast = "Moved"
+                    toast = "Moved"
             } else {
                 try await session.call { try await session.api.move(req.items, to: target, token: $0) }
                 toast = req.items.count == 1 ? "Moved" : "Moved \(req.items.count)"
@@ -537,7 +572,17 @@ struct VaultFolderScreen: View {
             try await session.call { try await session.api.deleteFolder(folder.id, token: $0) }
             toast = "Folder deleted"
             session.changed()
-            await session.saveFolderNamesForShareSheet()
+        } catch {
+            toast = apiErrorLine(error)
+        }
+    }
+
+    private func refreshPreview(_ item: VaultItem) async {
+        toast = "Finding a preview…"
+        do {
+            let fresh = try await session.call { try await session.api.refreshPreview(item.id, token: $0) }
+            toast = fresh.hasThumb ? "Preview updated" : "No preview found for this link"
+            session.changed()
         } catch {
             toast = apiErrorLine(error)
         }

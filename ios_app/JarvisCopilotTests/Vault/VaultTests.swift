@@ -66,9 +66,18 @@ final class VaultRenderTests: XCTestCase {
                        VaultFolder(id: "f2", parentID: "root", name: "Watch later", count: 15)]
         let page = ScrollView {
             JcPageColumn {
-                JcSectionLabel("Folders", first: true)
-                HStack(spacing: 10) { ForEach(folders) { VaultFolderTile(folder: $0) } }
-                JcSectionLabel("Items")
+                HStack(spacing: 6) {
+                    JcIcon("lock.fill", size: 11)
+                    Text("Encrypted · Locks when you leave")
+                }
+                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                JcSectionLabel("Folders", first: true) { Text("2") }
+                JcCard(padding: 0) {
+                    ForEach(Array(folders.enumerated()), id: \.element.id) { i, f in
+                        VaultFolderRow(folder: f, last: i == folders.count - 1)
+                    }
+                }
+                JcSectionLabel("Items") { Text("5") }
                 VStack(spacing: 10) {
                     VaultGridCard(item: sample[0], session: session)
                     HStack(alignment: .top, spacing: 10) {
@@ -85,6 +94,18 @@ final class VaultRenderTests: XCTestCase {
             }
         }
         try RenderHarness.write(page, size: CGSize(width: 393, height: 1500), name: "vault-folder", settle: 1)
+    }
+
+    func testRenderEmptyVault() throws {
+        let page = JcPageColumn {
+            VStack(spacing: 22) {
+                JcEmptyState(symbol: "lock.shield", title: "Your vault is empty",
+                             subtitle: "Notes, links, photos, videos and files you add here are encrypted on your server.")
+                GradientButton("Add to vault", symbol: "plus") {}
+            }
+            .padding(.top, 72)
+        }
+        try RenderHarness.write(page, size: CGSize(width: 393, height: 600), name: "vault-empty", settle: 0.5)
     }
 
     func testRenderLockAndPasscode() throws {

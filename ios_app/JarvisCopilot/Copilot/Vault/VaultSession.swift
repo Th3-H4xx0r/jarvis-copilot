@@ -145,7 +145,6 @@ final class VaultSession: ObservableObject {
         error = nil
         autoPromptOwed = false
         startWatchdog()
-        Task { await saveFolderNamesForShareSheet() }
     }
 
     func lock() {
@@ -203,7 +202,7 @@ final class VaultSession: ObservableObject {
 
     func thumbnail(for item: VaultItem) async -> UIImage? {
         guard item.hasThumb else { return nil }
-        let key = "\(item.id)-\(item.updated.timeIntervalSince1970)-\(item.hasThumb)" as NSString
+        let key = "\(item.id)-\(item.updated.timeIntervalSince1970)-\(item.hasThumb)-\(item.thumbAspect ?? 0)" as NSString
         if let hit = thumbs.object(forKey: key) { return hit }
         guard let data = try? await call({ try await api.thumb(item.id, token: $0) }),
               let image = UIImage(data: data) else { return nil }
@@ -223,13 +222,9 @@ final class VaultSession: ObservableObject {
     }
 
     /// The share sheet's folder picker reads these names; it never asks the server.
-    func saveFolderNamesForShareSheet() async {
-        guard let folders = try? await call({ try await api.tree(token: $0) }) else { return }
-        VaultShareKeychain.saveFolders(folders.map { .init(id: $0.id, parentID: $0.parentID, name: $0.name) })
-    }
-
     /// The paired server, for the share extension's write-only uploads. Called as the app comes forward.
     static func shareServerChanged() {
+        VaultShareKeychain.forgetFolders()      // older builds left folder names where the extension could read them
         let api = JarvisAPI.shared
         guard let base = api.credentials.baseURL, api.isPaired else {
             VaultShareKeychain.saveServer(nil)

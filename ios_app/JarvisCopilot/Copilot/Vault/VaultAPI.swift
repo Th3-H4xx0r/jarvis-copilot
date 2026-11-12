@@ -197,6 +197,15 @@ struct VaultAPI: Sendable {
         return item
     }
 
+    /// Fetch a saved link's preview again (the server's engine improves; sites change).
+    func refreshPreview(_ id: String, token: String) async throws -> VaultItem {
+        let o = try await object("POST", "/items/\(id)/preview", token: token, timeout: 30)
+        guard let item = VaultItem(json: o["item"] as? [String: Any] ?? [:]) else {
+            throw VaultError.server("The preview wasn't refreshed.")
+        }
+        return item
+    }
+
     struct LinkPreview {
         let title: String
         let siteName: String

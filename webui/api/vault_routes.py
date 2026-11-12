@@ -157,21 +157,25 @@ def handle_vault_request(method: str, path: str, body=None, *, headers=None, rea
 
 
 def _inbox(svc, method, p, parts, body, read_raw, max_thumb):
-    """The share extension: save only. Replies never carry anything readable."""
+    """The share extension: save only. Replies never carry anything readable, and everything
+    lands in the vault's top folder — the extension never names (or probes) a folder."""
+    from plugins.vault.store import ROOT
+
     store = svc.store
     if method == "POST" and p == "/inbox":
         kind = str(body.get("kind") or "")
         if kind == "link":
-            item = svc.create_link(body.get("parent_id"), body.get("url"), note=body.get("body"),
+            item = svc.create_link(ROOT, body.get("url"), note=body.get("body"),
                                    title=body.get("title"), fallback_root=True, wait=False)
         elif kind == "note":
-            item = store.create_note(body.get("parent_id"), body.get("title"), body.get("body"), fallback_root=True)
+            item = store.create_note(ROOT, body.get("title"), body.get("body"), fallback_root=True)
         else:
             return _err(400, "The inbox takes a link or a note.")
         return 200, {"ok": True, "id": item["id"]}
     if len(parts) >= 2 and parts[1] == "uploads":
         if method == "POST" and len(parts) == 2:
             fields = {k: body.get(k) for k in _INBOX_FIELDS}
+            fields["parent_id"] = ROOT
             return 200, store.start_upload(fields, inbox=True)
         if len(parts) >= 3:
             upload_id = parts[2]
@@ -258,6 +262,8 @@ def _locked_routes(svc, method, p, parts, body, params, headers, read_raw, max_t
             return 200, store.start_upload(fields)
         if parts[0] == "uploads" and len(parts) == 3 and parts[2] == "finish":
             return 200, {"ok": True, "item": store.finish_upload(parts[1])}
+        if parts[0] == "items" and len(parts) == 3 and parts[2] == "preview":
+            return 200, {"ok": True, "item": svc.refresh_preview(parts[1])}
         return _err(404, "unknown vault endpoint")
 
     if method == "PUT" and parts[0] == "uploads" and len(parts) == 3:

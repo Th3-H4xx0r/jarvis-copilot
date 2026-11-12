@@ -4,8 +4,9 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// "Save to Vault" in the share sheet. Write-only: it uploads to `/api/vault/inbox` with the
-/// paired server's credentials and can never read anything back. The folder names in its
-/// picker come from the app (saved each time the vault unlocks), never from the server.
+/// paired server's credentials and can never read anything back. It knows nothing about what's
+/// in the vault — not even folder names — so everything lands in the vault's top folder, to be
+/// filed from the app after Face ID.
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -33,19 +34,16 @@ final class ShareModel: ObservableObject {
     enum Phase: Equatable { case loading, ready, saving(Double), saved, failed(String) }
 
     @Published var phase: Phase = .loading
-    @Published var folderID = "root"
     @Published private(set) var payloads: [SharePayload] = []
     @Published private(set) var preview: UIImage?
     @Published private(set) var summary = ""
 
-    let folders: [VaultShareKeychain.Folder]
     private let server: VaultShareKeychain.Server?
     private weak var context: NSExtensionContext?
     private let session: URLSession
 
     init(context: NSExtensionContext?) {
         self.context = context
-        folders = VaultShareKeychain.loadFolders()
         server = VaultShareKeychain.loadServer()
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
@@ -55,24 +53,6 @@ final class ShareModel: ObservableObject {
     }
 
     var canSave: Bool { phase == .ready && server != nil && !payloads.isEmpty }
-
-    func folderName(_ id: String) -> String {
-        id == "root" ? "Vault" : (folders.first { $0.id == id }?.name ?? "Vault")
-    }
-
-    /// Folders in tree order with their depth, for the picker.
-    var tree: [(folder: VaultShareKeychain.Folder, depth: Int)] {
-        var out: [(VaultShareKeychain.Folder, Int)] = []
-        func walk(_ parent: String, _ depth: Int) {
-            for f in folders.filter({ ($0.parentID ?? "root") == parent })
-                .sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-                out.append((f, depth))
-                walk(f.id, depth + 1)
-            }
-        }
-        walk("root", 0)
-        return out
-    }
 
     func cancel() {
         cleanUp()
@@ -165,12 +145,11 @@ final class ShareModel: ObservableObject {
                 let done = Double(i) / Double(payloads.count)
                 switch payload {
                 case .link(let url):
-                    _ = try await json("POST", "/inbox", ["kind": "link", "url": url.absoluteString, "parent_id": folderID],
+                    _ = try await json("POST", "/inbox", ["kind": "link", "url": url.absoluteString],
                                        base: base, server: server)
                 case .text(let text):
                     let title = String(text.split(separator: "\n").first ?? "").prefix(60)
-                    _ = try await json("POST", "/inbox", ["kind": "note", "title": String(title), "body": text,
-                                                          "parent_id": folderID], base: base, server: server)
+                    _ = try await json("POST", "/inbox", ["kind": "note", "title": String(title), "body": text], base: base, server: server)
                 case .file(let url):
                     try await upload(url, base: base, server: server) { part in
                         self.phase = .saving(done + part / Double(self.payloads.count))
@@ -228,7 +207,7 @@ final class ShareModel: ObservableObject {
             : (type.conforms(to: .movie) || type.conforms(to: .video)) ? "video" : "file"
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let start = try await json("POST", "/inbox/uploads",
-                                   ["parent_id": folderID, "kind": kind, "filename": url.lastPathComponent,
+                                   ["kind": kind, "filename": url.lastPathComponent,
                                     "mime": type.preferredMIMEType ?? "application/octet-stream", "size": size,
                                     "title": url.deletingPathExtension().lastPathComponent],
                                    base: base, server: server)
@@ -272,74 +251,41 @@ final class ShareModel: ObservableObject {
     }
 }
 
-/// The sheet: what's going in, which folder, Save. Same black-and-white look as the app.
+/// The sheet: what's going in, where it goes, Save. Same black-and-white look as the app.
 struct ShareRootView: View {
     @ObservedObject var model: ShareModel
-    @State private var picking = false
 
     private let text = Color(red: 0xED / 255, green: 0xF0 / 255, blue: 0xF8 / 255)
     private let muted = Color(red: 0x8A / 255, green: 0x93 / 255, blue: 0xA8 / 255)
-    private let fill = Color.white.opacity(0.09)
+    private let fill = Color.white.opacity(0.07)
+    private let hairline = Color.white.opacity(0.08)
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous).fill(fill)
-                        if let img = model.preview {
-                            Image(uiImage: img).resizable().scaledToFill()
-                        } else {
-                            Image(systemName: "lock.fill").foregroundStyle(muted)
-                        }
-                    }
-                    .frame(width: 72, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    Text(model.summary.isEmpty ? "Getting ready…" : model.summary)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(text)
-                        .lineLimit(2)
+            VStack(alignment: .leading, spacing: 0) {
+                card
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "lock.fill").font(.system(size: 11))
+                    Text("Saved encrypted to your vault. File it into a folder from Jarvis later.")
+                        .font(.system(size: 13))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(10)
-                .background(fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(muted)
+                .padding(.horizontal, 4)
+                .padding(.top, 12)
 
-                Text("FOLDER")
-                    .font(.system(size: 12, weight: .medium)).tracking(0.8).foregroundStyle(muted)
-                Button { picking = true } label: {
-                    HStack {
-                        Image(systemName: "folder")
-                        Text(model.folderName(model.folderID)).font(.system(size: 15, weight: .medium))
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(muted)
-                    }
-                    .foregroundStyle(text)
-                    .padding(.horizontal, 16).padding(.vertical, 14)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(model.folders.isEmpty)
-
-                switch model.phase {
-                case .failed(let msg):
-                    Text(msg).font(.system(size: 13)).foregroundStyle(Color(red: 1, green: 0.42, blue: 0.38))
-                case .saving(let p):
-                    ProgressView(value: p).tint(text)
-                case .saved:
-                    Label("Saved to \(model.folderName(model.folderID))", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 15, weight: .medium)).foregroundStyle(text)
-                default:
-                    EmptyView()
-                }
+                status.padding(.top, 16)
                 Spacer(minLength: 0)
                 Button { Task { await model.save() } } label: {
-                    Text("Save").font(.system(size: 15, weight: .semibold))
+                    Text(model.phase == .saved ? "Saved" : "Save to Vault")
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity).padding(.vertical, 13)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(!model.canSave)
-                .opacity(model.canSave ? 1 : 0.45)
+                .opacity(model.canSave || model.phase == .saved ? 1 : 0.4)
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -351,41 +297,77 @@ struct ShareRootView: View {
                     Button("Cancel") { model.cancel() }.foregroundStyle(text)
                 }
             }
-            .sheet(isPresented: $picking) { folderPicker }
         }
         .preferredColorScheme(.dark)
     }
 
-    private var folderPicker: some View {
-        NavigationStack {
-            List {
-                row(id: "root", name: "Vault", depth: 0)
-                ForEach(model.tree, id: \.folder.id) { entry in
-                    row(id: entry.folder.id, name: entry.folder.name, depth: entry.depth + 1)
+    /// What's being saved: its picture (or a glyph for a link or note) and its name.
+    private var card: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06))
+                if let img = model.preview {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    Image(systemName: glyph).font(.system(size: 22, weight: .regular)).foregroundStyle(muted)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Color.black)
-            .navigationTitle("Folder")
-            .navigationBarTitleDisplayMode(.inline)
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.summary.isEmpty ? "Getting ready…" : model.summary)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(text)
+                    .lineLimit(2)
+                Text(kindLine)
+                    .font(.system(size: 13))
+                    .foregroundStyle(muted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
-        .preferredColorScheme(.dark)
-        .presentationDetents([.medium, .large])
+        .padding(12)
+        .background(fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(hairline, lineWidth: 1))
     }
 
-    private func row(id: String, name: String, depth: Int) -> some View {
-        Button {
-            model.folderID = id
-            picking = false
-        } label: {
-            HStack {
-                Image(systemName: id == "root" ? "lock" : "folder").foregroundStyle(muted)
-                Text(name).foregroundStyle(text)
-                Spacer()
-                if model.folderID == id { Image(systemName: "checkmark").foregroundStyle(text) }
+    @ViewBuilder
+    private var status: some View {
+        switch model.phase {
+        case .failed(let msg):
+            Label(msg, systemImage: "exclamationmark.circle")
+                .font(.system(size: 14)).foregroundStyle(Color(red: 1, green: 0.42, blue: 0.38))
+        case .saving(let p):
+            VStack(alignment: .leading, spacing: 8) {
+                ProgressView(value: p).tint(text)
+                Text("Encrypting and uploading…").font(.system(size: 13)).foregroundStyle(muted)
             }
-            .padding(.leading, CGFloat(depth) * 16)
+        case .saved:
+            Label("Saved to your vault", systemImage: "checkmark.circle.fill")
+                .font(.system(size: 15, weight: .medium)).foregroundStyle(text)
+        default:
+            EmptyView()
         }
-        .listRowBackground(Color.white.opacity(0.06))
+    }
+
+    private var glyph: String {
+        switch model.payloads.first {
+        case .link?: return "link"
+        case .text?: return "note.text"
+        default: return "doc"
+        }
+    }
+
+    private var kindLine: String {
+        let p = model.payloads
+        if p.count > 1 { return "\(p.count) items" }
+        switch p.first {
+        case .link?: return "Link · preview made on your server"
+        case .text?: return "Note"
+        case .file(let url)?:
+            let ext = url.pathExtension.uppercased()
+            return ext.isEmpty ? "File" : ext
+        case nil: return ""
+        }
     }
 }

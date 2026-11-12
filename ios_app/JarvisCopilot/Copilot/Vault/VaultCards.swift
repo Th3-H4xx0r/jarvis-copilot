@@ -22,7 +22,7 @@ struct VaultThumb: View {
             }
         }
         .clipped()
-        .task(id: "\(item.id)-\(item.updated.timeIntervalSince1970)-\(item.hasThumb)") {
+        .task(id: "\(item.id)-\(item.updated.timeIntervalSince1970)-\(item.hasThumb)-\(item.thumbAspect ?? 0)") {
             guard item.hasThumb else { return }
             let loaded = await session.thumbnail(for: item)
             withAnimation(.easeOut(duration: 0.18)) { image = loaded }
@@ -208,29 +208,33 @@ struct VaultListRow: View {
     }
 }
 
-/// A folder tile: glyph, name, how many things are inside.
-struct VaultFolderTile: View {
+/// A folder in a card of rows, the Files / Settings way: icon square, name, count, chevron.
+struct VaultFolderRow: View {
     let folder: VaultFolder
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 18, style: .continuous) }
+    var last = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            JcIcon("folder", size: 22).foregroundStyle(JcTheme.text)
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                JcIconSquare(symbol: "folder.fill", tint: JcTheme.text)
                 Text(folder.name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(JcTheme.text)
                     .lineLimit(1)
+                Spacer(minLength: 8)
                 Text(folder.count == 1 ? "1 item" : "\(folder.count) items")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(JcTheme.muted)
+                    .monospacedDigit()
+                JcRowChevron()
             }
+            .padding(.horizontal, JcUnified.cardPadding)
+            .padding(.vertical, 12)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+            if !last { JcRowSeparator(inset: 56) }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
-        .background(JcTheme.glassFill, in: shape)
-        .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
-        .contentShape(shape)
+        .accessibilityElement(children: .combine)
     }
 }
 

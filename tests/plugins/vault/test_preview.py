@@ -43,3 +43,113 @@ def test_article_and_plain_page():
                                      ("https://example.com/watch?v=x", None)])
 def test_youtube_ids(url, vid):
     assert youtube_id(url) == vid
+
+
+# ── the smarter engine: walls, fallbacks, more image sources ─────────────
+
+import io
+
+import httpx
+
+from plugins.vault import preview as preview_mod
+from plugins.vault.preview import is_wall_title, title_from_url
+
+
+@pytest.mark.parametrize("title", ["Please update your browser to use xHamster | xHamster", "Just a moment...",
+                                   "Attention Required! | Cloudflare", "Access Denied", "403 Forbidden",
+                                   "Are you a robot?"])
+def test_wall_titles(title):
+    assert is_wall_title(title)
+
+
+@pytest.mark.parametrize("title", ["Rick Astley - Never Gonna Give You Up", "How browsers work", "Japan 2026"])
+def test_real_titles_are_not_walls(title):
+    assert not is_wall_title(title)
+
+
+@pytest.mark.parametrize("url,title", [
+    ("https://site.example/videos/falling-in-love-hindi-audio-part-02-xhBi610", "Falling In Love Hindi Audio Part 02"),
+    ("https://blog.example/2026/11/my_trip_to_japan.html", "My Trip To Japan"),
+    ("https://site.example/watch/8231231", ""),
+    ("https://site.example/", ""),
+])
+def test_title_from_url(url, title):
+    assert title_from_url(url) == title
+
+
+def test_more_image_sources_and_oembed_discovery():
+    html = """<link rel="alternate" type="application/json+oembed" href="/oembed?id=1">
+      <img src="/logo.png"><img src="/ad.gif"><img src="/frame.jpg" width="640" height="360">
+      <video poster="/poster.jpg"></video>
+      <script type="application/ld+json">{"@type": "Article", "image": {"url": "https://cdn.example/a.jpg"}}</script>"""
+    p = parse_page(html, "https://example.com/v/1")
+    assert p["_oembed"] == "https://example.com/oembed?id=1"
+    assert p["_images"] == ["https://cdn.example/a.jpg", "https://example.com/poster.jpg",
+                            "https://example.com/frame.jpg"]
+
+
+def _jpeg(size=(400, 300)):
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, (200, 30, 30)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def fake_web(monkeypatch):
+    """A site that walls off browsers but serves its share card to the Facebook crawler."""
+    seen = []
+    image = _jpeg()
+
+    def handler(request: httpx.Request):
+        ua = request.headers.get("user-agent", "")
+        seen.append((request.url.path, ua))
+        if request.url.path == "/thumb.jpg":
+            return httpx.Response(200, content=image, headers={"content-type": "image/jpeg"})
+        if request.url.path.startswith("/videos/"):
+            if "facebookexternalhit" in ua:
+                return httpx.Response(200, headers={"content-type": "text/html"}, text="""
+                    <meta property="og:title" content="The real title">
+                    <meta property="og:image" content="https://tube.example/thumb.jpg">
+                    <meta property="og:video:duration" content="95">""")
+            return httpx.Response(200, headers={"content-type": "text/html"},
+                                  text="<title>Please update your browser to use Tube</title>")
+        if request.url.path.startswith("/walled/"):
+            return httpx.Response(200, headers={"content-type": "text/html"}, text="<title>Just a moment...</title>")
+        return httpx.Response(404)
+
+    real_client = httpx.Client
+
+    def client(**kw):
+        kw["transport"] = httpx.MockTransport(handler)
+        return real_client(**kw)
+
+    monkeypatch.setattr(httpx, "Client", client)
+    monkeypatch.setattr("tools.url_safety.is_safe_url", lambda url: True)
+    monkeypatch.setattr("tools.url_safety.response_peer_is_public", lambda resp: True)
+    return seen
+
+
+def test_a_browser_wall_falls_back_to_the_crawler_card(fake_web):
+    got = preview_mod.fetch("https://tube.example/videos/some-clip-ab12cd", want_favicon=False)
+    assert got["preview"]["title"] == "The real title"
+    assert got["preview"]["kind"] == "video" and got["preview"]["duration_s"] == 95
+    assert got["image"] and got["image"][:2] == b"\xff\xd8"
+
+
+def test_a_wall_title_is_never_kept(fake_web):
+    got = preview_mod.fetch("https://tube.example/walled/cooking-pasta-at-home-x9Y8z7", want_favicon=False)
+    assert got["preview"]["title"] == "Cooking Pasta At Home"
+    assert got["image"] is None
+    # Each client was tried before giving up on the page.
+    agents = [ua for path, ua in fake_web if path.startswith("/walled/")]
+    assert len(agents) == len(preview_mod._PERSONAS)
+
+
+def test_a_site_name_title_gives_way_to_the_link(fake_web):
+    got = preview_mod.fetch("https://tube.example/plain/late-night-drive-mix", want_favicon=False)
+    assert got is None or got["preview"]["title"] in ("Late Night Drive Mix", "")
+    assert preview_mod._weak_title({"title": "PornhubPornhub", "site_name": "pornhub.com", "domain": "pornhub.com"})
+    assert preview_mod._weak_title({"title": "Instagram", "site_name": "Instagram", "domain": "instagram.com"})
+    assert not preview_mod._weak_title({"title": "A day in Kyoto", "site_name": "Vimeo", "domain": "vimeo.com"})

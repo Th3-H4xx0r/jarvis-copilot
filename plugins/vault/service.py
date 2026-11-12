@@ -28,7 +28,7 @@ COMMANDS = ("search", "list", "read", "save", "move", "delete")
 TITLES = {"search": "Search your vault", "list": "Look in your vault", "read": "Open a vault item",
           "save": "Save to your vault", "move": "Move vault items", "delete": "Delete vault items"}
 RESULT_TTL = 300          # seconds a finished result waits for the tool to collect it
-PREVIEW_WAIT_S = 8.0
+PREVIEW_WAIT_S = 13.0
 TOOL_FILE_MAX = MAX_SIZE
 PDF_TEXT_MAX = 60_000
 NOTE_TEXT_MAX = 60_000
@@ -218,6 +218,12 @@ class VaultService:
                 "preview": {k: p.get(k) for k in ("title", "site_name", "domain", "kind", "duration_s", "author")},
                 "thumb_jpeg_b64": base64.b64encode(thumb[0]).decode() if thumb else None,
                 "preview_status": "ok"}
+
+    def refresh_preview(self, item_id: str) -> dict:
+        """POST /items/<id>/preview: fetch a link's preview again now."""
+        url = self.store.reset_preview(item_id)
+        self.preview_link(item_id, url, wait=True)
+        return self.store.get_item(item_id, body=False)
 
     def create_link(self, parent_id, url, note=None, title=None, fallback_root=False, wait=True) -> dict:
         item = self.store.create_link(parent_id, url, note=note, title=title, fallback_root=fallback_root)

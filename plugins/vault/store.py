@@ -28,6 +28,9 @@ ROOT = "root"
 ITEM_KINDS = ("note", "link", "image", "video", "pdf", "file")
 FILE_KINDS = ("image", "video", "pdf", "file")
 BLOB_KINDS = ("content", "thumb", "favicon")
+# Bumped when plugins/vault/preview.py gets better at finding previews: links saved by an older
+# engine without a thumbnail get one more try with the new one.
+PREVIEW_ENGINE = 2
 CHUNK_SIZE = 8 * 1024 * 1024        # upload chunk = 8 segments exactly, so a chunk never straddles one
 MAX_SIZE = 2 * 1024 * 1024 * 1024   # 2 GiB per item
 MAX_THUMB = 2 * 1024 * 1024
@@ -614,14 +617,30 @@ class VaultStore:
 
     # ── link previews ─────────────────────────────────────────────────────
     def links_pending(self, max_tries: int = 3) -> list[tuple[str, str]]:
-        """(id, url) of links whose preview hasn't been fetched (or failed, under ``max_tries``)."""
+        """(id, url) of links whose preview hasn't been fetched (or failed, under ``max_tries``), and
+        links an older preview engine left without a thumbnail."""
         with self._lock, self._db() as conn:
             out = []
             for row in conn.execute("SELECT * FROM items WHERE kind='link'"):
                 meta = self._open(row)[1]
-                if meta.get("preview_status") in ("pending", "failed") and int(meta.get("preview_tries") or 0) < max_tries:
+                tries = int(meta.get("preview_tries") or 0)
+                if meta.get("preview_status") in ("pending", "failed") and tries < max_tries:
+                    out.append((row["id"], meta.get("url") or ""))
+                elif (int(meta.get("preview_engine") or 1) < PREVIEW_ENGINE
+                      and not (meta.get("blobs") or {}).get("thumb") and tries < max_tries + 3):
                     out.append((row["id"], meta.get("url") or ""))
             return out
+
+    def reset_preview(self, item_id: str) -> str:
+        """Clear a link's preview tries so it is fetched afresh; returns its URL."""
+        with self._lock, self._db() as conn:
+            row = self._row(conn, item_id)
+            if row["kind"] != "link":
+                raise ValueError("Only links have previews.")
+            dk, meta = self._open(row)
+            meta["preview_tries"] = 0
+            self._update_meta(conn, row, dk, meta, touch=False)
+            return meta.get("url") or ""
 
     def mark_preview_attempt(self, item_id: str) -> bool:
         """Count a preview attempt BEFORE fetching, so a fetch that crashes the worker can't be
@@ -646,10 +665,13 @@ class VaultStore:
                 return          # deleted while the preview was being fetched
             dk, meta = self._open(row)
             if preview is None:
-                meta["preview_status"] = "failed"
+                # A refetch that fails keeps the preview it already had.
+                if meta.get("preview_status") != "ok":
+                    meta["preview_status"] = "failed"
             else:
                 meta["preview"] = preview
                 meta["preview_status"] = "ok"
+                meta["preview_engine"] = PREVIEW_ENGINE
                 blobs = meta.setdefault("blobs", {})
                 if made:
                     data, (w, h), _ = made

@@ -2,11 +2,9 @@ import Foundation
 import Security
 
 /// What the "Save to Vault" share extension needs from the app, kept in a Keychain group both
-/// targets share:
-/// - how to reach the server (its URL and the paired session headers), so the extension can
-///   upload to the write-only inbox;
-/// - the folder names, saved each time the vault unlocks, so its picker never has to ask the
-///   server for anything it could read.
+/// targets share: how to reach the server (its URL and the paired session headers), so the
+/// extension can upload to the write-only inbox. Nothing about what's IN the vault — not even
+/// folder names — is ever shared with it; shares land in the vault's top folder.
 ///
 /// Compiled into the app AND the extension (scripts/add-vault-share-target.rb).
 enum VaultShareKeychain {
@@ -19,12 +17,6 @@ enum VaultShareKeychain {
         let headers: [String: String]
     }
 
-    struct Folder: Codable, Hashable, Identifiable {
-        let id: String
-        let parentID: String?
-        let name: String
-    }
-
     static func saveServer(_ server: Server?) {
         guard let server else { remove("server"); return }
         if loadServer() == server { return }
@@ -35,12 +27,9 @@ enum VaultShareKeychain {
         read("server").flatMap { try? JSONDecoder().decode(Server.self, from: $0) }
     }
 
-    static func saveFolders(_ folders: [Folder]) {
-        write("folders", try? JSONEncoder().encode(folders))
-    }
-
-    static func loadFolders() -> [Folder] {
-        read("folders").flatMap { try? JSONDecoder().decode([Folder].self, from: $0) } ?? []
+    /// Older builds kept the folder tree here for the extension's picker; it's gone.
+    static func forgetFolders() {
+        remove("folders")
     }
 
     // MARK: Keychain
