@@ -9,8 +9,16 @@ import WebKit
 /// a broken part is skipped rather than taking the whole blocker down.
 @MainActor
 enum VaultBlocker {
-    private static var lists: [WKContentRuleList]?
-    private static var building: Task<[WKContentRuleList], Never>?
+    /// The ad/tracker servers (in parts) and the "hide empty ad spaces" CSS, kept apart so each
+    /// can be switched on its own.
+    struct Lists {
+        var hosts: [WKContentRuleList] = []
+        var css: WKContentRuleList?
+        var count: Int { hosts.count + (css == nil ? 0 : 1) }
+    }
+
+    private static var lists: Lists?
+    private static var building: Task<Lists, Never>?
     nonisolated static let parts = 4
     private static let prefix = "jc-vault-block-"
 
@@ -19,7 +27,7 @@ enum VaultBlocker {
         Task { _ = await ruleLists() }
     }
 
-    static func ruleLists() async -> [WKContentRuleList] {
+    static func ruleLists() async -> Lists {
         if let lists { return lists }
         if let building { return await building.value }
         let task = Task { await load() }
@@ -30,18 +38,21 @@ enum VaultBlocker {
         return out
     }
 
-    private static func load() async -> [WKContentRuleList] {
-        guard let store = WKContentRuleListStore.default() else { return [] }
+    private static func load() async -> Lists {
+        guard let store = WKContentRuleListStore.default() else { return Lists() }
         let version = VaultBlocklist.version
         let ids = (0..<parts).map { "\(prefix)\(version)-hosts-\($0)" } + ["\(prefix)\(version)-css"]
         // Drop lists from older versions.
         for id in await store.availableIdentifiers() where id.hasPrefix(prefix) && !ids.contains(id) {
             try? await store.removeContentRuleList(forIdentifier: id)
         }
-        var out: [WKContentRuleList] = []
+        var out = Lists()
         for (i, id) in ids.enumerated() {
+            let put: (WKContentRuleList) -> Void = { list in
+                if i < VaultBlocker.parts { out.hosts.append(list) } else { out.css = list }
+            }
             if let cached = try? await store.contentRuleList(forIdentifier: id) {
-                out.append(cached)
+                put(cached)
                 continue
             }
             let json = await Task.detached(priority: .utility) {
@@ -50,7 +61,7 @@ enum VaultBlocker {
             }.value
             guard let json else { continue }
             if let list = try? await store.compileContentRuleList(forIdentifier: id, encodedContentRuleList: json) {
-                out.append(list)
+                put(list)
             }
         }
         return out
@@ -100,8 +111,8 @@ private extension WKContentRuleListStore {
 // MARK: - The browser
 
 /// One private browsing session: nothing persists (a fresh in-memory website data store each
-/// time), ads and trackers are blocked, pop-ups need a tap, nothing autoplays, other apps and
-/// downloads are refused, and every site is told not to sell or share (Global Privacy Control).
+/// time), other apps and downloads are refused, and Jarvis Shields (VaultShields.swift) decide
+/// the rest per site: ad/tracker blocking, ad-space hiding, pop-ups, stealth, GPC, JavaScript.
 @MainActor
 final class VaultBrowserModel: NSObject, ObservableObject {
     let webView: WKWebView
@@ -116,24 +127,32 @@ final class VaultBrowserModel: NSObject, ObservableObject {
     /// A pop-up the page tried to open without a tap: one tap opens it here.
     @Published var pendingPopup: URL?
     @Published var notice: String?
+    /// Shields up for the page on screen (the shield icon).
+    @Published private(set) var shieldsHere = true
+    @Published var desktopSite = false
 
     private var observations: [NSKeyValueObservation] = []
     private let start: URL
+    private let shields: VaultShields
+    private var lists = VaultBlocker.Lists()
+    /// What the page's rules were last set up for: (site, settings).
+    private var appliedFor: (String, VaultShieldSettings)?
     var onActivity: (() -> Void)?
 
-    init(start: URL) {
+    init(start: URL, shields: VaultShields = .shared) {
         self.start = start
+        self.shields = shields
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()                     // private: gone when it closes
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = .all       // nothing plays until tapped
+        config.mediaTypesRequiringUserActionForPlayback = shields.settings.blockAutoplay ? .all : []
         config.dataDetectorTypes = []
         config.upgradeKnownHostsToHTTPS = true
-        let gpc = WKUserScript(source: """
-            try { Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true }); } catch (e) {}
-            """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-        config.userContentController.addUserScript(gpc)
+        // Look like Safari itself: an in-app web view's user agent is what "update your browser"
+        // and "in-app browser" walls key on.
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        config.applicationNameForUserAgent = "Version/\(os.majorVersion).\(os.minorVersion) Mobile/15E148 Safari/604.1"
         webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsLinkPreview = false
         webView.allowsBackForwardNavigationGestures = true
@@ -173,19 +192,43 @@ final class VaultBrowserModel: NSObject, ObservableObject {
     /// Blocking first, then the page — never a page load without the blocker.
     func begin() async {
         guard !ready else { return }
-        for list in await VaultBlocker.ruleLists() {
-            webView.configuration.userContentController.add(list)
-        }
+        lists = await VaultBlocker.ruleLists()
+        apply(for: start)
         ready = true
         webView.load(URLRequest(url: start))
     }
 
-    /// The address bar: a URL as typed, or a private search (DuckDuckGo).
-    func go(_ text: String) {
-        if let target = Self.target(for: text) { webView.load(URLRequest(url: target)) }
+    /// Set the page's rules and scripts for `url`'s site under the current settings. Called before
+    /// each main-frame navigation (and after the settings change), so a site with Shields down
+    /// loads clean and the next one gets them back.
+    func apply(for url: URL?, force: Bool = false) {
+        let site = VaultShields.site(url)
+        let s = shields.settings
+        if !force, let applied = appliedFor, applied.0 == site, applied.1 == s { return }
+        appliedFor = (site, s)
+        let on = shields.isOn(for: url)
+        shieldsHere = on
+        let ucc = webView.configuration.userContentController
+        ucc.removeAllContentRuleLists()
+        ucc.removeAllUserScripts()
+        if on && s.blockAds { lists.hosts.forEach { ucc.add($0) } }
+        if on && s.hideAdSpaces, let css = lists.css { ucc.add(css) }
+        if s.globalPrivacyControl { ucc.addUserScript(VaultShieldScripts.globalPrivacyControl()) }
+        if on && s.blockAds && s.stealth { ucc.addUserScript(VaultShieldScripts.stealth()) }
     }
 
-    nonisolated static func target(for text: String) -> URL? {
+    /// After the Shields sheet: re-apply and reload so the page shows the new settings.
+    func settingsChanged() {
+        apply(for: webView.url ?? start, force: true)
+        if webView.url != nil { webView.reload() }
+    }
+
+    /// The address bar: a URL as typed, or a search with his chosen engine.
+    func go(_ text: String) {
+        if let target = Self.target(for: text, search: shields.settings.search) { webView.load(URLRequest(url: target)) }
+    }
+
+    nonisolated static func target(for text: String, search: VaultSearchEngine = .duckDuckGo) -> URL? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return nil }
         if let u = URL(string: t), let scheme = u.scheme?.lowercased(), ["http", "https"].contains(scheme), u.host != nil {
@@ -194,9 +237,7 @@ final class VaultBrowserModel: NSObject, ObservableObject {
         if !t.contains(" "), t.contains("."), let u = URL(string: "https://" + t), u.host != nil {
             return u
         }
-        var c = URLComponents(string: "https://duckduckgo.com/")!
-        c.queryItems = [URLQueryItem(name: "q", value: t)]
-        return c.url
+        return search.url(for: t)
     }
 
     func openPendingPopup() {
@@ -214,25 +255,27 @@ final class VaultBrowserModel: NSObject, ObservableObject {
         webView.loadHTMLString("", baseURL: nil)
     }
 
-    /// The last two labels of a host: close enough to tell a pop-up to another site from a
-    /// same-site one.
-    nonisolated static func site(_ url: URL?) -> String {
-        let labels = (url?.host ?? "").lowercased().split(separator: ".")
-        return labels.suffix(2).joined(separator: ".")
-    }
+    nonisolated static func site(_ url: URL?) -> String { VaultShields.site(url) }
 }
 
 extension VaultBrowserModel: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                 preferences: WKWebpagePreferences,
+                 decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         onActivity?()
-        let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
+        let url = navigationAction.request.url
+        let scheme = url?.scheme?.lowercased() ?? ""
         if ["http", "https", "about", "blob", "data"].contains(scheme) {
-            decisionHandler(.allow)
+            if navigationAction.targetFrame?.isMainFrame ?? true, ["http", "https"].contains(scheme) {
+                apply(for: url)          // this site's Shields, before its first byte
+            }
+            preferences.allowsContentJavaScript = shields.settings.javascript
+            preferences.preferredContentMode = desktopSite ? .desktop : .mobile
+            decisionHandler(.allow, preferences)
             return
         }
         // tel:, itms-apps:, other apps' links: the private browser never hands off by itself.
-        decisionHandler(.cancel)
+        decisionHandler(.cancel, preferences)
         if navigationAction.targetFrame?.isMainFrame ?? true {
             notice = "Blocked a link that would open another app"
         }
@@ -253,7 +296,8 @@ extension VaultBrowserModel: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         guard let target = navigationAction.request.url else { return nil }
-        if navigationAction.navigationType == .linkActivated || Self.site(target) == Self.site(webView.url) {
+        let blocking = shields.isOn(for: webView.url) && shields.settings.blockPopups
+        if !blocking || navigationAction.navigationType == .linkActivated || Self.site(target) == Self.site(webView.url) {
             webView.load(navigationAction.request)
         } else {
             blockedPopups += 1
@@ -308,6 +352,8 @@ struct VaultBrowserView: View {
     @State private var editing = false
     @State private var address = ""
     @State private var toast: String?
+    @State private var showShields = false
+    @ObservedObject private var shields = VaultShields.shared
     @FocusState private var addressFocused: Bool
 
     init(url: URL) {
@@ -353,6 +399,10 @@ struct VaultBrowserView: View {
         }
         // Locking the vault (background, the lock button, the hard limit) closes the browser.
         .onChange(of: session.isUnlocked) { _, open in if !open { close() } }
+        .sheet(isPresented: $showShields, onDismiss: { model.settingsChanged() }) {
+            VaultShieldsSheet(shields: shields, url: model.url, blockedPopups: model.blockedPopups)
+                .presentationDetents([.large])
+        }
         .onAppear { session.screenAppeared() }
         .onDisappear {
             session.screenDisappeared()
@@ -427,18 +477,17 @@ struct VaultBrowserView: View {
         HStack(spacing: 0) {
             barButton("chevron.left", "Back", enabled: model.canGoBack) { model.webView.goBack() }
             barButton("chevron.right", "Forward", enabled: model.canGoForward) { model.webView.goForward() }
-            Menu {
-                Section("Private browsing") {
-                    Label("Ads and trackers blocked", jcIcon: "shield")
-                    Label(model.blockedPopups == 1 ? "1 pop-up blocked" : "\(model.blockedPopups) pop-ups blocked",
-                          jcIcon: "rectangle.on.rectangle.slash")
-                    Label("Nothing is kept after you close", jcIcon: "eye.slash")
-                }
-            } label: {
-                barIcon("shield.fill")
+            Button { showShields = true } label: {
+                barIcon(model.shieldsHere ? "shield.fill" : "shield.slash")
             }
-            .accessibilityLabel("Privacy")
+            .buttonStyle(.plain)
+            .accessibilityLabel(model.shieldsHere ? "Shields up" : "Shields down")
             Menu {
+                Button(model.desktopSite ? "Request mobile site" : "Request desktop site",
+                       jcIcon: model.desktopSite ? "iphone" : "desktopcomputer") {
+                    model.desktopSite.toggle()
+                    model.webView.reload()
+                }
                 Button("Open in default browser", jcIcon: "safari") {
                     if let u = model.url { openURL(u) }
                 }

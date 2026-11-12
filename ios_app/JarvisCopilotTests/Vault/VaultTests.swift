@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import XCTest
 @testable import JarvisCopilot
 
@@ -113,6 +114,13 @@ final class VaultRenderTests: XCTestCase {
                                 size: CGSize(width: 393, height: 852), name: "vault-browser", settle: 4)
     }
 
+    func testRenderShieldsSheet() throws {
+        let shields = VaultShields(defaults: UserDefaults(suiteName: "render-\(UUID().uuidString)")!, keepsSites: false)
+        try RenderHarness.write(VaultShieldsSheet(shields: shields, url: URL(string: "https://www.example.com/x"),
+                                                  blockedPopups: 2),
+                                size: CGSize(width: 393, height: 1500), name: "vault-shields", settle: 0.8)
+    }
+
     func testRenderLockAndPasscode() throws {
         try RenderHarness.write(VaultLockView(session: VaultSession()), size: CGSize(width: 393, height: 852),
                                 name: "vault-lock", settle: 1.5)
@@ -141,5 +149,83 @@ final class VaultBrowserTests: XCTestCase {
         let lists = await VaultBlocker.ruleLists()
         print("vault blocker: \(lists.count) lists in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
         XCTAssertEqual(lists.count, VaultBlocker.parts + 1, "a host part or the CSS part failed to compile")
+    }
+
+    func testSettingsSurviveAndOldSavesKeepDefaults() throws {
+        let defaults = UserDefaults(suiteName: "vault-shields-test-\(UUID().uuidString)")!
+        let a = VaultShields(defaults: defaults, keepsSites: false)
+        a.settings.stealth = false
+        a.settings.search = .brave
+        let b = VaultShields(defaults: defaults, keepsSites: false)
+        XCTAssertFalse(b.settings.stealth)
+        XCTAssertEqual(b.settings.search, .brave)
+        let saved: Data = "{\"enabled\": false}".data(using: .utf8)!
+        defaults.setValue(saved, forKey: "vault.shields.settings")
+        let c = VaultShields(defaults: defaults, keepsSites: false)
+        XCTAssertFalse(c.settings.enabled)
+        XCTAssertTrue(c.settings.blockAds)
+    }
+
+    func testShieldsDownForOneSiteOnly() {
+        let shields = VaultShields(defaults: UserDefaults(suiteName: "vault-shields-\(UUID().uuidString)")!,
+                                   keepsSites: false)
+        shields.setShields(false, for: URL(string: "https://www.news.example.com/a"))
+        XCTAssertFalse(shields.isOn(for: URL(string: "https://example.com/b")))
+        XCTAssertTrue(shields.isOn(for: URL(string: "https://other.example.org")))
+    }
+
+    /// The detectors: a collapsed bait box, a blocked ad script's onerror, a fetch to an ad host.
+    private static let detectorPage = """
+        <html><body><script>
+        window.result = new Promise(resolve => {
+          const bait = document.createElement('div');
+          bait.className = 'adsbox pub_300x250 text-ad';
+          bait.style.cssText = 'width:300px;height:250px;position:absolute;top:-1000px';
+          document.body.appendChild(bait);
+          const s = document.createElement('script');
+          let script = 'pending';
+          s.onload = () => { script = 'loaded'; }; s.onerror = () => { script = 'error'; };
+          s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js';
+          document.head.appendChild(s);
+          let fetched = 'pending';
+          fetch('https://securepubads.g.doubleclick.net/tag/js/gpt.js').then(r => { fetched = 'ok'; }, () => { fetched = 'error'; });
+          setTimeout(() => {
+            const cs = getComputedStyle(bait);
+            const baitHidden = bait.offsetHeight === 0 || bait.offsetParent === null || cs.display === 'none';
+            resolve({ baitHidden, script, fetched, adsbygoogle: !!(window.adsbygoogle && window.adsbygoogle.loaded),
+                      native: String(getComputedStyle).includes('[native code]') });
+          }, 1500);
+        });
+        </script></body></html>
+        """
+
+    private func detect(stealth: Bool) async throws -> [String: Any] {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        let rules = """
+            [{"trigger":{"url-filter":".*"},"action":{"type":"css-display-none","selector":".adsbox"}},
+             {"trigger":{"url-filter":"googlesyndication"},"action":{"type":"block"}},
+             {"trigger":{"url-filter":"doubleclick"},"action":{"type":"block"}}]
+            """
+        let list = try await WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "vault-stealth-test", encodedContentRuleList: rules)
+        if let list { config.userContentController.add(list) }
+        if stealth { config.userContentController.addUserScript(VaultShieldScripts.stealth()) }
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 800), configuration: config)
+        web.loadHTMLString(Self.detectorPage, baseURL: URL(string: "https://example.com/"))
+        for _ in 0..<50 where web.isLoading { try await Task.sleep(for: .milliseconds(100)) }
+        let out = try await web.callAsyncJavaScript("return await window.result;", contentWorld: .page)
+        return out as? [String: Any] ?? [:]
+    }
+
+    func testStealthHidesShieldsFromDetectors() async throws {
+        let plain = try await detect(stealth: false)
+        XCTAssertEqual(plain["baitHidden"] as? Bool, true, "without stealth the detector should see the blocker: \(plain)")
+        let stealthy = try await detect(stealth: true)
+        XCTAssertEqual(stealthy["baitHidden"] as? Bool, false, "\(stealthy)")
+        XCTAssertEqual(stealthy["script"] as? String, "loaded", "\(stealthy)")
+        XCTAssertEqual(stealthy["fetched"] as? String, "ok", "\(stealthy)")
+        XCTAssertEqual(stealthy["adsbygoogle"] as? Bool, true, "\(stealthy)")
+        XCTAssertEqual(stealthy["native"] as? Bool, true, "\(stealthy)")
     }
 }

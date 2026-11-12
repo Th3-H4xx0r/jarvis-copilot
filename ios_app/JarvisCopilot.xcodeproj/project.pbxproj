@@ -245,6 +245,7 @@
 		2E1DCFDA332A6D5EDD90C937 /* IslandLiveProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADEAD6E293A4C38DF5DBE558 /* IslandLiveProbeTests.swift */; };
 		2E7E24501CF070BD04CF5A14 /* SkillRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4C39883A267185DB68992 /* SkillRegistry.swift */; };
 		2E9532D76494BC45E2E7E66B /* BridgeReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */; };
+		2EA04BF4466BB7A6F1273FFD /* VaultShields.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13A3374B8D1F282BFEA9FF7 /* VaultShields.swift */; };
 		2EA9F9CDA0F76FB0442D74F0 /* CarLightsMusic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68528C62EDA28F7D67F6281E /* CarLightsMusic.swift */; };
 		2EB5AA667B4024DE7FD78172 /* CarLightsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296993EE95A7073BE01AFB11 /* CarLightsPage.swift */; };
 		2EFF3A3A037E2F499D9F6213 /* SceneStillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 702664CBDC480A1A4457919D /* SceneStillTests.swift */; };
@@ -2161,6 +2162,7 @@
 		A100000000000000000000B6 /* Esp32ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Esp32ChatView.swift; sourceTree = "<group>"; };
 		A108F0A0A5E92E2F184E2B65 /* InmoMusicResume.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoMusicResume.swift; sourceTree = "<group>"; };
 		A1203E07EA5D17F444878DFA /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A13A3374B8D1F282BFEA9FF7 /* VaultShields.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultShields.swift; sourceTree = "<group>"; };
 		A1702051C73E8DD4087418F6 /* PersonaLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaLoaderTests.swift; sourceTree = "<group>"; };
 		A17551F637308DF17659636C /* CarPlaySettingsScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlaySettingsScreen.swift; sourceTree = "<group>"; };
 		A17F878AD759F26EFA8A9791 /* MicPCM.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicPCM.swift; sourceTree = "<group>"; };
@@ -4497,6 +4499,7 @@
 				797340BFEF1E8CDE65E73E5C /* VaultUploads.swift */,
 				F31D99C4B49E168C0F57EB33 /* VaultBlocklist.generated.swift */,
 				EFC79B57BF0139AA4B0CB095 /* VaultBrowser.swift */,
+				A13A3374B8D1F282BFEA9FF7 /* VaultShields.swift */,
 			);
 			name = Vault;
 			path = Vault;
@@ -6516,6 +6519,7 @@
 				59869837164FE1F3CFEBBA90 /* VaultUploads.swift in Sources */,
 				15DC43B567518088408FB367 /* VaultBlocklist.generated.swift in Sources */,
 				37BEB80A74EB8CD6F0A82387 /* VaultBrowser.swift in Sources */,
+				2EA04BF4466BB7A6F1273FFD /* VaultShields.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
