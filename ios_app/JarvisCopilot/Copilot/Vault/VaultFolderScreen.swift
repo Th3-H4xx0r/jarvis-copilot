@@ -40,6 +40,7 @@ struct VaultFolderScreen: View {
     @State private var moving: MoveRequest?
     @State private var showFiles = false
     @State private var shareFiles: VaultShareRequest?
+    @State private var browsing: VaultBrowserTarget?
     @FocusState private var searchFocused: Bool
 
     enum Sheet: Identifiable {
@@ -111,6 +112,7 @@ struct VaultFolderScreen: View {
             }
         }
         .sheet(item: $shareFiles) { VaultShareSheet(request: $0) }
+        .fullScreenCover(item: $browsing) { VaultBrowserView(url: $0.url) }
         .fullScreenCover(isPresented: $showCamera) {
             VaultCameraPicker { file in
                 showCamera = false
@@ -284,7 +286,8 @@ struct VaultFolderScreen: View {
                     }
                 }
                 Button("Move", jcIcon: "folder") { moving = MoveRequest(items: [item.id], folder: nil) }
-                if item.kind == .link {
+                if item.kind == .link, let url = item.link.flatMap({ URL(string: $0.url) }) {
+                    Button("Open in private browser", jcIcon: "eye.slash") { browsing = VaultBrowserTarget(url: url) }
                     Button("Refresh preview", jcIcon: "arrow.clockwise") { Task { await refreshPreview(item) } }
                 }
                 Button("Share", jcIcon: "square.and.arrow.up") { Task { await share([item]) } }

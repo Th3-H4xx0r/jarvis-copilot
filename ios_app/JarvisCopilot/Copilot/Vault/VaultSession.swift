@@ -145,6 +145,7 @@ final class VaultSession: ObservableObject {
         error = nil
         autoPromptOwed = false
         startWatchdog()
+        VaultBlocker.prepare()          // the private browser's blocker, compiled before it's needed
     }
 
     func lock() {

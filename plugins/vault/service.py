@@ -29,6 +29,8 @@ TITLES = {"search": "Search your vault", "list": "Look in your vault", "read": "
           "save": "Save to your vault", "move": "Move vault items", "delete": "Delete vault items"}
 RESULT_TTL = 300          # seconds a finished result waits for the tool to collect it
 PREVIEW_WAIT_S = 13.0
+# "Refresh preview" waits for the whole engine, the headless browser included.
+REFRESH_WAIT_S = 38.0
 TOOL_FILE_MAX = MAX_SIZE
 PDF_TEXT_MAX = 60_000
 NOTE_TEXT_MAX = 60_000
@@ -170,11 +172,11 @@ class VaultService:
         except Exception as exc:
             log.warning("vault link preview failed: %s", type(exc).__name__)
 
-    def preview_link(self, item_id: str, url: str, wait: bool) -> None:
+    def preview_link(self, item_id: str, url: str, wait: bool, wait_s: float | None = None) -> None:
         future = _PREVIEW_POOL.submit(self._preview_into, item_id, url)
         if wait:
             try:
-                future.result(timeout=self.preview_wait_s)
+                future.result(timeout=wait_s if wait_s is not None else self.preview_wait_s)
             except FutureTimeout:
                 pass
 
@@ -222,7 +224,7 @@ class VaultService:
     def refresh_preview(self, item_id: str) -> dict:
         """POST /items/<id>/preview: fetch a link's preview again now."""
         url = self.store.reset_preview(item_id)
-        self.preview_link(item_id, url, wait=True)
+        self.preview_link(item_id, url, wait=True, wait_s=REFRESH_WAIT_S)
         return self.store.get_item(item_id, body=False)
 
     def create_link(self, parent_id, url, note=None, title=None, fallback_root=False, wait=True) -> dict:

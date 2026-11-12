@@ -126,6 +126,7 @@ def fake_web(monkeypatch):
         return real_client(**kw)
 
     monkeypatch.setattr(httpx, "Client", client)
+    monkeypatch.setattr(preview_mod, "_render", lambda url: None)
     monkeypatch.setattr("tools.url_safety.is_safe_url", lambda url: True)
     monkeypatch.setattr("tools.url_safety.response_peer_is_public", lambda resp: True)
     return seen
@@ -153,3 +154,39 @@ def test_a_site_name_title_gives_way_to_the_link(fake_web):
     assert preview_mod._weak_title({"title": "PornhubPornhub", "site_name": "pornhub.com", "domain": "pornhub.com"})
     assert preview_mod._weak_title({"title": "Instagram", "site_name": "Instagram", "domain": "instagram.com"})
     assert not preview_mod._weak_title({"title": "A day in Kyoto", "site_name": "Vimeo", "domain": "vimeo.com"})
+
+
+def test_the_browser_is_the_last_resort_and_its_screenshot_the_last_picture(fake_web, monkeypatch):
+    calls = []
+
+    def rendered(url):
+        calls.append(url)
+        return {"final": url, "html": "<title>Cooking pasta, the real page</title>" + "<p>recipe</p>" * 300,
+                "images": [],
+                "screenshot": _jpeg((1280, 720))}
+
+    monkeypatch.setattr(preview_mod, "_render", rendered)
+    got = preview_mod.fetch("https://tube.example/walled/cooking-pasta-at-home-x9Y8z7", want_favicon=False)
+    assert calls and got["preview"]["title"] == "Cooking pasta, the real page"
+    assert got["image"][:2] == b"\xff\xd8"
+    # A page the plain fetch already handled never starts a browser.
+    calls.clear()
+    preview_mod.fetch("https://tube.example/videos/some-clip-ab12cd", want_favicon=False)
+    assert calls == []
+
+
+def test_a_walled_browser_render_never_becomes_the_thumbnail(fake_web, monkeypatch):
+    monkeypatch.setattr(preview_mod, "_render", lambda url: {
+        "final": url, "html": "<title>Just a moment...</title>" + " " * 3000, "images": [],
+        "screenshot": _jpeg((1280, 720))})
+    got = preview_mod.fetch("https://tube.example/walled/cooking-pasta-at-home-x9Y8z7", want_favicon=False)
+    assert got["image"] is None and got["preview"]["title"] == "Cooking Pasta At Home"
+
+
+@pytest.mark.parametrize("host,ok", [("127.0.0.1", False), ("10.0.0.5", False), ("169.254.169.254", False),
+                                     ("localhost", False), ("8.8.8.8", True)])
+def test_the_browser_proxy_only_reaches_public_addresses(host, ok):
+    from plugins.vault.render import public_ip
+
+    assert (public_ip(host, 443) is not None) == ok
+    assert public_ip("8.8.8.8", 22) is None

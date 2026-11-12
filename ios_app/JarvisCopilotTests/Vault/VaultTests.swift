@@ -108,8 +108,38 @@ final class VaultRenderTests: XCTestCase {
         try RenderHarness.write(page, size: CGSize(width: 393, height: 600), name: "vault-empty", settle: 0.5)
     }
 
+    func testRenderPrivateBrowser() throws {
+        try RenderHarness.write(VaultBrowserView(url: URL(string: "https://example.com/")!),
+                                size: CGSize(width: 393, height: 852), name: "vault-browser", settle: 4)
+    }
+
     func testRenderLockAndPasscode() throws {
         try RenderHarness.write(VaultLockView(session: VaultSession()), size: CGSize(width: 393, height: 852),
                                 name: "vault-lock", settle: 1.5)
+    }
+}
+
+/// The private browser: its address bar and its ad/tracker blocker.
+@MainActor
+final class VaultBrowserTests: XCTestCase {
+    func testAddressBarTakesURLsHostsAndSearches() {
+        XCTAssertEqual(VaultBrowserModel.target(for: "https://example.com/a")?.absoluteString, "https://example.com/a")
+        XCTAssertEqual(VaultBrowserModel.target(for: "example.com")?.absoluteString, "https://example.com")
+        XCTAssertEqual(VaultBrowserModel.target(for: "best ramen")?.host, "duckduckgo.com")
+        XCTAssertNil(VaultBrowserModel.target(for: "  "))
+    }
+
+    func testPopupsToAnotherSiteAreTold() {
+        XCTAssertEqual(VaultBrowserModel.site(URL(string: "https://m.example.com/x")),
+                       VaultBrowserModel.site(URL(string: "https://example.com")))
+        XCTAssertNotEqual(VaultBrowserModel.site(URL(string: "https://ads.example.net")),
+                          VaultBrowserModel.site(URL(string: "https://example.com")))
+    }
+
+    func testEveryPartOfTheBlockListCompiles() async throws {
+        let started = Date()
+        let lists = await VaultBlocker.ruleLists()
+        print("vault blocker: \(lists.count) lists in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+        XCTAssertEqual(lists.count, VaultBlocker.parts + 1, "a host part or the CSS part failed to compile")
     }
 }

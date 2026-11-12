@@ -428,3 +428,21 @@ def test_vault_toolset_matches_the_plugin_tools():
     from toolsets import TOOLSETS
 
     assert TOOLSETS["vault"]["tools"] == [name for name, *_ in vault_tools.TOOLS]
+
+
+def test_links_from_an_older_preview_engine_are_fetched_again(svc, phone, clock):
+    """A link the old engine saved with a bot wall's title and no picture gets the new engine."""
+    t = unlock(svc, phone, clock)
+    store = svc.store
+    item = store.create_link("root", "https://tube.example/videos/clip-xh1")
+    store.mark_preview_attempt(item["id"])
+    store.save_preview(item["id"], {"title": "Please update your browser", "kind": "page"})
+    with store._lock, store._db() as conn:          # what the old engine left: no engine stamp
+        row = store._row(conn, item["id"])
+        dk, meta = store._open(row)
+        meta.pop("preview_engine", None)
+        store._update_meta(conn, row, dk, meta, touch=False)
+    assert [i for i, _ in store.links_pending()] == [item["id"]]
+    svc._fetch = lambda url: {"preview": {"title": "The real clip", "kind": "video"}, "image": None, "favicon": None}
+    status, payload = call(svc, "POST", f"/items/{item['id']}/preview", {}, token=t)
+    assert status == 200 and payload["item"]["title"] == "The real clip"

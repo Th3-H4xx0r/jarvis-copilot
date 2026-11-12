@@ -29,6 +29,8 @@ struct VaultItemScreen: View {
     @State private var savedBody = ""
     @State private var linkNote = ""
     @State private var savedLinkNote = ""
+    @State private var askOpen = false
+    @State private var browsing: VaultBrowserTarget?
     @State private var player: AVPlayer?
     @State private var playerLoader: VaultPlayerLoader?
 
@@ -54,6 +56,13 @@ struct VaultItemScreen: View {
             }
         }
         .sheet(item: $share) { VaultShareSheet(request: $0) }
+        .confirmationDialog(current.link?.domain ?? "Open link", isPresented: $askOpen, titleVisibility: .visible) {
+            Button("Private browser") { openLink(privately: true) }
+            Button("Default browser") { openLink(privately: false) }
+        } message: {
+            Text("The private browser blocks ads, trackers and pop-ups, and keeps nothing after you close it.")
+        }
+        .fullScreenCover(item: $browsing) { VaultBrowserView(url: $0.url) }
         .confirmationDialog("Delete this item?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await delete() } }
         } message: {
@@ -110,7 +119,7 @@ struct VaultItemScreen: View {
                     if let d = VaultFormat.duration(current.duration) { VaultDurationChip(text: d) }
                 }
                 .clipShape(heroShape)
-                .onTapGesture { openLink() }
+                .onTapGesture { askOpen = true }
                 .padding(.top, 8)
             Text(current.displayTitle)
                 .font(.system(size: 22, weight: .bold))
@@ -125,7 +134,7 @@ struct VaultItemScreen: View {
             .padding(.top, 6)
             HStack(spacing: 10) {
                 GradientButton(link?.isVideo == true ? "Open video" : "Open page",
-                               symbol: "arrow.up.right.square", full: true) { openLink() }
+                               symbol: "arrow.up.right.square", full: true) { askOpen = true }
                 Button {
                     // This iPhone only, and not for long: never onto his other devices' clipboards.
                     UIPasteboard.general.setItems([[UTType.plainText.identifier: link?.url ?? ""]],
@@ -321,9 +330,9 @@ struct VaultItemScreen: View {
         }
     }
 
-    private func openLink() {
+    private func openLink(privately: Bool) {
         guard let s = current.link?.url, let url = URL(string: s) else { return }
-        openURL(url)
+        if privately { browsing = VaultBrowserTarget(url: url) } else { openURL(url) }
     }
 
     private func stopVideo() {

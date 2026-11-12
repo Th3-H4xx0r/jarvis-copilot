@@ -10,7 +10,10 @@ Where the preview comes from, best first:
   advertises an ``application/json+oembed`` link);
 - Open Graph / Twitter card tags, ``itemprop`` microdata, ``<link rel=image_src>``;
 - JSON-LD (``VideoObject`` for durations, any node's ``thumbnailUrl`` / ``image``);
-- a ``<video poster>``, then the page's first large-looking ``<img>``.
+- a ``<video poster>``, then the page's first large-looking ``<img>``;
+- last, when none of that gives a real title and picture, the page loaded in a real headless
+  Chromium (plugins/vault/render.py): its rendered tags, the big images on screen, and failing
+  everything a screenshot of the page.
 
 Every hop, redirects and image downloads included, goes through ``is_safe_url`` so a saved link
 can't make the server fetch its own network. One deadline covers the whole preview. Never raises;
@@ -461,7 +464,20 @@ def _apply_oembed(preview: dict, oe: dict, url: str) -> None:
         preview["_images"] = [urljoin(url, thumb)] + [i for i in preview.get("_images") or [] if i != thumb]
 
 
-def fetch(url: str, budget_s: float = BUDGET_S, want_favicon: bool = True) -> dict | None:
+def _safe(url: str) -> bool:
+    from tools.url_safety import is_safe_url
+    try:
+        return bool(is_safe_url(url))
+    except Exception:
+        return False
+
+
+def _render(url: str):
+    from plugins.vault import render
+    return render.render(url)
+
+
+def fetch(url: str, budget_s: float = BUDGET_S, want_favicon: bool = True, use_browser: bool = True) -> dict | None:
     """{"preview": {...}, "image": bytes|None, "favicon": (bytes, mime)|None}, or None if neither the
     page nor its oEmbed could be fetched at all."""
     try:
@@ -487,6 +503,29 @@ def fetch(url: str, budget_s: float = BUDGET_S, want_favicon: bool = True) -> di
             if oe:
                 preview = preview or _blank(url)
                 _apply_oembed(preview, oe, url)
+        # Still no real title or picture: load it in a real browser (plugins/vault/render.py).
+        screenshot = None
+        if _score(preview) < 3 and use_browser and _safe(url):
+            rendered = _render(url)
+            if rendered:
+                page = parse_page(rendered["html"], rendered["final"]) if rendered["html"] else _blank(rendered["final"])
+                page["_final"] = rendered["final"]
+                page["_images"] = list(dict.fromkeys(page["_images"][:4] + rendered["images"] + page["_images"][4:]))
+                if preview is None:
+                    preview = page
+                else:
+                    if _weak_title(preview) and not _weak_title(page):
+                        preview["title"] = page["title"]
+                        preview["description"] = page.get("description") or preview.get("description")
+                    if page.get("kind") == "video":
+                        preview["kind"] = "video"
+                    preview["duration_s"] = preview.get("duration_s") or page.get("duration_s")
+                    preview["_images"] = list(dict.fromkeys(list(preview.get("_images") or []) + page["_images"]))
+                    preview["_final"] = preview.get("_final") or page["_final"]
+                # A screenshot only of a real page — never a wall, an error or a blank one.
+                if rendered.get("screenshot") and not _weak_title(page) and len(rendered["html"]) > 2000:
+                    screenshot = rendered["screenshot"]
+                f.deadline = max(f.deadline, time.monotonic() + 6.0)     # time to download the picture
         if preview is None:
             return None
 
@@ -510,6 +549,8 @@ def fetch(url: str, budget_s: float = BUDGET_S, want_favicon: bool = True) -> di
             image = f.image(candidate, referer)
             if image:
                 break
+        if image is None and screenshot:
+            image = screenshot          # what the page looks like beats a blank card
         favicon = None
         if want_favicon and preview.get("_icon") and f.left() > 0.5:
             got = f.get(preview["_icon"], _MAX_FAVICON, {**_IMAGE_HEADERS, "Referer": referer})

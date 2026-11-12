@@ -109,6 +109,7 @@
 		157F14FAA13E84F156A92D94 /* VoiceLocalLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8280FD20DD3AC63BC1A90061 /* VoiceLocalLaneTests.swift */; };
 		15B5E43D2E52DB81A1CBD7D3 /* CarPlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE024C2472D4AF658ADB3DAE /* CarPlayCoordinator.swift */; };
 		15D0D226451FACAD6C60EAF1 /* CarLightsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39CEA86AF2CC9F1F56F90DA8 /* CarLightsPreview.swift */; };
+		15DC43B567518088408FB367 /* VaultBlocklist.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31D99C4B49E168C0F57EB33 /* VaultBlocklist.generated.swift */; };
 		160990382CEA3C285EBC33E3 /* WidgetDesignStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1F0C263D3C9AF5C066C9EF /* WidgetDesignStoreTests.swift */; };
 		167C3D86B3735160082CA258 /* HealthUnits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95FAC3E42EB619BE42672E /* HealthUnits.swift */; };
 		170114BF483753E0EF1AD6EC /* VoiceTurnMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */; };
@@ -293,6 +294,7 @@
 		376A6C315274810D804E47E9 /* MarkdownBlocksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81AC40B9491E22F76D6C1880 /* MarkdownBlocksTests.swift */; };
 		378C25AF6F93197AB032CCDD /* RingProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F014A87B5A8D7B79F633133 /* RingProtocol.swift */; };
 		378E0AA95FCE23CC17CF0F25 /* ChatImageGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B913DD3AA1ED97722F7EEDD /* ChatImageGallery.swift */; };
+		37BEB80A74EB8CD6F0A82387 /* VaultBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFC79B57BF0139AA4B0CB095 /* VaultBrowser.swift */; };
 		37F1811F3C1A91F779E02FB9 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1203E07EA5D17F444878DFA /* RootView.swift */; };
 		381EA770A5D8BB1D8BA215B3 /* SFSymbolCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22D79C8FBD50C7E46F2D368E /* SFSymbolCatalog.swift */; };
 		384877E8EE2A9809506AD20F /* RouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A0E386FACED19A19EF79EA /* RouteDetailView.swift */; };
@@ -2541,6 +2543,7 @@
 		EF0DD739FDD6E939A19F6893 /* DashcamTagViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamTagViews.swift; sourceTree = "<group>"; };
 		EF913AA82E6FB08A019A13CB /* InmoGalleryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoGalleryTests.swift; sourceTree = "<group>"; };
 		EFA3BCB6CFF29EA12C987E4D /* DevicesUnifiedRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesUnifiedRenderTests.swift; sourceTree = "<group>"; };
+		EFC79B57BF0139AA4B0CB095 /* VaultBrowser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultBrowser.swift; sourceTree = "<group>"; };
 		EFFD878BAB7E6691A8B033AF /* ButtonActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonActivityAttributes.swift; sourceTree = "<group>"; };
 		F02DCCD3CD284FCC808A1665 /* BottleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleManager.swift; sourceTree = "<group>"; };
 		F0549A0081A834E248D06EA2 /* InmoOwnerIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoOwnerIdentityTests.swift; sourceTree = "<group>"; };
@@ -2555,6 +2558,7 @@
 		F2AB49951D6DCEFDA46066AF /* WearableLinks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableLinks.swift; sourceTree = "<group>"; };
 		F2AF54CA5093E96BDBB2A681 /* InmoControlsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoControlsTests.swift; sourceTree = "<group>"; };
 		F3026BB83885951948EAF3FA /* GlassesAudioLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesAudioLinkTests.swift; sourceTree = "<group>"; };
+		F31D99C4B49E168C0F57EB33 /* VaultBlocklist.generated.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultBlocklist.generated.swift; sourceTree = "<group>"; };
 		F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LensCaptionSurface.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextSnapshot.swift; sourceTree = "<group>"; };
@@ -4491,6 +4495,8 @@
 				E3CBA105F4A41164C52585E8 /* VaultShareKeychain.swift */,
 				07FCFBD22FDC8D087D6E592F /* VaultSheets.swift */,
 				797340BFEF1E8CDE65E73E5C /* VaultUploads.swift */,
+				F31D99C4B49E168C0F57EB33 /* VaultBlocklist.generated.swift */,
+				EFC79B57BF0139AA4B0CB095 /* VaultBrowser.swift */,
 			);
 			name = Vault;
 			path = Vault;
@@ -6508,6 +6514,8 @@
 				F105FE654465EB19A12FFBDF /* VaultShareKeychain.swift in Sources */,
 				7DC7769A654275A4C3A13295 /* VaultSheets.swift in Sources */,
 				59869837164FE1F3CFEBBA90 /* VaultUploads.swift in Sources */,
+				15DC43B567518088408FB367 /* VaultBlocklist.generated.swift in Sources */,
+				37BEB80A74EB8CD6F0A82387 /* VaultBrowser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
