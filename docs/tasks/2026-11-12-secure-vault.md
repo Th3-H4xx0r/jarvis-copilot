@@ -9,6 +9,13 @@ Spec: docs/superpowers/specs/2026-11-12-secure-vault-design.md · Mockup: https:
 - [x] Bug sweep (server + iOS) and fixes
 - [x] Deployed: server restarted with vault routes + plugin
 - [x] Shipped: iPhone build via release.sh (build 263160805)
+- [x] Round 2 (his 08:24 feedback): cleaner vault home (folder rows, Search/Add/⋯ pill, empty states)
+- [x] Round 2: share sheet shows no folders; server inbox forces the top folder; app deletes the old Keychain folder list
+- [x] Round 2: smarter link previews (crawler → Safari → Twitterbot, wall titles dropped, more image sources,
+      oEmbed discovery, title from the link) + "Refresh preview"; old thumbnail-less links refetched once
+- [x] Round 2 deployed (server 491deae6a, webui restarted 14:40 UTC)
+- [x] Round 2 shipped: iPhone build 263161440 via release.sh
+- [ ] Live check: his xhamster1.desi link gets a real title/thumbnail (couldn't test that site from here: it serves bots no listings)
 - [ ] Live check on the phone: set passcode, save a YouTube link (thumbnail + duration), import a photo, play a video
 
 Notes:
