@@ -114,6 +114,13 @@ struct InmoPendingCards {
         get { UserDefaults.standard.bool(forKey: notificationsEnabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: notificationsEnabledKey) }
     }
+    // One-time flag: whether we've already purged the bundle-id allowlist entries that
+    // build 263151934 wrote to the glasses (they crashed the firmware's ANCS matching).
+    private static let allowlistPurgedKey = "inmo.allowlistBundleIdPurged.v1"
+    static var allowlistPurged: Bool {
+        get { UserDefaults.standard.bool(forKey: allowlistPurgedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: allowlistPurgedKey) }
+    }
     #if os(iOS)
     /// Whether iOS currently authorises this accessory to receive the phone's
     /// notifications over ANCS (Apple Notification Center Service). nil when not
@@ -131,9 +138,6 @@ struct InmoPendingCards {
     #else
     private var connectOptions: [String: Any]? { nil }
     #endif
-    /// Apps put on the glasses' own notification list when notifications are on,
-    /// by display name as the official app sends them (it shows Messages as "iMessage").
-    static let notificationApps = ["Messages", "iMessage", "Phone", "WhatsApp", "Telegram", "Gmail", "Mail", "Slack", "Calendar", "JARVIS"]
     /// Turn glasses notifications on or off: Jarvis's own cards (forwardNotification)
     /// and the iPhone's notifications over ANCS. The ANCS requirement on the link
     /// applies from the next connect; the firmware switch and app list go now.
@@ -170,6 +174,16 @@ struct InmoPendingCards {
         guard isReady else { return }
         Task { await sendNotificationSetup(Self.notificationsEnabled) }
     }
+    /// Re-send just the per-app allowlist after the user toggles an app in the picker,
+    /// so the change reaches the glasses without a full reconnect.
+    func refreshNotificationApps() {
+        guard isReady, Self.notificationsEnabled else { return }
+        Task {
+            for app in InmoNotifCatalog.apps {
+                try? await send(InmoCommand.notificationApp(app.name, enabled: InmoNotifSelection.isOn(app.bundleID)))
+            }
+        }
+    }
     /// Tell the firmware to consume iOS ANCS (IOS_ANCS_ENABLE) and, when on, list
     /// the apps it may show. The official app refuses this on iOS 27, so whether the
     /// lens then shows iPhone notifications is what the diagnostics are for. While the
@@ -177,9 +191,24 @@ struct InmoPendingCards {
     private func sendNotificationSetup(_ on: Bool) async {
         do {
             try await send(InmoCommand.iosAncsEnable(on && !Esp32NotificationRelay.isOnAnyBoard))
-            if on { for name in Self.notificationApps { try await send(InmoCommand.notificationApp(name, enabled: true)) } }
+            if on {
+                // One-time cleanup: build 263151934 wrote bundle-id strings ("com.google.Gmail")
+                // as app names into the glasses' allowlist, and the firmware choked on them when
+                // a matching ANCS notification (e.g. Gmail) arrived — the glasses crashed/churned.
+                // Disable those keys once to stop the glasses walking them. Sending allowlist
+                // entries is safe (the glasses accept them fine); it's the ANCS match that broke.
+                if !Self.allowlistPurged {
+                    for app in InmoNotifCatalog.apps { try await send(InmoCommand.notificationApp(app.bundleID, enabled: false)) }
+                    Self.allowlistPurged = true
+                }
+                // The glasses match ANCS notifications by the app's DISPLAY NAME (confirmed from
+                // the official iOS app's BLE capture: it sends "Gmail", not a bundle id — the
+                // glasses read the display name from ANCS App Attributes). Send the whole catalog
+                // with each app's on/off state so toggling one off clears it.
+                for app in InmoNotifCatalog.apps { try await send(InmoCommand.notificationApp(app.name, enabled: InmoNotifSelection.isOn(app.bundleID))) }
+            }
             #if os(iOS)
-            InmoRuntimeDiagnostics.note("ANCS setup sent enabled=\(on) apps=\(on ? Self.notificationApps.count : 0) authorized=\(ancsAuthorized.map(String.init) ?? "nil")")
+            InmoRuntimeDiagnostics.note("ANCS setup sent enabled=\(on) apps=\(on ? InmoNotifSelection.enabled.count : 0) authorized=\(ancsAuthorized.map(String.init) ?? "nil")")
             #endif
         } catch {
             InmoRuntimeDiagnostics.note("ANCS setup failed: \(error.localizedDescription)")
@@ -540,6 +569,9 @@ struct InmoPendingCards {
                         Task {
                             guard generation == current else { return }
                             do {
+                                // Declare the companion app first, like the official app — the 3.0.x
+                                // firmware gates INMEET/SageNote on it ("update the app" otherwise).
+                                try await send(InmoCommand.phoneInfo())
                                 try await send(InmoCommand.enableClassicGATT())
                                 for query in [27, 31, 32, 33, 35, 38, 28] {
                                     guard generation == current else { return }

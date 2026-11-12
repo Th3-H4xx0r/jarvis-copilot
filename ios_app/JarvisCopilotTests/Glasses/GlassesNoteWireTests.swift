@@ -108,4 +108,46 @@ final class GlassesNoteWireTests: XCTestCase {
         XCTAssertEqual(whole, "Just a summary.")
         XCTAssertEqual(GlassesNoteFinisher.parse("**Title:** Standup\nNotes").0, "Standup")
     }
+
+    // MARK: INMEET (SageNote) — goldens from the 2026-11-11 call-recording capture
+
+    /// INMEET opens through STARTING_APPLICATION switchApp 15, the same message the glasses use
+    /// (`15 18{1=15}`), NOT the AI-assistant app-switch the lens rejects as "not installed".
+    func testInmeetOpensThroughStartingApplication() {
+        XCTAssertEqual(GlassesSageNoteWire.open(), data("100f920102080f"))
+        XCTAssertEqual(GlassesSageNoteWire.close(), data("100f920104080f1001"))
+        XCTAssertNotEqual(GlassesSageNoteWire.open(), InmoCommand.aiSwitchApplication(15, open: true))
+    }
+
+    func testInmeetAppStateParsesTheGlassesEcho() throws {
+        let opened = try InmoWireCodec.decode(data("0801100f920102080f"))
+        let closed = try InmoWireCodec.decode(data("0801100f920104080f1001"))
+        let notes = try InmoWireCodec.decode(data("100f9201020805"))
+        XCTAssertEqual(GlassesSageNoteWire.appState(type: 15, fields: opened), true)
+        XCTAssertEqual(GlassesSageNoteWire.appState(type: 15, fields: closed), false)
+        XCTAssertNil(GlassesSageNoteWire.appState(type: 15, fields: notes))
+    }
+
+    func testInmeetStateMatchesTheOfficialApp() {
+        XCTAssertEqual(GlassesSageNoteWire.state(sessionId: "mt-1794410621786-3", elapsedSeconds: 44, nowMs: 1794432267903),
+                       data("102bf2022708031a126d742d313739343431303632313738362d3320ffecfde39c346a08080110011801202c"))
+    }
+
+    func testInmeetConfigMatchesTheOfficialApp() {
+        XCTAssertEqual(GlassesSageNoteWire.config(sessionId: "mt-1794410790171-2", revision: 69, language: "en",
+                                                  nowMs: 1794432399832, commandId: "EFC1CD88-A8AC-49D6-9C63-CE419ECB8AA4"),
+                       data("102bf202590807122445464331434438382d413841432d343944362d394336332d4345343139454342384141341a126d742d313739343431303739303137312d3220d8f385e49c348a011308ff011202656e1a02656e2801380140456001"))
+    }
+
+    /// The companion-app declaration the firmware gates INMEET on: BLE_CONNECT_BIND(24) / field 27,
+    /// BleConnectBind{msgType PHONE_INFO(7), phoneInfo(7): {appVersion "3.0.0", phoneType IOS(2)}}.
+    func testPhoneInfoDeclaresTheIOSCompanionApp() {
+        XCTAssertEqual(InmoCommand.phoneInfo(), data("08011018da010d08073a090a05332e302e301002"))
+    }
+
+    func testInmeetStartAndStopCommands() {
+        XCTAssertTrue(GlassesSageNoteWire.isStart(0)); XCTAssertTrue(GlassesSageNoteWire.isStart(2))
+        XCTAssertTrue(GlassesSageNoteWire.isStop(1)); XCTAssertTrue(GlassesSageNoteWire.isStop(3))
+        XCTAssertFalse(GlassesSageNoteWire.isStart(4)); XCTAssertFalse(GlassesSageNoteWire.isStop(5))
+    }
 }

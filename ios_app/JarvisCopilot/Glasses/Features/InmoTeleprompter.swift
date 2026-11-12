@@ -12,6 +12,13 @@ extension InmoCommand {
     static func teleprompterStart() -> Data {
         envelope(type: 9, field: 12, payload: InmoWireCodec.uint(1, 3) + InmoWireCodec.bytes(4, InmoWireCodec.uint(2, 1) + InmoWireCodec.uint(3, 1)))
     }
+    /// Turn automatic (voice-following) page-turning on or off. The start request only
+    /// declares that the document *supports* auto page-turn; the glasses don't actually
+    /// scroll until this UPDATE_PAGE_TURNING_MODE_TYPE(5) message arrives with isTurnPageAuto.
+    /// `SpeechInscription{msg_type: 5, updatePageTurningMode(7): {isTurnPageAuto(1): 1/0}}`.
+    static func teleprompterAutoPage(_ on: Bool) -> Data {
+        envelope(type: 9, field: 12, payload: InmoWireCodec.uint(1, 5) + InmoWireCodec.bytes(7, InmoWireCodec.uint(1, on ? 1 : 0, includeZero: true)))
+    }
     static func teleprompterPage(next: Bool) -> Data { envelope(type: 9, field: 12, payload: InmoWireCodec.uint(9, next ? 1 : 0, includeZero: true)) }
     static func teleprompterProgress(line: Int, percent: Float? = nil) throws -> Data {
         guard (1...100000).contains(line) else { throw DeviceError.badArgument("line must be 1–100000") }
@@ -48,7 +55,7 @@ final class InmoTeleprompter {
         }
     }
     func install(on device: InmoGo3Device) {
-        for name in ["glasses_teleprompter_upload", "glasses_teleprompter_start", "glasses_teleprompter_page", "glasses_teleprompter_progress", "glasses_teleprompter_stop"] {
+        for name in ["glasses_teleprompter_upload", "glasses_teleprompter_start", "glasses_teleprompter_page", "glasses_teleprompter_progress", "glasses_teleprompter_stop", "glasses_teleprompter_autoscroll"] {
             device.featureHandlers[name] = { [weak self] args in
                 guard let self else { throw InmoProtocolError.cancelled }
                 return try await self.invoke(name, args: args)
@@ -78,6 +85,11 @@ final class InmoTeleprompter {
         case "glasses_teleprompter_start":
             guard documentReady else { throw DeviceError.badArgument("Upload a document and wait for its acknowledgement first") }
             try await session.send(InmoCommand.teleprompterStart())
+            // Actually enable voice-following auto page-turn; start alone only declares support.
+            if (args["autoscroll"] as? Bool) ?? true { try await session.send(InmoCommand.teleprompterAutoPage(true)) }
+        case "glasses_teleprompter_autoscroll":
+            guard let enabled = args["enabled"] as? Bool else { throw DeviceError.badArgument("enabled is required") }
+            try await session.send(InmoCommand.teleprompterAutoPage(enabled))
         case "glasses_teleprompter_page":
             guard let direction = args["direction"] as? String, ["previous", "next"].contains(direction) else { throw DeviceError.badArgument("direction must be previous or next") }
             try await session.send(InmoCommand.teleprompterPage(next: direction == "next"))

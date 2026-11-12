@@ -134,7 +134,8 @@ final class GlassesTranslator {
             lines = []; hearing = ""; paused = false; nextID = 1; lens = GlassesNoteLens()
             pendingTranslations = 0; heldPartial = nil; sonioxLines = [:]; audioMessages = 0
             startedAt = Date()
-            if !fromGlasses { post(InmoCommand.openModule(mode.module)) }
+            // Phone-initiated launch is the translationMasterSetting below alone (verified:
+            // TranslateDialogueStartActivity sends no app-switch/openModule). Sending one opened nothing.
             post(GlassesTranslateWire.setting(mode: mode, source: Self.base(source), target: Self.base(target),
                                               onlyTranslation: onlyTranslation))
             phase = .running
@@ -143,7 +144,6 @@ final class GlassesTranslator {
             teardown()
             phase = .idle
             problem = error.localizedDescription
-            if fromGlasses, InmoSession.shared.state == .ready { post(InmoCommand.closeModule(mode.module)) }
         }
     }
 
@@ -168,7 +168,6 @@ final class GlassesTranslator {
         while pendingTranslations > 0, Date() < end { try? await Task.sleep(for: .milliseconds(100)) }
         if InmoSession.shared.state == .ready {
             post(GlassesTranslateWire.saved())
-            post(InmoCommand.closeModule(mode.module))
         }
         saveRecord()
         teardown()

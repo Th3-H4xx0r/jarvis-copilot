@@ -261,11 +261,14 @@ struct GlassesNotificationsPage: View {
 
     var body: some View {
         GlassesSubpage("Notifications") {
-            GlassesSection(nil, note: "Only the title and text show on the lens; iOS asks once to allow it.") {
+            GlassesSection(nil, note: "Your iPhone sends these to the glasses over ANCS, so Jarvis must be running (no need for the INMO app). Only the title and text show on the lens; iOS asks once to allow it.") {
                 GlassesToggleRow(symbol: "bell.badge", title: "Show notifications",
                                  subtitle: "Your iPhone's notifications on the lens",
                                  isOn: Binding(get: { notificationsOn },
                                                set: { on in notificationsOn = on; InmoSession.shared.setNotificationsEnabled(on) }))
+                GlassesLinkRow(symbol: "square.grid.2x2", title: "Apps",
+                               subtitle: "Choose which apps appear",
+                               value: "\(InmoNotifSelection.enabled.count)") { GlassesNotificationAppsPage() }
                 GlassesToggleRow(symbol: "cpu", title: "Relay through ESP32", subtitle: esp32RelaySubtitle, last: true,
                                  isOn: Binding(get: { esp32.relay?.on ?? false },
                                                set: { on in
@@ -292,6 +295,95 @@ struct GlassesNotificationsPage: View {
     }
 }
 
+// MARK: - Notification apps
+
+/// One app the glasses can show notifications for. `bundleID` is the iOS bundle
+/// identifier the glasses match incoming ANCS notifications against — the glasses do
+/// the filtering, so this must be the real bundle id, not a display name. `symbol` is
+/// only for Jarvis's picker (Jarvis can't bundle the apps' real icons).
+struct InmoNotifApp: Identifiable, Hashable {
+    let bundleID: String
+    let name: String
+    let symbol: String
+    var id: String { bundleID }
+}
+
+/// The apps Jarvis offers in the glasses notification picker, with real iOS bundle ids.
+/// Mirrors the INMO app's "Phone Notification Relay" list. `defaultOn` seeds first-run.
+enum InmoNotifCatalog {
+    static let apps: [InmoNotifApp] = [
+        InmoNotifApp(bundleID: "com.apple.MobileSMS", name: "Messages", symbol: "message.fill"),
+        InmoNotifApp(bundleID: "com.apple.mobilephone", name: "Phone", symbol: "phone.fill"),
+        InmoNotifApp(bundleID: "com.apple.mobilemail", name: "Mail", symbol: "envelope.fill"),
+        InmoNotifApp(bundleID: "com.google.Gmail", name: "Gmail", symbol: "envelope.badge.fill"),
+        InmoNotifApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", symbol: "phone.bubble.fill"),
+        InmoNotifApp(bundleID: "ph.telegram.Telegraph", name: "Telegram", symbol: "paperplane.fill"),
+        InmoNotifApp(bundleID: "org.whispersystems.signal", name: "Signal", symbol: "message.badge.fill"),
+        InmoNotifApp(bundleID: "com.facebook.Messenger", name: "Messenger", symbol: "message.circle.fill"),
+        InmoNotifApp(bundleID: "com.facebook.Facebook", name: "Facebook", symbol: "f.square.fill"),
+        InmoNotifApp(bundleID: "com.burbn.instagram", name: "Instagram", symbol: "camera.fill"),
+        InmoNotifApp(bundleID: "com.tinyspeck.chatlyio", name: "Slack", symbol: "number.square.fill"),
+        InmoNotifApp(bundleID: "com.hammerandchisel.discord", name: "Discord", symbol: "bubble.left.and.bubble.right.fill"),
+        InmoNotifApp(bundleID: "us.zoom.videomeetings", name: "Zoom", symbol: "video.fill"),
+        InmoNotifApp(bundleID: "com.microsoft.skype.teams", name: "Teams", symbol: "person.2.fill"),
+        InmoNotifApp(bundleID: "com.microsoft.Office.Outlook", name: "Outlook", symbol: "envelope.fill"),
+        InmoNotifApp(bundleID: "com.atebits.Tweetie2", name: "X", symbol: "bird.fill"),
+        InmoNotifApp(bundleID: "com.linkedin.LinkedIn", name: "LinkedIn", symbol: "briefcase.fill"),
+        InmoNotifApp(bundleID: "com.toyopagroup.picaboo", name: "Snapchat", symbol: "camera.badge.ellipsis"),
+        InmoNotifApp(bundleID: "com.google.ios.youtube", name: "YouTube", symbol: "play.rectangle.fill"),
+        InmoNotifApp(bundleID: "com.apple.mobilecal", name: "Calendar", symbol: "calendar"),
+    ]
+
+    static let defaultOn: Set<String> = [
+        "com.apple.MobileSMS", "com.apple.mobilephone", "net.whatsapp.WhatsApp",
+        "ph.telegram.Telegraph", "com.tinyspeck.chatlyio", "com.google.Gmail", "com.apple.mobilemail",
+    ]
+}
+
+/// Which apps the user enabled for the glasses, persisted so it survives relaunch and
+/// read live so a change applies on the next setup push.
+enum InmoNotifSelection {
+    private static let key = "inmo.notificationApps.enabled"
+
+    static var enabled: Set<String> {
+        get {
+            if let saved = UserDefaults.standard.array(forKey: key) as? [String] { return Set(saved) }
+            return InmoNotifCatalog.defaultOn
+        }
+        set { UserDefaults.standard.set(Array(newValue), forKey: key) }
+    }
+
+    static func isOn(_ bundleID: String) -> Bool { enabled.contains(bundleID) }
+    static func set(_ bundleID: String, on: Bool) {
+        var e = enabled
+        if on { e.insert(bundleID) } else { e.remove(bundleID) }
+        enabled = e
+    }
+}
+
+/// The app picker — Jarvis's equivalent of INMO's "Phone Notification Relay". Toggling
+/// an app persists it and re-sends the allowlist to the glasses right away.
+struct GlassesNotificationAppsPage: View {
+    @State private var enabled = InmoNotifSelection.enabled
+
+    var body: some View {
+        GlassesSubpage("Apps") {
+            GlassesSection(nil, note: "Notifications from the apps you turn on here appear on the lens while Jarvis is running.") {
+                ForEach(Array(InmoNotifCatalog.apps.enumerated()), id: \.element.id) { index, app in
+                    GlassesToggleRow(symbol: app.symbol, title: app.name,
+                                     last: index == InmoNotifCatalog.apps.count - 1,
+                                     isOn: Binding(get: { enabled.contains(app.bundleID) },
+                                                   set: { on in
+                                                       InmoNotifSelection.set(app.bundleID, on: on)
+                                                       enabled = InmoNotifSelection.enabled
+                                                       InmoSession.shared.refreshNotificationApps()
+                                                   }))
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Teleprompter
 
 struct GlassesTeleprompterPage: View {
@@ -301,6 +393,7 @@ struct GlassesTeleprompterPage: View {
     @State private var document = ""
     @State private var line = 1
     @State private var percent = 0.0
+    @State private var autoScroll = true
 
     var body: some View {
         GlassesSubpage("Teleprompter") {
@@ -331,14 +424,18 @@ struct GlassesTeleprompterPage: View {
                 }
                 .buttonStyle(.jcGlass(full: true))
                 .disabled(document.isEmpty || actions.working || !session.isReady)
-                Button { actions.run("glasses_teleprompter_start") } label: { Label("Start", jcIcon: "play.fill") }
+                Button { actions.run("glasses_teleprompter_start", ["autoscroll": autoScroll]) } label: { Label("Start", jcIcon: "play.fill") }
                     .buttonStyle(.jcGlass(full: true))
                     .disabled(actions.working || !session.isReady)
                 Button { actions.run("glasses_teleprompter_stop") } label: { Label("Stop", jcIcon: "stop.fill") }
                     .buttonStyle(.jcGlass(tint: JcTheme.danger, full: true))
                     .disabled(!session.isReady)
             }
-            GlassesSection("While reading", note: "Line and percentage are separate positions on the glasses.") {
+            GlassesSection("While reading", note: "Auto-scroll follows your voice. Line and percentage are separate positions on the glasses.") {
+                GlassesToggleRow(symbol: "text.append", title: "Auto-scroll",
+                                 subtitle: "Turn pages automatically as you read",
+                                 isOn: Binding(get: { autoScroll },
+                                               set: { on in autoScroll = on; actions.run("glasses_teleprompter_autoscroll", ["enabled": on]) }))
                 GlassRow(symbol: "arrow.left.arrow.right", title: "Page") {
                     HStack(spacing: 6) {
                         Button("Previous") { actions.run("glasses_teleprompter_page", ["direction": "previous"]) }

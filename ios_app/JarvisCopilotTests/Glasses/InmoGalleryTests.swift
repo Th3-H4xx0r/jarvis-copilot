@@ -53,6 +53,20 @@ final class InmoGalleryTests: XCTestCase {
         XCTAssertEqual(grouped.other.count, 3)
     }
 
+    /// The real-scene screenshot lands as INMORSS_<ms>_camera.jpg + INMORSS_<ms>_display.png; both are
+    /// photos with the capture time, while call recordings stay in Other files.
+    func testRealSceneScreenshotsAreGalleryPhotos() throws {
+        let grouped = InmoMediaGrouping.group([
+            InmoMediaItem(name: "INMORSS_1794431596595_camera.jpg", directory: "D:\\Photos", size: 574),
+            InmoMediaItem(name: "INMORSS_1794431596595_display.png", directory: "D:\\Photos", size: 17),
+            InmoMediaItem(name: "INMOAUD_1794431626165_call.opus", directory: "D:\\SageNote_Backup\\", size: 623),
+        ])
+        XCTAssertEqual(grouped.gallery.count, 2)
+        XCTAssertTrue(grouped.gallery.allSatisfy { $0.kind == .photo && $0.picture != nil })
+        XCTAssertEqual(grouped.gallery.first?.capturedAt, Date(timeIntervalSince1970: 1794431596.595))
+        XCTAssertEqual(grouped.other.map(\.name), ["INMOAUD_1794431626165_call.opus"])
+    }
+
     func testRecordPersistsAcrossInstances() throws {
         let library = InmoMediaLibrary(directory: root)
         let item = try XCTUnwrap(InmoMediaGrouping.group([photo(1790453383660)]).gallery.first)

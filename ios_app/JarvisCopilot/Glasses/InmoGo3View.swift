@@ -63,10 +63,52 @@ struct GlassesCard: View {
 /// The glasses' page, laid out like iOS's AirPods page: the glasses and their status up top,
 /// the four things you reach for, the gallery, then short rows into everything else. Day-to-day
 /// controls live here; the protocol and research tools sit under About › Advanced.
+/// Receives real-scene screenshots the glasses send back over the IMAGE channel
+/// (Message{msg_type: IMAGE(1), image(4): ImageData{imageType(5): SCREENSHOT(2),
+/// imageData(4): JPEG}}), decodes them, and saves to the camera roll. The capture is
+/// composited with the lens HUD by design — there is no clean no-HUD remote capture.
+@MainActor final class InmoScreenshot: ObservableObject {
+    static let shared = InmoScreenshot()
+    @Published private(set) var latest: UIImage?
+    @Published private(set) var note: String?
+    @Published var capturing = false
+    private var observer: UUID?
+    private init() {
+        observer = InmoSession.shared.addEventObserver { [weak self] event in
+            guard let self, case let .message(type, fields, _) = event, type == 1,
+                  let image = try? fields.firstField(4)?.nested(),
+                  (image.firstField(5)?.varint ?? 0) == 2,
+                  let jpeg = image.firstField(4)?.bytes, !jpeg.isEmpty,
+                  let ui = UIImage(data: jpeg) else { return }
+            self.latest = ui
+            self.capturing = false
+            self.note = "Saved to Photos"
+            self.received += 1
+            UIImageWriteToSavedPhotosAlbum(ui, nil, nil, nil)
+        }
+    }
+    /// Snapshots that have come back and been saved.
+    private(set) var received = 0
+
+    /// The Snapshot button, for the UI and Jarvis alike: asks the glasses for a lens snapshot
+    /// (IMG_MANAGER real-scene screenshot, `14 17{2=8}`) and waits for the JPEG, which the observer
+    /// above saves to Photos. Nil if nothing came back in time.
+    func capture(timeout: TimeInterval = 12) async throws -> UIImage? {
+        let before = received
+        capturing = true
+        try await InmoSession.shared.send(InmoCommand.envelope(type: 14, field: 17, payload: InmoWireCodec.uint(2, 8)))
+        let deadline = Date().addingTimeInterval(timeout)
+        while received == before, Date() < deadline { try await Task.sleep(for: .milliseconds(150)) }
+        guard received != before else { capturing = false; return nil }
+        return latest
+    }
+}
+
 struct InmoGo3View: View {
     private let link = GlassesAudioLink.shared
     @ObservedObject private var session = InmoSession.shared
     @ObservedObject private var actions = GlassesActions.shared
+    @ObservedObject private var shot = InmoScreenshot.shared
     @State private var renaming = false
     @State private var confirmForget = false
     @State private var connectError: String?
@@ -235,11 +277,20 @@ struct InmoGo3View: View {
             HStack(alignment: .top, spacing: 0) {
                 quick("Talk", "mic.fill") { Task { await InmoAIChannel.shared.startFromPhone() } }
                 quick("Photo", "camera.fill") { actions.run("glasses_camera_open") }
+                quick("Snapshot", "camera.viewfinder") { actions.run("glasses_real_scene_screenshot") }
                 quick("Video", "video.fill") { actions.run("glasses_video_open") }
                 NavigationLink { GlassesTeleprompterPage() } label: { quickLabel("Prompter", "text.alignleft") }
                     .buttonStyle(.plain)
                     .disabled(!ready)
                     .opacity(ready ? 1 : 0.4)
+            }
+            if let image = shot.latest {
+                HStack(spacing: 10) {
+                    Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                        .frame(width: 64, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text(shot.note ?? "Lens snapshot").font(.caption).foregroundStyle(JcTheme.muted)
+                    Spacer()
+                }
             }
             GlassesActionStatus()
         }
@@ -287,7 +338,9 @@ struct InmoGo3View: View {
                            subtitle: LiveCaptionsSettingsView.describe(LiveLensBridge.shared.status)) { LiveCaptionsSettingsView() }
             GlassesLinkRow(symbol: "location.north.line.fill", title: "Places & directions",
                            subtitle: "Walking and cycling directions on the lens") { GlassesPlacesView() }
-            GlassesLinkRow(symbol: "text.alignleft", title: "Teleprompter", last: true) { GlassesTeleprompterPage() }
+            GlassesLinkRow(symbol: "text.alignleft", title: "Teleprompter") { GlassesTeleprompterPage() }
+            GlassesLinkRow(symbol: "person.crop.square", title: "Face library",
+                           subtitle: "Faces seen by Face Link", last: true) { GlassesFaceLibraryView() }
         }
     }
 

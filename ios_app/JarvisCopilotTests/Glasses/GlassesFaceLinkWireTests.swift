@@ -44,4 +44,24 @@ final class GlassesFaceLinkWireTests: XCTestCase {
         XCTAssertNil(card.firstField(4))            // AR_SUCCESS is the default
         XCTAssertEqual(try InmoWireCodec.decode(GlassesFaceLinkWire.notIdentified(.noMatch)).firstField(16)?.nested().firstField(4)?.varint, 3)
     }
+
+    /// Face crops land in the library newest first, survive a reload with their dates, and delete/clear.
+    func testFaceLibraryKeepsFacesNewestFirst() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("FaceLibraryTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let library = GlassesFaceLibrary(folder: folder)
+        let jpeg = Data([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+        let older = try XCTUnwrap(library.add(jpeg, at: Date(timeIntervalSince1970: 1_794_431_596.5)))
+        let newer = try XCTUnwrap(library.add(jpeg, at: Date(timeIntervalSince1970: 1_794_431_700.25)))
+        XCTAssertEqual(library.faces.map(\.id), [newer.id, older.id])
+
+        let reloaded = GlassesFaceLibrary(folder: folder)
+        XCTAssertEqual(reloaded.faces.map(\.id), [newer.id, older.id])
+        XCTAssertEqual(reloaded.faces.last?.date.timeIntervalSince1970 ?? 0, 1_794_431_596.5, accuracy: 0.001)
+
+        reloaded.delete(newer)
+        XCTAssertEqual(reloaded.faces.map(\.id), [older.id])
+        reloaded.clear()
+        XCTAssertTrue(GlassesFaceLibrary(folder: folder).faces.isEmpty)
+    }
 }

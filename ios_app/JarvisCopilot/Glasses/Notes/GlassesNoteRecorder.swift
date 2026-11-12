@@ -44,6 +44,19 @@ final class GlassesNoteRecorder {
     private var sendChain: Task<Void, Never>?
     private var lastPartialSent = Date.distantPast
     private var heldPartial: String?
+    // SageNote (firmware 3.0.x) session: Jarvis opens the app and drives a meeting session.
+    private var sageSessionId = ""
+    private var sageStarted = false
+    private var sageFallback: Task<Void, Never>?
+    private var sageSegmentId = 0
+    private var inSageNote: Bool { !sageSessionId.isEmpty }
+    private var sageSummaryTask: Task<Void, Never>?
+    private var sageSummaryRevision = 0
+    private var sageSummarizedChars = 0
+    private var sageAudioFrames = 0
+    private var sageConfigRevision = 0
+    /// The glasses ended the meeting (STOP / NOTIFY_STOPPED / closed INMEET) — don't send it back.
+    private var sageStoppedByGlasses = false
 
     init(defaults: UserDefaults = .standard, store: GlassesNotesStore = .shared) {
         self.defaults = defaults
@@ -57,7 +70,9 @@ final class GlassesNoteRecorder {
 
     // MARK: Start / save
 
-    func start() async {
+    /// `adoptingSession`: the glasses already started an INMEET meeting (e.g. a phone call) —
+    /// serve that session instead of opening INMEET and starting our own.
+    func start(adoptingSession glassesSession: String? = nil) async {
         guard phase == .idle else { return }
         phase = .starting
         problem = nil
@@ -73,7 +88,37 @@ final class GlassesNoteRecorder {
             elapsed = 0; transcript = ""; photos = []; segments = []; lens = GlassesNoteLens()
             speech = session
             session.onPartial = { [weak self] text in self?.heard(text) }
-            GlassesNoteWire.start(audioTimeMs: ms).forEach(post)
+            // SageNote is phone-driven: open the app, wait briefly for the glasses to start the
+            // session, else fall back to sending START_MEETING ourselves (the official app's flow).
+            let adopted = !(glassesSession ?? "").isEmpty
+            sageSessionId = adopted ? glassesSession! : UUID().uuidString
+            sageStarted = adopted; sageStoppedByGlasses = false; sageSegmentId = 0; sageAudioFrames = 0
+            let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+            if !adopted { post(GlassesSageNoteWire.open()) }
+            sageConfigRevision += 1
+            post(GlassesSageNoteWire.config(sessionId: sageSessionId, revision: sageConfigRevision,
+                                            language: Locale.current.language.languageCode?.identifier ?? "en", nowMs: nowMs))
+            InmoRuntimeDiagnostics.note(adopted ? "inmeet session adopted from glasses (session=\(sageSessionId.prefix(10)))"
+                                                : "inmeet opened, waiting for glasses start (session=\(sageSessionId.prefix(8)))")
+            sageFallback?.cancel()
+            if !adopted { sageFallback = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(1500))
+                guard let self, !self.sageStarted, self.phase == .recording || self.phase == .starting else { return }
+                self.post(GlassesSageNoteWire.startMeeting(commandId: UUID().uuidString, sessionId: self.sageSessionId,
+                                                           nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
+                self.sageStarted = true
+                InmoRuntimeDiagnostics.note("sagenote fallback START_MEETING sent (glasses didn't self-start)")
+            } }
+            // Live running summary on the lens (INMO's app does this via cloud AI; Jarvis uses its own).
+            sageSummaryRevision = 0; sageSummarizedChars = 0
+            sageSummaryTask?.cancel()
+            sageSummaryTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard let self, self.phase == .recording, self.inSageNote else { return }
+                    await self.pushRunningSummary()
+                }
+            }
             phase = .recording
             InmoRuntimeDiagnostics.note("note started id=\(ms)")
             ticker = Task { [weak self] in
@@ -81,7 +126,8 @@ final class GlassesNoteRecorder {
                 while !Task.isCancelled {
                     guard let self, self.phase == .recording else { return }
                     self.elapsed = seconds
-                    self.post(GlassesNoteWire.elapsed(seconds: seconds))
+                    self.post(GlassesSageNoteWire.state(sessionId: self.sageSessionId, elapsedSeconds: seconds,
+                                                        nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
                     if let held = self.heldPartial { self.heldPartial = nil; self.sendLens([.init(text: held, final: false)]) }
                     if seconds >= Self.maxSeconds { await self.save(); return }
                     try? await Task.sleep(for: .seconds(1))
@@ -93,8 +139,8 @@ final class GlassesNoteRecorder {
             problem = error.localizedDescription
             // Tell the lens (it may have opened the notes app itself) and close it.
             if InmoSession.shared.state == .ready {
-                post(GlassesNoteWire.exception(1002))
-                post(InmoCommand.closeModule(GlassesNoteWire.module))
+                sageFallback?.cancel(); sageFallback = nil; sageSummaryTask?.cancel(); sageSummaryTask = nil
+                post(GlassesSageNoteWire.close())
             }
         }
     }
@@ -105,7 +151,13 @@ final class GlassesNoteRecorder {
         guard phase == .recording, let id = noteID else { return }
         phase = .saving
         ticker?.cancel(); ticker = nil
-        if InmoSession.shared.state == .ready { GlassesNoteWire.stop().forEach(post) }
+        sageFallback?.cancel(); sageFallback = nil; sageSummaryTask?.cancel(); sageSummaryTask = nil
+        if InmoSession.shared.state == .ready, !sageStoppedByGlasses {
+            post(GlassesSageNoteWire.stopMeeting(commandId: UUID().uuidString, sessionId: sageSessionId,
+                                                 nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
+            post(GlassesSageNoteWire.close())
+        }
+        sageStarted = false; sageStoppedByGlasses = false
         var text = transcript
         if let speech {
             let final = await voiceStopWithDeadline(speech, after: 3000, clock: SystemVoiceClock())
@@ -128,7 +180,13 @@ final class GlassesNoteRecorder {
     func discard() {
         guard phase == .recording else { return }
         ticker?.cancel(); ticker = nil
-        if InmoSession.shared.state == .ready { GlassesNoteWire.stop().forEach(post) }
+        sageFallback?.cancel(); sageFallback = nil; sageSummaryTask?.cancel(); sageSummaryTask = nil
+        if InmoSession.shared.state == .ready {
+            post(GlassesSageNoteWire.stopMeeting(commandId: UUID().uuidString, sessionId: sageSessionId,
+                                                 nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
+            post(GlassesSageNoteWire.close())
+        }
+        sageStarted = false
         speech?.cancel(); speech = nil; decoder = nil
         if let id = noteID { store.delete(id) }
         noteID = nil
@@ -149,6 +207,43 @@ final class GlassesNoteRecorder {
                 Task { await save() }
             }
         case .message(let type, let fields, _):
+            // SageNote(43): the glasses started the session on their side — adopt their session id,
+            // acknowledge the command, and cancel our fallback START so we don't double-start.
+            if type == 43 {
+                if case let .command(cmd, commandId, sessionId)? = (try? GlassesSageNoteWire.parse(type: type, fields: fields)) {
+                    let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+                    let ackSession = sessionId.isEmpty ? sageSessionId : sessionId
+                    post(GlassesSageNoteWire.ack(commandId: commandId, cmd: cmd, sessionId: ackSession, ok: true, nowMs: nowMs))
+                    InmoRuntimeDiagnostics.note("inmeet glasses cmd=\(cmd) acked session=\(ackSession.prefix(10)) phase=\(phase)")
+                    if GlassesSageNoteWire.isStart(cmd) {
+                        if phase == .idle {
+                            // The glasses started INMEET themselves (call recording / lens button).
+                            if startsFromGlasses { Task { await start(adoptingSession: ackSession) } }
+                        } else {
+                            sageStarted = true
+                            if !sessionId.isEmpty { sageSessionId = sessionId }
+                        }
+                    } else if GlassesSageNoteWire.isStop(cmd), phase == .recording {
+                        sageStoppedByGlasses = true
+                        Task { await save() }
+                    }
+                }
+                return
+            }
+            // INMEET closed on the lens (STARTING_APPLICATION switchApp 15 CLOSE): end the note.
+            if let open = GlassesSageNoteWire.appState(type: type, fields: fields) {
+                if !open, phase == .recording, inSageNote { sageStoppedByGlasses = true; Task { await save() } }
+                return
+            }
+            // SageNote streams its mic/call audio as type-0 frames with audio header type 13
+            // (the old note path only decodes type 3). Feed them to Jarvis's recognizer.
+            if type == 0, inSageNote, phase == .recording, let decoder, let speech,
+               let packets = GlassesSageNoteWire.audioPackets(fields) {
+                for packet in packets { if let pcm = try? decoder.decode(packet) { speech.feed(pcm) } }
+                sageAudioFrames += packets.count
+                if sageAudioFrames % 50 == 0 { InmoRuntimeDiagnostics.note("sagenote audio frames=\(sageAudioFrames) session=\(sageSessionId.prefix(8))") }
+                return
+            }
             guard [0, 12, 15].contains(type) else { return }
             let parsed: GlassesNoteWire.Event?
             do { parsed = try GlassesNoteWire.parse(type: type, fields: fields) } catch {
@@ -193,19 +288,58 @@ final class GlassesNoteRecorder {
     /// official app, the rest held for the next tick.
     private func sendLens(_ lines: [GlassesNoteLens.Line]) {
         let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
         for line in lines {
             if line.final {
                 segments.append(.init(ms: ms, text: line.text))
                 heldPartial = nil
-                post(GlassesNoteWire.transcript(line.text, final: true))
+                if inSageNote { post(GlassesSageNoteWire.asr(sessionId: sageSessionId, segmentId: sageSegmentId, text: line.text, isFinal: true, nowMs: nowMs)); sageSegmentId += 1 }
+                else { post(GlassesNoteWire.transcript(line.text, final: true)) }
             } else if Date().timeIntervalSince(lastPartialSent) >= 0.3 {
                 lastPartialSent = Date()
                 heldPartial = nil
-                post(GlassesNoteWire.transcript(line.text, final: false))
+                if inSageNote { post(GlassesSageNoteWire.asr(sessionId: sageSessionId, segmentId: sageSegmentId, text: line.text, isFinal: false, nowMs: nowMs)) }
+                else { post(GlassesNoteWire.transcript(line.text, final: false)) }
             } else {
                 heldPartial = line.text
             }
         }
+    }
+
+    /// Generate a running markdown summary from the transcript so far and push it to the lens
+    /// (SageNote subtype-6), throttled to meaningful growth. INMO's app does this via cloud AI.
+    private func pushRunningSummary() async {
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count >= 120, text.count - sageSummarizedChars >= 80 else { return }
+        sageSummarizedChars = text.count
+        guard let markdown = await Self.runningSummaryMarkdown(text) else { return }
+        guard phase == .recording, inSageNote, InmoSession.shared.state == .ready else { return }
+        sageSummaryRevision += 1
+        post(GlassesSageNoteWire.summary(sessionId: sageSessionId, revision: sageSummaryRevision,
+                                         markdown: markdown, isFinal: false, nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
+    }
+    static func runningSummaryMarkdown(_ transcript: String) async -> String? {
+        do {
+            let chat = BoardChat()
+            let session = try await chat.sessionID(for: "glassesLiveSummary", title: "Live summary")
+            let turn = try await chat.run(sessionID: session, message: """
+                Summarize this ongoing conversation transcript as short markdown: a one-line title (#), \
+                then the key points so far as bullets, and any action items as a checklist. Keep it brief; \
+                it updates live. Don't use any tools.
+
+                Transcript so far:
+                \(transcript)
+                """, joinRunningTurn: true)
+            let md = turn.message.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return md.isEmpty ? nil : md
+        } catch { return nil }
+    }
+    /// Mark the current moment in the SageNote/meeting session.
+    func markMoment() {
+        guard inSageNote, phase == .recording, InmoSession.shared.state == .ready else { return }
+        let offset = UInt64(max(0, Date().timeIntervalSince(startedAt)) * 1000)
+        post(GlassesSageNoteWire.marker(sessionId: sageSessionId, markerId: UUID().uuidString,
+                                        offsetMs: offset, nowMs: UInt64(Date().timeIntervalSince1970 * 1000)))
     }
 
     /// Sends in order: BLE writes are queued behind one another.

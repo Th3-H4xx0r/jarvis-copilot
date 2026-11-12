@@ -10,6 +10,8 @@ import Foundation
 enum GlassesFaceLinkWire {
     /// SWITCHAPP id of face recognition on the lens.
     static let module = 6
+    /// ImageModelType of a Face Link face crop (IAMGE_AR_IDENTIFY = 0; 2 is a lens snapshot).
+    static let faceImageType: UInt64 = 0
 
     /// Answer to the glasses' "is face recognition ready?". `false` is exactly the
     /// official iPhone app's reply (`101cfa01021200`).

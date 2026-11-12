@@ -11,9 +11,9 @@ struct InmoGalleryItem: Identifiable, Equatable {
     let capturedAt: Date
     let parts: [InmoMediaItem]
     var id: String { key }
-    /// The `.jpg` of a photo, the `.mp4` of a video.
+    /// The image of a photo, the `.mp4` of a video.
     var picture: InmoMediaItem? {
-        parts.first { ["jpg", "jpeg", "mp4"].contains(InmoMediaGrouping.ext($0.name)) }
+        parts.first { (InmoMediaGrouping.photoExtensions.union(["mp4"])).contains(InmoMediaGrouping.ext($0.name)) }
     }
     /// A video's separate sound file.
     var sound: InmoMediaItem? { kind == .video ? parts.first { InmoMediaGrouping.ext($0.name) == "opus" } : nil }
@@ -50,13 +50,16 @@ struct InmoGalleryEntry: Identifiable, Equatable {
 enum InmoMediaGrouping {
     static func ext(_ name: String) -> String { (name as NSString).pathExtension.lowercased() }
 
-    /// `INMOIMG_1790453383660.jpg` → the capture moment (the number is epoch milliseconds).
+    /// `INMOIMG_1790453383660.jpg` / `INMORSS_1794431596595_camera.jpg` → the capture moment: the
+    /// last underscore-separated part that is a number (epoch milliseconds).
     static func capturedAt(_ name: String) -> Date? {
         let base = (name as NSString).deletingPathExtension
-        guard let underscore = base.lastIndex(of: "_"),
-              let ms = Int64(base[base.index(after: underscore)...]), ms > 0 else { return nil }
-        return Date(timeIntervalSince1970: Double(ms) / 1000)
+        for part in base.split(separator: "_").dropFirst().reversed() {
+            if let ms = Int64(part), ms > 0 { return Date(timeIntervalSince1970: Double(ms) / 1000) }
+        }
+        return nil
     }
+    static let photoExtensions: Set<String> = ["jpg", "jpeg", "png", "heic"]
 
     /// Photos and videos for the gallery; audio recordings, sound files with no picture and anything
     /// unrecognised go to `other`.
@@ -67,7 +70,9 @@ enum InmoMediaGrouping {
         for item in items {
             let base = (item.name as NSString).deletingPathExtension
             let ext = ext(item.name)
-            if base.hasPrefix("INMOIMG_"), ["jpg", "jpeg"].contains(ext), let date = capturedAt(item.name) {
+            // Any timestamped picture is a photo: INMOIMG_ shots, and the real-scene screenshot's two
+            // files INMORSS_<ms>_camera.jpg (camera) + INMORSS_<ms>_display.png (lens HUD).
+            if base.hasPrefix("INMOIMG_") || base.hasPrefix("INMORSS_"), photoExtensions.contains(ext), let date = capturedAt(item.name) {
                 gallery.append(InmoGalleryItem(key: "\(base)-\(item.size)", kind: .photo, capturedAt: date, parts: [item]))
             } else if base.hasPrefix("INMOVID_"), ["mp4", "opus", "gcsv"].contains(ext), capturedAt(item.name) != nil {
                 videos[base, default: []].append(item)

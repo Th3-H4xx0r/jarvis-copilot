@@ -1159,6 +1159,7 @@
 		E0FED5DF23E37DA8B1824022 /* X5MeasureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 229DB1F0276D51562C58631D /* X5MeasureController.swift */; };
 		E11CFE8608F888394FA6CD86 /* RingHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71A4465A83AFFBC8507DA38 /* RingHistoryStoreTests.swift */; };
 		E12B341F28C6D00B1B8A456F /* ProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 511AEFA506655EE9813D0062 /* ProfilesUITests.swift */; };
+		E136026F0F8AD4CF4C26A72A /* GlassesFaceLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA820429AD3C7EFA393784FF /* GlassesFaceLibrary.swift */; };
 		E16E7D8628C4588FB7AFE444 /* InmoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9ED9005DA1A4A017DA098 /* InmoGallery.swift */; };
 		E1BED137F8CAB4046FBD2651 /* BandMeasureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B03806339DC62C1BC69A10 /* BandMeasureSheet.swift */; };
 		E1FB19731B9061893FEA909E /* ColmiR12.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE0D7CD4CD48E51AD9157DE /* ColmiR12.swift */; };
@@ -2523,6 +2524,7 @@
 		E9D3612333A3CC0D360E9F04 /* ChatFilePreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatFilePreview.swift; sourceTree = "<group>"; };
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
+		EA820429AD3C7EFA393784FF /* GlassesFaceLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLibrary.swift; sourceTree = "<group>"; };
 		EAA65DDD4E0CD69C0D63873D /* CarCardTextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCardTextTests.swift; sourceTree = "<group>"; };
 		EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamWiFiPicker.swift; sourceTree = "<group>"; };
 		EB058DEAF58CF0670B328304 /* MarkdownText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
@@ -4184,6 +4186,7 @@
 			children = (
 				5077A22448DC7C07ECCD8851 /* GlassesFaceLink.swift */,
 				BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */,
+				EA820429AD3C7EFA393784FF /* GlassesFaceLibrary.swift */,
 			);
 			name = FaceLink;
 			path = FaceLink;
@@ -6505,6 +6508,7 @@
 				B9E5185307F0D92ADAC82C8D /* MacControlItems.swift in Sources */,
 				81E40B9B1E8EDA91CBA9E1DC /* MacControlStrip.swift in Sources */,
 				9AE6E66F686C9A614220287D /* MacDockMenu.swift in Sources */,
+				E136026F0F8AD4CF4C26A72A /* GlassesFaceLibrary.swift in Sources */,
 				DD5FD2FFA874115D950280AA /* VaultAPI.swift in Sources */,
 				9FB79C639202FDA2E2EE4786 /* VaultApprovals.swift in Sources */,
 				17FE26F1CE1E62637E353DFD /* VaultCards.swift in Sources */,

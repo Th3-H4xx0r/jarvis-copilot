@@ -59,8 +59,10 @@ enum InmoCommand {
     /// NotificationListenerService instead) — so it is unverified until a live
     /// hardware test confirms notifications appear.
     static func iosAncsEnable(_ enabled: Bool) -> Data { settings(type: 24, field: 2, value: enabled ? 1 : 0) }
-    /// One entry in the per-app notification list the official INMO iOS app keeps
-    /// on the glasses, keyed by the app's display name ("Gmail", not a bundle id):
+    /// One entry in the per-app notification allowlist the glasses keep, keyed by the
+    /// app's DISPLAY NAME ("Gmail", "WhatsApp") — confirmed from the official iOS app's
+    /// BLE capture, which sends "Gmail" (hex 476d61696c), not a bundle id. The glasses
+    /// read the display name from the ANCS App Attributes and match it against this list.
     /// `GlassesSettings{msgType: MOBILE_NOTIFY_CIRCULATION_MODEL(15), 11: {1: appName, 2: isOpen}}`.
     /// Switching an app off omits isOpen, as the official app does.
     static func notificationApp(_ name: String, enabled: Bool) -> Data {
@@ -90,11 +92,31 @@ enum InmoCommand {
             + InmoWireCodec.uint(4, UInt64(state))
         return envelope(type: 4, field: 7, payload: InmoWireCodec.uint(1, 1) + InmoWireCodec.bytes(3, notif))
     }
+    /// Open or close one of the glasses' AI apps the way the 3.0.x firmware expects — the
+    /// old STARTING_APPLICATION/openModule path is deprecated for the moved apps (SageNotes,
+    /// translation). `Message{AI_ASSISTANT(11), aiChat(14): {msg_type(1): AiChat_SWITCH_APP(6),
+    /// aiSwitchApp(8): {aiMsgType(1): appType, aiOpenOrCloseType(2): AI_APP_OPEN(0)/CLOSE(1)}}}`.
+    /// appType (AiSwitchApplicationType): TRANSLATION_MASTER_SIMULTANEOUS=0, _DIALOGUE=1,
+    /// SPEECH_INSCRIPTION=2, AI_ASSISTANT=4, IMG_MANAGER=7, TAKE_PHOTO=10, RECORD_VIDEO=11,
+    /// SAGENOTE=15, NAVIGATION=16.
+    static func aiSwitchApplication(_ appType: Int, open: Bool) -> Data {
+        let sw = InmoWireCodec.uint(1, UInt64(appType)) + (open ? Data() : InmoWireCodec.uint(2, 1))
+        return envelope(type: 11, field: 14, payload: InmoWireCodec.uint(1, 6) + InmoWireCodec.bytes(8, sw))
+    }
     static func openModule(_ module: Int) -> Data { envelope(type: 15, field: 18, payload: InmoWireCodec.uint(1, UInt64(module))) }
     static func closeModule(_ module: Int) -> Data { envelope(type: 15, field: 18, payload: InmoWireCodec.uint(1, UInt64(module)) + InmoWireCodec.uint(2, 1)) }
     static func mediaInventory() -> Data { envelope(type: 17, field: 20, payload: InmoWireCodec.uint(1, 4) + InmoWireCodec.bytes(6, InmoWireCodec.uint(1, 4))) }
     static func wifi(open: Bool) -> Data { envelope(type: 17, field: 20, payload: InmoWireCodec.uint(1, 3) + InmoWireCodec.bytes(5, InmoWireCodec.uint(1, open ? 0 : 1, includeZero: true))) }
     static func queryStatus() -> Data { envelope(type: 17, field: 20, payload: InmoWireCodec.uint(1, 3) + InmoWireCodec.bytes(11, Data()), version: 1) }
+    /// Tells the glasses which companion app (and version) is talking to them, as the official app
+    /// does first thing after every connect (Go3Application.connectSuccess → sendPhoneInfo):
+    /// `BleConnectBind{msgType: BLECONNECT_PHONE_INFO(7), phoneInfo(7): {appVersion(1), phoneType(2)}}`,
+    /// PhonePlatform ANDROID=1, IOS=2. Without it the 3.0.x firmware treats the phone app as too old
+    /// for the new apps and INMEET shows "update the app, this feature is not installed".
+    static func phoneInfo(appVersion: String = "3.0.0", platform: Int = 2) -> Data {
+        let info = InmoWireCodec.bytes(1, Data(appVersion.utf8)) + InmoWireCodec.uint(2, UInt64(platform))
+        return envelope(type: 24, field: 27, payload: InmoWireCodec.uint(1, 7) + InmoWireCodec.bytes(7, info), version: 1)
+    }
     static func reconnect(owner: Data) -> Data { envelope(type: 24, field: 27, payload: InmoWireCodec.uint(1, 1) + InmoWireCodec.bytes(2, owner) + InmoWireCodec.uint(3, 1), version: 1) }
     static func enableClassicGATT() -> Data { envelope(type: 17, field: 20, payload: InmoWireCodec.uint(1, 3) + InmoWireCodec.uint(10, 0, includeZero: true), version: 1) }
 }
