@@ -50,3 +50,37 @@ Drain, from the levels at each sync:
 **2026-11-07 done (unconfirmed live):** A applied over the bridge at ~00:00 CST (managed by phone,
 HR 60 / stress 120 / BP 240 / HRV 120, rest off, window 21:00–10:59 kept; band reported every auto
 switch off). B1, B2 (defaults = his pick), B4, C1, C2, C3, D1, D2 built; tests pass. D3 is his check.
+
+## 2026-11-08 — sleep stopped syncing (his report)
+
+"the sleep tracking doesn't sync anymore for the band it just shows no sleep and even battery is
+draining so it's tracking I think but not working"
+
+- [ ] Find why the night of Nov 7→8 shows no sleep after build 263111440, fix, confirm with him.
+
+**Findings (2026-11-08):**
+- The band records sleep fine. Nov 7→8: 02:13–10:13, 480 min, read off the band by a manual
+  `band_sync` at 18:24Z and on the server at 18:25Z. Before that, nothing had pulled it.
+- **Periodic sync is set to Manual** (`sync_interval_minutes: 0`, `jc.band.syncInterval` = 0; only the
+  Band page's Sync picker writes it). Manual = no timer sync, no sync on opening the app, so sleep only
+  arrives on a tap of Sync. He needs it back on 30 min.
+- Nov 6→7: the band kept only 08:27–10:57 (150 min, so filed as a nap: <3 h ending 10–20 h). Likely
+  lost to my midnight takeover writing the band's switches mid-night. One-off; not recoverable.
+- Overnight drain: 99 → 84 % from 20:47 to 10:11 (~1.1 %/h) with auto_ppg + auto_hrv on for the 14 h
+  window; by day 100 → 99 % with phone readings. The night sensing is now nearly all of the cost.
+- [ ] He sets Periodic sync back to 30 min; confirm sleep arrives on its own tomorrow.
+- [ ] Night drain: his pick (see below).
+- **His pushback (2026-11-08):** "it lasted way longer, when I first got the band" / "I had all sensors on
+  with 24h on and it didn't even drain this much". The numbers agree: Oct 8→9 (every sensor 24 h)
+  99→83 = 16 % the first day off the charger; Nov 7→8 after the update 100→84 = 16 % in 25 h. The
+  update did not move the daily rate. The "100 % all day then a big night drop" is mostly the band's
+  gauge sitting at 100 after a charge (Oct shows the same first-day shape), not the night alone.
+  Factory settings (read Oct 4): auto_heart_rate + auto_bp on, auto_ppg/auto_hrv OFF. Since Jarvis:
+  per-minute sensing on (24 h in Oct, 14 h now) and the link held for long stretches (since Sat 08:18
+  almost continuously; 13 h straight Sat 23:16 → Sun 12:22). Next: factory-settings test (band
+  managed, no ppg/hrv, link not held) to split sensor vs link.
+- **Factory test started 2026-11-08 12:50 CST at 83 %** (his yes): managed by Band (bandManaged/jarvis
+  logged), auto_heart_rate ON, auto_ppg/auto_hrv/BP/stress/temp/glucose/components OFF, night SpO₂ off,
+  Keep Alive for the band OFF. Periodic sync still Manual — I pull with `band_sync` myself so the link
+  stays mostly closed. Read back ~24 h later: drain (vs 15–16 %/day), whether sleep recorded tonight.
+- [ ] Factory test result → build the fix around whichever part drains (sensor vs held link).
