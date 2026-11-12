@@ -20,6 +20,13 @@
 	<true/>
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
+	<!-- First entry = the app's own default group (unchanged); the second is shared with the
+	     "Jarvis Vault" share extension (VaultShareKeychain: server + vault folder names). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.jarviscopilot.jarviscopilotMobileAndIOS</string>
+		<string>$(AppIdentifierPrefix)com.jarviscopilot.vaultshare</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.jarviscopilot.jarviscopilotMobileAndIOS</string>

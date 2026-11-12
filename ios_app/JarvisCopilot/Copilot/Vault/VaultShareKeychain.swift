@@ -1,8 +1,8 @@
 import Foundation
 import Security
 
-/// What the "Save to Vault" share extension needs from the app, kept in the Keychain under the
-/// App Group (an App Group id doubles as a Keychain access group, so both targets read it):
+/// What the "Save to Vault" share extension needs from the app, kept in a Keychain group both
+/// targets share:
 /// - how to reach the server (its URL and the paired session headers), so the extension can
 ///   upload to the write-only inbox;
 /// - the folder names, saved each time the vault unlocks, so its picker never has to ask the
@@ -10,7 +10,8 @@ import Security
 ///
 /// Compiled into the app AND the extension (scripts/add-vault-share-target.rb).
 enum VaultShareKeychain {
-    static let accessGroup = "group.com.jarviscopilot.jarviscopilotMobileAndIOS"
+    /// A team Keychain group both targets list in `keychain-access-groups` (team id + suffix).
+    static let accessGroup = "VY5CNF8734.com.jarviscopilot.vaultshare"
     private static let service = "com.jarviscopilot.vault.share"
 
     struct Server: Codable, Equatable {
