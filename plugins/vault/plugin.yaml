@@ -1,0 +1,12 @@
+name: vault
+version: 1.0.0
+description: "Pranav's Secure Vault on the iPhone (encrypted notes, links, files on the server). Jarvis's vault tools need his Face ID for every call."
+author: Pranav Krishna
+kind: backend
+provides_tools:
+  - vault_search
+  - vault_list
+  - vault_read
+  - vault_save
+  - vault_move
+  - vault_delete

@@ -25,6 +25,47 @@ def _hermes_root_path() -> Path:
         return Path(os.path.expanduser("~/.jarviscopilot"))
 
 
+# Server-side secret state under the JarvisCopilot root that no agent tool ever needs: key material
+# and encrypted stores the webui reads through its own channels. Directories cover everything
+# inside them. Relative to the root (and, in profile mode, the active HERMES_HOME). Adding an entry
+# here extends the read deny, the write deny and the terminal's dangerous-command check.
+PROTECTED_STATE_PATHS: tuple[str, ...] = (
+    "secrets",              # vault master key and other server-held keys
+    "vault",                # Secure Vault database + encrypted blobs
+    "car/approver.json",    # the iPhone's registered Face ID public keys
+)
+
+
+def protected_state_hit(path: str) -> Optional[str]:
+    """The PROTECTED_STATE_PATHS entry ``path`` falls under (resolved), else None."""
+    try:
+        resolved = Path(os.path.expanduser(str(path))).resolve()
+    except Exception:
+        return None
+    bases: list[Path] = []
+    for base in (_hermes_home_path(), _hermes_root_path()):
+        try:
+            real = base.resolve()
+        except Exception:
+            continue
+        if real not in bases:
+            bases.append(real)
+    for base in bases:
+        for rel in PROTECTED_STATE_PATHS:
+            try:
+                blocked = (base / rel).resolve()
+            except Exception:
+                continue
+            if resolved == blocked:
+                return rel
+            try:
+                resolved.relative_to(blocked)
+                return rel
+            except ValueError:
+                continue
+    return None
+
+
 def build_write_denied_paths(home: str) -> set[str]:
     """Return exact sensitive paths that must never be written."""
     hermes_home = _hermes_home_path()
@@ -92,6 +133,8 @@ def is_write_denied(path: str) -> bool:
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
     if resolved in build_write_denied_paths(home):
+        return True
+    if protected_state_hit(resolved):
         return True
     for prefix in build_write_denied_prefixes(home):
         if resolved.startswith(prefix):
@@ -189,6 +232,12 @@ def get_read_block_error(path: str) -> Optional[str]:
     terminal cwd differs from the process cwd.
     """
     resolved = Path(path).expanduser().resolve()
+
+    if protected_state_hit(str(resolved)):
+        return (
+            f"Access denied: {path} is protected JarvisCopilot server state (keys or an encrypted "
+            "store) and cannot be read or written by tools."
+        )
 
     # Project-local environment files anywhere on disk are secret carriers.
     if resolved.name in _BLOCKED_PROJECT_ENV_BASENAMES:

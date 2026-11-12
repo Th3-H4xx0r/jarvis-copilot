@@ -6,10 +6,12 @@ import httpx
 from api import link_preview as lp
 
 
-def _mock_client(monkeypatch, handler):
+def _mock_client(monkeypatch, handler, peer_public=True):
     real = httpx.Client
     monkeypatch.setattr(lp.httpx, "Client",
                         functools.partial(real, transport=httpx.MockTransport(handler)))
+    # MockTransport has no socket: stand in for the connected-peer check.
+    monkeypatch.setattr(lp, "response_peer_is_public", lambda resp: peer_public)
 
 
 def test_parse_prefers_open_graph_and_resolves_relative_image():
@@ -68,3 +70,11 @@ def test_fetch_follows_safe_redirect_and_keeps_original_url(monkeypatch):
     assert p["title"] == "Item"
     assert p["image"] == "https://shop.example/pic.png"
     assert p["site"] == "shop.example"
+
+
+def test_a_host_that_rebinds_to_a_private_address_is_refused(monkeypatch):
+    _mock_client(monkeypatch, lambda req: httpx.Response(200, headers={"content-type": "text/html"},
+                                                         text='<meta property="og:title" content="Inside">'),
+                 peer_public=False)
+    monkeypatch.setattr(lp, "is_safe_url", lambda url: True)
+    assert lp._fetch("https://rebind.example/") is None

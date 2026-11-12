@@ -257,6 +257,32 @@ def is_always_blocked_url(url: str) -> bool:
         return False
 
 
+def response_peer_is_public(response) -> bool:
+    """True when an httpx response came from a public address.
+
+    ``is_safe_url`` resolves the hostname before the request, and the HTTP client resolves it again
+    when connecting: a DNS-rebinding host can answer public the first time and private the second.
+    Checking the connected peer (before reading the body) closes that gap. Fails closed when the
+    peer can't be determined. Honors ``security.allow_private_urls`` like ``is_safe_url``.
+    """
+    try:
+        stream = (getattr(response, "extensions", None) or {}).get("network_stream")
+        addr = stream.get_extra_info("server_addr") if stream is not None else None
+        if not addr:
+            sock = stream.get_extra_info("socket") if stream is not None else None
+            addr = sock.getpeername() if sock is not None else None
+        if not addr:
+            return False
+        ip = ipaddress.ip_address(str(addr[0]).split("%", 1)[0])
+        if str(ip) in {"169.254.169.254", "fd00:ec2::254"}:
+            return False
+        if _global_allow_private_urls():
+            return True
+        return not _is_blocked_ip(ip)
+    except Exception:
+        return False
+
+
 def is_safe_url(url: str) -> bool:
     """Return True if the URL target is not a private/internal address.
 

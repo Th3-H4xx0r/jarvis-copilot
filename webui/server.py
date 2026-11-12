@@ -335,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
         import re as _re
         duration_ms = round((time.time() - getattr(self, '_req_t0', time.time())) * 1000, 1)
         # Never log a session secret (e.g. /api/auth/handoff?session=<value>).
-        safe_path = _re.sub(r'(session=)[^&]*', r'\1REDACTED', self.path or '-')
+        safe_path = _loggable_path(self.path)
         record = _json.dumps({
             'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'method': self.command or '-',
@@ -410,7 +410,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             if _is_client_disconnect(e):
                 return
-            print(f'[webui] ERROR {self.command} {self.path}\n' + traceback.format_exc(), flush=True)
+            print(f'[webui] ERROR {self.command} {_loggable_path(self.path)}\n' + traceback.format_exc(), flush=True)
             try:
                 return j(self, {'error': 'Internal server error'}, status=500)
             except Exception as write_exc:
@@ -447,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             if _is_client_disconnect(e):
                 return
-            print(f'[webui] ERROR {self.command} {self.path}\n' + traceback.format_exc(), flush=True)
+            print(f'[webui] ERROR {self.command} {_loggable_path(self.path)}\n' + traceback.format_exc(), flush=True)
             try:
                 return j(self, {'error': 'Internal server error'}, status=500)
             except Exception as write_exc:
@@ -468,6 +468,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         self._handle_write(handle_delete)
+
+
+def _loggable_path(path) -> str:
+    """A request path safe for the logs: no session secret, and no query on /api/vault (a vault
+    search query is vault content)."""
+    import re as _re
+    safe = _re.sub(r'(session=)[^&]*', r'\1REDACTED', path or '-')
+    if safe.startswith('/api/vault') and '?' in safe:
+        safe = safe.split('?', 1)[0] + '?REDACTED'
+    return safe
 
 
 def _raise_fd_soft_limit(target: int = 4096) -> dict:

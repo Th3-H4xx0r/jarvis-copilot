@@ -184,6 +184,18 @@ _SENSITIVE_WRITE_TARGET = (
     rf'{_CREDENTIAL_FILES})'
 )
 _PROJECT_SENSITIVE_WRITE_TARGET = rf'(?:{_PROJECT_ENV_PATH}|{_PROJECT_CONFIG_PATH})'
+# Protected server state (agent/file_safety.PROTECTED_STATE_PATHS: key files, the vault) referenced
+# under the JarvisCopilot root by any spelling the shell expands: ~/.jarviscopilot/…, $HOME/…,
+# $HERMES_HOME/…, an absolute …/.jarviscopilot/… path, or a cd into the root followed by a bare
+# relative reference. Any command touching them (cat, cp, sqlite3, tar, python -c …) needs approval.
+from agent.file_safety import PROTECTED_STATE_PATHS as _PROTECTED_STATE_PATHS
+
+_PROTECTED_STATE_ALT = "|".join(re.escape(p.lower()) for p in _PROTECTED_STATE_PATHS)
+_PROTECTED_STATE_REF = (
+    rf'(?:\.jarviscopilot/(?:profiles/[^/\s]+/)?|(?:\$hermes_home|\$\{{hermes_home\}})/)'
+    rf'(?:{_PROTECTED_STATE_ALT})(?![\w.-])'
+)
+_PROTECTED_STATE_BARE = rf'\bcd\b[^;&|\n]*\.jarviscopilot\b.*(?:^|[\s"\'=/])(?:{_PROTECTED_STATE_ALT})(?![\w.-])'
 _COMMAND_TAIL = r'(?:\s*(?:&&|\|\||;).*)?$'
 
 # Shell names as one shared alternation, used by every pattern that matches a
@@ -479,6 +491,8 @@ def _sudo_stdin_block_result(description: str) -> dict:
 # =========================================================================
 
 DANGEROUS_PATTERNS = [
+    (_PROTECTED_STATE_REF, "access to protected server state (keys / encrypted vault)"),
+    (_PROTECTED_STATE_BARE, "access to protected server state (keys / encrypted vault)"),
     (r'\brm\s+(-[^\s]*\s+)*/', "delete in root path"),
     (r'\brm\s+-[^\s]*r', "recursive delete"),
     (r'\brm\s+--recursive\b', "recursive delete (long flag)"),

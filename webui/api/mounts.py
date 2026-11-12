@@ -37,6 +37,7 @@ MOUNTS = (
     ("/api/session", "api.session_routes"),
     ("/api/sessions", "api.session_routes"),
     ("/api/speech", "api.speech_config"),
+    ("/api/vault", "api.vault_routes"),
     ("/api/voice", "api.voice"),
     ("/api/widgets", "api.widget_routes"),
 )

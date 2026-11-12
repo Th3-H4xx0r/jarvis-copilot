@@ -133,7 +133,10 @@ SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32
                                 "spotify_remote_play",
                                 # The door alarm's state for the phone's live buttons (live_buttons.py):
                                 # a forged one would make a tile say "Disarmed" while the alarm is on.
-                                "live_state"})
+                                "live_state",
+                                # Opens the phone's vault approval sheet (plugins/vault/service.py):
+                                # the server's to show, never a tool.
+                                "vault_show_approvals"})
 
 
 # ── Inbound device events ───────────────────────────────────────────────────

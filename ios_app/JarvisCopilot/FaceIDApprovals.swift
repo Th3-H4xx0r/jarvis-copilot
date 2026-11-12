@@ -9,6 +9,8 @@ struct FaceIDApproval: Identifiable, Equatable, Sendable {
     let source: String
     let ageSeconds: Int
     let expiresInSeconds: Int
+    /// What the request covers, content-free ("3 items, including a folder") — the vault's.
+    var detail: String? = nil
     /// When this copy came from the server: the countdown runs from here.
     let receivedAt: Date
 
@@ -23,6 +25,7 @@ struct FaceIDApproval: Identifiable, Equatable, Sendable {
         source = o["source"] as? String ?? "Jarvis"
         ageSeconds = (o["age_s"] as? NSNumber)?.intValue ?? 0
         expiresInSeconds = (o["expires_in_s"] as? NSNumber)?.intValue ?? 120
+        detail = (o["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.receivedAt = receivedAt
     }
 }
@@ -64,6 +67,7 @@ extension FaceIDApprovalDomain {
 final class FaceIDApprovals: ObservableObject {
     static let car = FaceIDApprovals(domain: CarApprovalDomain())
     static let door = FaceIDApprovals(domain: DoorApprovalDomain())
+    static let vault = FaceIDApprovals(domain: VaultApprovalDomain())
 
     struct Answer: Equatable {
         let text: String

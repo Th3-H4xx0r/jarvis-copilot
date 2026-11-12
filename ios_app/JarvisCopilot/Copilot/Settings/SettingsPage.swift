@@ -35,6 +35,7 @@ struct SettingsPage: View {
                 assistant
                 battery
                 navigation
+                privacy
                 danger
                 version
             }
@@ -311,6 +312,22 @@ struct SettingsPage: View {
                              title: "Jarvis bridge",
                              subtitle: "Shared wearables, pairing, bridge mode",
                              last: true)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// The encrypted vault: notes, links, photos, videos and files, behind Face ID.
+    private var privacy: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Privacy")
+            GlassGroup {
+                NavigationLink {
+                    VaultRootView()
+                } label: {
+                    GlassRow(symbol: "lock.fill", title: "Secure vault",
+                             subtitle: "Encrypted notes, links and files", last: true)
                 }
                 .buttonStyle(.plain)
             }

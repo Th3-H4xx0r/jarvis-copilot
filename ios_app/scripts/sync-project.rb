@@ -41,6 +41,9 @@ end
 unless system(RbConfig.ruby, File.join(__dir__, 'add-watch-widget-target.rb'), out: File::NULL)
   warn 'sync-project: add-watch-widget-target.rb failed; continuing without the watch complication'
 end
+unless system(RbConfig.ruby, File.join(__dir__, 'add-vault-share-target.rb'), out: File::NULL)
+  warn 'sync-project: add-vault-share-target.rb failed; continuing without the vault share extension'
+end
 
 FileUtils.mkdir_p(File.dirname(LOCK))
 acquired = false

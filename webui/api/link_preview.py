@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from tools.url_safety import is_safe_url
+from tools.url_safety import is_safe_url, response_peer_is_public
 
 # The user agent LinkPresentation sends: sites that hide their Open Graph tags
 # from unknown bots usually serve them to this one.
@@ -96,6 +96,8 @@ def _fetch(url: str) -> dict | None:
                 if not is_safe_url(current):
                     return None
                 with client.stream("GET", current) as resp:
+                    if not response_peer_is_public(resp):     # DNS rebinding: the host re-resolved private
+                        return None
                     if resp.is_redirect and resp.headers.get("location"):
                         current = urljoin(current, resp.headers["location"])
                         continue

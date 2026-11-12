@@ -453,6 +453,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "vault": {
+        "description": "His Secure Vault (notes, links, files): search, list, read, save, move, delete — each needs Face ID on his iPhone",
+        "tools": ["vault_search", "vault_list", "vault_read", "vault_save", "vault_move", "vault_delete"],
+        "includes": []
+    },
+
     "security_advisor": {
         "description": "The Security Advisor, read-only: status, and security events with the rules' outcome",
         "tools": ["security_status", "security_events"],

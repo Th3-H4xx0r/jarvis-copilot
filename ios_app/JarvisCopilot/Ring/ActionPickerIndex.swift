@@ -62,7 +62,7 @@ struct ActionPickerSection: Identifiable {
 enum ActionPickerIndex {
     /// Tools the server calls on the phone itself — offering them as buttons would only confuse.
     static let hiddenSkills: Set<String> = ["door_alarm_ring", "door_show_alarm", "door_show_approvals",
-                                            "car_show_approvals"]
+                                            "car_show_approvals", "vault_show_approvals"]
 
     /// The tool-name prefixes that only repeat the device's name.
     private static let prefixes: Set<String> = ["ring", "x5", "band", "bottle", "scale", "glasses", "esp32", "pod",
