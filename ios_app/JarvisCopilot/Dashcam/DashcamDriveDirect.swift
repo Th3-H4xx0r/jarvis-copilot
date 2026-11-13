@@ -247,3 +247,80 @@ final class DashcamGoogleDrive: DashcamDriveClient, @unchecked Sendable {
         return last + 1
     }
 }
+
+/// A Drive destination Google no longer signs in (the server's `/token` answered 409 `signin_expired` — a refresh
+/// token dies after a week while the Google consent screen is in Testing). The player, the uploads and the locked
+/// clips coming back all stop on it; the dashcam screens read this one state to say so and offer Sign in, which
+/// runs the same sign-in as the Destinations screen's.
+@MainActor
+final class DashcamDriveSignIn: ObservableObject {
+    static let shared = DashcamDriveSignIn()
+
+    struct Needed: Equatable, Identifiable {
+        let destinationID: String
+        var name: String?
+        var id: String { destinationID }
+    }
+
+    @Published private(set) var needed: Needed?
+    @Published private(set) var signingIn = false
+    /// Why the last sign-in didn't take; nil after one that worked.
+    @Published private(set) var problem: String?
+    /// The destination's name for the popup (the token answer doesn't carry it). Swapped in tests.
+    var lookupName: (String) async -> String? = { id in try? await DashcamAPI().destinations().first { $0.id == id }?.name }
+    private lazy var google = DashcamGoogleSignIn()
+
+    /// A token request was answered: `expired` = Google's sign-in is dead for this destination, else a token came.
+    /// One destination at a time: once it's signed in, the next one to fail shows up on its own.
+    func tokenAnswered(_ destinationID: String, expired: Bool) {
+        if expired {
+            guard needed == nil else { return }
+            needed = Needed(destinationID: destinationID, name: nil)
+            Task {
+                if let name = await lookupName(destinationID), needed?.destinationID == destinationID { needed?.name = name }
+            }
+        } else if needed?.destinationID == destinationID {
+            needed = nil
+            problem = nil
+        }
+    }
+
+    /// A destinations list came: one that no longer has the destination, or no longer calls it signed out (signed in
+    /// again elsewhere, removed, changed), ends the state.
+    func destinationsListed(_ list: [DashcamDestination]) {
+        guard let needed else { return }
+        guard let d = list.first(where: { $0.id == needed.destinationID }), d.signInExpired else {
+            self.needed = nil
+            problem = nil
+            return
+        }
+        if needed.name == nil { self.needed?.name = d.name }
+    }
+
+    /// Signs the destination in again in place (clips already copied keep pointing at it): Google sign-in on the
+    /// phone, then the server trades the code with the client secret it already holds. Nil when it works, else why not.
+    func signIn(_ destinationID: String) async -> String? {
+        signingIn = true
+        defer { signingIn = false }
+        do {
+            let api = DashcamAPI()
+            let grant = try await google.authorize(clientID: try await api.driveClientID(destinationID))
+            if let failure = try await api.reconnectDestination(destinationID, grant: grant) {
+                problem = failure
+                return failure
+            }
+            tokenAnswered(destinationID, expired: false)
+            DashcamSync.shared.destinationsChanged()       // clips held for the sign-in go now
+            return nil
+        } catch {
+            problem = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    /// The popup's words.
+    static func message(_ needed: Needed?) -> String {
+        let drive = needed?.name.map { "“\($0)”" } ?? "your Google Drive"
+        return "Jarvis can't play or upload clips to \(drive) until you sign in again. Your clips are still in your Drive."
+    }
+}

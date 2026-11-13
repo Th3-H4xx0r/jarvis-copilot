@@ -45,7 +45,8 @@ struct DashcamClipTags: View {
 }
 
 /// The clip page's Tags: every tag a chip, tap to put it on or take it off — the other camera's clip of the
-/// same moment follows — + New tag, and Delete on his own tags (long press).
+/// same moment follows — + New tag, and Delete on his own tags (long press). A tagged clip is locked, and the
+/// card says so under the chips.
 struct DashcamTagsCard: View {
     @ObservedObject var model: DashcamPlayerModel
     /// The other lens's page model in Both, to show what the server set on it.
@@ -83,6 +84,12 @@ struct DashcamTagsCard: View {
                     }
                     if let problem {
                         Text(problem).font(.caption).foregroundStyle(JcTheme.danger)
+                    }
+                    if DashcamLock.isLocked(model.clip, defaults: DashcamSync.shared.defaults) {
+                        Label(DashcamLock.pageLine, systemImage: "lock.fill")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel("Locked. Tagged clips are never deleted. Remove its tags to delete it.")
                     }
                 }
                 .padding(.vertical, 4)
@@ -133,8 +140,10 @@ struct DashcamTagsCard: View {
         for page in [model, partner].compactMap({ $0 }) {
             let id = page.clip.id
             if let fresh = try? await page.api.clip(id).clip, page.clip.id == id, inFlight == 0 {
+                page.clip.locked = fresh.locked             // untagged: the lock line goes
                 page.clip.tags = fresh.tags
                 DashcamTagged.update([fresh], defaults: DashcamSync.shared.defaults)
+                DashcamSync.shared.noteServerClips([fresh])
             }
         }
     }
@@ -157,8 +166,10 @@ struct DashcamTagsCard: View {
         Task {
             do {
                 try await store.delete(tag.id)
-                model.clip.tags.removeAll { $0 == tag.id }
-                partner?.clip.tags.removeAll { $0 == tag.id }
+                for page in [model, partner].compactMap({ $0 }) where page.clip.tags.contains(tag.id) {
+                    page.clip.tags.removeAll { $0 == tag.id }
+                    page.clip.locked = !page.clip.tags.isEmpty
+                }
                 DashcamLibraryModel.shared.dropTag(tag.id)
                 if DashcamLibraryModel.shared.tag == tag.id { DashcamLibraryModel.shared.tag = nil }
             } catch {

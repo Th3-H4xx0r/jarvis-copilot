@@ -14,6 +14,9 @@ final class DashcamPlayerModel: ObservableObject {
     @Published var hd = false
     @Published private(set) var hasPreview = false
     @Published private(set) var destinations: [(name: String, state: String, error: String?)] = []
+    /// The clip is only in a Drive whose Google sign-in is dead: the page says so with Sign in, instead of a
+    /// server stream that fails the same way (the server reads that Drive with the same sign-in).
+    @Published private(set) var driveSignedOut = false
     @Published var clip: DashcamServerClip
     private var observer: Any?
     var api = DashcamAPI()
@@ -29,6 +32,7 @@ final class DashcamPlayerModel: ObservableObject {
     func load(seekTo offset: Double? = nil) async {
         stop()
         error = nil
+        driveSignedOut = false
         generation += 1
         let mine = generation, target = clip.id
         // A newer load (Previous/Next) supersedes this one: never let a slow reply put the old clip back.
@@ -111,6 +115,11 @@ final class DashcamPlayerModel: ObservableObject {
                 error = "Google Drive didn't answer. Try again in a minute."
                 return
             }
+        } else if Self.onlyInSignedOutDrive(clip, DashcamDriveSignIn.shared.needed) {
+            guard !stale() else { return }
+            driveSignedOut = true
+            source = ""
+            return
         } else if clip.uploaded || clip.uploadState == "staged" || clip.uploadState == "done",
                   let asset = try? api.streamAsset(clipID: clip.id) {
             item = AVPlayerItem(asset: asset)
@@ -221,6 +230,14 @@ final class DashcamPlayerModel: ObservableObject {
         return try DashcamExport.stage(source, as: DashcamExport.fileName(for: clip, ext: source.pathExtension.lowercased()))
     }
 
+    /// The clip's only cloud copies are in the Drive that needs signing in again, and the server's staging no longer
+    /// holds it: no stream can work until he signs in.
+    static func onlyInSignedOutDrive(_ clip: DashcamServerClip, _ needed: DashcamDriveSignIn.Needed?) -> Bool {
+        guard let needed, clip.uploadState != "staged" else { return false }
+        let done = clip.destinations.filter { $0.value.state == "done" }.map(\.key)
+        return !done.isEmpty && done.allSatisfy { $0 == needed.destinationID }
+    }
+
     /// A Drive key for streaming: the clip's own destination's, or — when that destination was removed and
     /// added again (same Google account, same files) — any current Drive destination's.
     static func driveKey(preferring id: String) async -> DashcamDriveAccess? {
@@ -247,6 +264,8 @@ struct DashcamPlayerView: View {
     let siblings: [DashcamServerClip]
     var startOffset: Double?
     @State private var fullscreen = false
+    /// On screen (not covered by a page pushed over it): the Drive sign-in popup is asked from here only then.
+    @State private var onScreen = false
     /// The other lens's clip in "Both"; loaded only then.
     @StateObject private var second: DashcamPlayerModel
     @State private var mode: LensMode
@@ -356,6 +375,9 @@ struct DashcamPlayerView: View {
                 if let error = model.error {
                     CardGroup { CardEmptyBlock(error, symbol: "film") }
                 }
+                if model.driveSignedOut || (mode == .both && second.driveSignedOut) {
+                    DashcamDriveSignInLine { retryAfterSignIn() }
+                }
                 DashcamTagsCard(model: model, partner: mode == .both ? second : nil)
                 if model.fixes.count >= 2 { map }
                 details
@@ -370,7 +392,9 @@ struct DashcamPlayerView: View {
         }
         .task { await model.load(seekTo: startOffset) }
         .onChange(of: dualKey, initial: true) { _, _ in attachClock() }
-        .onDisappear { if !fullscreen { clock.detach(); model.stop(); second.stop(); sharing.cancel() } }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false; if !fullscreen { clock.detach(); model.stop(); second.stop(); sharing.cancel() } }
+        .modifier(DashcamDriveSignInAlert(active: onScreen && !fullscreen) { retryAfterSignIn() })
         .fullScreenCover(isPresented: $fullscreen) {
             DashcamFullscreenMedia(player: model.player, photo: model.photo, sharing: sharing, shared: [model])
         }
@@ -494,6 +518,14 @@ struct DashcamPlayerView: View {
             }
             .buttonStyle(.jcGlass(compact: true))
             .padding(.horizontal, 20)
+        }
+    }
+
+    /// Signed in to Drive again: the clips that couldn't play load once more.
+    private func retryAfterSignIn() {
+        Task { await model.load() }
+        if mode == .both, second.driveSignedOut {
+            Task { await second.load(); second.player?.isMuted = true }
         }
     }
 

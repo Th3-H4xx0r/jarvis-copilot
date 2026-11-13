@@ -59,6 +59,8 @@ struct DashcamPage: View {
             Text("The password for \(DashcamSetupStore.load()?.ssid ?? "the camera") — it's on the camera's screen. Kept for rejoining on its own.")
         }
         .onAppear { onScreen = true }
+        // Only while this page is the one on top: a clip's page pushed over it asks on its own.
+        .modifier(DashcamDriveSignInAlert(active: onScreen))
         .onChange(of: readsStatus, initial: true) { _, on in sync.watchStatus(on, by: "page") }
         .onDisappear { onScreen = false; sync.watchStatus(false, by: "page") }
         .jcPageChrome(DashcamSetupStore.load()?.displayName ?? "Dashcam")

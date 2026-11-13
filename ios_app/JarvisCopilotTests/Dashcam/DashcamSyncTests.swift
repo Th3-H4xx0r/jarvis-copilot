@@ -43,7 +43,7 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     func settings() async throws -> [DashcamSettingItem] { [] }
     func set(_ name: String, _ value: String) async throws {}
     func sdInfo() async throws -> DashcamSDInfo { DashcamSDInfo(ok: true) }
-    func format() async throws {}
+    func format() async throws { calls.append("format") }
     /// Paths deleted from the card, in order.
     var deleted: [String] = []
     /// Some firmware only deletes in playback mode.
@@ -52,8 +52,11 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     var refuseDelete = Set<String>()
     /// Off by default: most fixtures read `files` after a pass.
     var deleteRemovesFile = false
+    /// Runs as each delete is asked for (before the camera answers): a test can tag another clip mid-sweep.
+    var onDelete: ((DashcamFile) -> Void)?
     func delete(_ file: DashcamFile) async throws {
         calls.append("delete=\(file.path)")
+        onDelete?(file)
         if refuseDelete.contains(file.path) || (refuseDeleteOutsidePlayback && !inPlayback) {
             throw DashcamError.camera("deletefile: refused")
         }
@@ -91,6 +94,10 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
     var failedIDs: [String] = []
     /// Clip ids the server has no record of (mark answers them as missing).
     var unknown = Set<String>()
+    /// Clip ids the server calls locked (tagged) in its inventory rows.
+    var lockedIDs = Set<String>()
+    /// Clip ids a card-delete ask comes back neither queued, missing nor locked for.
+    var unmarked = Set<String>()
 
     func upsertCamera(_ info: DashcamCameraInfo, ssid: String) async throws {}
     func inventory(cameraID: String, files: [DashcamFile]) async throws -> [String: DashcamInventoryRow] {
@@ -103,7 +110,8 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
             let stable = before[f.path] == f.size
             out[f.path] = DashcamInventoryRow(json: ["id": id, "path": f.path, "has_gps": fixes[id] != nil,
                                                      "has_thumb": thumbs.contains(id), "uploaded": uploadedIDs.contains(id),
-                                                     "card_delete": backlog[id] != nil, "size_stable": stable])
+                                                     "card_delete": backlog[id] != nil, "size_stable": stable,
+                                                     "locked": lockedIDs.contains(id)])
         }
         return out
     }
@@ -111,15 +119,18 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
         if unreachable { throw APIError.http(status: 502, message: "down") }
         return backlog.values.sorted { $0.id < $1.id }
     }
-    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> [String] {
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> DashcamCardMarks {
         if unreachable { throw APIError.http(status: 502, message: "down") }
         marked += entries
-        var missing: [String] = []
+        var answer = DashcamCardMarks(marked: [])
         for e in entries {
-            if unknown.contains(e.id) { missing.append(e.id); continue }
+            if unknown.contains(e.id) { answer.missing.append(e.id); continue }
+            if lockedIDs.contains(e.id) { answer.locked.append(e.id); continue }     // a tagged clip is never queued
+            if unmarked.contains(e.id) { continue }
             backlog[e.id] = DashcamCardDelete(id: e.id, path: backlog[e.id]?.path ?? "", forget: e.forget || backlog[e.id]?.forget == true)
+            answer.marked?.append(e.id)
         }
-        return missing
+        return answer
     }
     func cardDeletesDone(_ ids: [String]) async throws {
         if unreachable { throw APIError.http(status: 502, message: "down") }
@@ -140,10 +151,15 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
         DashcamServerState(rules: rules, destinations: [], counts: [:], stagingBytes: 0, stagingCap: 0)
     }
     func updateRules(_ rules: DashcamRules) async throws { self.rules = rules }
-    /// What the clip listing answers (the clean-up's "on the phone" page).
+    /// What the clip listing answers (the clean-up's "on the phone" page; a tag's clips when asked by tag).
     var listed: [DashcamServerClip] = []
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?) {
-        (listed, nil)
+        if let tag = filter.tag { return (listed.filter { $0.tags.contains(tag) }, nil) }
+        return (listed, nil)
+    }
+    func tags() async throws -> [DashcamTag] {
+        if unreachable { throw APIError.http(status: 502, message: "down") }
+        return DashcamTag.presets
     }
 }
 
@@ -265,6 +281,8 @@ final class DashcamSyncTests: XCTestCase {
         sync.onCameraProvider = { [unowned self] in self.onCamera }
         sync.timeZone = { TimeZone(secondsFromGMT: 0)! }
         sync.now = { Date(timeIntervalSince1970: 1_790_010_000) }
+        sync.restoreSources = { _ in [] }               // never the real Drive or server
+        sync.freeSpace = { 100_000_000_000 }
         cam.files = [
             file(.normal, .front, at: 0), file(.normal, .front, at: 60), file(.normal, .front, at: 120),
             file(.normal, .rear, at: 0), file(.normal, .rear, at: 60),
@@ -659,7 +677,7 @@ final class DashcamSyncTests: XCTestCase {
         onCamera = false
         let asked = cam.files[1]
         let now = await sync.deleteFromCamera(asked.path, clipID: id(asked), forget: true)
-        XCTAssertFalse(now)
+        XCTAssertEqual(now, .pending)
         XCTAssertTrue(server.marked.contains { $0.id == id(asked) && $0.forget })
         XCTAssertEqual(sync.pendingCameraDeletes[asked.path], true)
         onCamera = true
@@ -784,6 +802,421 @@ final class DashcamSyncTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: rows[1].0.path), "untagged: gone once uploaded")
         XCTAssertTrue(DashcamTagged.contains(rows[0].1.id, defaults: sync.defaults))
         XCTAssertFalse(DashcamTagged.contains(rows[1].1.id, defaults: sync.defaults))
+    }
+
+    // MARK: Locked clips
+
+    private func serverClip(_ f: DashcamFile, tags: [String] = [], phone: String = "none", uploaded: Bool = false,
+                            onCamera: Bool = true, drive: Bool = false) -> DashcamServerClip {
+        var json: [String: Any] = ["id": id(f), "camera_id": "CAM", "path": f.path, "kind": f.kind.rawValue,
+                                   "lens": f.lens.rawValue, "start": f.start.dashcamISO, "duration_s": f.durationS,
+                                   "size": f.size, "phone": ["state": phone], "on_camera": onCamera, "tags": tags,
+                                   "locked": !tags.isEmpty, "uploaded": uploaded,
+                                   "upload": ["state": uploaded ? "done" : "none"]]
+        if drive { json["destinations"] = ["d_drive": ["state": "done", "file_id": "F1"]] }
+        return DashcamServerClip(json: json)!
+    }
+
+    /// His accident clip: tagged, so nothing deletes it — not the phone, the cloud, the card, nor everywhere.
+    func testALockedClipIsNeverDeletedFromAnywhere() async throws {
+        let f = eventClip
+        let url = sync.storage.localURL(camera: "CAM", file: f)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 10).write(to: url)
+        for clip in [serverClip(f, tags: ["accident"]), serverClip(f)] {
+            if clip.tags.isEmpty { DashcamTagged.mark(clip.id, defaults: sync.defaults) }    // tagged on this phone only
+            let (done, failed) = await DashcamClipActions.delete(clip, [.phone, .cloud, .camera], sync: sync)
+            XCTAssertEqual(done, [])
+            XCTAssertEqual(failed, [DashcamLock.refusal])
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "the phone copy stays")
+        XCTAssertFalse(DashcamTombstones.contains(id(f), defaults: sync.defaults))
+        XCTAssertTrue(server.marked.isEmpty, "nothing queued for the card")
+        let now = await sync.deleteFromCamera(f.path, clipID: id(f))
+        XCTAssertEqual(now, .locked)
+        XCTAssertTrue(server.marked.isEmpty)
+        XCTAssertTrue(sync.pendingCameraDeletes.isEmpty)
+    }
+
+    /// The card's clean-up never takes a locked clip's file — uploaded or on the phone, tagged on the server or here.
+    func testTheCardSweepAndDownloadsLeaveLockedClipsOnTheCard() async {
+        let uploaded = cam.files[0], here = eventClip
+        server.uploadedIDs = [id(uploaded)]
+        server.lockedIDs = [id(uploaded)]                       // the server's word
+        DashcamTagged.mark(id(here), defaults: sync.defaults)   // this phone's record
+        fetcher.failAfter = 0
+        _ = await sync.syncPass()                               // sizes known: a download would now leave the card
+        fetcher.failAfter = nil
+        let report = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == here.name }, "a locked clip still comes down")
+        XCTAssertFalse(cam.deleted.contains(here.path), "but stays on the card after its download")
+        XCTAssertFalse(cam.deleted.contains(uploaded.path), "and the sweep skips it though the cloud has it")
+        XCTAssertFalse(report.cardDeleted.contains(uploaded.path))
+        XCTAssertTrue(sync.isLocked(path: uploaded.path) && sync.isLocked(path: here.path))
+    }
+
+    /// A delete asked for before the clip was tagged never runs, and doesn't keep the clip off the phone either.
+    func testABacklogDeleteOfALockedClipIsNotRun() async {
+        let asked = eventClip
+        server.backlog[id(asked)] = DashcamCardDelete(id: id(asked), path: asked.path, forget: true)
+        sync.defaults.setValue([asked.path: true], forKey: DashcamSync.cardDeletesKey)
+        server.lockedIDs = [id(asked)]                          // tagged on the server since; this phone doesn't know yet
+        server.listed = [serverClip(asked, tags: ["accident"])]
+        _ = await sync.syncPass()
+        _ = await sync.syncPass()
+        XCTAssertFalse(cam.deleted.contains(asked.path))
+        XCTAssertFalse(server.doneIDs.contains(id(asked)))
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == asked.name }, "kept out of nothing: it comes down")
+        XCTAssertNil(sync.pendingCameraDeletes[asked.path], "off this phone's list")
+    }
+
+    /// A locked clip already in the cloud whose phone copy went comes back from the card — and isn't sent up again.
+    func testALockedClipComesBackFromTheCardWithoutUploadingAgain() async {
+        let f = cam.files[0]                                    // normal footage: off by default, and in the cloud
+        server.uploadedIDs = [id(f)]
+        server.lockedIDs = [id(f)]
+        DashcamTombstones.add(id(f), defaults: sync.defaults)   // deleted here before he tagged it
+        _ = await sync.syncPass()
+        _ = await sync.syncPass()
+        XCTAssertTrue(sync.storage.exists(camera: "CAM", file: f))
+        XCTAssertFalse(DashcamTombstones.contains(id(f), defaults: sync.defaults), "the lock wins")
+        let queued = await sync.uploader.jobs.map(\.clipID)
+        XCTAssertFalse(queued.contains(id(f)), "the cloud has it: nothing goes up again")
+        XCTAssertEqual(server.phone[id(f)], "local")
+        XCTAssertFalse(cam.deleted.contains(f.path))
+    }
+
+    /// Locked copies stay on the phone for good, so they never fill "Phone space" and hold back normal footage.
+    func testLockedCopiesDoNotCountAgainstPhoneSpace() async throws {
+        var rules = DashcamRules(); rules.normal = .all; rules.phoneCapGB = 1
+        server.rules = rules
+        let locked = cam.files[0]
+        server.lockedIDs = [id(locked)]
+        let url = sync.storage.localURL(camera: "CAM", file: locked)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: 1 << 30)                 // 1 GB on paper (sparse): the whole cap
+        try handle.close()
+        _ = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == "rear_0.mp4" }, "normal footage still comes down")
+        XCTAssertLessThan(sync.phoneBytes ?? .max, 1 << 20)
+        XCTAssertFalse(cam.deleted.contains(locked.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// The Oct 21 clip: tagged, uploaded, its phone copy cleared, gone from the card. It comes back from the cloud as
+    /// the MP4 the cloud keeps, counts as the phone copy, is marked on the phone and never queued for upload.
+    func testALockedClipWithNoPhoneCopyComesBackFromTheCloud() async throws {
+        let f = DashcamFile(path: "/mnt/card/video_back/2026-10-21_16_17_37_b.ts", kind: .normal, lens: .rear,
+                            start: Date(timeIntervalSince1970: 1_792_000_000), durationS: 60, size: 5_000)
+        let clip = serverClip(f, tags: ["accident"], phone: "deleted", uploaded: true, onCamera: false, drive: true)
+        server.listed = [clip, serverClip(file(.normal, .front, at: 0))]
+        var asked: [String] = []
+        sync.restoreSources = { c in asked.append(c.id); return [URLRequest(url: URL(string: "https://drive.test/\(c.id)")!)] }
+        sync.restoreFetch = { _, dir in
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let out = dir.appendingPathComponent("download.mp4")
+            try Data(count: 3_000).write(to: out)
+            return out
+        }
+        let back = await sync.restoreLocked()
+        XCTAssertEqual(back, [clip.id])
+        XCTAssertEqual(asked, [clip.id], "only the locked clip")
+        let local = sync.storage.localURL(camera: "CAM", file: f)
+        XCTAssertEqual(local.lastPathComponent, "2026-10-21_16_17_37_b.mp4")
+        XCTAssertTrue(sync.storage.exists(camera: "CAM", file: f), "the smaller MP4 counts as the phone copy")
+        XCTAssertEqual(server.phone[clip.id], "local")
+        let queued = await sync.uploader.jobs.map(\.clipID)
+        XCTAssertTrue(queued.isEmpty, "never uploaded again")
+        XCTAssertTrue(DashcamTagged.contains(clip.id, defaults: sync.defaults))
+        // Already there: the next check fetches nothing.
+        let again = await sync.restoreLocked()
+        XCTAssertEqual(again, [])
+        XCTAssertEqual(asked.count, 1)
+        // Its copy never counts against the phone-space cap.
+        XCTAssertEqual(sync.storage.normalBytes(camera: "CAM",
+                                                excluding: Set(sync.defaults.stringArray(forKey: DashcamSync.lockedCopiesKey) ?? [])), 0)
+        // At most every ten minutes on its own.
+        sync.restoreLockedSoon()
+        await Task.yield()
+        XCTAssertEqual(asked.count, 1)
+    }
+
+    /// Cloud backup paused, mobile data "Nothing": a locked clip still goes up — and first.
+    func testLockedClipsUploadWhateverTheRules() async throws {
+        let upload = FakeUploadServer()
+        sync.uploadServer = upload
+        sync.charging = { false }
+        sync.rules.upload = false
+        sync.rules.uploadData = .never
+        for (name, kind) in [("e", DashcamClipKind.event), ("n", .normal)] {
+            let url = root.appendingPathComponent("\(name).mp4")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data(count: 8).write(to: url)
+            await sync.uploader.enqueue(clipID: name, local: url, size: 8, kind: kind)
+        }
+        DashcamTagged.mark("n", defaults: sync.defaults)
+        await sync.uploadOnce()
+        XCTAssertEqual(upload.completed, ["u_n"], "only the locked clip, though backup is paused")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("n.mp4").path), "and it stays on the phone")
+    }
+
+    // MARK: Locked clips: review fixes
+
+    /// He deleted a clip everywhere away from the car, then tagged it on the web: at the next connection the server
+    /// refuses the queued delete as locked, and the card keeps the file (it may be the only copy).
+    func testAQueuedDeleteTheServerNowCallsLockedNeverRuns() async {
+        onCamera = false
+        let f = eventClip
+        let asked = await sync.deleteFromCamera(f.path, clipID: id(f), forget: true)
+        XCTAssertEqual(asked, .pending)
+        XCTAssertEqual(sync.pendingCameraDeletes[f.path], true)
+        server.backlog[id(f)] = nil                             // the server drops the entry when the clip is tagged
+        server.lockedIDs = [id(f)]
+        onCamera = true
+        _ = await sync.syncPass()
+        XCTAssertFalse(cam.deleted.contains(f.path))
+        XCTAssertNil(sync.pendingCameraDeletes[f.path], "off this phone's queue")
+        XCTAssertTrue(sync.isLocked(path: f.path))
+        XCTAssertTrue(DashcamTagged.contains(id(f), defaults: sync.defaults), "remembered across launches")
+    }
+
+    /// On the camera's Wi‑Fi with a clip object older than its tag: the server's answer refuses it before the camera
+    /// is asked.
+    func testADeleteTheServerCallsLockedIsRefusedOnTheCameraWiFi() async {
+        let f = cam.files[1]
+        server.lockedIDs = [id(f)]
+        let result = await sync.deleteFromCamera(f.path, clipID: id(f))
+        XCTAssertEqual(result, .locked)
+        XCTAssertFalse(cam.deleted.contains(f.path))
+        XCTAssertTrue(sync.pendingCameraDeletes.isEmpty)
+    }
+
+    /// With the server answering, only what it queued (or lists) goes; with it down, this phone's queue runs as before.
+    func testOnlyDeletesTheServerQueuedRunUnlessItIsDown() async {
+        let f = cam.files[1]
+        sync.defaults.setValue([f.path: false], forKey: DashcamSync.cardDeletesKey)
+        server.unmarked = [id(f)]
+        _ = await sync.syncPass()
+        XCTAssertFalse(cam.deleted.contains(f.path), "the server answered and didn't queue it")
+        server.unmarked = []
+        server.unreachable = true
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(f.path), "server down: the phone's own queue")
+    }
+
+    /// He tags a clip while a pass pulls it: its card file stays.
+    func testAClipTaggedWhileItComesDownStaysOnTheCard() async {
+        fetcher.failAfter = 0
+        _ = await sync.syncPass()                               // sizes known: a download would now leave the card
+        fetcher.failAfter = nil
+        let defaults = sync.defaults, eid = eventID, name = eventClip.name, fetcher = self.fetcher!
+        fetcher.onFetch = { if fetcher.fetched.last?.lastPathComponent == name { DashcamTagged.mark(eid, defaults: defaults) } }
+        _ = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == name })
+        XCTAssertFalse(cam.deleted.contains(eventClip.path))
+    }
+
+    /// Tagged mid-sweep: the sweep asks again before each file and leaves it.
+    func testAClipTaggedDuringTheSweepIsLeftOnTheCard() async {
+        let a = cam.files[0], b = cam.files[3]
+        server.uploadedIDs = [id(a), id(b)]
+        _ = await sync.syncPass()                               // sizes known
+        let defaults = sync.defaults, bid = id(b), aPath = a.path
+        cam.onDelete = { f in if f.path == aPath { DashcamTagged.mark(bid, defaults: defaults) } }
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.deleted.contains(a.path))
+        XCTAssertFalse(cam.deleted.contains(b.path))
+    }
+
+    /// The clip object is older than the server's word this run (locked since): a phone delete refuses it.
+    func testAPhoneDeleteRefusesAClipTheServerCalledLockedThisRun() async {
+        let f = cam.files[0]
+        server.lockedIDs = [id(f)]
+        _ = await sync.syncPass()                               // the inventory says locked; it comes down to the phone
+        let url = sync.storage.localURL(camera: "CAM", file: f)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        let (done, failed) = await DashcamClipActions.delete(serverClip(f, phone: "local"), [.phone], sync: sync)
+        XCTAssertEqual(done, [])
+        XCTAssertEqual(failed, [DashcamLock.refusal])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    private func putLocal(_ f: DashcamFile) throws -> URL {
+        let url = sync.storage.localURL(camera: "CAM", file: f)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 10).write(to: url)
+        return url
+    }
+
+    /// Nothing here says it's locked, but the server does when asked: the phone's copy stays.
+    func testAPhoneDeleteAsksTheServerFirst() async throws {
+        let f = eventClip
+        let url = try putLocal(f)
+        let (api, transport) = JarvisAPI.mocked()
+        transport.enqueue(json: ["clip": ["id": id(f), "path": f.path, "tags": ["accident"], "locked": true]])
+        let (done, failed) = await DashcamClipActions.delete(serverClip(f, phone: "local"), [.phone], sync: sync,
+                                                             api: DashcamAPI(api: api))
+        XCTAssertEqual(done, [])
+        XCTAssertEqual(failed, [DashcamLock.refusal])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(DashcamTombstones.contains(id(f), defaults: sync.defaults))
+        XCTAssertTrue(DashcamTagged.contains(id(f), defaults: sync.defaults))
+    }
+
+    /// A cloud delete that fails keeps the phone's copy (it may be the only one left).
+    func testAFailedCloudDeleteKeepsThePhoneCopy() async throws {
+        let f = eventClip
+        let url = try putLocal(f)
+        let (api, transport) = JarvisAPI.mocked()
+        transport.enqueue(MockTransport.Reply(status: 502, body: Data("down".utf8)))
+        let (done, failed) = await DashcamClipActions.delete(serverClip(f, phone: "local", uploaded: true), [.phone, .cloud],
+                                                             sync: sync, api: DashcamAPI(api: api))
+        XCTAssertEqual(done, [])
+        XCTAssertEqual(failed.count, 2)
+        XCTAssertTrue(failed[1].hasPrefix("phone: kept"), failed[1])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(DashcamTombstones.contains(id(f), defaults: sync.defaults))
+    }
+
+    /// The server refuses the card delete as locked (tagged on the web): it's an error, never "pending", and the
+    /// clip isn't forgotten.
+    func testACameraDeleteTheServerRefusesIsAnErrorNotPending() async {
+        onCamera = false
+        let f = cam.files[1]
+        server.lockedIDs = [id(f)]
+        let (done, failed) = await DashcamClipActions.delete(serverClip(f), [.camera], sync: sync)
+        XCTAssertEqual(done, [])
+        XCTAssertEqual(failed, ["dashcam: " + DashcamLock.refusal])
+    }
+
+    /// Tags taken off on the web: the server's whole list of locked clips unlocks it here too — not one tagged here
+    /// a moment ago — and a card delete then goes through instead of silently never happening.
+    func testAClipUntaggedOnTheServerUnlocksHere() async {
+        let f = cam.files[1], g = cam.files[2]
+        DashcamTagged.mark(id(f), defaults: sync.defaults, now: sync.now().addingTimeInterval(-3600))   // an hour ago
+        DashcamTagged.mark(id(g), defaults: sync.defaults, now: sync.now().addingTimeInterval(-60))     // a minute ago
+        XCTAssertTrue(sync.isLocked(path: f.path))
+        server.listed = []                                      // no tag lists either any more
+        let onCard = await sync.lockedOnCardCount([f, g])
+        XCTAssertEqual(onCard, 1, "only the one tagged a minute ago (the list may predate the tap)")
+        XCTAssertFalse(sync.isLocked(path: f.path))
+        XCTAssertTrue(sync.isLocked(path: g.path))
+        let result = await sync.deleteFromCamera(f.path, clipID: id(f))
+        XCTAssertEqual(result, .deleted)
+        XCTAssertTrue(cam.deleted.contains(f.path))
+    }
+
+    private func cloudClip(_ name: String, tags: [String], uploaded: Bool = true, size: Int64 = 5_000) -> (DashcamFile, DashcamServerClip) {
+        let f = DashcamFile(path: "/mnt/card/video_back/\(name).ts", kind: .normal, lens: .rear,
+                            start: Date(timeIntervalSince1970: 1_792_000_000), durationS: 60, size: size)
+        return (f, serverClip(f, tags: tags, phone: "deleted", uploaded: uploaded, onCamera: false, drive: true))
+    }
+
+    private func fetchWrites(_ bytes: Data, into asked: @escaping (URLRequest) -> Void = { _ in }) {
+        sync.restoreFetch = { request, dir in
+            asked(request)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let out = dir.appendingPathComponent("download.mp4")
+            try bytes.write(to: out)
+            return out
+        }
+    }
+
+    /// Only clips the server says are uploaded come back; over mobile data only accidents and near misses, the rest
+    /// on Wi‑Fi.
+    func testRestoreTakesOnlyUploadedClipsAndOnMobileDataOnlyAccidents() async {
+        let (_, accident) = cloudClip("a_b", tags: ["accident"])
+        let (_, scenic) = cloudClip("s_b", tags: ["scenic"])
+        let (_, uploading) = cloudClip("u_b", tags: ["accident"], uploaded: false)
+        server.listed = [accident, scenic, uploading]
+        sync.restoreSources = { c in [URLRequest(url: URL(string: "https://drive.test/\(c.id)")!)] }
+        fetchWrites(Data(count: 3_000))
+        onCamera = true                                         // the internet goes over LTE here
+        let onLTE = await sync.restoreLocked()
+        XCTAssertEqual(onLTE, [accident.id])
+        onCamera = false                                        // Wi‑Fi
+        let onWiFi = await sync.restoreLocked()
+        XCTAssertEqual(onWiFi, [scenic.id], "the scenic one waited for Wi‑Fi; the one still uploading never comes")
+    }
+
+    /// A restore never takes the phone below 5 GB free.
+    func testRestoreKeepsFiveGBFree() async {
+        let (_, clip) = cloudClip("a_b", tags: ["accident"], size: 2_000)
+        server.listed = [clip]
+        onCamera = false
+        var asked = 0
+        sync.restoreSources = { _ in [URLRequest(url: URL(string: "https://drive.test/x")!)] }
+        fetchWrites(Data(count: 100)) { _ in asked += 1 }
+        sync.freeSpace = { DashcamSync.restoreFreeFloor + 1_000 }
+        let none = await sync.restoreLocked()
+        XCTAssertEqual(none, [])
+        XCTAssertEqual(asked, 0)
+        sync.freeSpace = { DashcamSync.restoreFreeFloor + 1_000_000 }
+        let back = await sync.restoreLocked()
+        XCTAssertEqual(back, [clip.id])
+    }
+
+    /// A failed restore backs off (kept across launches), tries one source an attempt — the Drive file, then the
+    /// server's stream next time — and holds the keepalive while it downloads.
+    func testAFailedRestoreBacksOffAndTriesTheNextSourceNextTime() async {
+        let sync = self.sync!
+        let (_, clip) = cloudClip("a_b", tags: ["accident"])
+        server.listed = [clip]
+        onCamera = false
+        var clock = Date(timeIntervalSince1970: 1_790_010_000)
+        sync.now = { clock }
+        sync.restoreSources = { _ in [URLRequest(url: URL(string: "https://drive.test/f")!),
+                                      URLRequest(url: URL(string: "https://jarvis.test/stream")!)] }
+        var asked: [String] = []
+        var heldKeepalive = false
+        sync.restoreFetch = { request, dir in
+            asked.append(request.url!.host!)
+            heldKeepalive = sync.holdsKeepalive
+            if request.url!.host == "drive.test" { throw URLError(.timedOut) }
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let out = dir.appendingPathComponent("download.mp4")
+            try Data(count: 3_000).write(to: out)
+            return out
+        }
+        let first = await sync.restoreLocked()
+        XCTAssertEqual(first, [])
+        XCTAssertEqual(asked, ["drive.test"], "no second full download in the same attempt")
+        XCTAssertTrue(heldKeepalive)
+        XCTAssertFalse(sync.holdsKeepalive)
+        XCTAssertNotNil(sync.defaults.dictionary(forKey: DashcamSync.restoreBackoffKey)?[clip.id], "kept across launches")
+        _ = await sync.restoreLocked()
+        XCTAssertEqual(asked.count, 1, "waiting out its back-off")
+        clock = clock.addingTimeInterval(DashcamSync.restoreBackoffBase + 1)
+        let second = await sync.restoreLocked()
+        XCTAssertEqual(second, [clip.id])
+        XCTAssertEqual(asked, ["drive.test", "jarvis.test"])
+        XCTAssertNil(sync.defaults.dictionary(forKey: DashcamSync.restoreBackoffKey)?[clip.id])
+        XCTAssertEqual(DashcamSync.restoreDelay(attempts: 1), 600)
+        XCTAssertEqual(DashcamSync.restoreDelay(attempts: 2), 1200)
+        XCTAssertEqual(DashcamSync.restoreDelay(attempts: 30), 86400)
+    }
+
+    /// The cloud handed back the camera's own `.ts`: it lands under the camera's name, and is still never sent up
+    /// again as a new clip, whatever upload state the server reports later.
+    func testARestoredCopyIsNeverQueuedForUploadAgain() async {
+        let (f, clip) = cloudClip("2026-10-21_16_17_37_b", tags: ["accident"])
+        server.listed = [clip]
+        onCamera = false
+        sync.restoreSources = { _ in [URLRequest(url: URL(string: "https://jarvis.test/stream")!)] }
+        var ts = Data(count: 376)
+        ts[0] = 0x47; ts[188] = 0x47
+        fetchWrites(ts)
+        let back = await sync.restoreLocked()
+        XCTAssertEqual(back, [clip.id])
+        XCTAssertEqual(sync.storage.localURL(camera: "CAM", file: f).lastPathComponent, "2026-10-21_16_17_37_b.ts", "sniffed as TS")
+        var later = serverClip(f, tags: ["accident"], phone: "local", uploaded: false, onCamera: false)
+        later.uploadState = "none"
+        server.listed = [later]
+        await sync.cleanUpUploaded()
+        let queued = await sync.uploader.contains(clip.id)
+        XCTAssertFalse(queued)
     }
 
     func testClipIDMatchesTheServerFormula() {
@@ -1153,6 +1586,19 @@ final class DashcamUploaderTests: XCTestCase {
         _ = await normalOnLTE.run(server: server, cellular: true, now: { now })
         XCTAssertEqual(server.destinationCalls, 0)
         XCTAssertEqual(server.startCalls, 0)
+    }
+
+    /// Tagged clips go first and whatever the rules say; the rest wait their turn as before.
+    func testLockedClipsGoFirstAndPastTheRules() async throws {
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: suite())
+        await uploader.enqueue(clipID: "e", local: try tempFile(4), size: 4, kind: .event)
+        await uploader.enqueue(clipID: "n", local: try tempFile(4), size: 4, kind: .normal)
+        let server = FakeUploadServer()
+        let held = await uploader.run(server: server, cellular: true, allow: { _ in false }, locked: ["n"])
+        XCTAssertEqual(held, ["n"], "uploads off or held: the locked one still goes")
+        await uploader.enqueue(clipID: "n2", local: try tempFile(4), size: 4, kind: .normal)
+        let both = await uploader.run(server: server, cellular: false, locked: ["n2"])
+        XCTAssertEqual(both, ["n2", "e"], "locked first, ahead of the event")
     }
 
     func testDestinationsAreAskedForOnceUntilSomethingSaysTheyChanged() async throws {

@@ -15,9 +15,11 @@ protocol DashcamSyncServer: Sendable {
     func clips(_ filter: DashcamAPI.ClipFilter, cursor: String?, limit: Int) async throws -> (clips: [DashcamServerClip], next: String?)
     func updateRules(_ rules: DashcamRules) async throws
     func cardDeletes(cameraID: String) async throws -> [DashcamCardDelete]
-    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> [String]
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> DashcamCardMarks
     func cardDeletesDone(_ ids: [String]) async throws
     func cardDeleteFailed(id: String, error: String) async throws
+    /// The tag list: locked clips are found by listing each tag's clips (`restoreLocked`).
+    func tags() async throws -> [DashcamTag]
 }
 
 extension DashcamAPI: DashcamSyncServer {}
@@ -163,8 +165,9 @@ final class DashcamSync: ObservableObject {
         guard !measuringPhone, let cameraID = setupProvider()?.cameraID else { return }
         measuringPhone = true
         let storage = storage
+        let locked = lockedCopyKeys()                   // kept on the phone for good: never counted
         Task {
-            let normal = await Task.detached(priority: .utility) { storage.normalBytes(camera: cameraID) }.value
+            let normal = await Task.detached(priority: .utility) { storage.normalBytes(camera: cameraID, excluding: locked) }.value
             phoneBytes = normal + cacheBytes()
             measuringPhone = false
         }
@@ -339,17 +342,111 @@ final class DashcamSync: ObservableObject {
     private var unlistedPasses: [String: Int] = [:]
     static let unlistedPassesToClose = 2
 
-    /// Deletes a clip from the card now when on the camera's Wi‑Fi (true); otherwise it waits in the server's
-    /// backlog (and this phone's copy of it) for the next connection. `forget`: deleted everywhere, so the
-    /// server drops the clip from the library once the card delete is done.
+    // MARK: Locked clips
+
+    /// Clips the server called locked (tagged) in what this run has read: the card's inventory and its lists.
+    /// With `DashcamTagged` (this phone's own record, kept across launches) it is what every card delete, sweep
+    /// and upload asks (`DashcamLock`).
+    private(set) var serverLocked = Set<String>()
+    /// Locked clips' phone copies (`DashcamStorage.key`) from the server's list of locked clips, kept across
+    /// launches; with the card's locked clips of the last pass they never count against "Phone space".
+    static let lockedCopiesKey = "jc.dashcam.lockedCopies"
+    private var cardLockedCopies = Set<String>()
+
+    /// The server's word on these clips as it reads now: an untagged clip comes off again.
+    private func learnLocks(_ clips: [(id: String, locked: Bool)]) {
+        for c in clips { if c.locked { serverLocked.insert(c.id) } else { serverLocked.remove(c.id) } }
+    }
+
+    /// Clips as a server answer has them (a tag change, a clip read again): their lock follows their tags.
+    func noteServerClips(_ clips: [DashcamServerClip]) {
+        learnLocks(clips.map { ($0.id, $0.locked || !$0.tags.isEmpty) })
+    }
+
+    /// The server refused card deletes for these clips as locked: remembered across launches, and off this phone's
+    /// queue so they are never asked for again.
+    private func noteLocked(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        serverLocked.formUnion(ids)
+        DashcamTagged.learn(ids: ids, defaults: defaults)
+        dropLockedDeletes()
+    }
+
+    /// A tag he deleted may have unlocked clips: the server's whole list of locked clips is read again.
+    func refreshLocksSoon() {
+        Task { _ = await listLocked() }
+    }
+
+    /// Every clip id known to be locked now.
+    func lockedIDs() -> Set<String> { serverLocked.union(DashcamTagged.ids(defaults: defaults)) }
+
+    /// Whether the card file at `path` is a locked clip's (its id worked out for this camera when not given).
+    func isLocked(path: String, clipID: String? = nil) -> Bool {
+        let camera = info?.id ?? setupProvider()?.cameraID
+        guard let id = clipID ?? camera.map({ DashcamIDs.clipID(cameraID: $0, path: path) }) else { return false }
+        return DashcamLock.isLocked(id: id, server: serverLocked.contains(id), tagged: DashcamTagged.ids(defaults: defaults))
+    }
+
+    /// The card files of locked clips in this listing. The server's locked clips are read first when it answers (a
+    /// format must not miss one; read by tag, not by inventory, which would count every size as settled); otherwise
+    /// what this phone knows decides.
+    func lockedOnCard(_ files: [DashcamFile]) async -> [DashcamFile] {
+        if !files.isEmpty { _ = await listLocked() }
+        return files.filter { isLocked(path: $0.path) }
+    }
+
+    /// How many locked clips are on the card: those in this listing, and any the server says are on this camera's
+    /// card (a listing can come back short). Nil when the server can't be asked — a format never goes on this
+    /// phone's word alone.
+    func lockedOnCardCount(_ files: [DashcamFile]) async -> Int? {
+        guard let locked = await listLocked() else { return nil }
+        let cameraID = info?.id ?? setupProvider()?.cameraID ?? ""
+        var ids = Set(files.filter { isLocked(path: $0.path) }.map { DashcamIDs.clipID(cameraID: cameraID, path: $0.path) })
+        for clip in locked where clip.onCamera && (clip.cameraID.isEmpty || clip.cameraID == cameraID) { ids.insert(clip.id) }
+        return ids.count
+    }
+
+    private func lockedCopyKeys() -> Set<String> {
+        Set(defaults.stringArray(forKey: Self.lockedCopiesKey) ?? []).union(cardLockedCopies)
+    }
+
+    /// Deletes asked for before a clip was locked never run: they come off this phone's list.
+    private func dropLockedDeletes() {
+        let pending = pendingCameraDeletes
+        let kept = pending.filter { !isLocked(path: $0.key) }
+        if kept.count != pending.count { pendingCameraDeletes = kept }
+    }
+
+    /// What a card delete came to.
+    enum CardDelete: Equatable {
+        /// Off the card now.
+        case deleted
+        /// Waits in the server's backlog (and this phone's copy of it) for the next connection.
+        case pending
+        /// Refused: the clip is locked (tagged), so its file stays on the card. Never shown as pending.
+        case locked
+    }
+
+    /// Deletes a clip from the card now when on the camera's Wi‑Fi; otherwise it waits in the server's backlog (and
+    /// this phone's copy of it) for the next connection. `forget`: deleted everywhere, so the server drops the clip
+    /// from the library once the card delete is done. The server is asked first and its answer decides: a clip it
+    /// calls locked is refused (and remembered); one it didn't queue isn't deleted. Only when it can't be reached
+    /// does this phone go on what it knows.
     @discardableResult
-    func deleteFromCamera(_ path: String, clipID: String? = nil, forget: Bool = false) async -> Bool {
-        var pending = pendingCameraDeletes
-        pending[path] = (pending[path] ?? false) || forget
+    func deleteFromCamera(_ path: String, clipID: String? = nil, forget: Bool = false) async -> CardDelete {
+        guard !isLocked(path: path, clipID: clipID) else { return .locked }
+        let id = clipID ?? (info?.id ?? setupProvider()?.cameraID).map { DashcamIDs.clipID(cameraID: $0, path: path) }
+        let wantsForget = (pendingCameraDeletes[path] ?? false) || forget
+        if let id, let marks = try? await server.markCardDeletes([(id: id, forget: wantsForget)]) {
+            if marks.locked.contains(id) { noteLocked([id]); return .locked }
+            guard marks.allows(id) else { return .pending }
+        }
+        var pending = pendingCameraDeletes                   // read again: a pass may have changed it meanwhile
+        pending[path] = (pending[path] ?? false) || wantsForget
         pendingCameraDeletes = pending
-        let id = clipID ?? setupProvider().map { DashcamIDs.clipID(cameraID: $0.cameraID, path: path) }
-        if let id { _ = try? await server.markCardDeletes([(id: id, forget: pending[path] ?? forget)]) }
-        guard onCameraProvider(), let setup = setupProvider(), let cam = cameraFactory(setup) else { return false }
+        guard onCameraProvider(), let setup = setupProvider(), let cam = cameraFactory(setup) else { return .pending }
+        // Asked again right before the file goes: he may have tagged it while the server answered.
+        guard !isLocked(path: path, clipID: id) else { dropLockedDeletes(); return .locked }
         let f = DashcamFile(path: path, kind: .normal, lens: .front, start: now(), durationS: 0, size: 0)
         if (try? await cam.delete(f)) != nil {
             var now = pendingCameraDeletes
@@ -357,18 +454,22 @@ final class DashcamSync: ObservableObject {
             pendingCameraDeletes = now
             if let id { try? await server.cardDeletesDone([id]) }
             cameraFiles.removeAll { $0.path == path }
-            return true
+            return .deleted
         }
         passSoon()                    // the pass retries it, in playback mode when parked
-        return false
+        return .pending
     }
 
     /// Sends this phone's queued card deletes to the server's backlog without waiting for the camera — an older
-    /// build's list, or asks made while the server couldn't be reached — so they show "Pending deletion".
+    /// build's list, or asks made while the server couldn't be reached — so they show "Pending deletion". The ones
+    /// it refuses as locked leave the queue.
     func pushLocalDeletes() async {
+        dropLockedDeletes()
         let local = pendingCameraDeletes
         guard !local.isEmpty, let cameraID = setupProvider()?.cameraID, !cameraID.isEmpty else { return }
-        _ = try? await server.markCardDeletes(local.map { (id: DashcamIDs.clipID(cameraID: cameraID, path: $0.key), forget: $0.value) })
+        if let marks = try? await server.markCardDeletes(local.map { (id: DashcamIDs.clipID(cameraID: cameraID, path: $0.key), forget: $0.value) }) {
+            noteLocked(marks.locked)
+        }
     }
 
     /// Deletes the clips the camera refused outside playback mode in one playback-mode visit: only while
@@ -393,6 +494,7 @@ final class DashcamSync: ObservableObject {
             for f in tries {
                 // Re-checked before every file: the car may drive off mid-batch (playback mode can pause recording).
                 guard onCameraProvider(), !liveActive, await parked() else { break }
+                guard !isLocked(path: f.path) else { continue }            // tagged since it was chosen
                 do { try await cam.delete(f); done.insert(f.path) } catch {
                     playbackDeleteFails[f.path, default: 0] += 1
                     errors[f.path] = error.localizedDescription
@@ -416,18 +518,31 @@ final class DashcamSync: ObservableObject {
     /// server keeps them pending) and the paths still waiting, kept out of this pass's downloads.
     private func applyCameraDeletes(_ files: [DashcamFile], camera cam: DashcamCamera, cameraID: String,
                                     inPlayback: Bool, report: inout Report) async -> (listing: [DashcamFile], skip: Set<String>) {
+        dropLockedDeletes()
         let local = pendingCameraDeletes
         var ids: [String: String] = [:]                                  // path → clip id
+        for path in local.keys { ids[path] = DashcamIDs.clipID(cameraID: cameraID, path: path) }
+        // The server decides what goes: this phone's asks go to it first, and only what it queued (or has no record
+        // of) and what its backlog lists is deleted. A clip it calls locked leaves the queue and is remembered as
+        // locked (he may have tagged it on the web after asking for the delete). Only when the server can't be
+        // reached does this phone's own queue go on its own, as it knows it.
+        var marks: DashcamCardMarks?
+        if !local.isEmpty { marks = try? await server.markCardDeletes(local.map { (id: ids[$0.key]!, forget: $0.value) }) }
+        if let marks { noteLocked(marks.locked) }
+        let backlog = try? await server.cardDeletes(cameraID: cameraID)
         var pending: [String: Bool] = [:]
         for (path, forget) in local {
-            ids[path] = DashcamIDs.clipID(cameraID: cameraID, path: path)
-            pending[path] = forget
+            let id = ids[path]!
+            if let marks { if marks.allows(id) { pending[path] = forget } }
+            else if backlog == nil { pending[path] = forget }             // the server is unreachable
         }
-        if !local.isEmpty { _ = try? await server.markCardDeletes(local.map { (id: ids[$0.key]!, forget: $0.value) }) }
-        for e in (try? await server.cardDeletes(cameraID: cameraID)) ?? [] where !e.path.isEmpty {
+        for e in backlog ?? [] where !e.path.isEmpty {
             ids[e.path] = e.id
             pending[e.path] = (pending[e.path] ?? false) || e.forget
         }
+        // A locked clip's file stays on the card whoever asked (an ask from before it was tagged), and it isn't kept
+        // out of the downloads either: it belongs on the phone.
+        for p in pending.keys where isLocked(path: p, clipID: ids[p]) { pending[p] = nil }
         guard !pending.isEmpty else { return (files, []) }
         let listed = Set(files.map(\.path))
         var done = Set<String>()
@@ -439,6 +554,8 @@ final class DashcamSync: ObservableObject {
         var errors: [String: String] = [:]
         var refused: [DashcamFile] = []
         for f in files where pending[f.path] != nil {
+            // Asked again right before each file goes (tagged on this phone while the backlog ran).
+            guard !isLocked(path: f.path, clipID: ids[f.path]) else { pending[f.path] = nil; continue }
             do { try await cam.delete(f); done.insert(f.path) } catch {
                 refused.append(f)
                 errors[f.path] = error.localizedDescription
@@ -446,7 +563,7 @@ final class DashcamSync: ObservableObject {
         }
         // Some firmware only deletes in playback mode.
         if !refused.isEmpty { done.formUnion(await deleteInPlayback(refused, camera: cam, inPlayback: inPlayback, errors: &errors)) }
-        // Asked for while this ran stays: only what was done comes off the phone's list.
+        // Asked for while this ran stays: only what was done (or turned out locked) comes off the phone's list.
         var mine = pendingCameraDeletes
         for p in done { mine[p] = nil }
         pendingCameraDeletes = mine
@@ -462,12 +579,13 @@ final class DashcamSync: ObservableObject {
     /// Clears the card of every listed clip that is safe elsewhere: a complete copy is on this phone, or the
     /// server says every destination has it — and its size held since the last listing, so the camera has
     /// finished writing it. Plain deletes first; the refused ones get one playback-mode try while parked.
-    /// Never a clip only the card has. Returns the paths deleted.
+    /// Never a clip only the card has, nor a locked one. Returns the paths deleted.
     private func sweepCard(_ files: [DashcamFile], rows: [String: DashcamInventoryRow], skip: Set<String>,
                            camera cam: DashcamCamera, cameraID: String, inPlayback: Bool,
-                           stable: (DashcamFile) -> Bool, mayContinue: () async -> Bool) async -> Set<String> {
+                           stable: (DashcamFile) -> Bool, locked: (DashcamFile) -> Bool,
+                           mayContinue: () async -> Bool) async -> Set<String> {
         let safe = files.filter {
-            !skip.contains($0.path) && stable($0) && sizeHeld($0, rows: rows)
+            !skip.contains($0.path) && !locked($0) && stable($0) && sizeHeld($0, rows: rows)
                 && (rows[$0.path]?.uploaded == true || storage.exists(camera: cameraID, file: $0))
         }
         guard !safe.isEmpty else { return [] }
@@ -475,6 +593,8 @@ final class DashcamSync: ObservableObject {
         var refused: [DashcamFile] = []
         for (i, f) in safe.enumerated() {
             guard await mayContinue() else { return done }
+            // Asked again right before each file goes: he may have tagged it since the sweep chose it.
+            guard !isLocked(path: f.path, clipID: DashcamIDs.clipID(cameraID: cameraID, path: f.path)) else { continue }
             phase = .syncing("Clearing the card (\(i + 1) of \(safe.count))")
             if (try? await cam.delete(f)) != nil { done.insert(f.path) } else { refused.append(f) }
         }
@@ -703,6 +823,14 @@ final class DashcamSync: ObservableObject {
         func clipID(_ f: DashcamFile) -> String { rows[f.path]?.id ?? DashcamIDs.clipID(cameraID: cameraID, path: f.path) }
         // Queued while the server didn't know them yet: it does now, so a "clip not found" means deleted.
         if !rows.isEmpty { await uploader.confirm(Set(rows.values.map(\.id))) }
+        learnLocks(rows.values.map { ($0.id, $0.locked) })
+        /// Locked: never deleted from the card, always brought to the phone. The phone's record of tagged clips is
+        /// read once a pass, not once a listed clip.
+        let tagged = DashcamTagged.ids(defaults: defaults)
+        func isLockedFile(_ f: DashcamFile) -> Bool {
+            let id = clipID(f)
+            return DashcamLock.isLocked(id: id, server: serverLocked.contains(id), tagged: tagged)
+        }
         /// Deleted on this phone in the last two weeks (read once a pass, not once a file).
         let deleted = DashcamTombstones.ids(defaults: defaults)
         /// Still on the camera's Wi‑Fi, not cancelled — and, in playback mode, still parked.
@@ -742,21 +870,30 @@ final class DashcamSync: ObservableObject {
         // Normal footage on the phone, walked once a pass (it used to be walked for every listed clip, on
         // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
         // The cap also covers the MP4 copies made for Drive and the player: they once took 130 GB on their own.
-        var normalOnPhone = storage.normalBytes(camera: cameraID) + cacheBytes()
+        // Locked clips' copies stay on the phone for good, so they never count against it.
+        cardLockedCopies = Set(files.filter { $0.kind == .normal && isLockedFile($0) }
+            .map { DashcamStorage.key(storage.localURL(camera: cameraID, file: $0)) })
+        var normalOnPhone = storage.normalBytes(camera: cameraID, excluding: lockedCopyKeys()) + cacheBytes()
         phoneBytes = normalOnPhone
-        // A clip he tagged comes off the camera whatever the rules (the camera records over old footage) — but
-        // not one he deleted from the phone on purpose. Read once a pass, not once a listed clip.
-        let tagged = DashcamTagged.ids(defaults: defaults)
-        func isTagged(_ f: DashcamFile) -> Bool { !tagged.isEmpty && tagged.contains(clipID(f)) }
         func wanted(_ f: DashcamFile) -> Bool {
             guard !skip.contains(f.path) else { return false }          // he asked for it to be deleted
-            guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
-            // Deleted on this phone (even everywhere, and the card lists it again): only a pull by hand brings it back.
-            if !deleted.isEmpty, deleted.contains(clipID(f)), !forced.contains(f.path) { return false }
-            // Deleted from the phone on purpose: stays deleted until "Download again".
-            if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
+            guard !storage.exists(camera: cameraID, file: f) else { return false }
+            // A locked clip comes off the camera whatever the rules (the camera records over old footage), and back
+            // to the phone even when the cloud has it or its phone copy was cleared or deleted before he tagged it.
+            let locked = isLockedFile(f)
+            if !locked {
+                guard rows[f.path]?.uploaded != true else { return false }
+                // Deleted on this phone (even everywhere, and the card lists it again): only a pull by hand brings it back.
+                if !deleted.isEmpty, deleted.contains(clipID(f)), !forced.contains(f.path) { return false }
+                // Deleted from the phone on purpose: stays deleted until "Download again".
+                if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
+            }
             guard stable(f) else { report.skippedUnstable += 1; return false }
-            return isForced(f) || isTagged(f) || rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone)
+            return locked || isForced(f) || rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone)
+        }
+        func bringDown(_ f: DashcamFile) async {
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil,
+                           locked: isLockedFile(f), uploaded: rows[f.path]?.uploaded == true, report: &report)
         }
 
         // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else —
@@ -764,7 +901,7 @@ final class DashcamSync: ObservableObject {
         func takeAsked() async {
             for f in DashcamRules.order(files.filter { forced.contains($0.path) && wanted($0) }) {
                 guard await mayContinue() else { return }
-                await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
+                await bringDown(f)
             }
         }
         await takeAsked()
@@ -772,7 +909,7 @@ final class DashcamSync: ObservableObject {
         // The card keeps only what isn't safe anywhere else: every clip already on the phone or in the cloud goes
         // now (one left behind by a crash, an older build, or a delete the camera refused last pass).
         let swept = await sweepCard(files, rows: rows, skip: skip, camera: cam, cameraID: cameraID, inPlayback: inPlayback,
-                                    stable: stable, mayContinue: mayContinue)
+                                    stable: stable, locked: isLockedFile, mayContinue: mayContinue)
         report.cardDeleted += files.map(\.path).filter { swept.contains($0) }
         let files = files.filter { !swept.contains($0.path) }
 
@@ -783,7 +920,7 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { return report }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
+            await bringDown(f)
         }
 
         // 2. GPS + speed (two small range reads a clip; none for clips already on the phone), newest first and
@@ -846,9 +983,10 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { break }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            if !isForced(f), !isTagged(f), !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
-            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
-            if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size; phoneBytes = normalOnPhone }
+            let locked = isLockedFile(f)
+            if !isForced(f), !locked, !rules.wants(f, parked: isParked, charging: onPower, normalBytesOnPhone: normalOnPhone) { continue }
+            await bringDown(f)
+            if !locked, storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size; phoneBytes = normalOnPhone }
             if !onCameraProvider() { break }
         }
         queuedDownloads = 0
@@ -862,13 +1000,16 @@ final class DashcamSync: ObservableObject {
     }
 
     /// `known`: the server listed the clip this pass (its inventory answered). Only then does a
-    /// "clip not found" mean deleted — otherwise the server just hasn't heard of it yet.
+    /// "clip not found" mean deleted — otherwise the server just hasn't heard of it yet. `locked`: it stays on
+    /// the card too. `uploaded`: the cloud has it already (a locked clip coming back), so nothing goes up again.
     private func download(_ f: DashcamFile, camera cam: DashcamCamera, cameraID: String, id: String, known: Bool,
-                          report: inout Report) async {
-        // A pull by hand ("Download again") is the one thing that brings back a clip deleted here.
-        if forced.contains(f.path) { DashcamTombstones.remove(id, defaults: defaults) }
+                          locked: Bool = false, uploaded: Bool = false, report: inout Report) async {
+        // A pull by hand ("Download again") is the one thing that brings back a clip deleted here — and a locked
+        // clip always comes back (it can only have been deleted before he tagged it).
+        if forced.contains(f.path) || locked { DashcamTombstones.remove(id, defaults: defaults) }
         guard !DashcamTombstones.contains(id, defaults: defaults) else { return }
-        let dest = storage.localURL(camera: cameraID, file: f)
+        // The camera's own path, never a restored copy's: the original lands where the camera's file belongs.
+        let dest = storage.cameraURL(camera: cameraID, file: f)
         phase = .syncing("Downloading \(f.name)")
         try? await server.setPhone(clipID: id, state: "downloading", error: nil)
         do {
@@ -897,16 +1038,21 @@ final class DashcamSync: ObservableObject {
                 return
             }
             report.downloaded.append(f.path)
+            // The original is here: a copy brought back from the cloud meanwhile goes (one copy, the camera's).
+            storage.dropRestoredCopy(camera: cameraID, file: f)
             // Safe on the phone: off the card at once, one clip at a time. Refused (some firmware only deletes in
-            // playback mode, never entered while driving) → the next pass's sweep tries again.
-            if sizeHeld(f), (try? await cam.delete(f)) != nil {
+            // playback mode, never entered while driving) → the next pass's sweep tries again. Never a locked clip —
+            // asked again now, as he may have tagged it while it came down.
+            if !locked, !isLocked(path: f.path, clipID: id), sizeHeld(f), (try? await cam.delete(f)) != nil {
                 report.cardDeleted.append(f.path)
                 cameraFiles.removeAll { $0.path == f.path }
             }
-            // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
-            let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
-            await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind, confirmed: known)
-            kickUploads()                                   // uploads run beside the downloads
+            if !uploaded {
+                // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
+                let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
+                await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind, confirmed: known)
+                kickUploads()                               // uploads run beside the downloads
+            }
             queuedDownloads = max(0, queuedDownloads - 1)
         } catch {
             downloading = nil
@@ -935,7 +1081,7 @@ final class DashcamSync: ObservableObject {
     /// Clips are moving (a camera pass, or a transfer in flight): the app stays awake in the background.
     /// Jobs merely waiting (a backoff, the rules, no network) don't hold it — that kept it awake all night
     /// for two clips that could never go.
-    var holdsKeepalive: Bool { passRunning || uploading != nil }
+    var holdsKeepalive: Bool { passRunning || uploading != nil || restoringClip != nil }
 
     /// The upload loop: one at a time, asleep while nothing can go, woken by `kickUploads()`.
     /// Uploads run beside the camera sync, not after it: a clip goes up as soon as it's on the phone, and the
@@ -1034,13 +1180,14 @@ final class DashcamSync: ObservableObject {
     func uploadOnce() async -> Bool {
         let path = internetPath
         let onCam = onCameraProvider()
-        // On the camera's Wi‑Fi the internet goes over mobile data (LTE); off it, Wi‑Fi unless only cellular
-        // is up. Metered = mobile data, a personal hotspot or Low Data Mode — what the upload rules gate.
-        let cellular = onCam || (path.map { $0.isExpensive || $0.isConstrained || !$0.usesInterfaceType(.wifi) } ?? false)
+        let cellular = onMeteredNetwork()
         if path?.status == .unsatisfied && !onCam { return false }
         let rules = self.rules
-        guard rules.upload else { return false }
-        let isParked = rules.uploadWhen == .parked ? await parked() : true
+        // Locked clips go up at once and first, whatever the rules: mobile data, parked only, even cloud backup
+        // paused (then they are all that goes).
+        let locked = lockedIDs()
+        guard rules.upload || !locked.isEmpty else { return false }
+        let isParked = rules.upload && rules.uploadWhen == .parked ? await parked() : true
         let onPower = charging()
         let throttle = DashcamThrottle()
         let keep = rules.keepOnPhone
@@ -1049,11 +1196,12 @@ final class DashcamSync: ObservableObject {
         uploadRunning = true
         let done = await uploader.run(server: uploadServer, cellular: cellular,
                                       allow: { rules.mayUpload($0, metered: cellular, parked: isParked, charging: onPower) },
+                                      locked: locked,
                                       previews: onPower,
                                       finished: { id, path in
             // In the cloud: the phone's copy goes at once, not at the next clean-up (which a long run never reached).
-            // A clip he tagged keeps its copy.
-            guard !keep, !DashcamTagged.contains(id, defaults: defaults) else { return }
+            // A locked clip keeps its copy (asked again now: he may have tagged it during the upload).
+            guard !keep, !DashcamLock.isLocked(id: id, server: locked.contains(id), tagged: DashcamTagged.ids(defaults: defaults)) else { return }
             try? FileManager.default.removeItem(atPath: path)
             Task { try? await server.setPhone(clipID: id, state: "deleted", error: nil) }
         }) { id, sent, total in
@@ -1080,6 +1228,12 @@ final class DashcamSync: ObservableObject {
         return !isParked
     }
 
+    /// On the camera's Wi‑Fi the internet goes over mobile data (LTE); off it, Wi‑Fi unless only cellular is up.
+    /// Metered = mobile data, a personal hotspot or Low Data Mode — what the upload rules and restores gate.
+    private func onMeteredNetwork() -> Bool {
+        onCameraProvider() || (internetPath.map { $0.isExpensive || $0.isConstrained || !$0.usesInterfaceType(.wifi) } ?? false)
+    }
+
     /// Why uploads are waiting, for the page header (nil when they aren't).
     @Published private(set) var uploadNote: String?
 
@@ -1102,7 +1256,7 @@ final class DashcamSync: ObservableObject {
     }
 
     /// Reconciles the phone's copies with the server: deletes those every destination already has
-    /// (unless "keep on phone", or he tagged the clip), and queues again any the server no longer holds or never got
+    /// (unless "keep on phone", or the clip is locked), and queues again any the server no longer holds or never got
     /// (its staging was dropped, e.g. the only destination was removed). Never a clip deleted here.
     /// Returns how many clips are on the server but not yet at every destination (worth checking again).
     @discardableResult
@@ -1111,7 +1265,9 @@ final class DashcamSync: ObservableObject {
         let cameraID = info?.id ?? setup.cameraID
         guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return relaying }
         await uploader.confirm(Set(page.clips.map(\.id)))
-        DashcamTagged.learn(page.clips, defaults: defaults)
+        DashcamTagged.learn(page.clips, defaults: defaults, now: now())
+        noteServerClips(page.clips)
+        let restoredHere = restoredIDs()
         let deleted = DashcamTombstones.ids(defaults: defaults)
         var requeued = false
         var count = 0
@@ -1121,13 +1277,15 @@ final class DashcamSync: ObservableObject {
             let url = storage.localURL(camera: clip.cameraID.isEmpty ? cameraID : clip.cameraID, file: f)
             let local = FileManager.default.fileExists(atPath: url.path)
             if clip.uploaded {
-                // A clip he tagged stays — asked again now: he may have tagged it since this page was read.
-                guard !rules.keepOnPhone, clip.tags.isEmpty, !DashcamTagged.contains(clip.id, defaults: defaults) else { continue }
+                // A locked clip stays — asked again now: he may have tagged it since this page was read.
+                guard !rules.keepOnPhone, !DashcamLock.isLocked(clip, defaults: defaults) else { continue }
                 if local { try? FileManager.default.removeItem(at: url) }
                 try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
             } else if clip.uploadState == "staged" || clip.uploading {
                 count += 1
-            } else if local, clip.uploadState == "none", await !uploader.contains(clip.id) {
+            } else if local, clip.uploadState == "none", url.lastPathComponent == f.name, !restoredHere.contains(clip.id),
+                      await !uploader.contains(clip.id) {
+                // Never a copy brought back from the cloud (`restoreLocked`): it isn't a new clip to send.
                 await uploader.enqueue(clipID: clip.id, local: url,
                                        size: (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? clip.size,
                                        kind: clip.kind)
@@ -1137,7 +1295,186 @@ final class DashcamSync: ObservableObject {
         relaying = count
         if requeued { kickUploads() }
         measurePhoneSpace()                     // uploaded clips just left the phone
+        restoreLockedSoon()
         return count
+    }
+
+    // MARK: Locked clips back on the phone
+
+    /// How often the server's locked clips are checked for a phone copy that is missing.
+    static let restoreInterval: TimeInterval = 600
+    /// A clip whose restore failed waits this long, doubling each time, at most `restoreBackoffMax` (kept across
+    /// launches, so a clip Google keeps refusing isn't fetched again every ten minutes).
+    static let restoreBackoffBase: TimeInterval = 600
+    static let restoreBackoffMax: TimeInterval = 86400
+    static let restoreBackoffKey = "jc.dashcam.restoreBackoff"
+    /// Clips brought back from the cloud: never queued for upload (the cloud has them).
+    static let restoredKey = "jc.dashcam.restoredClips"
+    /// Room a restore never eats into.
+    static let restoreFreeFloor: Int64 = 5_000_000_000
+    /// What comes back over mobile data: clips tagged as an accident or a near miss. The rest wait for Wi‑Fi.
+    static let restoreOnMobileData: Set<String> = ["accident", "near_miss"]
+    private var restoreRan: Date?
+    private var restoring = false
+    /// The clip a restore is downloading now: it holds the keepalive, like a transfer to the cloud.
+    @Published private(set) var restoringClip: String? {
+        didSet { if (oldValue == nil) != (restoringClip == nil) { BridgeClient.shared.syncKeepalive() } }
+    }
+    /// Where a locked clip comes back from, best first (`cloudRequests`); one is tried an attempt. Swapped in tests.
+    var restoreSources: (DashcamServerClip) async -> [URLRequest] = { clip in await DashcamSync.cloudRequests(for: clip) }
+    /// Downloads one request into a folder (`DashcamExport.download`, as Save to Photos fetches a clip). Swapped in tests.
+    var restoreFetch: (URLRequest, URL) async throws -> URL = { request, dir in
+        try await DashcamExport.download(request, into: dir, progress: { _ in })
+    }
+    /// Free space on the phone (important-use capacity), nil when unknown. Swapped in tests.
+    var freeSpace: () -> Int64? = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return (try? docs.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// The check below, at most every `restoreInterval` (the clean-up after launch, foreground and pushes asks) —
+    /// or now (`force`: he just tagged a clip whose phone copy is gone).
+    func restoreLockedSoon(force: Bool = false) {
+        guard !restoring, force || now().timeIntervalSince(restoreRan ?? .distantPast) >= Self.restoreInterval else { return }
+        Task { await restoreLocked() }
+    }
+
+    /// Locked clips whose phone copy is gone (cleared after their upload before locks existed, like the Oct 21
+    /// accident clip) come back to the phone, one at a time. One still on the card while the phone is on the
+    /// camera's Wi‑Fi is left to the camera pass (it pulls locked clips whatever the rules). The rest come from the
+    /// cloud — only clips the server says are uploaded everywhere; over mobile data only accidents and near misses;
+    /// never below `restoreFreeFloor` of free space; a clip that failed backs off. A clip brought back is marked on
+    /// the phone and never queued for upload. Returns the ids brought back from the cloud.
+    @discardableResult
+    func restoreLocked() async -> [String] {
+        guard !restoring, let setup = setupProvider() else { return [] }
+        restoring = true
+        defer { restoring = false }
+        restoreRan = now()
+        guard let locked = await listLocked() else { return [] }
+        let metered = onMeteredNetwork()
+        var backoff = restoreBackoff()
+        var copies = Set<String>()
+        var restored: [String] = []
+        for clip in locked {
+            let camera = clip.cameraID.isEmpty ? (info?.id ?? setup.cameraID) : clip.cameraID
+            let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start,
+                                durationS: clip.durationS, size: clip.size)
+            let local = storage.localURL(camera: camera, file: f)
+            copies.insert(DashcamStorage.key(local))
+            if FileManager.default.fileExists(atPath: local.path) { backoff[clip.id] = nil; continue }
+            // Deleted here before he locked it: the lock wins.
+            DashcamTombstones.remove(clip.id, defaults: defaults)
+            if clip.onCamera && onCameraProvider() { continue }
+            guard clip.uploaded else { continue }               // still on its way up, or only on the card
+            if metered && !clip.tags.contains(where: Self.restoreOnMobileData.contains) { continue }
+            let tries = backoff[clip.id]
+            if let due = tries?.due, due > now() { continue }
+            guard (freeSpace() ?? .max) - clip.size >= Self.restoreFreeFloor else { break }   // no room: later
+            if await restore(clip, file: f, camera: camera, attempt: tries?.attempts ?? 0) {
+                backoff[clip.id] = nil
+                restored.append(clip.id)
+                copies.insert(DashcamStorage.key(storage.localURL(camera: camera, file: f)))   // its name as it landed
+            } else {
+                let attempts = (tries?.attempts ?? 0) + 1
+                backoff[clip.id] = (attempts, now().addingTimeInterval(Self.restoreDelay(attempts: attempts)))
+            }
+        }
+        saveRestoreBackoff(backoff)
+        defaults.set(Array(copies).sorted(), forKey: Self.lockedCopiesKey)
+        if !restored.isEmpty { measurePhoneSpace() }
+        return restored
+    }
+
+    /// The wait after `attempts` failed restores: 10 minutes, doubling, at most a day.
+    static func restoreDelay(attempts: Int) -> TimeInterval {
+        min(restoreBackoffMax, restoreBackoffBase * pow(2, Double(max(0, attempts - 1))))
+    }
+
+    private func restoreBackoff() -> [String: (attempts: Int, due: Date)] {
+        var out: [String: (attempts: Int, due: Date)] = [:]
+        for (id, value) in defaults.dictionary(forKey: Self.restoreBackoffKey) ?? [:] {
+            guard let v = value as? [NSNumber], v.count == 2 else { continue }
+            out[id] = (v[0].intValue, Date(timeIntervalSince1970: v[1].doubleValue))
+        }
+        return out
+    }
+
+    private func saveRestoreBackoff(_ backoff: [String: (attempts: Int, due: Date)]) {
+        defaults.set(backoff.mapValues { [NSNumber(value: $0.attempts), NSNumber(value: $0.due.timeIntervalSince1970)] },
+                     forKey: Self.restoreBackoffKey)
+    }
+
+    func restoredIDs() -> Set<String> { Set(defaults.stringArray(forKey: Self.restoredKey) ?? []) }
+
+    /// Every locked clip the server has, read tag by tag (every tag locks a clip; there is no filter for locked
+    /// as such). Nil when the server can't be asked, so a failed read never stands for "none". A complete read is
+    /// the truth: clips no longer on it are unlocked on the phone too (bar one tagged here moments ago).
+    private func listLocked() async -> [DashcamServerClip]? {
+        guard let tags = try? await server.tags() else { return nil }
+        var seen = Set<String>()
+        var out: [DashcamServerClip] = []
+        var complete = true
+        for tag in tags {
+            var cursor: String?
+            for _ in 0..<10 {
+                guard let page = try? await server.clips(DashcamAPI.ClipFilter(tag: tag.id), cursor: cursor, limit: 200) else { return nil }
+                for clip in page.clips where seen.insert(clip.id).inserted { out.append(clip) }
+                cursor = page.next
+                if cursor == nil { break }
+            }
+            if cursor != nil { complete = false }
+        }
+        if complete {
+            serverLocked = Set(out.map(\.id))
+            DashcamTagged.replace(with: serverLocked, defaults: defaults, now: now())
+        } else {
+            DashcamTagged.learn(out, defaults: defaults, now: now())
+            learnLocks(out.map { ($0.id, true) })
+        }
+        return out
+    }
+
+    /// One clip from one source (`attempt` picks which: the Drive file first, the server's stream the time after),
+    /// into place on the phone — as `.ts` or `.mp4` by what the bytes are. A download from the camera that landed
+    /// meanwhile wins: that's the original, and the cloud's copy is dropped. True once a copy is there.
+    private func restore(_ clip: DashcamServerClip, file f: DashcamFile, camera: String, attempt: Int) async -> Bool {
+        let sources = await restoreSources(clip)
+        guard !sources.isEmpty else { return false }
+        let dir = storage.root.appendingPathComponent(".restore", isDirectory: true).appendingPathComponent(clip.id, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fm = FileManager.default
+        restoringClip = clip.id
+        let got = try? await restoreFetch(sources[attempt % sources.count], dir)
+        restoringClip = nil
+        guard let got else { return false }
+        if storage.exists(camera: camera, file: f), storage.localURL(camera: camera, file: f).lastPathComponent == f.name {
+            return true                                         // the camera's original came down meanwhile
+        }
+        let dest = storage.restoredURL(camera: camera, file: f, ext: DashcamStorage.sniffedExtension(got) ?? got.pathExtension)
+        do {
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: got, to: dest)
+        } catch { return false }
+        defaults.set(Array(restoredIDs().union([clip.id])).sorted(), forKey: Self.restoredKey)
+        try? await server.setPhone(clipID: clip.id, state: "local", error: nil)
+        JcLog.devices.notice("dashcam: locked clip \(clip.id, privacy: .public) is back on the phone")
+        return true
+    }
+
+    /// A clip's cloud copies as requests, best first: its Drive file in full quality (never the 720p copy), with a
+    /// Drive key from the server as the player streams it, then the server's own stream.
+    static func cloudRequests(for clip: DashcamServerClip) async -> [URLRequest] {
+        var out: [URLRequest] = []
+        if let drive = clip.driveFile, let key = await DashcamPlayerModel.driveKey(preferring: drive.destinationID),
+           let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(drive.fileID)?alt=media&supportsAllDrives=true") {
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(key.token)", forHTTPHeaderField: "Authorization")
+            out.append(request)
+        }
+        if let request = try? DashcamAPI().api.request("GET", DashcamAPI.prefix + "/clips/\(clip.id)/stream") { out.append(request) }
+        return out
     }
 
     // MARK: Requests from Jarvis / the UI

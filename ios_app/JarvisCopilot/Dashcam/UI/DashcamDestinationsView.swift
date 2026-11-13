@@ -10,7 +10,6 @@ struct DashcamDestinationsView: View {
     @State private var results: [String: String] = [:]
     @State private var confirmRemove: DashcamDestination?
     @State private var signingIn: String?
-    @State private var google = DashcamGoogleSignIn()
 
     var body: some View {
         ScrollView {
@@ -110,21 +109,15 @@ struct DashcamDestinationsView: View {
 
     static let expiredNote = "Google sign-in expired — clips wait on the phone until you sign in again"
 
-    /// Renews the same destination (clips already copied keep pointing at it): Google sign-in on the phone,
-    /// the server trades the code with the client secret it already holds.
+    /// Renews the same destination (clips already copied keep pointing at it): the one sign-in the dashcam
+    /// screens share (`DashcamDriveSignIn`).
     private func signInAgain(_ d: DashcamDestination) async {
         signingIn = d.id
         defer { signingIn = nil }
         results[d.id] = nil
-        do {
-            let api = DashcamAPI()
-            let grant = try await google.authorize(clientID: try await api.driveClientID(d.id))
-            results[d.id] = try await api.reconnectDestination(d.id, grant: grant) ?? "Works"
-            DashcamSync.shared.destinationsChanged()       // clips held for the sign-in go now
-            await load()
-        } catch {
-            results[d.id] = error.localizedDescription
-        }
+        let failure = await DashcamDriveSignIn.shared.signIn(d.id)
+        results[d.id] = failure ?? "Works"
+        if failure == nil { await load() }
     }
 
     private func delete(_ d: DashcamDestination) async {
@@ -286,6 +279,84 @@ struct DashcamAddDestinationView: View {
             dismiss()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+}
+
+/// "Google Drive is signed out" on a dashcam screen: the system's centred alert with Sign in (the Destinations
+/// screen's sign-in for that destination) and Not now. Once a visit — Not now holds until he leaves the screen,
+/// however often playback or uploads ask Drive again. `active`: this screen is the one on top (the page under a
+/// clip's page must not present it too). `signedIn` runs after a sign-in that worked (the player retries its clip).
+struct DashcamDriveSignInAlert: ViewModifier {
+    var active: Bool
+    var signedIn: () -> Void = {}
+    @ObservedObject private var state = DashcamDriveSignIn.shared
+    @State private var dismissed: String?
+    /// Why the sign-in from this popup didn't take, shown in a second alert with Try again.
+    @State private var failure: String?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Google Drive is signed out", isPresented: Binding(
+                get: { active && failure == nil && state.needed != nil && dismissed != state.needed?.destinationID },
+                set: { if !$0, let id = state.needed?.destinationID { dismissed = id } })) {
+                Button("Sign in") { signIn() }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text(DashcamDriveSignIn.message(state.needed))
+            }
+            .alert("Couldn't sign in to Google Drive", isPresented: Binding(
+                get: { active && failure != nil }, set: { if !$0 { failure = nil } })) {
+                Button("Try again") { signIn() }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text(failure ?? "")
+            }
+            // Signed in (here or anywhere): a later sign-out may ask again.
+            .onChange(of: state.needed?.destinationID) { _, id in if id == nil { dismissed = nil; failure = nil } }
+    }
+
+    private func signIn() {
+        guard let id = state.needed?.destinationID else { return }
+        failure = nil
+        Task {
+            // Cancelling Google's sheet is his choice, not a failure to report.
+            if let why = await state.signIn(id) {
+                if why != DashcamGoogleSignIn.Failure.cancelled.errorDescription { failure = why }
+            } else {
+                signedIn()
+            }
+        }
+    }
+}
+
+/// The player's line when a clip can't play because Drive is signed out — instead of a crossed-out play icon:
+/// what's wrong, and Sign in.
+struct DashcamDriveSignInLine: View {
+    var signedIn: () -> Void
+    @ObservedObject private var state = DashcamDriveSignIn.shared
+
+    var body: some View {
+        if let needed = state.needed {
+            CardGroup {
+                Row {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Google Drive is signed out", systemImage: "person.crop.circle.badge.exclamationmark")
+                            .font(.subheadline.weight(.semibold))
+                        Text(state.problem ?? "Sign in again to play this clip from your Drive. Your clips are still there.")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button {
+                            Task { if await state.signIn(needed.destinationID) == nil { signedIn() } }
+                        } label: {
+                            if state.signingIn { ProgressView() } else { Text("Sign in") }
+                        }
+                        .buttonStyle(.jcGlass(compact: true, full: true))
+                        .disabled(state.signingIn)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
     }
 }

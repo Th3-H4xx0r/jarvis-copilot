@@ -42,9 +42,14 @@ enum DashcamTagging {
 }
 
 /// Which clips carry tags, kept on the phone so an upload can leave a tagged clip's copy in place
-/// without asking the server first. Follows every listing the clean-up reads and every tag change.
+/// without asking the server first. The server is the truth: it follows every listing, lock answer and tag change —
+/// in and out — except that a clip tagged on this phone stays in for `raceGuard` whatever an answer says (that
+/// answer may have been read before the tap).
 enum DashcamTagged {
     static let key = "jc.dashcam.taggedClips"
+    /// When this phone tagged each clip (Unix seconds), for `raceGuard`.
+    static let markedAtKey = "jc.dashcam.taggedAt"
+    static let raceGuard: TimeInterval = 300
     /// Read-modify-write, from the main actor and the uploader alike.
     private static let lock = NSLock()
 
@@ -57,23 +62,54 @@ enum DashcamTagged {
     }
 
     /// Tagged on this phone: kept from the tap on, before the server has answered.
-    static func mark(_ id: String, defaults: UserDefaults = .standard) {
+    static func mark(_ id: String, defaults: UserDefaults = .standard, now: Date = Date()) {
         lock.withLock {
             var ids = Set(defaults.stringArray(forKey: key) ?? [])
             ids.insert(id)
             defaults.set(Array(ids).sorted(), forKey: key)
+            var at = recentMarks(defaults, now: now)
+            at[id] = now.timeIntervalSince1970
+            defaults.set(at, forKey: markedAtKey)
         }
     }
 
-    /// Tagged clips from a listing. Only ever adds: a listing may be older than a tap that untagged or
-    /// tagged a clip since, and only a tag change's reply (`update`) takes a clip out.
-    static func learn(_ clips: [DashcamServerClip], defaults: UserDefaults = .standard) {
-        let tagged = clips.filter { !$0.tags.isEmpty }.map(\.id)
-        guard !tagged.isEmpty else { return }
+    /// Clips the server named locked (refusing a delete, say): kept like tagged ones. Not a tap of his.
+    static func learn(ids locked: [String], defaults: UserDefaults = .standard) {
+        guard !locked.isEmpty else { return }
         lock.withLock {
-            let ids = Set(defaults.stringArray(forKey: key) ?? []).union(tagged)
+            let ids = Set(defaults.stringArray(forKey: key) ?? []).union(locked)
             defaults.set(Array(ids).sorted(), forKey: key)
         }
+    }
+
+    /// A listing as the server has it: tagged clips in, untagged ones out — but not one tagged on this phone in the
+    /// last `raceGuard` (the listing may be older than the tap).
+    static func learn(_ clips: [DashcamServerClip], defaults: UserDefaults = .standard, now: Date = Date()) {
+        guard !clips.isEmpty else { return }
+        lock.withLock {
+            let recent = recentMarks(defaults, now: now)
+            var ids = Set(defaults.stringArray(forKey: key) ?? [])
+            for clip in clips {
+                if !clip.tags.isEmpty || clip.locked { ids.insert(clip.id) }
+                else if recent[clip.id] == nil { ids.remove(clip.id) }
+            }
+            defaults.set(Array(ids).sorted(), forKey: key)
+        }
+    }
+
+    /// The server's whole list of locked clips: everything else comes out, except a recent tap.
+    static func replace(with locked: Set<String>, defaults: UserDefaults = .standard, now: Date = Date()) {
+        lock.withLock {
+            let recent = Set(recentMarks(defaults, now: now).keys)
+            defaults.set(Array(locked.union(recent.intersection(Set(defaults.stringArray(forKey: key) ?? [])))).sorted(),
+                         forKey: key)
+        }
+    }
+
+    /// Taps within `raceGuard` (older ones are pruned on every write).
+    private static func recentMarks(_ defaults: UserDefaults, now: Date) -> [String: Double] {
+        (defaults.dictionary(forKey: markedAtKey) ?? [:]).compactMapValues { ($0 as? NSNumber)?.doubleValue }
+            .filter { now.timeIntervalSince1970 - $0.value < raceGuard }
     }
 
     /// These clips as a tag change left them on the server: tagged ones in, untagged ones out.
@@ -85,6 +121,40 @@ enum DashcamTagged {
             }
             defaults.set(Array(ids).sorted(), forKey: key)
         }
+    }
+}
+
+/// Locked clips: any tag locks a clip, and a locked clip is never deleted — not from the phone, the cloud or the
+/// camera's card — and goes up first whatever the upload rules (his Oct 21 accident clip was tagged and still lost
+/// its phone copy). One decision for every place that deletes or uploads: the server's word, the clip's own tags,
+/// or this phone's record of tagged clips (kept from the tap on, before the server answers). Any one locks it.
+enum DashcamLock {
+    static func isLocked(id: String, server: Bool = false, tags: [String] = [], tagged: Set<String>) -> Bool {
+        server || !tags.isEmpty || tagged.contains(id)
+    }
+
+    static func isLocked(_ clip: DashcamServerClip, tagged: Set<String>) -> Bool {
+        isLocked(id: clip.id, server: clip.locked, tags: clip.tags, tagged: tagged)
+    }
+
+    static func isLocked(_ clip: DashcamServerClip, defaults: UserDefaults = .standard) -> Bool {
+        isLocked(clip, tagged: DashcamTagged.ids(defaults: defaults))
+    }
+
+    /// The clip page's line under its tags.
+    static let pageLine = "Locked — tagged clips are never deleted. Remove its tags to delete it."
+    /// Why a delete was refused (after "Couldn't delete everywhere — ").
+    static let refusal = "it's locked: tagged clips are never deleted. Remove its tags to delete it."
+
+    /// Several clips chosen for a delete: the ones that may go, and the locked ones that stay.
+    static func split(_ clips: [DashcamServerClip], tagged: Set<String>) -> (deletable: [DashcamServerClip], locked: [DashcamServerClip]) {
+        (clips.filter { !isLocked($0, tagged: tagged) }, clips.filter { isLocked($0, tagged: tagged) })
+    }
+
+    /// What a delete of several clips says about the locked ones it left (nil when there were none).
+    static func skippedLine(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return "Skipped \(count) locked clip\(count == 1 ? "" : "s") — tagged clips are never deleted."
     }
 }
 
@@ -107,10 +177,12 @@ final class DashcamTagStore: ObservableObject {
         return tag
     }
 
-    /// One of his own tags, off every clip too.
+    /// One of his own tags, off every clip too. A clip it was the only tag on unlocks: the server's list of locked
+    /// clips is read again so the phone stops treating it as locked.
     func delete(_ id: String) async throws {
         try await api.deleteTag(id)
         tags.removeAll { $0.id == id }
+        DashcamSync.shared.refreshLocksSoon()
     }
 
     func name(_ id: String) -> String {
@@ -126,7 +198,10 @@ final class DashcamTagStore: ObservableObject {
         if !add.isEmpty { DashcamTagged.mark(clip.id, defaults: sync.defaults) }
         let clips = try await api.changeTags(clipID: clip.id, add: add, remove: remove)
         DashcamTagged.update(clips, defaults: sync.defaults)
+        sync.noteServerClips(clips)
         for c in clips where !c.tags.isEmpty && c.onCamera && c.phoneState != "local" && !c.uploaded { sync.pull(c.path) }
+        // Locked now: one whose phone copy went after its upload comes back from the cloud at once.
+        if clips.contains(where: { !$0.tags.isEmpty && $0.uploaded && $0.phoneState != "local" }) { sync.restoreLockedSoon(force: true) }
         return clips
     }
 }

@@ -129,39 +129,85 @@ enum DashcamClipActions {
     typealias Place = DashcamLibraryModel.Place
 
     /// Deletes the clip from the chosen places. `done` names what went, `failed` what didn't (with why).
+    /// A locked (tagged) clip is never deleted from anywhere: nothing happens and `failed` says why. The phone's copy
+    /// goes only once the server says the clip isn't locked — the cloud delete going through, or the clip read again
+    /// now — and never when the cloud delete asked for alongside it failed.
     static func delete(_ clip: DashcamServerClip, _ places: Set<Place>,
-                       sync: DashcamSync? = nil) async -> (done: [String], failed: [String]) {
+                       sync: DashcamSync? = nil, api: DashcamAPI? = nil) async -> (done: [String], failed: [String]) {
         let sync = sync ?? .shared
+        let api = api ?? DashcamAPI()
+        // What this phone knows first (the clip as listed may be older than a tag): its record of tagged clips and
+        // what the server said this run. Before the tombstone below too: a locked clip must stay on the phone.
+        guard !DashcamLock.isLocked(clip, defaults: sync.defaults), !sync.lockedIDs().contains(clip.id) else {
+            return ([], [DashcamLock.refusal])
+        }
         var done: [String] = [], failed: [String] = []
         // Remembered before anything else: a download of this clip still running lands after the delete,
         // and must not bring it back (two clips came back that way and retried their upload all week).
         if places.contains(.phone) { DashcamTombstones.add(clip.id, defaults: sync.defaults) }
+        func refuse() -> (done: [String], failed: [String]) {
+            DashcamTombstones.remove(clip.id, defaults: sync.defaults)
+            return ([], [DashcamLock.refusal])
+        }
+        var cloudWent = false
         if places.contains(.cloud) {
-            do { try await DashcamAPI().deleteFromCloud(clipID: clip.id); done.append("cloud") }
+            do { try await api.deleteFromCloud(clipID: clip.id); done.append("cloud"); cloudWent = true }
+            catch where DashcamAPI.isLockedRefusal(error) {
+                // Tagged since this phone last heard (423): it is locked, so nothing else goes either.
+                DashcamTagged.learn(ids: [clip.id], defaults: sync.defaults)
+                return refuse()
+            }
             catch { failed.append("cloud: \(error.localizedDescription)") }
         }
         if places.contains(.phone) {
-            let setup = DashcamSetupStore.load()
-            let camera = clip.cameraID.isEmpty ? (setup?.cameraID ?? "") : clip.cameraID
-            let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start, durationS: clip.durationS, size: clip.size)
-            try? FileManager.default.removeItem(at: sync.storage.localURL(camera: camera, file: f))
-            await DashcamUploader.shared.remove(clipID: clip.id)
-            try? await DashcamAPI().setPhone(clipID: clip.id, state: "deleted", error: nil)
-            done.append("phone")
+            if places.contains(.cloud) && !cloudWent {
+                DashcamTombstones.remove(clip.id, defaults: sync.defaults)
+                failed.append("phone: kept, since the cloud delete didn't go through")
+            } else {
+                // No cloud delete to have asked the server: the clip is read again, and a locked (or unreadable) one
+                // keeps its phone copy.
+                if !cloudWent {
+                    do {
+                        let fresh = try await api.clip(clip.id).clip
+                        sync.noteServerClips([fresh])
+                        if DashcamLock.isLocked(fresh, tagged: []) {
+                            DashcamTagged.learn([fresh], defaults: sync.defaults)
+                            return refuse()
+                        }
+                    } catch where DashcamAPI.isClipGone(error) {
+                        // Forgotten everywhere already: nothing on the server can lock it.
+                    } catch {
+                        DashcamTombstones.remove(clip.id, defaults: sync.defaults)
+                        return (done, failed + ["phone: couldn't check with the Jarvis server that it isn't locked (\(error.localizedDescription)). Try again."])
+                    }
+                }
+                let setup = DashcamSetupStore.load()
+                let camera = clip.cameraID.isEmpty ? (setup?.cameraID ?? "") : clip.cameraID
+                let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start, durationS: clip.durationS, size: clip.size)
+                try? FileManager.default.removeItem(at: sync.storage.localURL(camera: camera, file: f))
+                await sync.uploader.remove(clipID: clip.id)
+                try? await api.setPhone(clipID: clip.id, state: "deleted", error: nil)
+                done.append("phone")
+            }
         }
         let everywhere = places == [.phone, .cloud, .camera]
         var waiting = false
         if places.contains(.camera), clip.onCamera {
             // Now when on the camera's Wi‑Fi, otherwise it waits in the server's backlog for the next connection —
-            // never lost, and marked "Pending deletion" in the library until then.
-            let now = await sync.deleteFromCamera(clip.path, clipID: clip.id, forget: everywhere && failed.isEmpty)
-            waiting = !now
-            done.append(now ? "dashcam" : "dashcam (pending — deletes when next connected)")
+            // never lost, and marked "Pending deletion" in the library until then. The server may refuse it as locked:
+            // that is said, never shown as pending.
+            switch await sync.deleteFromCamera(clip.path, clipID: clip.id, forget: everywhere && failed.isEmpty) {
+            case .deleted: done.append("dashcam")
+            case .pending:
+                waiting = true
+                done.append("dashcam (pending — deletes when next connected)")
+            case .locked: failed.append("dashcam: \(DashcamLock.refusal)")
+            }
         }
         // Gone from the library too — but a clip still waiting on the card stays (marked) until the camera has
         // deleted it; the server forgets it then.
         if everywhere, failed.isEmpty, !waiting {
-            try? await DashcamAPI().forgetClip(clip.id)
+            try? await api.forgetClip(clip.id)
         }
         return (done, failed)
     }

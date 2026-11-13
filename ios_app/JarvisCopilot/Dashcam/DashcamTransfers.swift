@@ -230,14 +230,18 @@ enum DashcamDirect {
 extension DashcamAPI: DashcamUploadServer {
     func uploadDestinations() async throws -> [DashcamDestination] { try await destinations() }
 
+    /// Every answer reaches `tokenAnswered` (the "Google Drive is signed out" popup's state): a 409 sets it, a
+    /// token clears it — the player, the uploads and the locked clips coming back all ask here.
     func driveAccess(destinationID: String) async throws -> DashcamDriveAccess {
         let o: [String: Any]
         do {
             o = try await api.post(Self.prefix + "/destinations/\(destinationID)/token", timeout: 90).object()
         } catch APIError.http(let status, _) where status == 409 {
+            await tokenAnswered(destinationID, true)
             throw DashcamDriveError.signInExpired(destinationID)    // the refresh token is dead; retrying won't help
         }
         guard let token = o["access_token"] as? String, !token.isEmpty else { throw DashcamDriveError.unauthorized }
+        await tokenAnswered(destinationID, false)
         let expires = (o["expires_at"] as? NSNumber)?.doubleValue ?? Date().addingTimeInterval(600).timeIntervalSince1970
         return DashcamDriveAccess(destinationID: destinationID, token: token, expiresAt: Date(timeIntervalSince1970: expires),
                                   basePath: o["path"] as? String ?? "", teamDrive: o["team_drive"] as? String)
@@ -437,29 +441,34 @@ actor DashcamUploader {
 
     /// Works through the queue once. `cellular` = the only way to the server right now is mobile
     /// data. `allow` says which kinds may go now (the upload rules); by default normal footage waits
-    /// for Wi‑Fi on mobile data. Returns the clip ids that reached the server.
+    /// for Wi‑Fi on mobile data. `locked`: clips that go first and whatever `allow` says (tagged clips are
+    /// never held back). Returns the clip ids that reached the server.
     @discardableResult
     func run(server: DashcamUploadServer, cellular: Bool, allow: (@Sendable (DashcamClipKind) -> Bool)? = nil,
+             locked: Set<String> = [],
              previews: Bool = true,
              finished: (@Sendable (String, String) -> Void)? = nil,
              now: @Sendable () -> Date = { Date() },
              progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
-        let allowed = allow ?? { kind in !(cellular && kind == .normal) }
+        let rule = allow ?? { kind in !(cellular && kind == .normal) }
+        func allowed(_ job: DashcamUploadJob) -> Bool { locked.contains(job.clipID) || rule(job.kind) }
         makePreviews = previews
         if let until = driveQuotaUntil, until > now() { return [] }
         guard !running else { return [] }
         // Nothing may go now (every job backing off, or held by the rules): no request at all.
-        guard jobs.contains(where: { job in (job.notBefore.map { $0 <= now() } ?? true) && allowed(job.kind) }) else { return [] }
+        guard jobs.contains(where: { job in (job.notBefore.map { $0 <= now() } ?? true) && allowed(job) }) else { return [] }
         running = true
         defer { running = false }
         sweepTempNow()
         let destinations = await destinations(from: server)
         var done: [String] = []
-        for clipID in jobs.map(\.clipID) {
+        // Locked clips first, then the queue's own order (events, photos, parking, normal footage).
+        let order = jobs.filter { locked.contains($0.clipID) }.map(\.clipID) + jobs.filter { !locked.contains($0.clipID) }.map(\.clipID)
+        for clipID in order {
             guard let index = jobs.firstIndex(where: { $0.clipID == clipID }) else { continue }
             var job = jobs[index]
             if let nb = job.notBefore, nb > now() { continue }
-            guard allowed(job.kind) else { continue }
+            guard allowed(job) else { continue }
             // The app container moves on every reinstall/update: re-anchor the stored path.
             let path = Self.resolve(job.localPath)
             guard FileManager.default.fileExists(atPath: path) else {
@@ -535,7 +544,7 @@ actor DashcamUploader {
             } catch DashcamUploadError.clipGone where job.unconfirmed != true {
                 // Deleted everywhere (often while its download was still running): nothing will ever take it.
                 // Retrying it every 10 minutes forever is what kept the loop polling all night.
-                discardGone(clipID, path: path)
+                discardGone(clipID, path: path, keepCopy: locked.contains(clipID))
             } catch DashcamDriveError.signInExpired(let destID) {
                 // Retrying can't help and it isn't this clip's fault: every clip for that Drive waits for a new sign-in.
                 signInHolds[destID] = now().addingTimeInterval(Self.signInHold)
@@ -570,11 +579,12 @@ actor DashcamUploader {
     }
 
     /// A clip the server no longer has: its job, the phone's copy and any converted copy go, and the
-    /// id is remembered so nothing queues it again.
-    private func discardGone(_ clipID: String, path: String) {
+    /// id is remembered so nothing queues it again. A locked clip's phone copy stays (`keepCopy`): it is
+    /// never deleted, whatever the server lost.
+    private func discardGone(_ clipID: String, path: String, keepCopy: Bool = false) {
         jobs.removeAll { $0.clipID == clipID }
         persist()
-        try? FileManager.default.removeItem(atPath: path)
+        if !keepCopy { try? FileManager.default.removeItem(atPath: path) }
         try? FileManager.default.removeItem(at: tempURL(clipID))
         try? FileManager.default.removeItem(at: tempDir.appendingPathComponent(clipID + ".preview.mp4"))
         DashcamTombstones.add(clipID, defaults: tombstones)

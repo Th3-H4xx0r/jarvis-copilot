@@ -292,10 +292,17 @@ final class DashcamLibraryModel: ObservableObject {
         }
     }
 
-    /// A tag he deleted comes off every loaded row (the server took it off every clip).
+    /// A tag he deleted comes off every loaded row (the server took it off every clip); a row it was the only tag
+    /// on is no longer locked.
     func dropTag(_ id: String) {
         guard clips.contains(where: { $0.tags.contains(id) }) else { return }
-        clips = clips.map { var c = $0; c.tags.removeAll { $0 == id }; return c }
+        clips = clips.map {
+            guard $0.tags.contains(id) else { return $0 }
+            var c = $0
+            c.tags.removeAll { $0 == id }
+            c.locked = !c.tags.isEmpty
+            return c
+        }
     }
 
     /// The selection bar's Tag: the tag on every selected clip — or off them all when each has it already

@@ -122,7 +122,12 @@ extension CarPlayScreens {
             actions.append(CarPlayRow(id: "download", title: "Download", action: .clip(id: clip.id, .download)))
         }
         if clip.failed { actions.append(CarPlayRow(id: "retry", title: "Retry upload", action: .clip(id: clip.id, .retryUpload))) }
-        actions.append(CarPlayRow(id: "delete", title: "Delete…", action: .clip(id: clip.id, .delete)))
+        // A tagged clip is locked: never deleted, so no Delete… (the phone refuses it anyway).
+        if DashcamLock.isLocked(clip) {
+            items.append(CarPlayInfoItem(title: "Locked", detail: "Tagged clips are never deleted"))
+        } else {
+            actions.append(CarPlayRow(id: "delete", title: "Delete…", action: .clip(id: clip.id, .delete)))
+        }
         return CarPlayInfo(title: "\(clip.kind.label) · \(clip.start.formatted(date: .omitted, time: .shortened))",
                            items: items, actions: actions)
     }

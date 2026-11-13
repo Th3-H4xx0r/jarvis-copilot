@@ -77,12 +77,13 @@ final class DashcamDevice: WearableDevice {
                              inputSchema: Self.noArgs),
             DeviceCapability(name: "dashcam_format_sd", description: """
                 Erase the dashcam's SD card. Destroys every clip on the card, including locked events \
-                that have not been uploaded. Requires confirm=true.
+                that have not been uploaded. Refused while the card holds a tagged (locked) clip. Requires confirm=true.
                 """, inputSchema: DeviceCapability.schema([
                     "confirm": ["type": "boolean", "description": "Must be true."],
                 ], required: ["confirm"])),
             DeviceCapability(name: "dashcam_delete_file", description: """
                 Delete one file from the dashcam's card (path from the library). Requires confirm=true. \
+                A tagged (locked) clip's file is never deleted. \
                 Away from the camera's Wi‑Fi a full path is queued (shown as pending deletion) and deleted on the \
                 next connection.
                 """, inputSchema: DeviceCapability.schema([
@@ -249,16 +250,31 @@ final class DashcamDevice: WearableDevice {
             guard args["confirm"] as? Bool == true else {
                 throw DeviceError.badArgument("formatting erases every clip on the card — pass confirm=true to proceed")
             }
-            try await camera().format()
+            let cam = try camera()
+            // Never with a locked clip on the card: the listing this run has, or a fresh one, and the server's own
+            // list of locked clips on this camera. A card that can't be read, or a server that can't be asked, can't
+            // be checked — so it isn't erased either.
+            var listing = sync.cameraFiles
+            if listing.isEmpty {
+                do { listing = try await cam.files(timeZone: sync.timeZone()) } catch {
+                    throw SkillError.failed("Couldn't read the card to check for locked clips (\(error.localizedDescription)), so it wasn't formatted. Run dashcam_sync first.")
+                }
+            }
+            guard let locked = await sync.lockedOnCardCount(listing) else {
+                throw SkillError.failed("Couldn't ask the Jarvis server which clips are locked, so the card wasn't formatted. Try again once the phone reaches the server.")
+            }
+            guard locked == 0 else { throw SkillError.failed(Self.formatRefusal(locked)) }
+            try await cam.format()
             return ["ok": true, "message": "SD card formatted."]
         case "dashcam_delete_file":
             guard args["confirm"] as? Bool == true else {
                 throw DeviceError.badArgument("deleting removes the file from the card — pass confirm=true to proceed")
             }
             guard let path = args["path"] as? String, !path.isEmpty else { throw DeviceError.badArgument("path is required") }
+            if path.hasPrefix("/"), sync.isLocked(path: path) { throw SkillError.failed(Self.lockedFileRefusal(path)) }
             // Away from the camera: it waits in the pending-deletion backlog for the next connection.
             if setup() != nil, !wifi(), path.hasPrefix("/") {
-                _ = await sync.deleteFromCamera(path)
+                if await sync.deleteFromCamera(path) == .locked { throw SkillError.failed(Self.lockedFileRefusal(path)) }
                 return ["ok": true, "queued": true, "path": path,
                         "note": "Not on the dashcam's Wi‑Fi: marked pending deletion; it's deleted the next time the phone connects."]
             }
@@ -274,6 +290,8 @@ final class DashcamDevice: WearableDevice {
             } else {
                 throw DeviceError.badArgument("\(path) is not in the last listing — give the full path")
             }
+            // Asked of the server now (tagged on the web since this phone last heard), not only what this phone knows.
+            if !(await sync.lockedOnCard([target])).isEmpty { throw SkillError.failed(Self.lockedFileRefusal(target.path)) }
             try await cam.delete(target)
             return ["ok": true, "deleted": target.path]
         case "dashcam_set_wifi":
@@ -359,6 +377,15 @@ final class DashcamDevice: WearableDevice {
             out["keep_on_phone"] = sync.rules.keepOnPhone
         }
         return out
+    }
+
+    static func formatRefusal(_ locked: Int) -> String {
+        "The card holds \(locked) locked clip\(locked == 1 ? "" : "s") (tagged clips are never deleted), so it wasn't formatted. "
+            + "Remove \(locked == 1 ? "its" : "their") tags first."
+    }
+
+    static func lockedFileRefusal(_ path: String) -> String {
+        "\((path as NSString).lastPathComponent) is a locked clip (it carries a tag), so it stays on the card. Remove its tags to delete it."
     }
 
     /// A value given as the code or the label (case-insensitive).

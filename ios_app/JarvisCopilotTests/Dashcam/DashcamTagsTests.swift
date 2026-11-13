@@ -15,6 +15,35 @@ final class DashcamTagsTests: XCTestCase {
         XCTAssertNil(DashcamTag(json: ["name": "No id"]))
     }
 
+    /// Any one of three locks a clip: the server's word, its tags, or this phone's record of tagged clips.
+    func testAnyTagTheServersWordOrThisPhonesRecordLocksAClip() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "DashcamTagsTests-\(UUID().uuidString)"))
+        XCTAssertFalse(DashcamLock.isLocked(clip("a"), defaults: defaults))
+        XCTAssertTrue(DashcamLock.isLocked(clip("a", tags: ["accident"]), defaults: defaults))
+        let fromServer = try XCTUnwrap(DashcamServerClip(json: ["id": "b", "path": "/sd/b.ts", "locked": true]))
+        XCTAssertTrue(fromServer.locked)
+        XCTAssertTrue(DashcamLock.isLocked(fromServer, defaults: defaults))
+        DashcamTagged.mark("c", defaults: defaults)
+        XCTAssertTrue(DashcamLock.isLocked(clip("c"), defaults: defaults), "tagged here before the server answered")
+        XCTAssertTrue(DashcamLock.isLocked(id: "d", server: true, tagged: []))
+        XCTAssertFalse(DashcamLock.isLocked(id: "d", tagged: ["c"]))
+        // The card's inventory rows carry the server's lock too, and a listing's locked clips are remembered.
+        XCTAssertEqual(DashcamInventoryRow(json: ["id": "e", "path": "/sd/e.ts", "locked": true])?.locked, true)
+        XCTAssertEqual(DashcamInventoryRow(json: ["id": "f", "path": "/sd/f.ts"])?.locked, false)
+        DashcamTagged.learn([fromServer], defaults: defaults)
+        XCTAssertTrue(DashcamTagged.contains("b", defaults: defaults))
+    }
+
+    /// Deleting several clips leaves the locked ones and says how many, and why.
+    func testDeletingSeveralClipsLeavesTheLockedOnes() {
+        let (deletable, locked) = DashcamLock.split([clip("a"), clip("b", tags: ["scenic"]), clip("c")], tagged: ["c"])
+        XCTAssertEqual(deletable.map(\.id), ["a"])
+        XCTAssertEqual(locked.map(\.id), ["b", "c"])
+        XCTAssertEqual(DashcamLock.skippedLine(2), "Skipped 2 locked clips — tagged clips are never deleted.")
+        XCTAssertEqual(DashcamLock.skippedLine(1), "Skipped 1 locked clip — tagged clips are never deleted.")
+        XCTAssertNil(DashcamLock.skippedLine(0))
+    }
+
     func testTogglingATag() {
         XCTAssertEqual(DashcamTagging.toggled(["accident"], "scenic"), ["accident", "scenic"])
         XCTAssertEqual(DashcamTagging.toggled(["accident", "scenic"], "accident"), ["scenic"])
@@ -65,19 +94,41 @@ final class DashcamTagsTests: XCTestCase {
         XCTAssertEqual(made.id, "pothole")
     }
 
-    /// Clips he tagged stay on the phone after their upload: the phone remembers which clips carry tags.
-    /// A tag change is the truth for its clips; a listing only ever adds (it may be older than a tap).
-    func testTheTaggedListFollowsChangesAndListingsOnlyAdd() throws {
+    /// Clips he tagged stay on the phone after their upload: the phone remembers which clips carry tags. The server
+    /// is the truth, in and out — except over a tap on this phone in the last five minutes (the answer may predate it).
+    func testTheTaggedListFollowsTheServerButNeverOverARecentTap() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "DashcamTagsTests-\(UUID().uuidString)"))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
         DashcamTagged.update([clip("a", tags: ["accident"]), clip("b")], defaults: defaults)
         XCTAssertTrue(DashcamTagged.contains("a", defaults: defaults))
         XCTAssertFalse(DashcamTagged.contains("b", defaults: defaults))
-        DashcamTagged.mark("b", defaults: defaults)                 // tapped: kept even before the server answers
-        DashcamTagged.learn([clip("b"), clip("c", tags: ["scenic"])], defaults: defaults)
-        XCTAssertTrue(DashcamTagged.contains("b", defaults: defaults), "an older listing doesn't untag it")
+        DashcamTagged.mark("b", defaults: defaults, now: now)       // tapped: kept even before the server answers
+        DashcamTagged.learn([clip("b"), clip("c", tags: ["scenic"])], defaults: defaults, now: now.addingTimeInterval(60))
+        XCTAssertTrue(DashcamTagged.contains("b", defaults: defaults), "a listing older than the tap doesn't untag it")
         XCTAssertTrue(DashcamTagged.contains("c", defaults: defaults))
-        DashcamTagged.update([clip("a")], defaults: defaults)
-        XCTAssertFalse(DashcamTagged.contains("a", defaults: defaults), "untagged again")
+        DashcamTagged.learn([clip("b")], defaults: defaults, now: now.addingTimeInterval(DashcamTagged.raceGuard + 1))
+        XCTAssertFalse(DashcamTagged.contains("b", defaults: defaults), "untagged on the server since: unlocked here too")
+        DashcamTagged.learn(ids: ["d"], defaults: defaults)        // the server refused a delete as locked
+        XCTAssertTrue(DashcamTagged.contains("d", defaults: defaults))
+        DashcamTagged.replace(with: ["c"], defaults: defaults, now: now.addingTimeInterval(1_000))
+        XCTAssertEqual(DashcamTagged.ids(defaults: defaults), ["c"], "the server's whole list of locked clips")
+        DashcamTagged.update([clip("c")], defaults: defaults)
+        XCTAssertFalse(DashcamTagged.contains("c", defaults: defaults), "untagged again")
+    }
+
+    /// A tag he deletes comes off every loaded row, and a row it was the only tag on unlocks.
+    @MainActor
+    func testDeletingATagUnlocksTheRowsItWasTheOnlyTagOn() async {
+        let (api, transport) = JarvisAPI.mocked()
+        let model = DashcamLibraryModel()
+        model.api = DashcamAPI(api: api)
+        transport.enqueue(json: ["clips": [["id": "a", "path": "/sd/a.ts", "tags": ["pothole"], "locked": true],
+                                           ["id": "b", "path": "/sd/b.ts", "tags": ["pothole", "accident"], "locked": true]],
+                                 "next": NSNull()])
+        await model.reload()
+        model.dropTag("pothole")
+        XCTAssertEqual(model.clips.first { $0.id == "a" }?.locked, false)
+        XCTAssertEqual(model.clips.first { $0.id == "b" }?.locked, true)
     }
 
     /// Tag on several selected clips with the server down: it stops at the first failure, not one

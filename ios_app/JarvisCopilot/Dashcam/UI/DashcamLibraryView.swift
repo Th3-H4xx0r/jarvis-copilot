@@ -132,10 +132,14 @@ struct DashcamLibraryView: View {
     private var selecting: Bool { get { model.selecting } nonmutating set { model.selecting = newValue } }
     private var selected: Set<String> { get { model.selected } nonmutating set { model.selected = newValue } }
     private var bulkDelete: Set<Place>? { get { model.bulkDelete } nonmutating set { model.bulkDelete = newValue } }
-    /// Selected clips a phone delete would lose for good.
+    /// Selected clips a phone delete would lose for good (the locked ones stay anyway).
     private var bulkOnlyCopies: Int {
         guard bulkDelete?.contains(.phone) == true else { return 0 }
-        return model.clips.filter { selected.contains($0.id) && DashcamClipPlaces.onlyOnPhone($0) }.count
+        return bulkSplit.deletable.filter { DashcamClipPlaces.onlyOnPhone($0) }.count
+    }
+    /// The selected clips a delete takes, and the locked ones it leaves.
+    private var bulkSplit: (deletable: [DashcamServerClip], locked: [DashcamServerClip]) {
+        DashcamLock.split(model.clips.filter { selected.contains($0.id) }, tagged: DashcamTagged.ids(defaults: sync.defaults))
     }
     @State private var openedID: String?
     @State private var deleting: (done: Int, total: Int)?
@@ -214,7 +218,8 @@ struct DashcamLibraryView: View {
         } message: {
             Text("From " + [bulkDelete?.contains(.phone) == true ? "this phone" : nil, bulkDelete?.contains(.cloud) == true ? "the cloud" : nil,
                             bulkDelete?.contains(.camera) == true ? "the dashcam" : nil].compactMap { $0 }.joined(separator: ", ") + ". This can't be undone."
-                 + (bulkOnlyCopies > 0 ? " \(bulkOnlyCopies) of them \(bulkOnlyCopies == 1 ? "is" : "are") the only copy — not on the dashcam or in the cloud." : ""))
+                 + (bulkOnlyCopies > 0 ? " \(bulkOnlyCopies) of them \(bulkOnlyCopies == 1 ? "is" : "are") the only copy — not on the dashcam or in the cloud." : "")
+                 + (bulkSplit.locked.isEmpty ? "" : " \(bulkSplit.locked.count) locked (tagged) clip\(bulkSplit.locked.count == 1 ? " stays" : "s stay") — tagged clips are never deleted."))
         }
         .fullScreenCover(isPresented: Binding(get: { deleting != nil }, set: { _ in })) {
             DashcamDeletingPopup(done: deleting?.done ?? 0, total: deleting?.total ?? 0) { deleteTask?.cancel() }
@@ -330,7 +335,10 @@ struct DashcamLibraryView: View {
         if selected.contains(clip.id) { selected.remove(clip.id) } else { selected.insert(clip.id) }
     }
 
-    private func delete(_ clips: [DashcamServerClip], _ places: Set<Place>) async {
+    private func delete(_ chosen: [DashcamServerClip], _ places: Set<Place>) async {
+        // Locked clips are never deleted: left out up front, and the note says how many and why.
+        let (clips, locked) = DashcamLock.split(chosen, tagged: DashcamTagged.ids(defaults: sync.defaults))
+        guard !clips.isEmpty else { note = DashcamLock.skippedLine(locked.count); deleteTask = nil; return }
         var failed = 0, done = 0
         deleting = (0, clips.count)
         for clip in clips {
@@ -343,6 +351,7 @@ struct DashcamLibraryView: View {
         deleteTask = nil
         let stopped = done < clips.count ? " Stopped after \(done) of \(clips.count)." : ""
         note = (failed == 0 ? "Deleted \(done) clip\(done == 1 ? "" : "s")." : "\(failed) of \(done) couldn't be deleted everywhere.") + stopped
+            + (DashcamLock.skippedLine(locked.count).map { " " + $0 } ?? "")
         await model.reload()
     }
 

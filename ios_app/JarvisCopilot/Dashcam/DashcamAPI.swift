@@ -36,6 +36,23 @@ struct DashcamDestinationState: Equatable, Sendable {
     init(state: String, error: String? = nil) { self.state = state; self.error = error }
 }
 
+/// The server's answer to card deletes the phone asked for: which it queued, which it has no clip for, and which it
+/// refused because the clip is locked (tagged).
+struct DashcamCardMarks: Equatable, Sendable {
+    /// Nil from a server that doesn't say (then anything not refused counts as queued).
+    var marked: [String]?
+    var missing: [String] = []
+    var locked: [String] = []
+
+    /// The card file may go for this clip: the server queued its delete, or has no record of the clip at all (so no
+    /// tags). Never a clip it refused as locked.
+    func allows(_ id: String) -> Bool {
+        if locked.contains(id) { return false }
+        guard let marked else { return true }
+        return marked.contains(id) || missing.contains(id)
+    }
+}
+
 /// A card delete he asked for that still waits for the camera (the server's backlog entry).
 struct DashcamCardDelete: Equatable, Sendable {
     var id: String
@@ -79,6 +96,8 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var serverUploaded: Bool?
     /// Tags he put on it (ids, in the tag list's order).
     var tags: [String] = []
+    /// The server's word that the clip is locked (it carries a tag): never deleted anywhere. `DashcamLock` decides.
+    var locked = false
     /// He asked for it to be deleted from the dashcam, and the camera hasn't done it yet.
     var cardDelete: DashcamCardDelete?
     var deletePending: Bool { cardDelete != nil }
@@ -112,6 +131,7 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
         driveID = str(json["drive_id"])
         serverUploaded = json["uploaded"].map(bool)
         tags = (json["tags"] as? [Any] ?? []).compactMap { $0 as? String }
+        locked = bool(json["locked"])
         cardDelete = (json["card_delete"] as? [String: Any]).flatMap { DashcamCardDelete(json: $0, id: id, path: path) }
     }
 
@@ -213,6 +233,15 @@ struct DashcamUploadTicket: Equatable, Sendable {
 /// pairing's session cookie and Cloudflare Access headers.
 struct DashcamAPI: Sendable {
     var api: JarvisAPI = .shared
+    /// Hears every Drive token answer (`driveAccess`): `expired` when the server said Google's sign-in is dead.
+    var tokenAnswered: @Sendable (_ destinationID: String, _ expired: Bool) async -> Void = { id, expired in
+        await DashcamDriveSignIn.shared.tokenAnswered(id, expired: expired)
+    }
+    /// Hears every destinations list: one that no longer calls a destination signed out (or no longer has it) ends
+    /// the "Google Drive is signed out" state for it.
+    var destinationsAnswered: @Sendable (_ list: [DashcamDestination]) async -> Void = { list in
+        await DashcamDriveSignIn.shared.destinationsListed(list)
+    }
     static let prefix = "/api/dashcam"
 
     enum UploadStart: Equatable, Sendable {
@@ -233,6 +262,12 @@ struct DashcamAPI: Sendable {
     /// message too: a 404 from anything else (an older server, a proxy, an unknown route) must never
     /// cost him the phone's copy of a clip. `upload not found` (a chunk or complete after the server
     /// dropped the upload) is not this either: that upload just starts over.
+    /// 423: the server refused because the clip is locked (tagged clips are never deleted).
+    static func isLockedRefusal(_ error: Error) -> Bool {
+        guard case APIError.http(let status, _) = error else { return false }
+        return status == 423
+    }
+
     static func isClipGone(_ error: Error) -> Bool {
         guard case APIError.http(let status, let message) = error, status == 404 else { return false }
         let m = message.lowercased()
@@ -328,11 +363,13 @@ struct DashcamAPI: Sendable {
         return (o["clips"] as? [[String: Any]] ?? []).compactMap { DashcamCardDelete(json: $0) }
     }
 
-    /// Returns the ids the server has no clip for.
-    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> [String] {
+    /// Queues card deletes; the answer says which went on the server's backlog and which it refused as locked.
+    func markCardDeletes(_ entries: [(id: String, forget: Bool)]) async throws -> DashcamCardMarks {
         let body: [String: Any] = ["clips": entries.map { ["id": $0.id, "forget": $0.forget] as [String: Any] }]
         let o = try await api.post(Self.prefix + "/card_deletes", json: body).object()
-        return (o["missing"] as? [Any] ?? []).compactMap(str)
+        return DashcamCardMarks(marked: (o["marked"] as? [Any])?.compactMap(str),
+                                missing: (o["missing"] as? [Any] ?? []).compactMap(str),
+                                locked: (o["locked"] as? [Any] ?? []).compactMap(str))
     }
 
     func cardDeletesDone(_ ids: [String]) async throws {
@@ -404,7 +441,9 @@ struct DashcamAPI: Sendable {
 
     func destinations() async throws -> [DashcamDestination] {
         let o = try await api.get(Self.prefix + "/destinations").object()
-        return (o["destinations"] as? [[String: Any]] ?? []).compactMap(DashcamDestination.init(json:))
+        let list = (o["destinations"] as? [[String: Any]] ?? []).compactMap(DashcamDestination.init(json:))
+        await destinationsAnswered(list)
+        return list
     }
 
     /// `fields` may hold a password or token; they go to the server's rclone config and are never echoed back.
@@ -495,6 +534,9 @@ struct DashcamInventoryRow: Equatable, Sendable {
     var phoneDeleted = false
     /// A delete he asked for waits for the camera.
     var cardDelete = false
+    /// Tagged on the server, so locked: its card file is never deleted. (Not the camera's own event lock,
+    /// which `DashcamFile.locked` carries the other way.)
+    var locked = false
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
@@ -506,5 +548,6 @@ struct DashcamInventoryRow: Equatable, Sendable {
         uploaded = bool(json["uploaded"])
         sizeStable = bool(json["size_stable"])
         cardDelete = bool(json["card_delete"])
+        locked = bool(json["locked"])
     }
 }

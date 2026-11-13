@@ -74,3 +74,73 @@ final class DashcamAPITests: XCTestCase {
         XCTAssertNil(DashcamInventoryRow(json: ["id": "c"]))
     }
 }
+
+/// "Google Drive is signed out": every Drive token answer sets or clears the one state the dashcam screens read.
+@MainActor
+final class DashcamDriveSignInTests: XCTestCase {
+    func testA409SetsTheSignedOutStateAndATokenClearsIt() async throws {
+        let state = DashcamDriveSignIn()
+        state.lookupName = { _ in nil }
+        let (api, transport) = JarvisAPI.mocked()
+        var dashcam = DashcamAPI(api: api)
+        dashcam.tokenAnswered = { id, expired in await state.tokenAnswered(id, expired: expired) }
+        transport.enqueue(json: ["ok": false, "reason": "signin_expired"], status: 409)
+        do {
+            _ = try await dashcam.driveAccess(destinationID: "d_drive")
+            XCTFail("a dead sign-in handed out a token")
+        } catch {
+            XCTAssertEqual(error as? DashcamDriveError, .signInExpired("d_drive"))
+        }
+        XCTAssertEqual(state.needed?.destinationID, "d_drive")
+        transport.enqueue(json: ["ok": true, "access_token": "t", "expires_at": Date().timeIntervalSince1970 + 3600, "path": "Dashcam"])
+        let key = try await dashcam.driveAccess(destinationID: "d_drive")
+        XCTAssertEqual(key.token, "t")
+        XCTAssertNil(state.needed, "signed in again: the popup's state clears")
+    }
+
+    /// A destinations list that no longer calls it signed out (signed in elsewhere) or no longer has it (removed)
+    /// ends the state; one that still does keeps it and fills in the name.
+    func testADestinationsListEndsAStaleSignedOutState() throws {
+        let state = DashcamDriveSignIn()
+        state.lookupName = { _ in nil }
+        state.tokenAnswered("d1", expired: true)
+        let expired = try XCTUnwrap(DashcamDestination(json: ["id": "d1", "type": "drive", "name": "Camry", "signin_expired": true]))
+        state.destinationsListed([expired])
+        XCTAssertEqual(state.needed?.name, "Camry")
+        let fixed = try XCTUnwrap(DashcamDestination(json: ["id": "d1", "type": "drive", "name": "Camry"]))
+        state.destinationsListed([fixed])
+        XCTAssertNil(state.needed)
+        state.tokenAnswered("d1", expired: true)
+        state.destinationsListed([])
+        XCTAssertNil(state.needed, "removed")
+    }
+
+    /// The card-delete answer carries the server's refusals of locked clips.
+    func testCardDeleteMarksCarryTheLockedRefusals() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.enqueue(json: ["ok": true, "marked": ["a"], "missing": ["m"], "locked": ["l"]])
+        let marks = try await DashcamAPI(api: api).markCardDeletes([(id: "a", forget: false), (id: "m", forget: false),
+                                                                     (id: "l", forget: true), (id: "x", forget: false)])
+        XCTAssertEqual(marks.locked, ["l"])
+        XCTAssertTrue(marks.allows("a"))
+        XCTAssertTrue(marks.allows("m"), "no record on the server: nothing can lock it")
+        XCTAssertFalse(marks.allows("l"))
+        XCTAssertFalse(marks.allows("x"), "not queued: not deleted")
+        XCTAssertTrue(DashcamCardMarks(marked: nil, locked: ["l"]).allows("x"), "an older server that doesn't say")
+    }
+
+    func testOneDestinationAtATimeAndOnlyItsOwnTokenClearsIt() async {
+        let state = DashcamDriveSignIn()
+        state.lookupName = { id in id == "a" ? "Dashcam Camry" : nil }
+        state.tokenAnswered("a", expired: true)
+        state.tokenAnswered("b", expired: true)
+        XCTAssertEqual(state.needed?.destinationID, "a")
+        state.tokenAnswered("b", expired: false)
+        XCTAssertEqual(state.needed?.destinationID, "a", "another destination's token says nothing about this one")
+        for _ in 0..<20 where state.needed?.name == nil { await Task.yield() }
+        XCTAssertEqual(state.needed?.name, "Dashcam Camry")
+        XCTAssertTrue(DashcamDriveSignIn.message(state.needed).contains("“Dashcam Camry”"))
+        state.tokenAnswered("a", expired: false)
+        XCTAssertNil(state.needed)
+    }
+}

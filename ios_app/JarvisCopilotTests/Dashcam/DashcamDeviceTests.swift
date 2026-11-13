@@ -41,6 +41,99 @@ final class DashcamDeviceTests: XCTestCase {
         XCTAssertTrue(cam.deleted.isEmpty)
     }
 
+    /// A card holding a tagged clip is never erased; one without is, as before.
+    func testFormatIsRefusedWhileTheCardHoldsALockedClip() async throws {
+        let server = FakeSyncServer()
+        device.sync.server = server
+        device.sync.defaults = UserDefaults(suiteName: "dashcam-device-\(UUID().uuidString)")!
+        let tagged = DashcamFile(path: "/mnt/card/video_front/accident_f.ts", kind: .normal, lens: .front, start: Date(),
+                                 durationS: 60, size: 10)
+        let plain = DashcamFile(path: "/mnt/card/video_front/plain_f.ts", kind: .normal, lens: .front, start: Date(),
+                                durationS: 60, size: 10)
+        cam.files = [tagged, plain]
+        DashcamTagged.mark(DashcamIDs.clipID(cameraID: "CAM", path: tagged.path), defaults: device.sync.defaults)
+        do {
+            _ = try await device.invoke("dashcam_format_sd", args: ["confirm": true])
+            XCTFail("formatted a card with a locked clip")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, DashcamDevice.formatRefusal(1))
+            XCTAssertTrue(error.localizedDescription.contains("1 locked clip "), error.localizedDescription)
+        }
+        XCTAssertFalse(cam.calls.contains("format"))
+        cam.files = [plain]
+        let out = try await device.invoke("dashcam_format_sd", args: ["confirm": true])
+        XCTAssertEqual(out["ok"] as? Bool, true)
+        XCTAssertTrue(cam.calls.contains("format"))
+    }
+
+    private func lockedOnServer(_ path: String, onCamera: Bool = true) -> DashcamServerClip {
+        DashcamServerClip(json: ["id": DashcamIDs.clipID(cameraID: "CAM", path: path), "camera_id": "CAM", "path": path,
+                                 "tags": ["accident"], "locked": true, "on_camera": onCamera])!
+    }
+
+    /// No format on this phone's word alone: refused when the server can't be asked, and when the server knows of a
+    /// locked clip on this camera's card that the listing missed.
+    func testFormatNeedsTheServersListOfLockedClips() async throws {
+        let server = FakeSyncServer()
+        device.sync.server = server
+        device.sync.defaults = UserDefaults(suiteName: "dashcam-device-\(UUID().uuidString)")!
+        cam.files = [DashcamFile(path: "/mnt/card/video_front/plain_f.ts", kind: .normal, lens: .front, start: Date(),
+                                 durationS: 60, size: 10)]
+        server.unreachable = true
+        do {
+            _ = try await device.invoke("dashcam_format_sd", args: ["confirm": true])
+            XCTFail("formatted without asking the server")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Couldn't ask the Jarvis server"), error.localizedDescription)
+        }
+        server.unreachable = false
+        server.listed = [lockedOnServer("/mnt/card/video_back/accident_b.ts")]     // not in the (short) listing
+        do {
+            _ = try await device.invoke("dashcam_format_sd", args: ["confirm": true])
+            XCTFail("formatted a card the server says holds a locked clip")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, DashcamDevice.formatRefusal(1))
+        }
+        XCTAssertFalse(cam.calls.contains("format"))
+    }
+
+    /// Tagged on the web since this phone last heard: the delete tool asks the server before the file goes.
+    func testDeleteFileAsksTheServerOnTheCameraWiFi() async throws {
+        let server = FakeSyncServer()
+        device.sync.server = server
+        device.sync.defaults = UserDefaults(suiteName: "dashcam-device-\(UUID().uuidString)")!
+        let path = "/mnt/card/video_front/2026-10-21_16_17_37_f.ts"
+        server.listed = [lockedOnServer(path)]
+        do {
+            _ = try await device.invoke("dashcam_delete_file", args: ["path": path, "confirm": true])
+            XCTFail("deleted a clip the server calls locked")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("locked clip"), error.localizedDescription)
+        }
+        XCTAssertTrue(cam.deleted.isEmpty)
+    }
+
+    /// Jarvis's delete tool refuses a locked clip's file — on the camera's Wi‑Fi and away from it.
+    func testDeleteFileRefusesALockedClip() async throws {
+        let server = FakeSyncServer()
+        device.sync.server = server
+        device.sync.defaults = UserDefaults(suiteName: "dashcam-device-\(UUID().uuidString)")!
+        let path = "/mnt/card/video_back/2026-10-21_16_17_37_b.ts"
+        DashcamTagged.mark(DashcamIDs.clipID(cameraID: "CAM", path: path), defaults: device.sync.defaults)
+        for away in [false, true] {
+            onCamera = !away
+            do {
+                _ = try await device.invoke("dashcam_delete_file", args: ["path": path, "confirm": true])
+                XCTFail("deleted a locked clip (away: \(away))")
+            } catch {
+                XCTAssertTrue(error.localizedDescription.contains("locked clip"), error.localizedDescription)
+            }
+        }
+        XCTAssertTrue(cam.deleted.isEmpty)
+        XCTAssertTrue(server.marked.isEmpty, "not queued either")
+        XCTAssertTrue(device.sync.pendingCameraDeletes.isEmpty)
+    }
+
     func testCameraCommandsNeedTheCameraWiFiButStatusDoesNot() async throws {
         onCamera = false
         do {

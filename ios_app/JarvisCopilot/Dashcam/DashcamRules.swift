@@ -147,13 +147,59 @@ struct DashcamStorage: Sendable {
     /// The camera folder goes in too: event and emr folders share a kind and can share names.
     func localURL(camera: String, file: DashcamFile) -> URL {
         let url = path(camera: camera, file: file, lens: file.lens)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) { return url }
         // Builds before the A4 fix filed its rear clips (video_back/*_b.ts) under front/: keep finding them there.
-        if file.lens == .rear, !FileManager.default.fileExists(atPath: url.path) {
+        if file.lens == .rear {
             let legacy = path(camera: camera, file: file, lens: .front)
-            if FileManager.default.fileExists(atPath: legacy.path) { return legacy }
+            if fm.fileExists(atPath: legacy.path) { return legacy }
         }
+        // A locked clip brought back from the cloud is the MP4 copy the cloud keeps, beside where the camera's
+        // file would be (`restoredURL`).
+        let restored = Self.mp4(url)
+        if restored != url, fm.fileExists(atPath: restored.path) { return restored }
         return url
     }
+
+    /// Where a locked clip brought back from the cloud lands: the camera's own path when it came back in the
+    /// camera's format, else the same name in `.mp4` (the cloud keeps MP4 copies of `.ts` clips) — which
+    /// `localURL` finds when the camera's file isn't there.
+    func restoredURL(camera: String, file: DashcamFile, ext: String) -> URL {
+        let url = path(camera: camera, file: file, lens: file.lens)
+        guard ext.lowercased() != url.pathExtension.lowercased() else { return url }
+        return url.deletingPathExtension().appendingPathExtension(ext.lowercased())
+    }
+
+    /// Where the camera's own file goes (a download's destination), whatever else is there.
+    func cameraURL(camera: String, file: DashcamFile) -> URL { path(camera: camera, file: file, lens: file.lens) }
+
+    /// The camera's original came down: a copy brought back from the cloud beside it goes, so there is one copy.
+    func dropRestoredCopy(camera: String, file: DashcamFile) {
+        let original = cameraURL(camera: camera, file: file)
+        let restored = Self.mp4(original)
+        guard restored != original, FileManager.default.fileExists(atPath: original.path) else { return }
+        try? FileManager.default.removeItem(at: restored)
+    }
+
+    /// What a downloaded file is, from its first bytes: "ts" (the 0x47 sync byte at 0 and 188), "mp4" (`ftyp` at 4)
+    /// or "jpg"; nil when it's none of those.
+    static func sniffedExtension(_ url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let head = [UInt8]((try? handle.read(upToCount: 189)) ?? Data())
+        if head.count >= 189, head[0] == 0x47, head[188] == 0x47 { return "ts" }
+        if head.count >= 8, head[4...7].elementsEqual(Array("ftyp".utf8)) { return "mp4" }
+        if head.count >= 3, head[0] == 0xFF, head[1] == 0xD8, head[2] == 0xFF { return "jpg" }
+        return nil
+    }
+
+    private static func mp4(_ url: URL) -> URL {
+        url.pathExtension.lowercased() == "ts" ? url.deletingPathExtension().appendingPathExtension("mp4") : url
+    }
+
+    /// A phone copy's place under its camera folder ("normal/front/loop/x.ts"): what the phone-space count
+    /// leaves out for locked clips, the same whatever container path the app has this install.
+    static func key(_ url: URL) -> String { url.pathComponents.suffix(4).joined(separator: "/") }
 
     private func path(camera: String, file: DashcamFile, lens: DashcamLens) -> URL {
         let parent = file.path.split(separator: "/").dropLast().last.map(String.init) ?? "card"
@@ -179,9 +225,12 @@ struct DashcamStorage: Sendable {
     }
 
     /// A download only lands at its final path once it finished, so a file there is complete. The
-    /// size check allows for Viidure listing sizes in whole KB (rounded up).
+    /// size check allows for Viidure listing sizes in whole KB (rounded up). A restored MP4 copy is smaller
+    /// than the camera's file but just as complete (it too lands whole).
     func exists(camera: String, file: DashcamFile) -> Bool {
-        guard let size = localSize(camera: camera, file: file) else { return false }
+        let url = localURL(camera: camera, file: file)
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value else { return false }
+        if url.lastPathComponent != file.name { return size > 0 }
         return size > 0 && size >= file.size - 1024
     }
 
@@ -189,17 +238,18 @@ struct DashcamStorage: Sendable {
         (try? FileManager.default.attributesOfItem(atPath: localURL(camera: camera, file: file).path)[.size] as? NSNumber)?.int64Value
     }
 
-    /// Bytes of normal footage on the phone (what the cap measures).
-    func normalBytes(camera: String) -> Int64 {
-        normalFiles(camera: camera).reduce(0) { $0 + $1.size }
+    /// Bytes of normal footage on the phone (what the cap measures). `excluding`: locked clips' copies
+    /// (`key`), which stay on the phone for good and so never count against the cap.
+    func normalBytes(camera: String, excluding: Set<String> = []) -> Int64 {
+        normalFiles(camera: camera).reduce(0) { excluding.contains(Self.key($1.url)) ? $0 : $0 + $1.size }
     }
 
     /// Frees room for `needed` bytes of normal footage by deleting the oldest normal clips the
-    /// server already has everywhere. Events, parking clips, photos and anything not yet
-    /// uploaded are never touched. Returns the deleted file names.
+    /// server already has everywhere. Events, parking clips, photos, locked clips (`key`) and anything not
+    /// yet uploaded are never touched. Returns the deleted file names.
     @discardableResult
-    func evict(camera: String, needed: Int64, cap: Int64, uploadedNames: Set<String>) -> [String] {
-        let items = normalFiles(camera: camera).sorted { $0.date < $1.date }
+    func evict(camera: String, needed: Int64, cap: Int64, uploadedNames: Set<String>, locked: Set<String> = []) -> [String] {
+        let items = normalFiles(camera: camera).filter { !locked.contains(Self.key($0.url)) }.sorted { $0.date < $1.date }
         var used = items.reduce(0) { $0 + $1.1 }
         var removed: [String] = []
         for (url, size, _) in items where used + needed > cap {

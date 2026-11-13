@@ -120,6 +120,56 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertTrue(storage.exists(camera: "cam", file: rear))
     }
 
+    /// A locked clip brought back from the cloud is its MP4: found where the camera's `.ts` would be, complete though
+    /// smaller, and — like every locked copy — left out of the phone-space count and never evicted.
+    func testARestoredLockedCopyIsThePhoneCopyAndNeverCountsAgainstTheCap() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = DashcamStorage(root: root)
+        let ts = file(.normal, size: 5_000, name: "2026-10-21_16_17_37_f.ts")
+        XCTAssertFalse(storage.exists(camera: "cam", file: ts))
+        let restored = storage.restoredURL(camera: "cam", file: ts, ext: "mp4")
+        XCTAssertEqual(restored.lastPathComponent, "2026-10-21_16_17_37_f.mp4")
+        XCTAssertEqual(storage.restoredURL(camera: "cam", file: ts, ext: "ts"), storage.localURL(camera: "cam", file: ts))
+        try FileManager.default.createDirectory(at: restored.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 3_000).write(to: restored)
+        XCTAssertEqual(storage.localURL(camera: "cam", file: ts).standardizedFileURL, restored.standardizedFileURL)
+        XCTAssertTrue(storage.exists(camera: "cam", file: ts))
+        let key = DashcamStorage.key(restored)
+        XCTAssertEqual(storage.normalBytes(camera: "cam"), 3_000)
+        XCTAssertEqual(storage.normalBytes(camera: "cam", excluding: [key]), 0)
+        XCTAssertEqual(storage.evict(camera: "cam", needed: 10_000, cap: 1, uploadedNames: [restored.lastPathComponent],
+                                     locked: [key]), [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: restored.path))
+    }
+
+    /// The camera's original and a copy brought back from the cloud never both stay; and a download is sniffed for
+    /// what it is.
+    func testTheCamerasOriginalWinsOverARestoredCopyAndDownloadsAreSniffed() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = DashcamStorage(root: root)
+        let ts = file(.event, size: 2_000, name: "clip_f.ts")
+        let restored = storage.restoredURL(camera: "cam", file: ts, ext: "mp4")
+        try FileManager.default.createDirectory(at: restored.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 100).write(to: restored)
+        storage.dropRestoredCopy(camera: "cam", file: ts)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: restored.path), "no original yet: the restored copy stays")
+        try Data(count: 2_000).write(to: storage.cameraURL(camera: "cam", file: ts))
+        storage.dropRestoredCopy(camera: "cam", file: ts)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: restored.path))
+        XCTAssertEqual(storage.localURL(camera: "cam", file: ts).lastPathComponent, "clip_f.ts")
+        var tsBytes = Data(count: 400); tsBytes[0] = 0x47; tsBytes[188] = 0x47
+        var mp4Bytes = Data(count: 64); mp4Bytes.replaceSubrange(4..<8, with: Array("ftyp".utf8))
+        for (bytes, ext) in [(tsBytes, "ts"), (mp4Bytes, "mp4"), (Data([0xFF, 0xD8, 0xFF, 0xE0]), "jpg")] {
+            let url = root.appendingPathComponent("download.bin")
+            try bytes.write(to: url)
+            XCTAssertEqual(DashcamStorage.sniffedExtension(url), ext)
+        }
+        try Data(count: 10).write(to: root.appendingPathComponent("download.bin"))
+        XCTAssertNil(DashcamStorage.sniffedExtension(root.appendingPathComponent("download.bin")))
+    }
+
     func testEvictionOnlyRemovesOldUploadedNormalClips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
