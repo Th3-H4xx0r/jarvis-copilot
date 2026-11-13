@@ -122,6 +122,12 @@ def now_iso(ts: float | None = None) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def is_locked(clip: dict | None) -> bool:
+    """Any tag locks a clip: it is never deleted - not from the cloud, the card or Jarvis's records -
+    until every tag comes off it (his Oct 21 accident clip lost its phone copy with a tag on it)."""
+    return bool(clip and clip.get("tags"))
+
+
 def parse_iso(value) -> float | None:
     """Unix seconds from an ISO-8601 string (``Z`` or an offset; naive means UTC), else None."""
     if not isinstance(value, str) or not value.strip():
@@ -592,7 +598,7 @@ class DashcamStore:
                 "has_thumb": bool(clip.get("has_thumb")), "uploaded": _is_uploaded(clip, dests),
                 "size_stable": bool(clip.get("size_stable")),
                 "phone_state": (clip.get("phone") or {}).get("state"),
-                "card_delete": bool(clip.get("card_delete"))}
+                "card_delete": bool(clip.get("card_delete")), "locked": is_locked(clip)}
 
     def list_clips(self, *, kind=None, lens=None, state=None, drive=None, start_from=None, start_to=None,
                    cursor=None, limit=100, tag=None) -> tuple[list[dict], str | None]:
@@ -637,15 +643,18 @@ class DashcamStore:
         else:
             self._save_clip(clip)
 
-    def mark_card_deletes(self, entries: list[dict]) -> tuple[list[str], list[str]]:
-        """Queues card deletes ``[{id, forget}]``; returns ``(marked, missing)``. Asking again is
-        harmless (``forget`` only ever turns on)."""
-        marked, missing = [], []
+    def mark_card_deletes(self, entries: list[dict]) -> tuple[list[str], list[str], list[str]]:
+        """Queues card deletes ``[{id, forget}]``; returns ``(marked, missing, locked)`` - a locked
+        (tagged) clip is never queued. Asking again is harmless (``forget`` only ever turns on)."""
+        marked, missing, locked = [], [], []
         with _LOCK:
             for e in entries:
                 clip = self.get_clip(e["id"])
                 if clip is None:
                     missing.append(e["id"])
+                    continue
+                if is_locked(clip):
+                    locked.append(clip["id"])
                     continue
                 entry = clip.get("card_delete") or {"asked_at": now_iso(), "forget": False, "attempts": 0,
                                                      "last_error": None, "last_try_at": None}
@@ -653,7 +662,7 @@ class DashcamStore:
                 clip["card_delete"] = entry
                 self._save_clip(clip)
                 marked.append(clip["id"])
-        return marked, missing
+        return marked, missing, locked
 
     def card_deletes(self, camera_id: str | None = None) -> list[dict]:
         """Open entries, oldest ask first (for one camera, or all)."""
@@ -887,6 +896,38 @@ class DashcamStore:
             entries[dest_id] = entry
             self._save_clip(clip)
         return clip
+
+    def locked_copies_due(self, clip_ids=None) -> list[tuple[str, str, str]]:
+        """``(clip_id, dest_id, remote_path)`` for each locked clip's finished copy that has no
+        second copy in the destination's Locked folder yet (``clip_ids`` limits it to those)."""
+        wanted = set(clip_ids) if clip_ids is not None else None
+        clips = ([c for cid in wanted if (c := self.get_clip(cid))] if wanted is not None else self.all_clips())
+        due = []
+        for clip in clips:
+            if not is_locked(clip):
+                continue
+            for did, entry in (clip.get("destinations") or {}).items():
+                if (isinstance(entry, dict) and entry.get("state") == "done" and entry.get("remote_path")
+                        and not entry.get("locked_path")):
+                    due.append((clip["id"], did, entry["remote_path"]))
+        return due
+
+    def record_locked_copy(self, clip_id: str, dest_id: str, locked_path: str | None, error=None) -> bool:
+        """Notes the second copy made in the destination's Locked folder (or why it couldn't be).
+        Nothing ever deletes a ``locked_path``, even after the clip is untagged."""
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            entry = ((clip or {}).get("destinations") or {}).get(dest_id)
+            if not isinstance(entry, dict):
+                return False
+            if locked_path:
+                entry["locked_path"] = locked_path
+                entry["locked_at"] = now_iso()
+                entry.pop("locked_error", None)
+            else:
+                entry["locked_error"] = str(error)[:500] if error else "copy failed"
+            self._save_clip(clip)
+        return True
 
     def record_direct(self, clip_id: str, dest_id: str, remote_path: str, file_id: str | None,
                       size: int, preview_path: str | None = None,

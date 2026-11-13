@@ -1157,8 +1157,8 @@ def _cid(it, camera=CAM):
 def test_mark_card_delete_sets_entry_and_row_flag(store):
     a, b = item("a.ts"), item("b.ts")
     store.apply_inventory(CAM, [a, b])
-    marked, missing = store.mark_card_deletes([{"id": _cid(a), "forget": False}])
-    assert (marked, missing) == ([_cid(a)], [])
+    marked, missing, locked = store.mark_card_deletes([{"id": _cid(a), "forget": False}])
+    assert (marked, missing, locked) == ([_cid(a)], [], [])
     entry = clip_of(store, a)["card_delete"]
     assert entry["forget"] is False and entry["attempts"] == 0 and entry["asked_at"]
     rows = {r["path"]: r for r in store.apply_inventory(CAM, [a, b])}
@@ -1176,8 +1176,18 @@ def test_mark_is_idempotent_and_forget_wins(store):
 
 
 def test_mark_unknown_clip_is_missing(store):
-    marked, missing = store.mark_card_deletes([{"id": "c_" + "0" * 20, "forget": True}])
-    assert (marked, missing) == ([], ["c_" + "0" * 20])
+    marked, missing, locked = store.mark_card_deletes([{"id": "c_" + "0" * 20, "forget": True}])
+    assert (marked, missing, locked) == ([], ["c_" + "0" * 20], [])
+
+
+def test_a_tagged_clip_is_never_queued_for_a_card_delete(store):
+    a = item("a.ts")
+    store.apply_inventory(CAM, [a])
+    store.set_clip_tags(_cid(a), add=["accident"])
+    marked, missing, locked = store.mark_card_deletes([{"id": _cid(a), "forget": True}])
+    assert (marked, missing, locked) == ([], [], [_cid(a)])
+    assert "card_delete" not in clip_of(store, a) and store.card_deletes(CAM) == []
+    assert {r["path"]: r for r in store.apply_inventory(CAM, [a])}[a["path"]]["locked"] is True
 
 
 def test_a_listing_without_the_clip_never_closes_its_entry(store):

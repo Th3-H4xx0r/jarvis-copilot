@@ -807,3 +807,92 @@ def test_card_deletes_bad_bodies_400(H):
     assert H("POST", "/card_deletes", {"clips": [{"id": "../etc"}]})[0] == 400
     assert H("POST", "/card_deletes/done", {"ids": "nope"})[0] == 400
     assert H("POST", "/card_deletes/failed", {"id": "bad"})[0] == 400
+
+
+# ── locked clips (any tag locks a clip: never deleted) ───────────────────────
+
+class RcRelay(StubRelay):
+    """StubRelay that also answers rclone rc calls (delete_cloud deletes by rc)."""
+    def rc(self, method, params=None, *, timeout=None):
+        self.calls.append(("rc", method, dict(params or {})))
+        return {}
+
+
+def _uploaded(store, cid, did, remote_path):
+    store.set_destination_state(cid, did, "done", remote_path=remote_path)
+
+
+def test_a_tagged_clip_is_locked_everywhere_the_api_shows_it(H, store):
+    (cid,) = inventory(H, "a.ts")
+    assert H("GET", f"/clips/{cid}")[1]["clip"]["locked"] is False
+    H("POST", f"/clips/{cid}/tags", {"add": ["accident"]})
+    assert H("GET", f"/clips/{cid}")[1]["clip"]["locked"] is True
+    assert [c["locked"] for c in H("GET", "/clips")[1]["clips"]] == [True]
+    rows = H("POST", "/inventory", {"camera_id": CAM, "clips": [
+        {"path": "/sd/Normal/F/a.ts", "kind": "normal", "lens": "front", "start": "2026-10-01T20:40:12Z",
+         "duration": 60, "size": 20}]})[1]["clips"]
+    assert rows[0]["locked"] is True              # the phone's card sweep reads this
+
+
+def test_a_locked_clip_refuses_cloud_delete_forget_and_card_delete(store):
+    relay = RcRelay()
+
+    def H(method, path, body=None, query=None):
+        return dr.handle_dashcam_request(method, path, query or {}, body, store, relay=relay)
+
+    (cid,) = inventory(H, "a.ts")
+    d = add_dest(H, path="Dashcam")
+    _uploaded(store, cid, d["id"], "Dashcam/A4-1234/2026-10-01/normal/front/a.ts")
+    H("POST", f"/clips/{cid}/tags", {"add": ["accident"]})
+    status, p = H("POST", f"/clips/{cid}/delete_cloud", {})
+    assert status == 423 and p["error"] == "locked"
+    assert not [c for c in relay.calls if c[0] == "rc" and c[1] == "operations/deletefile"]
+    status, p = H("POST", f"/clips/{cid}/forget", {})
+    assert status == 423 and p["error"] == "locked"
+    assert store.get_clip(cid) is not None
+    status, p = H("POST", "/card_deletes", {"clips": [{"id": cid, "forget": True}]})
+    assert status == 200 and p["marked"] == [] and p["locked"] == [cid]
+    assert H("GET", "/card_deletes", query={"camera": CAM})[1]["clips"] == []
+    # Untagged, it can be deleted again.
+    H("POST", f"/clips/{cid}/tags", {"remove": ["accident"]})
+    assert H("POST", f"/clips/{cid}/delete_cloud", {})[0] == 200
+
+
+def test_locked_copy_goes_to_a_locked_folder_and_survives_untag_and_delete(store):
+    from api.dashcam_relay import RelayWorker
+    relay = RcRelay()
+
+    def H(method, path, body=None, query=None):
+        return dr.handle_dashcam_request(method, path, query or {}, body, store, relay=relay)
+
+    (cid,) = inventory(H, "a.ts")
+    d = add_dest(H, path="Dashcam")
+    remote = store.get_destination(d["id"])["remote"]
+    rp = "Dashcam/A4-1234/2026-10-01/normal/front/a.ts"
+    _uploaded(store, cid, d["id"], rp)
+    store.set_clip_tags(cid, add=["accident"])
+    w = RelayWorker(lambda: store, relay)
+    w._lock_copies(store, store.destinations_by_id())
+    copies = [c for c in relay.calls if c[0] == "rc" and c[1] == "operations/copyfile"]
+    assert copies == [("rc", "operations/copyfile", {"srcFs": remote + ":", "srcRemote": rp,
+                                                     "dstFs": remote + ":",
+                                                     "dstRemote": "Dashcam/Locked/A4-1234/2026-10-01/normal/front/a.ts"})]
+    entry = store.get_clip(cid)["destinations"][d["id"]]
+    assert entry["locked_path"] == "Dashcam/Locked/A4-1234/2026-10-01/normal/front/a.ts" and entry["locked_at"]
+    w._lock_copies(store, store.destinations_by_id())           # already copied: nothing more
+    assert len([c for c in relay.calls if c[1:2] == ("operations/copyfile",)]) == 1
+    store.set_clip_tags(cid, remove=["accident"])
+    assert H("POST", f"/clips/{cid}/delete_cloud", {})[0] == 200
+    deleted = [c[2]["remote"] for c in relay.calls if c[0] == "rc" and c[1] == "operations/deletefile"]
+    assert deleted == [rp]                                        # the Locked copy is never deleted
+
+
+def test_locked_path_for_keeps_the_layout_under_locked():
+    from api.dashcam_relay import locked_path_for
+    assert locked_path_for({"path": "Dashcam"}, "Dashcam/CAM/2026-10-21/normal/rear/x.mp4") == \
+        "Dashcam/Locked/CAM/2026-10-21/normal/rear/x.mp4"
+    assert locked_path_for({"path": ""}, "CAM/2026-10-21/normal/rear/x.mp4") == "Locked/CAM/2026-10-21/normal/rear/x.mp4"
+    assert locked_path_for({"path": "/volume1/dash"}, "/volume1/dash/CAM/d/normal/front/x.ts") == \
+        "/volume1/dash/Locked/CAM/d/normal/front/x.ts"
+    # A path recorded outside the base still lands under the base's Locked folder.
+    assert locked_path_for({"path": "Dashcam"}, "Other/x.mp4") == "Dashcam/Locked/Other/x.mp4"

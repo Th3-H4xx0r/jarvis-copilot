@@ -68,6 +68,7 @@ BACKOFF_BASE_S = 30
 MAX_ACTIVE_JOBS = 4
 JOB_EXPIRE = "6h"          # rclone forgets finished async jobs after 1 min by default
 WORKER_INTERVAL_S = 5.0
+LOCK_SWEEP_S = 600.0       # how often the worker looks for locked clips still missing their Locked-folder copy
 LOG_MAX_BYTES = 10 * 1024 * 1024
 
 # The only config questions answered while creating a remote non-interactively.
@@ -142,6 +143,47 @@ def remote_path_for(dest: dict, clip: dict) -> str:
                     _segment(clip.get("lens") or "front"), _segment(name, "clip")])
     prefix = ("/" if absolute else "") + (base + "/" if base else "")
     return prefix + rel
+
+
+LOCKED_FOLDER = "Locked"
+
+
+def locked_path_for(dest: dict, remote_path: str) -> str:
+    """Where a locked clip's second copy goes: the same layout under ``<dest path>/Locked/``, so
+    ``Dashcam/CAM/day/kind/lens/x.mp4`` -> ``Dashcam/Locked/CAM/day/kind/lens/x.mp4``. Nothing in
+    Jarvis ever deletes from the Locked folder."""
+    base = str(dest.get("path") or "")
+    absolute = base.startswith("/")
+    base = base.strip("/")
+    path = str(remote_path or "").lstrip("/")
+    rest = path[len(base) + 1:] if base and path.startswith(base + "/") else path
+    prefix = ("/" if absolute else "") + (base + "/" if base else "")
+    return prefix + LOCKED_FOLDER + "/" + rest
+
+
+def copy_locked(store, relay_obj, clip_ids=None) -> int:
+    """Makes the Locked-folder copy of each locked clip's finished copy that lacks one (server-side
+    ``operations/copyfile`` within the same remote, so Drive copies without a download). Returns how
+    many were copied; a failure is recorded on the entry and tried again by the worker's sweep."""
+    dests = {d["id"]: d for d in store.destinations()}
+    made = 0
+    for cid, did, remote_path in store.locked_copies_due(clip_ids):
+        dest = dests.get(did)
+        if not dest or not dest.get("remote"):
+            continue
+        target = locked_path_for(dest, remote_path)
+        fs = dest["remote"] + ":"
+        try:
+            relay_obj.rc("operations/copyfile", {"srcFs": fs, "srcRemote": remote_path,
+                                                 "dstFs": fs, "dstRemote": target})
+        except (RelayError, RelayUnavailable) as exc:
+            logger.warning("dashcam relay: locked copy of %s to %s failed: %s", cid, target, exc)
+            store.record_locked_copy(cid, did, None, exc)
+            continue
+        store.record_locked_copy(cid, did, target)
+        made += 1
+        logger.info("dashcam relay: locked copy of %s kept at %s", cid, target)
+    return made
 
 
 def _rfc3339(value) -> float | None:
@@ -768,10 +810,21 @@ class RelayWorker(threading.Thread):
     def _relay(self) -> Relay:
         return self.relay if self.relay is not None else relay()
 
+    def _lock_copies(self, store, dests) -> None:
+        """Second copies for locked clips that don't have one yet (tagged before they were uploaded,
+        a failed copy, a restart): every LOCK_SWEEP_S, and whenever called directly."""
+        self._next_lock_sweep = self.clock() + LOCK_SWEEP_S
+        try:
+            copy_locked(store, self._relay())
+        except RelayUnavailable:
+            pass
+
     def tick(self) -> None:
         store = self.store_factory()
         dests = {d["id"]: d for d in store.destinations()}
         self._prune(store, dests)
+        if self.clock() >= getattr(self, "_next_lock_sweep", 0.0):
+            self._lock_copies(store, dests)
         staged = store.staged_clip_ids()
         if not staged:
             return
@@ -793,7 +846,9 @@ class RelayWorker(threading.Thread):
                 if clip is None or (clip.get("upload") or {}).get("state") != "staged":
                     continue
             clips.append(clip)
-        clips.sort(key=lambda c: (_PRIORITY.get(c.get("kind"), 9), -(parse_iso(c.get("start")) or 0)))
+        # Locked (tagged) clips first: an accident clip shouldn't wait behind hours of driving.
+        clips.sort(key=lambda c: (0 if c.get("tags") else 1, _PRIORITY.get(c.get("kind"), 9),
+                                  -(parse_iso(c.get("start")) or 0)))
         try:
             for clip in clips:
                 self._clip(store, clip, dests)

@@ -84,6 +84,7 @@ from api import dashcam_drives, dashcam_relay
 from api.dashcam_relay import RelayError, RelayUnavailable
 from api.dashcam_store import CHUNK_SIZE as _STORE_CHUNK_SIZE, MIN_CHUNK_SIZE
 from api.dashcam_store import KINDS, LENSES, PHONE_STATES, STATE_FILTERS, THUMB_MAX_BYTES, parse_iso
+from api.dashcam_store import is_locked
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,19 @@ def _relay(relay):
 
 def _err(status: int, error: str, **extra) -> tuple[int, dict]:
     return status, {"ok": False, "error": error, **extra}
+
+
+def _locked() -> tuple[int, dict]:
+    """A locked (tagged) clip is never deleted: its tags must come off first."""
+    return _err(423, "locked", message="This clip is tagged, so it's locked and can't be deleted. "
+                                       "Remove its tags first.")
+
+
+def _show(clip: dict, store, dests=None) -> dict:
+    """A clip as the API returns it: ``uploaded`` and ``locked`` worked out now, never stored."""
+    clip["uploaded"] = store.is_uploaded(clip, dests) if dests is not None else store.is_uploaded(clip)
+    clip["locked"] = is_locked(clip)
+    return clip
 
 
 def _upload_reply(up: dict) -> dict:
@@ -273,6 +287,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
                 return _gps(store, cid, body)
             if action == "phone":
                 return _phone(store, cid, body)
+            if action in ("delete_cloud", "forget") and is_locked(store.get_clip(cid)):
+                return _locked()
             if action == "delete_cloud":
                 return _delete_cloud(store, cid, relay)
             if action == "forget":
@@ -319,7 +335,7 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
             return (200, {"ok": True}) if ok else _err(404 if err == "not_found" else 400, err)
         m = _RE_CLIP_TAGS.match(p)
         if m:
-            return _set_tags(store, m.group(1), body)
+            return _set_tags(store, m.group(1), body, relay)
         return _UNKNOWN
 
     if method == "DELETE":
@@ -407,7 +423,7 @@ def _list_clips(store, q):
                                   cursor=q.get("cursor") or None, limit=limit, tag=q.get("tag") or None)
     dests = store.destinations_by_id()
     for clip in clips:
-        clip["uploaded"] = store.is_uploaded(clip, dests)
+        _show(clip, store, dests)
     return 200, {"clips": clips, "next": nxt}
 
 
@@ -420,11 +436,11 @@ def _mark_card_deletes(store, body):
         if not isinstance(c.get("id"), str) or not _RE_CLIP_ID.match(c["id"]):
             return _err(400, "each clip needs a clip id")
         entries.append({"id": c["id"], "forget": c.get("forget") is True})
-    marked, missing = store.mark_card_deletes(entries)
-    return 200, {"ok": True, "marked": marked, "missing": missing}
+    marked, missing, locked = store.mark_card_deletes(entries)
+    return 200, {"ok": True, "marked": marked, "missing": missing, "locked": locked}
 
 
-def _set_tags(store, cid, body):
+def _set_tags(store, cid, body, relay=None):
     if "tags" in body:
         clips, err = store.set_clip_tags(cid, body.get("tags"))
     else:
@@ -433,8 +449,20 @@ def _set_tags(store, cid, body):
         return _err(404 if err == "clip not found" else 400, err)
     dests = store.destinations_by_id()
     for clip in clips:
-        clip["uploaded"] = store.is_uploaded(clip, dests)
+        _show(clip, store, dests)
+    # Just locked: make the Locked-folder copies now (in the background; the worker's sweep retries).
+    ids = [c["id"] for c in clips if c["locked"]]
+    if ids:
+        threading.Thread(target=_copy_locked_quietly, args=(store, relay, ids),
+                         name="dashcam-locked-copy", daemon=True).start()
     return 200, {"ok": True, "clips": clips}
+
+
+def _copy_locked_quietly(store, relay, ids) -> None:
+    try:
+        dashcam_relay.copy_locked(store, _relay(relay), ids)
+    except Exception:  # noqa: BLE001 - best effort; the relay worker's sweep tries again
+        logger.exception("dashcam: locked copy after tagging failed")
 
 
 def _dest_rows(store, clip: dict) -> list[dict]:
@@ -455,7 +483,7 @@ def _get_clip(store, cid):
     clip = store.get_clip(cid)
     if clip is None:
         return _err(404, "clip not found")
-    clip["uploaded"] = store.is_uploaded(clip)
+    _show(clip, store)
     return 200, {"ok": True, "clip": clip, "fixes": store.get_fixes(cid), "destinations": _dest_rows(store, clip)}
 
 
@@ -482,6 +510,8 @@ def _get_drive(store, drive_id):
     ids = list(drive.get("clip_ids") or [])
     fixes = {cid: store.get_fixes(cid) for cid in ids}
     clips = [c for cid in ids + list(drive.get("other_clip_ids") or []) if (c := store.get_clip(cid))]
+    for clip in clips:
+        clip["locked"] = is_locked(clip)
     return 200, {"ok": True, "drive": drive, "polyline": dashcam_drives.drive_polyline(drive, fixes),
                  "clips": clips}
 
