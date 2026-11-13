@@ -463,6 +463,8 @@ class DashcamStore:
             had &= set(order)
             added, removed = wanted - had, had - wanted
             clip["tags"] = [t for t in order if t in wanted]
+            if clip["tags"]:
+                clip.pop("card_delete", None)   # locked now: a delete asked for earlier never runs
             self._save_clip(clip)
             changed = [clip]
             for pid in partner_ids:
@@ -471,6 +473,8 @@ class DashcamStore:
                     continue
                 theirs = (set(partner.get("tags") or []) & set(order) | added) - removed
                 partner["tags"] = [t for t in order if t in theirs]
+                if partner["tags"]:
+                    partner.pop("card_delete", None)
                 self._save_clip(partner)
                 changed.append(partner)
         return changed, None

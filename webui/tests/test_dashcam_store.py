@@ -1239,3 +1239,13 @@ def test_card_deletes_filters_by_camera(store):
     assert [e["path"] for e in store.card_deletes(CAM)] == [a["path"]]
     assert {e["camera_id"] for e in store.card_deletes(None)} == {CAM, "OTHER"}
     assert set(store.card_deletes(CAM)[0]) >= {"id", "path", "camera_id", "forget", "attempts", "last_error"}
+
+
+def test_tagging_a_clip_cancels_its_waiting_card_delete(store):
+    """A delete he asked for before tagging must not run once the clip is locked (front and rear)."""
+    f = item("f.ts")
+    store.apply_inventory(CAM, [f])
+    store.mark_card_deletes([{"id": _cid(f), "forget": True}])
+    assert store.card_deletes(CAM)
+    store.set_clip_tags(_cid(f), add=["accident"])
+    assert store.card_deletes(CAM) == [] and "card_delete" not in clip_of(store, f)
