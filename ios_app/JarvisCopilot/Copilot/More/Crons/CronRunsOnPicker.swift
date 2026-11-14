@@ -144,7 +144,7 @@ struct CronRunsOnSheet: View {
                     if choices.loaded && choices.harnesses.isEmpty {
                         Text("No harnesses yet").font(.footnote).foregroundStyle(JcTheme.muted)
                     } else if choices.harnesses.isEmpty {
-                        ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+                        JcLoader().frame(maxWidth: .infinity).padding(.vertical, 30)
                     } else {
                         GlassGroup {
                             ForEach(Array(choices.harnesses.enumerated()), id: \.element.id) { index, harness in

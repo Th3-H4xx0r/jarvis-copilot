@@ -188,7 +188,7 @@ struct LiveAskBubble: View {
                     ChatAssistantTurnCard(message: reply)
                 } else {
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
+                        JcLoader(size: 16)
                         Text("Jarvis is thinking…").font(.caption).foregroundStyle(JcTheme.muted)
                     }
                 }

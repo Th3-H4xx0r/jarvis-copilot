@@ -185,7 +185,7 @@ struct HarnessJobSheet: View {
                     }
                     .memoryChipsHidden()
                 } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .background(JcTheme.bg.ignoresSafeArea())

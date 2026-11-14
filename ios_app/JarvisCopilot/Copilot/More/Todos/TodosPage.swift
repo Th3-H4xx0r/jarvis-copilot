@@ -43,7 +43,7 @@ struct TodosPage: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.todos.isEmpty {
             TodosEmptyState().padding(.top, 100)
         } else {
@@ -97,20 +97,14 @@ struct TodoCard: View {
     }
 }
 
-/// The in-progress glyph, turning slowly so live work reads as live.
+/// The in-progress mark: the Jarvis loader, so live work reads as live.
+/// (`symbol` is the style's still glyph; the loader replaces it while it runs.)
 struct TodoSpinningIcon: View {
     let symbol: String
     let color: Color
 
-    @State private var spinning = false
-
     var body: some View {
-        JcIcon(symbol)
-            .font(.system(size: 18))
-            .foregroundStyle(color)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .animation(.linear(duration: 1.4).repeatForever(autoreverses: false), value: spinning)
-            .onAppear { spinning = true }
+        JcLoader(size: 18).foregroundStyle(color)
     }
 }
 

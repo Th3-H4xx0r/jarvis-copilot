@@ -30,7 +30,7 @@ struct CostsView: View {
     @ViewBuilder
     private var content: some View {
         if !store.hasLoaded && store.isLoading {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 80)
         } else if let message = store.errorMessage, !store.hasContent {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 60)
@@ -374,7 +374,7 @@ struct CostBudgetSheet: View {
                     Button(role: .destructive) {
                         Task { await clear() }
                     } label: {
-                        if clearing { ProgressView().controlSize(.small) } else { Text("Remove budget") }
+                        if clearing { JcLoader(size: 16) } else { Text("Remove budget") }
                     }
                     .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                     .disabled(clearing)

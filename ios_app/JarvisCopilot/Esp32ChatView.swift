@@ -298,7 +298,7 @@ struct Esp32ChatView: View {
                     if t.done {
                         JcIcon("checkmark.circle.fill").foregroundStyle(JcTheme.accent).font(.footnote)
                     } else {
-                        ProgressView().controlSize(.mini)
+                        JcLoader(size: 12)
                     }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(t.name.replacingOccurrences(of: "device_", with: ""))

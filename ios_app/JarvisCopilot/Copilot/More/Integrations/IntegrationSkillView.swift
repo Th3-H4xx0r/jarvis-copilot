@@ -22,7 +22,7 @@ struct IntegrationSkillView: View {
                     }
                     .padding(.top, 80)
                 } else if !loaded {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
+                    JcLoader().frame(maxWidth: .infinity).padding(.top, 100)
                 } else if let skill {
                     summary(skill)
                     if !skill.linkedFiles.isEmpty { files(skill) }

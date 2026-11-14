@@ -106,7 +106,7 @@ struct JarvisPodView: View {
                     Task { await reload() }
                 } label: {
                     if refreshing {
-                        ProgressView().tint(JcTheme.accent)
+                        JcLoader().foregroundStyle(JcTheme.accent)
                     } else {
                         JcIcon("arrow.clockwise", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
                     }
@@ -293,7 +293,7 @@ struct JarvisPodView: View {
     private func homePreview(_ home: JarvisPodHome, selected: Bool) -> some View {
         // The current home shows the pod's real screen (a live screenshot).
         if selected && store.loadingScreens.contains(podID) {
-            ProgressView().tint(JcTheme.accent)
+            JcLoader().foregroundStyle(JcTheme.accent)
         } else if selected, let data = store.screens[podID], let image = UIImage(data: data) {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
@@ -383,7 +383,7 @@ struct JarvisPodView: View {
                 ZStack {
                     Circle().fill(JcTheme.accent.opacity(0.16))
                     if player.loadingID == rec.id {
-                        ProgressView().tint(JcTheme.accent)
+                        JcLoader().foregroundStyle(JcTheme.accent)
                     } else {
                         JcIcon(playing ? "pause.fill" : "play.fill")
                             .font(.system(size: 14, weight: .semibold))

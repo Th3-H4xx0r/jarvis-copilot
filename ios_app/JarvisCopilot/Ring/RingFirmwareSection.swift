@@ -141,12 +141,12 @@ struct RingFirmwareSection: View {
             EmptyView()
         case .running:
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
                 Text("Flashing \(Int(flasher.fraction * 100))%").font(.caption).monospacedDigit()
             }
         case .verifying:
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
                 Text("Verifying…").font(.caption)
             }
         case .succeeded:

@@ -211,7 +211,7 @@ struct RouteDetailView: View {
                     Rectangle().fill(Color.white.opacity(0.04))
                         .overlay {
                             if !loaded {
-                                ProgressView()
+                                JcLoader()
                             } else if let preview = workout.route?.preview, !preview.isEmpty {
                                 RouteThumbnail(preview: preview, size: 180)
                             }

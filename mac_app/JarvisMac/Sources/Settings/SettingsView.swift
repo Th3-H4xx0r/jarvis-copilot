@@ -170,7 +170,7 @@ private struct ChatRunSection: View {
                 }
             }
             if options.loading {
-                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Loading harnesses and models…") }
+                HStack(spacing: 6) { JcLoader(size: 16); Text("Loading harnesses and models…") }
                     .font(.caption).foregroundStyle(.secondary)
             } else if let error = options.error {
                 HStack {
@@ -261,7 +261,7 @@ private struct AgentsSettings: View {
                 HStack {
                     Text(status)
                     Spacer()
-                    if busy { ProgressView().controlSize(.small) }
+                    if busy { JcLoader(size: 16) }
                 }
                 Text("Jarvis follows every Claude Code session through its hooks — in Terminal, iTerm or VS Code — and adds a status line that reports your plan's limits (the one you had keeps running underneath). Your settings.json is backed up first.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -473,7 +473,7 @@ private struct OtherAgentsSection: View {
                         }
                     }
                     Spacer()
-                    if busy == agent.id { ProgressView().controlSize(.small) }
+                    if busy == agent.id { JcLoader(size: 16) }
                     if installed[agent.id] == true {
                         Button("Remove") { run("uninstall", agent.id) }
                     } else {

@@ -365,7 +365,7 @@ private struct ExercisePhoto: View {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
-                ProgressView().tint(JcTheme.muted)
+                JcLoader().foregroundStyle(JcTheme.muted)
             }
         }
         .task { image = await ExerciseImageCache.shared.image(path) }

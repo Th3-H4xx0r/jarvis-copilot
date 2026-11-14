@@ -61,7 +61,7 @@ struct VoiceModelPickerSheet: View {
             }
 
             if models.loading && models.catalog == nil {
-                ProgressView()
+                JcLoader()
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
             } else if let failure = models.loadError, models.catalog == nil {
@@ -176,7 +176,7 @@ struct VoiceModelPickerSheet: View {
         switch store.transcriptionStatus {
         case .preparing(let fraction):
             HStack(spacing: 8) {
-                ProgressView().controlSize(.mini).tint(JcTheme.muted)
+                JcLoader(size: 12).foregroundStyle(JcTheme.muted)
                 Text(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
                      ?? "Getting on-device transcription ready…")
             }

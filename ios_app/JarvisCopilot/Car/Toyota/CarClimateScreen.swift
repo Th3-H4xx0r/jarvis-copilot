@@ -63,7 +63,7 @@ struct CarClimateScreen: View {
                 }
                 if dirty || saving {
                     Button(action: save) {
-                        if saving { ProgressView() } else { Text("Save").frame(maxWidth: .infinity) }
+                        if saving { JcLoader() } else { Text("Save").frame(maxWidth: .infinity) }
                     }
                     .buttonStyle(.jcGlass(full: true))
                     .disabled(saving)

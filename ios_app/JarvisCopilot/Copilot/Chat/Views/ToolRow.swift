@@ -37,7 +37,7 @@ struct ChatToolRow: View {
                         .foregroundStyle(statusColor)
                         .font(.footnote)
                 } else {
-                    ProgressView().controlSize(.mini)
+                    JcLoader(size: 12)
                 }
             }
             .frame(width: 14, alignment: .leading)

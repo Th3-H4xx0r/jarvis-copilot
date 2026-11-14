@@ -50,7 +50,7 @@ struct MemoryPage: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             MemoryEmptyState(symbol: store.section.iconName,
                              text: store.section.emptyText,

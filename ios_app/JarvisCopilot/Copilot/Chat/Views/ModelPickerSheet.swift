@@ -73,7 +73,7 @@ struct CatalogModelPickerSheet: View {
 
     @ViewBuilder private var content: some View {
         if loading && catalog == nil {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
+            JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
         } else if catalog == nil {
             VStack(spacing: 18) {
                 JcEmptyState(symbol: "wifi.exclamationmark", title: "Couldn’t load models")

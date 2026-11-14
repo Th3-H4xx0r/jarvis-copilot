@@ -169,7 +169,7 @@ struct LiveHearingSection: View {
                     .accessibilityLabel("Cancel download")
             }
         } else if chosen, choice.kinds.contains(where: { models.state($0) == .preparing }) {
-            ProgressView().controlSize(.small)
+            JcLoader(size: 16)
         } else if chosen, let failed = choice.kinds.first(where: { models.state($0).isFailed }) {
             Button { models.download(failed) } label: {
                 Text("Retry")
@@ -248,7 +248,7 @@ struct LiveSpeakersSection: View {
                     .accessibilityLabel("Cancel download")
             }
         case .preparing where models.splitsSpeakers:
-            ProgressView().controlSize(.small)
+            JcLoader(size: 16)
         case .failed where models.splitsSpeakers:
             Button { models.download(.speakers) } label: {
                 Text("Retry").font(.system(size: 13, weight: .semibold)).foregroundStyle(JcTheme.amber)
@@ -400,7 +400,7 @@ struct LiveDownloadsScreen: View {
                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(JcTheme.text)
         case .preparing:
-            ProgressView().controlSize(.small)
+            JcLoader(size: 16)
         case .absent, .failed:
             Text("Not downloaded")
                 .font(.system(size: 12.5))

@@ -57,7 +57,7 @@ struct TasksPage: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
             CenteredMessage(text: "No scheduled tasks yet").padding(.top, 100)
         } else {
@@ -221,7 +221,7 @@ struct CronRunButton: View {
         Button { if !active { onRun() } } label: {
             Group {
                 if starting {
-                    ProgressView().controlSize(.small).tint(JcTheme.accent)
+                    JcLoader(size: 16).foregroundStyle(JcTheme.accent)
                 } else {
                     JcIcon(running ? "arrow.triangle.2.circlepath" : "play.fill")
                         .font(.system(size: 16))

@@ -100,7 +100,7 @@ struct DashcamDriveDetailView: View {
                 } else if let error {
                     CardGroup { CardEmptyBlock(error, symbol: "exclamationmark.icloud") }
                 } else {
-                    ProgressView().padding(.top, 40)
+                    JcLoader().padding(.top, 40)
                 }
             }
             .padding(.vertical, 12)

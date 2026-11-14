@@ -218,7 +218,7 @@ struct AgentLaunchSheet: View {
             } label: {
                 HStack(spacing: 8) {
                     if launching {
-                        ProgressView().controlSize(.small).tint(JcTheme.accent)
+                        JcLoader(size: 16).foregroundStyle(JcTheme.accent)
                     } else {
                         JcIcon("play.fill", size: 15)
                     }

@@ -21,7 +21,7 @@ extension EnvironmentValues {
 private struct AgentDetailsLoading: View {
     var body: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.mini)
+            JcLoader(size: 12)
             Text("Loading…").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
         }
         .padding(.vertical, 6)

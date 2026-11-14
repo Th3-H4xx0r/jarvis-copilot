@@ -327,7 +327,7 @@ struct CarLightSettingsSheet: View {
                     reading = false
                 }
             } label: {
-                if reading { ProgressView() } else { Label("Read from the lights", jcIcon: "arrow.clockwise") }
+                if reading { JcLoader() } else { Label("Read from the lights", jcIcon: "arrow.clockwise") }
             }
             .buttonStyle(.jcGlass(compact: true))
             .disabled(reading || manager.link(for: controllerID) != .ready)

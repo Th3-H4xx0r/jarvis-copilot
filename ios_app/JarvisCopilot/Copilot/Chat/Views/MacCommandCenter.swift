@@ -258,7 +258,7 @@ struct MacCommandCenterSheet: View {
                 }
                 Spacer(minLength: 8)
                 Button { actions.perform(.unlock) } label: {
-                    if actions.busy == "unlock" { ProgressView().controlSize(.small) } else { Text("Unlock") }
+                    if actions.busy == "unlock" { JcLoader(size: 16) } else { Text("Unlock") }
                 }
                 .buttonStyle(.jcGlass(compact: true))
                 .disabled(actions.busy != nil)
@@ -305,7 +305,7 @@ struct MacCommandCenterSheet: View {
                 ForEach([MacControlItem.unlock, .lock, .sleep]) { item in
                     Button { actions.perform(item) } label: {
                         HStack(spacing: 7) {
-                            if actions.busy == item.rawValue { ProgressView().controlSize(.small) } else { Image(systemName: item.symbol) }
+                            if actions.busy == item.rawValue { JcLoader(size: 16) } else { Image(systemName: item.symbol) }
                             Text(item.title).lineLimit(1)
                         }
                     }
@@ -591,7 +591,7 @@ struct MacAppSwitcher: View {
         return VStack(alignment: layout == .grid ? .leading : .center, spacing: 10) {
             HStack(alignment: .top, spacing: 8) {
                 if waiting {
-                    ProgressView().controlSize(.small)
+                    JcLoader(size: 16)
                 } else {
                     Image(systemName: content == .empty ? "macwindow" : "exclamationmark.triangle")
                         .foregroundStyle(JcTheme.muted)

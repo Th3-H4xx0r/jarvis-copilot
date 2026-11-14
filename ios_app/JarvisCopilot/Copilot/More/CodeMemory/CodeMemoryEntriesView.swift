@@ -114,7 +114,7 @@ struct CodeMemoryEntriesView: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 60)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 80)
         } else if store.entries.isEmpty {
             CodeMemoryEmptyState(
                 symbol: store.query.trimmingCharacters(in: .whitespaces).isEmpty

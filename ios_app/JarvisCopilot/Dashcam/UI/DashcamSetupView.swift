@@ -80,7 +80,7 @@ struct DashcamSetupView: View {
                     }
                 } else {
                     HStack(spacing: 12) {
-                        ProgressView()
+                        JcLoader()
                         Text(currentSSID.map { "Checking “\($0)” for a dashcam…" } ?? "Looking for a dashcam…")
                             .font(.callout).foregroundStyle(JcTheme.muted)
                     }
@@ -176,7 +176,7 @@ struct DashcamSetupView: View {
                 Task { await join() }
             } label: {
                 HStack {
-                    if busy { ProgressView().tint(.white) }
+                    if busy { JcLoader().foregroundStyle(.white) }
                     Text(busy ? "Joining and looking for the camera…" : "Join and find the camera")
                 }
                 .frame(maxWidth: .infinity)

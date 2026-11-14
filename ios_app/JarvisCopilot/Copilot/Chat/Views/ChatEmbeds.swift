@@ -76,7 +76,7 @@ struct ChatHTMLCard: View {
                 .foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

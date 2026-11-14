@@ -246,7 +246,7 @@ struct PodSetupView: View {
             case .active:
                 Circle().fill(JcTheme.accent.opacity(0.14))
                 Circle().strokeBorder(JcTheme.accent, lineWidth: 1.5)
-                ProgressView().controlSize(.mini).tint(JcTheme.accent)
+                JcLoader(size: 12).foregroundStyle(JcTheme.accent)
             case .done:
                 Circle().fill(JcTheme.accent)
                 JcIcon("checkmark").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.bg)
@@ -263,7 +263,7 @@ struct PodSetupView: View {
         VStack(alignment: .leading, spacing: 8) {
             if flow.scanning && flow.networks.isEmpty {
                 HStack(spacing: 10) {
-                    ProgressView().controlSize(.small).tint(JcTheme.accent)
+                    JcLoader(size: 16).foregroundStyle(JcTheme.accent)
                     Text("Looking for networks…").font(.subheadline).foregroundStyle(JcTheme.muted)
                 }
                 .padding(.vertical, 6)

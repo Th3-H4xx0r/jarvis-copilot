@@ -124,10 +124,10 @@ private struct NoteRow: View {
     @ViewBuilder private var statusIcon: some View {
         switch note.status {
         case .recording: Image(systemName: "record.circle.fill").foregroundStyle(.red)
-        case .transcribing: ProgressView().controlSize(.mini)
+        case .transcribing: JcLoader(size: 12)
         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .ready:
-            if syncing || note.summaryStatus == .pending { ProgressView().controlSize(.mini) }
+            if syncing || note.summaryStatus == .pending { JcLoader(size: 12) }
             else if !note.uploaded { Image(systemName: "icloud.slash").foregroundStyle(.secondary).help("Not on the server yet") }
         }
     }

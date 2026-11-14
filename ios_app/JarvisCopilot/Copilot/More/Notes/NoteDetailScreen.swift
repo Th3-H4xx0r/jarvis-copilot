@@ -26,7 +26,7 @@ struct NoteDetailScreen: View {
                 } else if let error = store.detailErrors[noteID] {
                     Text(error).font(.system(size: 13)).foregroundStyle(JcTheme.danger)
                 } else {
-                    ProgressView().tint(JcTheme.accent).frame(maxWidth: .infinity).padding(.top, 40)
+                    JcLoader().foregroundStyle(JcTheme.accent).frame(maxWidth: .infinity).padding(.top, 40)
                 }
             }
             .padding(.horizontal, 16)
@@ -92,7 +92,7 @@ struct NoteDetailScreen: View {
                 switch note.summaryStatus {
                 case .pending:
                     HStack(spacing: 8) {
-                        ProgressView().tint(JcTheme.accent)
+                        JcLoader().foregroundStyle(JcTheme.accent)
                         Text("Jarvis is writing the summary…").foregroundStyle(JcTheme.muted)
                     }
                 case .failed:

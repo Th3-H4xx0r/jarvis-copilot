@@ -96,7 +96,7 @@ struct RoutePicker: View {
                     }
                     Spacer()
                     if loading == id {
-                        ProgressView()
+                        JcLoader()
                     } else if guide?.id == id {
                         Image(systemName: "checkmark").foregroundStyle(JcTheme.accent)
                     }

@@ -54,7 +54,7 @@ struct IMessageMemoryView: View {
                     CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                         .padding(.top, 100)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+                    JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
                 }
             }
             .padding(.vertical, 16)

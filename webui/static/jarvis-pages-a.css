@@ -613,7 +613,7 @@
 :root.dark[data-skin="jarvis"] #mainTasks .intg-table td{border-bottom-color:var(--jc-hair);}
 :root.dark[data-skin="jarvis"] #mainTasks .intg-doc{background:var(--jc-surface);border-color:var(--jc-hair);border-radius:var(--jc-r-card);}
 :root.dark[data-skin="jarvis"] #mainTasks .cron-running-indicator{background:var(--jc-surface);border:1px solid var(--jc-hair);border-radius:var(--jc-r-card);color:var(--jc-text-2);}
-:root.dark[data-skin="jarvis"] #mainTasks .cron-watch-spinner{border-color:rgba(62,199,199,.25);border-top-color:var(--jc-accent);}
+:root.dark[data-skin="jarvis"] #mainTasks .cron-watch-spinner{color:var(--jc-accent);}
 
 /* Logs output */
 :root.dark[data-skin="jarvis"] #mainLogs .logs-main-body{padding:8px 24px 32px;}

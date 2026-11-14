@@ -69,7 +69,7 @@ struct RingFirmwareFlashSheet: View {
                     case .succeeded:
                         JcIcon("checkmark", size: 44, weight: .semibold).foregroundStyle(JcTheme.success)
                     case .verifying:
-                        ProgressView().controlSize(.large)
+                        JcLoader(size: 28)
                     case .failed:
                         JcIcon("xmark", size: 44, weight: .semibold).foregroundStyle(JcTheme.danger)
                     default:

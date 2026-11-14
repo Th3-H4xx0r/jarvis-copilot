@@ -29,7 +29,7 @@ struct NotesPage: View {
                     emptyState
                 }
                 if !store.loaded {
-                    ProgressView().tint(JcTheme.accent).frame(maxWidth: .infinity).padding(.top, 40)
+                    JcLoader().foregroundStyle(JcTheme.accent).frame(maxWidth: .infinity).padding(.top, 40)
                 }
             }
             .padding(.horizontal, 16)

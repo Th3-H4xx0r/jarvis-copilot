@@ -71,7 +71,7 @@ struct DoorAlarmSetupView: View {
             Button {
                 Task { await saveCredentials() }
             } label: {
-                Row { HStack { Text("Save and find my devices"); Spacer(); if busy == "creds" { ProgressView() } } }
+                Row { HStack { Text("Save and find my devices"); Spacer(); if busy == "creds" { JcLoader() } } }
             }
             .buttonStyle(.plain)
             .disabled(accessID.isEmpty || secret.isEmpty || busy != nil)
@@ -93,7 +93,7 @@ struct DoorAlarmSetupView: View {
                                         .font(.caption).foregroundStyle(JcTheme.muted)
                                 }
                                 Spacer()
-                                if busy == device.id { ProgressView() }
+                                if busy == device.id { JcLoader() }
                                 else if store.state?.setup.hub == true, store.state?.hubName == device.name {
                                     Image(systemName: "checkmark").foregroundStyle(JcTheme.accent)
                                 }
@@ -118,7 +118,7 @@ struct DoorAlarmSetupView: View {
                         HStack {
                             Text(board.name)
                             Spacer()
-                            if busy == board.id { ProgressView() }
+                            if busy == board.id { JcLoader() }
                             else if currentBoard == board.id { Image(systemName: "checkmark").foregroundStyle(JcTheme.accent) }
                         }
                     }

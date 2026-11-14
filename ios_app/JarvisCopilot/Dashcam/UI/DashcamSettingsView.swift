@@ -135,7 +135,7 @@ struct DashcamSettingsView: View {
 
     private var cameraSettings: some View {
         CardGroup("Camera settings") {
-            if loading && items.isEmpty { Row { ProgressView() } }
+            if loading && items.isEmpty { Row { JcLoader() } }
             ForEach(Array(items.filter { !$0.options.isEmpty }.enumerated()), id: \.element.id) { i, item in
                 if i > 0 { RowDivider() }
                 Row {

@@ -242,7 +242,7 @@ struct ChatToolRowView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(tool.isError ? ChatStyle.danger : JcAccent.color)
                 } else {
-                    ProgressView().controlSize(.mini).scaleEffect(0.8)
+                    JcLoader(size: 10)
                 }
             }
             .frame(width: 13, height: 13, alignment: .leading)
@@ -772,7 +772,7 @@ struct ChatImageView: View {
     }
 
     @ViewBuilder private var placeholder: some View {
-        let shape = Color.white.opacity(0.05).overlay(ProgressView().controlSize(.small))
+        let shape = Color.white.opacity(0.05).overlay(JcLoader(size: 16))
         if fill {
             shape
         } else {

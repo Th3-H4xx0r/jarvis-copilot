@@ -122,7 +122,7 @@ struct X5DeviceView: View {
             Circle().fill(ready ? JcTheme.success : JcTheme.amber).frame(width: 7, height: 7)
             Text(manager.state.text)
             if sync.isSyncing {
-                ProgressView().controlSize(.mini)
+                JcLoader(size: 12)
                 Text("Syncing…")
             } else if let last = sync.lastSync {
                 Text("· synced \(last, style: .relative) ago")

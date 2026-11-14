@@ -16,7 +16,7 @@ struct IMessageChatMemoriesView: View {
             } else if let error = store.errorMessage {
                 CenteredMessage(text: error, color: JcTheme.danger) { Task { await store.load() } }
             } else {
-                ProgressView()
+                JcLoader()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -15,7 +15,7 @@ struct IntegrationUIPageSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .integrationUIConfirm(store)
         } else if store.loading && !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
+            JcLoader().frame(maxWidth: .infinity).padding(.vertical, 24)
         }
     }
 }

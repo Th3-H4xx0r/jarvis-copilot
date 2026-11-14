@@ -22,7 +22,7 @@ struct IntegrationRecordsView: View {
                     CenteredMessage(text: errorMessage, color: JcTheme.danger) { Task { await load() } }
                         .padding(.top, 80)
                 } else if !loaded {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
+                    JcLoader().frame(maxWidth: .infinity).padding(.top, 100)
                 } else if records.isEmpty {
                     CenteredMessage(text: "Nothing recorded yet").padding(.top, 80)
                 } else {
@@ -102,7 +102,7 @@ struct IntegrationDocumentView: View {
                     CenteredMessage(text: errorMessage, color: JcTheme.danger) { Task { await load() } }
                         .padding(.top, 80)
                 } else if !loaded {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
+                    JcLoader().frame(maxWidth: .infinity).padding(.top, 100)
                 } else {
                     GlassCard(padding: 12) {
                         Text(body_.isEmpty ? "Empty." : body_)

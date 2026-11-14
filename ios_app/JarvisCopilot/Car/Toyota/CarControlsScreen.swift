@@ -81,7 +81,7 @@ struct ToyotaRoundFace: View {
                     .rotationEffect(.degrees(-90))
                     .animation(ringAnimation, value: ring)
                 if busy {
-                    ProgressView()
+                    JcLoader()
                 } else {
                     JcIcon(symbol, size: 22).foregroundStyle(tint)
                 }

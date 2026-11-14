@@ -98,7 +98,7 @@ struct DashcamPage: View {
                             syncing = true
                             Task { await sync.syncNow(); syncing = false }
                         } label: {
-                            if syncing || sync.passActive { ProgressView() } else { Text("Sync now") }
+                            if syncing || sync.passActive { JcLoader() } else { Text("Sync now") }
                         }
                         .buttonStyle(.jcGlass(compact: true, full: true))
                         .disabled(syncing)
@@ -106,7 +106,7 @@ struct DashcamPage: View {
                         Button {
                             Task { await reconnect(nil) }
                         } label: {
-                            if reconnecting { ProgressView() } else { Text("Reconnect") }
+                            if reconnecting { JcLoader() } else { Text("Reconnect") }
                         }
                         .buttonStyle(.jcGlass(compact: true, full: true))
                         .disabled(reconnecting)

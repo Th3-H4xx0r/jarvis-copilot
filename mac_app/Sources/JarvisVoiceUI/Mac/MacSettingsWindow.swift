@@ -576,7 +576,7 @@ struct MacVoiceHistoryView: View {
                                                : "That is everything this voice has said.")
                         .foregroundStyle(JcTheme.muted)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity)
+                    JcLoader().frame(maxWidth: .infinity)
                 }
             }
         }

@@ -69,7 +69,7 @@ struct ChatSessionsSheet: View {
 
     @ViewBuilder private var content: some View {
         if store.sessionsLoading && store.sessions.isEmpty {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
+            JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity).jcScreen()
         } else if groups.isEmpty {
             Group {
                 if query.isEmpty {

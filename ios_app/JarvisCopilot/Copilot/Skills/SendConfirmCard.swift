@@ -91,7 +91,7 @@ private struct SendConfirmSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     if center.answering {
-                        ProgressView().tint(JcTheme.accent)
+                        JcLoader().foregroundStyle(JcTheme.accent)
                     } else {
                         Image(systemName: card.actionSymbol)
                         Text(card.actionTitle)

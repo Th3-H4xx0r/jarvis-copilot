@@ -94,7 +94,7 @@ struct GlassesTranslateView: View {
                 Task { await translator.start() }
             } label: {
                 HStack(spacing: 8) {
-                    if translator.phase == .starting { ProgressView().controlSize(.small) }
+                    if translator.phase == .starting { JcLoader(size: 16) }
                     Label(translator.phase == .starting ? "Starting…" : "Start live translation", jcIcon: "globe")
                 }
             }

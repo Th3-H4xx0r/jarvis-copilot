@@ -289,7 +289,7 @@ private struct ApprovalSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     if center.working {
-                        ProgressView().tint(tint)
+                        JcLoader().foregroundStyle(tint)
                     } else {
                         Image(systemName: "faceid")
                         Text("Approve with Face ID")

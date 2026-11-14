@@ -116,7 +116,7 @@ struct HealthSettingsSection: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(JcTheme.accent)
             Spacer()
-            if working { ProgressView().controlSize(.mini) }
+            if working { JcLoader(size: 12) }
         }
         .font(.system(size: 15, weight: .medium))
         .padding(.horizontal, JcUnified.cardPadding)

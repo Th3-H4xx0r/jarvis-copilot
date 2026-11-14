@@ -52,7 +52,7 @@ struct AgentProjectSettingsSheet: View {
                         Button("Close") { dismiss() }
                             .buttonStyle(.jcGlass(tint: JcTheme.text))
                     } else {
-                        ProgressView().tint(JcTheme.accent)
+                        JcLoader().foregroundStyle(JcTheme.accent)
                     }
                 }
                 .padding(24)

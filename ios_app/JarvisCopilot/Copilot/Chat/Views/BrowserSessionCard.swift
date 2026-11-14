@@ -33,7 +33,7 @@ struct BrowserSessionCard: View {
                 } else if let error = model.error {
                     Text(error).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 40)
+                    JcLoader().frame(maxWidth: .infinity, minHeight: 40)
                 }
             }
         }
@@ -89,7 +89,7 @@ struct BrowserSessionCard: View {
             BrowserReplayView(model: model)
         } else if !session.isRunning, session.replayStatus == "encoding" || session.replayStatus == "recording" {
             HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
                 Text("Preparing the replay…").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
             }
         }
@@ -338,7 +338,7 @@ private struct BrowserReplayView: View {
             } else {
                 ZStack {
                     Color.black
-                    ProgressView()
+                    JcLoader()
                 }
             }
         }

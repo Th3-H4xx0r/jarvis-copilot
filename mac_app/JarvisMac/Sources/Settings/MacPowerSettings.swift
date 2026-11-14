@@ -30,7 +30,7 @@ struct MacPowerSettings: View {
                 LabeledContent("sudo autofill", value: J.b(helper["askpass"]) ? "On" : "Off")
                 HStack {
                     Button(J.b(helper["installed"]) ? "Reinstall" : "Install") { install() }.disabled(busy)
-                    if busy { ProgressView().controlSize(.small) }
+                    if busy { JcLoader(size: 16) }
                 }
                 Text(passwordSet ? "Uses your saved Mac password, so there's no prompt."
                                  : "Asks for your admin password once.")

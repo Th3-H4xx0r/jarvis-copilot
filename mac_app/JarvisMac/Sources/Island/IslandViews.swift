@@ -141,7 +141,7 @@ struct IslandRootView: View {
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Capsule().fill(Color(red: 0.98, green: 0.75, blue: 0.14)))
                 } else if model.workingCount > 0 {
-                    ProgressView().controlSize(.mini).tint(Color(red: 0.2, green: 0.83, blue: 0.6))
+                    JcLoader(size: 12).foregroundStyle(Color(red: 0.2, green: 0.83, blue: 0.6))
                 } else if let five = model.usage?.fiveHour {
                     Text("\(five)%").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
                 }
@@ -557,13 +557,33 @@ private struct SlimScrollBar: View {
     }
 }
 
+/// A row's state at its leading edge: the Jarvis loader in the working green
+/// while it runs, otherwise the state's dot. One 14 pt slot either way, so the
+/// row's text doesn't shift when a session starts or stops.
+private struct StateMark: View {
+    let state: MacState
+    let running: Bool
+
+    var body: some View {
+        Group {
+            if running {
+                JcLoader(size: 14).foregroundStyle(stateColor(state))
+            } else {
+                Circle().fill(stateColor(state)).frame(width: 8, height: 8)
+            }
+        }
+        .frame(width: 14, height: 14)
+        .padding(.top, 2)      // centred on the title's first line, as the dot was
+    }
+}
+
 private struct SessionRow: View {
     let session: MacSession
     let selected: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(stateColor(session.state)).frame(width: 8, height: 8).padding(.top, 5)
+            StateMark(state: session.state, running: session.state == .working || session.state == .thinking)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(session.project).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
@@ -653,7 +673,7 @@ private struct JobRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(stateColor(job.state)).frame(width: 8, height: 8).padding(.top, 5)
+            StateMark(state: job.state, running: job.running)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(job.agentName).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)

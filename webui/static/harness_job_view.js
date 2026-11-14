@@ -355,7 +355,7 @@
       const blocks = turn.querySelector('.assistant-turn-blocks') || turn;
       const dots = document.createElement('div');
       dots.className = 'assistant-segment harness-view-working';
-      dots.innerHTML = '<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+      dots.innerHTML = '<div class="thinking"><span class="jc-loader" role="status" aria-label="Thinking"></span></div>';
       blocks.appendChild(dots);
     }
     body.scrollTop = pinned ? body.scrollHeight : top;

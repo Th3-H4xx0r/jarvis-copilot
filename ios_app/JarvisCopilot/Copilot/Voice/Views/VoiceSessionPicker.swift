@@ -22,7 +22,7 @@ struct VoiceSessionPicker: View {
                         GlassRow(symbol: "plus.bubble", title: "New session",
                                  subtitle: "Start a fresh conversation and voice into it",
                                  subtitleLineLimit: 2, action: creating ? nil : { createNew() }) {
-                            if creating { ProgressView().controlSize(.small) }
+                            if creating { JcLoader(size: 16) }
                         }
                         GlassRow(symbol: "waveform", title: "Voice",
                                  subtitle: "The dedicated voice session (default)",
@@ -34,7 +34,7 @@ struct VoiceSessionPicker: View {
                     VStack(alignment: .leading, spacing: 0) {
                         GlassQuietLabel("Recent chats")
                         if loading {
-                            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
+                            JcLoader().frame(maxWidth: .infinity).padding(.vertical, 24)
                         } else if sessions.isEmpty {
                             JcEmptyState(symbol: "bubble.left.and.bubble.right", title: "No chats yet",
                                          subtitle: "Start one in the Chat tab or tap New session.")

@@ -49,7 +49,7 @@ struct WearableControlTile: View {
             HStack {
                 JcIcon(control.symbol, size: 18).foregroundStyle(isOn ? Color.white : JcTheme.accent)
                 Spacer()
-                if busy { ProgressView().controlSize(.small) }
+                if busy { JcLoader(size: 16) }
             }
             Text(control.title).font(.subheadline.weight(.semibold)).lineLimit(1)
             detail

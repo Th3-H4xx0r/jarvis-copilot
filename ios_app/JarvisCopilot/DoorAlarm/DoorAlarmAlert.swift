@@ -140,7 +140,7 @@ struct DoorAlarmAlertCard: View {
             VStack(spacing: 8) {
                 Button { Task { await store.disarm() } } label: {
                     HStack(spacing: 10) {
-                        if store.busy == "disarm" { ProgressView().tint(JcTheme.danger) } else {
+                        if store.busy == "disarm" { JcLoader().foregroundStyle(JcTheme.danger) } else {
                             Image(systemName: "faceid")
                             Text("Disarm with Face ID")
                         }

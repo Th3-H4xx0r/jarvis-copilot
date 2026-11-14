@@ -116,7 +116,7 @@ struct IMessagePreviewSheet: View {
             CenteredMessage(text: error, color: JcTheme.danger) { attempt += 1 }
         } else {
             VStack(spacing: 12) {
-                ProgressView()
+                JcLoader()
                 Text("Asking your Mac…")
                     .font(.system(size: 14))
                     .foregroundStyle(JcTheme.muted)

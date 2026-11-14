@@ -36,6 +36,7 @@
 <link rel="stylesheet" href="static/jarvis-pages-c.css?v=__WEBUI_VERSION__">
 <link rel="stylesheet" href="static/live.css?v=__WEBUI_VERSION__">
 <link rel="stylesheet" href="static/security.css?v=__WEBUI_VERSION__">
+<link rel="stylesheet" href="static/loader.css?v=__WEBUI_VERSION__">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" integrity="sha384-LJcOxlx9IMbNXDqJ2axpfEQKkAYbFjJfhXexLfiRJhjDU81mzgkiQq8rkV0j6dVh" crossorigin="anonymous">
   <!-- KaTeX math rendering CSS (loaded eagerly to prevent layout shift) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
@@ -1469,7 +1470,7 @@
               <div id="checkUpdatesBlock">
                 <span class="settings-version-badge" id="settings-webui-version-badge">WebUI: —</span>
                 <span class="settings-version-badge" id="settings-agent-version-badge">Agent: not detected</span>
-                <button class="btn-tiny" id="btnCheckUpdatesNow" onclick="checkUpdatesNow()" title="Check for updates now" data-i18n-title="settings_check_now"><svg id="checkUpdatesSpinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner-xs" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg><span id="checkUpdatesLabel" data-i18n="settings_check_now">Check now</span></button>
+                <button class="btn-tiny" id="btnCheckUpdatesNow" onclick="checkUpdatesNow()" title="Check for updates now" data-i18n-title="settings_check_now"><span id="checkUpdatesSpinner" class="spinner-xs" aria-hidden="true"></span><span id="checkUpdatesLabel" data-i18n="settings_check_now">Check now</span></button>
                 <span id="checkUpdatesStatus"></span>
               </div>
             </div>
@@ -1592,6 +1593,7 @@
 <div class="toast" id="toast"></div>
 <!-- Harness picker sheet (harness.js fills it). -->
 <div class="harness-sheet" id="harnessSheet" hidden></div>
+<script src="static/loader.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/i18n.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/icons.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/chat_images.js?v=__WEBUI_VERSION__" defer></script>

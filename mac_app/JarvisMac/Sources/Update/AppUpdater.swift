@@ -399,7 +399,7 @@ struct UpdateCard: View {
 
     private func line(_ text: String) -> some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
+            JcLoader(size: 16)
             Text(text).font(.system(size: 12)).foregroundStyle(ChatStyle.muted)
         }
         .frame(maxWidth: .infinity)

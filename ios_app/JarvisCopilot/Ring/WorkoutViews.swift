@@ -174,7 +174,7 @@ struct WorkoutLiveView: View {
                 countdown(n)
             case .starting:
                 VStack(spacing: 14) {
-                    ProgressView().controlSize(.large)
+                    JcLoader(size: 28)
                     Text("Starting on your ring…").foregroundStyle(JcTheme.muted)
                 }
             case .running, .paused, .ending:

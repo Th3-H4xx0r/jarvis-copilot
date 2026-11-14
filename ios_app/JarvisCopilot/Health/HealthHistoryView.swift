@@ -48,7 +48,7 @@ struct HealthHistoryView: View {
                         Row { Button("Try again") { Task { await model.load(range) } } }
                     }
                 } else {
-                    ProgressView()
+                    JcLoader()
                         .frame(maxWidth: .infinity, minHeight: 240)
                 }
             }
@@ -58,7 +58,7 @@ struct HealthHistoryView: View {
         .jcPageChrome(metric.title)
         .toolbar {
             if model.isLoading {
-                ToolbarItem(placement: .topBarTrailing) { ProgressView().controlSize(.small) }
+                ToolbarItem(placement: .topBarTrailing) { JcLoader(size: 16) }
             }
         }
         .task(id: range) {

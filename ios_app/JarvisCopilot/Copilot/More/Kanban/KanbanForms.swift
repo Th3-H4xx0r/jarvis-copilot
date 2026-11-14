@@ -126,7 +126,7 @@ struct KanbanAssigneeField: View {
                 VStack(alignment: .leading, spacing: 7) {
                     FormFieldLabel("Assignee")
                     HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
+                        JcLoader(size: 16)
                         Text("Loading profiles…")
                             .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
                     }

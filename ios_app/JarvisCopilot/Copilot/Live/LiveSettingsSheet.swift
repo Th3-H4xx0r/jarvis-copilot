@@ -155,7 +155,7 @@ struct LiveSettingsSheet: View {
                          last: true,
                          action: { pickingModel = true }) {
                     if modelName == nil {
-                        ProgressView().controlSize(.small).tint(JcTheme.accent)
+                        JcLoader(size: 16).foregroundStyle(JcTheme.accent)
                     } else {
                         JcIcon("chevron.right", size: 13).foregroundStyle(JcTheme.muted)
                     }

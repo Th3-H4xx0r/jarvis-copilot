@@ -2985,11 +2985,11 @@ function renderMd(raw){
     // PDF files → render first page preview with lazy-load
     if(_PDF_EXTS.test(ref)){
       const fname=esc(ref.split('/').pop()||ref);
-      return `<div class="pdf-preview-load" data-path="${esc(ref)}"><span class="pdf-preview-spinner">⏳</span> ${t('pdf_loading')} ${fname}...</div>`;
+      return `<div class="pdf-preview-load" data-path="${esc(ref)}"><span class="jc-loader" aria-hidden="true"></span> ${t('pdf_loading')} ${fname}...</div>`;
     }
     // HTML files → render inline in sandboxed iframe with lazy-load
     if(_HTML_EXTS.test(ref)){
-      return `<div class="html-preview-load" data-path="${esc(ref)}"><span class="html-preview-spinner">⏳</span> ${t('html_loading')}</div>`;
+      return `<div class="html-preview-load" data-path="${esc(ref)}"><span class="jc-loader" aria-hidden="true"></span> ${t('html_loading')}</div>`;
     }
     // .patch/.diff files → render inline as colored diff instead of download
     const fname=esc(ref.split('/').pop()||ref);
@@ -6402,7 +6402,7 @@ function appendLiveToolCard(tc){
     const waitRow=document.createElement('div');
     waitRow.id='toolRunningRow';
     waitRow.className='assistant-segment';
-    waitRow.innerHTML='<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+    waitRow.innerHTML='<div class="thinking"><span class="jc-loader" role="status" aria-label="Thinking"></span></div>';
     row.insertAdjacentElement('afterend', waitRow);
     if(typeof scrollIfPinned==='function') scrollIfPinned();
     return;
@@ -7200,7 +7200,7 @@ function _thinkingMarkup(text=''){
   const openClass=isSimplifiedToolCalling()?'':' open';
   return (clean&&String(clean).trim())
     ? `<div class="thinking-card${openClass}"><div class="thinking-card-header" onclick="this.parentElement.classList.toggle('open')"><span class="thinking-card-icon">${li('lightbulb',14)}</span><span class="thinking-card-label">${t('thinking')}</span><span class="thinking-card-toggle">${li('chevron-right',12)}</span></div><div class="thinking-card-body"><pre>${esc(String(clean).trim())}</pre></div></div>`
-    : `<div class="thinking"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`;
+    : `<div class="thinking"><span class="jc-loader" role="status" aria-label="Thinking"></span></div>`;
 }
 function _renderThinkingInto(row,text=''){
   if(!row) return;

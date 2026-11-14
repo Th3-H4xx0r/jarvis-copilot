@@ -215,7 +215,7 @@ struct SecurityPage: View {
                         Task { await store.resolve(alert.id, .dismiss) }
                     } label: {
                         if busy {
-                            ProgressView().controlSize(.mini).tint(JcTheme.muted)
+                            JcLoader(size: 12).foregroundStyle(JcTheme.muted)
                         } else {
                             Text("Dismiss").font(.system(size: 14, weight: .medium)).foregroundStyle(JcTheme.muted)
                         }

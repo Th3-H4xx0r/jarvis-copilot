@@ -128,7 +128,7 @@ struct BandMonitorSettings: View {
                 HStack {
                     Text("Managed by")
                     Spacer()
-                    if scheduler.applying { ProgressView().controlSize(.small) }
+                    if scheduler.applying { JcLoader(size: 16) }
                     Picker("Managed by", selection: control) {
                         Text("Band").tag(BandMeasureControl.band)
                         Text("Phone").tag(BandMeasureControl.phone)
@@ -368,7 +368,7 @@ private struct BandSettingEditor<Content: View>: View {
                     }
                 } label: {
                     HStack {
-                        if saving { ProgressView().controlSize(.small) }
+                        if saving { JcLoader(size: 16) }
                         Text("Save to band")
                     }
                 }

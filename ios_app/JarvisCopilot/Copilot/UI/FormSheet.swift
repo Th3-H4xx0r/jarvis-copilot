@@ -55,7 +55,7 @@ struct FormSheet<Fields: View>: View {
                         }
                     } label: {
                         if saving {
-                            ProgressView().controlSize(.small).tint(JcTheme.accent)
+                            JcLoader(size: 16).foregroundStyle(JcTheme.accent)
                         } else {
                             Text(saveLabel)
                         }

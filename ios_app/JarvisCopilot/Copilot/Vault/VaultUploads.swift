@@ -255,7 +255,7 @@ struct VaultUploadsBar: View {
         if let summary = uploads.summary {
             HStack(spacing: 10) {
                 if uploads.active.contains(where: { $0.failed == nil }) {
-                    ProgressView().controlSize(.small).tint(JcTheme.text)
+                    JcLoader(size: 16).foregroundStyle(JcTheme.text)
                 } else {
                     JcIcon("exclamationmark.triangle", size: 14).foregroundStyle(JcTheme.amber)
                 }

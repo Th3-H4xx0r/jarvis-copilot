@@ -160,7 +160,7 @@ struct AgentsMacPowerCard: View {
         Button { run(action) } label: {
             HStack(spacing: 7) {
                 if busy && pending == action {
-                    ProgressView().controlSize(.small).tint(prominent ? JcAccent.onFill : JcButton.label)
+                    JcLoader(size: 16).foregroundStyle(prominent ? JcAccent.onFill : JcButton.label)
                 } else {
                     Image(systemName: symbol).font(.subheadline.weight(.semibold))
                 }

@@ -429,7 +429,7 @@ private struct IntegrationUIRow: View {
             }
             Spacer(minLength: 8)
             if busy {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
             } else if let trailing, !trailing.isEmpty {
                 Text(trailing).font(.system(size: 14)).foregroundStyle(JcTheme.muted).lineLimit(1)
             }
@@ -457,7 +457,7 @@ private struct IntegrationUIButton: View {
         Button { store.request(action) } label: {
             HStack(spacing: 6) {
                 if isBusy(store, action) {
-                    ProgressView().controlSize(.mini).tint(tint)
+                    JcLoader(size: 12).foregroundStyle(tint)
                 } else if let symbol, !symbol.isEmpty {
                     Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
                 }
@@ -484,7 +484,7 @@ private struct IntegrationUIToggle: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(JcTheme.text)
             Spacer(minLength: 8)
-            if isBusy(store, action) { ProgressView().controlSize(.small) }
+            if isBusy(store, action) { JcLoader(size: 16) }
             Toggle("", isOn: Binding(get: { on }, set: { _ in store.request(action) }))
                 .labelsHidden()
                 .tint(JcTheme.accent)
@@ -522,7 +522,7 @@ private struct IntegrationUITextField: View {
             .background(Color.white.opacity(0.06),
                         in: RoundedRectangle(cornerRadius: JcTheme.fieldRadius, style: .continuous))
             .overlay(alignment: .trailing) {
-                if store.running == key { ProgressView().controlSize(.small).padding(.trailing, 10) }
+                if store.running == key { JcLoader(size: 16).padding(.trailing, 10) }
             }
     }
 

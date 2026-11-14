@@ -372,20 +372,13 @@ struct AgentStatusMark: View {
     }
 }
 
-/// A thin rotating arc in the accent.
+/// The Jarvis loader in the accent: a session at work.
 struct AgentSpinner: View {
     var size: CGFloat = 14
     var color: Color = JcTheme.accent
-    @State private var spinning = false
 
     var body: some View {
-        Circle()
-            .trim(from: 0.08, to: 0.78)
-            .stroke(color, style: StrokeStyle(lineWidth: max(1.6, size * 0.13), lineCap: .round))
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(spinning ? 360 : 0))
-            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spinning)
-            .onAppear { spinning = true }
+        JcLoader(size: size).foregroundStyle(color)
     }
 }
 

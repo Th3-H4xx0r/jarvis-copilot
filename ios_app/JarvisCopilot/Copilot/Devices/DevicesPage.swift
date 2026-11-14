@@ -156,7 +156,7 @@ struct DevicesServerSection: View {
         if store.isLoading && !store.hasLoaded {
             VStack(spacing: 0) {
                 header
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else if let message = store.errorMessage, store.devices.isEmpty {
             // A card, not two lines of coloured text in the void: this is the

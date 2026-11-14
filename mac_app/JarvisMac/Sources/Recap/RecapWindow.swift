@@ -57,7 +57,7 @@ private struct RecapScreen: View {
                 Spacer()
             } else {
                 Spacer()
-                ProgressView()
+                JcLoader()
                 Spacer()
             }
         }

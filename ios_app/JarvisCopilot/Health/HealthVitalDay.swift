@@ -161,7 +161,7 @@ struct HealthVitalDayView: View {
                     Row { Button("Try again") { Task { await model.load() } } }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 240)
+                JcLoader().frame(maxWidth: .infinity, minHeight: 240)
             }
         }
         .task(id: model.key) {

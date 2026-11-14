@@ -35,7 +35,7 @@ struct CodeMemoryPage: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
             CenteredMessage(text: "No code memory yet.\n\nKnowledge and session handoffs "
                                 + "appear here as Claude or the JarvisCopilot agent stores "

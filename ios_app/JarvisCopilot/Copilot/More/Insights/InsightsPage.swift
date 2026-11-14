@@ -76,7 +76,7 @@ struct InsightsPage: View {
     @ViewBuilder
     private var content: some View {
         if !store.hasLoaded && store.isLoading {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 80)
         } else if let message = store.errorMessage, store.overview.isEmpty {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 60)

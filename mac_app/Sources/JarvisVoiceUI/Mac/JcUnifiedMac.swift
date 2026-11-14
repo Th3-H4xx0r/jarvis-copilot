@@ -34,7 +34,7 @@ struct JcSmallAction: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 if busy {
-                    ProgressView().controlSize(.mini)
+                    JcLoader(size: 12)
                 } else if let symbol {
                     Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
                 }

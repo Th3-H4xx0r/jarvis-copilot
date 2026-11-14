@@ -114,12 +114,12 @@ struct ChatSentAttachment: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-                    .overlay { if opening { ProgressView().tint(.white) } }
+                    .overlay { if opening { JcLoader().foregroundStyle(.white) } }
             } else {
                 HStack(spacing: 8) {
                     JcIcon(PendingAttachment.looksLikeVideo(attachment.name) ? "film" : "doc", size: 16)
                     Text(attachment.name).font(.system(size: 13)).lineLimit(1)
-                    if opening { ProgressView().controlSize(.small) }
+                    if opening { JcLoader(size: 16) }
                 }
                 .foregroundStyle(.white.opacity(0.8))
                 .padding(.horizontal, 12).padding(.vertical, 10)

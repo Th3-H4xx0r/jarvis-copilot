@@ -38,7 +38,7 @@ struct DashcamControlsCard: View {
             VStack(spacing: 6) {
                 ZStack {
                     Circle().fill(tint.opacity(0.16)).frame(width: 48, height: 48)
-                    if busy != nil && busy == id { ProgressView() } else { JcIcon(icon, size: 20).foregroundStyle(tint) }
+                    if busy != nil && busy == id { JcLoader() } else { JcIcon(icon, size: 20).foregroundStyle(tint) }
                 }
                 Text(title).font(.caption2.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1).minimumScaleFactor(0.8)
             }

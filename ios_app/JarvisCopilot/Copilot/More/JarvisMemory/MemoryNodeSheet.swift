@@ -101,7 +101,7 @@ struct MemoryNodeSheet: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            if graph.expanding == id { ProgressView().controlSize(.mini) }
+                            if graph.expanding == id { JcLoader(size: 12) }
                             else { JcIcon("arrow.up.left.and.arrow.down.right", size: 13) }
                             Text(expanded ? "Expanded" : "Expand")
                         }
@@ -203,7 +203,7 @@ struct MemoryNodeSheet: View {
             } else if let error = model.error {
                 Text(error).font(.system(size: 13)).foregroundStyle(JcTheme.danger)
             } else {
-                HStack { Spacer(); ProgressView(); Spacer() }
+                HStack { Spacer(); JcLoader(); Spacer() }
             }
         } header: {
             HStack {
@@ -318,7 +318,7 @@ struct MemoryAliasesEditor: View {
                         if saved { dismiss() }
                     }
                 } label: {
-                    if saving { ProgressView() } else { Text("Save").fontWeight(.semibold) }
+                    if saving { JcLoader() } else { Text("Save").fontWeight(.semibold) }
                 }
                 .disabled(saving)
             }
@@ -383,7 +383,7 @@ struct MemoryMergePicker: View {
         .navigationTitle("Merge \(name) into…")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(merging)
-        .overlay { if merging { ProgressView() } }
+        .overlay { if merging { JcLoader() } }
         .confirmationDialog("Merge into \(pending?.label ?? "")?",
                             isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
                             titleVisibility: .visible,

@@ -202,7 +202,7 @@ struct RingMeasureButton: View {
     var body: some View {
         if case .measuring = measure.state {
             HStack(spacing: 8) {
-                ProgressView()
+                JcLoader()
                     .controlSize(.small)
                     .accessibilityHidden(true)
                 Button("Stop", action: measure.stop)

@@ -149,7 +149,7 @@ struct AgentActivitiesIslandSection: View {
         VStack(alignment: .leading, spacing: 0) {
             if store.loading {
                 GlassQuietLabel("Live Activities for agents")
-                ProgressView().tint(JcTheme.accent)
+                JcLoader().foregroundStyle(JcTheme.accent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
             } else {

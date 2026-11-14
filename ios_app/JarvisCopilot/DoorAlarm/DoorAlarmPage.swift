@@ -123,7 +123,7 @@ struct DoorAlarmPage: View {
                 armButton("Home", icon: "house.fill", mode: "home", on: alarm.mode == "home" && alarm.isArmed)
                 Button { Task { await store.disarm() } } label: {
                     VStack(spacing: 4) {
-                        if store.busy == "disarm" { ProgressView() } else { Image(systemName: "faceid") }
+                        if store.busy == "disarm" { JcLoader() } else { Image(systemName: "faceid") }
                         Text("Disarm").font(.footnote.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
@@ -162,7 +162,7 @@ struct DoorAlarmPage: View {
             .accessibilityLabel("Arming away")
             Button { Task { await store.armNow() } } label: {
                 VStack(spacing: 4) {
-                    if store.busy == "arm_now" { ProgressView() } else { Image(systemName: "lock.shield.fill") }
+                    if store.busy == "arm_now" { JcLoader() } else { Image(systemName: "lock.shield.fill") }
                     Text("Arm now").font(.footnote.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity, minHeight: 52)
@@ -171,7 +171,7 @@ struct DoorAlarmPage: View {
             .disabled(store.busy != nil)
             Button { Task { await store.cancelArming() } } label: {
                 VStack(spacing: 4) {
-                    if store.busy == "cancel_arming" { ProgressView() } else { Image(systemName: "xmark") }
+                    if store.busy == "cancel_arming" { JcLoader() } else { Image(systemName: "xmark") }
                     Text("Cancel").font(.footnote.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity, minHeight: 52)
@@ -190,7 +190,7 @@ struct DoorAlarmPage: View {
     private func armButton(_ title: String, icon: String, mode: String, on: Bool) -> some View {
         Button { Task { await store.arm(mode) } } label: {
             VStack(spacing: 4) {
-                if store.busy == "arm" { ProgressView() } else { Image(systemName: icon) }
+                if store.busy == "arm" { JcLoader() } else { Image(systemName: icon) }
                 Text(title).font(.footnote.weight(.semibold))
             }
             .frame(maxWidth: .infinity, minHeight: 52)
@@ -388,7 +388,7 @@ struct DoorPointControl: View {
                 Text(point.name)
                 Spacer()
                 if store.busy == point.code {
-                    ProgressView()
+                    JcLoader()
                 } else {
                     control
                 }

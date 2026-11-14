@@ -161,7 +161,7 @@ struct MacDockMenu: View {
             separator
             if content.loading {
                 HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
+                    JcLoader(size: 16)
                     Text("Asking your Mac for its windows…").font(.footnote).foregroundStyle(JcTheme.muted)
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)

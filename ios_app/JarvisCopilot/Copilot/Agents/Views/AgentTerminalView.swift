@@ -43,7 +43,7 @@ struct AgentTerminalView: View {
                     }
                     .background(JcTheme.bg)
                 } else {
-                    ProgressView()
+                    JcLoader()
                         .tint(JcTheme.accent)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

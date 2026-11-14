@@ -28,7 +28,7 @@ struct QuotaCard: View {
     private var header: some View {
         JcSectionLabel("Quota & usage", first: true) {
             if store.isRefreshing {
-                ProgressView().controlSize(.mini).tint(JcTheme.muted)
+                JcLoader(size: 12).foregroundStyle(JcTheme.muted)
             } else {
                 Button { store.reload() } label: {
                     JcIcon("arrow.clockwise", size: 13)
@@ -43,7 +43,7 @@ struct QuotaCard: View {
     @ViewBuilder
     private func body(for providers: [QuotaProvider]) -> some View {
         if store.isLoading {
-            ProgressView().controlSize(.small).tint(JcTheme.muted)
+            JcLoader(size: 16).foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
         } else if store.showsRetry {

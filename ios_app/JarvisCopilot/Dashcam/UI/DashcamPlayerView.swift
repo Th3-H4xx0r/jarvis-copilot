@@ -357,7 +357,7 @@ struct DashcamPlayerView: View {
                     if model.player != nil { DashcamDualControls(clock: clock) }
                 } else if mode == .both, second.error == nil {
                     RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05))
-                        .aspectRatio(16 / 9, contentMode: .fit).overlay { ProgressView() }.padding(.horizontal, 16)
+                        .aspectRatio(16 / 9, contentMode: .fit).overlay { JcLoader() }.padding(.horizontal, 16)
                 }
                 if let p = sharing.progress {
                     Text("Getting the clip ready… \(Int(p * 100))%").font(.caption).foregroundStyle(JcTheme.muted)
@@ -420,7 +420,7 @@ struct DashcamPlayerView: View {
                             if let p = model.progress {
                                 ProgressView(value: p).tint(JcTheme.accent).padding(.horizontal, 40)
                             } else {
-                                ProgressView()
+                                JcLoader()
                             }
                         }
                     }

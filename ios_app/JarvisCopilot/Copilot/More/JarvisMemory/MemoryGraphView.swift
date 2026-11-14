@@ -68,7 +68,7 @@ struct MemoryMapScreen: View {
 
     @ViewBuilder private var overlay: some View {
         if store.loading && store.graph.isEmpty {
-            ProgressView().tint(JcTheme.accent)
+            JcLoader().foregroundStyle(JcTheme.accent)
         } else if let error = store.error, store.graph.isEmpty {
             CenteredMessage(text: error, color: JcTheme.danger) { Task { await store.load() } }
         } else if store.hasLoaded && store.graph.isEmpty && !store.loading {
@@ -524,7 +524,7 @@ struct MemoryUsedChip: View {
                     } else if failed {
                         Text("Couldn't load the memories").font(.footnote).foregroundStyle(JcTheme.muted)
                     } else {
-                        ProgressView().controlSize(.small)
+                        JcLoader(size: 16)
                     }
                     Button("Open on map", action: action)
                         .font(.footnote)

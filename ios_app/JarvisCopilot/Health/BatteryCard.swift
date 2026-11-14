@@ -228,7 +228,7 @@ struct BatteryCard: View {
     private var refreshButton: some View {
         Button(action: onRefresh) {
             if isRefreshing {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
             } else {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 14, weight: .semibold))

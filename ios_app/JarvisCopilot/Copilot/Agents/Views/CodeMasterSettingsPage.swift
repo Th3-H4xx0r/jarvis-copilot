@@ -20,7 +20,7 @@ struct CodeMasterSettingsPage: View {
     var body: some View {
         Group {
             if store.loading {
-                ProgressView().tint(JcTheme.accent)
+                JcLoader().foregroundStyle(JcTheme.accent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 form

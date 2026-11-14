@@ -34,7 +34,7 @@ struct GradientButton: View {
         Button { action?() } label: {
             HStack(spacing: 8) {
                 if busy {
-                    ProgressView().controlSize(.small).tint(tint)
+                    JcLoader(size: 16).foregroundStyle(tint)
                 } else if let symbol {
                     JcIcon(symbol).font(.system(size: 15, weight: .semibold))
                 }
@@ -69,7 +69,7 @@ struct BlueButton: View {
     var body: some View {
         Button { action?() } label: {
             HStack(spacing: 10) {
-                if busy { ProgressView().controlSize(.small).tint(JcAccent.onFill) }
+                if busy { JcLoader(size: 16).foregroundStyle(JcAccent.onFill) }
                 Text(title).font(.system(size: 15, weight: .semibold))
             }
             .foregroundStyle(JcAccent.onFill)

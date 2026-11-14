@@ -404,7 +404,7 @@ struct JcSmallAction: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 if busy {
-                    ProgressView().controlSize(.mini).tint(tint)
+                    JcLoader(size: 12).foregroundStyle(tint)
                 } else if let symbol {
                     JcIcon(symbol, size: 12, weight: .semibold)
                 }

@@ -176,7 +176,7 @@ struct VaultFolderScreen: View {
             JcEmptyState(symbol: "exclamationmark.triangle", title: "Couldn't open the vault", subtitle: loadError)
                 .padding(.top, 60)
         } else if listing == nil {
-            ProgressView().tint(JcTheme.muted).frame(maxWidth: .infinity).padding(.top, 80)
+            JcLoader().foregroundStyle(JcTheme.muted).frame(maxWidth: .infinity).padding(.top, 80)
         } else if folders.isEmpty && items.isEmpty {
             emptyState
         } else {

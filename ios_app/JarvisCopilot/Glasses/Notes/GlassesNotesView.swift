@@ -16,7 +16,7 @@ struct GlassesNotesView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if recorder.phase == .starting { ProgressView() }
+                        if recorder.phase == .starting { JcLoader() }
                         Label(recorder.phase == .starting ? "Starting…" : "Start a note", jcIcon: "mic.fill")
                             .font(.body.weight(.semibold))
                         Spacer()

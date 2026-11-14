@@ -32,7 +32,7 @@ struct IntegrationPlanCard: View {
                         .foregroundStyle(JcTheme.danger)
                         .padding(14)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 22)
+                    JcLoader().frame(maxWidth: .infinity).padding(.vertical, 22)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

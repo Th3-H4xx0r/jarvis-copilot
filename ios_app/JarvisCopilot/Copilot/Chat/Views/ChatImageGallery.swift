@@ -300,7 +300,7 @@ private struct ZoomablePage: View {
                     }
                     .accessibilityLabel(image.caption.isEmpty ? "Image" : image.caption)
             } else {
-                ProgressView().tint(.white)
+                JcLoader().foregroundStyle(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

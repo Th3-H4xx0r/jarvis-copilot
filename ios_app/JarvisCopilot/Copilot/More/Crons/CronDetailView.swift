@@ -164,7 +164,7 @@ struct CronRunHistoryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if store.isLoading {
-                ProgressView().controlSize(.small).padding(.vertical, 8)
+                JcLoader(size: 16).padding(.vertical, 8)
             } else if let error = store.errorMessage {
                 Text("Failed to load history: \(error)")
                     .font(.system(size: 12)).foregroundStyle(JcTheme.danger)
@@ -222,7 +222,7 @@ struct CronRunRow: View {
 
             if isExpanded {
                 if isLoading && output == nil {
-                    ProgressView().controlSize(.small).padding(8)
+                    JcLoader(size: 16).padding(8)
                 } else {
                     Text((output ?? "").isEmpty ? "(no output)" : (output ?? ""))
                         .font(.system(size: 12))

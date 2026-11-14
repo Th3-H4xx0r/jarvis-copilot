@@ -65,7 +65,7 @@ struct KanbanTaskDetailView: View {
             links
             comments
             if store.isLoadingDetail {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
                     .frame(maxWidth: .infinity).padding(.vertical, 12)
             } else {
                 composer
@@ -114,7 +114,7 @@ struct KanbanTaskDetailView: View {
                 .textFieldStyle(.plain)
                 .disabled(store.isPostingComment)
             if store.isPostingComment {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
             } else {
                 Button {
                     let text = draftComment
@@ -141,7 +141,7 @@ struct KanbanTaskDetailView: View {
         } label: {
             ZStack {
                 if store.isBusy {
-                    ProgressView().controlSize(.small).tint(.white)
+                    JcLoader(size: 16).foregroundStyle(.white)
                 } else if store.isRunning {
                     HStack(spacing: 6) {
                         PulsingDot(color: JcTheme.danger, size: 8)
@@ -169,7 +169,7 @@ struct KanbanTaskDetailView: View {
     @ViewBuilder
     private var logSection: some View {
         if store.isLoadingLog {
-            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
+            JcLoader().frame(maxWidth: .infinity).padding(.vertical, 12)
         } else if let error = store.logError, store.log == nil {
             Text("Log error: \(error)")
                 .font(.system(size: 12)).foregroundStyle(JcTheme.danger)

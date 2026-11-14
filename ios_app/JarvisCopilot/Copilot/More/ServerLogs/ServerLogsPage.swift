@@ -43,7 +43,7 @@ struct ServerLogsPage: View {
     @ViewBuilder
     private var lines: some View {
         if store.isLoading && !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let message = store.errorMessage, store.tail.lines.isEmpty {
             VStack(spacing: 12) {
                 JcIcon("exclamationmark.triangle", size: 30, weight: .light)

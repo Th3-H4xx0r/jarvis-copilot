@@ -69,7 +69,7 @@ struct DashcamDestinationsView: View {
                 Button {
                     Task { await signInAgain(d) }
                 } label: {
-                    if signingIn == d.id { ProgressView() } else { Text("Sign in") }
+                    if signingIn == d.id { JcLoader() } else { Text("Sign in") }
                 }
                 .buttonStyle(.jcGlass(compact: true))
                 .disabled(signingIn != nil)
@@ -77,7 +77,7 @@ struct DashcamDestinationsView: View {
                 Button {
                     Task { await test(d) }
                 } label: {
-                    if testing == d.id || signingIn == d.id { ProgressView() } else { Text("Test") }
+                    if testing == d.id || signingIn == d.id { JcLoader() } else { Text("Test") }
                 }
                 .buttonStyle(.jcGlass(compact: true))
             }
@@ -178,7 +178,7 @@ struct DashcamAddDestinationView: View {
                             Button {
                                 Task { await signInWithGoogle() }
                             } label: {
-                                HStack { if signingIn { ProgressView() }; Text(token.isEmpty ? "Sign in with Google" : "Signed in — sign in again") }
+                                HStack { if signingIn { JcLoader() }; Text(token.isEmpty ? "Sign in with Google" : "Signed in — sign in again") }
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.jcGlass(compact: true))
@@ -216,7 +216,7 @@ struct DashcamAddDestinationView: View {
                 Button {
                     Task { await add() }
                 } label: {
-                    HStack { if busy { ProgressView().tint(.white) }; Text("Add") }.frame(maxWidth: .infinity)
+                    HStack { if busy { JcLoader().foregroundStyle(.white) }; Text("Add") }.frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.jcGlass)
                 .disabled(busy || !valid)
@@ -349,7 +349,7 @@ struct DashcamDriveSignInLine: View {
                         Button {
                             Task { if await state.signIn(needed.destinationID) == nil { signedIn() } }
                         } label: {
-                            if state.signingIn { ProgressView() } else { Text("Sign in") }
+                            if state.signingIn { JcLoader() } else { Text("Sign in") }
                         }
                         .buttonStyle(.jcGlass(compact: true, full: true))
                         .disabled(state.signingIn)

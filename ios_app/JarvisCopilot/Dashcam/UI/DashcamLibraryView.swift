@@ -55,7 +55,7 @@ struct DashcamClipTransferLine: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     // An indeterminate linear bar draws as an empty track on iOS — it read as "stuck at 0%".
-                    if t.spinner { ProgressView().controlSize(.mini).tint(JcTheme.accent) }
+                    if t.spinner { JcLoader(size: 12).foregroundStyle(JcTheme.accent) }
                     Text(t.fraction.map { "\(t.label) · \(Int($0 * 100))%" } ?? t.label)
                         .font(.caption2).foregroundStyle(JcTheme.accent)
                 }
@@ -198,7 +198,7 @@ struct DashcamLibraryView: View {
                 .accessibilityHint(failed)
             } else if model.canLoadMore || model.loading {
                 // No button: reaching the end loads the next page, and the next, as the list grows.
-                ProgressView().padding()
+                JcLoader().padding()
                     .task(id: model.next ?? "") { await model.reachedEnd() }
             }
         }
@@ -405,7 +405,7 @@ struct DashcamSelectionBar: View {
                     Divider()
                     Button { newName = ""; naming = true } label: { Label("New tag…", systemImage: "plus") }
                 } label: {
-                    if tagging { ProgressView().controlSize(.small) } else { Label("Tag", systemImage: "tag") }
+                    if tagging { JcLoader(size: 16) } else { Label("Tag", systemImage: "tag") }
                 }
                 .buttonStyle(.jcGlass(compact: true))
                 .disabled(model.selected.isEmpty || tagging)

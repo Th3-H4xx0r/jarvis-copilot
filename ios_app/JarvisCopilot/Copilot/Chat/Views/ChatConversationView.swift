@@ -99,7 +99,7 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if store.historyLoading && store.messages.isEmpty {
-                            ProgressView().padding(.vertical, 40).frame(maxWidth: .infinity)
+                            JcLoader().padding(.vertical, 40).frame(maxWidth: .infinity)
                         } else if store.messages.isEmpty {
                             emptyState(geometry.size.height)
                                 .frame(minHeight: max(0, geometry.size.height - 29))

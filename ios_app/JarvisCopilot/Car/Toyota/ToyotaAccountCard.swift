@@ -43,7 +43,7 @@ struct ToyotaAccountCard: View {
                     }
                 }
             } else {
-                Row { ProgressView().frame(maxWidth: .infinity) }
+                Row { JcLoader().frame(maxWidth: .infinity) }
             }
         case .signedIn?:
             Row {
@@ -112,7 +112,7 @@ struct ToyotaSignInSheet: View {
                             .padding(.horizontal, 20)
                     }
                     Button(action: submit) {
-                        if working { ProgressView() } else {
+                        if working { JcLoader() } else {
                             Text(step == .password ? "Sign In" : "Verify").frame(maxWidth: .infinity)
                         }
                     }

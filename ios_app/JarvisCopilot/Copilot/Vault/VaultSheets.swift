@@ -102,7 +102,7 @@ struct VaultLinkSheet: View {
 
                     if fetching {
                         HStack(spacing: 10) {
-                            ProgressView().controlSize(.small).tint(JcTheme.muted)
+                            JcLoader(size: 16).foregroundStyle(JcTheme.muted)
                             Text("Getting the preview…").font(.system(size: 14)).foregroundStyle(JcTheme.muted)
                         }
                         .padding(.top, 16)
@@ -469,7 +469,7 @@ struct VaultMoveSheet: View {
                         }
                     }
                     .padding(.top, 8)
-                    if !loaded { ProgressView().tint(JcTheme.muted).frame(maxWidth: .infinity).padding(.top, 20) }
+                    if !loaded { JcLoader().foregroundStyle(JcTheme.muted).frame(maxWidth: .infinity).padding(.top, 20) }
                 }
             }
             .jcPageChrome("Move to", header: .inline)

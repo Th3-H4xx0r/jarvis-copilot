@@ -20,7 +20,7 @@ struct PhotonSetupPage: View {
         @Bindable var store = store
         return Group {
             if store.isLoading {
-                ProgressView().tint(JcTheme.accent)
+                JcLoader().foregroundStyle(JcTheme.accent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {

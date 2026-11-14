@@ -32,7 +32,7 @@ struct GlassesPlacesView: View {
                         .textInputAutocapitalization(.words)
                         .submitLabel(.search)
                         .onSubmit { Task { await search() } }
-                    if searching { ProgressView() }
+                    if searching { JcLoader() }
                 }
                 ForEach(results, id: \.self) { item in
                     Button { picked = item } label: {
@@ -59,7 +59,7 @@ struct GlassesPlacesView: View {
                         }
                         Spacer(minLength: 8)
                         if starting == place.id {
-                            ProgressView()
+                            JcLoader()
                         } else {
                             startButton(place, walking: true)
                             startButton(place, walking: false)

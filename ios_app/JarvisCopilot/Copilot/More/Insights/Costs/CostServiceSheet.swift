@@ -34,7 +34,7 @@ struct CostServiceDetailView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     header(service)
                     if model.isLoading {
-                        ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+                        JcLoader().frame(maxWidth: .infinity).padding(.vertical, 30)
                     } else if let error = model.loadError, model.detail == nil {
                         CenteredMessage(text: error, color: JcTheme.danger) { Task { await model.load() } }
                     } else {
@@ -458,7 +458,7 @@ struct CostServiceDetailView: View {
     @ViewBuilder
     private func busyLabel(_ action: String, _ title: String) -> some View {
         if model.busy == action {
-            ProgressView().controlSize(.small).tint(JcTheme.accent)
+            JcLoader(size: 16).foregroundStyle(JcTheme.accent)
         } else {
             Text(title)
         }

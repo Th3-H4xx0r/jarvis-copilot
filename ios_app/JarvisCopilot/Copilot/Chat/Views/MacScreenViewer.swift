@@ -618,7 +618,7 @@ private struct MacScreenPreview: View {
             switch session.phase {
             case .idle, .connecting:
                 VStack(spacing: 8) {
-                    ProgressView()
+                    JcLoader()
                     Text(session.macOnline ? "Connecting to your Mac…" : "Open Jarvis on your Mac to share its screen")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }

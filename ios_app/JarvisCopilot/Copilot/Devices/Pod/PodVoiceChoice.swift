@@ -99,7 +99,7 @@ struct PodChatPicker: View {
                     GlassRow(symbol: "plus.bubble", title: "New chat",
                              subtitle: "Start a fresh conversation for the Pod",
                              subtitleLineLimit: 2, action: creating ? nil : { newChat() }) {
-                        if creating { ProgressView().controlSize(.small) }
+                        if creating { JcLoader(size: 16) }
                     }
                     GlassRow(symbol: "waveform", title: "Voice",
                              subtitle: "The shared voice chat (default)",
@@ -188,7 +188,7 @@ struct PodHarnessPicker: View {
                         }
                     }
                 } else {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+                    JcLoader().frame(maxWidth: .infinity).padding(.vertical, 40)
                 }
                 if let error = choice.error {
                     Text(error).font(.footnote).foregroundStyle(JcTheme.danger).padding(.top, 12)

@@ -34,7 +34,7 @@ struct LongTermMemoryPage: View {
     var body: some View {
         Group {
             if !store.hasLoaded {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let message = store.errorMessage {
                 // The header request itself failed. `available` still reads true
                 // here (it only goes false on an explicit `available: false`
@@ -166,7 +166,7 @@ struct LongTermMemoryPage: View {
                 .onChange(of: query) { _, new in store.queryChanged(new) }
                 .onSubmit { store.runSearch(query) }
             if store.isSearching {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
             } else if !query.isEmpty {
                 Button {
                     query = ""
@@ -328,7 +328,7 @@ struct LongTermMemoryPage: View {
                         } label: {
                             HStack(spacing: 6) {
                                 if map.requestingStop || cleanup.stopping {
-                                    ProgressView().controlSize(.mini)
+                                    JcLoader(size: 12)
                                 } else {
                                     JcIcon("stop.fill", size: 12)
                                 }
@@ -376,7 +376,7 @@ struct LongTermMemoryPage: View {
                     .tint(JcTheme.accent)
                     .animation(.easeOut(duration: 0.4), value: fraction)
             } else {
-                ProgressView().tint(JcTheme.accent)
+                JcLoader().foregroundStyle(JcTheme.accent)
             }
         }
         .accessibilityElement(children: .combine)

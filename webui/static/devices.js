@@ -393,8 +393,7 @@ function _openPairModal(code, expiresAt) {
           Waiting for the device <span id="pair-countdown"></span>
         </div>
       </div>
-    </div>
-    <style>@keyframes pair-spin{to{transform:rotate(360deg)}}</style>`;
+    </div>`;
   document.body.appendChild(wrap);
   _devicesPairModalEl = wrap;
   _renderQrInto('pair-qr', _pairDeepLink(code), { size: 280, bg: '#ffffff' });

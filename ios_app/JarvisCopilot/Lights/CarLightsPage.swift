@@ -170,7 +170,7 @@ struct CarLightsPairSheet: View {
                     if manager.found.isEmpty {
                         Row {
                             HStack(spacing: 10) {
-                                if manager.scanning { ProgressView() }
+                                if manager.scanning { JcLoader() }
                                 Text(manager.scanning ? "Looking for lights…" : "None found").foregroundStyle(.secondary)
                                 Spacer()
                                 if !manager.scanning {

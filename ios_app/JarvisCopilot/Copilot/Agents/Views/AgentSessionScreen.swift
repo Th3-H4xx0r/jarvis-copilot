@@ -376,7 +376,7 @@ private struct AgentEarlierRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
+            JcLoader(size: 16)
             Text("Earlier messages").font(.system(size: 13)).foregroundStyle(JcTheme.muted)
         }
         .frame(maxWidth: .infinity)

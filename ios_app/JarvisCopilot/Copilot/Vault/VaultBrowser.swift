@@ -368,7 +368,7 @@ struct VaultBrowserView: View {
                     .opacity(model.ready ? 1 : 0)
                 if !model.ready {
                     VStack(spacing: 12) {
-                        ProgressView().tint(JcTheme.muted)
+                        JcLoader().foregroundStyle(JcTheme.muted)
                         Text("Turning on the ad and tracker blocker…")
                             .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
                     }

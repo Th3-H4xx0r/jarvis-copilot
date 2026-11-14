@@ -449,7 +449,7 @@ struct WorkoutConfirmView: View {
             Text(text).foregroundStyle(.secondary)
         case .connecting:
             HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
+                JcLoader(size: 16)
                 Text("Connecting").foregroundStyle(.secondary)
             }
         case .problem(let text, _):
@@ -818,7 +818,7 @@ private struct WorkoutWearableRow: View {
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 if busy {
                     // In the button's place, at the row's end like the button's edge.
-                    ProgressView()
+                    JcLoader()
                         .controlSize(.small)
                         .padding(.trailing, 12)
                         .frame(width: 96, alignment: .trailing)

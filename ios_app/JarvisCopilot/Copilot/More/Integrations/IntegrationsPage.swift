@@ -108,7 +108,7 @@ struct IntegrationsList: View {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
+            JcLoader().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
             CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track")
                 .padding(.top, 100)

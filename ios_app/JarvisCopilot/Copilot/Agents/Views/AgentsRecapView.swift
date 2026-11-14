@@ -26,7 +26,7 @@ struct AgentsRecapView: View {
                                      subtitle: error)
                             .padding(.top, 60)
                     } else {
-                        ProgressView().tint(JcTheme.accent).padding(.top, 80)
+                        JcLoader().foregroundStyle(JcTheme.accent).padding(.top, 80)
                     }
                 }
                 .padding(16)

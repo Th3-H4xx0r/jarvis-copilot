@@ -212,7 +212,7 @@ struct Esp32DeviceView: View {
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                if resetting { ProgressView().controlSize(.small).tint(JcTheme.accent) }
+                                if resetting { JcLoader(size: 16).foregroundStyle(JcTheme.accent) }
                                 Text(resetting ? "Resetting…" : "Reset")
                                     .font(.system(size: 15, weight: .semibold))
                             }
@@ -396,7 +396,7 @@ struct Esp32DeviceView: View {
                             HStack {
                                 Text(linking ? "Linking…" : (manager.cloud?.state == .off ? "Link directly" : "Retry link"))
                                 Spacer()
-                                if linking { ProgressView().controlSize(.small) }
+                                if linking { JcLoader(size: 16) }
                                 else { JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted.opacity(0.7)) }
                             }
                             .contentShape(Rectangle())
@@ -685,7 +685,7 @@ private struct Esp32WifiSheet: View {
                 Section {
                     if networks.isEmpty {
                         HStack(spacing: 10) {
-                            if scanning { ProgressView() }
+                            if scanning { JcLoader() }
                             Text(scanning ? "Scanning from the board…" : "No networks found")
                                 .foregroundStyle(JcTheme.muted)
                         }
@@ -698,7 +698,7 @@ private struct Esp32WifiSheet: View {
                                     JcIcon("checkmark").foregroundStyle(JcTheme.accent)
                                 }
                                 Spacer()
-                                if joining == n.ssid { ProgressView().controlSize(.small) }
+                                if joining == n.ssid { JcLoader(size: 16) }
                                 if n.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(JcTheme.muted) }
                                 JcIcon(n.rssi >= -75 ? "wifi" : "wifi.exclamationmark").foregroundStyle(JcTheme.muted)
                             }

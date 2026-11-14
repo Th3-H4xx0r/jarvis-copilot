@@ -732,7 +732,7 @@ struct LiveView: View {
         } label: {
             VStack(spacing: 3) {
                 if store.checkingConversation {
-                    ProgressView()
+                    JcLoader()
                         .controlSize(.small)
                         .tint(JcTheme.accent)
                         .frame(height: 16)
@@ -1039,7 +1039,7 @@ struct LiveFactCheckCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
                     if pending {
-                        ProgressView()
+                        JcLoader()
                             .controlSize(.small)
                             .tint(tint)
                             .frame(width: 14, height: 14)

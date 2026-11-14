@@ -169,13 +169,8 @@
 .live-insight--false .live-insight-kind{color:#E5484D;}
 .live-insight--false .live-insight-verdict{border-color:#E5484D;color:#E5484D;}
 .live-insight-spin{
-  display:inline-block;width:11px;height:11px;margin-right:7px;vertical-align:-1px;
-  border:2px solid var(--accent-bg-strong, var(--border2));border-top-color:var(--accent);
-  border-radius:50%;animation:live-insight-spin .8s linear infinite;
-}
-@keyframes live-insight-spin{to{transform:rotate(360deg);}}
-@media (prefers-reduced-motion: reduce){
-  .live-insight-spin{animation:none;border-top-color:var(--accent);}
+  display:inline-block;width:13px;height:13px;margin-right:7px;vertical-align:-2px;
+  color:var(--accent);   /* drawn by loader.css (the Jarvis loader) */
 }
 .live-insight-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .live-insight-kind{

@@ -109,7 +109,7 @@ struct InmoTraceView: View {
                     Button("Delete this session", role: .destructive) { confirmDelete = true }.disabled(busy)
                 }
             }
-            if busy { Section { ProgressView("Processing trace files…") } }
+            if busy { Section { JcLoader("Processing trace files…") } }
             if let failure {
                 Section("Could not complete operation") {
                     Text(failure).foregroundStyle(JcTheme.danger).textSelection(.enabled)

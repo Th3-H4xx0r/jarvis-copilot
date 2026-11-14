@@ -178,7 +178,7 @@ struct MacMiniTile: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if busy {
-                    ProgressView().controlSize(.small).frame(width: 28, height: 28)
+                    JcLoader(size: 16).frame(width: 28, height: 28)
                 } else {
                     MacMiniIcon(symbol: face.symbol, on: face.on)
                 }

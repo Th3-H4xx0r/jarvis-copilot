@@ -421,6 +421,7 @@
 		4D8C3A341845FDAB45AA50BF /* VoiceOrbGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */; };
 		4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */; };
 		4E2A4A0A46F916F351C1C30F /* JarvisWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69FA7730EB649964FC16077 /* JarvisWatchApp.swift */; };
+		4E6301FC3F56585040028FE5 /* JcLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D594DA9788C935CF5024AA90 /* JcLoader.swift */; };
 		4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */; };
 		4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */; };
 		4F71A57D06CB33D69B353C3B /* InmoMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56DAA1370D35DE181600EB3D /* InmoMediaTests.swift */; };
@@ -1151,6 +1152,7 @@
 		DF2717518E42EE7915EE3A0E /* DashcamDestinationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7AFC4A43B57C159790A3A8E /* DashcamDestinationsView.swift */; };
 		DF64B958D9F02B5825CE0B1B /* HealthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4C727D096C03E13D0FC610 /* HealthModels.swift */; };
 		DFCE7347BB34D157AE74B175 /* KanbanAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9FB138211890FCE7A9DF4E /* KanbanAPI.swift */; };
+		DFF13C262A9980C901AF8707 /* JcLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59D5E0D5183139FAAE82D707 /* JcLoaderTests.swift */; };
 		E019D6554C5DECA2E9D1B092 /* DashcamHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = E15BD529A5CC4ABB6E0052AE /* DashcamHTTP.swift */; };
 		E05C1391BEF5240E13805E1D /* AlarmScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */; };
 		E07989959051D4BDE21EDB47 /* HealthStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5A7C370DA6D077E320E1F2 /* HealthStoreTests.swift */; };
@@ -1810,6 +1812,7 @@
 		5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureSchedule.swift; sourceTree = "<group>"; };
 		59437ADD8499A9F58BCACCEF /* OnDeviceAISettingsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAISettingsPage.swift; sourceTree = "<group>"; };
 		595159C2CD07B1AA285D9211 /* BLEWearableManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BLEWearableManager.swift; sourceTree = "<group>"; };
+		59D5E0D5183139FAAE82D707 /* JcLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcLoaderTests.swift; sourceTree = "<group>"; };
 		59F4338E72F1443806778AE7 /* GradientButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GradientButton.swift; sourceTree = "<group>"; };
 		5A033203704890E4ACBA40D3 /* ActionAgentTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionAgentTests.swift; sourceTree = "<group>"; };
 		5A289BA0A4EF00D5577CA623 /* RingFirmwareFlashSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareFlashSheet.swift; sourceTree = "<group>"; };
@@ -2427,6 +2430,7 @@
 		D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGoogleSignIn.swift; sourceTree = "<group>"; };
 		D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachineTests.swift; sourceTree = "<group>"; };
 		D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteWireTests.swift; sourceTree = "<group>"; };
+		D594DA9788C935CF5024AA90 /* JcLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcLoader.swift; sourceTree = "<group>"; };
 		D5A0E386FACED19A19EF79EA /* RouteDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteDetailView.swift; sourceTree = "<group>"; };
 		D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureList.swift; sourceTree = "<group>"; };
 		D65CD119229EBC485E6DF632 /* BandSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandSession.swift; sourceTree = "<group>"; };
@@ -3069,6 +3073,7 @@
 				8D91A09459A1EF560956AB28 /* CenteredMessage.swift */,
 				34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */,
 				D51B9B9ECE349E04BA2068FA /* JcUnified.swift */,
+				D594DA9788C935CF5024AA90 /* JcLoader.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -4392,6 +4397,7 @@
 				761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */,
 				5543E00864B127432DB9F6F1 /* ChatMarkdownCacheTests.swift */,
 				8396711110235D97A2F5E4D2 /* ApprovalRenderTests.swift */,
+				59D5E0D5183139FAAE82D707 /* JcLoaderTests.swift */,
 			);
 			path = ChatUI;
 			sourceTree = "<group>";
@@ -5652,6 +5658,7 @@
 				2797B6A52FAC7E192E9D099A /* MacControlItemsTests.swift in Sources */,
 				515549C5E44C274234E1BA2B /* MacDockMenuTests.swift in Sources */,
 				53748848D92A3383B86C777A /* VaultTests.swift in Sources */,
+				DFF13C262A9980C901AF8707 /* JcLoaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6524,6 +6531,7 @@
 				15DC43B567518088408FB367 /* VaultBlocklist.generated.swift in Sources */,
 				37BEB80A74EB8CD6F0A82387 /* VaultBrowser.swift in Sources */,
 				2EA04BF4466BB7A6F1273FFD /* VaultShields.swift in Sources */,
+				4E6301FC3F56585040028FE5 /* JcLoader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

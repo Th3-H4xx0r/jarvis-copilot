@@ -208,7 +208,7 @@ struct VaultItemScreen: View {
                 VaultThumb(item: current, session: session)
                     .aspectRatio(current.thumbAspect ?? 1, contentMode: .fit)
                     .clipShape(heroShape)
-                    .overlay { if data == nil, loadError == nil { ProgressView().tint(.white) } }
+                    .overlay { if data == nil, loadError == nil { JcLoader().foregroundStyle(.white) } }
             }
         }
         .padding(.top, 8)
@@ -247,7 +247,7 @@ struct VaultItemScreen: View {
                 VaultThumb(item: current, session: session)
                     .aspectRatio(8.5 / 11, contentMode: .fit)
                     .clipShape(heroShape)
-                    .overlay { if loadError == nil { ProgressView().tint(JcTheme.muted) } }
+                    .overlay { if loadError == nil { JcLoader().foregroundStyle(JcTheme.muted) } }
             }
         }
         .padding(.top, 8)

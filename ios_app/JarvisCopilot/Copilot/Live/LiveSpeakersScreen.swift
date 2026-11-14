@@ -395,7 +395,7 @@ struct LiveVoiceHistoryScreen: View {
                 .foregroundStyle(JcTheme.muted)
                 .frame(maxWidth: .infinity)
         } else {
-            ProgressView().frame(maxWidth: .infinity)
+            JcLoader().frame(maxWidth: .infinity)
         }
     }
 }

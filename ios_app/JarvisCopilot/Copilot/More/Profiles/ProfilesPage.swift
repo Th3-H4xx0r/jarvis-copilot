@@ -42,7 +42,7 @@ struct ProfilesPage: View {
     @ViewBuilder
     private var content: some View {
         if store.isLoading && !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            JcLoader().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let message = store.errorMessage, store.profiles.isEmpty {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .frame(maxHeight: .infinity)

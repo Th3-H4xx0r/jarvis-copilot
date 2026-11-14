@@ -247,7 +247,7 @@ struct IntegrationEmptyRow: View {
 struct IntegrationLoadingRow: View {
     var body: some View {
         InsetGroup {
-            ProgressView()
+            JcLoader()
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
         }

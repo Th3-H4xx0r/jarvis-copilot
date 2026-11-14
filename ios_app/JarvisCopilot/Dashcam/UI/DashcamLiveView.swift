@@ -323,7 +323,7 @@ struct DashcamLiveView: View {
                     Task { await model.switchLens() }
                 } label: {
                     HStack(spacing: 6) {
-                        if model.switching { ProgressView().controlSize(.small) } else { JcIcon("arrow.triangle.2.circlepath", size: 15) }
+                        if model.switching { JcLoader(size: 16) } else { JcIcon("arrow.triangle.2.circlepath", size: 15) }
                         Text(model.otherLensName)
                     }
                 }
@@ -343,7 +343,7 @@ struct DashcamLiveView: View {
             EmptyView()
         case .connecting:
             VStack(spacing: 12) {
-                ProgressView().tint(JcTheme.text)
+                JcLoader().foregroundStyle(JcTheme.text)
                 Text("Connecting to the camera…").font(.callout).foregroundStyle(JcTheme.muted)
             }
         case .failed(let message):
