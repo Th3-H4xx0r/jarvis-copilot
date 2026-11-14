@@ -961,6 +961,15 @@ class RelayWorker(threading.Thread):
                                         next_at=self.clock() + BACKOFF_BASE_S * 4 ** (attempts - 1))
 
 
+def _power_on(integration_id: str) -> bool:
+    """A Power integration's switch (Integrations tab); unreadable state counts as on."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on(integration_id)
+    except Exception:
+        return True
+
+
 _worker: RelayWorker | None = None
 _worker_lock = threading.Lock()
 
@@ -969,6 +978,8 @@ def ensure_worker(store_factory) -> None:
     """Starts the process's RelayWorker once (``JC_DASHCAM_WORKER=0`` turns it off)."""
     global _worker
     if os.environ.get("JC_DASHCAM_WORKER", "").strip() == "0":
+        return
+    if not _power_on("dashcam"):
         return
     with _worker_lock:
         if _worker is not None and _worker.is_alive():

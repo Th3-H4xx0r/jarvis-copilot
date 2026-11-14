@@ -266,7 +266,8 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
         try:
             from api.island_store import store_for_request  # noqa: PLC0415
             sel = store_for_request().get_selection()
-            if (sel.get("mode") == "pinned"
+            from jarvis_power.state import is_on  # noqa: PLC0415
+            if (sel.get("mode") == "pinned" and is_on("island-designs")
                     and sel.get("pinnedId") not in (None, "", "coding", "voice")):
                 return 0
         except Exception:

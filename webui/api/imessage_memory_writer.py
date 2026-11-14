@@ -505,6 +505,15 @@ _closer_started = False
 _closer_lock = threading.Lock()
 
 
+def _power_on(integration_id: str) -> bool:
+    """A Power integration's switch (Integrations tab); unreadable state counts as on."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on(integration_id)
+    except Exception:
+        return True
+
+
 def start_closer() -> None:
     """The background thread that turns quiet bursts into memories. Once per process."""
     global _closer_started
@@ -519,6 +528,9 @@ def start_closer() -> None:
         except Exception:
             logger.exception("imessage memory: recovery failed")
         while True:
+            if not _power_on("imessage-memory"):
+                time.sleep(TICK_SECONDS)
+                continue
             try:
                 while close_once() >= BURSTS_PER_TICK:
                     pass  # a backfill's backlog drains without waiting a tick per 20

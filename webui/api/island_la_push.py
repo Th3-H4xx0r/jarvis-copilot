@@ -60,11 +60,22 @@ def _active_pinned_id(island_store) -> str | None:
     return None
 
 
+def _power_on(integration_id: str) -> bool:
+    """A Power integration's switch (Integrations tab); unreadable state counts as on."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on(integration_id)
+    except Exception:
+        return True
+
+
 def push_design_update(island_store, token_store, design_id, *, sender=None,
                        force=False) -> int:
     """Push the latest data for ``design_id`` to all LA tokens IF it is the
     pinned (server-resolvable active) design and its content changed. Returns the
     number of successful pushes. Never raises."""
+    if not _power_on("island-designs"):
+        return 0  # Island designs is switched off: no custom design reaches the island
     if not force and _active_pinned_id(island_store) != design_id:
         return 0  # server only drives the pinned design in v1
     try:

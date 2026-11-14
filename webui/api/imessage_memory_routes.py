@@ -274,6 +274,12 @@ def _post(handler, tail: str, body: dict, st: IMStore) -> bool:
         fields = {}
         if "enabled" in body:
             fields["enabled"] = bool(body["enabled"])
+            # One switch: this is iMessage memory's Power switch too (jarvis_power).
+            try:
+                from jarvis_power import switch
+                switch.request_enabled("imessage-memory", fields["enabled"], by="app")
+            except Exception:
+                logger.debug("imessage memory: Power switch not updated", exc_info=True)
         for toggle in ("ask_facts", "push_facts"):
             if toggle in body:
                 fields[toggle] = bool(body[toggle])

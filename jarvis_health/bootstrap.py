@@ -114,6 +114,16 @@ def _write_runner_script() -> Optional[str]:
         return None
 
 
+
+def _power_on() -> bool:
+    """Jarvis Health's Power switch: while it's off the analysis schedule stays paused."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on("jarvis-health")
+    except Exception:
+        return True
+
+
 def ensure_schedule(settings: dict) -> Optional[dict]:
     """Create or re-point the one cron job that runs Jarvis Health."""
     try:
@@ -125,7 +135,8 @@ def ensure_schedule(settings: dict) -> Optional[dict]:
     if not script:
         return None
     schedule = schedule_for(settings.get("frequency"))
-    enabled = bool(settings.get("enabled", True)) and (settings.get("frequency") or "") != "manual"
+    enabled = (bool(settings.get("enabled", True)) and (settings.get("frequency") or "") != "manual"
+               and _power_on())
 
     existing = next((j for j in jobs.load_jobs() if str(j.get("integration") or "") == SHARED_SPACE), None)
     if existing:
