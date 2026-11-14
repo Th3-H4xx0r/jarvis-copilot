@@ -10,6 +10,16 @@ from __future__ import annotations
 from jarvis_power import Link, PowerIntegration, Setting
 
 
+def _ensure_plugin_listed() -> None:
+    try:
+        from jarvis_power.stores import config_get, config_set
+        enabled = list(config_get("plugins.enabled", []) or [])
+        if "security_advisor" not in enabled:
+            config_set("plugins.enabled", enabled + ["security_advisor"])
+    except Exception:
+        pass
+
+
 class SecurityAdvisor(PowerIntegration):
     id = "security-advisor"
     name = "Security Advisor"
@@ -35,6 +45,10 @@ class SecurityAdvisor(PowerIntegration):
         return "security_advisor" in (_get_enabled_plugins() or set())
 
     def start(self, process: str) -> None:
+        # The plugin (its guard hooks, tools, CLI) is opt-in via plugins.enabled; keep it
+        # listed while this is on so every process loads it. Off leaves it listed — its
+        # hooks are gated on this switch — so switching back on needs no restart.
+        _ensure_plugin_listed()
         from plugins.security_advisor.service import SecurityService
         SecurityService.instance().start()
 

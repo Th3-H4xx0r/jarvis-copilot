@@ -26,6 +26,7 @@ class PowerManager:
         self.loop = loop                      # the gateway's asyncio loop, for adapters
         self.on_change = on_change
         self._running: set[str] = set()
+        self._failed: set[str] = set()          # start() raised: stop() still owed on switch-off
         self._lock = threading.RLock()
         self._seen: Optional[str] = None
         self._stop = threading.Event()
@@ -42,7 +43,7 @@ class PowerManager:
                 if self.process not in p.processes:
                     continue
                 want = states.get(p.id, True)
-                have = p.id in self._running
+                have = p.id in self._running or (not want and p.id in self._failed)
                 if want == have:
                     continue
                 verb = "start" if want else "stop"
@@ -51,9 +52,13 @@ class PowerManager:
                 except Exception as exc:
                     logger.exception("power: %s %s failed in %s", verb, p.id, self.process)
                     state.record_error(p.id, f"Couldn't {verb}: {exc}")
-                    if not want:                       # a failed stop still counts as off
+                    if want:
+                        self._failed.add(p.id)
+                    else:                              # a failed stop still counts as off
                         self._running.discard(p.id)
+                        self._failed.discard(p.id)
                     continue
+                self._failed.discard(p.id)
                 if want:
                     self._running.add(p.id)
                 else:

@@ -6,19 +6,31 @@ person) or "jarvis" (the agent, through its tools).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import threading
 from typing import Any
 
 from jarvis_power import approvals, discovery, schedules, state
 from jarvis_power.base import PowerError
 
 logger = logging.getLogger(__name__)
+# One change at a time in this process: two clients (or a double tap) must not both
+# pause schedules and overwrite each other's record of what they paused.
+_lock = threading.RLock()
 
 
 def request_enabled(integration_id: str, enabled: bool, by: str) -> dict:
+    with _lock:
+        return _request_enabled(integration_id, enabled, by)
+
+
+def _request_enabled(integration_id: str, enabled: bool, by: str) -> dict:
     p = discovery.get(integration_id)
     enabled = bool(enabled)
-    if enabled == state.is_on(integration_id) and state.doc(integration_id):
+    current = state.doc(integration_id)
+    if current and bool(current.get("enabled", True)) == enabled:
         return {"ok": True, "row": _row(integration_id)}
     if not enabled:
         reason = p.can_switch_off()
@@ -34,6 +46,11 @@ def request_enabled(integration_id: str, enabled: bool, by: str) -> dict:
 
 
 def request_settings(integration_id: str, changes: dict, by: str) -> dict:
+    with _lock:
+        return _request_settings(integration_id, changes, by)
+
+
+def _request_settings(integration_id: str, changes: dict, by: str) -> dict:
     p = discovery.get(integration_id)
     if not isinstance(changes, dict) or not changes:
         raise PowerError("No settings to change")
@@ -45,14 +62,17 @@ def request_settings(integration_id: str, changes: dict, by: str) -> dict:
         if setting is None:
             raise PowerError(f"{p.name} has no setting {key!r}")
         if by == "jarvis":
-            if setting.jarvis == "never":
+            # Secrets are never Jarvis's to set: a token it chose is a token it knows.
+            if setting.jarvis == "never" or setting.kind == "secret":
                 raise PowerError(f"{setting.label} can only be changed in the app")
             needs_face_id = needs_face_id or setting.jarvis == "ask"
         clean[key] = setting.coerce(value)
     if needs_face_id:
-        item = approvals.create(f"settings:{p.id}", {"kind": "settings", "id": p.id,
-                                                      "value": clean, "by": by},
-                                source=_source(by))
+        # The command carries a digest of the values, so the phone approves exactly these.
+        digest = hashlib.sha256(json.dumps(clean, sort_keys=True).encode()).hexdigest()[:10]
+        item = approvals.create(f"settings:{p.id}:{digest}",
+                                {"kind": "settings", "id": p.id, "value": clean, "by": by},
+                                source=_source(by), detail=_describe(fields, clean))
         return {"ok": False, "pending": item}
     apply_settings(integration_id, clean)
     return {"ok": True, "row": _row(integration_id)}
@@ -60,14 +80,15 @@ def request_settings(integration_id: str, changes: dict, by: str) -> dict:
 
 def apply_enabled(integration_id: str, enabled: bool, by: str) -> None:
     """Make the switch: store it, pause or restore its schedules, act in this process."""
-    sid = state.space_id_for(integration_id)
-    if enabled:
-        paused = state.doc(integration_id).get("paused_jobs") or []
-        schedules.restore(paused)
-        state.write_enabled(integration_id, True, by, paused_jobs=[])
-    else:
-        paused = schedules.pause(sid)
-        state.write_enabled(integration_id, False, by, paused_jobs=paused)
+    with _lock:
+        sid = state.space_id_for(integration_id)
+        already = state.doc(integration_id).get("paused_jobs") or []
+        if enabled:
+            schedules.restore(already)
+            state.write_enabled(integration_id, True, by, paused_jobs=[])
+        else:
+            paused = sorted(set(already) | set(schedules.pause(sid)))
+            state.write_enabled(integration_id, False, by, paused_jobs=paused)
     from jarvis_power import manager
     current = manager.current()
     if current is not None:
@@ -75,7 +96,19 @@ def apply_enabled(integration_id: str, enabled: bool, by: str) -> None:
 
 
 def apply_settings(integration_id: str, clean: dict) -> None:
-    discovery.get(integration_id).write_settings(clean)
+    with _lock:
+        discovery.get(integration_id).write_settings(clean)
+
+
+def _describe(fields: dict, clean: dict) -> str:
+    """What a settings approval changes, for the Face ID card (never a secret's value)."""
+    parts = []
+    for key, value in clean.items():
+        s = fields[key]
+        shown = "on" if value is True else "off" if value is False else (
+            "a new value" if s.kind == "secret" else f"{value}{(' ' + s.unit) if s.unit else ''}")
+        parts.append(f"{s.label} → {shown}")
+    return ", ".join(parts)
 
 
 def _source(by: str) -> str:

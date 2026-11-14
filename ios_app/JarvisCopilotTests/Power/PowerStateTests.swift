@@ -71,3 +71,25 @@ final class PowerStateTests: XCTestCase {
         XCTAssertEqual(result, .failed("Disarm the alarm first"))
     }
 }
+
+@MainActor
+final class PowerPendingTests: XCTestCase {
+    func testServerPendingClearsAfterDeny() {
+        let defaults = UserDefaults(suiteName: "power-pending-\(UUID().uuidString)")!
+        let state = PowerState(fetch: { [:] }, send: { _, _ in [:] }, defaults: defaults)
+        state.apply(list: [["id": "car", "name": "Car", "enabled": true, "pending": true]])
+        XCTAssertTrue(state.pending.contains("car"))
+        state.apply(list: [["id": "car", "name": "Car", "enabled": true, "pending": false]])
+        XCTAssertFalse(state.pending.contains("car"))
+    }
+
+    func testApprovalTitleReadsSettingsDigestCommands() {
+        PowerState.shared.apply(list: [["id": "security-advisor", "name": "Security Advisor", "enabled": true]])
+        let domain = PowerApprovalDomain()
+        let approval = FaceIDApproval(json: ["id": "a", "command": "settings:security-advisor:1a2b3c4d5e"])!
+        XCTAssertEqual(domain.title(for: approval), "Change Security Advisor settings")
+        let off = FaceIDApproval(json: ["id": "b", "command": "off:security-advisor"])!
+        XCTAssertEqual(domain.title(for: off), "Switch off Security Advisor")
+        PowerState.shared.apply(list: [])
+    }
+}

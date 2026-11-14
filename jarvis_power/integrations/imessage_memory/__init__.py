@@ -28,7 +28,7 @@ class IMessageMemory(PowerIntegration):
     links = (Link("ios", "imessage", "Choose chats and review facts"),
              Link("web", "imessage", "Choose chats and review facts"))
     settings = (
-        Setting("ask_facts", "Ask before storing new facts", "toggle", default=True),
+        Setting("ask_facts", "Ask before storing new facts", "toggle", default=True, jarvis="ask"),
         Setting("push_facts", "Notify me about new facts", "toggle", default=True),
     )
 

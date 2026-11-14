@@ -49,6 +49,17 @@ enum PowerGates {
     /// Runs `start` once, the first time `id` is on — now, or when it's switched on later.
     /// (Services without a stop: switching off stops them at the next launch; the server
     /// refuses their calls meanwhile.)
+    /// Starts a service while `id` is on and stops it when it's switched off (and again on).
+    static func follow(_ id: String, start: @escaping @MainActor () -> Void,
+                       stop: @escaping @MainActor () -> Void) {
+        var running = false
+        PowerState.shared.observe { off in
+            let on = !off.contains(id)
+            if on, !running { running = true; start() }
+            if !on, running { running = false; stop() }
+        }
+    }
+
     static func whenOn(_ id: String, _ start: @escaping @MainActor () -> Void) {
         PowerState.shared.observe { off in
             guard !off.contains(id), !started.contains(id) else { return }

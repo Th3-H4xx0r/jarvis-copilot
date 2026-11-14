@@ -35,8 +35,15 @@ def _under(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
+def _normalise(path: str) -> str:
+    """Decode and collapse slashes, so ``//x//y/`` can't slip past a prefix."""
+    from urllib.parse import unquote
+    return "/" + "/".join(part for part in unquote(path or "").split("/") if part)
+
+
 def route_block(path: str) -> Optional[dict]:
     """The 409 body for ``path`` when it belongs to an off integration, else None."""
+    path = _normalise(path)
     if _under(path, "/api/power"):
         return None
     best = None

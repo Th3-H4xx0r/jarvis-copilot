@@ -23,7 +23,10 @@ from jarvis_power import discovery
 
 logger = logging.getLogger(__name__)
 
-POWER_DOC = "power"
+POWER_DOC = "jarvis_power"
+# The key the first deploy used. A user's own integration may keep a "power" document
+# (watts, a UPS…), so only a power-state-shaped one in a Power space is ours to move.
+LEGACY_DOC = "power"
 _CACHE_TTL = 2.0
 _lock = threading.RLock()
 _space_ids: dict[str, str] = {}
@@ -42,11 +45,16 @@ def reset_cache() -> None:
         _space_ids.clear()
 
 
+def _looks_like_state(body) -> bool:
+    return isinstance(body, dict) and "enabled" in body and "changed_by" in body
+
+
 def _has_power_doc(space_id: str) -> bool:
     reg = _reg()
     if not reg.exists(space_id):
         return False
-    return isinstance(reg.open(space_id).get(POWER_DOC), dict)
+    space = reg.open(space_id)
+    return _looks_like_state(space.get(POWER_DOC)) or _looks_like_state(space.get(LEGACY_DOC))
 
 
 def space_id_for(integration_id: str) -> str:
@@ -60,10 +68,10 @@ def space_id_for(integration_id: str) -> str:
         if cached:
             return cached
         prefixed = f"power-{integration_id}"
-        if _has_power_doc(prefixed):
-            chosen = prefixed
-        elif _has_power_doc(integration_id):
+        if _has_power_doc(integration_id):
             chosen = integration_id
+        elif _has_power_doc(prefixed):
+            chosen = prefixed
         else:
             p = discovery.integrations().get(integration_id)
             taken = _reg().exists(integration_id)
@@ -75,7 +83,8 @@ def space_id_for(integration_id: str) -> str:
 
 def is_power_space(space_id: str) -> bool:
     try:
-        return _has_power_doc(space_id)
+        reg = _reg()
+        return reg.exists(space_id) and _looks_like_state(reg.open(space_id).get(POWER_DOC))
     except Exception:
         return False
 
@@ -102,7 +111,12 @@ def ensure_all() -> None:
 def _ensure(p) -> None:
     sid = space_id_for(p.id)
     space = _reg().space(sid, name=p.name, description=p.summary, icon=p.icon)
-    if isinstance(space.get(POWER_DOC), dict):
+    if _looks_like_state(space.get(POWER_DOC)):
+        return
+    legacy = space.get(LEGACY_DOC)
+    if _looks_like_state(legacy):                 # first deploy's key: move it
+        space.put(POWER_DOC, legacy, description="Power integration state (on/off, settings)")
+        space.delete_document(LEGACY_DOC)
         return
     try:
         enabled = bool(p.seed_enabled())
@@ -120,7 +134,11 @@ def doc(integration_id: str) -> dict:
     reg = _reg()
     if not reg.exists(sid):
         return {}
-    body = reg.open(sid).get(POWER_DOC)
+    space = reg.open(sid)
+    body = space.get(POWER_DOC)
+    if not _looks_like_state(body):
+        legacy = space.get(LEGACY_DOC)
+        body = legacy if _looks_like_state(legacy) else None
     return dict(body) if isinstance(body, dict) else {}
 
 
@@ -155,7 +173,7 @@ def snapshot() -> dict[str, bool]:
             try:
                 body = doc(integration_id)
                 cached[integration_id] = bool(body.get("enabled", True)) if body else None
-            except Exception:
+            except (Exception, SystemExit):      # a broken home lookup may sys.exit()
                 cached[integration_id] = True    # never switch a feature off because a read failed
         with _lock:
             _snapshot = (now, cached)
@@ -175,7 +193,7 @@ def _unseeded(p) -> bool:
     """Before the webui has seeded it (another process booted first): what it will seed."""
     try:
         return bool(p.seed_enabled())
-    except Exception:
+    except (Exception, SystemExit):
         return bool(p.default_enabled)
 
 
@@ -183,7 +201,7 @@ def is_on(integration_id: str) -> bool:
     """Whether it's on. Unknown ids and unreadable state count as on."""
     try:
         return snapshot().get(integration_id, True)
-    except Exception:
+    except (Exception, SystemExit):
         return True
 
 

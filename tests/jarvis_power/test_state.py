@@ -87,7 +87,7 @@ def test_registry_put_cannot_write_power_doc(fake_pkg, reg):
     state.ensure_all()
     from tools import registry_tools
 
-    out = json.loads(registry_tools._h_put({"space": "alpha", "key": "power",
+    out = json.loads(registry_tools._h_put({"space": "alpha", "key": "jarvis_power",
                                             "body": {"enabled": False}}))
     assert out.get("ok") is False
     assert state.is_on("alpha") is True

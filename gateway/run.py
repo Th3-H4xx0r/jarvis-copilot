@@ -3820,7 +3820,9 @@ class GatewayRunner:
         # that are on, then follow switches flipped from any device within seconds.
         try:
             from jarvis_power.manager import manager_for as _power_manager_for
-            _power_manager_for("gateway", loop=asyncio.get_running_loop()).start()
+            _power_mgr = _power_manager_for("gateway", loop=asyncio.get_running_loop())
+            # Off the loop: an integration's start() may itself wait on this loop.
+            asyncio.create_task(asyncio.to_thread(_power_mgr.start))
         except Exception as e:
             logger.error("Power integrations failed to start in the gateway: %s", e)
 
@@ -4771,9 +4773,13 @@ class GatewayRunner:
             logger.warning("kanban dispatcher: cannot load config (%s); disabled", exc)
             return
         kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
-        # `dispatch_in_gateway` is read every tick (below), so the Kanban Power
-        # integration's "Run ready tasks automatically" setting applies without a
-        # restart.
+        if not kanban_cfg.get("dispatch_in_gateway", True):
+            logger.info(
+                "kanban dispatcher: disabled via config kanban.dispatch_in_gateway=false"
+            )
+            return
+        # Read again every tick too, so switching it off from the Kanban Power
+        # integration's settings applies at once (back on needs a gateway restart).
 
         def _dispatch_wanted() -> bool:
             try:

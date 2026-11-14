@@ -68,6 +68,9 @@ struct PowerRow: Identifiable, Equatable {
     let summary: String
     let enabled: Bool
     let protected: Bool
+    /// Switching it off waits for Face ID on the iPhone (the server's word, so a Deny or
+    /// an expired card clears it everywhere).
+    let pending: Bool
     let statusLine: String
     let error: String?
     let settingsSchema: [PowerSetting]
@@ -86,6 +89,7 @@ struct PowerRow: Identifiable, Equatable {
         summary = o["summary"] as? String ?? ""
         enabled = o["enabled"] as? Bool ?? true
         protected = o["protected"] as? Bool ?? false
+        pending = o["pending"] as? Bool ?? false
         statusLine = o["status_line"] as? String ?? ""
         error = (o["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let schema = (o["settings_schema"] as? [[String: Any]] ?? []).compactMap(PowerSetting.init(json:))

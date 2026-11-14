@@ -23,8 +23,9 @@ class Car(PowerIntegration):
     surfaces = ("ios.devices.car", "ios.bridge.car", "ios.carplay.car")
     links = (Link("ios", "car_page", "Open the Car page"),)
     settings = (
-        Setting("HASS_URL", "Home Assistant URL", "text", default=""),
-        Setting("HASS_TOKEN", "Home Assistant token", "secret"),
+        # App only: pointing HASS_URL elsewhere would send the token there.
+        Setting("HASS_URL", "Home Assistant URL", "text", default="", jarvis="never"),
+        Setting("HASS_TOKEN", "Home Assistant token", "secret", jarvis="never"),
     )
 
     def read_settings(self) -> dict:

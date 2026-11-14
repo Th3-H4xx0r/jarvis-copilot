@@ -12,6 +12,7 @@ See docs/power-integrations/README.md for the full guide.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,7 +73,7 @@ class Setting:
                 return value
             raise PowerError(f"{self.label} must be on or off")
         if self.kind == "number":
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise PowerError(f"{self.label} must be a number")
             if self.min is not None and value < self.min:
                 raise PowerError(f"{self.label} must be at least {self.min:g}")

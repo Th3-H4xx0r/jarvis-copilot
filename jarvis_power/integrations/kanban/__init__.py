@@ -49,7 +49,8 @@ class Kanban(PowerIntegration):
     links = (Link("ios", "kanban", "Open the board"), Link("web", "kanban", "Open the board"))
     settings = (
         Setting("dispatch", "Run ready tasks automatically", "toggle", default=True,
-                help="Off: tasks wait until a worker or terminal claims them."),
+                help="Off: tasks wait for a worker or terminal to claim them. Off applies at "
+                     "once; back on after the gateway restarts."),
         Setting("failure_limit", "Block a task after failures", "number", default=2, min=1, max=10),
     )
 

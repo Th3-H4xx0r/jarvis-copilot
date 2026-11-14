@@ -27,7 +27,7 @@ BOOKKEEPING_KEYS = {"imported_files"}
 UI_KEY = "ui"
 # A Power integration's on/off and settings (jarvis_power.state). Not data: the
 # Power section draws it, and only the Power switch changes it.
-POWER_KEY = "power"
+POWER_KEY = "jarvis_power"
 HIDDEN_KEYS = BOOKKEEPING_KEYS | {UI_KEY, POWER_KEY}
 GENERAL_NAME = "General"
 GENERAL_DESCRIPTION = "Schedules and notes that don't belong to a larger integration."

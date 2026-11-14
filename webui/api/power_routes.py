@@ -56,6 +56,26 @@ def _install_notifier() -> None:
 _install_notifier()
 
 
+def _is_board(req) -> bool:
+    """A paired ESP32 or the Pod (the door alarm's rule): read only."""
+    try:
+        from api.door_routes import door_caller
+        return door_caller(req.handler) == "board"
+    except Exception:
+        return False
+
+
+def _audit(req, integration_id: str, body: dict, by: str) -> None:
+    """Every switch and settings change lands in the Security Advisor's event log."""
+    try:
+        from security.events import emit
+        from security.netid import actor_for
+        emit("device", "power.change", actor_for(req.handler), integration=integration_id,
+             enabled=body.get("enabled"), settings=sorted((body.get("settings") or {}).keys()), by=by)
+    except Exception:
+        logger.debug("power audit event failed", exc_info=True)
+
+
 def route(req) -> bool:
     """Mounted at /api/power (api/mounts.py)."""
     from jarvis_power import api, approvals, switch
@@ -85,8 +105,11 @@ def route(req) -> bool:
             return req.reply(404, {"error": "not found"})
 
         integration_id = parts[0]
+        if req.method == "POST" and not req.host_signed and _is_board(req):
+            return req.reply(403, {"ok": False, "error": "Devices can read Power integrations, not change them."})
         if len(parts) == 1 and req.method == "POST":
             by = "jarvis" if req.host_signed else (str(body.get("client") or "app"))
+            _audit(req, integration_id, body, by)
             if by == "jarvis" and not req.host_signed:
                 by = "app"                     # only the loopback is Jarvis
             result = None

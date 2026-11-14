@@ -69,6 +69,7 @@ def row(integration_id: str) -> dict:
         "summary": p.summary,
         "enabled": bool(body.get("enabled", True)) if body else True,
         "protected": p.protected,
+        "pending": _pending_off(p.id),
         "status_line": status or "",
         "error": body.get("error"),
         "settings_schema": [s.schema() for s in p.settings],
@@ -81,6 +82,14 @@ def row(integration_id: str) -> dict:
         "has_page": "page" in presentations,
         "space": state.space_id_for(p.id),
     }
+
+
+def _pending_off(integration_id: str) -> bool:
+    try:
+        from jarvis_power import approvals
+        return approvals.pending_off(integration_id)
+    except Exception:
+        return False
 
 
 def rows() -> dict:

@@ -32,7 +32,9 @@ class Photon(PowerIntegration):
     processes = ("gateway",)
     route_prefixes = ("/api/integrations/photon",)
     surfaces = ("ios.more.photon", "web.settings.photon", "mac.settings.photon")
-    settings = tuple(Setting(key, label, "secret" if key in _SECRET else "text", default="")
+    # App only: the sidecar URL, allowed senders and handle decide who reaches Jarvis.
+    settings = tuple(Setting(key, label, "secret" if key in _SECRET else "text", default="",
+                             jarvis="never")
                      for key, label in _FIELDS)
 
     def read_settings(self) -> dict:
@@ -64,32 +66,42 @@ class Photon(PowerIntegration):
         if runner is None or loop is None:
             return
         platform = Platform("photon")
-        runner._failed_platforms.pop(platform, None)
-        adapter = runner.adapters.pop(platform, None)
-        runner.delivery_router.adapters = runner.adapters
-        if adapter is not None:
-            asyncio.run_coroutine_threadsafe(adapter.disconnect(), loop).result(timeout=20)
+
+        async def detach():
+            runner._failed_platforms.pop(platform, None)
+            adapter = runner.adapters.pop(platform, None)
+            runner.delivery_router.adapters = runner.adapters
+            if adapter is not None:
+                await adapter.disconnect()
+
+        asyncio.run_coroutine_threadsafe(detach(), loop).result(timeout=30)
 
     def start(self, process: str) -> None:
         from gateway.config import Platform, load_gateway_config
         runner, loop = self._runner_and_loop()
         platform = Platform("photon")
-        if runner is None or loop is None or platform in runner.adapters:
+        if runner is None or loop is None:
             return
+        if platform in runner.adapters or platform in runner._failed_platforms:
+            return                                # connected, or the reconnect watcher owns it
         pconfig = load_gateway_config().platforms.get(platform)
         if pconfig is None or not pconfig.enabled:
             return                                # not configured: nothing to connect
-        adapter = runner._create_adapter(platform, pconfig)
-        if adapter is None:
-            return
-        adapter.set_message_handler(runner._handle_message)
-        adapter.set_fatal_error_handler(runner._handle_adapter_fatal_error)
-        adapter.set_session_store(runner.session_store)
-        adapter.set_busy_session_handler(runner._handle_active_session_busy_message)
-        adapter.set_session_liveness_check(runner._running_agent_is_stale)
-        ok = asyncio.run_coroutine_threadsafe(
-            runner._connect_adapter_with_timeout(adapter, platform), loop).result(timeout=90)
-        if not ok:
+
+        async def attach() -> bool:
+            adapter = runner._create_adapter(platform, pconfig)
+            if adapter is None:
+                return True
+            adapter.set_message_handler(runner._handle_message)
+            adapter.set_fatal_error_handler(runner._handle_adapter_fatal_error)
+            adapter.set_session_store(runner.session_store)
+            adapter.set_busy_session_handler(runner._handle_active_session_busy_message)
+            adapter.set_session_liveness_check(runner._running_agent_is_stale)
+            if not await runner._connect_adapter_with_timeout(adapter, platform):
+                return False
+            runner.adapters[platform] = adapter
+            runner.delivery_router.adapters = runner.adapters
+            return True
+
+        if not asyncio.run_coroutine_threadsafe(attach(), loop).result(timeout=90):
             raise RuntimeError("the Photon sidecar didn't connect")
-        runner.adapters[platform] = adapter
-        runner.delivery_router.adapters = runner.adapters

@@ -994,7 +994,9 @@ class PluginManager:
 
             # Explicit disable always wins (matches on key or on legacy
             # bare name for back-compat with existing user configs).
-            if lookup_key in disabled or manifest.name in disabled:
+            # Security Advisor's only off switch is its Power switch (Face ID-guarded),
+            # so plugins.disabled can't unload its guard hooks behind it.
+            if (lookup_key in disabled or manifest.name in disabled) and lookup_key != "security_advisor":
                 loaded = LoadedPlugin(manifest=manifest, enabled=False)
                 loaded.error = "disabled via config"
                 self._plugins[lookup_key] = loaded

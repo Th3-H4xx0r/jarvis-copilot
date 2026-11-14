@@ -634,7 +634,7 @@ def save_ui(space_id: str, doc: dict) -> dict:
     if errors:
         raise UIError(errors)
     space = _registry().open(space_id)
-    if isinstance(space.get("power", default=None), dict):
+    if isinstance(space.get("jarvis_power", default=None), dict):
         raise UIError([f"{space_id!r} is a Power integration: its UI is part of its code"])
     previous = space.get(UI_KEY, default=None)
     previous = previous if isinstance(previous, dict) else {}

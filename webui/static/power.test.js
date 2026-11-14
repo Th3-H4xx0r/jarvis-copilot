@@ -26,10 +26,12 @@ test('data-power elements toggle with the switch', () => {
   assert.ok(!doc.els[0].classes.has('power-off'));
 });
 
-test('a pending switch-off says it waits for Face ID', () => {
-  JCPower.pending.car = true;
+test('a pending switch-off says it waits for Face ID, until the server says otherwise', () => {
+  JCPower.apply({ integrations: [{ id: 'car', enabled: true, pending: true }] }, fakeDoc([]));
   assert.strictEqual(JCPower.subtitle({ id: 'car', enabled: true, status_line: 'Locked' }),
     'Waiting for Face ID on your iPhone');
+  JCPower.apply({ integrations: [{ id: 'car', enabled: true, pending: false }] }, fakeDoc([]));
+  assert.strictEqual(JCPower.subtitle({ id: 'car', enabled: true, status_line: 'Locked' }), 'Locked');
   JCPower.apply({ integrations: [{ id: 'car', enabled: false }] }, fakeDoc([]));
   assert.strictEqual(JCPower.subtitle({ id: 'car', enabled: false }), 'Off');
 });

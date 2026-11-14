@@ -139,3 +139,11 @@ def test_approvals_cannot_be_answered_by_host(env):
     assert status == 403
     status, body = call("POST", f"/api/power/approvals/{approval_id}/deny")
     assert status == 200 and body["ok"] is True
+
+
+def test_boards_cannot_change_power(env, monkeypatch):
+    monkeypatch.setattr(routes, "_is_board", lambda req: True)
+    status, body = call("POST", "/api/power/alpha", {"settings": {"mode": "b"}})
+    assert status == 403
+    status, body = call("GET", "/api/power")
+    assert status == 200

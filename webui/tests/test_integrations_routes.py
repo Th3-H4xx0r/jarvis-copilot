@@ -313,7 +313,7 @@ def test_power_space_cannot_be_deleted_or_paused(sent, tmp_path, monkeypatch):
     r = Registry(tmp_path / "power.db")
     monkeypatch.setattr(store, "shared", lambda: r)
     space = r.space("alpha", name="Alpha")
-    space.put("power", {"enabled": True, "settings": {}, "changed_at": 1.0,
+    space.put("jarvis_power", {"enabled": True, "settings": {}, "changed_at": 1.0,
                         "changed_by": "seed", "paused_jobs": [], "error": None})
 
     routes.handle_delete(object(), urlparse("/api/integrations/alpha"), None)
@@ -321,7 +321,7 @@ def test_power_space_cannot_be_deleted_or_paused(sent, tmp_path, monkeypatch):
     assert "Power integration" in sent["body"]["error"]
     assert r.exists("alpha")
 
-    routes.handle_delete(object(), urlparse("/api/integrations/alpha/documents/power"), None)
+    routes.handle_delete(object(), urlparse("/api/integrations/alpha/documents/jarvis_power"), None)
     assert sent["status"] == 409
 
     routes.handle_post(object(), urlparse("/api/integrations/alpha/status"), {"status": "paused"})

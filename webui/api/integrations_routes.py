@@ -215,7 +215,7 @@ def handle_delete(handler, parsed, body=None) -> bool:
 
         if tail.startswith("documents/"):
             key = urllib.parse.unquote(tail[len("documents/"):])
-            if key == "power" and _is_power(space_id):
+            if key == "jarvis_power" and _is_power(space_id):
                 return _power_refusal(handler, space_id)
             if not reg.open(space_id).delete_document(key):
                 j(handler, {"error": f"no document {key!r}"}, status=404)
@@ -286,7 +286,8 @@ def _is_power_id(space_id: str) -> bool:
 
 def _is_power(space_id: str) -> bool:
     try:
-        return isinstance(_registry().open(space_id).get("power"), dict)
+        from jarvis_power.state import is_power_space
+        return is_power_space(space_id)
     except Exception:
         return False
 

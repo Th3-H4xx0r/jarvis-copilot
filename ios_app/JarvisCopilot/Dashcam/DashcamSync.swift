@@ -217,20 +217,30 @@ final class DashcamSync: ObservableObject {
 
     // MARK: Lifecycle
 
-    /// Called once at launch (AppServices).
+    /// Whether start() is in effect (the Dashcam Power integration is on).
+    private(set) var running = false
+    private var pathStarted = false
+    private var batteryObserver: NSObjectProtocol?
+
+    /// Called at launch (AppServices) and whenever the Dashcam Power integration is switched on.
     func start() {
         guard setupProvider() != nil else { phase = .notSetUp; return }
+        guard !running else { return }
+        running = true
         phase = .away
         DashcamWiFi.shared.onChange = { [weak self] on in self?.cameraChanged(on) }
         DashcamWiFi.shared.start()
         pathMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in self?.internetPath = path; self?.kickUploads() }
         }
-        pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
+        if !pathStarted {                       // an NWPathMonitor can only be started once
+            pathStarted = true
+            pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
+        }
         // Plugged in: what waited for power (normal footage, previews) can go now.
         UIDevice.current.isBatteryMonitoringEnabled = true
-        NotificationCenter.default.addObserver(forName: UIDevice.batteryStateDidChangeNotification, object: nil,
-                                               queue: .main) { [weak self] _ in
+        batteryObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.kickUploads() }
         }
         wireTopics()
@@ -244,9 +254,23 @@ final class DashcamSync: ObservableObject {
         DashcamSyncBeacon.shared.start()
     }
 
+    /// The Dashcam Power integration was switched off: stop watching its Wi-Fi, motion and
+    /// network, and send nothing more. Clips already on the phone stay.
+    func stop() {
+        guard running else { return }
+        running = false
+        DashcamWiFi.shared.onChange = nil
+        DashcamWiFi.shared.stop()
+        DashcamMotion.shared.stop()
+        pathMonitor.pathUpdateHandler = nil
+        if let batteryObserver { NotificationCenter.default.removeObserver(batteryObserver) }
+        batteryObserver = nil
+        phase = .away
+    }
+
     /// The app came to the foreground (AppServices): catch up on the server once, then send what can go.
     func foregrounded() {
-        guard setupProvider() != nil else { return }
+        guard running, setupProvider() != nil else { return }
         cleanUpDue = true
         DashcamSyncBeacon.shared.poke()           // an activity can only start now, in the foreground
         measurePhoneSpace()
@@ -1111,6 +1135,7 @@ final class DashcamSync: ObservableObject {
     /// Starts the upload loop, or wakes the one asleep. Called for every reason a clip might go now:
     /// a new job, a network path change, the rules, a push, foregrounding.
     func kickUploads() {
+        guard running else { return }
         guard uploadLoop == nil else {
             kicked = true
             napper?.cancel()

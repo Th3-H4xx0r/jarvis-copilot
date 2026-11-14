@@ -86,7 +86,7 @@ final class PowerState {
             defaults.set(data, forKey: Self.rowsKey)
         }
         let off = Set(parsed.filter { !$0.enabled }.map(\.id))
-        pending.subtract(off)
+        pending = Set(parsed.filter(\.pending).map(\.id))
         guard off != offIDs else { return }
         offIDs = off
         PowerShared.store(offIDs: off, defaults: defaults)

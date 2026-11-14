@@ -9,10 +9,10 @@ struct PowerApprovalDomain: FaceIDApprovalDomain {
     var prefix: String { PowerAPI.prefix }
     var signingDomain: String { "jarvis-power" }
 
-    /// `off:<id>` / `settings:<id>`, in the app's own words with the name it knows.
+    /// `off:<id>` / `settings:<id>:<digest>`, in the app's own words with the name it knows.
     func title(for approval: FaceIDApproval) -> String? {
-        let parts = approval.command.split(separator: ":", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return nil }
+        let parts = approval.command.split(separator: ":").map(String.init)
+        guard parts.count >= 2 else { return nil }
         let name = PowerState.shared.row(parts[1])?.name ?? parts[1]
         switch parts[0] {
         case "off": return "Switch off \(name)"
@@ -38,14 +38,25 @@ struct PowerApprovalDomain: FaceIDApprovalDomain {
     func answered() async { await PowerState.shared.refresh() }
 
     func hero(for approval: FaceIDApproval) -> AnyView {
-        let id = approval.command.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
+        let parts = approval.command.split(separator: ":").map(String.init)
+        let id = parts.count >= 2 ? parts[1] : ""
         let icon = PowerState.shared.row(id)?.icon ?? "bolt.fill"
         return AnyView(
-            JcIcon(icon, size: 44)
-                .foregroundStyle(JcTheme.text)
-                .frame(width: 96, height: 96)
-                .background(JcButton.fill, in: Circle())
-                .padding(.top, 12)
+            VStack(spacing: 10) {
+                JcIcon(icon, size: 44)
+                    .foregroundStyle(JcTheme.text)
+                    .frame(width: 96, height: 96)
+                    .background(JcButton.fill, in: Circle())
+                // What a settings change sets ("Alerts per hour at most → 0"), so he
+                // approves exactly what was asked.
+                if let detail = approval.detail {
+                    Text(detail)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(JcTheme.muted)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(.top, 12)
         )
     }
 }

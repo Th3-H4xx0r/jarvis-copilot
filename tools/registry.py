@@ -131,7 +131,7 @@ def _power_off_message(toolset: str) -> Optional[str]:
         return None
     try:
         return tool_off_message(toolset)
-    except Exception:
+    except (Exception, SystemExit):
         logger.debug("power gate check failed for %s", toolset, exc_info=True)
         return None
 

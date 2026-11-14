@@ -26,7 +26,7 @@ final class MacPowerStore {
 
     func apply(_ body: [String: Any]) {
         rows = (body["integrations"] as? [[String: Any]] ?? []).compactMap(PowerRow.init(json:))
-        pending.subtract(rows.filter { !$0.enabled }.map(\.id))
+        pending = Set(rows.filter(\.pending).map(\.id))   // the server's word: Deny/expiry clear it
         loaded = true
     }
 

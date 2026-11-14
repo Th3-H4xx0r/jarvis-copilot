@@ -105,9 +105,9 @@ _PUT = {
 
 def _h_put(args=None, **_kw) -> str:
     args = args or {}
-    if str(args.get("key") or "").strip() == "power":
-        return _fail("'power' is a Power integration's on/off and settings; change it "
-                     "with power_set")
+    if str(args.get("key") or "").strip() == "jarvis_power":
+        return _fail("'jarvis_power' is a Power integration's on/off and settings; change "
+                     "it with power_set")
     if str(args.get("key") or "").strip() == "ui":
         return _fail("'ui' is the integration's own UI; change it with integration_ui_set, "
                      "which checks it before storing it")

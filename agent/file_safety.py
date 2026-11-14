@@ -33,6 +33,8 @@ PROTECTED_STATE_PATHS: tuple[str, ...] = (
     "secrets",              # vault master key and other server-held keys
     "vault",                # Secure Vault database + encrypted blobs
     "car/approver.json",    # the iPhone's registered Face ID public keys
+    "registry.db",          # integrations' data + Power integrations' on/off (Face ID-guarded)
+    "power_sessions.db",    # which Power toolsets each chat runs without
 )
 
 

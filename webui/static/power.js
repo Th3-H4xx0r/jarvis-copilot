@@ -33,7 +33,9 @@
       JCPower.changed = !!body && body.version !== JCPower.version;
       JCPower.version = body ? body.version : null;
       JCPower.rows = (body && body.integrations) || [];
-      JCPower.rows.forEach(function (r) { if (r.enabled === false) delete JCPower.pending[r.id]; });
+      // The server says what's waiting for Face ID, so a Deny or expiry clears it here too.
+      JCPower.pending = {};
+      JCPower.rows.forEach(function (r) { if (r.pending) JCPower.pending[r.id] = true; });
       JCPower.applyGates(doc || (typeof document !== 'undefined' ? document : null));
     },
     applyGates: function (doc) {

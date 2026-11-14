@@ -178,7 +178,7 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
     try:
         from jarvis_power.gate import off_skill_names
         names = set(names) | off_skill_names()
-    except Exception:
+    except (Exception, SystemExit):
         pass
     return names
 

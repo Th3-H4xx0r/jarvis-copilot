@@ -64,7 +64,7 @@ def test_jarvis_setting_rules(fake_pkg, reg, calls, approvals):
     with pytest.raises(PowerError, match="can only be changed in the app"):
         switch.request_settings("alpha", {"locked": True}, by="jarvis")
     pending = switch.request_settings("alpha", {"careful": True}, by="jarvis")
-    assert pending["ok"] is False and pending["pending"]["command"] == "settings:alpha"
+    assert pending["ok"] is False and pending["pending"]["command"].startswith("settings:alpha:")
     assert state.stored_settings("alpha").get("careful") is None
     done = switch.request_settings("alpha", {"free": True}, by="jarvis")
     assert done["ok"] is True and state.stored_settings("alpha")["free"] is True

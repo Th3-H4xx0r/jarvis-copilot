@@ -394,10 +394,10 @@ final class AppServices {
         Task { await ControlButtonStore.shared.runPending() }
 
         // 10d. Dashcam: watch for its Wi‑Fi (iOS joins it on its own), sync, upload.
-        PowerGates.whenOn("dashcam") {
+        PowerGates.follow("dashcam", start: {
             DashcamSync.shared.start()
             DashcamDevice.shared.refreshMembership()
-        }
+        }, stop: { DashcamSync.shared.stop() })
 
         // 10e. The car: hosts the dashcam and the car lights (linked wearables) and their controls.
         CarModel.warmUp()                        // the 3D car's mesh + studio, off the main thread
@@ -464,7 +464,9 @@ final class AppServices {
             // queued while we were away.
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
             WearablesHub.shared.appDidBecomeActive()
-            Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.foregrounded() }
+            if PowerState.shared.isOn("dashcam") {
+                Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.foregrounded() }
+            }
             Task { await ContextSnapshot.shared.appForegrounded() }
             WatchBridge.shared.pushLoginState()
             liveActivity.onResume()
