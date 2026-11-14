@@ -1,0 +1,14 @@
+{
+  "presentations": {
+    "card": {"type": "hstack", "children": [
+      {"type": "stat", "value": {"$": "today"}, "caption": "today"},
+      {"type": "titleSubtitle", "title": {"$": "last"}, "subtitle": "Last drop"}
+    ]},
+    "page": {"type": "section", "title": "Today", "children": [
+      {"type": "stat", "value": {"$": "today"}, "caption": "drops"},
+      {"type": "keyValue", "pairs": [{"label": "Last", "value": {"$": "last"}},
+                                     {"label": "Result", "value": {"$": "last_state"}}]},
+      {"type": "button", "label": "Refresh", "action": "refresh"}
+    ]}
+  }
+}

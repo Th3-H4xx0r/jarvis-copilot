@@ -28,6 +28,7 @@ MOUNTS = (
     ("/api/door", "api.door_routes"),
     ("/api/edge", "api.edge"),
     ("/api/harnesses", "api.harness_routes"),
+    ("/api/holo-drop", "api.holo_drop_routes"),
     ("/api/island", "api.island_routes"),
     ("/api/jarvis-memory", "api.jarvis_memory_routes"),
     ("/api/kanban", "api.kanban_bridge"),

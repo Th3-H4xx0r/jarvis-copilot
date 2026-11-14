@@ -82,6 +82,8 @@ _HERMES_CORE_TOOLS = [
     "integration_ui_get", "integration_ui_set", "integration_ui_test",
     # Power integrations: switch built-in features on/off and configure them.
     "power_list", "power_set",
+    # Holo Drop (a Power integration): fling a link, text or file onto one of his devices.
+    "holo_drop",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
@@ -305,6 +307,12 @@ TOOLSETS = {
             "integration_plan_propose", "integration_ready", "integration_create",
             "integration_ui_get", "integration_ui_set", "integration_ui_test",
         ],
+        "includes": []
+    },
+
+    "holo_drop": {
+        "description": "Holo Drop: put a link, text or a file onto one of Pranav's devices.",
+        "tools": ["holo_drop"],
         "includes": []
     },
 
