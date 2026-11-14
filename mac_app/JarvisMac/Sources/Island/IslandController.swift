@@ -388,7 +388,7 @@ final class IslandController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 3)
+        panel.level = Self.level
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
@@ -442,8 +442,71 @@ final class IslandController {
                               width: size.width, height: size.height), display: true)
     }
 
+    /// The island's own level: over everything, menu bar included.
+    static let level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 3)
+
+    /// A window of ours you work in (Settings): titled, not a panel. While one
+    /// is key the island folds and sits just under it, so it never covers it;
+    /// once it loses the keyboard (or closes) the island is back over everything.
+    static func ownsTheScreen(_ w: NSWindow) -> Bool {
+        !(w is NSPanel) && w.styleMask.contains(.titled) && w.isVisible
+    }
+
+    /// Our work window when it is the frontmost ordinary window on screen (ours
+    /// or any app's), whether or not Jarvis is the active app; nil otherwise.
+    private func frontWorkWindow() -> NSWindow? {
+        let ours = NSApp.windows.filter { $0 !== panel && Self.ownsTheScreen($0) && !$0.isMiniaturized }
+        guard !ours.isEmpty,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let island = panel?.windowNumber ?? -1
+        for info in list {                                   // front to back
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let number = info[kCGWindowNumber as String] as? Int, number != island,
+                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0.01 else { continue }
+            let b = info[kCGWindowBounds as String] as? [String: Any]
+            if (b?["Width"] as? Double ?? 0) < 60 || (b?["Height"] as? Double ?? 0) < 60 { continue }
+            return ours.first { $0.windowNumber == number }
+        }
+        return nil
+    }
+
+    private var underWindow = false
+
+    private func applyLayering() {
+        guard let panel else { return }
+        if let front = frontWorkWindow() {
+            if !underWindow, isExpanded { close() }        // only as it goes under, not every check
+            underWindow = true
+            panel.level = .normal
+            panel.order(.below, relativeTo: front.windowNumber)
+        } else if underWindow || panel.level != Self.level {
+            underWindow = false
+            panel.level = Self.level
+            panel.orderFrontRegardless()
+        }
+    }
+
     private func observeSystem() {
         let nc = NotificationCenter.default
+        // Another app's window can come over ours without a notification here: look twice a second.
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyLayering() }
+        }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didBecomeMainNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.willCloseNotification, NSApplication.didResignActiveNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    // A closing window is still key while it closes: look again next turn.
+                    if note.name == NSWindow.willCloseNotification {
+                        DispatchQueue.main.async { self?.applyLayering() }
+                    } else {
+                        self?.applyLayering()
+                    }
+                }
+            }
+        }
         nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.relocate() }
         }
