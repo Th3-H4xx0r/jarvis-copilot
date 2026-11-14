@@ -14,6 +14,7 @@ The eleven as Power integrations (server)
 - [ ] 6. Kanban (off kills running workers), Photon, Security Advisor (protected)
 - [ ] 7. Door alarm (off only when disarmed), Car (whole Car page), Vault — all protected
 - [ ] 8. iMessage memory, Jarvis Health (uploads keep landing), Dashcam, Widgets, Island designs
+      ✅ 6–8 committed + pushed (a879682): all 11 are Power integrations on the server; 80 Power tests green
 
 Devices (after the spinner session commits its shared files)
 - [ ] 9. iPhone: PowerState, Power API, Face ID approvals
