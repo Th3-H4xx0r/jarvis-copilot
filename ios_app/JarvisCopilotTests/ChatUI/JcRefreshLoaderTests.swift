@@ -28,6 +28,21 @@ final class JcRefreshLoaderTests: XCTestCase {
         XCTAssertEqual(host.center.y, control.bounds.midY, accuracy: 0.5)
     }
 
+    func testThePullIsFollowedEveryPixelWithoutALayout() {
+        JcRefreshLoader.install()
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 390, height: 700))
+        scroll.contentSize = CGSize(width: 390, height: 2000)
+        let control = UIRefreshControl()
+        scroll.refreshControl = control
+        control.setNeedsLayout()
+        control.layoutIfNeeded()           // attaches the loader once
+        let top = scroll.adjustedContentInset.top
+        for pixel in stride(from: 0, through: 120, by: 7) {
+            scroll.contentOffset = CGPoint(x: 0, y: -top - CGFloat(pixel))   // no layout pass
+            XCTAssertEqual(control.jcPull ?? -1, CGFloat(pixel), accuracy: 0.01)
+        }
+    }
+
     func testPullDrawsTheRingsInStep() {
         // Faint rings at rest, part of ring A mid-pull, the full logo at the end.
         func ink(_ progress: Double) -> Int {

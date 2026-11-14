@@ -128,7 +128,33 @@ extension UIRefreshControl {
         let side = JcPullLoader.size + 8
         host.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         bringSubviewToFront(host)
-        if state.pull != bounds.height { state.pull = bounds.height }
+        // The pull comes from the scroll view's offset, every pixel of it: the
+        // control isn't re-laid out on each scroll step (large-title pages above
+        // all), so reading its height here alone left the rings stuck on a frame.
+        if let scroll = superview as? UIScrollView {
+            if objc_getAssociatedObject(self, &Self.observerKey) == nil {
+                let observer = scroll.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                    MainActor.assumeIsolated { self?.jcFollowPull(of: scroll) }
+                }
+                objc_setAssociatedObject(self, &Self.observerKey, observer, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            }
+            jcFollowPull(of: scroll)
+        } else if state.pull != bounds.height {
+            state.pull = bounds.height
+        }
+        if state.refreshing != isRefreshing { state.refreshing = isRefreshing }
+    }
+
+    private static var observerKey: UInt8 = 0
+
+    /// The pull the loader is drawing (tests).
+    var jcPull: CGFloat? { (objc_getAssociatedObject(self, &Self.stateKey) as? JcPullState)?.pull }
+
+    /// How far past its resting top the scroll view is pulled, in points.
+    private func jcFollowPull(of scroll: UIScrollView) {
+        guard let state = objc_getAssociatedObject(self, &Self.stateKey) as? JcPullState else { return }
+        let pull = max(0, -(scroll.contentOffset.y + scroll.adjustedContentInset.top))
+        if state.pull != pull { state.pull = pull }
         if state.refreshing != isRefreshing { state.refreshing = isRefreshing }
     }
 }
