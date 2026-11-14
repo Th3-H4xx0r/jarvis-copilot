@@ -121,6 +121,7 @@ class PowerIntegration:
     # ── behaviour ───────────────────────────────────────────────────────────
     default_enabled: bool = True
     protected: bool = False          # switching off needs Face ID on the iPhone
+    adopt_space: bool = False        # reuse an existing registry space with this id (else power-<id>)
     processes: tuple[str, ...] = ()  # where start()/stop() run: "webui", "gateway"
     toolsets: tuple[str, ...] = ()   # its agent tools; refused while off, dropped from new chats
     route_prefixes: tuple[str, ...] = ()   # webui paths it owns; 409 while off

@@ -154,7 +154,7 @@ def handle_post(handler, parsed, body) -> bool:
                 j(handler, {"error": "name is required"}, status=400)
                 return True
             space_id = slug(str((body or {}).get("id") or "").strip() or name)
-            if space_id in _RESERVED_IDS:
+            if space_id in _RESERVED_IDS or _is_power_id(space_id):
                 j(handler, {"error": f"{space_id!r} is not available as an integration id"},
                   status=400)
                 return True
@@ -178,6 +178,8 @@ def handle_post(handler, parsed, body) -> bool:
         return _post_ui_action(handler, space_id, body)
 
     if tail == "status":
+        if _is_power(space_id):
+            return _power_refusal(handler, space_id)
         try:
             status = str((body or {}).get("status") or "").strip()
             reg = _registry()
@@ -213,6 +215,8 @@ def handle_delete(handler, parsed, body=None) -> bool:
 
         if tail.startswith("documents/"):
             key = urllib.parse.unquote(tail[len("documents/"):])
+            if key == "power" and _is_power(space_id):
+                return _power_refusal(handler, space_id)
             if not reg.open(space_id).delete_document(key):
                 j(handler, {"error": f"no document {key!r}"}, status=404)
                 return True
@@ -262,12 +266,42 @@ def _delete_skill(handler, space_id: str, name: str, mode: str) -> bool:
 
 
 def _is_protected(space_id: str) -> bool:
-    """Whether this space's own settings say it may not be deleted."""
+    """Whether this space's own settings say it may not be deleted (or it's a Power one)."""
     try:
-        settings = _registry().open(space_id).get("settings")
+        space = _registry().open(space_id)
+        settings = space.get("settings")
     except Exception:
         return False
-    return bool(isinstance(settings, dict) and settings.get("protected"))
+    return _is_power(space_id) or bool(isinstance(settings, dict) and settings.get("protected"))
+
+
+def _is_power_id(space_id: str) -> bool:
+    """A Power integration's id: built in, never created from the + button."""
+    try:
+        from jarvis_power import discovery
+        return space_id in discovery.integrations() or _is_power(space_id)
+    except Exception:
+        return False
+
+
+def _is_power(space_id: str) -> bool:
+    try:
+        return isinstance(_registry().open(space_id).get("power"), dict)
+    except Exception:
+        return False
+
+
+def _power_refusal(handler, space_id: str) -> bool:
+    """A Power integration is switched and configured with its Power switch, not here."""
+    from api.helpers import j
+
+    try:
+        name = _registry().open(space_id).info().get("name") or space_id
+    except Exception:
+        name = space_id
+    j(handler, {"error": f"{name} is a Power integration — switch it off instead",
+                "protected": True, "power": True, "space": space_id}, status=409)
+    return True
 
 
 def _delete_space(handler, space_id: str, body) -> bool:
@@ -285,6 +319,8 @@ def _delete_space(handler, space_id: str, body) -> bool:
     # Some integrations are not the user's to delete: a wearable's health space
     # is created for it automatically and holds the only copy of its history.
     # It can be paused, re-tuned or have its data cleared — not removed.
+    if _is_power(space_id):
+        return _power_refusal(handler, space_id)
     if _is_protected(space_id):
         j(handler, {
             "error": "Jarvis Health keeps your wearables' history and cannot be deleted — pause it or clear its data instead",

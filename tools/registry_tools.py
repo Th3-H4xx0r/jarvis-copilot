@@ -105,6 +105,9 @@ _PUT = {
 
 def _h_put(args=None, **_kw) -> str:
     args = args or {}
+    if str(args.get("key") or "").strip() == "power":
+        return _fail("'power' is a Power integration's on/off and settings; change it "
+                     "with power_set")
     if str(args.get("key") or "").strip() == "ui":
         return _fail("'ui' is the integration's own UI; change it with integration_ui_set, "
                      "which checks it before storing it")
@@ -339,6 +342,9 @@ def _h_create(args=None, **_kw) -> str:
     space_id = slug(str(args.get("id") or "").strip() or name)
     if space_id in _RESERVED_IDS:
         return _fail(f"{space_id!r} is not available as an integration id")
+    if _is_power_id(space_id):
+        return _fail(f"{space_id!r} is a built-in Power integration; it can't be created "
+                     "here (switch it on or configure it with power_set)")
     try:
         reg = _reg()
         existed = reg.exists(space_id)
@@ -350,6 +356,16 @@ def _h_create(args=None, **_kw) -> str:
     return _ok(space=space.id, name=name, already_existed=existed,
                note=("That integration already existed; you are adding to it."
                      if existed else "Use this space id for everything else you create."))
+
+
+def _is_power_id(space_id: str) -> bool:
+    """A Power integration's id or its space: built into the code, not made in chat."""
+    try:
+        from jarvis_power import discovery, state
+
+        return space_id in discovery.integrations() or state.is_power_space(space_id)
+    except Exception:
+        return False
 
 
 # general is the catch-all for schedules that belong nowhere; photon is the iMessage

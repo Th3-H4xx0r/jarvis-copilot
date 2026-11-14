@@ -32,6 +32,8 @@ def fake_pkg(tmp_path, monkeypatch):
     def build(modules: dict):
         for name, spec in modules.items():
             target = pkg / name
+            if target.exists():
+                shutil.rmtree(target)
             if spec is None:
                 shutil.copytree(TEMPLATE, target)
                 continue
@@ -51,3 +53,35 @@ def fake_pkg(tmp_path, monkeypatch):
 
     yield build
     discovery.reset()
+
+
+@pytest.fixture()
+def reg(tmp_path, monkeypatch):
+    """A fresh registry the framework reads and writes."""
+    import jarvis_registry.store as store
+    from jarvis_registry import Registry
+
+    r = Registry(tmp_path / "registry.db")
+    monkeypatch.setattr(store, "shared", lambda: r)
+    from jarvis_power import state
+    state.reset_cache()
+    yield r
+    state.reset_cache()
+    r.close()
+
+
+SIMPLE = '''
+from jarvis_power import PowerIntegration
+
+class Simple(PowerIntegration):
+    id = "{id}"
+    name = "{name}"
+    icon = "bolt"
+    summary = "A test integration."
+    default_enabled = {default}
+    {extra}
+'''
+
+
+def simple(id="alpha", name="Alpha", default=True, extra=""):
+    return SIMPLE.format(id=id, name=name, default=default, extra=extra)

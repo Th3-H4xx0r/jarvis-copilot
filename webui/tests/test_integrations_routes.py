@@ -306,3 +306,24 @@ def test_a_kept_schedule_goes_home_rather_than_firing_into_nothing(reg, sent, mo
                                 {"schedules": False, "space": True}) is True
     assert sent["body"]["schedules_moved_to_general"] == ["casino-nightly"]
     assert moved == [("abc", {"integration": ""})]
+
+
+# ── Power integrations live in the registry but aren't the user's to delete ──
+def test_power_space_cannot_be_deleted_or_paused(sent, tmp_path, monkeypatch):
+    r = Registry(tmp_path / "power.db")
+    monkeypatch.setattr(store, "shared", lambda: r)
+    space = r.space("alpha", name="Alpha")
+    space.put("power", {"enabled": True, "settings": {}, "changed_at": 1.0,
+                        "changed_by": "seed", "paused_jobs": [], "error": None})
+
+    routes.handle_delete(object(), urlparse("/api/integrations/alpha"), None)
+    assert sent["status"] == 409
+    assert "Power integration" in sent["body"]["error"]
+    assert r.exists("alpha")
+
+    routes.handle_delete(object(), urlparse("/api/integrations/alpha/documents/power"), None)
+    assert sent["status"] == 409
+
+    routes.handle_post(object(), urlparse("/api/integrations/alpha/status"), {"status": "paused"})
+    assert sent["status"] == 409
+    r.close()

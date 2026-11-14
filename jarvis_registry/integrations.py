@@ -25,7 +25,10 @@ BOOKKEEPING_KEYS = {"imported_files"}
 # The integration's own UI (jarvis_registry.ui). Not data: the page draws it rather
 # than listing it, and the agent edits it with the integration_ui_* tools.
 UI_KEY = "ui"
-HIDDEN_KEYS = BOOKKEEPING_KEYS | {UI_KEY}
+# A Power integration's on/off and settings (jarvis_power.state). Not data: the
+# Power section draws it, and only the Power switch changes it.
+POWER_KEY = "power"
+HIDDEN_KEYS = BOOKKEEPING_KEYS | {UI_KEY, POWER_KEY}
 GENERAL_NAME = "General"
 GENERAL_DESCRIPTION = "Schedules and notes that don't belong to a larger integration."
 
@@ -128,13 +131,16 @@ def overview() -> list[dict]:
     # every sidebar render, and there are ~80 skills.
     jobs_by_space, skills_by_space = _by_space()
     for row in reg.spaces():
+        space = reg.open(row["id"])
+        documents = space.documents()
+        # Power integrations have their own section; they aren't in this list.
+        if any(d["key"] == POWER_KEY for d in documents):
+            continue
         schedules = jobs_by_space.get(row["id"], [])
         enabled = [s for s in schedules if s.get("enabled", True)]
         runs = [job.get("last_run_at") or job.get("last_run")
                 for job in schedules if job.get("last_run_at") or job.get("last_run")]
-        space = reg.open(row["id"])
         collections = space.collections()
-        documents = space.documents()
         out.append({
             **row,
             "schedule_count": len(schedules),
