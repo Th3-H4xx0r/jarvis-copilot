@@ -43,6 +43,39 @@ final class JcRefreshLoaderTests: XCTestCase {
         }
     }
 
+    /// A real SwiftUI page: NavigationStack + large title + ScrollView.refreshable,
+    /// as on Agents. Where does the refresh control live, and is the pull followed?
+    func testALargeTitleSwiftUIPageFollowsThePull() throws {
+        JcRefreshLoader.install()
+        let page = NavigationStack {
+            ScrollView {
+                VStack { ForEach(0..<60, id: \.self) { Text("Row \($0)").frame(height: 44) } }
+            }
+            .refreshable { try? await Task.sleep(for: .seconds(1)) }
+            .navigationTitle("Agents")
+            .navigationBarTitleDisplayMode(.large)
+        }
+        let host = UIHostingController(rootView: page)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.1)); window.layoutIfNeeded() }
+
+        func all(_ v: UIView) -> [UIView] { [v] + v.subviews.flatMap(all) }
+        let views = all(window)
+        let control = try XCTUnwrap(views.compactMap { $0 as? UIRefreshControl }.first, "no refresh control")
+        let scroll = try XCTUnwrap(views.compactMap { $0 as? UIScrollView }.first { $0.refreshControl === control })
+        print("JCPULL control superview:", String(describing: type(of: control.superview!)),
+              "scroll is ancestor:", control.isDescendant(of: scroll))
+        control.setNeedsLayout()
+        control.layoutIfNeeded()
+        let top = scroll.adjustedContentInset.top
+        for pixel in [10, 40, 80] {
+            scroll.contentOffset = CGPoint(x: 0, y: -top - CGFloat(pixel))
+            XCTAssertEqual(control.jcPull ?? -1, CGFloat(pixel), accuracy: 0.5, "pull \(pixel)")
+        }
+    }
+
     func testPullDrawsTheRingsInStep() {
         // Faint rings at rest, part of ring A mid-pull, the full logo at the end.
         func ink(_ progress: Double) -> Int {

@@ -40,6 +40,12 @@ enum JcRefreshLoader {
     @MainActor private static var installed = false
 }
 
+/// A weak reference to the scroll view a refresh control belongs to.
+private final class JcWeakBox {
+    weak var scroll: UIScrollView?
+    init(_ scroll: UIScrollView) { self.scroll = scroll }
+}
+
 /// What the loader shows: how far you've pulled (points) and whether it refreshes.
 @MainActor @Observable
 final class JcPullState {
@@ -131,7 +137,7 @@ extension UIRefreshControl {
         // The pull comes from the scroll view's offset, every pixel of it: the
         // control isn't re-laid out on each scroll step (large-title pages above
         // all), so reading its height here alone left the rings stuck on a frame.
-        if let scroll = superview as? UIScrollView {
+        if let scroll = jcOwningScrollView() {
             if objc_getAssociatedObject(self, &Self.observerKey) == nil {
                 let observer = scroll.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
                     MainActor.assumeIsolated { self?.jcFollowPull(of: scroll) }
@@ -146,6 +152,32 @@ extension UIRefreshControl {
     }
 
     private static var observerKey: UInt8 = 0
+    private static var scrollKey: UInt8 = 0
+
+    /// The scroll view this control refreshes. Under a large navigation title iOS
+    /// moves the control out of the scroll view (into the navigation bar), so it is
+    /// found by `refreshControl === self` across the window, once, and remembered.
+    private func jcOwningScrollView() -> UIScrollView? {
+        if let known = objc_getAssociatedObject(self, &Self.scrollKey) as? JcWeakBox,
+           let scroll = known.scroll, scroll.refreshControl === self { return scroll }
+        var found: UIScrollView?
+        var ancestor = superview
+        while let view = ancestor, found == nil {
+            if let s = view as? UIScrollView, s.refreshControl === self { found = s }
+            ancestor = view.superview
+        }
+        if found == nil, let window {
+            var stack: [UIView] = [window]
+            while let view = stack.popLast(), found == nil {
+                if let s = view as? UIScrollView, s.refreshControl === self { found = s; break }
+                stack.append(contentsOf: view.subviews)
+            }
+        }
+        if let found {
+            objc_setAssociatedObject(self, &Self.scrollKey, JcWeakBox(found), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+        return found
+    }
 
     /// The pull the loader is drawing (tests).
     var jcPull: CGFloat? { (objc_getAssociatedObject(self, &Self.stateKey) as? JcPullState)?.pull }
