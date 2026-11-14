@@ -4,6 +4,8 @@ import Foundation
 struct PowerAPI {
     static let prefix = "/api/power"
     var api: JarvisAPI = .shared
+    /// Who's asking: "ios", or "mac" from the Mac settings window.
+    var client = "ios"
 
     func list() async throws -> [String: Any] {
         try await api.get(Self.prefix, timeout: 30).object()
@@ -12,7 +14,7 @@ struct PowerAPI {
     /// `{enabled}` and/or `{settings}`; returns the server's reply (`ok`, `row` or `pending`).
     func change(_ id: String, body: [String: Any]) async throws -> [String: Any] {
         var payload = body
-        payload["client"] = "ios"
+        payload["client"] = client
         return try await api.post(Self.prefix + "/" + Self.escape(id), json: payload, timeout: 60).object()
     }
 

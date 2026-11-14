@@ -208,6 +208,7 @@ struct MacSettingsView: View {
         case .live: MacLiveSettingsPane()
         case .speech: MacSpeechSettingsPane()
         case .voices: MacVoicesPane()
+        case .integrations: MacIntegrationsPane()
         default: MacServerSettingsPane(section: section.webSection ?? "conversation")
         }
     }
@@ -589,8 +590,12 @@ struct MacVoiceHistoryView: View {
 /// One of the server's own settings sections, in the page the phone embeds:
 /// through the client's loopback proxy (which holds the pinned certificate and
 /// the session), with the page's embed mode on so it shows the pane alone.
-private struct MacServerSettingsPane: NSViewRepresentable {
+struct MacServerSettingsPane: NSViewRepresentable {
     let section: String
+    /// The web panel to open ("settings"; "tasks" for the Integrations list).
+    var panel = "settings"
+    /// `mac-regular`: the web Integrations list without its Power section (drawn natively here).
+    var embed: String? = nil
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -604,7 +609,8 @@ private struct MacServerSettingsPane: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
-        if view.url.map({ !$0.absoluteString.contains("section=\(section)") }) ?? true { load(view) }
+        if view.url.map({ !$0.absoluteString.contains("panel=\(panel)")
+            || !$0.absoluteString.contains("section=\(section)") }) ?? true { load(view) }
     }
 
     private func load(_ view: WKWebView) {
@@ -616,8 +622,9 @@ private struct MacServerSettingsPane: NSViewRepresentable {
             return
         }
         parts.path = "/"
-        parts.queryItems = [URLQueryItem(name: "panel", value: "settings"),
+        parts.queryItems = [URLQueryItem(name: "panel", value: panel),
                             URLQueryItem(name: "section", value: section)]
+        if let embed { parts.queryItems?.append(URLQueryItem(name: "embed", value: embed)) }
         if let url = parts.url { view.load(URLRequest(url: url)) }
     }
 }
