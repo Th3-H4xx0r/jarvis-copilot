@@ -23,10 +23,13 @@ Devices (after the spinner session commits its shared files)
 - [ ] 12. Web: JSON UI renderer (regular integrations get cards on web too)
 - [ ] 13. Web: Power section, page, settings, hide off surfaces
 - [ ] 14. Mac: native Power section in settings; tray obeys switches
+      ✅ 9–14 committed + pushed: iPhone (15 tests), web (9 node tests), Mac pane (dylib rebuilt; also fixed a missing ChatMedia symlink that broke every Mac build)
 
 Finish
-- [ ] 15. Docs: docs/power-integrations/README.md, AGENTS.md section, template walkthrough
+- [x] 15. Docs: docs/power-integrations/README.md, AGENTS.md section, template walkthrough (741091e1e4)
 - [ ] 16. Bug sweep, deploy server, iPhone release.sh, Mac update, live check of all eleven
+      Found: server Tasks 1–7 already live since 19:07 UTC (other session's deploy) — all 6 then-existing integrations on, door alarm answering
+      ⏳ code review + security review (2 Opus agents) and full test suite running
 
 Notes:
 - Shared checkout with the spinner ("Jarvis loader") session: server first; project.pbxproj, MacSettingsWindow.swift, index.html and iOS Integrations/Settings files wait for its commit.
