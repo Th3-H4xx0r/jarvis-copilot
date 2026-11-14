@@ -1,5 +1,11 @@
 {
   "presentations": {
-    "card": {"type": "titleSubtitle", "title": "Alarm", "subtitle": {"$": "status"}}
+    "card": {
+      "type": "titleSubtitle",
+      "title": "Alarm",
+      "subtitle": {
+        "$": "status"
+      }
+    }
   }
 }

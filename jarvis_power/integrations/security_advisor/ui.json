@@ -1,5 +1,9 @@
 {
   "presentations": {
-    "card": {"type": "titleSubtitle", "title": "Watching", "subtitle": "Devices, server and Jarvis"}
+    "card": {
+      "type": "titleSubtitle",
+      "title": "Watching",
+      "subtitle": "Devices, server and Jarvis"
+    }
   }
 }

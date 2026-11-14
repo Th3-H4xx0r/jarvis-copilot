@@ -1,16 +1,64 @@
 {
   "presentations": {
-    "card": {"type": "grid", "columns": 3, "children": [
-      {"type": "stat", "label": "Running", "value": {"$": "running"}},
-      {"type": "stat", "label": "Ready", "value": {"$": "ready"}},
-      {"type": "stat", "label": "Open", "value": {"$": "open"}}
-    ]},
-    "page": {"type": "section", "label": "Board", "children": [
-      {"type": "grid", "columns": 3, "children": [
-        {"type": "stat", "label": "Running", "value": {"$": "running"}},
-        {"type": "stat", "label": "Ready", "value": {"$": "ready"}},
-        {"type": "stat", "label": "Open", "value": {"$": "open"}}
-      ]}
-    ]}
+    "card": {
+      "type": "grid",
+      "columns": 3,
+      "children": [
+        {
+          "type": "stat",
+          "value": {
+            "$": "running"
+          },
+          "caption": "Running"
+        },
+        {
+          "type": "stat",
+          "value": {
+            "$": "ready"
+          },
+          "caption": "Ready"
+        },
+        {
+          "type": "stat",
+          "value": {
+            "$": "open"
+          },
+          "caption": "Open"
+        }
+      ]
+    },
+    "page": {
+      "type": "section",
+      "children": [
+        {
+          "type": "grid",
+          "columns": 3,
+          "children": [
+            {
+              "type": "stat",
+              "value": {
+                "$": "running"
+              },
+              "caption": "Running"
+            },
+            {
+              "type": "stat",
+              "value": {
+                "$": "ready"
+              },
+              "caption": "Ready"
+            },
+            {
+              "type": "stat",
+              "value": {
+                "$": "open"
+              },
+              "caption": "Open"
+            }
+          ]
+        }
+      ],
+      "title": "Board"
+    }
   }
 }
