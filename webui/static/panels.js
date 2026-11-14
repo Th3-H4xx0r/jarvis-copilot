@@ -7111,8 +7111,11 @@ function _buildPluginCard(plugin){
 
 const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
 
-async function _fetchProviderQuotaStatus(force=false){
-  const endpoint=force?`/api/provider/quota?refresh=1&ts=${Date.now()}`:'/api/provider/quota';
+async function _fetchProviderQuotaStatus(force=false,providerId=null){
+  const params=[];
+  if(providerId) params.push('provider='+encodeURIComponent(providerId));
+  if(force) params.push('refresh=1','ts='+Date.now());
+  const endpoint='/api/provider/quota'+(params.length?'?'+params.join('&'):'');
   const status=await api(endpoint,{cache:'no-store'});
   if(status&&typeof status==='object') status.client_fetched_at=new Date().toISOString();
   return status;
@@ -7131,6 +7134,18 @@ async function loadProvidersPanel(){
     _providerCardEls.clear();
     const quotaCard=_buildProviderQuotaCard(quota);
     if(quotaCard) list.appendChild(quotaCard);
+    // Every other plan with usage to show (Claude Code beside an active Codex, …),
+    // not only the active provider's.
+    try{
+      const all=await api('/api/provider/quota/all',{cache:'no-store'});
+      const activeId=quota&&quota.provider;
+      for(const entry of (all&&all.providers)||[]){
+        if(!entry||entry.provider===activeId||entry.status!=='available') continue;
+        entry.client_fetched_at=new Date().toISOString();
+        const extra=_buildProviderQuotaCard(entry,{active:false});
+        if(extra) list.appendChild(extra);
+      }
+    }catch(_){ /* the active card alone still shows */ }
     if(providers.length===0){
       list.style.display='none';
       if(empty) empty.style.display='';
@@ -7156,14 +7171,14 @@ async function _refreshProviderQuota(card,button){
   let failed=false;
   let next;
   try{
-    next=await _fetchProviderQuotaStatus(true);
+    next=await _fetchProviderQuotaStatus(true,card.dataset.provider||null);
     failed=next&&next.ok===false;
   }catch(e){
     failed=true;
     next={ok:false,status:'unavailable',quota:null,message:e.message||t('provider_quota_unavailable'),client_fetched_at:new Date().toISOString()};
   }
   try{
-    const fresh=_buildProviderQuotaCard(next);
+    const fresh=_buildProviderQuotaCard(next,{active:card.dataset.active!=='0'});
     if(fresh){
       card.replaceWith(fresh);
       if(typeof showToast==='function') showToast(failed?t('provider_quota_refresh_failed'):t('provider_quota_refresh_succeeded'));
@@ -7336,9 +7351,12 @@ function _buildProviderQuotaPoolBreakdown(accountLimits){
   `;
 }
 
-function _buildProviderQuotaCard(status){
+function _buildProviderQuotaCard(status,opts){
   if(!status) return null;
+  const active=!(opts&&opts.active===false);
   const card=document.createElement('div');
+  if(status.provider) card.dataset.provider=status.provider;
+  card.dataset.active=active?'1':'0';
   const state=(status.status||'unavailable').replace(/[^a-z0-9_-]/gi,'').toLowerCase()||'unavailable';
   card.className='provider-quota-card provider-quota-card-'+state;
   const accountLimits=status.account_limits||null;
@@ -7382,7 +7400,7 @@ function _buildProviderQuotaCard(status){
   card.innerHTML=`
     <div class="provider-quota-header">
       <div>
-        <div class="provider-quota-title">${esc(t('provider_quota_title'))}</div>
+        <div class="provider-quota-title">${esc(active?t('provider_quota_title'):'Plan usage')}</div>
         <div class="provider-quota-subtitle">${esc(provider)}</div>
         <div class="provider-quota-checked">${esc(_formatProviderQuotaLastChecked(status))}</div>
       </div>
