@@ -85,3 +85,72 @@ class Simple(PowerIntegration):
 
 def simple(id="alpha", name="Alpha", default=True, extra=""):
     return SIMPLE.format(id=id, name=name, default=default, extra=extra)
+
+
+RECORDING = '''
+from jarvis_power import PowerIntegration, Setting
+from tests.jarvis_power import recorder
+
+class Rec(PowerIntegration):
+    id = "{id}"
+    name = "{name}"
+    icon = "bolt"
+    summary = "Records its lifecycle."
+    processes = {processes}
+    protected = {protected}
+    settings = (
+        Setting("free", "Free", "toggle", default=False),
+        Setting("careful", "Careful", "toggle", default=False, jarvis="ask"),
+        Setting("locked", "Locked", "toggle", default=False, jarvis="never"),
+    )
+    {extra}
+
+    def start(self, process):
+        recorder.CALLS.append((self.id, "start", process))
+        if (self.id, "start") in recorder.FAIL:
+            raise RuntimeError("boom")
+
+    def stop(self, process):
+        recorder.CALLS.append((self.id, "stop", process))
+'''
+
+
+def recording(id="alpha", name="Alpha", processes=("webui",), protected=False, extra=""):
+    return RECORDING.format(id=id, name=name, processes=processes, protected=protected,
+                            extra=extra)
+
+
+@pytest.fixture()
+def calls():
+    from tests.jarvis_power import recorder
+    recorder.CALLS.clear()
+    recorder.FAIL.clear()
+    yield recorder.CALLS
+    recorder.CALLS.clear()
+    recorder.FAIL.clear()
+
+
+class FakeApprover:
+    """Accepts signature "good" once per nonce, like the real one."""
+
+    def __init__(self):
+        self.used = set()
+
+    def verify(self, command, nonce, ts, signature, domain="jarvis-car", by_button=False):
+        from plugins.toyota.approver import ApprovalError
+        if domain != "jarvis-power" or signature != "good":
+            raise ApprovalError("Face ID approval didn't check out on this server.", "bad")
+        if nonce in self.used:
+            raise ApprovalError("That approval was already used.", "replayed")
+        self.used.add(nonce)
+
+
+@pytest.fixture()
+def approvals(monkeypatch):
+    from jarvis_power import approvals as module
+    fake = FakeApprover()
+    module.reset(approver=fake)
+    sent = []
+    monkeypatch.setattr(module, "notifier", lambda item: sent.append(item))
+    yield sent
+    module.reset()

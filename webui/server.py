@@ -732,6 +732,24 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Security Advisor failed to start: {e}', flush=True)
 
+    # Power integrations: seed their state the first time, start the ones that are on
+    # and run in this process, then watch for switches flipped anywhere (any device,
+    # the gateway, Jarvis) and tell the phones over the bridge.
+    _power_manager = None
+    try:
+        from jarvis_power import state as _power_state
+        from jarvis_power.manager import manager_for as _power_manager_for
+
+        def _announce_power(version):
+            from api.device_bridge import publish
+            publish("power", {"version": version})
+
+        _power_state.ensure_all()
+        _power_manager = _power_manager_for("webui", on_change=_announce_power)
+        _power_manager.start()
+    except Exception as e:
+        print(f'[!!] WARNING: Power integrations failed to start: {e}', flush=True)
+
     httpd = QuietHTTPServer((HOST, PORT), Handler)
 
     # ── TLS/HTTPS setup (optional) ─────────────────────────────────────────
@@ -769,6 +787,8 @@ def main() -> None:
             agent_hooks.stop()
         except Exception:
             logger.debug("Failed to stop agent tracking during shutdown")
+        if _power_manager is not None:
+            _power_manager.stop()
         if _security_service is not None:
             try:
                 _security_service.stop()

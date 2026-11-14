@@ -157,6 +157,14 @@ def snapshot() -> dict[str, bool]:
     return dict(out)
 
 
+def snapshot_fresh() -> dict[str, bool]:
+    """Like :func:`snapshot` but read now (the manager acts on it)."""
+    global _snapshot
+    with _lock:
+        _snapshot = None
+    return snapshot()
+
+
 def is_on(integration_id: str) -> bool:
     """Whether it's on. Unknown ids and unreadable state count as on."""
     try:

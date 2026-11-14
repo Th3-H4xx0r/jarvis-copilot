@@ -3807,6 +3807,14 @@ class GatewayRunner:
         # simply don't use kanban; this loop becomes a no-op.
         asyncio.create_task(self._kanban_dispatcher_watcher())
 
+        # Power integrations that run in the gateway (Kanban, Photon): start the ones
+        # that are on, then follow switches flipped from any device within seconds.
+        try:
+            from jarvis_power.manager import manager_for as _power_manager_for
+            _power_manager_for("gateway", loop=asyncio.get_running_loop()).start()
+        except Exception as e:
+            logger.error("Power integrations failed to start in the gateway: %s", e)
+
         # Start background reconnection watcher for platforms that failed at startup
         if self._failed_platforms:
             logger.info(
