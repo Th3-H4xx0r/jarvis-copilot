@@ -101,6 +101,8 @@ final class AppModel {
             apply(sessions: J.arr(msg["sessions"]), announce: false)
             pending = J.arr(msg["pending"]).compactMap(MacPending.init(json:))
             if let u = MacPlanUsage(json: ["rate_limits": msg["usage"] ?? [:]]) { usage = u }
+            // Codex's last read rides along, so a reconnect doesn't blank it until the next poll.
+            if let codex = msg["usage_codex"] as? [String: Any], let u = MacPlanUsage(json: codex) { codexUsage = u }
             onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
             onAppUpdate?(nil)
             refreshPower()

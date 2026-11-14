@@ -207,7 +207,8 @@ class ClaudeUsagePoller:
     """Asks the server for Claude's limits every minute, on a daemon thread.
 
     ``get(path)`` returns the decoded JSON body (raising on failure); the answer
-    of ``GET /api/coding/agents/usage`` is ``{claude, codex}``.
+    of ``GET /api/coding/agents/usage`` is ``{claude, codex}``, handed on as
+    ``on_usage(claude, codex)`` (either may be None).
     """
 
     PATH = "/api/coding/agents/usage"
@@ -222,10 +223,14 @@ class ClaudeUsagePoller:
 
     def poll_once(self) -> bool:
         body = self._get(self.PATH)
-        claude = body.get("claude") if isinstance(body, dict) else None
-        if not isinstance(claude, dict) or not any(isinstance(claude.get(w), dict) for w in _WINDOWS):
+        if not isinstance(body, dict):
             return False
-        self._on_usage(claude)
+        claude, codex = body.get("claude"), body.get("codex")
+        claude = claude if isinstance(claude, dict) and any(isinstance(claude.get(w), dict) for w in _WINDOWS) else None
+        codex = codex if isinstance(codex, dict) and any(isinstance(codex.get(w), dict) for w in _WINDOWS) else None
+        if claude is None and codex is None:
+            return False
+        self._on_usage(claude, codex)
         return True
 
     def start(self) -> None:

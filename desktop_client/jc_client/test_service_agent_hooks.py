@@ -32,9 +32,10 @@ def test_start_agent_hooks_is_idempotent(monkeypatch):
         from jc_client import plan_usage
         polls = []
         monkeypatch.setattr(plan_usage.CodexPoller, "start", lambda self: polls.append(self))
+        monkeypatch.setattr(plan_usage.ClaudeUsagePoller, "start", lambda self: polls.append(self))
         svc = service.Service()
         svc.start_agent_hooks()
-        assert len(polls) == 1
+        assert len(polls) == 2
         first = svc._hook_server
         svc.start_agent_hooks()
         assert svc._hook_server is first
@@ -291,3 +292,25 @@ def test_a_moved_sessions_stale_copy_never_takes_a_queued_message(tmp_path, monk
     assert svc._stop_answer("claude", {"session_id": "s1"}) is None
     svc._agents_link.gate.set_moved([])
     assert "also run lint" in svc._stop_answer("claude", {"session_id": "s1"})["reason"]
+
+
+def test_codex_usage_survives_a_mac_app_reconnect_and_falls_back_to_the_server():
+    svc = service.Service()
+    sent = []
+    svc._ui_broadcast = sent.append
+    svc._forward_up = lambda _f: None
+    assert svc._codex_payload() is None
+    # The server's Codex numbers fill in before this Mac has read its own...
+    server_codex = {"five_hour": None, "seven_day": {"used_percentage": 100, "resets_at": 2_000_000_000},
+                    "plan": "plus", "source": "dev"}
+    svc._claude_server_usage(None, server_codex)
+    want = {"rate_limits": {"seven_day": {"used_percentage": 100, "resets_at": 2_000_000_000}}, "plan": "plus"}
+    assert svc._codex_payload() == want
+    assert sent[-1] == {"type": "usage", "agent": "codex", **want}
+    # ...and this Mac's own read wins once it has one, and is what a fresh hello carries.
+    svc._codex_usage({"seven_day": {"used_percentage": 40, "resets_at": 2_000_000_500}})
+    assert svc._codex_payload() == {"rate_limits": {"seven_day": {"used_percentage": 40,
+                                                                  "resets_at": 2_000_000_500}}}
+    n = len(sent)
+    svc._claude_server_usage(None, server_codex)
+    assert len(sent) == n                     # the server's no longer overrides it

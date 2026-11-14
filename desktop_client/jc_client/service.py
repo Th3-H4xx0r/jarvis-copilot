@@ -169,6 +169,9 @@ class Service:
         self._power = None
         # Claude's limits as the server last had them (plan_usage.ClaudeUsagePoller).
         self._claude_remote: dict | None = None
+        # Codex's limits: this Mac's last read (CodexPoller), else the server's.
+        self._codex_local: dict | None = None
+        self._codex_remote: dict | None = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -202,6 +205,7 @@ class Service:
         payload = {"rate_limits": {k: usage.get(k) for k in ("five_hour", "seven_day") if usage.get(k)}}
         if usage.get("plan"):
             payload["plan"] = usage["plan"]
+        self._codex_local = payload
         self._forward_up({"type": "event", "name": "agent_hook",
                           "data": {"kind": "statusline", "agent": "codex", "payload": payload,
                                    "ts": time.time()}})
@@ -214,6 +218,19 @@ class Service:
         local = self._hook_server.usage() if self._hook_server is not None else None
         return fresher_claude(self._claude_remote, local)
 
+    def _codex_payload(self) -> dict | None:
+        """Codex's limits for the Mac app (``{rate_limits, plan?}``): this Mac's own
+        read when it has one, else what the server last had."""
+        if self._codex_local and self._codex_local.get("rate_limits"):
+            return self._codex_local
+        remote = self._codex_remote
+        if not isinstance(remote, dict):
+            return None
+        limits = {k: remote[k] for k in ("five_hour", "seven_day") if isinstance(remote.get(k), dict)}
+        if not limits:
+            return None
+        return {"rate_limits": limits, **({"plan": remote["plan"]} if remote.get("plan") else {})}
+
     def _ui_claude_usage(self) -> None:
         limits = self._claude_limits()
         if limits:
@@ -221,11 +238,18 @@ class Service:
             self._ui_broadcast({"type": "usage", "agent": "claude", "rate_limits": limits,
                                 **({"plan": plan} if plan else {})})
 
-    def _claude_server_usage(self, usage: dict) -> None:
-        """The server's Claude limits (every minute): to the Mac app. Not sent back
-        up — they came from there."""
-        self._claude_remote = usage
-        self._ui_claude_usage()
+    def _claude_server_usage(self, usage: dict | None, codex: dict | None = None) -> None:
+        """The server's limits (every minute): to the Mac app. Not sent back up —
+        they came from there. Codex's only fill in until this Mac reads its own."""
+        if usage is not None:
+            self._claude_remote = usage
+            self._ui_claude_usage()
+        if codex is not None:
+            self._codex_remote = codex
+            if not self._codex_local:
+                payload = self._codex_payload()
+                if payload:
+                    self._ui_broadcast({"type": "usage", "agent": "codex", **payload})
 
     def _ui_broadcast(self, message: dict) -> None:
         ui = self._ui
@@ -245,6 +269,7 @@ class Service:
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
                 "pending": self._arbiter.pending() if self._arbiter else [],
                 "usage": self._claude_limits(),
+                "usage_codex": self._codex_payload(),
                 "moved": self._agents_link.moved_sessions() if self._agents_link else []}
 
     def _ui_push_sessions(self, _effects=None) -> None:

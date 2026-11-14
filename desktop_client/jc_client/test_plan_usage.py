@@ -146,10 +146,16 @@ def test_claude_poller_hands_on_the_servers_claude_limits():
         paths.append(path)
         return {"claude": {"five_hour": _w(9, NOW + 60)}, "codex": None}
 
-    poller = pu.ClaudeUsagePoller(get, got.append)
+    poller = pu.ClaudeUsagePoller(get, lambda c, x: got.append((c, x)))
     assert poller.poll_once() is True
     assert paths == ["/api/coding/agents/usage"]
-    assert got == [{"five_hour": _w(9, NOW + 60)}]
+    assert got == [({"five_hour": _w(9, NOW + 60)}, None)]
+    # Codex alone still comes through (the Mac app shows it before its own read).
+    codex = {"five_hour": None, "seven_day": _w(100, NOW + 999), "plan": "plus"}
+    assert pu.ClaudeUsagePoller(lambda _p: {"claude": None, "codex": codex},
+                                lambda c, x: got.append((c, x))).poll_once() is True
+    assert got[-1] == (None, codex)
     # Nothing to show: nothing handed on.
-    assert pu.ClaudeUsagePoller(lambda _p: {"claude": None}, got.append).poll_once() is False
-    assert len(got) == 1
+    assert pu.ClaudeUsagePoller(lambda _p: {"claude": None, "codex": None},
+                                lambda c, x: got.append((c, x))).poll_once() is False
+    assert len(got) == 2
