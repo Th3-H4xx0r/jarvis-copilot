@@ -333,9 +333,14 @@ struct MacPlanUsage: Equatable {
     /// One limit window: how much of it is used, and when it resets.
     struct Window: Equatable {
         let used: Int
-        let resetsAt: Date
+        /// Nil when none was given: the server's (Anthropic's) usage has no reset
+        /// time for a 5-hour window that hasn't started yet.
+        let resetsAt: Date?
         /// What's used now — nothing once the window has reset.
-        var usedNow: Int { resetsAt <= Date() ? 0 : used }
+        var usedNow: Int {
+            if let resetsAt, resetsAt <= Date() { return 0 }
+            return used
+        }
     }
 
     var five: Window?
@@ -347,8 +352,10 @@ struct MacPlanUsage: Equatable {
         let limits = J.obj(json["rate_limits"])
         func window(_ w: Any?) -> Window? {
             let o = J.obj(w)
-            guard let used = J.d(o["used_percentage"]), let reset = J.d(o["resets_at"]) else { return nil }
-            return Window(used: Int(min(100, max(0, used)).rounded()), resetsAt: Date(timeIntervalSince1970: reset))
+            guard let used = J.d(o["used_percentage"]) else { return nil }
+            let reset = J.d(o["resets_at"]) ?? 0
+            return Window(used: Int(min(100, max(0, used)).rounded()),
+                          resetsAt: reset > 0 ? Date(timeIntervalSince1970: reset) : nil)
         }
         five = window(limits["five_hour"])
         week = window(limits["seven_day"])

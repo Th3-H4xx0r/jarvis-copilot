@@ -10,6 +10,7 @@ After coucou's CodexPlanGauge (github.com/Louis-CFM/coucou, MIT).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import select
 import subprocess
@@ -144,6 +145,107 @@ class CodexPoller:
                 self._stop.wait(self._every)
 
         self._thread = threading.Thread(target=loop, name="codex-usage", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+# ── Claude, from the Jarvis server ───────────────────────────────────────
+#
+# Claude Code reports plan usage only through its status line, and only while a
+# session is running (and not at all when another tool owns the status line).
+# The server keeps Anthropic's own usage numbers fresh every 60 s (what the phone
+# shows), so the Mac asks it as often and shows whichever is newer.
+
+CLAUDE_POLL_EVERY = 60.0
+_SAME_WINDOW = 60.0
+_WINDOWS = ("five_hour", "seven_day")
+
+
+def _num(value) -> Optional[float]:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def fresher_claude(server: Optional[dict], local: Optional[dict], now: Optional[float] = None) -> Optional[dict]:
+    """Claude's limits from the server's snapshot and this Mac's status lines, per window.
+
+    A local window counts only while it hasn't reset (status lines stop when
+    sessions do, so a days-old one must not win). Within the same window the
+    higher use wins (use only grows); a later window beats an earlier one; a
+    window the server has no reset time for (not started yet) yields to a live
+    local one. Shape: ``{five_hour: {used_percentage, resets_at|None}, seven_day, plan?}``.
+    """
+    now = time.time() if now is None else now
+    server = server if isinstance(server, dict) else {}
+    local = local if isinstance(local, dict) else {}
+    out: dict = {}
+    for name in _WINDOWS:
+        s, l = server.get(name), local.get(name)
+        s = s if isinstance(s, dict) and _num(s.get("used_percentage")) is not None else None
+        l_reset = _num(l.get("resets_at")) if isinstance(l, dict) else None
+        l = l if (l_reset is not None and l_reset > now and _num(l.get("used_percentage")) is not None) else None
+        pick = s or l
+        if s and l:
+            s_reset = _num(s.get("resets_at"))
+            if s_reset is None or l_reset > s_reset + _SAME_WINDOW:
+                pick = l
+            elif abs(l_reset - s_reset) <= _SAME_WINDOW and _num(l["used_percentage"]) > _num(s["used_percentage"]):
+                pick = l
+        if pick:
+            out[name] = {"used_percentage": min(100.0, max(0.0, _num(pick["used_percentage"]))),
+                         "resets_at": _num(pick.get("resets_at"))}
+    if not out:
+        return None
+    plan = server.get("plan") or local.get("plan")
+    if isinstance(plan, str) and plan:
+        out["plan"] = plan
+    return out
+
+
+class ClaudeUsagePoller:
+    """Asks the server for Claude's limits every minute, on a daemon thread.
+
+    ``get(path)`` returns the decoded JSON body (raising on failure); the answer
+    of ``GET /api/coding/agents/usage`` is ``{claude, codex}``.
+    """
+
+    PATH = "/api/coding/agents/usage"
+
+    def __init__(self, get, on_usage, every: float = CLAUDE_POLL_EVERY):
+        import threading
+        self._get = get
+        self._on_usage = on_usage
+        self._every = every
+        self._stop = threading.Event()
+        self._thread = None
+
+    def poll_once(self) -> bool:
+        body = self._get(self.PATH)
+        claude = body.get("claude") if isinstance(body, dict) else None
+        if not isinstance(claude, dict) or not any(isinstance(claude.get(w), dict) for w in _WINDOWS):
+            return False
+        self._on_usage(claude)
+        return True
+
+    def start(self) -> None:
+        import threading
+        if self._thread is not None:
+            return
+
+        def loop():
+            failing = False
+            while not self._stop.is_set():
+                try:
+                    self.poll_once()
+                    failing = False
+                except Exception as exc:  # noqa: BLE001 — offline or unpaired: try again next minute
+                    if not failing:     # once per outage, not every minute
+                        logging.getLogger(__name__).info("claude usage from the server failed: %r", exc)
+                    failing = True
+                self._stop.wait(self._every)
+
+        self._thread = threading.Thread(target=loop, name="claude-usage", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:

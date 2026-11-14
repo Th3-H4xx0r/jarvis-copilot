@@ -102,3 +102,54 @@ def test_service_sends_codex_usage_up_and_to_the_app():
     assert data["payload"]["rate_limits"]["seven_day"]["used_percentage"] == 9
     assert data["payload"]["plan"] == "plus"
     assert ui[0]["type"] == "usage" and ui[0]["agent"] == "codex"
+
+
+# ── Claude, from the server ──────────────────────────────────────────────
+
+NOW = 1_800_000_000.0
+
+
+def _w(used, reset):
+    return {"used_percentage": used, "resets_at": reset}
+
+
+def test_fresher_claude_ignores_a_stale_local_status_line():
+    # Days-old status line (its windows long reset) must not beat the server.
+    server = {"five_hour": _w(12, None), "seven_day": _w(30, NOW + 86_400), "source": "oauth"}
+    local = {"five_hour": _w(80, NOW - 3 * 86_400), "seven_day": _w(70, NOW - 86_400)}
+    out = pu.fresher_claude(server, local, now=NOW)
+    assert out == {"five_hour": _w(12.0, None), "seven_day": _w(30.0, NOW + 86_400)}
+
+
+def test_fresher_claude_prefers_a_live_local_window():
+    server = {"five_hour": _w(10, NOW + 3600), "seven_day": _w(30, NOW + 86_400)}
+    local = {"five_hour": _w(14, NOW + 3600 + 5), "seven_day": _w(20, NOW + 86_400)}
+    out = pu.fresher_claude(server, local, now=NOW)
+    assert out["five_hour"] == _w(14.0, NOW + 3600 + 5)      # same window, higher use
+    assert out["seven_day"] == _w(30.0, NOW + 86_400)         # same window, server higher
+    # A window the server hasn't seen start yields to a live local one.
+    out = pu.fresher_claude({"five_hour": _w(0, None)}, {"five_hour": _w(3, NOW + 18_000)}, now=NOW)
+    assert out["five_hour"] == _w(3.0, NOW + 18_000)
+
+
+def test_fresher_claude_empty_and_plan():
+    assert pu.fresher_claude(None, None, now=NOW) is None
+    assert pu.fresher_claude({"five_hour": "junk"}, {}, now=NOW) is None
+    out = pu.fresher_claude({"seven_day": _w(5, NOW + 10), "plan": "max"}, None, now=NOW)
+    assert out == {"seven_day": _w(5.0, NOW + 10), "plan": "max"}
+
+
+def test_claude_poller_hands_on_the_servers_claude_limits():
+    got, paths = [], []
+
+    def get(path):
+        paths.append(path)
+        return {"claude": {"five_hour": _w(9, NOW + 60)}, "codex": None}
+
+    poller = pu.ClaudeUsagePoller(get, got.append)
+    assert poller.poll_once() is True
+    assert paths == ["/api/coding/agents/usage"]
+    assert got == [{"five_hour": _w(9, NOW + 60)}]
+    # Nothing to show: nothing handed on.
+    assert pu.ClaudeUsagePoller(lambda _p: {"claude": None}, got.append).poll_once() is False
+    assert len(got) == 1

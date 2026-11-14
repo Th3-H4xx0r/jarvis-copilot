@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -71,6 +72,16 @@ def _imessage_api_origin() -> str | None:
         _imessage_origin = f"http://127.0.0.1:{proxy.start()}"
     return _imessage_origin
 
+
+def _server_get(path: str, timeout: float = 10.0) -> dict:
+    """GET a Jarvis API path as this client (its session, over the pinned proxy)."""
+    origin = _imessage_api_origin()
+    if not origin:
+        raise OSError("not paired")
+    # Cloudflare refuses Python's default User-Agent (error 1010).
+    req = urllib.request.Request(origin + path, headers={"User-Agent": "jc-client/0.1"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8") or "{}")
 
 
 _STALE_PREVIEW = ("The settings changed since the preview (or none was shown). "
@@ -156,6 +167,8 @@ class Service:
         self._ui_topics: dict = {}
         # Keep-awake, Wake Mac and password autofill (jc_client/power_service.py; macOS).
         self._power = None
+        # Claude's limits as the server last had them (plan_usage.ClaudeUsagePoller).
+        self._claude_remote: dict | None = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -194,6 +207,26 @@ class Service:
                                    "ts": time.time()}})
         self._ui_broadcast({"type": "usage", "agent": "codex", **payload})
 
+    def _claude_limits(self) -> dict | None:
+        """Claude's limits for the Mac app: the server's snapshot or this Mac's
+        status lines, whichever is newer per window."""
+        from jc_client.plan_usage import fresher_claude
+        local = self._hook_server.usage() if self._hook_server is not None else None
+        return fresher_claude(self._claude_remote, local)
+
+    def _ui_claude_usage(self) -> None:
+        limits = self._claude_limits()
+        if limits:
+            plan = limits.pop("plan", None)
+            self._ui_broadcast({"type": "usage", "agent": "claude", "rate_limits": limits,
+                                **({"plan": plan} if plan else {})})
+
+    def _claude_server_usage(self, usage: dict) -> None:
+        """The server's Claude limits (every minute): to the Mac app. Not sent back
+        up — they came from there."""
+        self._claude_remote = usage
+        self._ui_claude_usage()
+
     def _ui_broadcast(self, message: dict) -> None:
         ui = self._ui
         if ui is not None:
@@ -211,7 +244,7 @@ class Service:
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
                 "pending": self._arbiter.pending() if self._arbiter else [],
-                "usage": self._hook_server.usage() if self._hook_server else None,
+                "usage": self._claude_limits(),
                 "moved": self._agents_link.moved_sessions() if self._agents_link else []}
 
     def _ui_push_sessions(self, _effects=None) -> None:
@@ -468,7 +501,7 @@ class Service:
             server = HookServer(_hook_socket_path(), self._agent_engine,
                                 forward=self._forward_up, arbiter=self._arbiter,
                                 on_effects=self._ui_push_sessions,
-                                on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}),
+                                on_usage=lambda _p: self._ui_claude_usage(),
                                 on_stop=self._stop_answer,
                                 on_gate=link.gate_answer if link else None,
                                 on_hook=link.on_hook if link else None)
@@ -477,6 +510,9 @@ class Service:
             from jc_client.plan_usage import CodexPoller
             self._codex_poller = CodexPoller(self._codex_usage)
             self._codex_poller.start()
+            from jc_client.plan_usage import ClaudeUsagePoller
+            self._claude_poller = ClaudeUsagePoller(_server_get, self._claude_server_usage)
+            self._claude_poller.start()
             from jc_client.ui_server import UiServer
             ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
             ui.start()
@@ -534,9 +570,11 @@ class Service:
                 bridge.stop()
             except Exception:  # noqa: BLE001
                 pass
-        poller, self._codex_poller = getattr(self, "_codex_poller", None), None
-        if poller is not None:
-            poller.stop()
+        for attr in ("_codex_poller", "_claude_poller"):
+            poller = getattr(self, attr, None)
+            setattr(self, attr, None)
+            if poller is not None:
+                poller.stop()
         server, self._hook_server = self._hook_server, None
         if server is not None:
             server.close()
