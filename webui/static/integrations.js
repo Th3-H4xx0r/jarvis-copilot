@@ -32,9 +32,11 @@ async function renderIntegrationsSidebar(box) {
     return;
   }
   _intgList = data.integrations || [];
+  if (window.JCPower && !JCPower.rows.length) await JCPower.refresh();
   box.innerHTML = '';
-  // Built in, so it leads the list whether or not anything else exists yet.
-  if (typeof immSidebarCard === 'function') box.appendChild(immSidebarCard());
+  // Power integrations (built in) lead the list whether or not anything else exists
+  // yet. iMessage memory is one of them; its page links to its own screen.
+  if (typeof powerSidebarSection === 'function') powerSidebarSection(box);
   if (!_intgList.length) {
     box.insertAdjacentHTML('beforeend', `<div class="intg-note">${esc(t('intg_none'))}</div>`);
     return;
@@ -126,6 +128,59 @@ async function openIntegration(id) {
   if (title) title.textContent = data.name || id;
   if (body) body.innerHTML = _intgDetailHtml(data);
   _intgBindDetail(data);
+  // The UI Jarvis designed for it (integration_ui.js), above the generic sections.
+  if (data.has_ui && body) {
+    const host = document.createElement('div');
+    host.className = 'intg-ui-page';
+    const detail = body.querySelector('.intg-detail');
+    if (detail) detail.insertBefore(host, detail.firstChild);
+    _intgMountUI(host, '/api/integrations', id, 'page');
+  }
+}
+
+// Draw an integration's JSON card or page (regular or Power) and run its actions.
+// Every action goes to the server; the state that comes back is drawn again.
+async function _intgMountUI(host, base, id, presentation) {
+  if (!host || !window.JCIntegrationUI) return;
+  const url = base + '/' + encodeURIComponent(id) + '/ui';
+  let reply;
+  try { reply = await api(url); } catch (e) {
+    host.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message)}</div>`;
+    return;
+  }
+  const tree = reply && reply.definition && reply.definition.presentations
+    ? reply.definition.presentations[presentation] : null;
+  if (!tree) { host.innerHTML = ''; return; }
+  const draw = (state, error) => {
+    host.innerHTML = '';
+    if (error) host.insertAdjacentHTML('beforeend', `<div class="intg-note intg-note--error">${esc(error)}</div>`);
+    host.appendChild(JCIntegrationUI.render(tree, state || {}, {
+      confirms: (reply.definition && reply.definition.confirms) || {},
+      confirmSheet: _intgConfirmSheet,
+      onAction: async (name, event) => {
+        try {
+          const res = await api(url + '/action', { method: 'POST',
+            body: JSON.stringify(Object.assign({ action: name, version: reply.version }, event)) });
+          if (res && res.toast && typeof showToast === 'function') showToast(res.toast);
+          draw(res && res.ok ? res.state : state, res && res.error);
+          return res;
+        } catch (e) { draw(state, e.message); return null; }
+      },
+    }));
+  };
+  draw(reply.state, reply.error);
+}
+
+// An in-page "are you sure" for actions that declare confirm text (never window.confirm).
+function _intgConfirmSheet(message, go) {
+  const sheet = document.createElement('div');
+  sheet.className = 'intg-confirm';
+  sheet.innerHTML = `<div class="intg-confirm-box"><p>${esc(message)}</p>
+    <div class="intg-confirm-actions"><button class="intg-btn" data-act="no">Cancel</button>
+    <button class="intg-btn intg-btn--primary" data-act="yes">Continue</button></div></div>`;
+  sheet.querySelector('[data-act="no"]').onclick = () => sheet.remove();
+  sheet.querySelector('[data-act="yes"]').onclick = () => { sheet.remove(); go(); };
+  document.body.appendChild(sheet);
 }
 
 function _intgDetailHtml(d) {

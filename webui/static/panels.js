@@ -5523,6 +5523,11 @@ async function loadIntegrationsPanel(){
   const host=$('integrationsList');
   if(!host) return;
   host.innerHTML='<div style="opacity:.6;font-size:13px;padding:8px 0">Loading…</div>';
+  if(window.JCPower && !JCPower.isOn('photon')){
+    // Photon is a Power integration: switched off on the Integrations page.
+    host.innerHTML='<div style="opacity:.7;font-size:13px;padding:8px 0">Photon is switched off. Switch it on in Integrations → Power.</div>';
+    return;
+  }
   let p={};
   try{ p=(await api('/api/integrations/photon'))||{}; }catch(e){ p={}; }
   host.innerHTML=_photonCardHtml(p);
