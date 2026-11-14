@@ -437,6 +437,7 @@
 		50ADA8AE72995FD17BD2D5F2 /* KanbanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883B8048C4A61D4DFCC04066 /* KanbanModels.swift */; };
 		50C1E988599D6C734B3C892A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD4A2C551311912B4A444807 /* ContentView.swift */; };
 		50E62C57D45D5CA33D5950AE /* SceneCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F4EF0043628B8C251DDD12F /* SceneCanvas.swift */; };
+		50FABD48A2D09625B51B4915 /* JcRefreshLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157F3646195AEA0CF7D6BC3C /* JcRefreshLoader.swift */; };
 		510364826119AE703EBA83CF /* WidgetEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DC1DD7716E80CD13C21AC7B /* WidgetEditor.swift */; };
 		515549C5E44C274234E1BA2B /* MacDockMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CCEE1F0924CEC774B354542 /* MacDockMenuTests.swift */; };
 		5174A26ED9017B64BEBADBD3 /* LivePollPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3374BB246B978CAE1C310365 /* LivePollPolicy.swift */; };
@@ -583,6 +584,7 @@
 		6D32EB087A138FA969C018F5 /* BandMeasureMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BBF48D441761023DA829478 /* BandMeasureMode.swift */; };
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
 		6D76F7332ADAE58646AFF8F2 /* HealthOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E804F54FD960243693BFCF /* HealthOutbox.swift */; };
+		6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */; };
 		6E0CD5588652A4DF91BF504C /* ControlPushTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DD83A867F696CE5B2005B8 /* ControlPushTokens.swift */; };
 		6E1C77EC4FB070C9BC6424B9 /* DevicePageParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15009B6B8A3838107D3255E2 /* DevicePageParts.swift */; };
 		6E594F5F037AE6ACFC5C1B1F /* DashcamStillDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5A623E78E847229D46F71A /* DashcamStillDecoderTests.swift */; };
@@ -1492,6 +1494,7 @@
 		14F6F9AD459413F173CF47EB /* LiveStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveStoreTests.swift; sourceTree = "<group>"; };
 		15009B6B8A3838107D3255E2 /* DevicePageParts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicePageParts.swift; sourceTree = "<group>"; };
 		1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcgViews.swift; sourceTree = "<group>"; };
+		157F3646195AEA0CF7D6BC3C /* JcRefreshLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcRefreshLoader.swift; sourceTree = "<group>"; };
 		15991A1D7F41088A3118A8B0 /* IntegrationSetupStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationSetupStore.swift; sourceTree = "<group>"; };
 		15A5AE9B26C4B75A08852A2A /* NotesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		15E07F70B0F3B547523638C3 /* WearablesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesHub.swift; sourceTree = "<group>"; };
@@ -2223,6 +2226,7 @@
 		AB99238B6A3CE53FEC44B720 /* QuotaCardUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCardUITests.swift; sourceTree = "<group>"; };
 		ABB3F558D05BF433A58D7179 /* InsightsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsUITests.swift; sourceTree = "<group>"; };
 		ABB92E4393A76BE29885ED47 /* MacCommandCenterRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacCommandCenterRenderTests.swift; sourceTree = "<group>"; };
+		AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcRefreshLoaderTests.swift; sourceTree = "<group>"; };
 		AC55A5B95B8F19C84D67EF5E /* RingProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProbe.swift; sourceTree = "<group>"; };
 		AC7565B5245A07F935338195 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		AD01036FD92CB886C124E925 /* DashcamUIModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamUIModelTests.swift; sourceTree = "<group>"; };
@@ -3074,6 +3078,7 @@
 				34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */,
 				D51B9B9ECE349E04BA2068FA /* JcUnified.swift */,
 				D594DA9788C935CF5024AA90 /* JcLoader.swift */,
+				157F3646195AEA0CF7D6BC3C /* JcRefreshLoader.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -4398,6 +4403,7 @@
 				5543E00864B127432DB9F6F1 /* ChatMarkdownCacheTests.swift */,
 				8396711110235D97A2F5E4D2 /* ApprovalRenderTests.swift */,
 				59D5E0D5183139FAAE82D707 /* JcLoaderTests.swift */,
+				AC314DB579B933FC4D52806E /* JcRefreshLoaderTests.swift */,
 			);
 			path = ChatUI;
 			sourceTree = "<group>";
@@ -5659,6 +5665,7 @@
 				515549C5E44C274234E1BA2B /* MacDockMenuTests.swift in Sources */,
 				53748848D92A3383B86C777A /* VaultTests.swift in Sources */,
 				DFF13C262A9980C901AF8707 /* JcLoaderTests.swift in Sources */,
+				6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6532,6 +6539,7 @@
 				37BEB80A74EB8CD6F0A82387 /* VaultBrowser.swift in Sources */,
 				2EA04BF4466BB7A6F1273FFD /* VaultShields.swift in Sources */,
 				4E6301FC3F56585040028FE5 /* JcLoader.swift in Sources */,
+				50FABD48A2D09625B51B4915 /* JcRefreshLoader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

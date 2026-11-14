@@ -20,6 +20,8 @@ struct JarvisCopilotApp: App {
         // System alerts and action sheets tint from the window, not SwiftUI.
         UIWindow.appearance().tintColor = UIColor(JcTheme.accent)
         MainActor.assumeIsolated {
+            // Pull-to-refresh draws the Jarvis loader, following the pull.
+            JcRefreshLoader.install()
             AppServices.shared.start()
             // Before anything can show a stale one: a "recording" Live Activity
             // that outlives the recording tells the user their room is being
