@@ -72,8 +72,6 @@ struct JcLoader: View {
 
     @Environment(\.controlSize) private var controlSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var visible = false
 
     /// `size` is the square's side in points; nil follows `.controlSize`.
     init(size: CGFloat? = nil, style: JcLoaderStyle = .default) {
@@ -121,18 +119,18 @@ struct JcLoader: View {
         let side = side
         let style = style
         let period = style.period * (reduceMotion ? 4 : 1)
-        // Paused while off screen or with the app in the background: no frames are
-        // drawn for a loader nobody can see. Only the Canvas redraws per frame — the
-        // frame is fixed, so there is never any layout work.
-        return TimelineView(.animation(paused: !visible || scenePhase == .background)) { timeline in
+        // The same clock as the notch's orb (Orb.swift): an animation timeline that
+        // never pauses itself. Gating it on scenePhase froze it: in an AppKit/UIKit
+        // hosting view (the Mac notch, any NSHostingView) that reads .background for
+        // good. SwiftUI stops drawing it off screen and for a backgrounded app anyway.
+        // Only the Canvas redraws per frame — the frame is fixed, so no layout work.
+        return TimelineView(.animation(minimumInterval: 1.0 / 60)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, _ in
                 style.render(in: &context, size: side, phase: (t / period).truncatingRemainder(dividingBy: 1))
             }
         }
         .frame(width: side, height: side)
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
     }
 }
 
