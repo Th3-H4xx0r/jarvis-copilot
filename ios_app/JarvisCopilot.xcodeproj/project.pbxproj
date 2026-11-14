@@ -50,6 +50,7 @@
 		08B5E2CA057B33670250410F /* InsightsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */; };
 		08CDE5862BA51DF2434D77F0 /* QuotaCardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99238B6A3CE53FEC44B720 /* QuotaCardUITests.swift */; };
 		08F7324686B8ED7DA78382B5 /* TrainingRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */; };
+		097F977E75E46D35A5F59766 /* PowerGates.swift in Sources */ = {isa = PBXBuildFile; fileRef = E241E4FD8B331BB3B1FA85BE /* PowerGates.swift */; };
 		09996E37D49CF4B4B0A3802B /* VoiceSessionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */; };
 		09C3818B4B9F5EBF930987B2 /* WidgetRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87A0FD28CE2FA6E7FEDE3A1 /* WidgetRendererTests.swift */; };
 		09E2E049459FBF25D9BBB41B /* BottleModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB72620872144EC212B8790 /* BottleModel.swift */; };
@@ -596,6 +597,7 @@
 		6F2F39D13D028E558F85D780 /* DevicesSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195070864CE5E2E428B49E9D /* DevicesSnapshotTests.swift */; };
 		6FCB3623535390BD17C8C6ED /* AppLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D57976E70D77D0DA8B31D6 /* AppLifecycle.swift */; };
 		6FCBC5D286FD8E0661F65AF0 /* AgentsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38288B2F981AB571C6252036 /* AgentsPresentation.swift */; };
+		6FD5EEC60E08EE58C9114B3B /* PowerGatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5CD0DAF4D767BF3192E5FE /* PowerGatingTests.swift */; };
 		700EABC756567BF24B2B1905 /* CarPlayVoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B976D91C1CD0EC4809B358F /* CarPlayVoiceTests.swift */; };
 		702F5D0D29C5CE708249FE90 /* AssistantTurnCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 951F9BF6AA0873028186B2A0 /* AssistantTurnCard.swift */; };
 		70323F5FA27A8107375ECB7A /* HealthGoalRings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */; };
@@ -1531,6 +1533,7 @@
 		19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDemoTests.swift; sourceTree = "<group>"; };
 		19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareSection.swift; sourceTree = "<group>"; };
 		1A2CEB6249AE39EE47DCA065 /* HabitRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HabitRenderTests.swift; sourceTree = "<group>"; };
+		1A5CD0DAF4D767BF3192E5FE /* PowerGatingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PowerGatingTests.swift; sourceTree = "<group>"; };
 		1A7E5C33D8FD6554C56055B5 /* ChatDashboardStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatDashboardStore.swift; sourceTree = "<group>"; };
 		1AB267A6EA889793B608DA7B /* TalkHereIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TalkHereIntent.swift; sourceTree = "<group>"; };
 		1AB72620872144EC212B8790 /* BottleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleModel.swift; sourceTree = "<group>"; };
@@ -2514,6 +2517,7 @@
 		E1E2FF61DCB927F9601EEA71 /* BandCodec.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandCodec.swift; sourceTree = "<group>"; };
 		E1F6B14DA6D8B6E246963194 /* JCPulse0.otf */ = {isa = PBXFileReference; includeInIndex = 1; path = JCPulse0.otf; sourceTree = "<group>"; };
 		E2139A233942561B671294AC /* X5DecodersTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5DecodersTests.swift; sourceTree = "<group>"; };
+		E241E4FD8B331BB3B1FA85BE /* PowerGates.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PowerGates.swift; sourceTree = "<group>"; };
 		E301B570A642FFE26202333A /* DashcamViidure.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamViidure.swift; sourceTree = "<group>"; };
 		E31CB3C3AD18F1EFBF012CB2 /* CodingChatModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatModelsTests.swift; sourceTree = "<group>"; };
 		E3CBA105F4A41164C52585E8 /* VaultShareKeychain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultShareKeychain.swift; sourceTree = "<group>"; };
@@ -3265,6 +3269,7 @@
 			children = (
 				C83988E4BEA6C7979923CDAE /* PowerStateTests.swift */,
 				A16F05B95427200168BD841F /* PowerPageTests.swift */,
+				1A5CD0DAF4D767BF3192E5FE /* PowerGatingTests.swift */,
 			);
 			name = Power;
 			path = Power;
@@ -4660,6 +4665,7 @@
 				6DF0FEBD5EFDD847A6BE8391 /* PowerState.swift */,
 				E9BBB7EB79CD0EA7968C854E /* PowerNative.swift */,
 				F86EAF044A9BEF948BF7DBE3 /* PowerViews.swift */,
+				E241E4FD8B331BB3B1FA85BE /* PowerGates.swift */,
 			);
 			name = Power;
 			path = Power;
@@ -5715,6 +5721,7 @@
 				6DCDE91F906558F0FE5D6489 /* JcRefreshLoaderTests.swift in Sources */,
 				DDF7AE887A445B6A47FF92BD /* PowerStateTests.swift in Sources */,
 				28A32C0FF9F2ABBB6AACB2A8 /* PowerPageTests.swift in Sources */,
+				6FD5EEC60E08EE58C9114B3B /* PowerGatingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6596,6 +6603,7 @@
 				77685F7161A475935FA6C3B9 /* PowerShared.swift in Sources */,
 				8EEDFA2BF90FE64E4B28B01A /* PowerNative.swift in Sources */,
 				E59013A58FC6754E0C358F58 /* PowerViews.swift in Sources */,
+				097F977E75E46D35A5F59766 /* PowerGates.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

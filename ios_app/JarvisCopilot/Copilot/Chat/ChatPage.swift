@@ -56,7 +56,7 @@ struct ChatPage: View {
                                onOpen: open)
             }
             // The home's fact cards sit above the conversation, only while some wait.
-            .safeAreaInset(edge: .top, spacing: 0) { IMessageFactCards(store: facts) }
+            .safeAreaInset(edge: .top, spacing: 0) { IMessageFactCards(store: facts).powerGated("imessage-memory") }
             .jcScreen()
             .navigationBarTitleDisplayMode(.inline)
             // Transparent chrome so the aurora runs behind the bar, as the

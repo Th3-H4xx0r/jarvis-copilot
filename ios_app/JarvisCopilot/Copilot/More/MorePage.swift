@@ -29,7 +29,7 @@ struct MorePage: View {
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(MoreDestination.allCases) { item in
+                    ForEach(MoreDestination.visible) { item in
                         NavigationLink(value: item) { Tile(item: item) }
                             .buttonStyle(.plain)
                     }

@@ -136,9 +136,11 @@ struct AppDeepLinkRouter {
         case .island:
             // The designs screen lives behind More; the tab is as far as this
             // router goes (More owns its own destination stack).
+            guard PowerState.shared.isOn("island-designs") else { return true }
             router.selectedTab = .more
             return true
         case .security:
+            guard PowerState.shared.isOn("security-advisor") else { return true }
             router.openMore(.security)
             return true
         case .shortcutCallback:

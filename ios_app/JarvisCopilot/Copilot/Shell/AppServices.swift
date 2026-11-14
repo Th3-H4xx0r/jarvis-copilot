@@ -386,25 +386,31 @@ final class AppServices {
         PowerState.shared.start()
 
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
-        WidgetDataHub.shared.start()
-        Task { await WidgetSync.shared.sync() }
+        PowerGates.whenOn("widgets") {
+            WidgetDataHub.shared.start()
+            Task { await WidgetSync.shared.sync() }
+        }
         WidgetModelSnapshots.refreshIfNeeded()
         Task { await ControlButtonStore.shared.runPending() }
 
         // 10d. Dashcam: watch for its Wi‑Fi (iOS joins it on its own), sync, upload.
-        DashcamSync.shared.start()
-        DashcamDevice.shared.refreshMembership()
+        PowerGates.whenOn("dashcam") {
+            DashcamSync.shared.start()
+            DashcamDevice.shared.refreshMembership()
+        }
 
         // 10e. The car: hosts the dashcam and the car lights (linked wearables) and their controls.
         CarModel.warmUp()                        // the 3D car's mesh + studio, off the main thread
         WearableLinks.shared.register(DashcamLinkable.shared)
         WearableLinks.shared.register(CarLightsDevice.shared)
-        CarDevice.shared.start()
-        CarLightsManager.shared.start()          // pending links to paired lights: they connect when the car is on
+        PowerGates.whenOn("car") {
+            CarDevice.shared.start()
+            CarLightsManager.shared.start()      // pending links to paired lights: they connect when the car is on
+        }
         CarLightsDevice.shared.refreshMembership()
 
         // 10f. The door alarm: it runs on the server; the phone lends its alarm sound and Face ID.
-        DoorAlarmDevice.shared.start()
+        PowerGates.whenOn("door-alarm") { DoorAlarmDevice.shared.start() }
 
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is

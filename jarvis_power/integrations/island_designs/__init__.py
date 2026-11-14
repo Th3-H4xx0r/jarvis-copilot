@@ -14,6 +14,5 @@ class IslandDesigns(PowerIntegration):
     icon = "capsule.fill"
     summary = "Custom Dynamic Island designs you can pin."
     route_prefixes = ("/api/island",)
-    surfaces = ("ios.more.island", "ios.deeplink.island", "ios.liveactivity.island_designs",
-                "ios.codemaster.agent_activity")
+    surfaces = ("ios.more.island", "ios.deeplink.island", "ios.liveactivity.island_designs")
     links = (Link("ios", "island_designs", "Open Island designs"),)

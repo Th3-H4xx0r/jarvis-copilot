@@ -36,5 +36,7 @@ final class DashcamLinkable: LinkableWearable {
     func card(namespace: Namespace.ID) -> AnyView { AnyView(DashcamEntryCard(namespace: namespace)) }
 
     /// The dashcam screens need a camera to show.
-    var carPlayScreen: CarPlayScreen? { DashcamSetupStore.load() == nil ? nil : .dashcam }
+    var carPlayScreen: CarPlayScreen? {
+        DashcamSetupStore.load() == nil || !PowerShared.isOn("dashcam") ? nil : .dashcam
+    }
 }

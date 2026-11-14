@@ -58,12 +58,17 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     // MARK: Lifecycle
 
+    /// Whether the car tab is in the tab bar (it goes while the Car is switched off).
+    private var carShown = true
+
     func start() {
         running = true
         voiceTab.tabImage = UIImage(systemName: "waveform")
         wearablesTab.tabImage = UIImage(systemName: "car")
         wearablesTab.tabTitle = CarDevice.shared.name   // the tab is the car
-        let tabs = CPTabBarTemplate(templates: [voiceTab, wearablesTab])
+        carShown = PowerShared.isOn("car")
+        let tabs = CPTabBarTemplate(templates: carShown ? [voiceTab, wearablesTab] : [voiceTab])
+        PowerState.shared.observe { [weak self] _ in self?.refresh() }
         tabBar = tabs
         ui.setRootTemplate(tabs, animated: false) { [weak self] ok, _ in
             cpDiag("root ready ok=\(ok)")
@@ -118,9 +123,12 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         show(paired ? CarPlayScreens.voiceTab(conversation, speaking: VoiceStore.shared.state == .speaking,
                                               cardOpen: voice.isShowing, state: voiceStateText)
                     : CarPlayScreens.notPaired, in: voiceTab)
-        if wearablesTab.tabTitle != CarDevice.shared.name {
+        // The car tab goes while the Car Power integration is off.
+        let wantCar = PowerShared.isOn("car")
+        if wearablesTab.tabTitle != CarDevice.shared.name || wantCar != carShown {
             wearablesTab.tabTitle = CarDevice.shared.name
-            tabBar?.updateTemplates([voiceTab, wearablesTab])
+            carShown = wantCar
+            tabBar?.updateTemplates(wantCar ? [voiceTab, wearablesTab] : [voiceTab])
         }
         show(paired ? CarPlayScreens.carTab(carInput, others: unlinkedCarDevices) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }

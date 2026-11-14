@@ -183,9 +183,11 @@ struct ScanView: View {
     /// The car, then any linkable wearable that isn't linked to anything (the dashcam, once
     /// unlinked from the car).
     @ViewBuilder private var carCards: some View {
-        CarEntryCard(namespace: cardNamespace)
-        DoorAlarmEntryCard(namespace: cardNamespace)
-        ForEach(links.topLevel, id: \.kind) { $0.card(namespace: cardNamespace) }
+        // Power integrations: each card goes while its integration is switched off.
+        if PowerState.shared.isOn("car") { CarEntryCard(namespace: cardNamespace) }
+        if PowerState.shared.isOn("door-alarm") { DoorAlarmEntryCard(namespace: cardNamespace) }
+        ForEach(links.topLevel.filter { $0.kind != DashcamDevice.identityKey || PowerState.shared.isOn("dashcam") },
+                id: \.kind) { $0.card(namespace: cardNamespace) }
     }
 
     /// When this kind of device was last in range, for a card whose link is down.

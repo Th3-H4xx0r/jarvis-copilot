@@ -100,7 +100,10 @@ final class WearableLinks: ObservableObject {
     /// Linkables with no host to show them — their cards stay on the Wearables list. A child
     /// whose host isn't here (not registered) counts as unlinked, so it never disappears.
     var topLevel: [any LinkableWearable] {
-        registered.filter { child in host(of: child.kind).map { hosts[$0] == nil } ?? true }
+        // A host whose Power integration is off (the Car) lets its devices stand alone.
+        registered.filter { child in
+            host(of: child.kind).map { hosts[$0] == nil || ($0 == CarDevice.kind && !PowerShared.isOn("car")) } ?? true
+        }
     }
 
     func link(_ kind: String, to host: String) throws {

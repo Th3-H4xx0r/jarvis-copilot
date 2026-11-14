@@ -255,6 +255,7 @@ struct SettingsPage: View {
                              subtitle: "Home Screen, Lock Screen and Control Center")
                 }
                 .buttonStyle(.plain)
+                .powerGated("widgets")
 
                 NavigationLink {
                     CarPlaySettingsScreen()
@@ -330,6 +331,7 @@ struct SettingsPage: View {
                              subtitle: "Encrypted notes, links and files", last: true)
                 }
                 .buttonStyle(.plain)
+                .powerGated("vault")
             }
         }
     }

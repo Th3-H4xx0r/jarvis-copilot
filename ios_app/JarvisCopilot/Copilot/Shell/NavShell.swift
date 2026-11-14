@@ -44,7 +44,7 @@ struct NavShell: View {
 
             VStack(spacing: 0) {
                 ZStack {
-                    ForEach(AppTab.allCases) { tab in
+                    ForEach(AppTab.visible) { tab in
                         let active = tab == router.selectedTab
                         page(for: tab)
                             // IndexedStack semantics: every page stays in the
@@ -68,6 +68,10 @@ struct NavShell: View {
         }
         .animation(.easeOut(duration: 0.2), value: keyboardVisible)
         .background(JcTheme.bg.ignoresSafeArea())
+        // Jarvis Health switched off while its tab is open: back to Chat.
+        .onChange(of: PowerState.shared.isOn("jarvis-health")) { _, on in
+            if !on, router.selectedTab == .health { router.selectedTab = .chat }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
@@ -151,7 +155,7 @@ struct GlassNavBar: View {
     /// The width one tab gets, on a screen this wide.
     static func slotWidth(screenWidth: CGFloat) -> CGFloat {
         let inner = screenWidth - outerPadding * 2 - innerPadding * 2
-        return inner / CGFloat(AppTab.allCases.count)
+        return inner / CGFloat(AppTab.visibleCount)
     }
 
     /// The room a label actually has inside its slot.
@@ -161,7 +165,7 @@ struct GlassNavBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(AppTab.allCases) { tab in
+            ForEach(AppTab.visible) { tab in
                 item(tab)
             }
         }

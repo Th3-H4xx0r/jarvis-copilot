@@ -91,6 +91,18 @@ struct HealthWidgetView: View {
     var entry: HealthWidgetEntry
 
     var body: some View {
+        if !PowerShared.isOn("jarvis-health") {
+            // Jarvis Health is switched off (Integrations tab).
+            Text("Health is off")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        } else {
+            familyBody
+        }
+    }
+
+    @ViewBuilder
+    private var familyBody: some View {
         switch family {
         case .accessoryCircular:
             ZStack {

@@ -236,6 +236,8 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
         let content = notification.request.content
+        // A switched-off Power integration's alert (iMessage facts, security) isn't shown.
+        if PowerPush.suppressed(category: content.categoryIdentifier) { return [] }
         // An update banner while the app is open: the card itself shows instead.
         if AppUpdateRules.isUpdatePush(content.userInfo) {
             await MainActor.run { Task { await AppUpdateCenter.shared.check() } }
