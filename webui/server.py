@@ -737,6 +737,20 @@ def main() -> None:
         _power_manager.start()
     except Exception as e:
         print(f'[!!] WARNING: Power integrations failed to start: {e}', flush=True)
+        # Never leave the house unwatched because the Power framework broke: start the
+        # safety features the way they started before it existed.
+        try:
+            from plugins.door_alarm.service import DoorService
+            DoorService.instance().start()
+        except Exception as e2:
+            print(f'[!!] WARNING: Door alarm failed to start: {e2}', flush=True)
+        try:
+            from jarviscopilot_cli.plugins import _get_enabled_plugins
+            if "security_advisor" in (_get_enabled_plugins() or set()):
+                from plugins.security_advisor.service import SecurityService
+                SecurityService.instance().start()
+        except Exception as e2:
+            print(f'[!!] WARNING: Security Advisor failed to start: {e2}', flush=True)
 
     httpd = QuietHTTPServer((HOST, PORT), Handler)
 
