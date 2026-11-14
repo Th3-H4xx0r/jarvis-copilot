@@ -308,8 +308,10 @@ private struct ExpandedIsland: View {
 
     @ViewBuilder private var agents: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Room goes to what's waiting on you first; the list gives way (it scrolls).
             agentsTop
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { ui.agentsTop = $0 }
+                .layoutPriority(1)
             agentList
         }
     }
@@ -503,14 +505,17 @@ private struct LimitRow: View {
     let now: Date
 
     var body: some View {
-        let reset = window.resetsAt <= now
+        // No reset time: Anthropic's window hasn't started (it starts with your next message).
+        let resetsAt = window.resetsAt
+        let reset = resetsAt.map { $0 <= now } ?? false
         let used = reset ? 0 : window.used
-        let pace = reset ? 0 : UsagePace.pace(used: used, resetsAt: window.resetsAt, length: length, now: now)
+        let pace = reset ? 0 : resetsAt.map { UsagePace.pace(used: used, resetsAt: $0, length: length, now: now) } ?? 0
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(.white.opacity(0.9))
                 Spacer(minLength: 6)
-                Text(reset ? "Reset" : "Resets in \(UsagePace.resetsIn(window.resetsAt, now: now))")
+                Text(resetsAt == nil ? "Not started" : reset ? "Reset"
+                     : "Resets in \(UsagePace.resetsIn(resetsAt!, now: now))")
                     .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45))
             }
             GeometryReader { g in
@@ -833,6 +838,8 @@ private struct QuestionCard: View {
     @State private var picks: [String: Set<String>] = [:]
     @State private var other: [String: String] = [:]
     @State private var armed = false
+    @State private var questionsHeight: CGFloat?
+    @State private var scroll: ScrollGeometry?
 
     /// Every question has a pick or a typed answer.
     private var complete: Bool {
@@ -850,16 +857,30 @@ private struct QuestionCard: View {
                     .foregroundStyle(islandAmber)
                 Spacer()
             }
-            ForEach(pending.questions) { q in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(q.question).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                    FlowOptions(question: q, picks: Binding(get: { picks[q.question] ?? [] },
-                                                            set: { picks[q.question] = $0 }))
-                    TextField("Other…", text: Binding(get: { other[q.question] ?? "" },
-                                                     set: { other[q.question] = $0; ui.pinned = true }))
-                        .textFieldStyle(.roundedBorder).font(.system(size: 11))
+            // The questions scroll on their own, as tall as they are up to the room
+            // the island has left, so the title and Send answer always show.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(pending.questions) { q in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(q.question).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
+                            FlowOptions(question: q, picks: Binding(get: { picks[q.question] ?? [] },
+                                                                    set: { picks[q.question] = $0 }))
+                            TextField("Other…", text: Binding(get: { other[q.question] ?? "" },
+                                                             set: { other[q.question] = $0; ui.pinned = true }))
+                                .textFieldStyle(.roundedBorder).font(.system(size: 11))
+                        }
+                    }
                 }
+                .padding(.trailing, 8)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { questionsHeight = $0 }
             }
+            .scrollIndicators(.hidden)
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { _, g in scroll = g }
+            .overlay(alignment: .topTrailing) { SlimScrollBar(geometry: scroll) }
+            .frame(maxHeight: questionsHeight ?? .infinity)
+            .layoutPriority(1)
             HStack {
                 Button("Terminal") { model.decide(pending, "ask") }
                     .buttonStyle(IslandButtonStyle(tint: .white.opacity(0.7)))
