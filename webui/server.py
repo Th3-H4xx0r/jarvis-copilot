@@ -713,13 +713,8 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Agent hook tracking failed to start: {e}', flush=True)
 
-    # The door alarm: ESP32 bridge events, Tuya's cloud feed and the alarm's 1 s timer (entry/exit
-    # delays, siren timeout, health warnings) must run from boot, not from the first page view.
-    try:
-        from plugins.door_alarm.service import DoorService
-        DoorService.instance().start()
-    except Exception as e:
-        print(f'[!!] WARNING: Door alarm failed to start: {e}', flush=True)
+    # The door alarm (ESP32 bridge events, Tuya's cloud feed, the alarm's 1 s timer) is a Power
+    # integration: the Power manager below starts it at boot when it's on.
 
     # The Security Advisor worker (rules, IP blocks, alerts, digest) is a Power
     # integration: the Power manager below starts it when it's on.

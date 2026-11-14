@@ -259,6 +259,7 @@ class DoorService:
         if self._started:
             return
         self._started = True
+        self._stop = threading.Event()          # fresh each start: a stopped timer stays stopped
         try:
             from api import device_bridge
             device_bridge.on_device_event("door_report", lambda dev, data: self.on_board_event(dev, "door_report", data))
@@ -266,8 +267,26 @@ class DoorService:
         except Exception:
             log.warning("door alarm: bridge events unavailable", exc_info=True)
         self._restart_feed()
-        threading.Thread(target=self._timer, name="door-alarm-timer", daemon=True).start()
+        threading.Thread(target=self._timer, args=(self._stop,), name="door-alarm-timer",
+                         daemon=True).start()
         self._run_alerts(self.refresh_values)   # values + known sensors right after a restart
+
+    def stop(self) -> None:
+        """End all of it: bridge events, the cloud feed and the 1 s timer (Power switch off).
+        Only ever called while disarmed (jarvis_power refuses to switch off otherwise)."""
+        if not self._started:
+            return
+        self._started = False
+        self._stop.set()
+        try:
+            from api import device_bridge
+            device_bridge.on_device_event("door_report", None)
+            device_bridge.on_device_event("door_link", None)
+        except Exception:
+            log.debug("door alarm: bridge events already gone", exc_info=True)
+        if self._feed is not None:
+            self._feed.stop()
+            self._feed = None
 
     def refresh_values(self) -> None:
         """One status read from Tuya's cloud: every data point's value, and the sensors it names
@@ -283,8 +302,9 @@ class DoorService:
         self.hub.apply([{"code": v.get("code"), "dp_id": v.get("dp_id"), "value": v.get("value")} for v in values],
                        source="cloud", snapshot=True)
 
-    def _timer(self) -> None:
-        while not self._stop.wait(1.0):
+    def _timer(self, stop: threading.Event | None = None) -> None:
+        stop = stop or self._stop
+        while not stop.wait(1.0):
             try:
                 self.tick()
             except Exception:

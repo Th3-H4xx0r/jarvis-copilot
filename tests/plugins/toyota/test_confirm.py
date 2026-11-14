@@ -321,4 +321,6 @@ def test_the_plugin_registers_the_hook():
             hooks.append((name, callback))
 
     plugin.register(Ctx())
-    assert ("pre_llm_call", confirm.on_pre_llm_call) in hooks
+    # Wrapped by the Car Power integration's switch (jarvis_power.gate.gated).
+    assert [(n, getattr(cb, "__wrapped__", cb)) for n, cb in hooks] == [
+        ("pre_llm_call", confirm.on_pre_llm_call)]

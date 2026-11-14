@@ -17,7 +17,9 @@ def register(ctx) -> None:
         ctx.register_tool(name=name, toolset="toyota", schema=schema, handler=handler,
                           check_fn=available, emoji=emoji)
     # His yes to a car question: read from his own next message, at the start of that turn.
-    ctx.register_hook("pre_llm_call", confirm.on_pre_llm_call)
+    # Only while the Car Power integration is on (jarvis_power).
+    from jarvis_power.gate import gated
+    ctx.register_hook("pre_llm_call", gated("car", confirm.on_pre_llm_call))
     # The general Home Assistant tool must not unlock or start the car behind toyota_command.
     from tools.homeassistant_tool import SERVICE_GUARDS
 

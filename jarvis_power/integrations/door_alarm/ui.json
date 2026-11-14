@@ -1,0 +1,5 @@
+{
+  "presentations": {
+    "card": {"type": "titleSubtitle", "title": "Alarm", "subtitle": {"$": "status"}}
+  }
+}
