@@ -8,6 +8,7 @@ Server framework
 - [ ] 3. Switching, schedule pause/restore, Face ID approvals, per-process manager (webui + gateway)
 - [ ] 4. Gates: routes 409, tool calls refused, cache-safe per-chat toolsets, skills, hooks
 - [ ] 5. `/api/power` + cards + approvals routes + `power_list` / `power_set` tools
+      ✅ 1–5 committed + pushed (4ca03b7a0b); inert until integrations exist; tools add ~84 prompt tokens
 
 The eleven as Power integrations (server)
 - [ ] 6. Kanban (off kills running workers), Photon, Security Advisor (protected)
