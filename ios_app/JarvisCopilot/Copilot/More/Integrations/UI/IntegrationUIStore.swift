@@ -17,6 +17,9 @@ final class IntegrationUIStore {
 
     let integrationID: String
     let presentation: Presentation
+    /// `/api/integrations` for a regular integration, `/api/power` for a Power one
+    /// (same `/<id>/ui` and `/<id>/ui/action` shapes).
+    let basePath: String
     private let api: JarvisAPI
 
     /// The tree for this presentation; nil until loaded, or when there is none.
@@ -45,9 +48,11 @@ final class IntegrationUIStore {
     /// the newer state it brought back.
     private var generation = 0
 
-    init(integrationID: String, presentation: Presentation, api: JarvisAPI = .shared) {
+    init(integrationID: String, presentation: Presentation,
+         basePath: String = "/api/integrations", api: JarvisAPI = .shared) {
         self.integrationID = integrationID
         self.presentation = presentation
+        self.basePath = basePath
         self.api = api
         restoreCache()
     }
@@ -74,7 +79,7 @@ final class IntegrationUIStore {
         defer { loading = false }
         let started = generation
         do {
-            let body = try await api.get("/api/integrations/\(escaped)/ui", timeout: 45).object()
+            let body = try await api.get("\(basePath)/\(escaped)/ui", timeout: 45).object()
             // An action ran meanwhile: its state is newer than this load's.
             guard started == generation, running == nil else { return }
             let definition = body["definition"] as? [String: Any]
@@ -188,7 +193,7 @@ final class IntegrationUIStore {
         body["value"] = action.value?.foundation ?? NSNull()
         body["row"] = action.row.map { JCJSON.object($0).foundation } ?? NSNull()
         do {
-            let reply = try await api.post("/api/integrations/\(escaped)/ui/action",
+            let reply = try await api.post("\(basePath)/\(escaped)/ui/action",
                                            json: body, timeout: 90).object()
             let failure = IntegrationUIDecode.text(reply["error"])
             let ok = (reply["ok"] as? Bool) ?? (failure == nil)
@@ -228,7 +233,8 @@ final class IntegrationUIStore {
         let dir = base.appendingPathComponent("IntegrationUI", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = integrationID.replacingOccurrences(of: "/", with: "_")
-        return dir.appendingPathComponent("\(safe)-\(presentation.rawValue).json")
+        let kind = basePath == "/api/integrations" ? "" : "power-"   // a Power id may equal a space id
+        return dir.appendingPathComponent("\(kind)\(safe)-\(presentation.rawValue).json")
     }
 
     private struct Cached: Codable {

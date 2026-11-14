@@ -57,6 +57,7 @@ enum PhoneSkills {
             SystemSkills.makeCall(b.urls),
             SendConfirmations.skill(),
             VaultApprovals.skill(),
+            PowerApprovals.skill(),
             LiveButtons.skill(),
             SpotifyRemote.skill(),
             MediaSkills.getLocation(b.location),

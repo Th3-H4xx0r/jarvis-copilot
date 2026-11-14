@@ -68,6 +68,7 @@ final class FaceIDApprovals: ObservableObject {
     static let car = FaceIDApprovals(domain: CarApprovalDomain())
     static let door = FaceIDApprovals(domain: DoorApprovalDomain())
     static let vault = FaceIDApprovals(domain: VaultApprovalDomain())
+    static let power = FaceIDApprovals(domain: PowerApprovalDomain())
 
     struct Answer: Equatable {
         let text: String

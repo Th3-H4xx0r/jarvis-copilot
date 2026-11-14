@@ -381,6 +381,10 @@ final class AppServices {
         // Directions, a call, an app handed to the car: that reply ends the conversation.
         CarHandoff.shared.onQueued = { VoiceStore.shared.endAfterThisReply() }
 
+        // 10b′. Power integrations: which built-in features are switched on. Everything
+        //       below that belongs to one starts/stops from PowerState (PowerGates).
+        PowerState.shared.start()
+
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
         WidgetDataHub.shared.start()
         Task { await WidgetSync.shared.sync() }

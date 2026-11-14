@@ -37,6 +37,9 @@ struct IntegrationsList: View {
     @State private var iMessage: IMessageMemoryStore
     /// The UIs Jarvis designed for integrations: their cards lead the list.
     @State private var cards = MainActor.assumeIsolated { IntegrationUICardsStore() }
+    /// Power integrations (built-in features): their own section at the very top.
+    @State private var power = MainActor.assumeIsolated { PowerState.shared }
+    @State private var powerToast: String?
 
     init(store: IntegrationsStore? = nil, iMessage: IMessageMemoryStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { IntegrationsStore() })
@@ -56,7 +59,8 @@ struct IntegrationsList: View {
             async let list: Void = store.refresh()
             async let pinned: Void = iMessage.refresh()
             async let uis: Void = cards.refresh()
-            _ = await (list, pinned, uis)
+            async let powered: Void = power.refresh()
+            _ = await (list, pinned, uis, powered)
         }
         .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
         .jcPageChrome("Integrations")
@@ -70,6 +74,9 @@ struct IntegrationsList: View {
         }
         .navigationDestination(for: IMessageMemoryRoute.self) { _ in
             IMessageMemoryView(store: iMessage)
+        }
+        .navigationDestination(for: PowerRoute.self) { route in
+            PowerPage(id: route.id, power: power)
         }
         .navigationDestination(for: IntegrationDataRoute.self) { route in
             switch route {
@@ -88,6 +95,7 @@ struct IntegrationsList: View {
         .onDisappear { store.onDisappear() }
         .moreToast($store.toast)
         .moreToast($cards.toast)
+        .moreToast($powerToast)
         .fullScreenCover(isPresented: $settingUp) {
             IntegrationSetupSheet {
                 await store.refresh()
@@ -98,12 +106,14 @@ struct IntegrationsList: View {
 
     @ViewBuilder
     private var content: some View {
-        // Pinned first and shown whatever state the list is in: it isn't a registry
-        // integration, so an empty or failed list says nothing about it.
-        NavigationLink(value: IMessageMemoryRoute()) {
-            IMessageMemoryCardRow(card: iMessage.card, failed: iMessage.errorMessage != nil)
+        // Power integrations first, whatever state the regular list is in: they're
+        // built in, so an empty or failed list says nothing about them. (iMessage memory
+        // is one of them now; its page links to its own screen.)
+        PowerSection(power: power, onToast: { powerToast = $0 })
+        if !power.rows.isEmpty {
+            JcSectionLabel("Integrations")
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
         if let message = store.errorMessage, store.integrations.isEmpty {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
                 .padding(.top, 100)

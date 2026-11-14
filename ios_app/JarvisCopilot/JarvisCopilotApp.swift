@@ -61,6 +61,9 @@ struct JarvisCopilotApp: App {
                     FaceIDApprovals.door.scenePhaseChanged(to: phase)
                     // And Jarvis's vault requests (search, read, save …).
                     FaceIDApprovals.vault.scenePhaseChanged(to: phase)
+                    // And Power integration changes (switching a protected one off).
+                    FaceIDApprovals.power.scenePhaseChanged(to: phase)
+                    if phase == .active { Task { await PowerState.shared.refresh() } }
                     // The share sheet's "Save to Vault" uploads with the paired server's credentials.
                     if phase == .active { VaultSession.shareServerChanged(); VaultTemp.clearAtLaunch() }
                     // And the alarm card when a door has tripped the alarm.
