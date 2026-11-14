@@ -1,0 +1,21 @@
+{
+  "presentations": {
+    "card": {
+      "type": "section",
+      "label": "Template",
+      "children": [
+        {"type": "stat", "label": "Count", "value": {"$": "count"}},
+        {"type": "button", "label": "Refresh", "action": "refresh"}
+      ]
+    },
+    "page": {
+      "type": "vstack",
+      "children": [
+        {"type": "section", "label": "Overview", "children": [
+          {"type": "stat", "label": "Count", "value": {"$": "count"}}
+        ]},
+        {"type": "button", "label": "Refresh", "action": "refresh"}
+      ]
+    }
+  }
+}
