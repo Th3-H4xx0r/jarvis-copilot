@@ -289,6 +289,27 @@ The registry handles schema collection, dispatch, availability checking, and err
 
 **Agent-level tools** (todo, memory): intercepted by `run_agent.py` before `handle_function_call()`. See `tools/todo_tool.py` for the pattern.
 
+
+---
+
+## Adding a Power Integration
+
+Power integrations are built-in features on the Integrations tab with a **Power**
+tag, an on/off switch and a settings form on iPhone, web and Mac (`jarvis_power/`).
+Make one when a feature needs code (routes, background services, agent tools,
+hooks, device code) and should only ever be switched off, not deleted.
+
+1. Copy `jarvis_power/integrations/_template/` to `jarvis_power/integrations/<dir>/`.
+2. Declare `processes`, `toolsets`, `route_prefixes`, `settings`; write `start()`/
+   `stop()` so off really stops it; `seed_enabled()` mirrors today's on/off.
+3. Add its `surfaces` to `jarvis_power/surfaces.py` and gate them on each device
+   (`PowerState.isOn`, `PowerShared.isOn`, `data-power`).
+4. Tests in `tests/jarvis_power/integrations/`; the discovery test validates the manifest.
+
+Never change an open chat's tools (the gate fixes them per chat), never add a second
+on/off switch, and never gate shared infrastructure (the Face ID approver routes).
+Full guide: [`docs/power-integrations/README.md`](docs/power-integrations/README.md).
+
 ---
 
 ## Dependency Pinning Policy

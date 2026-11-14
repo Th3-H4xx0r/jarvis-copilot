@@ -21,6 +21,11 @@ phone, bound to a **state** dict that a `load` script builds; every tap, toggle 
 submit runs a named Python script on the server. It does not make Home Screen widgets
 (see `widgets`) or Dynamic Island designs (see `dynamic-island`).
 
+
+Power integrations (built-in features with a Power tag on the Integrations tab) draw
+their card and page from code (`jarvis_power/integrations/<dir>/ui.json`);
+`integration_ui_set` refuses them. Change those in the repo, not from chat.
+
 ## When to Use
 
 - The integration setup sheet reaches its UI step, or the person opens "Edit UI".
