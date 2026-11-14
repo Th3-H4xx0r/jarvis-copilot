@@ -146,15 +146,19 @@ def test_enabled_plugin_blocks_through_the_real_hook_path(tmp_path, monkeypatch,
     assert msg and msg.startswith("Blocked by Security Advisor")
 
 
-def test_plugin_is_opt_in(tmp_path, monkeypatch):
+def test_plugin_always_loads_and_power_switch_starts_off(tmp_path, monkeypatch):
+    """Always loaded; its Power integration decides. Off unless it was enabled before."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     from jarviscopilot_cli import plugins as pmod
     mgr = pmod.PluginManager()
     mgr.discover_and_load()
-    loaded = mgr._plugins["security_advisor"]
-    assert not loaded.enabled and "not enabled" in (loaded.error or "")
+    assert mgr._plugins["security_advisor"].enabled
+    from jarvis_power import discovery, state
+    discovery.reset()
+    state.reset_cache()
+    assert state.is_on("security-advisor") is False
 
 
 def test_huge_tool_result_scans_fast_and_still_sees_head_and_tail(fresh):

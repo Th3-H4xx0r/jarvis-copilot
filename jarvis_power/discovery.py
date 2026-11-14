@@ -74,6 +74,9 @@ def validate(p: PowerIntegration) -> list[str]:
     for field in ("name", "icon", "summary"):
         if not str(getattr(p, field, "") or "").strip():
             problems.append(f"{who}: {field} is required")
+    from jarvis_registry.store import _NAME_RE
+    if p.name and not _NAME_RE.match(p.name):
+        problems.append(f"{who}: name {p.name!r} must be a plain name (it names its registry space)")
     unknown_process = set(p.processes) - set(PROCESSES)
     if unknown_process:
         problems.append(f"{who}: unknown processes {sorted(unknown_process)} (webui, gateway)")

@@ -12,12 +12,18 @@ from plugins.security_advisor.tools import TOOLS, available
 
 
 def register(ctx) -> None:
-    ctx.register_hook("pre_llm_call", guard.on_pre_llm_call)
-    ctx.register_hook("post_tool_call", guard.on_post_tool_call)
-    ctx.register_hook("pre_tool_call", guard.on_pre_tool_call)
-    ctx.register_hook("pre_approval_request", guard.on_pre_approval_request)
-    ctx.register_hook("post_approval_response", guard.on_post_approval_response)
-    ctx.register_hook("pre_gateway_dispatch", guard.on_pre_gateway_dispatch)
+    # Always loaded; its Power switch decides whether it acts (jarvis_power).
+    from jarvis_power.gate import gated
+
+    def hook(name, fn):
+        ctx.register_hook(name, gated("security-advisor", fn))
+
+    hook("pre_llm_call", guard.on_pre_llm_call)
+    hook("post_tool_call", guard.on_post_tool_call)
+    hook("pre_tool_call", guard.on_pre_tool_call)
+    hook("pre_approval_request", guard.on_pre_approval_request)
+    hook("post_approval_response", guard.on_post_approval_response)
+    hook("pre_gateway_dispatch", guard.on_pre_gateway_dispatch)
     ctx.register_auxiliary_task(
         "security_advisor", display_name="Security Advisor",
         description="Explains flagged security events and writes the daily digest",

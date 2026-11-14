@@ -220,7 +220,7 @@ def _is_client_disconnect(exc: BaseException) -> bool:
 _BLOCK_LOGGED: dict = {}
 # [enabled, checked-until monotonic time]: whether the security_advisor plugin is on.
 _ADVISOR_ENABLED: list = [False, 0.0]
-_ADVISOR_ENABLED_TTL_S = 60.0
+_ADVISOR_ENABLED_TTL_S = 5.0
 
 
 def _advisor_enabled() -> bool:
@@ -232,8 +232,8 @@ def _advisor_enabled() -> bool:
     if now < _ADVISOR_ENABLED[1]:
         return _ADVISOR_ENABLED[0]
     try:
-        from jarviscopilot_cli.plugins import _get_enabled_plugins
-        enabled = "security_advisor" in (_get_enabled_plugins() or set())
+        from jarvis_power.state import is_on
+        enabled = is_on("security-advisor")
     except Exception:
         enabled = False
     _ADVISOR_ENABLED[:] = [enabled, now + _ADVISOR_ENABLED_TTL_S]
@@ -721,16 +721,9 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Door alarm failed to start: {e}', flush=True)
 
-    # The Security Advisor worker (rules, IP blocks, alerts, digest), when its plugin is enabled.
+    # The Security Advisor worker (rules, IP blocks, alerts, digest) is a Power
+    # integration: the Power manager below starts it when it's on.
     _security_service = None
-    try:
-        from jarviscopilot_cli.plugins import _get_enabled_plugins
-        if "security_advisor" in (_get_enabled_plugins() or set()):
-            from plugins.security_advisor.service import SecurityService
-            _security_service = SecurityService.instance()
-            _security_service.start()
-    except Exception as e:
-        print(f'[!!] WARNING: Security Advisor failed to start: {e}', flush=True)
 
     # Power integrations: seed their state the first time, start the ones that are on
     # and run in this process, then watch for switches flipped anywhere (any device,
@@ -789,11 +782,13 @@ def main() -> None:
             logger.debug("Failed to stop agent tracking during shutdown")
         if _power_manager is not None:
             _power_manager.stop()
-        if _security_service is not None:
-            try:
-                _security_service.stop()
-            except Exception:
-                logger.debug("Failed to stop the Security Advisor during shutdown")
+        try:
+            from jarvis_power.state import is_on as _power_is_on
+            if _power_is_on("security-advisor"):
+                from plugins.security_advisor.service import SecurityService
+                SecurityService.instance().stop()
+        except Exception:
+            logger.debug("Failed to stop the Security Advisor during shutdown")
 
 if __name__ == '__main__':
     main()

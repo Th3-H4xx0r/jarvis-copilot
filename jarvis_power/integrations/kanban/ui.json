@@ -1,0 +1,16 @@
+{
+  "presentations": {
+    "card": {"type": "grid", "columns": 3, "children": [
+      {"type": "stat", "label": "Running", "value": {"$": "running"}},
+      {"type": "stat", "label": "Ready", "value": {"$": "ready"}},
+      {"type": "stat", "label": "Open", "value": {"$": "open"}}
+    ]},
+    "page": {"type": "section", "label": "Board", "children": [
+      {"type": "grid", "columns": 3, "children": [
+        {"type": "stat", "label": "Running", "value": {"$": "running"}},
+        {"type": "stat", "label": "Ready", "value": {"$": "ready"}},
+        {"type": "stat", "label": "Open", "value": {"$": "open"}}
+      ]}
+    ]}
+  }
+}

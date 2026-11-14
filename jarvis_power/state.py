@@ -139,22 +139,28 @@ def _write(integration_id: str, **fields: Any) -> dict:
 
 
 def snapshot() -> dict[str, bool]:
-    """Every integration's on/off. Cached for a moment: this runs on every request."""
+    """Every integration's on/off. Cached for a moment: this runs on every request.
+
+    The cache holds stored values only; an integration not yet seeded is worked out
+    each time from its own config (see :func:`_unseeded`), so it follows that config
+    until the webui seeds it.
+    """
     global _snapshot
     now = time.monotonic()
     with _lock:
-        if _snapshot is not None and now - _snapshot[0] < _CACHE_TTL:
-            return dict(_snapshot[1])
-    out: dict[str, bool] = {}
-    for integration_id in discovery.integrations():
-        try:
-            body = doc(integration_id)
-            out[integration_id] = bool(body.get("enabled", True)) if body else True
-        except Exception:
-            out[integration_id] = True       # never switch a feature off because a read failed
-    with _lock:
-        _snapshot = (now, out)
-    return dict(out)
+        cached = _snapshot[1] if _snapshot is not None and now - _snapshot[0] < _CACHE_TTL else None
+    if cached is None:
+        cached = {}
+        for integration_id in discovery.integrations():
+            try:
+                body = doc(integration_id)
+                cached[integration_id] = bool(body.get("enabled", True)) if body else None
+            except Exception:
+                cached[integration_id] = True    # never switch a feature off because a read failed
+        with _lock:
+            _snapshot = (now, cached)
+    found = discovery.integrations()
+    return {i: (v if v is not None else _unseeded(found[i])) for i, v in cached.items() if i in found}
 
 
 def snapshot_fresh() -> dict[str, bool]:
@@ -163,6 +169,14 @@ def snapshot_fresh() -> dict[str, bool]:
     with _lock:
         _snapshot = None
     return snapshot()
+
+
+def _unseeded(p) -> bool:
+    """Before the webui has seeded it (another process booted first): what it will seed."""
+    try:
+        return bool(p.seed_enabled())
+    except Exception:
+        return bool(p.default_enabled)
 
 
 def is_on(integration_id: str) -> bool:

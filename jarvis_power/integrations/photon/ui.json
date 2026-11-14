@@ -1,0 +1,11 @@
+{
+  "presentations": {
+    "card": {"type": "titleSubtitle", "title": "iMessage", "subtitle": {"$": "status"}},
+    "page": {"type": "section", "label": "iMessage", "children": [
+      {"type": "keyValue", "pairs": [
+        {"label": "Status", "value": {"$": "status"}},
+        {"label": "Handle", "value": {"$": "handle"}}
+      ]}
+    ]}
+  }
+}

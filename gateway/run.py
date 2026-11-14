@@ -1140,6 +1140,15 @@ import weakref as _weakref
 _gateway_runner_ref: _weakref.ref = lambda: None
 
 
+def _power_is_on(integration_id: str) -> bool:
+    """A Power integration's switch (jarvis_power); unreadable state counts as on."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on(integration_id)
+    except Exception:
+        return True
+
+
 def _normalize_empty_agent_response(
     agent_result: dict,
     response: str,
@@ -4279,6 +4288,9 @@ class GatewayRunner:
         await asyncio.sleep(5)
 
         while self._running:
+            if not _power_is_on("kanban"):
+                await asyncio.sleep(interval)
+                continue
             try:
                 def _collect():
                     deliveries: list[dict] = []
@@ -4759,11 +4771,16 @@ class GatewayRunner:
             logger.warning("kanban dispatcher: cannot load config (%s); disabled", exc)
             return
         kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
-        if not kanban_cfg.get("dispatch_in_gateway", True):
-            logger.info(
-                "kanban dispatcher: disabled via config kanban.dispatch_in_gateway=false"
-            )
-            return
+        # `dispatch_in_gateway` is read every tick (below), so the Kanban Power
+        # integration's "Run ready tasks automatically" setting applies without a
+        # restart.
+
+        def _dispatch_wanted() -> bool:
+            try:
+                from jarvis_power.stores import config_get
+                return bool(config_get("kanban.dispatch_in_gateway", True))
+            except Exception:
+                return bool(kanban_cfg.get("dispatch_in_gateway", True))
 
         try:
             from jarviscopilot_cli import kanban_db as _kb
@@ -4991,6 +5008,10 @@ class GatewayRunner:
         )
         while self._running:
             try:
+                if not _power_is_on("kanban") or not _dispatch_wanted():
+                    # Switched off on the Integrations tab (or its setting): no new work.
+                    await asyncio.sleep(min(interval, 5.0))
+                    continue
                 if auto_decompose_enabled:
                     await asyncio.to_thread(_auto_decompose_tick)
                 results = await asyncio.to_thread(_tick_once)

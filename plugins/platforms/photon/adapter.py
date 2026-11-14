@@ -118,12 +118,21 @@ def check_requirements() -> bool:
     Configured = httpx present AND we know which Photon to use: either a project id
     (production) or an explicit sidecar URL (dev / mock).
     """
-    if not HTTPX_AVAILABLE:
+    if not HTTPX_AVAILABLE or not _power_on():
         return False
     return bool(
         os.getenv("PHOTON_PROJECT_ID", "").strip()
         or os.getenv("PHOTON_SIDECAR_URL", "").strip()
     )
+
+
+def _power_on() -> bool:
+    """Photon's Power switch (Integrations tab). Off: no adapter, no sends."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on("photon")
+    except Exception:
+        return True
 
 
 def validate_config(config) -> bool:
@@ -708,6 +717,8 @@ async def _standalone_send(
     not in this process. ``thread_id`` / ``media_files`` are accepted for
     signature parity (iMessage threading/attachments are not modeled here yet).
     """
+    if not _power_on():
+        return {"error": "Photon is switched off"}
     if not HTTPX_AVAILABLE:
         return {"error": "Photon standalone send: httpx not installed"}
     extra = getattr(pconfig, "extra", {}) or {}
