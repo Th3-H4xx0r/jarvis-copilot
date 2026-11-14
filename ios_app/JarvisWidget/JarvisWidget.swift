@@ -149,7 +149,9 @@ struct JarvisButtonControl: ControlWidget {
         AppIntentControlConfiguration(kind: ControlButtonShelf.controlKind,
                                       provider: JarvisButtonProvider()) { button in
             // What the button shows and does right now ("Stop arming", "Disarm"), if it follows anything.
-            let live = button?.info.timeline?.state(at: .now)
+            let current = button?.info.timeline?.state(at: .now)
+            // A switched-off Power integration's state (the door alarm's, the car's) isn't shown.
+            let live = PowerShared.liveStateVisible(current?.id) ? current : nil
             // The hidden press intent: a Control Center press is a person's, unlike a Shortcut's. It
             // carries the state it showed, so a press on a tile that has gone stale does nothing.
             ControlWidgetButton(action: PressJarvisButtonIntent(button: button, token: ControlButtonShelf.pressToken(),

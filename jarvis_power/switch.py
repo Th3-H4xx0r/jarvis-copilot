@@ -98,6 +98,7 @@ def apply_enabled(integration_id: str, enabled: bool, by: str) -> None:
 def apply_settings(integration_id: str, clean: dict) -> None:
     with _lock:
         discovery.get(integration_id).write_settings(clean)
+        state.touch_settings(integration_id)
 
 
 def _describe(fields: dict, clean: dict) -> str:

@@ -5884,6 +5884,15 @@ def _default_spawn(
 # Long-lived dispatcher daemon
 # ---------------------------------------------------------------------------
 
+def _kanban_power_on() -> bool:
+    """Kanban's Power switch (jarvis_power); unreadable state counts as on."""
+    try:
+        from jarvis_power.state import is_on
+        return is_on("kanban")
+    except (Exception, SystemExit):
+        return True
+
+
 def run_daemon(
     *,
     interval: float = 60.0,
@@ -5920,6 +5929,10 @@ def run_daemon(
                     pass
 
     while not stop_event.is_set():
+        if not _kanban_power_on():
+            # Kanban is switched off on the Integrations tab: no new work until it's back.
+            stop_event.wait(timeout=min(interval, 5.0))
+            continue
         try:
             with contextlib.closing(connect()) as conn:
                 res = dispatch_once(

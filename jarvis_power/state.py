@@ -211,7 +211,7 @@ def version() -> str:
     for integration_id in sorted(discovery.integrations()):
         body = doc(integration_id)
         parts.append([integration_id, body.get("enabled"), body.get("changed_at"),
-                      body.get("error")])
+                      body.get("error"), body.get("settings_changed_at")])
     return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -227,6 +227,11 @@ def stored_settings(integration_id: str) -> dict:
 def store_settings(integration_id: str, changes: dict) -> None:
     merged = {**stored_settings(integration_id), **changes}
     _write(integration_id, settings=merged)
+
+
+def touch_settings(integration_id: str) -> None:
+    """Note that its settings changed (wherever they're kept), so devices refresh."""
+    _write(integration_id, settings_changed_at=time.time())
 
 
 def record_error(integration_id: str, message: Optional[str]) -> None:

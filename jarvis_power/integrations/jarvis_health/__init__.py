@@ -26,6 +26,7 @@ class JarvisHealth(PowerIntegration):
     icon = "heart.text.square.fill"
     summary = "Your wearables' days, sleep, workouts, habits and weight in one place."
     adopt_space = True
+    processes = ("webui",)
     route_prefixes = ("/api/integrations/jarvis-health/health/run",)
     surfaces = ("ios.tab.health", "ios.widget.health", "ios.liveactivity.workout")
     links = (Link("ios", "health_tab", "Open Health"),)
@@ -34,6 +35,12 @@ class JarvisHealth(PowerIntegration):
                 help="Jarvis reads your days on a schedule and tells you what stands out."),
         Setting("frequency", "How often", "picker", default="every 6 hours", options=_FREQUENCIES),
     )
+
+    def start(self, process: str) -> None:
+        # A schedule edited while it was off (or restored by the switch) gets its real
+        # on/off back from the settings.
+        from jarvis_health.bootstrap import ensure_schedule
+        ensure_schedule(_health_store().settings())
 
     def read_settings(self) -> dict:
         current = _health_store().settings()

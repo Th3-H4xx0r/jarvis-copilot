@@ -52,6 +52,7 @@ final class DoorAlarmAlert: ObservableObject {
         let alerting = alarm?.isAlerting == true
         if !alerting { hiddenSince = nil }
         let wanted = active && alerting && (hiddenSince == nil || hiddenSince != alarm?.since)
+            && PowerState.shared.isOn("door-alarm")
         if wanted { present() } else { dismiss() }
         shown = wanted
     }

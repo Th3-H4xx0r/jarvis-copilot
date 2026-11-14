@@ -57,7 +57,8 @@ final class DashcamSyncBeacon {
     /// One look at the sync. False once nothing moves and no activity is up: the watch stops.
     private func tick() -> Bool {
         let sync = DashcamSync.shared
-        guard Self.enabled else { end(); return false }
+        // Off in its own setting, or the Dashcam Power integration is switched off.
+        guard Self.enabled, PowerShared.isOn("dashcam") else { end(); return false }
         // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere.
         // iOS only STARTS an activity while the app is in the foreground, so a background upload after a lull
         // shows none; the page header keeps the waiting note.

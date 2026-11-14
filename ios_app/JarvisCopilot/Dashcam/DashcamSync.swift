@@ -266,6 +266,7 @@ final class DashcamSync: ObservableObject {
         if let batteryObserver { NotificationCenter.default.removeObserver(batteryObserver) }
         batteryObserver = nil
         phase = .away
+        DashcamSyncBeacon.shared.poke()          // its next look ends the Live Activity
     }
 
     /// The app came to the foreground (AppServices): catch up on the server once, then send what can go.

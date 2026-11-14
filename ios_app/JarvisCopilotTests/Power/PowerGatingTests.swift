@@ -52,3 +52,17 @@ final class PowerGatingTests: XCTestCase {
         XCTAssertEqual(runs, 1)
     }
 }
+
+final class PowerLiveStateTests: XCTestCase {
+    func testDoorAndCarStatesHideWhileTheirIntegrationIsOff() {
+        let defaults = UserDefaults(suiteName: "power-live-\(UUID().uuidString)")!
+        XCTAssertTrue(PowerShared.liveStateVisible("door.armed_away", defaults: defaults))
+        PowerShared.store(offIDs: ["door-alarm"], defaults: defaults)
+        XCTAssertFalse(PowerShared.liveStateVisible("door.armed_away", defaults: defaults))
+        XCTAssertTrue(PowerShared.liveStateVisible("car.locked", defaults: defaults))
+        XCTAssertTrue(PowerShared.liveStateVisible("button.lamp.on", defaults: defaults))
+        XCTAssertTrue(PowerShared.liveStateVisible(nil, defaults: defaults))
+        PowerShared.store(offIDs: ["car"], defaults: defaults)
+        XCTAssertFalse(PowerShared.liveStateVisible("car.locked", defaults: defaults))
+    }
+}

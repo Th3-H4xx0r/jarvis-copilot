@@ -9,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import threading
+import time
 from typing import Any, Callable, Optional
 
 from jarvis_power import discovery, state
@@ -17,16 +18,28 @@ from jarvis_power.base import PowerError
 logger = logging.getLogger(__name__)
 
 STATUS_TIMEOUT = 1.0
-_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="power-api")
+ROWS_BUDGET = 3.0            # the whole /api/power answer, however many integrations
+_pool = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="power-api")
 _last: dict[tuple, Any] = {}
+_inflight: dict[tuple, concurrent.futures.Future] = {}
 _last_lock = threading.Lock()
 
 
-def _timeboxed(key: tuple, fn: Callable[[], Any], timeout: float, fallback: Any):
+def _submit(key: tuple, fn: Callable[[], Any]) -> concurrent.futures.Future:
+    """Start ``fn`` — or reuse the call still running for ``key``, so a stuck integration
+    never piles up threads."""
+    with _last_lock:
+        future = _inflight.get(key)
+        if future is None or future.done():
+            future = _pool.submit(fn)
+            _inflight[key] = future
+        return future
+
+
+def _collect(key: tuple, future: concurrent.futures.Future, deadline: float, fallback: Any):
     """``(value, error)``. On a timeout or exception: the last good value and why."""
-    future = _pool.submit(fn)
     try:
-        value = future.result(timeout=timeout)
+        value = future.result(timeout=max(0.0, deadline - time.monotonic()))
     except concurrent.futures.TimeoutError:
         with _last_lock:
             return _last.get(key, fallback), "Took too long to answer"
@@ -39,13 +52,15 @@ def _timeboxed(key: tuple, fn: Callable[[], Any], timeout: float, fallback: Any)
     return value, None
 
 
-def settings_values(p) -> dict:
+def _timeboxed(key: tuple, fn: Callable[[], Any], timeout: float, fallback: Any):
+    return _collect(key, _submit(key, fn), time.monotonic() + timeout, fallback)
+
+
+def settings_values(p, stored: Optional[dict] = None) -> dict:
     """Current values for its form; a secret is only whether it's set."""
-    try:
-        stored = p.read_settings() or {}
-    except Exception:
-        logger.warning("power: read_settings failed for %s", p.id, exc_info=True)
-        stored = {}
+    if stored is None:
+        stored, _err = _timeboxed(("settings", p.id), p.read_settings, STATUS_TIMEOUT, {})
+    stored = stored or {}
     out: dict[str, Any] = {}
     for s in p.settings:
         value = stored.get(s.key, s.default)
@@ -53,10 +68,12 @@ def settings_values(p) -> dict:
     return out
 
 
-def row(integration_id: str) -> dict:
+def row(integration_id: str, status: Optional[str] = None,
+        stored_settings: Optional[dict] = None) -> dict:
     p = discovery.get(integration_id)
     body = state.doc(integration_id)
-    status, _err = _timeboxed(("status", p.id), p.status_line, STATUS_TIMEOUT, "")
+    if status is None:
+        status, _err = _timeboxed(("status", p.id), p.status_line, STATUS_TIMEOUT, "")
     try:
         ui = p.ui() or {}
     except Exception:
@@ -73,7 +90,7 @@ def row(integration_id: str) -> dict:
         "status_line": status or "",
         "error": body.get("error"),
         "settings_schema": [s.schema() for s in p.settings],
-        "settings": settings_values(p),
+        "settings": settings_values(p, stored_settings),
         "surfaces": list(p.surfaces),
         "links": [{"platform": link.platform, "target": link.target, "label": link.label}
                   for link in p.links],
@@ -92,9 +109,19 @@ def _pending_off(integration_id: str) -> bool:
         return False
 
 
-def rows() -> dict:
-    return {"version": state.version(),
-            "integrations": [row(i) for i in discovery.integrations()]}
+def rows(budget: float = ROWS_BUDGET) -> dict:
+    """Every integration, asked in parallel; the whole answer within ``budget`` seconds.
+    A slow status line or settings read shows its last good value."""
+    found = discovery.integrations()
+    deadline = time.monotonic() + budget
+    statuses = {i: _submit(("status", i), p.status_line) for i, p in found.items()}
+    settings = {i: _submit(("settings", i), p.read_settings) for i, p in found.items()}
+    out = []
+    for i in found:
+        status, _ = _collect(("status", i), statuses[i], deadline, "")
+        stored, _ = _collect(("settings", i), settings[i], deadline, {})
+        out.append(row(i, status=status or "", stored_settings=stored or {}))
+    return {"version": state.version(), "integrations": out}
 
 
 def _ui_version(ui: dict) -> int:

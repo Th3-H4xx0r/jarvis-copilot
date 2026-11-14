@@ -23,4 +23,13 @@ enum PowerShared {
     static func store(offIDs: Set<String>, defaults: UserDefaults = PowerShared.defaults) {
         defaults.set(offIDs.sorted(), forKey: offKey)
     }
+
+    /// Whether a button's live state may show: "door.*" belongs to the door alarm and
+    /// "car.*" to the car, and neither shows while that Power integration is off.
+    static func liveStateVisible(_ stateID: String?, defaults: UserDefaults = PowerShared.defaults) -> Bool {
+        guard let id = stateID else { return true }
+        if id.hasPrefix("door.") { return isOn("door-alarm", defaults: defaults) }
+        if id.hasPrefix("car.") { return isOn("car", defaults: defaults) }
+        return true
+    }
 }

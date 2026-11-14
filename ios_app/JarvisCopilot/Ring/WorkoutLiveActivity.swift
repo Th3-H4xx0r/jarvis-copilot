@@ -40,6 +40,8 @@ final class WorkoutLiveActivity {
             // workout picked up after a relaunch); try again every few seconds
             // and when the app comes forward.
             guard Date().timeIntervalSince(lastAttempt) > 4 else { return }
+            // No workout Live Activity while Jarvis Health is switched off.
+            guard PowerShared.isOn("jarvis-health") else { return }
             lastAttempt = Date()
             do {
                 self.activity = try Activity.request(
