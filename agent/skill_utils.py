@@ -173,6 +173,17 @@ def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
 
 
 def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
+    """Skills disabled in config.yaml, plus those of switched-off Power integrations."""
+    names = _configured_disabled_skill_names(platform)
+    try:
+        from jarvis_power.gate import off_skill_names
+        names = set(names) | off_skill_names()
+    except Exception:
+        pass
+    return names
+
+
+def _configured_disabled_skill_names(platform: str | None = None) -> Set[str]:
     """Read disabled skill names from config.yaml.
 
     Args:

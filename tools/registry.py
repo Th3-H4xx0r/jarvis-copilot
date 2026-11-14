@@ -123,6 +123,19 @@ _check_fn_cache: Dict[Callable, tuple[float, bool]] = {}
 _check_fn_cache_lock = threading.Lock()
 
 
+def _power_off_message(toolset: str) -> Optional[str]:
+    """Why a tool in ``toolset`` can't run now: its Power integration is switched off."""
+    try:
+        from jarvis_power.gate import tool_off_message
+    except ImportError:
+        return None
+    try:
+        return tool_off_message(toolset)
+    except Exception:
+        logger.debug("power gate check failed for %s", toolset, exc_info=True)
+        return None
+
+
 def _check_fn_cached(fn: Callable) -> bool:
     """Return bool(fn()), TTL-cached across calls. Swallows exceptions as False."""
     now = time.monotonic()
@@ -393,6 +406,9 @@ class ToolRegistry:
         entry = self.get_entry(name)
         if not entry:
             return json.dumps(self._unknown_tool_error(name))
+        off = _power_off_message(entry.toolset)
+        if off:
+            return json.dumps({"error": off})
         try:
             if entry.is_async:
                 from model_tools import _run_async

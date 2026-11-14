@@ -2031,9 +2031,17 @@ def _serve_manifest(handler) -> bool:
     return j(handler, {"error": "not found"}, status=404)
 
 
+def _power_gate(handler, parsed) -> bool:
+    """A switched-off Power integration's routes answer 409 (see jarvis_power.gate)."""
+    from api.power_routes import power_gate
+    return power_gate(handler, parsed)
+
+
 @answers_http_errors
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
+    if _power_gate(handler, parsed):
+        return True
     if dispatch_mount(Request(handler, parsed, "GET")):
         return True
 
@@ -2782,6 +2790,8 @@ def handle_get(handler, parsed) -> bool:
 @answers_http_errors
 def handle_post(handler, parsed) -> bool:
     """Handle all POST routes. Returns True if handled, False for 404."""
+    if _power_gate(handler, parsed):
+        return True
     diag = RequestDiagnostics.maybe_start("POST", parsed.path, logger=logger)
     if parsed.path == "/api/csp-report":
         if diag:
@@ -3701,6 +3711,8 @@ def handle_post(handler, parsed) -> bool:
 
 def handle_patch(handler, parsed) -> bool:
     """Handle all PATCH routes. Returns True if handled, False for 404."""
+    if _power_gate(handler, parsed):
+        return True
     if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     return dispatch_mount(Request(handler, parsed, "PATCH"))
@@ -3708,6 +3720,8 @@ def handle_patch(handler, parsed) -> bool:
 
 def handle_put(handler, parsed) -> bool:
     """Handle all PUT routes. Returns True if handled, False for 404."""
+    if _power_gate(handler, parsed):
+        return True
     if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     req = Request(handler, parsed, "PUT")
@@ -3722,6 +3736,8 @@ def handle_put(handler, parsed) -> bool:
 
 def handle_delete(handler, parsed) -> bool:
     """Handle all DELETE routes. Returns True if handled, False for 404."""
+    if _power_gate(handler, parsed):
+        return True
     if not check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     req = Request(handler, parsed, "DELETE")

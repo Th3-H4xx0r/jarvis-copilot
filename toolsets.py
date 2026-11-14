@@ -80,6 +80,8 @@ _HERMES_CORE_TOOLS = [
     "registry_append", "registry_query", "registry_describe",
     "integration_plan_propose", "integration_ready", "integration_create",
     "integration_ui_get", "integration_ui_set", "integration_ui_test",
+    # Power integrations: switch built-in features on/off and configure them.
+    "power_list", "power_set",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
@@ -303,6 +305,16 @@ TOOLSETS = {
             "integration_plan_propose", "integration_ready", "integration_create",
             "integration_ui_get", "integration_ui_set", "integration_ui_test",
         ],
+        "includes": []
+    },
+
+    "power": {
+        "description": (
+            "Power integrations: the built-in features (car, door alarm, dashcam, vault, "
+            "kanban, health, …) on the Integrations tab — list them, switch them on or "
+            "off, change their settings."
+        ),
+        "tools": ["power_list", "power_set"],
         "includes": []
     },
 

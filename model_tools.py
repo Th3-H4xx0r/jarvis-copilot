@@ -199,6 +199,13 @@ try:
 except Exception as e:
     logger.debug("Plugin discovery failed: %s", e)
 
+# Power integrations' hooks, gated on their switch (jarvis_power.hooks).
+try:
+    from jarvis_power.hooks import install as _install_power_hooks
+    _install_power_hooks()
+except Exception as e:
+    logger.debug("Power hooks not installed: %s", e)
+
 
 # =============================================================================
 # Backward-compat constants  (built once after discovery)

@@ -904,10 +904,18 @@ def init_agent(
             print(f"🔄 Fallback chain ({len(agent._fallback_chain)} providers): " +
                   " → ".join(f"{f['model']} ({f['provider']})" for f in agent._fallback_chain))
 
-    # Get available tools with filtering
+    # Get available tools with filtering. Switched-off Power integrations' toolsets
+    # are left out — fixed per chat the first time it's built, so a later switch never
+    # changes an open chat's tools (jarvis_power.gate).
+    _power_off_toolsets: list = []
+    try:
+        from jarvis_power.gate import session_off_toolsets
+        _power_off_toolsets = session_off_toolsets(session_id)
+    except Exception:
+        _power_off_toolsets = []
     agent.tools = _ra().get_tool_definitions(
         enabled_toolsets=enabled_toolsets,
-        disabled_toolsets=disabled_toolsets,
+        disabled_toolsets=list(disabled_toolsets or []) + _power_off_toolsets or None,
         quiet_mode=agent.quiet_mode,
     )
 
@@ -989,6 +997,11 @@ def init_agent(
         timestamp_str = agent.session_start.strftime("%Y%m%d_%H%M%S")
         short_uuid = uuid.uuid4().hex[:6]
         agent.session_id = f"{timestamp_str}_{short_uuid}"
+        try:
+            from jarvis_power.gate import remember_session
+            remember_session(agent.session_id, _power_off_toolsets)
+        except Exception:
+            pass
 
     # Expose session ID to tools (terminal, execute_code) so agents can
     # reference their own session for --resume commands, cross-session
