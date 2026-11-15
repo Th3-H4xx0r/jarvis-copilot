@@ -464,7 +464,9 @@ def cmd_restart(args) -> int:
     # Through supervisor: cleanest path.
     sup = _supervisor_kind()
     if sup:
-        if _supervisor_is_loaded():
+        # Windows: the task reads "Ready" once its headless conhost exits while the service
+        # under it runs on, so "loaded" can't decide whether to stop it: always stop.
+        if _supervisor_is_loaded() or sup == "schtasks":
             _supervisor_unload()
             # launchctl unload is NOT synchronous: the job keeps tearing down
             # after the command returns. Re-loading before the slot is actually
