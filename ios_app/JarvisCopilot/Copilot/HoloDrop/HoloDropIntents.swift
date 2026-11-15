@@ -14,14 +14,15 @@ struct HoloDropScreenIntent: AppIntent {
     @Parameter(title: "Screenshot")
     var image: IntentFile?
 
+    /// No reply: a Siri reply (even an empty one) leaves a "Done" card over the screen after Back Tap.
     @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard PowerState.shared.isOn("holo-drop") else { return .result(dialog: "Holo Drop is switched off.") }
+    func perform() async throws -> some IntentResult {
+        guard PowerState.shared.isOn("holo-drop") else { return .result() }
         guard let image else {
             // Run without a screenshot (an old shortcut with no Take Screenshot step): say so,
             // rather than silently sending the wrong photo.
             HoloLauncher.shared.openQuick(note: "No screenshot came in — add the shortcut again from the Holo Drop page")
-            return .result(dialog: "")
+            return .result()
         }
         let name = "Screenshot \(Date().formatted(.dateTime.hour().minute().second())).png"
             .replacingOccurrences(of: ":", with: ".")
@@ -29,8 +30,17 @@ struct HoloDropScreenIntent: AppIntent {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(name)
         try image.data.write(to: url)
-        HoloLauncher.shared.present(.file(url, name: name, mime: "image/png", kind: "image"), guessFrom: url)
-        return .result(dialog: "")
+        // Open at once with the screenshot; if it shows a photo from his library, swap in the original.
+        let model = HoloLauncher.shared.present(.file(url, name: name, mime: "image/png", kind: "image"), guessFrom: url)
+        Task { @MainActor in
+            guard let asset = await HoloScreenPhoto.findOriginal(for: url),
+                  let original = await HoloQuickPick.export(asset),
+                  let model, model.phase == .choosing || model.phase == .loading else { return }
+            model.item = original
+            model.extra = nil                                  // a photo, not a web page: no best-guess link
+            model.errorText = "Sending the original photo"
+        }
+        return .result()
     }
 }
 

@@ -18,9 +18,10 @@ final class HoloLauncher: ObservableObject {
         }
     }
 
-    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, tray: Bool = false, note: String? = nil) {
-        guard PowerState.shared.isOn("holo-drop") else { return }
-        guard let client = HoloDropReceiver.shared.client else { return }
+    @discardableResult
+    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, tray: Bool = false, note: String? = nil) -> HoloOrbitModel? {
+        guard PowerState.shared.isOn("holo-drop") else { return nil }
+        guard let client = HoloDropReceiver.shared.client else { return nil }
         presented?.dismiss(animated: false)
         let model = HoloOrbitModel(item: item, client: client)
         model.errorText = note
@@ -31,6 +32,7 @@ final class HoloLauncher: ObservableObject {
         host.view.backgroundColor = .black
         presented = host
         presentWhenReady(host)
+        return model
     }
 
     /// Present once nothing else is mid-animation: right after a photo picker or file browser
@@ -262,6 +264,9 @@ struct HoloAppOrbit: View {
         guard let guessFrom, let data = try? Data(contentsOf: guessFrom),
               let o = try? await model.client.screenGuess(data),
               let s = o["url"] as? String, let url = URL(string: s), url.scheme?.hasPrefix("http") == true else { return }
+        // Only while the screenshot is still what's being sent (it may have been swapped for the
+        // original photo it shows, which isn't a web page).
+        guard case .file(let current, _, _, _) = model.item, current == guessFrom else { return }
         let title = o["title"] as? String ?? url.host ?? s
         guessTitle = title
         model.extra = .link(url, title: "\(title) (best guess)")

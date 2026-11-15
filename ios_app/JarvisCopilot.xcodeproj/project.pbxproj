@@ -204,6 +204,7 @@
 		25F4B3DACF2A3CABBB7D64E5 /* jc-silence.caf in Resources */ = {isa = PBXBuildFile; fileRef = 367ACAC32A0651C8EC9B407A /* jc-silence.caf */; };
 		25FABE7122FDAB8877E0137C /* JCPulse4.otf in Resources */ = {isa = PBXBuildFile; fileRef = 1FDCD47A9CAE1556D3DDB3C5 /* JCPulse4.otf */; };
 		263D6A3434FDD92FFC4E4030 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F73CE69C2D4FA1FF002D908 /* CarPlaySceneDelegate.swift */; };
+		264FA75DDB14E94F1CD040A2 /* HoloScreenPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E08C4FEB2E290DE4B9BC90 /* HoloScreenPhoto.swift */; };
 		26651A70BF7067AD9CAA4F7D /* GlassesNoteWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56538D9E7ADE4F6CF39B634F /* GlassesNoteWire.swift */; };
 		268DE107A0477CC0C6CC6496 /* RingWorkoutActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317BA5AD87EE20DD460FF5D2 /* RingWorkoutActivityViews.swift */; };
 		26A87DEE1276CE7429D29A1A /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */; };
@@ -428,6 +429,7 @@
 		4CCD93C7DE7B81462F07076A /* HealthTabRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07303A1314D5457F4210C74 /* HealthTabRenderTests.swift */; };
 		4D574C94D5648634152AF2E8 /* CarToyotaHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52AEDA51B48386E32A0590E /* CarToyotaHome.swift */; };
 		4D8C3A341845FDAB45AA50BF /* VoiceOrbGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */; };
+		4DCB7337A9825EAD8F286B6E /* HoloScreenPhotoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42065AB162E0E9655B053543 /* HoloScreenPhotoTests.swift */; };
 		4DF8300C852AD110A0168D90 /* HoloDropReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58169A4A07B75768A5499CD /* HoloDropReceiver.swift */; };
 		4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */; };
 		4E2A4A0A46F916F351C1C30F /* JarvisWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69FA7730EB649964FC16077 /* JarvisWatchApp.swift */; };
@@ -1771,6 +1773,7 @@
 		41C2B664CE0AB70ECB93269B /* DashcamSyncActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DashcamSyncActivity.swift; path = JarvisWidget/DashcamSyncActivity.swift; sourceTree = "<group>"; };
 		41DCD577ADAA3427809FECC3 /* RingDayJSON.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDayJSON.swift; sourceTree = "<group>"; };
 		41EBDFDA8D6095A261B3FB34 /* ContactLookupTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookupTests.swift; sourceTree = "<group>"; };
+		42065AB162E0E9655B053543 /* HoloScreenPhotoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoloScreenPhotoTests.swift; sourceTree = "<group>"; };
 		4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmView.swift; sourceTree = "<group>"; };
 		4230AE9C28D8A386BCDC2F8A /* AgentsIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsIntents.swift; sourceTree = "<group>"; };
 		42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIAHostingTests.swift; sourceTree = "<group>"; };
@@ -2466,6 +2469,7 @@
 		C9266826902B749A17D36225 /* RouteCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteCharts.swift; sourceTree = "<group>"; };
 		C934C1048A2F4D3A03D57842 /* RouteStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
 		C956FABE32435FAA03316F30 /* HarnessSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessSmokeTests.swift; sourceTree = "<group>"; };
+		C9E08C4FEB2E290DE4B9BC90 /* HoloScreenPhoto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoloScreenPhoto.swift; sourceTree = "<group>"; };
 		C9FE55E95B0218E30FE62808 /* AudioSessionArbiterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioSessionArbiterTests.swift; sourceTree = "<group>"; };
 		CA9D00957599C8C01C1BE514 /* JarvisPodView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodView.swift; sourceTree = "<group>"; };
 		CACEC2930E15C9759206B2B3 /* LiveActivityAgentController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityAgentController.swift; sourceTree = "<group>"; };
@@ -4203,6 +4207,7 @@
 				05F5B7D45F45B44953E3BB6E /* HoloUltrasonic.swift */,
 				A6AD3155204FF8EA89DC98FF /* HoloShortcutFile.swift */,
 				1A28543220FAC00F60480F23 /* HoloShareRoot.swift */,
+				C9E08C4FEB2E290DE4B9BC90 /* HoloScreenPhoto.swift */,
 			);
 			name = HoloDrop;
 			path = HoloDrop;
@@ -5010,6 +5015,7 @@
 				90F33A8E13C961CEE5FA59A3 /* HoloDropReceiverTests.swift */,
 				29FF9720865EA6DDA0D768E2 /* HoloDropSweepTests.swift */,
 				7BF8CC282826785EB0B143F0 /* HoloFlingTests.swift */,
+				42065AB162E0E9655B053543 /* HoloScreenPhotoTests.swift */,
 			);
 			name = HoloDrop;
 			path = HoloDrop;
@@ -5880,6 +5886,7 @@
 				8CDAE99D425CFD5026A53B22 /* HoloDropReceiverTests.swift in Sources */,
 				19CCC260025039531F2D511D /* HoloDropSweepTests.swift in Sources */,
 				0D7D3F0D4BC089E2FD5F705E /* HoloFlingTests.swift in Sources */,
+				4DCB7337A9825EAD8F286B6E /* HoloScreenPhotoTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6797,6 +6804,7 @@
 				8595B1D87134FED9941CE055 /* HoloDropActivityAttributes.swift in Sources */,
 				AD628349E79A1B14173E05DB /* HoloShortcutFile.swift in Sources */,
 				CAC205899FA6589E4739E6BA /* HoloShareRoot.swift in Sources */,
+				264FA75DDB14E94F1CD040A2 /* HoloScreenPhoto.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
