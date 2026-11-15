@@ -7,7 +7,7 @@ set -euo pipefail
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 printf '%s\n' "$1" > "$tmp"
-ssh jc-pc 'pwsh -NoProfile -c "New-Item -ItemType Directory -Force $env:USERPROFILE\jc-dev | Out-Null; Remove-Item -Force -ErrorAction SilentlyContinue $env:USERPROFILE\jc-dev\out.txt"'
+ssh jc-pc 'pwsh -NoProfile -c "New-Item -ItemType Directory -Force $env:USERPROFILE\jc-dev | Out-Null; Remove-Item -Force -ErrorAction SilentlyContinue $env:USERPROFILE\jc-dev\out.txt; exit 0"'
 scp -q "$tmp" jc-pc:jc-dev/cmd.ps1
 ssh jc-pc 'schtasks /Run /TN \Jarvis\Dev' >/dev/null
 for _ in $(seq 1 60); do

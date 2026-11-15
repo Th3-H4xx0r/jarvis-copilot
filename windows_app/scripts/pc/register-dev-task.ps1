@@ -8,7 +8,9 @@ New-Item -ItemType Directory -Force $dev | Out-Null
 Copy-Item -Force (Join-Path $PSScriptRoot 'dev-run.ps1') (Join-Path $dev 'dev-run.ps1')
 
 $user = $Me
-$action = New-ScheduledTaskAction -Execute 'pwsh.exe' `
+# Full path: Task Scheduler keeps the PATH it started with, so a fresh pwsh install isn't on it.
+$pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+$action = New-ScheduledTaskAction -Execute $pwsh `
   -Argument "-NoProfile -WindowStyle Hidden -File `"$dev\dev-run.ps1`""
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
