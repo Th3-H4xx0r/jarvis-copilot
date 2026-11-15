@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import re
 import subprocess
 import tempfile
@@ -81,6 +82,12 @@ def find_claude(home: Optional[str] = None, path_env: Optional[str] = None) -> O
     (/usr/bin:/bin:/usr/sbin:/sbin) doesn't hold Claude Code's install dirs."""
     home = home or os.path.expanduser("~")
     path_env = os.environ.get("PATH", "") if path_env is None else path_env
+    if sys.platform == "win32":
+        names = ("claude.exe", "claude.cmd")
+        candidates = [os.path.join(d, n) for d in path_env.split(os.pathsep) if d for n in names]
+        candidates += [os.path.join(home, ".local", "bin", "claude.exe"),
+                       os.path.join(os.environ.get("APPDATA", os.path.join(home, "AppData", "Roaming")), "npm", "claude.cmd")]
+        return next((c for c in candidates if os.path.isfile(c)), None)
     candidates = [os.path.join(d, "claude") for d in path_env.split(os.pathsep) if d]
     candidates += [os.path.join(home, ".local/bin/claude"), os.path.join(home, ".claude/local/claude"),
                    "/opt/homebrew/bin/claude", "/usr/local/bin/claude",
@@ -99,6 +106,9 @@ def claude_binary() -> str:
 
 
 def _pid_alive(pid) -> bool:
+    if sys.platform == "win32":
+        from jc_client import winproc
+        return winproc.pid_alive(pid)
     try:
         os.kill(int(pid), 0)
         return True
@@ -122,6 +132,9 @@ def terminal_from_env_text(text: str) -> dict:
 def terminal_from_pid(pid) -> dict:
     """Read from the process itself: hook terminals only live in memory, so a
     session quiet since jc-client started has none."""
+    if sys.platform == "win32":
+        from jc_client import winproc
+        return winproc.terminal_from_pid(pid)
     try:
         out = subprocess.run(["/bin/ps", "eww", "-o", "command=", "-p", str(int(pid))],
                              capture_output=True, text=True, timeout=5)

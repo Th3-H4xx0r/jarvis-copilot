@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import select
 import subprocess
 import time
@@ -77,6 +78,9 @@ def read_codex(codex: str, timeout: float = 15.0) -> Optional[dict]:
     try:
         proc.stdin.write(("\n".join(json.dumps(r) for r in _REQUESTS) + "\n").encode())
         proc.stdin.flush()
+        if sys.platform == "win32":   # select() takes only sockets on Windows
+            reply = _first_reply_threaded(proc.stdout, 2, timeout)
+            return parse_codex(reply.get("result")) if reply else None
         deadline = time.monotonic() + timeout
         buf = b""
         fd = proc.stdout.fileno()
@@ -107,6 +111,40 @@ def read_codex(codex: str, timeout: float = 15.0) -> Optional[dict]:
             proc.wait(timeout=2)
         except Exception:  # noqa: BLE001
             pass
+
+
+def _first_reply_threaded(stream, want_id: int, timeout: float) -> Optional[dict]:
+    """The first JSON line whose ``id`` is ``want_id``, read on a thread (Windows pipes can't
+    be select()ed). None on timeout or EOF."""
+    import queue as _queue
+    import threading as _threading
+    q: "_queue.Queue" = _queue.Queue()
+
+    def pump():
+        try:
+            for line in iter(stream.readline, b""):
+                q.put(line)
+        finally:
+            q.put(None)
+
+    _threading.Thread(target=pump, daemon=True, name="codex-usage-read").start()
+    deadline = time.monotonic() + timeout
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return None
+        try:
+            line = q.get(timeout=left)
+        except _queue.Empty:
+            return None
+        if line is None:
+            return None
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and msg.get("id") == want_id:
+            return msg
 
 
 class CodexPoller:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import re
 import shlex
 import signal
@@ -28,11 +29,22 @@ _PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto", "bypassPermission
 
 
 def _alive(pid) -> bool:
+    if sys.platform == "win32":
+        from jc_client import winproc
+        return winproc.pid_alive(pid)
     try:
         os.kill(int(pid), 0)
         return True
     except (OSError, TypeError, ValueError):
         return False
+
+
+def _cd_line(cwd: str, cmd: str) -> str:
+    """``cmd`` run in ``cwd`` as one shell line: POSIX ``cd … && …``; on Windows PowerShell
+    (VS Code's and Windows Terminal's default shell; Windows PowerShell has no ``&&``)."""
+    if sys.platform == "win32":
+        return "Set-Location -LiteralPath '" + cwd.replace("'", "''") + "'; " + cmd
+    return f"cd {shlex.quote(cwd)} && {cmd}"
 
 
 _PATH_CACHE: list = []
@@ -176,7 +188,7 @@ class LocalRuntime:
         return self.open_in_terminal(cwd, cmd, terminal)
 
     def open_in_terminal(self, cwd: str, cmd: str, terminal: dict) -> str:
-        line = f"cd {shlex.quote(cwd)} && {cmd}"
+        line = _cd_line(cwd, cmd)
         # No terminal on record (a session first started with --bg) goes to the
         # VS Code window with its folder open, where Jarvis can type into it.
         known = terminal.get("term_program") or terminal.get("iterm")
@@ -184,6 +196,18 @@ class LocalRuntime:
                                          or str(terminal.get("term_program")).lower() == "vscode"):
             if self._vscode.run_in_terminal(cwd, cmd):
                 return "vscode"
+        if sys.platform == "win32":
+            # Windows Terminal, a new tab in the open window, in the folder (PowerShell).
+            argv = ["wt.exe", "-w", "0", "nt", "-d", cwd, "powershell", "-NoExit", "-Command", cmd]
+            try:
+                out = self._run(argv, capture_output=True, timeout=15)
+                if int(getattr(out, "returncode", 1) or 0) == 0:
+                    return "windows-terminal"
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self._run(["cmd", "/c", "start", "", "powershell", "-NoExit", "-Command", line],
+                      capture_output=True, timeout=15)
+            return "console"
         if terminal.get("iterm") or str(terminal.get("term_program") or "").lower() == "iterm.app":
             script = ['on run argv', 'tell application "iTerm2"', 'activate',
                       'set w to (create window with default profile)',
@@ -212,6 +236,10 @@ class LocalRuntime:
         try:
             pid = int(pid)
         except (TypeError, ValueError):
+            return
+        if sys.platform == "win32":
+            from jc_client import winproc
+            winproc.terminate_tree(pid, grace=self._grace)   # no SIGINT on Windows
             return
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
