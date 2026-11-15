@@ -29,6 +29,10 @@ Tick only when it works live on the PC / phone.
 - [x] Core: link client, models/state, gaming guard, theme/loader/prefs, voice logic, Holo logic, screen-share protocol + cc_state, OTA flow + updater (420 tests, Mac)
 - [ ] WPF/Win32 halves built and compile-checked on the Mac (616 Core tests): island + Agents tab, tray/hotkeys/sounds/recap, Settings, Power + admin UI, voice engine + wake word + push-to-talk, Live, Flow, notes, chat/music, Holo card/BLE/chirp, capture/WebRTC/Command Center, update card. Tick once each runs on the PC.
 - [x] Push-to-talk restored in voice Core
+- [ ] PC screen share sharp + smooth (own VP8 encoder: native 1440p, ~6.6 Mbps CBR, 8 threads, keyframe on PLI); 1440p scroll bench 7.4 ms/frame, 34 dB. Tick once he's watched it on the phone.
+- [ ] Wake PC over Wi-Fi: Mac jc-client updated (wol_send), packets also unicast + subnet broadcast. Not yet proven from real sleep (his own wakes came first). Tick after a real Wake PC from the phone.
+- [ ] Unlock PC: he must Trust my iPhone, save the password/PIN and Install the helper in Settings → PC power (build 263192207), then Unlock on the phone (build 263192209). Helper verified to refuse while unlocked; real lock-screen typing untested.
+- [ ] Holo Drop round 3: stays open on outside clicks (drag in), clipboard by default, Clipboard/File…/Screenshot; real app icon; chat attachment thumbnails. Tick once checked live.
 - [ ] Round 2 fixes (build 263192121, installed): tray menu is a native Win32 menu (closes on Quit/any click); capsules no longer drawn as ovals (WPF radius clamp, app-wide); Holo Drop Orbit redrawn as the Mac's panel with close/Esc/click-outside; click outside the island folds it; Settings redrawn as the Mac's (sidebar tiles, grouped cards, switches, pop-ups). Tick once he's checked them live.
 
 ## Known gaps / follow-ups
@@ -39,4 +43,5 @@ Tick only when it works live on the PC / phone.
 - Windows app task shares don't record a replay.
 - Holo grab on Windows has no "front document"; it goes straight to selected text.
 - Computer control on the PC has no OCR fallback yet (UIA only).
+- Uninstalling the Windows app leaves the JarvisUnlock service (needs admin: `"C:\Program Files\Jarvis\JarvisUnlock.exe" --uninstall`).
 - iPhone Agents shows PC admin requests on the Face ID card, not yet as a row under Needs you.
