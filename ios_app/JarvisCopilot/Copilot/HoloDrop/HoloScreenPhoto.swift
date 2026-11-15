@@ -2,12 +2,44 @@ import CoreGraphics
 import ImageIO
 import Photos
 import UIKit
+import UniformTypeIdentifiers
 
 /// Back Tap while looking at a photo: iOS never says which photo another app shows, so find it.
 /// The screenshot contains the photo — cut out the photo area (drop the bars and Photos' buttons),
 /// hash it, and compare against recent library photos' thumbnails. A confident, unique match
 /// means the original goes instead of the screenshot. All on the phone; nothing leaves it.
 enum HoloScreenPhoto {
+
+    // MARK: the photo itself
+
+    /// What the Back Tap shortcut's "Get What's On Screen" step handed over, as something to
+    /// send — only when it's a photo or video (Photos gives the photo itself, original file and
+    /// all). Pages, places and anything else return nil: those go the screenshot way.
+    static func onScreenItem(data: Data, filename: String, type: UTType?, in dir: URL) -> HoloItem? {
+        guard !data.isEmpty else { return nil }
+        return onScreenItem(filename: filename, type: type, in: dir) { try data.write(to: $0) }
+    }
+
+    /// The same, copied from a file (a long video never goes through memory).
+    static func onScreenItem(file: URL, filename: String, type: UTType?, in dir: URL) -> HoloItem? {
+        onScreenItem(filename: filename, type: type, in: dir) { try FileManager.default.copyItem(at: file, to: $0) }
+    }
+
+    private static func onScreenItem(filename: String, type: UTType?, in dir: URL,
+                                     put: (URL) throws -> Void) -> HoloItem? {
+        let ext = (filename as NSString).pathExtension
+        guard let type = type ?? UTType(filenameExtension: ext) else { return nil }
+        let kind: String
+        if type.conforms(to: .image) { kind = "image" }
+        else if type.conforms(to: .movie) { kind = "video" }
+        else { return nil }
+        let fallback = "\(kind == "video" ? "Video" : "Photo").\(type.preferredFilenameExtension ?? (kind == "video" ? "mov" : "jpg"))"
+        let name = HoloArrival.safeName(filename, fallback: fallback)
+        let url = dir.appendingPathComponent(name)
+        guard (try? put(url)) != nil else { return nil }
+        return .file(url, name: name, mime: type.preferredMIMEType ?? (kind == "video" ? "video/quicktime" : "image/jpeg"),
+                     kind: kind)
+    }
 
     // MARK: the photo inside the screenshot
 
