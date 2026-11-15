@@ -253,15 +253,19 @@ struct MacCommandCenterSheet: View {
             HStack(spacing: 12) {
                 JcIconSquare(symbol: "lock.fill")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Your Mac is locked").font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
-                    Text("Unlock it with Face ID").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                    Text(actions.isPC ? "Your PC is locked" : "Your Mac is locked")
+                        .font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
+                    Text(actions.isPC ? "Unlock it at the PC" : "Unlock it with Face ID")
+                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }
                 Spacer(minLength: 8)
-                Button { actions.perform(.unlock) } label: {
-                    if actions.busy == "unlock" { JcLoader(size: 16) } else { Text("Unlock") }
+                if !actions.isPC {
+                    Button { actions.perform(.unlock) } label: {
+                        if actions.busy == "unlock" { JcLoader(size: 16) } else { Text("Unlock") }
+                    }
+                    .buttonStyle(.jcGlass(compact: true))
+                    .disabled(actions.busy != nil)
                 }
-                .buttonStyle(.jcGlass(compact: true))
-                .disabled(actions.busy != nil)
             }
         }
     }
@@ -269,7 +273,7 @@ struct MacCommandCenterSheet: View {
     private var switches: some View {
         let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
         return LazyVGrid(columns: cols, spacing: 10) {
-            ForEach(MacControlItem.switches) { item in
+            ForEach(MacControlItem.switchItems(isPC: actions.isPC)) { item in
                 MacTile(face: actions.face(item)) {
                     actions.perform(item)
                     // The Mac's own Control Center opened: tap the switch there, in the live view.
@@ -302,7 +306,7 @@ struct MacCommandCenterSheet: View {
     private var power: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                ForEach([MacControlItem.unlock, .lock, .sleep]) { item in
+                ForEach(MacControlItem.powerButtons(isPC: actions.isPC)) { item in
                     Button { actions.perform(item) } label: {
                         HStack(spacing: 7) {
                             if actions.busy == item.rawValue { JcLoader(size: 16) } else { Image(systemName: item.symbol) }

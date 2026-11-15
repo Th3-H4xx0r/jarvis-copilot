@@ -69,6 +69,8 @@ final class FaceIDApprovals: ObservableObject {
     static let door = FaceIDApprovals(domain: DoorApprovalDomain())
     static let vault = FaceIDApprovals(domain: VaultApprovalDomain())
     static let power = FaceIDApprovals(domain: PowerApprovalDomain())
+    /// Run-as-admin requests from his Windows PC (PcAdminApprovals.swift).
+    static let pcAdmin = FaceIDApprovals(domain: PcAdminApprovalDomain())
 
     struct Answer: Equatable {
         let text: String

@@ -600,19 +600,27 @@
   }
   function macHtml(m) {
     const busy = !!st.busy['mac:' + m.device_id];
+    // The PC (Windows client) reports through the same card: Wake PC over Wi-Fi from another
+    // computer, Lock (Windows never lets anything type into its lock screen), no wake timer.
+    const pc = m.os === 'windows';
     const battery = m.battery != null ? m.battery + '%' + (m.on_ac ? ' · charging' : '') : '';
-    const btn = (act, label) => '<button type="button" class="agents-pill-btn" data-act="' + act + '" data-device="' +
-      esc(m.device_id) + '"' + (busy ? ' disabled' : '') + '>' + label + '</button>';
-    return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(m.name || 'Mac') + '">' +
-      '<div class="agents-sleep-head"><b>' + esc(m.name || 'Your Mac') + '</b>' +
+    const btn = (act, label, off) => '<button type="button" class="agents-pill-btn" data-act="' + act + '" data-device="' +
+      esc(m.device_id) + '"' + (busy || off ? ' disabled' : '') + '>' + label + '</button>';
+    const cantWake = pc && m.state !== 'awake' && m.wake_capable === false;
+    return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(m.name || (pc ? 'PC' : 'Mac')) + '">' +
+      '<div class="agents-sleep-head"><b>' + esc(m.name || (pc ? 'Your PC' : 'Your Mac')) + '</b>' +
       (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
       '<div class="agents-sleep-row"><div class="agents-sleep-main">' +
-      '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span></div>' +
+      '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span>' +
+      (cantWake ? '<span class="agents-sleep-sub">' + esc(m.wake_reason || 'This PC can’t be woken remotely') + '</span>' : '') +
+      '</div>' +
       (m.state === 'awake' && window.MacScreen ? btn('mac-share', 'Share screen') : '') +
-      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake Mac')) + '</div>' +
+      (m.state === 'awake' && pc ? btn('mac-lock', 'Lock') : '') +
+      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', pc ? 'Wake PC' : 'Wake Mac', cantWake)) +
+      '</div>' +
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
-      macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep') + '</div>' +
+      (pc ? '' : macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep')) + '</div>' +
       flashHtml('mac:' + m.device_id) + '</div>';
   }
   // Read-only here: Allow needs Face ID on the iPhone or Touch ID on the Mac.
@@ -1825,7 +1833,8 @@
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
       case 'mac-wake': macPower('wake', t.dataset.device); break;
-      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(); break;
+      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device); break;
+      case 'mac-lock': macPower('lock', t.dataset.device); break;
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
       case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
       case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;

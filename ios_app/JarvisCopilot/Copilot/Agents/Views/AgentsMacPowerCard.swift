@@ -15,7 +15,7 @@ struct AgentsMacPowerCard: View {
     @State private var taps = 0
 
     private var busy: Bool { store.macBusy.contains(mac.deviceId) }
-    private var name: String { AgentsMacPowerCopy.friendlyName(mac.name) }
+    private var name: String { AgentsMacPowerCopy.cardName(mac.name, os: mac.os) }
 
     var body: some View {
         // Ticks so "Waking…" turns into the deep-sleep line and "last seen" ages.
@@ -55,7 +55,7 @@ struct AgentsMacPowerCard: View {
 
     private func header(_ status: AgentsMacPowerCopy.Status) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "laptopcomputer")
+            Image(systemName: mac.isPC ? "desktopcomputer" : "laptopcomputer")
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(status.tone == .awake ? JcTheme.text : JcTheme.muted)
                 .frame(width: 48, height: 48)
@@ -110,11 +110,16 @@ struct AgentsMacPowerCard: View {
 
     private var menu: some View {
         Menu {
-            Toggle("Check for wake requests while asleep", isOn: Binding(
-                get: { mac.timerOn },
-                set: { on in run(.timer(on)) }))
-            // What the Mac shows when it pairs for password approvals: they must match.
-            Text("Pairing code \(MacPasswordApproval.pairingCode() ?? "unavailable")")
+            if mac.isPC {
+                // No dark wake on Windows (nothing to check), no Mac password pairing.
+                Text(AgentsMacPowerCopy.wakeLine(mac))
+            } else {
+                Toggle("Check for wake requests while asleep", isOn: Binding(
+                    get: { mac.timerOn },
+                    set: { on in run(.timer(on)) }))
+                // What the Mac shows when it pairs for password approvals: they must match.
+                Text("Pairing code \(MacPasswordApproval.pairingCode() ?? "unavailable")")
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .semibold))
@@ -133,10 +138,16 @@ struct AgentsMacPowerCard: View {
         HStack(spacing: 10) {
             if mac.isAwake {
                 actionButton(.letSleep, title: "Sleep", symbol: "moon.fill",
-                             hint: "Lets the Mac go to sleep now")
-                actionButton(.unlock, title: "Unlock", symbol: "lock.open.fill",
-                             hint: "Asks the Mac to unlock its screen")
-                MacShareScreenButton {
+                             hint: mac.isPC ? "Puts the PC to sleep now" : "Lets the Mac go to sleep now")
+                if mac.isPC {
+                    // Windows never lets anything type into its lock screen: Lock, no Unlock.
+                    actionButton(.lock, title: "Lock", symbol: "lock.fill",
+                                 hint: "Locks the PC's screen")
+                } else {
+                    actionButton(.unlock, title: "Unlock", symbol: "lock.open.fill",
+                                 hint: "Asks the Mac to unlock its screen")
+                }
+                MacShareScreenButton(deviceId: mac.deviceId) {
                     HStack(spacing: 7) {
                         Image(systemName: "rectangle.on.rectangle").font(.subheadline.weight(.semibold))
                         Text("Screen").lineLimit(1)
@@ -144,10 +155,14 @@ struct AgentsMacPowerCard: View {
                 }
                 .buttonStyle(MacActionButtonStyle(prominent: false))
                 .accessibilityLabel("Share screen")
-                .accessibilityHint("Watch and control the Mac's screen live")
+                .accessibilityHint(mac.isPC ? "Watch and control the PC's screen live"
+                                            : "Watch and control the Mac's screen live")
             } else {
-                actionButton(.wake, title: "Wake Mac", symbol: "power", prominent: true,
-                             hint: "Asks the Mac to wake up. It can take up to 15 minutes from deep sleep")
+                actionButton(.wake, title: AgentsMacPowerCopy.wakeTitle(os: mac.os), symbol: "power",
+                             prominent: true,
+                             hint: mac.isPC ? "Sends the PC a wake signal over Wi-Fi from your other computer"
+                                            : "Asks the Mac to wake up. It can take up to 15 minutes from deep sleep")
+                    .disabled(mac.isPC && mac.wakeCapable == false)
             }
         }
         .padding(.horizontal, JcUnified.cardPadding)
@@ -324,6 +339,33 @@ enum AgentsMacPowerCopy {
         case ..<88: return "battery.75percent"
         default: return "battery.100percent"
         }
+    }
+
+    /// "Wake Mac" / "Wake PC".
+    static func wakeTitle(os: String) -> String { os == "windows" ? "Wake PC" : "Wake Mac" }
+
+    /// What the card offers right now, in order (pure, for the tests): an awake PC can sleep
+    /// and lock but never unlock; an awake Mac sleeps and unlocks; asleep, either wakes.
+    static func actions(for mac: AgentMacPower) -> [AgentsStore.MacPowerAction] {
+        if mac.isAwake { return mac.isPC ? [.letSleep, .lock] : [.letSleep, .unlock] }
+        return [.wake]
+    }
+
+    /// The PC's ⋯ line about waking it.
+    static func wakeLine(_ mac: AgentMacPower) -> String {
+        switch mac.wakeCapable {
+        case .some(true): return "Wakes over Wi-Fi from your other computer"
+        case .some(false): return mac.wakeReason ?? "This PC's Wi-Fi adapter can't be woken remotely"
+        case .none: return "Wake over Wi-Fi not checked yet"
+        }
+    }
+
+    /// The computer's name for the card: a PC's own name as Windows has it ("Your PC" when
+    /// missing); a Mac's via `friendlyName(_:)`.
+    static func cardName(_ raw: String, os: String) -> String {
+        guard os == "windows" else { return friendlyName(raw) }
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name == "Your Mac" ? "Your PC" : name
     }
 
     /// The Mac's name as macOS would show it: "Pranavs-MacBook-Pro.local" →

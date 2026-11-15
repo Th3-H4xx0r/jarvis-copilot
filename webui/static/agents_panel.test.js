@@ -239,3 +239,29 @@ test('The MacBook card wakes and switches the Mac; password prompts are read-onl
   assert.match(html(), /Awake · Claude working/);
   assert.match(html(), /data-act="mac-sleep"/);
 });
+
+test('The PC gets the same card: Wake PC, Lock, Sleep, never Unlock or the wake timer', async () => {
+  const h = harness();
+  h.els.agentsBody = { dataset: { view: 'list' } };
+  h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
+  const now = Date.now() / 1000;
+  const pc = { device_id: 'pc-1', name: 'Pranav-Desktop', state: 'awake', held: false, reason: '', keep_awake: false,
+    timer_on: true, battery: null, on_ac: null, lid: null, seen_at: now, wake_requested_at: null,
+    os: 'windows', wake_capable: false, wake_reason: 'This PC’s Wi-Fi adapter can’t be woken remotely' };
+  h.state.list = Object.assign(listWith(conv()), { mac: [pc], password_requests: [] });
+  await h.window.loadAgents();
+  const html = () => h.els.agentsListInner.innerHTML;
+  assert.match(html(), /Pranav-Desktop/);
+  assert.match(html(), /data-act="mac-lock"/);
+  assert.match(html(), /data-act="mac-sleep"/);
+  assert.doesNotMatch(html(), /Unlock/);
+  assert.doesNotMatch(html(), /Check for wake requests/, 'no dark-wake timer on Windows');
+  await h.click({ act: 'mac-lock', device: 'pc-1' });
+  assert.deepStrictEqual(h.macPosts, [['lock', { device_id: 'pc-1' }]]);
+
+  h.state.list.mac[0] = Object.assign({}, pc, { state: 'sleeping' });
+  await h.window.loadAgents();
+  assert.match(html(), /Wake PC/);
+  assert.match(html(), /data-act="mac-wake"[^>]*disabled/, 'Wake PC is off when the adapter can’t wake it');
+  assert.match(html(), /can’t be woken remotely/);
+});

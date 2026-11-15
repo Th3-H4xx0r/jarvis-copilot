@@ -58,6 +58,7 @@ enum PhoneSkills {
             SendConfirmations.skill(),
             VaultApprovals.skill(),
             PowerApprovals.skill(),
+            PcAdminApprovals.skill(),
             LiveButtons.skill(),
             SpotifyRemote.skill(),
             MediaSkills.getLocation(b.location),

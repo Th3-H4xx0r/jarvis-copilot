@@ -674,10 +674,11 @@
   function closeFull() { if (overlay) overlay.close(); }
 
   /** "Share Mac screen": an anytime share, straight to full screen. */
-  async function startAnytime() {
+  // ``deviceId``: the computer to share (the Mac or the PC); none = whichever Mac, as before.
+  async function startAnytime(deviceId) {
     let share;
     try {
-      share = await postJSON('/api/screen/shares', { reason: 'anytime' });
+      share = await postJSON('/api/screen/shares', deviceId ? { reason: 'anytime', device_id: deviceId } : { reason: 'anytime' });
     } catch (e) {
       if (typeof root.showToast === 'function') root.showToast('Couldn’t start sharing: ' + ((e && e.message) || e));
       return null;

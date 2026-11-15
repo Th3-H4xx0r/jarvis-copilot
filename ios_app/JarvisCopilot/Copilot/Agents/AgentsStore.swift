@@ -295,7 +295,7 @@ final class AgentsStore {
     // MARK: Mac power
 
     enum MacPowerAction: Equatable {
-        case wake, letSleep, unlock
+        case wake, letSleep, unlock, lock
         case keepAwake(Bool), timer(Bool)
 
         var path: String {
@@ -303,6 +303,7 @@ final class AgentsStore {
             case .wake: return "wake"
             case .letSleep: return "let-sleep"
             case .unlock: return "unlock"
+            case .lock: return "lock"
             case .keepAwake: return "keep-awake"
             case .timer: return "timer"
             }
@@ -328,7 +329,7 @@ final class AgentsStore {
             case .wake: list?.mac[i].wakeRequestedAt = Date()
             case .keepAwake(let on): list?.mac[i].keepAwake = on
             case .timer(let on): list?.mac[i].timerOn = on
-            case .letSleep, .unlock: break
+            case .letSleep, .unlock, .lock: break
             }
         }
         macBusy.insert(mac.deviceId)

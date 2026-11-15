@@ -35,6 +35,11 @@ enum MacControlItem: String, CaseIterable, Identifiable, Codable {
 
     /// The Command Center sheet's sections, in its order.
     static let switches: [MacControlItem] = [.wifi, .bluetooth, .dark, .stage, .airdrop, .focus, .mirroring, .controlCenter]
+    /// A PC's switches: Windows has no Stage Manager, AirDrop, Focus, mirroring or Mac Control Center.
+    static let pcSwitches: [MacControlItem] = [.wifi, .bluetooth, .dark]
+    static func switchItems(isPC: Bool) -> [MacControlItem] { isPC ? pcSwitches : switches }
+    /// The power buttons: no Unlock on a PC (Windows never lets anything type into its lock screen).
+    static func powerButtons(isPC: Bool) -> [MacControlItem] { isPC ? [.lock, .sleep] : [.unlock, .lock, .sleep] }
     static let mediaAndSliders: [MacControlItem] = [.nowPlaying, .display, .sound]
     static let power: [MacControlItem] = [.unlock, .lock, .sleep, .keepAwake]
     static let shortcuts: [MacControlItem] = [.missionControl, .showDesktop, .spotlight, .switchApp, .copy, .paste,
@@ -248,7 +253,13 @@ final class MacControlActions {
     }
 
     private var store: AgentsStore { AgentsStore.shared }
-    var mac: AgentMacPower? { store.macs.first(where: \.isAwake) ?? store.macs.first }
+    /// The computer this live view shows: the share's own (the PC or a Mac), else as before.
+    var mac: AgentMacPower? {
+        if let id = session?.deviceId, let own = store.macs.first(where: { $0.deviceId == id }) { return own }
+        return store.macs.first(where: { !$0.isPC && $0.isAwake }) ?? store.macs.first(where: { !$0.isPC })
+            ?? store.macs.first
+    }
+    var isPC: Bool { mac?.isPC ?? false }
     var keepAwake: Bool? { mac?.keepAwake }
     private var controls: MacControlState { session?.controls ?? MacControlState() }
 

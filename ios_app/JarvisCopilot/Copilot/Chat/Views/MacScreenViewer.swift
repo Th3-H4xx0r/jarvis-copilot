@@ -67,10 +67,22 @@ final class MacScreenSession: NSObject {
                                         decoderFactory: RTCDefaultVideoDecoderFactory())
     }()
 
-    init(shareID: String? = nil, findsTaskShare: Bool = false, api: JarvisAPI = .shared) {
+    init(shareID: String? = nil, findsTaskShare: Bool = false, deviceId: String? = nil, api: JarvisAPI = .shared) {
         self.shareID = shareID
         self.findsTaskShare = findsTaskShare
+        self.deviceId = deviceId
         self.api = api
+    }
+
+    /// The computer this share is on: asked for by an anytime share (the PC only shares a
+    /// share naming it), or read from a task share Jarvis started.
+    private(set) var deviceId: String?
+
+    /// The anytime share request's body.
+    static func shareRequest(deviceId: String?) -> [String: Any] {
+        var body: [String: Any] = ["reason": "anytime"]
+        if let deviceId, !deviceId.isEmpty { body["device_id"] = deviceId }
+        return body
     }
 
     // MARK: Start / stop
@@ -98,6 +110,7 @@ final class MacScreenSession: NSObject {
             }
             if let shareID {
                 let share = try await api.get("/api/screen/shares/\(shareID)", timeout: 20).object()
+                if deviceId == nil, let named = share["device_id"] as? String, !named.isEmpty { deviceId = named }
                 if share["status"] as? String == "ended" {
                     await ended(share)
                     return
@@ -106,7 +119,7 @@ final class MacScreenSession: NSObject {
                 ice = (try? await api.get("/api/screen/ice", timeout: 20).object()["ice_servers"]
                        as? [[String: Any]]) ?? []
             } else {
-                let share = try await api.post("/api/screen/shares", json: ["reason": "anytime"],
+                let share = try await api.post("/api/screen/shares", json: Self.shareRequest(deviceId: deviceId),
                                                timeout: 30).object()
                 guard let id = share["id"] as? String else { throw APIError.badResponse("no share id") }
                 shareID = id
@@ -794,12 +807,14 @@ struct MacScreenControlView: View {
 
 /// "Share screen" on the Mac card: watch and control the Mac now.
 struct MacShareScreenButton<Label: View>: View {
+    /// The computer to share (the Mac or the PC); nil = whichever Mac, as before.
+    var deviceId: String? = nil
     @ViewBuilder var label: Label
     @State private var session: MacScreenSession?
 
     var body: some View {
         Button {
-            session = MacScreenSession()
+            session = MacScreenSession(deviceId: deviceId)
         } label: { label }
         .fullScreenCover(isPresented: Binding(get: { session != nil }, set: { if !$0 { session = nil } })) {
             if let session { MacScreenControlView(session: session, closesShare: true) }

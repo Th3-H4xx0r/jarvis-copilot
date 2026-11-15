@@ -92,6 +92,7 @@
 		1072D13A323CAA4496AE03D0 /* GlassesNoteWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */; };
 		1081228674F8BFDF6B9A7CE9 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51624CD16AAF0E4FB10620F /* WidgetData.swift */; };
 		1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
+		10B35ABFA20B8AE5FEED1713 /* AgentsPcPowerCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91EB591A7BB841A8ADB17AE1 /* AgentsPcPowerCardTests.swift */; };
 		10C184C50541204AAE20A402 /* AgentLaunchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69F2AD83D3E20B5974FACA97 /* AgentLaunchSheet.swift */; };
 		10FD52906D799D859A8F3B77 /* ChatConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */; };
 		113A78C49B577AF05B2FE48B /* CarStatusScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB0830BA8D815CFBCB0D081 /* CarStatusScreen.swift */; };
@@ -828,6 +829,7 @@
 		992F1A2D80C8E0BC7C453C68 /* VoiceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1321CA378D463CFD5669CB8 /* VoiceSettings.swift */; };
 		99A48CF981855F9DD57ADE1E /* CodingSessionsAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F0B312762B4EA5D5496AB9 /* CodingSessionsAPITests.swift */; };
 		99A8BE8CF6C7FEB9417F0257 /* HarnessGraphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F2CF4FE41A833E8A2F5AA3F /* HarnessGraphTests.swift */; };
+		99B1B5C284C1F2AE8D18C380 /* PcAdminApprovals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A091F32072BF937AC420B199 /* PcAdminApprovals.swift */; };
 		99DFC09DB23D8D4B84C496F0 /* HoloOrbitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC33A69AEBAAA613B9473AA6 /* HoloOrbitView.swift */; };
 		9A21781F9D1AEFCBD6AF377C /* HealthWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7F6CFA348BC6D331132861 /* HealthWireTests.swift */; };
 		9A7480F9D5305734C0C59352 /* MorePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9CB8F1852CBF2B9A2D71CC /* MorePage.swift */; };
@@ -2165,6 +2167,7 @@
 		91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicePairSheet.swift; sourceTree = "<group>"; };
 		91BE871907602BDD31622513 /* CrashNote.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CrashNote.swift; sourceTree = "<group>"; };
 		91D629E8B337070323B8B81A /* ServerLogsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsUITests.swift; sourceTree = "<group>"; };
+		91EB591A7BB841A8ADB17AE1 /* AgentsPcPowerCardTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsPcPowerCardTests.swift; sourceTree = "<group>"; };
 		91EFB9FCA81411CA9AADAEE1 /* InmoVideoMerger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoVideoMerger.swift; sourceTree = "<group>"; };
 		92160D7DC26CA93B6E15D30E /* InmoRuntimeDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoRuntimeDiagnostics.swift; sourceTree = "<group>"; };
 		92478631C828B2E7AE6E0CD1 /* DashcamSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSync.swift; sourceTree = "<group>"; };
@@ -2238,6 +2241,7 @@
 		9FA0FAF907B689578B9C42E6 /* StrengthExerciseCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthExerciseCard.swift; sourceTree = "<group>"; };
 		9FA5AC544486624CE6A85698 /* RingTransportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingTransportTests.swift; sourceTree = "<group>"; };
 		9FB3B3E4392D6A8B40329E4E /* DashcamSetup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSetup.swift; sourceTree = "<group>"; };
+		A091F32072BF937AC420B199 /* PcAdminApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcAdminApprovals.swift; sourceTree = "<group>"; };
 		A0B384B7D25776A11F5D5FFD /* InmoMediaView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoMediaView.swift; sourceTree = "<group>"; };
 		A10000000000000000000011 /* ScaleProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleProtocol.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* ScaleMetricsCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleMetricsCalculator.swift; sourceTree = "<group>"; };
@@ -3820,6 +3824,7 @@
 				8F378D5D8B36967174380748 /* CodingStreamReducer.swift */,
 				0663A9FD5D4EC8AC5D3F9CD6 /* MacPasswordApproval.swift */,
 				18693DBCA0CC536BC52961EE /* MacPasswordWire.swift */,
+				A091F32072BF937AC420B199 /* PcAdminApprovals.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -4229,6 +4234,7 @@
 				18D2C8CD72FEB1FA337DE013 /* AgentsListTests.swift */,
 				E074ECEB6407AC738B7DCCA1 /* CodingStreamReducerTests.swift */,
 				64226045049E492743BEB4C5 /* AgentsMacPowerTests.swift */,
+				91EB591A7BB841A8ADB17AE1 /* AgentsPcPowerCardTests.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -5897,6 +5903,7 @@
 				19CCC260025039531F2D511D /* HoloDropSweepTests.swift in Sources */,
 				0D7D3F0D4BC089E2FD5F705E /* HoloFlingTests.swift in Sources */,
 				4DCB7337A9825EAD8F286B6E /* HoloScreenPhotoTests.swift in Sources */,
+				10B35ABFA20B8AE5FEED1713 /* AgentsPcPowerCardTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6817,6 +6824,7 @@
 				264FA75DDB14E94F1CD040A2 /* HoloScreenPhoto.swift in Sources */,
 				06BBBCAA54A99E97DF779F9E /* HoloDropLiveIntents.swift in Sources */,
 				E19A1F852B80FC8A46E74199 /* HoloGrabActivity.swift in Sources */,
+				99B1B5C284C1F2AE8D18C380 /* PcAdminApprovals.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

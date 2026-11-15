@@ -191,6 +191,14 @@ struct AgentMacPower: Identifiable, Equatable {
     let seenAt: Date?
     /// When a Wake Mac was asked for and not yet answered.
     var wakeRequestedAt: Date?
+    /// "macos" or "windows" (the PC reports through the same card since 2026-11-15).
+    let os: String
+    /// The PC's Wi-Fi adapter can wake it (nil = not reported, e.g. a Mac).
+    let wakeCapable: Bool?
+    /// Why it can't, in words, when it can't.
+    let wakeReason: String?
+
+    var isPC: Bool { os == "windows" }
 
     var id: String { deviceId }
     var isAwake: Bool { state == .awake }
@@ -209,6 +217,9 @@ struct AgentMacPower: Identifiable, Equatable {
         seenAt = CodingJSON.double(json["seen_at"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
         wakeRequestedAt = CodingJSON.double(json["wake_requested_at"])
             .flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        os = CodingJSON.str(json["os"]) ?? "macos"
+        wakeCapable = json["wake_capable"] is NSNumber ? CodingJSON.bool(json["wake_capable"]) : nil
+        wakeReason = CodingJSON.str(json["wake_reason"]).flatMap { $0.isEmpty ? nil : $0 }
     }
 }
 
