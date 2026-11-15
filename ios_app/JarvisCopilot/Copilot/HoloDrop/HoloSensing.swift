@@ -46,6 +46,7 @@ final class HoloSensing: ObservableObject {
     }
 
     func end() {
+        devices = []
         HoloNearby.shared.stop()
         HoloUltrasonic.shared.stop()
         HoloLook.shared.stop()
@@ -98,6 +99,12 @@ final class HoloSensing: ObservableObject {
         HoloNearby.shared.peerToken(from: from, token: token, nonce: msg["nonce"] as? String ?? "ni") { [weak self] to, nonce, token in
             await self?.sendToken(to, nonce: nonce, token: token)
         }
+        // Measuring for another phone's popup: stop after a minute unless our own popup is open.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard let self, self.devices.isEmpty else { return }
+            HoloNearby.shared.stop()
+        }
     }
 
     private func sendToken(_ device: String, nonce: String, token: String) async {
@@ -127,8 +134,12 @@ final class HoloSensing: ObservableObject {
         nearest = ble.seen.max { $0.value < $1.value }?.key
     }
 
+    /// Only a reading with a direction becomes a remembered bearing (a distance alone would land at 0°).
+    nonisolated static func remembers(_ r: HoloLiveReading) -> Bool { r.deg != nil }
+
     private func record(_ device: String, _ r: HoloLiveReading) {
         live[device] = r
+        guard Self.remembers(r) else { return }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "holoDrop.bearingAt")
         var row: [String: Any] = ["device": device, "confidence": r.confidence, "source": r.source,
                                   "at": Date().timeIntervalSince1970]
@@ -218,5 +229,20 @@ final class HoloBLE: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDele
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         guard let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String, name.hasPrefix("HD") else { return }
         onRSSI(name, RSSI.intValue)
+    }
+}
+
+/// Holo Drop's temp files (downloads, direct receives, picked photos/videos, screenshots).
+enum HoloTemp {
+    static var root: URL { FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop", isDirectory: true) }
+
+    /// Remove entries older than `age` (videos of several GB must not pile up).
+    static func sweep(_ dir: URL = HoloTemp.root, olderThan age: TimeInterval = 86400, now: Date = Date()) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for url in items {
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? now
+            if now.timeIntervalSince(date) > age { try? fm.removeItem(at: url) }
+        }
     }
 }

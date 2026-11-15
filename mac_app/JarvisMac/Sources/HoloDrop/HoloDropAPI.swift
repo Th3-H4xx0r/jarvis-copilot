@@ -171,38 +171,77 @@ struct HoloDropAPI: Sendable {
 }
 
 /// Straight to a receiver on the same network (`POST {lan.url}/holo-drop`), no server in the way.
+///
+/// A short probe first (any HTTP answer to `GET {lan}/holo-drop` means it's there), then the
+/// real POST with a long timeout: the phone may be importing into Photos or showing its first
+/// permission prompt, and giving up early would send the same file again through Jarvis.
 enum HoloDirect {
-    /// The receiver's outcome, or nil when it can't be reached in time (send via Jarvis then).
+    enum Result: Equatable, Sendable {
+        case landed(HoloOutcome)
+        /// It took the drop and couldn't land it: reported, never sent again through Jarvis.
+        case refused(String)
+        /// No answer at all, or it turned the request away unread (stale token, too big):
+        /// Jarvis takes it.
+        case unreachable
+    }
+
+    static func endpoint(_ lan: HoloLan) -> URL? {
+        URL(string: lan.url.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/holo-drop")
+    }
+
+    private static func session(timeout: TimeInterval, resource: TimeInterval) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = resource
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }
+
+    /// Any HTTP reply, whatever its status, means the receiver is listening.
+    static func probe(_ lan: HoloLan, timeout: TimeInterval = 1.5) async -> Bool {
+        guard lan.usable(), let u = endpoint(lan) else { return false }
+        let s = session(timeout: timeout, resource: timeout * 2)
+        defer { s.finishTasksAndInvalidate() }
+        var req = URLRequest(url: u, timeoutInterval: timeout)
+        req.httpMethod = "GET"
+        guard let (_, response) = try? await s.data(for: req) else { return false }
+        return response is HTTPURLResponse
+    }
+
+    /// What a receiver's reply to the POST means. 4xx = turned away before anything happened
+    /// (safe to send through Jarvis); a 200 with ok, or anything else = it acted on it.
+    static func verdict(status: Int, body: Data) -> Result {
+        let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        if status == 200, HJ.b(obj["ok"]) { return .landed(HoloOutcome(rawValue: HJ.s(obj["outcome"])) ?? .shown) }
+        if (400..<500).contains(status) { return .unreachable }
+        let why = HJ.s(obj["error"])
+        return .refused(why.isEmpty ? "it couldn't take it" : why)
+    }
+
     static func send(lan: HoloLan, fields: [String: Any], file: URL?, inline: [String: Any]?,
-                     timeout: TimeInterval = 1.5) async -> HoloOutcome? {
-        guard lan.usable(), let u = URL(string: lan.url.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/holo-drop")
-        else { return nil }
+                     probeTimeout: TimeInterval = 1.5) async -> Result {
+        guard lan.usable(), let u = endpoint(lan), await probe(lan, timeout: probeTimeout) else { return .unreachable }
+        let timeout: TimeInterval = file == nil ? 30 : 600
+        let s = session(timeout: timeout, resource: file == nil ? 60 : 6 * 3_600)
+        defer { s.finishTasksAndInvalidate() }
         var req = URLRequest(url: u, timeoutInterval: timeout)
         req.httpMethod = "POST"
         req.setValue(lan.token, forHTTPHeaderField: "X-Holo-Token")
         req.setValue(HoloWire.meta(fields), forHTTPHeaderField: "X-Holo-Meta")
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = file == nil ? timeout * 4 : 3_600
-        config.waitsForConnectivity = false
-        let session = URLSession(configuration: config)
-        defer { session.finishTasksAndInvalidate() }
         do {
             let data: Data, response: URLResponse
             if let file {
                 req.setValue(HJ.s(fields["mime"], "application/octet-stream"), forHTTPHeaderField: "Content-Type")
-                (data, response) = try await session.upload(for: req, fromFile: file)
+                (data, response) = try await s.upload(for: req, fromFile: file)
             } else {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 let body = (try? JSONSerialization.data(withJSONObject: inline ?? [:])) ?? Data("{}".utf8)
-                (data, response) = try await session.upload(for: req, from: body)
+                (data, response) = try await s.upload(for: req, from: body)
             }
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], HJ.b(obj["ok"])
-            else { return nil }
-            return HoloOutcome(rawValue: HJ.s(obj["outcome"])) ?? .shown
+            guard let http = response as? HTTPURLResponse else { return .unreachable }
+            return verdict(status: http.statusCode, body: data)
         } catch {
-            return nil
+            return .unreachable   // the link broke after a good probe: Jarvis may take it
         }
     }
 }
@@ -218,6 +257,10 @@ struct HoloSender: Sendable {
         var ids: [String] = []
         /// Landed already (the direct path answers with the outcome).
         var outcome: HoloOutcome?
+        /// Why a direct drop didn't land.
+        var error: String?
+        /// Records of direct drops (already reported here, so their landed frame isn't shown again).
+        var directIDs: [String] = []
     }
 
     func send(_ item: HoloItem, to device: HoloDevice, action: HoloAction,
@@ -233,19 +276,20 @@ struct HoloSender: Sendable {
         case .files(let urls):
             for file in urls {
                 let upload = try Self.uploadable(file)
-                defer { if upload != file { try? FileManager.default.removeItem(at: upload) } }
+                defer { if upload != file { try? FileManager.default.removeItem(at: upload.deletingLastPathComponent()) } }
                 let kind = HoloKind.forFile(upload)
                 let name = upload.lastPathComponent, mime = HoloKind.mime(for: upload)
-                if tryDirect, let lan = device.lan,
-                   let outcome = await HoloDirect.send(lan: lan, fields: HoloWire.directFields(
+                if tryDirect, let lan = device.lan {
+                    let result = await HoloDirect.send(lan: lan, fields: HoloWire.directFields(
                         kind: kind, name: name, mime: mime, action: action, position: position),
-                        file: upload, inline: nil, timeout: 2) {
-                    sent.outcome = Self.worse(sent.outcome, outcome)
-                    // Recorded for history and the sender's landed line; not stored again.
-                    _ = try? await api.sendInline(HoloWire.inlineDrop(
-                        kind: kind, target: device.id, action: action, position: position, direct: true,
-                        name: name, mime: mime, outcome: outcome))
-                    continue
+                        file: upload, inline: nil)
+                    if let outcome = record(result, into: &sent) {
+                        // Recorded for history; never stored or sent again.
+                        if let d = try? await api.sendInline(HoloWire.inlineDrop(
+                            kind: kind, target: device.id, action: action, position: position, direct: true,
+                            name: name, mime: mime, outcome: outcome)) { sent.directIDs.append(d.id) }
+                        continue
+                    }
                 }
                 if let d = try await api.upload(file: upload, kind: kind, target: device.id, action: action,
                                                 position: position, name: name) {
@@ -262,19 +306,35 @@ struct HoloSender: Sendable {
             var body: [String: Any] = [:]
             if let url { body["url"] = url }
             if let text { body["text"] = text }
-            if let outcome = await HoloDirect.send(lan: lan, fields: HoloWire.directFields(
+            let result = await HoloDirect.send(lan: lan, fields: HoloWire.directFields(
                 kind: kind, text: text, url: url, title: title, action: action, position: position),
-                file: nil, inline: body) {
-                sent.outcome = outcome
-                _ = try? await api.sendInline(HoloWire.inlineDrop(kind: kind, target: device.id, text: text, url: url,
-                                                                  action: action, position: position, title: title,
-                                                                  direct: true, outcome: outcome))
+                file: nil, inline: body)
+            if let outcome = record(result, into: &sent) {
+                if let d = try? await api.sendInline(HoloWire.inlineDrop(
+                    kind: kind, target: device.id, text: text, url: url, action: action, position: position,
+                    title: title, direct: true, outcome: outcome)) { sent.directIDs.append(d.id) }
                 return
             }
         }
         if let d = try await api.sendInline(HoloWire.inlineDrop(kind: kind, target: device.id, text: text, url: url,
                                                                 action: action, position: position, title: title)) {
             sent.ids.append(d.id)
+        }
+    }
+
+    /// A direct send's result into `sent`: the outcome when it reached the receiver (landed or
+    /// not), nil when Jarvis should take it instead.
+    private func record(_ result: HoloDirect.Result, into sent: inout Sent) -> HoloOutcome? {
+        switch result {
+        case .landed(let outcome):
+            sent.outcome = Self.worse(sent.outcome, outcome)
+            return outcome
+        case .refused(let why):
+            sent.outcome = .failed
+            sent.error = why
+            return .failed
+        case .unreachable:
+            return nil
         }
     }
 
@@ -287,7 +347,7 @@ struct HoloSender: Sendable {
         var copyError: Error?
         NSFileCoordinator().coordinate(readingItemAt: file, options: .forUploading, error: &coordError) { zip in
             let dest = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                .appendingPathComponent(HoloTemp.prefix + "zip-" + UUID().uuidString, isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
                 let target = dest.appendingPathComponent(file.lastPathComponent + ".zip")

@@ -478,19 +478,30 @@ final class HoloDropTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file) }
 
         let sentFile = await HoloDirect.send(lan: good, fields: HoloWire.directFields(
-            kind: .file, name: "a.txt", mime: "text/plain", action: .save), file: file, inline: nil, timeout: 5)
-        XCTAssertEqual(sentFile, .saved)
+            kind: .file, name: "a.txt", mime: "text/plain", action: .save), file: file, inline: nil)
+        XCTAssertEqual(sentFile, .landed(.saved))
         let sentText = await HoloDirect.send(lan: good, fields: HoloWire.directFields(kind: .text, action: .copy),
-                                             file: nil, inline: ["text": "hi there"], timeout: 5)
-        XCTAssertEqual(sentText, .copied)
+                                             file: nil, inline: ["text": "hi there"])
+        XCTAssertEqual(sentText, .landed(.copied))
         let bad = HoloLan(url: good.url, token: "guess", expires: 0)
         let refused = await HoloDirect.send(lan: bad, fields: HoloWire.directFields(kind: .text, action: .copy),
-                                            file: nil, inline: ["text": "x"], timeout: 5)
-        XCTAssertNil(refused)
+                                            file: nil, inline: ["text": "x"])
+        XCTAssertEqual(refused, .unreachable, "turned away unread (401): safe to send through Jarvis")
         XCTAssertEqual(seen.count, 2, "the refused one never reached the handler")
         XCTAssertEqual(seen.first?.kind, "file")
         XCTAssertEqual(seen.first?.bytes, Data("hello holo".utf8))
         XCTAssertEqual(seen.last?.text, "hi there")
+    }
+
+    func testDirectRepliesMeanWhatTheySay() {
+        XCTAssertEqual(HoloDirect.verdict(status: 200, body: Data(#"{"ok":true,"outcome":"saved_opened"}"#.utf8)),
+                       .landed(.savedOpened))
+        XCTAssertEqual(HoloDirect.verdict(status: 500, body: Data(#"{"ok":false,"error":"Photos refused"}"#.utf8)),
+                       .refused("Photos refused"), "it acted on it: report, don't resend")
+        XCTAssertEqual(HoloDirect.verdict(status: 200, body: Data(#"{"ok":false}"#.utf8)), .refused("it couldn't take it"))
+        XCTAssertEqual(HoloDirect.verdict(status: 401, body: Data(#"{"ok":false,"error":"bad token"}"#.utf8)),
+                       .unreachable, "turned away unread: Jarvis takes it")
+        XCTAssertEqual(HoloDirect.verdict(status: 413, body: Data()), .unreachable)
     }
 
     func testLanAddressPrefersWiFiOverTunnels() {
@@ -557,5 +568,162 @@ final class HoloDropRenderTests: XCTestCase {
                                  fromName: "iPad")
         text.outcome = .copied
         try shoot(HoloCardView(card: text), "card-text")
+    }
+}
+
+/// The bug sweep's fixes (2026-11-14): a slow phone isn't sent the file twice, late landings
+/// are shown, auto-open checks the name as written, the switch follows the `power` topic, the
+/// flash keeps time, the Orbit survives a click elsewhere, temp copies are cleaned, and a new
+/// paired id renames the Bluetooth beacon.
+final class HoloDropSweepTests: XCTestCase {
+
+    /// A real LAN receiver on loopback whose handler takes `delay` and answers `outcome`.
+    @MainActor
+    private func receiver(delay: Double, outcome: HoloOutcome) async -> (HoloLanReceiver, HoloLan) {
+        let lan = HoloLanReceiver()
+        lan.handler = { _, _, _ in
+            try? await Task.sleep(for: .seconds(delay))
+            return outcome
+        }
+        let port: UInt16 = await withCheckedContinuation { c in lan.start { c.resume(returning: $0) } }
+        return (lan, HoloLan(url: "http://127.0.0.1:\(port)", token: lan.newToken(validFor: 120), expires: 0))
+    }
+
+    /// Jarvis itself unreachable: any fallback to the server throws.
+    private let noServer = HoloDropAPI(origin: "http://127.0.0.1:1")
+
+    @MainActor
+    func testASlowReceiverIsWaitedForNotSentAgainThroughJarvis() async throws {
+        let (lan, info) = await receiver(delay: 2.6, outcome: .copied)
+        defer { lan.stop() }
+        let phone = HoloDevice(id: "iphone-1", name: "iPhone", kind: "iphone", lan: info)
+        let sent = try await HoloSender(api: noServer).send(.text("hello"), to: phone, action: .copy)
+        XCTAssertEqual(sent.outcome, .copied)
+        XCTAssertTrue(sent.ids.isEmpty, "never uploaded a second copy")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("holo-slow-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let sentFile = try await HoloSender(api: noServer).send(.files([file]), to: phone, action: .save)
+        XCTAssertEqual(sentFile.outcome, .copied)
+    }
+
+    @MainActor
+    func testARefusingReceiverIsReportedNotResentThroughJarvis() async throws {
+        let (lan, info) = await receiver(delay: 0, outcome: .failed)
+        defer { lan.stop() }
+        let phone = HoloDevice(id: "iphone-1", name: "iPhone", kind: "iphone", lan: info)
+        let sent = try await HoloSender(api: noServer).send(.text("hello"), to: phone, action: .copy)
+        XCTAssertEqual(sent.outcome, .failed)
+        XCTAssertTrue(sent.ids.isEmpty)
+    }
+
+    func testAnUnreachableReceiverFallsBackToJarvis() async {
+        let gone = HoloDevice(id: "iphone-1", name: "iPhone", kind: "iphone",
+                              lan: HoloLan(url: "http://127.0.0.1:9", token: "t", expires: 0))
+        do {
+            _ = try await HoloSender(api: noServer).send(.text("hello"), to: gone, action: .copy)
+            XCTFail("expected the server fallback (unreachable here) to be tried")
+        } catch {
+            XCTAssertEqual(error as? HoloFailure, .notReachable)
+        }
+    }
+
+    @MainActor
+    func testEveryLandingIsShownOnceEvenAfterTheOrbitClosed() {
+        let holo = HoloDrop.shared
+        var toasts: [String] = []
+        let before = holo.toaster
+        holo.toaster = { line, _ in toasts.append(line) }
+        defer { holo.toaster = before }
+        let id = "sweep-\(UUID().uuidString)"
+        holo.handle(frame: ["type": "holo_drop", "event": "landed",
+                            "drop": ["id": id, "kind": "link", "target": "iphone-1", "outcome": "saved"]])
+        XCTAssertEqual(toasts.count, 1, "a landing nobody was waiting for still shows")
+        XCTAssertTrue(toasts.first?.contains("Saved") ?? false)
+        holo.handle(frame: ["type": "holo_drop", "event": "landed",
+                            "drop": ["id": id, "kind": "link", "target": "iphone-1", "outcome": "saved"]])
+        XCTAssertEqual(toasts.count, 1, "once")
+        holo.handle(frame: ["type": "holo_drop", "event": "landed", "error": "no space",
+                            "drop": ["id": id + "-f", "kind": "file", "target": "iphone-1", "outcome": "failed"]])
+        XCTAssertEqual(toasts.count, 2)
+        XCTAssertTrue(toasts.last.map { $0.contains("Didn't land") && $0.contains("no space") } ?? false)
+    }
+
+    func testAutoOpenChecksTheNameAsWritten() {
+        XCTAssertTrue(HoloArrivalPlan.isExecutable(name: "run.terminal\u{7}", mime: ""))
+        XCTAssertTrue(HoloArrivalPlan.isExecutable(name: "x.terminal ", mime: ""))
+        XCTAssertTrue(HoloArrivalPlan.isExecutable(name: "evil.app\u{202E}", mime: ""))
+        XCTAssertFalse(HoloArrivalPlan.isExecutable(name: "photo.heic ", mime: ""))
+    }
+
+    @MainActor
+    func testTheSwitchFollowsThePowerTopic() {
+        XCTAssertNotNil(AppModel.topics["power"], "the server publishes `power` on every change")
+        XCTAssertNil(AppModel.topics["holo_drop"])
+        let before = HoloDrop.shared.powerPokes
+        AppModel().handle(["type": "topic", "topic": "power", "data": [:]])
+        XCTAssertEqual(HoloDrop.shared.powerPokes, before + 1)
+    }
+
+    func testFlashFramesKeepFixedDeadlines() {
+        let t0 = ContinuousClock.now
+        let starts = HoloBeacons.flashFrameStarts(count: 15, from: t0)
+        XCTAssertEqual(starts.count, 15)
+        for (i, s) in starts.enumerated() { XCTAssertEqual(s, t0.advanced(by: .milliseconds(100 * i))) }
+    }
+
+    @MainActor
+    func testTheOrbitStaysOpenWhenItLosesFocus() throws {
+        let orbit = HoloOrbitController(owner: HoloDrop.shared)
+        orbit.show()
+        defer { orbit.close() }
+        let window = try XCTUnwrap(orbit.window)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertTrue(orbit.visible, "clicking Finder to drag a file in mustn't close it")
+    }
+
+    func testOldHoloDropTempFilesAreSweptAndOnlyTempCopiesReleased() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("holo-sweep-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        func folder(_ name: String, age: TimeInterval) throws -> URL {
+            let u = root.appendingPathComponent(name, isDirectory: true)
+            try fm.createDirectory(at: u, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: u.appendingPathComponent("f.txt"))
+            try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: u.path)
+            return u
+        }
+        let old = try folder("HoloDrop-old", age: 30 * 3600)
+        let fresh = try folder("HoloDrop-fresh", age: 60)
+        let other = try folder("SomethingElse", age: 30 * 3600)
+        HoloTemp.sweep(root, maxAge: 24 * 3600)
+        XCTAssertFalse(fm.fileExists(atPath: old.path))
+        XCTAssertTrue(fm.fileExists(atPath: fresh.path))
+        XCTAssertTrue(fm.fileExists(atPath: other.path), "only Holo Drop's own")
+        let mine = fresh.appendingPathComponent("f.txt")
+        let his = other.appendingPathComponent("f.txt")
+        HoloTemp.release(.files([mine, his]), root: root)
+        XCTAssertFalse(fm.fileExists(atPath: fresh.path), "a temp copy goes once its drop settled")
+        XCTAssertTrue(fm.fileExists(atPath: his.path), "never a file of his")
+    }
+
+    @MainActor
+    func testALaterHelloUpdatesTheDeviceIDAndTheBeaconName() {
+        let model = AppModel()
+        model.handle(["type": "hello", "device_id": "dev-a"])
+        XCTAssertEqual(model.deviceId, "dev-a")
+        model.handle(["type": "hello", "device_id": "dev-b"])
+        XCTAssertEqual(model.deviceId, "dev-b")
+        model.handle(["type": "hello"])
+        XCTAssertEqual(model.deviceId, "dev-b", "a hello without one keeps the last")
+        let ble = HoloBLEAdvertiser()
+        ble.makeManager = { _ in nil }
+        ble.start(deviceID: "a")
+        XCTAssertEqual(ble.advertisedName, HoloBLEAdvertiser.localName(deviceID: "a"))
+        ble.start(deviceID: "b")
+        XCTAssertEqual(ble.advertisedName, HoloBLEAdvertiser.localName(deviceID: "b"))
+        ble.stop()
+        XCTAssertNil(ble.advertisedName)
     }
 }

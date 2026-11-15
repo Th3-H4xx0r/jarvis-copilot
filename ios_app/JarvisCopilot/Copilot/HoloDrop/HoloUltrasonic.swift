@@ -128,15 +128,24 @@ final class HoloUltrasonic {
     private var engine: AVAudioEngine?
 
     /// Starts the microphones, calls `ask` (which asks the Mac to chirp), records `seconds`, decodes.
+    private var cancelled = false
+
     func listen(nonce: String, seconds: Double = 2.2, ask: @escaping () async -> Void) async -> Reading? {
-        guard await AVAudioApplication.requestRecordPermission() else { return nil }
+        cancelled = false
+        guard await AVAudioApplication.requestRecordPermission(), !cancelled else { return nil }
         let session = AVAudioSession.sharedInstance()
+        // Put the audio session back exactly as it was (voice / Live may be using it).
+        let saved = (session.category, session.mode, session.categoryOptions)
         do {
             try session.setCategory(.record, mode: .measurement)   // no voice filtering: it cuts above ~8 kHz
             Self.preferStereo(session)
             try session.setActive(true)
         } catch { return nil }
-        defer { try? session.setActive(false, options: .notifyOthersOnDeactivation) }
+        defer {
+            try? session.setPreferredInput(nil)
+            try? session.setCategory(saved.0, mode: saved.1, options: saved.2)
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -150,6 +159,7 @@ final class HoloUltrasonic {
         input.removeTap(onBus: 0)
         engine.stop()
         self.engine = nil
+        guard !cancelled else { return nil }
         let (left, right) = box.take()
         let rate = format.sampleRate
         guard let hit = HoloChirpDecoder.find(left, rate: rate, nonce: nonce) else { return nil }
@@ -169,6 +179,7 @@ final class HoloUltrasonic {
     }
 
     func stop() {
+        cancelled = true
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil

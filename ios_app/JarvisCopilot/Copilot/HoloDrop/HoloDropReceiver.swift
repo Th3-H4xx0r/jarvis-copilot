@@ -204,6 +204,8 @@ final class HoloDropReceiver: ObservableObject {
             },
         ]
         watchStartToken()
+        HoloOrbitModel.showedLanding = { id in HoloDropReceiver.shared.shownLandings.insert(id) }
+        Task.detached(priority: .background) { HoloTemp.sweep() }
         if UIApplication.shared.applicationState == .active { becameActive() }
     }
 
@@ -286,11 +288,27 @@ final class HoloDropReceiver: ObservableObject {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
     }
 
+    /// Landings a popup already showed (the rest get a banner).
+    var shownLandings: Set<String> = []
+
     private func landed(id: String, drop: [String: Any]) {
-        let text = drop["state"] as? String == "failed"
-            ? "Didn't land: \(drop["error"] as? String ?? "the device couldn't take it")"
-            : "Landed · \(HoloArrival.words(drop["outcome"] as? String ?? ""))"
+        let what = (drop["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (drop["title"] as? String) ?? (drop["url"] as? String) ?? "Your drop"
+        let target = drop["target"] as? String ?? ""
+        let failed = drop["state"] as? String == "failed"
+        let text = failed
+            ? "\(what) didn't land: \(drop["error"] as? String ?? "the device couldn't take it")"
+            : "\(what) landed · \(HoloArrival.words(drop["outcome"] as? String ?? ""))"
         lastLanded = (id, text)
+        // A popup polls for ~4 s; anything it didn't show (it closed, or the Mac woke later) is a banner.
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !shownLandings.contains(id) else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Holo Drop"
+            content.body = String(text.prefix(180))
+            content.userInfo = ["type": "holo_drop_landed", "id": id, "target": target]
+            try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "holo-landed-\(id)", content: content, trigger: nil))
+        }
     }
 
     // MARK: performing
@@ -359,6 +377,9 @@ final class HoloDropReceiver: ObservableObject {
     }
 
     func dismiss(_ id: String) {
+        if let file = cards.first(where: { $0.id == id })?.fileURL, file.path.hasPrefix(HoloTemp.root.path) {
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())   // saved copies live on
+        }
         cards.removeAll { $0.id == id }
         if cards.isEmpty { overlay.hide() }
     }
@@ -417,7 +438,7 @@ final class HoloDropReceiver: ObservableObject {
 
     /// Where a downloaded drop lands before it's saved (temporary; iOS clears it).
     static func inbox(_ rec: HoloDropRecord) -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop/\(rec.id)", isDirectory: true)
+        let dir = HoloTemp.root.appendingPathComponent(rec.id, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(HoloArrival.safeName(rec.name))
     }

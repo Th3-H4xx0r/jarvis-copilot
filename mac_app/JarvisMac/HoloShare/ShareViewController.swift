@@ -22,6 +22,7 @@ final class ShareViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        HoloTemp.sweep()   // this extension's own leftovers older than a day
         model.onClose = { [weak self] in self?.finish(sent: false) }
         model.onSend = { [weak self] device, action in self?.send(to: device, action: action) }
         let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
@@ -68,7 +69,14 @@ final class ShareViewController: NSViewController {
             do {
                 let sent = try await HoloSender(api: api).send(item, to: device, action: action)
                 if let outcome = sent.outcome, sent.ids.isEmpty {
-                    self.model.phase = .landed(HoloDropRecord.landedLine(device: device.name, outcome: outcome.rawValue))
+                    let line = HoloDropRecord.landedLine(device: device.name, outcome: outcome.rawValue, error: sent.error)
+                    if outcome == .failed {
+                        // The receiver took it and couldn't land it: say so, never resend by itself.
+                        self.model.phase = .failed(line)
+                        self.model.onRetry = { [weak self] in self?.send(to: device, action: action) }
+                        return
+                    }
+                    self.model.phase = .landed(line)
                 } else {
                     self.model.phase = .waiting(device.online ? "Sent — waiting for \(device.name)"
                                                               : "\(device.name) is away — it lands when it's back")
@@ -91,6 +99,7 @@ final class ShareViewController: NSViewController {
     private func finish(sent: Bool) {
         guard !done else { return }
         done = true
+        HoloTemp.release(model.item)   // the copies made from what was shared
         if sent {
             extensionContext?.completeRequest(returningItems: nil)
         } else {

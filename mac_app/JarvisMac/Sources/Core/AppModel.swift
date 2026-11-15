@@ -72,13 +72,15 @@ final class AppModel {
 
     // MARK: link
 
+    /// The server pushes the app subscribes to.
+    static let topics: [String: Int] = ["harness_jobs": 0, "app_update": 0, "screen_shares": 0, "power": 0]
+
     func attach(_ link: JcLink = .shared) {
         link.onMessage = { [weak self] msg in self?.handle(msg) }
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0, "screen_shares": 0,
-                                                              "holo_drop": 0]])
+                link.request(["type": "subscribe", "topics": AppModel.topics])
                 self?.refreshRoster()
             }
         }
@@ -98,7 +100,9 @@ final class AppModel {
         switch J.s(msg["type"]) {
         case "hello":
             apiOrigin = (msg["api"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            deviceId = (msg["device_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // A later hello may carry the server's id for this Mac (jc-client learns it from the
+            // bridge); one without keeps the last.
+            if let id = msg["device_id"] as? String, !id.isEmpty { deviceId = id }
             voiceDylib = msg["voice_dylib"] as? String
             approvalsOn = J.b(msg["approvals"])
             instructionsOn = J.b(msg["instructions"])
@@ -159,8 +163,8 @@ final class AppModel {
                 onAppUpdate?(data)
             case "screen_shares":
                 ScreenShareService.shared.poke()  // a share was asked for or ended: look now
-            case "holo_drop":
-                HoloDrop.shared.handle(frame: data)
+            case "power":
+                HoloDrop.shared.powerTopic()   // a Power switch changed: Holo Drop re-reads its own
             default: break
             }
         default:

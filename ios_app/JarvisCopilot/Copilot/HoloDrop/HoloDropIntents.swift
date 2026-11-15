@@ -18,7 +18,7 @@ struct HoloDropScreenIntent: AppIntent {
         guard PowerState.shared.isOn("holo-drop") else { return .result(dialog: "Holo Drop is switched off.") }
         let name = "Screenshot \(Date().formatted(.dateTime.hour().minute().second())).png"
             .replacingOccurrences(of: ":", with: ".")
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop/screen", isDirectory: true)
+        let dir = HoloTemp.root.appendingPathComponent("screen-\(UUID().uuidString.prefix(6))", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(name)
         try image.data.write(to: url)

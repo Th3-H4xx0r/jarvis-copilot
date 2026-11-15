@@ -122,9 +122,10 @@ final class HoloLanReceiver {
         let id = "direct-\(UUID().uuidString.prefix(8).lowercased())"
         meta["id"] = id
         let isFile = ["image", "video", "file"].contains(kind)
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop/\(id)", isDirectory: true)
+        let dir = HoloTemp.root.appendingPathComponent(id, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let file = dir.appendingPathComponent(HoloArrival.safeName(meta["name"] as? String ?? "Holo Drop"))
+        // Links and text travel in the meta; their body (the same JSON) is read and dropped.
+        let file = dir.appendingPathComponent(isFile ? HoloArrival.safeName(meta["name"] as? String ?? "Holo Drop") : ".body")
         FileManager.default.createFile(atPath: file.path, contents: nil)
         guard let handle = try? FileHandle(forWritingTo: file) else { return reply(conn, 500, ["ok": false]) }
         let first = body.prefix(length)
@@ -133,6 +134,7 @@ final class HoloLanReceiver {
         Self.readBody(conn, handle: handle, remaining: length - first.count) { ok in
             Task { @MainActor in
                 try? handle.close()
+                if !isFile { try? FileManager.default.removeItem(at: dir) }
                 guard ok, let rec = HoloDropRecord(json: fields) else {
                     return HoloLanReceiver.shared.reply(conn, 400, ["ok": false, "error": "incomplete"])
                 }

@@ -8,6 +8,23 @@ struct HoloDropClient {
     let headers: [String: String]
     var session: URLSession = .shared
     var lanTimeout: TimeInterval = 1.5
+    /// The LAN path's own session: never waits for connectivity, so a dead address fails fast.
+    var directSession: URLSession = HoloDropClient.makeDirectSession()
+
+    static func makeDirectSession() -> URLSession {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.waitsForConnectivity = false
+        cfg.timeoutIntervalForResource = 900
+        return URLSession(configuration: cfg)
+    }
+
+    /// A query string that keeps "+" and "&" in names (form-style decoding turns "+" into a space).
+    static func query(_ items: [(String, String)]) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "+&=?/")
+        return items.map { "\($0.0)=\($0.1.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }
+            .joined(separator: "&")
+    }
 
     func devices() async throws -> [HoloDevice] {
         let o = try await json("GET", "/devices")
@@ -64,7 +81,7 @@ struct HoloDropClient {
     func send(_ item: HoloItem, to device: HoloDevice, action: HoloAction,
               position: HoloPosition?, allowDirect: Bool = true) async throws -> [String: Any] {
         if allowDirect, let url = device.lanURL, let token = device.lanToken,
-           let outcome = try? await sendDirect(item, url: url, token: token, action: action, position: position) {
+           let outcome = try await sendDirect(item, url: url, token: token, action: action, position: position) {
             var body = meta(item, device: device, action: action, position: position)
             body["delivered_direct"] = true                    // the record only: the bytes already went
             body["outcome"] = outcome
@@ -75,11 +92,9 @@ struct HoloDropClient {
         case .link, .text:
             return try await json("POST", "/drops", body: meta(item, device: device, action: action, position: position))
         case .file(let fileURL, let name, let mime, let kind):
-            var q = ["kind": kind, "target": device.id, "name": name, "mime": mime, "action": action.rawValue]
-            if let position { q["x"] = String(position.x); q["y"] = String(position.y) }
-            var comps = URLComponents()
-            comps.queryItems = q.map { URLQueryItem(name: $0.key, value: $0.value) }
-            var req = request("POST", "/drops/upload?" + (comps.percentEncodedQuery ?? ""))
+            var q = [("kind", kind), ("target", device.id), ("name", name), ("mime", mime), ("action", action.rawValue)]
+            if let position { q += [("x", String(position.x)), ("y", String(position.y))] }
+            var req = request("POST", "/drops/upload?" + Self.query(q))
             req.timeoutInterval = 900
             let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             req.setValue(String(size), forHTTPHeaderField: "Content-Length")
@@ -90,9 +105,14 @@ struct HoloDropClient {
         }
     }
 
-    /// The receiver's outcome ("opened", "saved", …), or nil when the direct path didn't take it.
+    /// The receiver's outcome ("opened", "saved", …); nil when the receiver isn't reachable (then the
+    /// drop goes through Jarvis). A receiver that answered "no" throws: re-sending would land it twice.
     func sendDirect(_ item: HoloItem, url: URL, token: String, action: HoloAction, position: HoloPosition?) async throws -> String? {
-        var req = URLRequest(url: url.appendingPathComponent("holo-drop"), timeoutInterval: lanTimeout)
+        // Reachable at all? Any HTTP answer to a quick GET says yes; silence means another network.
+        var probe = URLRequest(url: url.appendingPathComponent("holo-drop"), timeoutInterval: lanTimeout)
+        probe.httpMethod = "GET"
+        guard (try? await directSession.data(for: probe)) != nil else { return nil }
+        var req = URLRequest(url: url.appendingPathComponent("holo-drop"), timeoutInterval: 30)
         req.httpMethod = "POST"
         req.setValue(token, forHTTPHeaderField: "X-Holo-Token")
         var m = meta(item, device: nil, action: action, position: position)
@@ -100,18 +120,26 @@ struct HoloDropClient {
         let metaData = try JSONSerialization.data(withJSONObject: m)
         req.setValue(metaData.base64EncodedString(), forHTTPHeaderField: "X-Holo-Meta")
         let (data, response): (Data, URLResponse)
-        switch item {
-        case .file(let fileURL, _, _, _):
-            req.timeoutInterval = 600
-            (data, response) = try await session.upload(for: req, fromFile: fileURL)
-        default:
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            (data, response) = try await session.upload(for: req, from: metaData)
+        do {
+            switch item {
+            case .file(let fileURL, _, _, _):
+                req.timeoutInterval = 600
+                (data, response) = try await directSession.upload(for: req, fromFile: fileURL)
+            default:
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                (data, response) = try await directSession.upload(for: req, from: metaData)
+            }
+        } catch {
+            return nil                                   // the connection broke: Jarvis takes it
         }
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              o["ok"] as? Bool == true else { return nil }
-        return o["outcome"] as? String ?? "delivered"
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if status == 200, o["ok"] as? Bool == true { return o["outcome"] as? String ?? "delivered" }
+        // 4xx: turned away before anything happened (stale token, size, bad request) → Jarvis takes it.
+        // 5xx or 200 with ok:false: the device acted and failed → reported, never sent twice.
+        if (400..<500).contains(status) { return nil }
+        throw NSError(domain: "HoloDrop", code: status, userInfo: [NSLocalizedDescriptionKey:
+            "\(o["error"] as? String ?? "The device couldn't take it")"])
     }
 
     func meta(_ item: HoloItem, device: HoloDevice?, action: HoloAction, position: HoloPosition?) -> [String: Any] {

@@ -12,6 +12,11 @@ final class HoloBLEAdvertiser: NSObject, CBPeripheralManagerDelegate {
 
     private var manager: CBPeripheralManager?
     private var name: String?
+    /// Tests pass one that makes nothing (no Bluetooth prompt).
+    var makeManager: (CBPeripheralManagerDelegate) -> CBPeripheralManager? = {
+        CBPeripheralManager(delegate: $0, queue: .main)
+    }
+    var advertisedName: String? { name }
 
     static func fnv1a(_ s: String) -> UInt32 {
         var h: UInt32 = 2_166_136_261
@@ -33,7 +38,7 @@ final class HoloBLEAdvertiser: NSObject, CBPeripheralManagerDelegate {
             manager.stopAdvertising()
             if manager.state == .poweredOn { advertise(manager) }
         } else {
-            manager = CBPeripheralManager(delegate: self, queue: .main)
+            manager = makeManager(self)
         }
     }
 

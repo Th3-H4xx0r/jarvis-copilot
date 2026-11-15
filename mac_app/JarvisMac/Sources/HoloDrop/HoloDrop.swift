@@ -44,10 +44,17 @@ final class HoloDrop {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var powerLoop: Task<Void, Never>?
     @ObservationIgnored private var wakeToken: NSObjectProtocol?
-    /// Drops this Mac sent whose landing it hasn't shown yet: id → device name.
+    /// Drops this Mac sent, by id → device name (for the landed line).
     @ObservationIgnored private var awaiting: [String: String] = [:]
+    /// Landings already shown (the Orbit, a toast, or the direct path's own answer): every other
+    /// landed frame gets a toast, once.
+    @ObservationIgnored private var shownLandings: [String] = []
     /// Drops already landed here (a frame and `/pending` can both bring one).
     @ObservationIgnored private var handled: [String] = UserDefaults.standard.stringArray(forKey: "holoDrop.handled") ?? []
+    /// Shows a landing line (tests catch it).
+    @ObservationIgnored var toaster: (String, String) -> Void = { HoloCards.shared.toast($0, symbol: $1) }
+    /// `power` topic pushes seen (each one re-reads the switch).
+    @ObservationIgnored private(set) var powerPokes = 0
 
     static let lanAdvertEvery: TimeInterval = 10 * 60
     static let lanTokenLife: TimeInterval = 15 * 60
@@ -59,6 +66,7 @@ final class HoloDrop {
     func start() {
         guard !started, !AppDelegate.isTesting else { return }
         started = true
+        Task.detached(priority: .utility) { HoloTemp.sweep() }   // copies older than a day
         lan.handler = { [weak self] fields, file, inline in
             await self?.landDirect(fields, file: file, inline: inline) ?? .failed
         }
@@ -97,6 +105,12 @@ final class HoloDrop {
             await fetchPending()
             advertise()
         }
+    }
+
+    /// The server published `power` (any integration switched or changed): read the switch now.
+    func powerTopic() {
+        powerPokes += 1
+        Task { await refreshPower() }
     }
 
     func refreshPower() async {
@@ -220,6 +234,7 @@ final class HoloDrop {
     /// A drop that came straight over the LAN: lands the same way (and is reported to Jarvis
     /// too when the sender already recorded it there).
     private func landDirect(_ fields: [String: Any], file: URL?, inline: [String: Any]) async -> HoloOutcome {
+        await refreshPower()   // the live switch, not the last poll
         guard on else { return .failed }
         var json = fields.merging(inline) { _, new in new }
         json["created"] = json["created"] ?? Date().timeIntervalSince1970
@@ -245,17 +260,26 @@ final class HoloDrop {
         return "your device"
     }
 
-    /// A drop this Mac sent has landed.
+    /// A drop this Mac sent has landed (the server sends `landed` only to the sender): shown in
+    /// the Orbit when it's still waiting there, else as a toast — once, however late.
     private func landed(_ json: [String: Any], error: String?) {
-        guard let drop = HoloDropRecord(json: json) else { return }
-        let name = awaiting[drop.id] ?? devices.first { $0.id == drop.target }?.name ?? "your device"
-        let line = HoloDropRecord.landedLine(device: name, outcome: drop.outcome, error: error ?? J.s(json["error"]))
+        guard let drop = HoloDropRecord(json: json), !drop.id.isEmpty, markShown(drop.id) else { return }
+        let name = awaiting.removeValue(forKey: drop.id) ?? devices.first { $0.id == drop.target }?.name ?? "your device"
+        let why = (error?.isEmpty == false ? error : nil) ?? J.s(json["error"])
+        let line = HoloDropRecord.landedLine(device: name, outcome: drop.outcome, error: why)
         if let orbit, orbit.isWaiting(for: drop.id) {
-            awaiting[drop.id] = nil
             orbit.landed(line)
-        } else if awaiting.removeValue(forKey: drop.id) != nil {
-            HoloCards.shared.toast(line, symbol: drop.outcome == "failed" ? "exclamationmark.triangle" : "checkmark.circle.fill")
+        } else {
+            toaster(line, drop.outcome == "failed" ? "exclamationmark.triangle" : "checkmark.circle.fill")
         }
+    }
+
+    /// True the first time a landing is shown.
+    private func markShown(_ id: String) -> Bool {
+        guard !shownLandings.contains(id) else { return false }
+        shownLandings.append(id)
+        if shownLandings.count > 400 { shownLandings = Array(shownLandings.suffix(200)) }
+        return true
     }
 
     private func loadDevices() async {
@@ -298,11 +322,19 @@ final class HoloDrop {
         }
         controller.model.phase = .sending(device.name)
         controller.model.onRetry = nil
+        controller.sendStarted()
         Task {
+            defer { controller.sendEnded() }
             do {
                 let sent = try await HoloSender(api: api, tryDirect: true).send(item, to: device, action: action)
+                for id in sent.directIDs { _ = markShown(id) }   // answered already, here
                 if let outcome = sent.outcome, sent.ids.isEmpty {
-                    controller.finish(HoloDropRecord.landedLine(device: device.name, outcome: outcome.rawValue))
+                    let line = HoloDropRecord.landedLine(device: device.name, outcome: outcome.rawValue, error: sent.error)
+                    if outcome == .failed {
+                        controller.fail(line, retry: retry(item, to: device, action: action, from: controller))
+                    } else {
+                        controller.finish(line)
+                    }
                     return
                 }
                 for id in sent.ids { awaiting[id] = device.name }
@@ -310,8 +342,10 @@ final class HoloDrop {
                 controller.model.phase = .waiting(device.online ? "Sent — waiting for \(device.name)"
                                                                 : "\(device.name) is away — it lands when it's back")
                 guard let last = sent.ids.last else { return }
-                if let d = await api.waitLanded(last, timeout: 4), awaiting.removeValue(forKey: last) != nil {
-                    controller.finish(HoloDropRecord.landedLine(device: device.name, outcome: d.outcome))
+                if let d = await api.waitLanded(last, timeout: 4), markShown(last) {
+                    awaiting[last] = nil
+                    let line = HoloDropRecord.landedLine(device: device.name, outcome: d.outcome)
+                    if d.outcome == "failed" { controller.fail(line) {} } else { controller.finish(line) }
                 } else {
                     controller.closeSoon(3)   // a later landing arrives as a frame → a toast
                 }
@@ -320,10 +354,18 @@ final class HoloDrop {
                 set(on: false)
             } catch {
                 let why = (error as? HoloFailure)?.message ?? error.localizedDescription
-                controller.fail("Couldn't send — \(why)") { [unowned controller] in
-                    HoloDrop.shared.send(item, to: device, action: action, from: controller)
-                }
+                controller.fail("Couldn't send — \(why)", retry: retry(item, to: device, action: action, from: controller))
             }
+        }
+    }
+
+    /// Try again, from the Orbit's failure line. Held by the controller's model, so it holds the
+    /// controller weakly.
+    private func retry(_ item: HoloItem, to device: HoloDevice, action: HoloAction,
+                       from controller: HoloOrbitController) -> () -> Void {
+        { [weak controller] in
+            guard let controller else { return }
+            HoloDrop.shared.send(item, to: device, action: action, from: controller)
         }
     }
 
@@ -386,9 +428,10 @@ final class HoloOrbitController {
     private weak var owner: HoloDrop?
     private var panel: HoloKeyPanel?
     private var keyMonitor: Any?
-    private var resignToken: NSObjectProtocol?
     private var waiting: Set<String> = []
     private var closeTask: Task<Void, Never>?
+    /// Sends still running: the item's temporary copy stays until they're done.
+    private var inFlight = 0
 
     init(owner: HoloDrop) {
         self.owner = owner
@@ -401,6 +444,7 @@ final class HoloOrbitController {
     }
 
     var visible: Bool { panel?.isVisible ?? false }
+    var window: NSWindow? { panel }
 
     func show() {
         closeTask?.cancel()
@@ -442,11 +486,15 @@ final class HoloOrbitController {
             }
             return event
         }
-        // Clicking anywhere else folds it (a send already underway finishes; its landing toasts).
-        resignToken = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p,
-                                                             queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.close() }
-        }
+        // It stays up when it loses focus (clicking Finder to drag a file in, an Automation
+        // prompt): Esc, ✕ or a settled send closes it.
+    }
+
+    func sendStarted() { inFlight += 1 }
+
+    func sendEnded() {
+        inFlight = max(0, inFlight - 1)
+        if inFlight == 0, !visible { HoloTemp.release(model.item) }
     }
 
     func isWaiting(for id: String) -> Bool { visible && waiting.contains(id) }
@@ -464,7 +512,7 @@ final class HoloOrbitController {
         closeSoon(2.2)
     }
 
-    func fail(_ why: String, retry: @escaping () -> Void) {
+    func fail(_ why: String, retry: (() -> Void)? = nil) {
         guard visible else {
             HoloCards.shared.toast(why, symbol: "exclamationmark.triangle")
             return
@@ -486,9 +534,8 @@ final class HoloOrbitController {
         closeTask?.cancel()
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
-        if let resignToken { NotificationCenter.default.removeObserver(resignToken) }
-        resignToken = nil
         waiting = []
+        if inFlight == 0 { HoloTemp.release(model.item) }   // else once the send is done
         if let p = panel {
             panel = nil
             NSAnimationContext.runAnimationGroup({ $0.duration = 0.15; p.animator().alphaValue = 0 },

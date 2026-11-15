@@ -68,6 +68,8 @@ struct HoloShareRoot: View {
     }
 
     private func close() {
+        // The copy made for this share is done with.
+        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop"))
         context?.completeRequest(returningItems: nil)
     }
 }
@@ -83,22 +85,31 @@ enum HoloShareItems {
                 return .link(url, title: title)
             }
         }
-        for (type, kind) in [(UTType.image, "image"), (UTType.movie, "video"), (UTType.data, "file")] {
+        // Images and videos first, then plain text (text also counts as "data", so it must come
+        // before the any-file case or a text selection would arrive as a .txt file).
+        for (type, kind) in [(UTType.image, "image"), (UTType.movie, "video")] {
             for p in providers where p.hasItemConformingToTypeIdentifier(type.identifier) {
-                if let file = await copy(p, type: type) {
-                    let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-                    return .file(file, name: file.lastPathComponent, mime: mime, kind: kind)
-                }
+                if let item = await fileItem(p, type: type, kind: kind) { return item }
             }
         }
-        for p in providers where p.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+        for p in providers where p.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+            && !p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             if let text = try? await p.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String, !text.isEmpty {
                 if let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
                    url.scheme?.hasPrefix("http") == true { return .link(url, title: nil) }
                 return .text(text)
             }
         }
+        for p in providers where p.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
+            if let item = await fileItem(p, type: .data, kind: "file") { return item }
+        }
         return nil
+    }
+
+    private static func fileItem(_ p: NSItemProvider, type: UTType, kind: String) async -> HoloItem? {
+        guard let file = await copy(p, type: type) else { return nil }
+        let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        return .file(file, name: file.lastPathComponent, mime: mime, kind: kind)
     }
 
     /// The provider's file, copied into the extension's temp folder (streamed, never in memory).
@@ -106,7 +117,7 @@ enum HoloShareItems {
         await withCheckedContinuation { cont in
             _ = p.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
                 guard let url else { cont.resume(returning: nil); return }
-                let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop/\(UUID().uuidString)")
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 let dest = dir.appendingPathComponent(url.lastPathComponent)
                 do { try FileManager.default.copyItem(at: url, to: dest); cont.resume(returning: dest) }

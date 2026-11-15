@@ -92,6 +92,9 @@ final class HoloOrbitModel: ObservableObject {
         }
     }
 
+    /// The app hears every landing over the bridge; it shows a banner for those no popup showed.
+    static var showedLanding: (String) -> Void = { _ in }
+
     /// A few seconds for the landing; after that the sender hears by notification.
     private func waitForLanding(_ id: String, device: HoloDevice) async {
         for _ in 0..<6 {
@@ -100,6 +103,7 @@ final class HoloOrbitModel: ObservableObject {
             let state = d["state"] as? String
             if state == "landed" || state == "failed" {
                 phase = .done(Self.result(d, device: device))
+                Self.showedLanding(id)
                 return
             }
         }
@@ -115,14 +119,17 @@ final class HoloOrbitModel: ObservableObject {
             let deg = m.heading >= 0 ? m.heading : nil
             if let deg, abs(HoloOrbitLayout.angleDelta(deg, self.heading ?? -999)) > 2 { self.heading = deg }
             if case .aiming = self.phase {
-                self.tilt = CGSize(width: max(-0.4, min(0.4, m.attitude.roll * 0.6)),
-                                   height: max(-0.4, min(0.4, m.attitude.pitch * 0.6)))
+                // Relative to how he held the phone when aiming began (not the absolute angle).
+                if self.tiltRef == nil { self.tiltRef = (m.attitude.roll, m.attitude.pitch) }
+                let ref = self.tiltRef ?? (0, 0)
+                self.tilt = HoloTilt.offset(roll: m.attitude.roll, pitch: m.attitude.pitch, refRoll: ref.0, refPitch: ref.1)
             }
         }
     }
 
-    private func startTilt() { tilt = .zero }
-    private func stopTilt() { tilt = .zero }
+    private var tiltRef: (Double, Double)?
+    private func startTilt() { tilt = .zero; tiltRef = nil }
+    private func stopTilt() { tilt = .zero; tiltRef = nil }
 
     func stopSensors() { motion.stopDeviceMotionUpdates() }
 }
@@ -256,7 +263,8 @@ struct HoloActionChips: View {
     let device: HoloDevice?
 
     var body: some View {
-        let current = model.override ?? device?.defaultAction ?? .open
+        // Nothing is lit until he picks one: each device then does its own default.
+        let current = model.override
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(HoloAction.allCases) { a in
@@ -265,7 +273,7 @@ struct HoloActionChips: View {
                         .foregroundStyle(a == current ? Color.black : .white.opacity(0.75))
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Capsule().fill(a == current ? Color.white : Color.white.opacity(0.08)))
-                        .onTapGesture { model.override = a }
+                        .onTapGesture { model.override = model.override == a ? nil : a }
                 }
             }
             .padding(.horizontal, 14)
@@ -296,5 +304,13 @@ struct HoloResultView: View {
         switch result {
         case .landed(let t), .sent(let t), .failed(let t): return t
         }
+    }
+}
+
+/// Tilt-to-aim: how far he's tipped the phone since aiming began, as a fraction of the screen.
+enum HoloTilt {
+    static func offset(roll: Double, pitch: Double, refRoll: Double, refPitch: Double) -> CGSize {
+        CGSize(width: max(-0.4, min(0.4, (roll - refRoll) * 0.6)),
+               height: max(-0.4, min(0.4, (pitch - refPitch) * 0.6)))
     }
 }

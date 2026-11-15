@@ -297,7 +297,9 @@ struct HoloDropPage: View {
                 HoloLauncher.shared.present(.text(s))
             }
         } else if let image = pb.image, let data = image.pngData() {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Copied image.png")
+            let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("Copied image.png")
             if (try? data.write(to: url)) != nil {
                 HoloLauncher.shared.present(.file(url, name: "Copied image.png", mime: "image/png", kind: "image"))
             }
@@ -309,7 +311,7 @@ struct HoloDropPage: View {
     private func dropFile(_ picked: URL) {
         let scoped = picked.startAccessingSecurityScopedResource()
         defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HoloDrop/out-\(UUID().uuidString.prefix(6))")
+        let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let copy = dir.appendingPathComponent(picked.lastPathComponent)
         do { try FileManager.default.copyItem(at: picked, to: copy) } catch {
@@ -325,16 +327,17 @@ struct HoloDropPage: View {
     private func dropPhoto(_ item: PhotosPickerItem) async {
         defer { photo = nil }
         let type = item.supportedContentTypes.first ?? .jpeg
-        guard let data = try? await item.loadTransferable(type: Data.self) else {
+        // Copied to a file, never into memory (a video can be gigabytes).
+        guard let picked = try? await item.loadTransferable(type: HoloPickedFile.self) else {
             problem = "Couldn't load that from Photos."
             return
         }
         let isVideo = type.conforms(to: .movie)
-        let ext = type.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
+        let ext = picked.url.pathExtension.isEmpty ? (type.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")) : picked.url.pathExtension
         let name = "\(isVideo ? "Video" : "Photo") \(Date().formatted(.dateTime.month().day().hour().minute())).\(ext)"
             .replacingOccurrences(of: ":", with: ".").replacingOccurrences(of: "/", with: "-")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        guard (try? data.write(to: url)) != nil else { return }
+        let url = picked.url.deletingLastPathComponent().appendingPathComponent(name)
+        try? FileManager.default.moveItem(at: picked.url, to: url)
         HoloLauncher.shared.present(.file(url, name: name, mime: type.preferredMIMEType ?? "application/octet-stream",
                                           kind: isVideo ? "video" : "image"))
     }
@@ -345,6 +348,21 @@ struct HoloDropPage: View {
         } else {
             UIPasteboard.general.string = e.text.isEmpty ? e.url : e.text
             problem = "Copied."
+        }
+    }
+}
+
+/// A Photos pick as a file in Holo Drop's temp folder (streamed by the system, not loaded into memory).
+struct HoloPickedFile: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .item) { received in
+            let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dest = dir.appendingPathComponent(received.file.lastPathComponent)
+            try FileManager.default.copyItem(at: received.file, to: dest)
+            return HoloPickedFile(url: dest)
         }
     }
 }

@@ -82,6 +82,13 @@ final class HoloBeacons {
 
     // MARK: flash
 
+    /// When each flash frame starts: fixed deadlines from the first (start + i × 100 ms), so a
+    /// late wake-up never pushes the frames after it.
+    nonisolated static func flashFrameStarts(count: Int, from start: ContinuousClock.Instant) -> [ContinuousClock.Instant] {
+        let step = Int((1000 / HoloBeaconCode.flashHz).rounded())
+        return (0..<count).map { start.advanced(by: .milliseconds(step * $0)) }
+    }
+
     private func flash(_ nonce: String) {
         stop()
         let frames = HoloBeaconCode.flashFrames(nonce)
@@ -103,12 +110,15 @@ final class HoloBeacons {
             w.orderFrontRegardless()
             return w
         }
+        let starts = Self.flashFrameStarts(count: frames.count + 1, from: .now)   // + the end
         flashTask = Task { @MainActor [weak self] in
-            for bit in frames {
+            for (i, bit) in frames.enumerated() {
+                try? await Task.sleep(until: starts[i], tolerance: .milliseconds(2), clock: .continuous)
                 guard let self, !Task.isCancelled else { return }
                 for w in self.flashWindows { w.contentView?.alphaValue = bit ? 0.10 : 0 }
-                try? await Task.sleep(for: .milliseconds(Int(1000 / HoloBeaconCode.flashHz)))
             }
+            try? await Task.sleep(until: starts[frames.count], tolerance: .milliseconds(2), clock: .continuous)
+            guard !Task.isCancelled else { return }
             self?.stop()
         }
     }

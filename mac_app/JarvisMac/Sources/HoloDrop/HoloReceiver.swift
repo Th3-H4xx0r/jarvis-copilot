@@ -34,9 +34,11 @@ struct HoloArrivalPlan: Equatable {
         return p
     }
 
-    /// Files of these kinds never open by themselves.
+    /// Files of these kinds never open by themselves. Judged on the name as it's written to disk
+    /// (`HoloFiles.safeName`: control and format characters gone, spaces trimmed), so
+    /// "run.terminal\u{7}" or "x.terminal " can't slip past as an unknown extension.
     static func isExecutable(name: String, mime: String) -> Bool {
-        let ext = (name as NSString).pathExtension.lowercased()
+        let ext = (HoloFiles.safeName(name) as NSString).pathExtension.lowercased()
         if ["app", "command", "tool", "sh", "zsh", "bash", "pkg", "mpkg", "dmg", "scpt", "applescript",
             "workflow", "terminal", "jar", "py", "rb", "pl", "action", "prefpane", "kext", "webloc",
             "fileloc", "inetloc", "shortcut"].contains(ext) { return true }
@@ -44,6 +46,16 @@ struct HoloArrivalPlan: Equatable {
             return t.conforms(to: .executable) || t.conforms(to: .applicationBundle) || t.conforms(to: .script)
         }
         return mime == "application/x-executable" || mime == "application/x-mach-binary"
+    }
+
+    /// The written file itself: its final name, the type macOS sees, or an executable bit.
+    static func unsafeToOpen(_ file: URL) -> Bool {
+        if isExecutable(name: file.lastPathComponent, mime: "") { return true }
+        if let type = try? file.resourceValues(forKeys: [.contentTypeKey]).contentType,
+           type.conforms(to: .executable) || type.conforms(to: .applicationBundle) || type.conforms(to: .script) {
+            return true
+        }
+        return FileManager.default.isExecutableFile(atPath: file.path)
     }
 }
 
@@ -67,7 +79,7 @@ final class HoloReceiver {
     func land(_ drop: HoloDropRecord, fromName: String, file: URL? = nil, api: HoloDropAPI?) async -> (HoloOutcome, String?) {
         let action = drop.action ?? .open
         let executable = HoloArrivalPlan.isExecutable(name: drop.name, mime: drop.mime)
-        let plan = HoloArrivalPlan.make(drop, action: action, executable: executable)
+        var plan = HoloArrivalPlan.make(drop, action: action, executable: executable)
         let card = HoloCardModel(drop: drop, fromName: fromName)
         HoloCards.shared.show(card)
 
@@ -79,9 +91,15 @@ final class HoloReceiver {
                 if let file { tmp = file } else if let api { tmp = try await api.content(drop.id) } else {
                     throw HoloFailure.notReachable
                 }
-                local = try Self.intoInbox(tmp, drop: drop)
-                card.file = local
+                let written = try Self.intoInbox(tmp, drop: drop)
+                local = written
+                card.file = written
                 card.loadThumbnail()
+                // Decide on what's actually on disk now, not the name the sender gave.
+                if plan.open, HoloArrivalPlan.unsafeToOpen(written) {
+                    plan.open = false
+                    plan.openHeld = true
+                }
             } catch {
                 let why = (error as? HoloFailure)?.message ?? error.localizedDescription
                 card.state = .failed(why)

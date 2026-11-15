@@ -112,17 +112,23 @@ final class HoloLook: NSObject, ObservableObject {
     private var fov = 60.0
 
     /// Starts the camera, calls `ask` (the Mac flashes), watches `seconds`, finds the flash.
+    private var cancelled = false
+
     func look(nonce: String, seconds: Double = 2.6, ask: @escaping () async -> Void) async -> Reading? {
-        guard await AVCaptureDevice.requestAccess(for: .video), configure() else { return nil }
+        cancelled = false
+        guard await AVCaptureDevice.requestAccess(for: .video), !cancelled, configure() else { return nil }
         running = true
         let s = session
         queue.async { s.startRunning() }
         try? await Task.sleep(for: .milliseconds(500))         // exposure settles before the flash
+        guard !cancelled else { stop(); return nil }           // the popup closed meanwhile
         lockExposure()
         collector.reset()
         await ask()
         try? await Task.sleep(for: .seconds(seconds))
+        let wasCancelled = cancelled
         stop()
+        if wasCancelled { return nil }
         let (frames, times) = collector.take()
         guard let hit = HoloFlashDetector.detect(frames: frames, times: times, cols: GridCollector.cols,
                                                  code: HoloBeaconCode.flashFrames(nonce)) else { return nil }
@@ -131,6 +137,7 @@ final class HoloLook: NSObject, ObservableObject {
     }
 
     func stop() {
+        cancelled = true
         running = false
         let s = session
         queue.async { if s.isRunning { s.stopRunning() } }

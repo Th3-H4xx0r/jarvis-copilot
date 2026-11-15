@@ -78,6 +78,7 @@ targets:
       - path: Sources/HoloDrop/HoloDropModels.swift
       - path: Sources/HoloDrop/HoloDropAPI.swift
       - path: Sources/HoloDrop/HoloOrbitView.swift
+      - path: Sources/HoloDrop/HoloTemp.swift
       - path: ../../ios_app/JarvisCopilot/Copilot/Shared/JcAccent.swift
     settings:
       base:

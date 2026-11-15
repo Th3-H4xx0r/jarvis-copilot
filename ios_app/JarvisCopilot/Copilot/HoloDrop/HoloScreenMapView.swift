@@ -19,12 +19,11 @@ struct HoloScreenMapView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.2)))
                     if let screen = model.screen {
                         ForEach(Array(screen.windows.enumerated()), id: \.offset) { _, w in
+                            let f = HoloScreenMapView.frame(of: w, in: size)
                             RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.18))
                                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.03)))
-                                .frame(width: w.rect.width / screen.size.width * size.width,
-                                       height: w.rect.height / screen.size.height * size.height)
-                                .offset(x: w.rect.minX / screen.size.width * size.width,
-                                        y: w.rect.minY / screen.size.height * size.height)
+                                .frame(width: f.width, height: f.height)
+                                .offset(x: f.minX, y: f.minY)
                         }
                     }
                     RoundedRectangle(cornerRadius: 6)
@@ -66,6 +65,12 @@ struct HoloScreenMapView: View {
     }
 
     /// The landing spot: where he dragged, nudged by tilt.
+    /// A window's outline on the map: the Mac reports windows as 0–1 fractions of its display.
+    static func frame(of w: HoloScreen.Window, in size: CGSize) -> CGRect {
+        CGRect(x: w.rect.minX * size.width, y: w.rect.minY * size.height,
+               width: w.rect.width * size.width, height: w.rect.height * size.height)
+    }
+
     static func combined(_ aim: HoloPosition, tilt: CGSize) -> HoloPosition {
         HoloPosition(x: aim.x + tilt.width, y: aim.y + tilt.height).clamped()
     }
