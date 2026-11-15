@@ -49,3 +49,14 @@ def test_schtasks_load_unload_and_running(monkeypatch):
     i_dis = calls.index(("/Change", "/TN", "\\JarvisCopilot\\jc-client", "/DISABLE"))
     assert i_dis < calls.index(("/End", "/TN", "\\JarvisCopilot\\jc-client"))
     assert calls.index(("/Change", "/TN", "\\JarvisCopilot\\jc-client", "/ENABLE")) < calls.index(("/Run", "/TN", "\\JarvisCopilot\\jc-client"))
+
+
+def test_windows_powershell_scripts_are_ascii():
+    """Windows PowerShell 5.1 reads a BOM-less script as Windows-1252: the UTF-8 bytes of an
+    em dash end in 0x94, a curly quote it treats as a real quote, and the script stops parsing."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    for rel in ("desktop_client/installers/install-windows.ps1", "scripts/windows/setup-pc.ps1"):
+        path = root / rel
+        if path.exists():
+            assert path.read_bytes().isascii(), rel

@@ -1,5 +1,5 @@
 # ============================================================================
-# JarvisCopilot Desktop Client — Windows installer
+# JarvisCopilot Desktop Client - Windows installer
 # ============================================================================
 # Installs the client under %LOCALAPPDATA%\Programs\jc-client, drops a
 # jc-client.cmd shim on PATH (WindowsApps), creates Start Menu +
@@ -78,12 +78,12 @@ Info "Installing jarviscopilot-client ..."
 & $VenvPy -m pip install -e (Join-Path $SrcDir 'desktop_client') -q --progress-bar off
 
 # --- Mutagen sync engine (coding-session file sync) -------------------------
-# Best-effort: a network hiccup must not fail the install — `jc-client update`
+# Best-effort: a network hiccup must not fail the install - `jc-client update`
 # and the first sync both re-attempt it.
 Info "Installing Mutagen sync engine (for coding-session file sync) ..."
 $JcExeEarly = Join-Path $VenvDir 'Scripts\jc-client.exe'
 try { & $JcExeEarly install-mutagen } catch {
-    Warn "Mutagen not installed (no network?) — run 'jc-client install-mutagen' later; coding-session sync needs it."
+    Warn "Mutagen not installed (no network?) - run 'jc-client install-mutagen' later; coding-session sync needs it."
 }
 
 # --- PATH shim --------------------------------------------------------------
@@ -96,7 +96,7 @@ if (Test-Path $JcExe) {
 }
 Info "CLI shim placed at $Shim"
 
-# --- Start Menu shortcut → tray (the Jarvis Windows app replaces it once installed) ---
+# --- Start Menu shortcut -> tray (the Jarvis Windows app replaces it once installed) ---
 $Shell      = New-Object -ComObject WScript.Shell
 $StartMenu  = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\JarvisCopilot Client.lnk'
 $Sc = $Shell.CreateShortcut($StartMenu)
@@ -127,7 +127,7 @@ Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action
 Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"
 
 # Paired already: the task runs the service now, and the tray (started after its pid file
-# exists) only shows it — never a second service. Not paired: the tray's pairing dialog runs
+# exists) only shows it - never a second service. Not paired: the tray's pairing dialog runs
 # the service itself this time; the task takes over from the next logon.
 $Paired = (& $JcExe status 2>$null | Select-String -Pattern 'paired:\s+yes' -Quiet)
 if ($Paired) {
