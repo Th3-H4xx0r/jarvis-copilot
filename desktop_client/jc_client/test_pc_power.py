@@ -142,3 +142,23 @@ def test_service_routes_app_power_requests_to_pc_power(monkeypatch):
             break
         time.sleep(0.02)
     assert rig.locks == [1]
+
+
+
+def test_keep_awake_is_held_and_released_by_one_thread():
+    """Review 2026-11-15: SetThreadExecutionState is per thread, so the same thread must set and clear it."""
+    import threading
+    seen = []
+    p = PcPower(lambda f: True, set_state=lambda flags: seen.append((flags, threading.get_ident())) or 1,
+                lock=lambda: None, suspend=lambda: None, probe=lambda: ({}, ""), battery=lambda: (None, None))
+    threading.Thread(target=lambda: p.keep_awake(True)).start()
+    import time
+    for _ in range(100):
+        if seen:
+            break
+        time.sleep(0.01)
+    t = threading.Thread(target=lambda: p.keep_awake(False))
+    t.start()
+    t.join(3)
+    assert [f for f, _ in seen] == [0x80000001, 0x80000000]
+    assert seen[0][1] == seen[1][1]

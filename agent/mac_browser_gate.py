@@ -28,7 +28,7 @@ _MAC_TOOL_PREFIXES = ("chrome_", "device_chrome_", "mcp_playwright_desktop", "mc
 # screen / mouse / keyboard skills — follows the same rule.
 _MAC_CONTROL_PREFIXES = ("computer_do", "device_ui_", "device_mouse_", "device_type_text", "device_key_",
                          "device_system_command", "device_run_shell", "device_quit_app", "device_focus_window")
-_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop|gaming\s+pc|windows(?:\s+pc)?|pc)"
+_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop|gaming\s+pc|windows\s+pc|pc)"
 _BROWSER = r"(?:chrome|browser)"
 _ASKS = (
     # "on my mac", "in Chrome on the Mac", "pull up kayak on my MacBook"

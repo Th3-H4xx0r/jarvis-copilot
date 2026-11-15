@@ -23,11 +23,13 @@ log = logging.getLogger(__name__)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _ps(script: str, *, timeout: float = 15.0) -> str:
-    """Run a PowerShell snippet, return stdout stripped of trailing newline."""
+def _ps(script: str, *, timeout: float = 15.0, env: dict | None = None) -> str:
+    """Run a PowerShell snippet, return stdout stripped of trailing newline. Values from
+    outside (a model's app name) go in ``env``, read as $env:NAME — never into the script."""
     res = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True, text=True, timeout=timeout, check=False, creationflags=_NO_WINDOW,
+        env={**os.environ, **env} if env else None,
     )
     if res.returncode != 0 and res.stderr.strip():
         raise RuntimeError(res.stderr.strip()[:500])
@@ -36,6 +38,15 @@ def _ps(script: str, *, timeout: float = 15.0) -> str:
 
 def _user32():
     return ctypes.windll.user32  # type: ignore[attr-defined]
+
+
+def _com_init() -> None:
+    """COM on this (executor) thread: comtypes/pythoncom set it up only on the importing thread."""
+    try:
+        import pythoncom  # type: ignore
+        pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+    except Exception:  # noqa: BLE001 — already initialised, or pywin32 missing
+        pass
 
 
 # ── App control ────────────────────────────────────────────────────────────
@@ -51,8 +62,7 @@ def _user32():
 def open_app(name: str) -> dict:
     if not name:
         raise ValueError("name required")
-    safe = name.replace("'", "''")
-    _ps(f"Start-Process -FilePath '{safe}'")
+    _ps("Start-Process -FilePath $env:JC_APP", env={"JC_APP": name})
     return {"ok": True, "name": name}
 
 
@@ -243,12 +253,14 @@ def _press_vk(vk: int) -> None:
     u.keybd_event(vk, 0, 2, 0)   # KEYEVENTF_KEYUP
 
 
-def _playing_apps() -> list:
-    """Apps whose audio session is making sound right now (peak meter), e.g. ["Spotify.exe"]."""
+def _playing_apps():
+    """Apps whose audio session is making sound right now (peak meter), e.g. ["Spotify.exe"];
+    None when it can't tell (then play/pause just press the key, as on the Mac)."""
+    _com_init()
     try:
         from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
     except Exception:  # noqa: BLE001
-        return []
+        return None
     out = set()
     try:
         sessions = AudioUtilities.GetAllSessions()
@@ -262,6 +274,7 @@ def _playing_apps() -> list:
             time.sleep(0.1)
     except Exception:  # noqa: BLE001
         log.debug("audio session scan failed", exc_info=True)
+        return None
     return sorted(out)
 
 
@@ -276,7 +289,7 @@ def _playing_apps() -> list:
 )
 def media_control(action: str) -> dict:
     apps = _playing_apps()
-    vk, out = media_plan(action, bool(apps))
+    vk, out = media_plan(action, None if apps is None else bool(apps))
     if vk is not None:
         _press_vk(vk)
     if apps and out.get("action") == "status":
@@ -298,7 +311,7 @@ def spotify_play(uri: str) -> dict:
     os.startfile(uri)   # type: ignore[attr-defined]  # Spotify's URI handler opens and plays it
     for _ in range(20):
         time.sleep(0.5)
-        if any(a.lower() == "spotify.exe" for a in _playing_apps()):
+        if any(a.lower() == "spotify.exe" for a in (_playing_apps() or [])):
             return {"ok": True, "uri": uri, "playing": True}
     return {"ok": True, "uri": uri, "playing": False}
 
@@ -318,6 +331,7 @@ def speak_local(text: str, voice: str = "") -> dict:
     text = text[:500]
 
     def run():
+        _com_init()
         try:
             import win32com.client  # type: ignore
             sp = win32com.client.Dispatch("SAPI.SpVoice")

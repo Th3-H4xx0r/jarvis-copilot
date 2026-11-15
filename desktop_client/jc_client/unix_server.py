@@ -131,16 +131,21 @@ class UnixSocketServer:
         """tcp mode: the first line must carry the token, or the connection is closed."""
         buf = b""
         try:
-            conn.settimeout(AUTH_TIMEOUT)
+            import time as _time
+            deadline = _time.monotonic() + AUTH_TIMEOUT   # the whole handshake, not each recv
             while b"\n" not in buf and len(buf) < _AUTH_MAX:
+                left = deadline - _time.monotonic()
+                if left <= 0:
+                    break
+                conn.settimeout(left)
                 chunk = conn.recv(_AUTH_MAX)
                 if not chunk:
                     break
                 buf += chunk
             line, _, rest = buf.partition(b"\n")
             token = str((json.loads(line) or {}).get("auth") or "") if line.strip() else ""
-            ok = bool(token) and hmac.compare_digest(token, self._token)
-        except (OSError, ValueError, AttributeError):
+            ok = bool(token) and hmac.compare_digest(token.encode("utf-8"), self._token.encode("ascii"))
+        except (OSError, ValueError, AttributeError, TypeError):
             ok, rest = False, b""
         if not ok:
             try:
@@ -215,10 +220,17 @@ def _win_tcp_owner(local_port: int, remote_port: int) -> int:
 
     iphlpapi = ctypes.windll.iphlpapi
     size = wintypes.DWORD(0)
-    AF_INET, TCP_TABLE_OWNER_PID_ALL = 2, 5
+    AF_INET, TCP_TABLE_OWNER_PID_ALL, ERROR_INSUFFICIENT_BUFFER = 2, 5, 122
     iphlpapi.GetExtendedTcpTable(None, ctypes.byref(size), False, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
-    buf = ctypes.create_string_buffer(size.value)
-    if iphlpapi.GetExtendedTcpTable(buf, ctypes.byref(size), False, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0):
+    for _ in range(4):   # the table can grow between the size call and the read: retry with room
+        size = wintypes.DWORD(size.value + 4096)
+        buf = ctypes.create_string_buffer(size.value)
+        rc = iphlpapi.GetExtendedTcpTable(buf, ctypes.byref(size), False, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
+        if rc == 0:
+            break
+        if rc != ERROR_INSUFFICIENT_BUFFER:
+            return 0
+    else:
         return 0
     count = wintypes.DWORD.from_buffer(buf).value
     rows = ctypes.cast(ctypes.addressof(buf) + ctypes.sizeof(wintypes.DWORD), ctypes.POINTER(Row))

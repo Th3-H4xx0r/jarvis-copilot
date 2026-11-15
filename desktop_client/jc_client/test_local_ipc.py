@@ -188,3 +188,46 @@ def test_peer_pid_of_tcp_client_is_self(d):
     finally:
         srv.close()
     assert got["pid"] == os.getpid()
+
+
+def test_slow_dribble_auth_is_cut_at_the_total_deadline(d, monkeypatch):
+    """Review 2026-11-15: the auth timeout covers the whole handshake, not each recv."""
+    monkeypatch.setattr(unix_server, "AUTH_TIMEOUT", 0.6)
+    srv = Echo(os.path.join(d, "ui.sock"), mode="tcp")
+    srv.start()
+    try:
+        ep = _endpoint(srv.path)
+        s = socket.create_connection(("127.0.0.1", ep["port"]), timeout=3)
+        started = time.monotonic()
+        closed = False
+        for ch in b'{"auth":"' + b"a" * 20:
+            try:
+                s.sendall(bytes([ch]))
+            except OSError:
+                closed = True
+                break
+            time.sleep(0.15)
+            s.settimeout(0.01)
+            try:
+                if s.recv(1) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                pass
+        assert closed and time.monotonic() - started < 2.5
+        s.close()
+    finally:
+        srv.close()
+
+
+def test_non_ascii_token_is_refused_not_crashing(d):
+    srv = Echo(os.path.join(d, "ui.sock"), mode="tcp")
+    srv.start()
+    try:
+        ep = _endpoint(srv.path)
+        s = socket.create_connection(("127.0.0.1", ep["port"]), timeout=2)
+        s.sendall('{"auth":"\u00e9\u00e9"}\n'.encode())
+        assert _recv_all(s) == b""
+        s.close()
+    finally:
+        srv.close()

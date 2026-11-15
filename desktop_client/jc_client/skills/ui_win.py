@@ -400,7 +400,9 @@ class _WinBackend:
         info = LASTINPUTINFO()
         info.cbSize = ctypes.sizeof(LASTINPUTINFO)
         ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info))
-        return max(0.0, (ctypes.windll.kernel32.GetTickCount() - info.dwTime) / 1000.0)
+        tick = ctypes.windll.kernel32.GetTickCount
+        tick.restype = ctypes.c_uint32   # unsigned: it wraps after ~49.7 days, signed after 24.9
+        return ((tick() - info.dwTime) & 0xFFFFFFFF) / 1000.0
 
     def click(self, x: float, y: float, count: int = 1) -> None:
         from jc_client.skills.common import _mouse
@@ -448,6 +450,26 @@ def _backend():
 
 # ── skills (Windows only; same names, schemas and results as skills/ui.py) ──
 
+_UIA_POOL = None
+
+
+def _on_uia_thread(fn, *args, **kw):
+    """Every UI Automation call on ONE thread with COM set up (skills arrive on executor
+    threads without COM, and UIA elements must stay on the thread that found them)."""
+    global _UIA_POOL
+    if _UIA_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def init():
+            try:
+                import comtypes
+                comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+            except Exception:  # noqa: BLE001
+                log.debug("COM init on the UIA thread failed", exc_info=True)
+        _UIA_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="uia", initializer=init)
+    return _UIA_POOL.submit(fn, *args, **kw).result(timeout=60)
+
+
 def _register() -> None:
     from jc_client.skills import skill
 
@@ -461,7 +483,7 @@ def _register() -> None:
         }},
     )
     def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
-        return read_window(app=app, max_elements=max_elements)
+        return _on_uia_thread(read_window, app=app, max_elements=max_elements)
 
     @skill(
         "ui_do",
@@ -486,8 +508,8 @@ def _register() -> None:
     def ui_do(action: str, look_id: str | None = None, element: int | None = None, text: str | None = None,
               keys: str | None = None, direction: str | None = None, x: float | None = None, y: float | None = None,
               app: str | None = None, look: bool = True, url: str | None = None) -> dict:
-        return do_and_look(action, look_after=look, look_id=look_id, element=element, text=text, keys=keys,
-                           direction=direction, x=x, y=y, app=app, url=url)
+        return _on_uia_thread(do_and_look, action, look_after=look, look_id=look_id, element=element, text=text,
+                              keys=keys, direction=direction, x=x, y=y, app=app, url=url)
 
 
 if sys.platform == "win32":

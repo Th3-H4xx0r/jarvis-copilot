@@ -113,18 +113,31 @@ $OldStartup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Star
 if (Test-Path $OldStartup) { Remove-Item $OldStartup -Force }
 $Action   = New-ScheduledTaskAction -Execute $JcExe -Argument 'start --no-tray' -WorkingDirectory $Dir
 $Trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+# Every 5 minutes "start it if it isn't running" (IgnoreNew below): Task Scheduler's own restart
+# covers a task that fails to start, not a client that crashes later.
+$Watch    = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $Settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action $Action -Trigger $Trigger `
+Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action $Action -Trigger @($Trigger, $Watch) `
     -Settings $Settings -Principal $Principal -Force | Out-Null
 Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"
 
-# Pair first if needed (the tray opens the pairing dialog), then the task runs the service.
+# Paired already: the task runs the service now, and the tray (started after its pid file
+# exists) only shows it — never a second service. Not paired: the tray's pairing dialog runs
+# the service itself this time; the task takes over from the next logon.
+$Paired = (& $JcExe status 2>$null | Select-String -Pattern 'paired:\s+yes' -Quiet)
+if ($Paired) {
+    Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
+    $PidFile = Join-Path $env:USERPROFILE '.jarviscopilot-client\jc-client.pid'
+    for ($i = 0; $i -lt 30 -and -not (Test-Path $PidFile); $i++) { Start-Sleep -Milliseconds 500 }
+} else {
+    Disable-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' | Out-Null
+    Info "Pair in the dialog; the client starts at your next sign-in (or run: jc-client start)"
+}
 Info "Launching tray ..."
 $null = Start-Process -WindowStyle Hidden -FilePath $JcExe -ArgumentList 'tray'
-Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
 
 Ok "Installed at $Dir"
 Write-Host ""

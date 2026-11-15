@@ -45,3 +45,7 @@ def test_schtasks_load_unload_and_running(monkeypatch):
     cli._supervisor_unload()
     assert ("/Run", "/TN", "\\JarvisCopilot\\jc-client") in calls
     assert ("/End", "/TN", "\\JarvisCopilot\\jc-client") in calls
+    # stop disables the task (its 5-minute watch would start it again); start enables it first
+    i_dis = calls.index(("/Change", "/TN", "\\JarvisCopilot\\jc-client", "/DISABLE"))
+    assert i_dis < calls.index(("/End", "/TN", "\\JarvisCopilot\\jc-client"))
+    assert calls.index(("/Change", "/TN", "\\JarvisCopilot\\jc-client", "/ENABLE")) < calls.index(("/Run", "/TN", "\\JarvisCopilot\\jc-client"))

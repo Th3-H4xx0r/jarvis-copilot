@@ -206,6 +206,7 @@ def _supervisor_load() -> None:
             capture_output=True, text=True, check=False,
         )
     elif kind == "schtasks":
+        _schtasks("/Change", "/TN", _SCHTASK, "/ENABLE")   # stop disabled it (its 5-min watch)
         _schtasks("/Run", "/TN", _SCHTASK)
 
 
@@ -222,6 +223,7 @@ def _supervisor_unload() -> None:
             capture_output=True, text=True, check=False,
         )
     elif kind == "schtasks":
+        _schtasks("/Change", "/TN", _SCHTASK, "/DISABLE")   # else the 5-min watch starts it again
         _schtasks("/End", "/TN", _SCHTASK)
 
 

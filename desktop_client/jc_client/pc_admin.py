@@ -25,10 +25,15 @@ def platform_name(platform: str | None = None) -> str:
     return "linux"
 
 
-APP_EXE_SUFFIX = "\\programs\\jarvis\\app\\jarvis.exe"
+def app_exe_path(localappdata: str | None = None) -> str:
+    """Where the Jarvis Windows app is installed (C5): %LOCALAPPDATA%\\Programs\\Jarvis\\app\\Jarvis.exe."""
+    import ntpath
+    import os
+    base = localappdata if localappdata is not None else os.environ.get("LOCALAPPDATA", "")
+    return ntpath.join(base, "Programs", "Jarvis", "app", "Jarvis.exe") if base else ""
 
 
-def is_jarvis_app(pid: int, exe_of: Callable[[int], str] | None = None) -> bool:
+def is_jarvis_app(pid: int, exe_of: Callable[[int], str] | None = None, expected: str | None = None) -> bool:
     """Whether the link peer is the installed Jarvis Windows app (the only one allowed to ask
     for admin actions: the endpoint token alone is readable by any process of this user)."""
     if not pid:
@@ -37,16 +42,23 @@ def is_jarvis_app(pid: int, exe_of: Callable[[int], str] | None = None) -> bool:
         def exe_of(p: int) -> str:
             import psutil
             return psutil.Process(p).exe()
+    import ntpath
+    want = expected if expected is not None else app_exe_path()
+    if not want:
+        return False
     try:
-        return str(exe_of(int(pid)) or "").lower().endswith(APP_EXE_SUFFIX)
+        got = str(exe_of(int(pid)) or "")
     except Exception:  # noqa: BLE001
         return False
+    # The whole path, not its ending: a copy under %TEMP%\\programs\\jarvis\\app\\ must not pass.
+    return ntpath.normcase(ntpath.normpath(got)) == ntpath.normcase(ntpath.normpath(want))
 
 
 def win_elevate(command: str) -> int:
     """Start ``command`` elevated through cmd.exe; Windows shows UAC. >32 = started."""
     import ctypes
-    return int(ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", "/c " + command, None, 1))
+    # /s /c "…": cmd keeps the command's own quotes ("C:\\Program Files\\x.exe" "arg").
+    return int(ctypes.windll.shell32.ShellExecuteW(None, "runas", "cmd.exe", '/s /c "' + command + '"', None, 1))
 
 
 class PcAdmin:

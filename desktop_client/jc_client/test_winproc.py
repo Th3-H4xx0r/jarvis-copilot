@@ -113,3 +113,14 @@ def test_tray_never_signals_to_check_a_pid_on_windows(monkeypatch):
     monkeypatch.setattr(tray.os, "kill", lambda *a: pytest.fail("os.kill(pid, 0) terminates on Windows"))
     monkeypatch.setattr(winproc, "pid_alive", lambda pid: pid == 11)
     assert tray._pid_alive(11) is True and tray._pid_alive(12) is False
+
+
+
+def test_terminal_lines_are_powershell_safe_on_windows(monkeypatch):
+    monkeypatch.setattr(local_runtime.sys, "platform", "win32")
+    assert local_runtime._shell_quote("don't stop") == "'don''t stop'"
+    ran = []
+    rt = local_runtime.LocalRuntime(run=lambda argv, **kw: ran.append(argv) or subprocess.CompletedProcess(argv, 0),
+                                    claude_bin="claude")
+    rt.open_in_terminal(r"C:\app", "codex 'a; b'", {"term_program": "windows-terminal"})
+    assert ran[0][-1] == "codex 'a\\; b'"   # wt.exe would split at a bare ";"

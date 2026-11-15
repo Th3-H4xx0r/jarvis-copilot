@@ -734,6 +734,8 @@ class Service:
     def run(self) -> int:
         """Main loop. Returns shell exit code on stop."""
         log.info("jc-client service starting")
+        if sys.platform == "win32":
+            _win_dpi_aware()   # real pixels: window rects must match the screenshots (ui_look)
         # Load the skill registry exactly once, here in run(), so every
         # caller — module-level run(), run_with_handle(), the tray that
         # creates a Service() directly, embedded tests — ends up with a
@@ -1270,6 +1272,18 @@ def _relay_mcp_enabled() -> bool:
     (chrome_* device skills) is the supported path. Opt back in with
     ``browser_relay_mcp: true`` in ~/.jarviscopilot-client/config.yaml."""
     return bool(credentials.config_value("browser_relay_mcp"))
+
+
+def _win_dpi_aware() -> None:
+    """Per-monitor DPI aware, so GetWindowRect and screen grabs agree at 125–150% scaling."""
+    try:
+        import ctypes
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)   # PROCESS_PER_MONITOR_DPI_AWARE
+        except Exception:  # noqa: BLE001
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:  # noqa: BLE001
+        log.debug("DPI awareness unavailable", exc_info=True)
 
 
 def _game_state_dict(state) -> dict:

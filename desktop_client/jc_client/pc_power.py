@@ -148,6 +148,7 @@ class PcPower:
         self._probe_fn = probe
         self._battery = battery
         self._keep = False
+        self._holder = None   # (thread, release event) while keep-awake is on
         self._probed: Optional[tuple] = None
         self._state_lock = threading.Lock()
         self._stop = threading.Event()
@@ -155,10 +156,34 @@ class PcPower:
 
     # ── state ────────────────────────────────────────────────────────────
     def keep_awake(self, on: bool) -> dict:
+        """SetThreadExecutionState holds only for the thread that calls it, and requests come in
+        on any thread: one holder thread sets it and clears it, so off really lets the PC sleep."""
         with self._state_lock:
             self._keep = bool(on)
-        self._set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED if on else ES_CONTINUOUS)
+            holder = self._holder
+            if on and holder is None:
+                release = threading.Event()
+                ready = threading.Event()
+                self._holder = (threading.Thread(target=self._hold, args=(release, ready), daemon=True,
+                                                 name="pc-keep-awake"), release)
+                self._holder[0].start()
+                holder_ready = ready
+            elif not on and holder is not None:
+                self._holder = None
+                holder[1].set()
+                holder[0].join(timeout=2)
+                holder_ready = None
+            else:
+                holder_ready = None
+        if holder_ready is not None:
+            holder_ready.wait(timeout=2)
         return {"ok": True, "keep_awake": bool(on)}
+
+    def _hold(self, release: threading.Event, ready: threading.Event) -> None:
+        self._set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        ready.set()
+        release.wait()
+        self._set_state(ES_CONTINUOUS)
 
     def _wake_and_mac(self) -> tuple:
         if self._probed is None:
@@ -231,7 +256,4 @@ class PcPower:
     def close(self) -> None:
         self._stop.set()
         if self._keep:
-            try:
-                self._set_state(ES_CONTINUOUS)
-            except Exception:  # noqa: BLE001
-                pass
+            self.keep_awake(False)

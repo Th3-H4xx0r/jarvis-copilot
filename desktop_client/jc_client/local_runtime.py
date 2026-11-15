@@ -39,6 +39,13 @@ def _alive(pid) -> bool:
         return False
 
 
+def _shell_quote(arg: str) -> str:
+    """One argument for the terminal's shell: PowerShell single quotes on Windows, POSIX elsewhere."""
+    if sys.platform == "win32":
+        return "'" + str(arg).replace("'", "''") + "'"
+    return shlex.quote(arg)
+
+
 def _cd_line(cwd: str, cmd: str) -> str:
     """``cmd`` run in ``cwd`` as one shell line: POSIX ``cd … && …``; on Windows PowerShell
     (VS Code's and Windows Terminal's default shell; Windows PowerShell has no ``&&``)."""
@@ -140,7 +147,7 @@ class LocalRuntime:
         cwd = os.path.expanduser(cwd)
         os.makedirs(cwd, exist_ok=True)
         if agent == "codex":
-            cmd = self._codex + ((" " + shlex.quote(prompt)) if prompt else "")
+            cmd = self._codex + ((" " + _shell_quote(prompt)) if prompt else "")
             self.open_in_terminal(cwd, cmd, terminal or {"term_program": "vscode"})
             return ""
         self.ensure_trusted(cwd)
@@ -179,7 +186,7 @@ class LocalRuntime:
             shell = self._vscode.terminal_pid_for(int(stale_pid)) if stale_pid else None
             if shell:
                 self.stop_pid(stale_pid)
-                if self._vscode.send_text(shell, f"cd {shlex.quote(cwd)} && {cmd}"):
+                if self._vscode.send_text(shell, _cd_line(cwd, cmd)):
                     return "vscode"
             if self._vscode.run_in_terminal(cwd, cmd):
                 return "vscode"
@@ -198,7 +205,8 @@ class LocalRuntime:
                 return "vscode"
         if sys.platform == "win32":
             # Windows Terminal, a new tab in the open window, in the folder (PowerShell).
-            argv = ["wt.exe", "-w", "0", "nt", "-d", cwd, "powershell", "-NoExit", "-Command", cmd]
+            # wt.exe splits its own arguments at a bare ";" — escape it so the command stays whole.
+            argv = ["wt.exe", "-w", "0", "nt", "-d", cwd, "powershell", "-NoExit", "-Command", cmd.replace(";", "\\;")]
             try:
                 out = self._run(argv, capture_output=True, timeout=15)
                 if int(getattr(out, "returncode", 1) or 0) == 0:

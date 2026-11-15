@@ -65,3 +65,18 @@ def test_gate_accepts_pc_as_explicit_target():
     assert mac_browser_gate.explicit_mac_request("use my pc to open spotify")
     assert mac_browser_gate.explicit_mac_request("open notepad on my PC")
     assert mac_browser_gate.explicit_mac_request("on my gaming pc, open steam")
+
+
+def test_plural_windows_is_not_the_pc():
+    # Review 2026-11-15: "windows" (Chrome windows) on the Mac must stay the Mac.
+    row, err = mac.pick_computer([MAC], None, "close the extra Chrome windows on my Mac")
+    assert row is MAC and err == ""
+    assert mac.pick_computer([MAC, PC], None, "close all the windows")[0] is MAC
+
+
+def test_mac_mention_wins_over_pc_words():
+    assert mac.pick_computer([MAC, PC], None, "on my mac, open the photo of my PC build")[0] is MAC
+
+
+def test_gate_does_not_take_plural_windows_as_a_computer():
+    assert not mac_browser_gate.explicit_mac_request("there is dirt in my windows")   # old pattern took this as a computer

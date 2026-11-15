@@ -44,7 +44,8 @@ def _origin(task_id):
         return None
 
 
-_SAYS_PC = re.compile(r"\b(?:gaming\s+pc|windows(?:\s+pc)?|pc)\b", re.I)
+# "the PC", "my gaming PC", "on Windows" — never the plural "windows" (Chrome windows on a Mac).
+_SAYS_PC = re.compile(r"\b(?:gaming\s+pc|windows\s+pc|pc|(?:on|in|using|with)\s+(?:my\s+)?windows(?!\s+(?:of|on|in)\b))\b", re.I)
 _SAYS_MAC = re.compile(r"\bmac(?:book)?\b", re.I)
 
 
@@ -69,7 +70,8 @@ def pick_computer(offers: list, origin, text: str) -> tuple:
                   and str(o.get("device_name")).lower() in low), None)
     if named is not None:
         return named, ""
-    wants = "windows" if _SAYS_PC.search(words) else "macos" if _SAYS_MAC.search(words) else ""
+    # A Mac mention wins: "on my Mac, open the photo of my PC build" is the Mac.
+    wants = "macos" if _SAYS_MAC.search(words) else "windows" if _SAYS_PC.search(words) else ""
     if wants:
         hit = next((o for o in offers if _os_of(o) == wants), None)
         if hit is None:

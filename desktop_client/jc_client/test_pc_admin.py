@@ -141,12 +141,19 @@ def test_admin_run_does_not_hold_up_other_app_requests(tmp_path):
         srv.close()
 
 
-def test_is_jarvis_app_checks_the_installed_exe():
+def test_is_jarvis_app_checks_the_whole_installed_path():
+    local = r"C:\Users\Pranav K\AppData\Local"
+    want = pc_admin.app_exe_path(local)
     good = r"C:\Users\Pranav K\AppData\Local\Programs\Jarvis\app\Jarvis.exe"
-    assert pc_admin.is_jarvis_app(42, lambda p: good)
-    assert not pc_admin.is_jarvis_app(42, lambda p: r"C:\Windows\System32\cmd.exe")
-    assert not pc_admin.is_jarvis_app(0, lambda p: good)
-    assert not pc_admin.is_jarvis_app(42, lambda p: (_ for _ in ()).throw(OSError("gone")))
+    assert want == good
+    assert pc_admin.is_jarvis_app(42, lambda p: good.lower(), expected=want)       # case-insensitive
+    assert not pc_admin.is_jarvis_app(42, lambda p: r"C:\Windows\System32\cmd.exe", expected=want)
+    # Review 2026-11-15: a copy under another folder ending the same way must not pass.
+    fake = r"C:\Users\Pranav K\AppData\Local\Temp\Programs\Jarvis\app\Jarvis.exe"
+    assert not pc_admin.is_jarvis_app(42, lambda p: fake, expected=want)
+    assert not pc_admin.is_jarvis_app(0, lambda p: good, expected=want)
+    assert not pc_admin.is_jarvis_app(42, lambda p: (_ for _ in ()).throw(OSError("gone")), expected=want)
+    assert not pc_admin.is_jarvis_app(42, lambda p: good, expected="")
 
 
 def test_admin_run_from_a_stranger_is_denied(monkeypatch):
