@@ -322,10 +322,14 @@ private struct AgentsSettings: View {
 /// combo replaces the last as you go — then Esc. Show the island can be held
 /// instead of pressed. Talk to Jarvis lives in Settings → Voice.
 struct ShortcutsSettings: View {
+    @State private var holo = HoloDrop.shared
+    @State private var flick = HoloDrop.flick
+
     var body: some View {
         Form {
             Section {
-                ForEach(ShortcutAction.shortcutsTab) { action in
+                // Holo Drop's row only while its Power switch is on.
+                ForEach(ShortcutAction.shortcutsTab.filter { $0 != .holoDrop || holo.on }) { action in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(action.title)
                         Spacer()
@@ -335,6 +339,17 @@ struct ShortcutsSettings: View {
             } footer: {
                 Text("Click a shortcut, press the keys you want, then Esc. ✕ turns one off. Hold: the island shows while the key is down. Talk to Jarvis is in Voice.")
                     .font(.caption)
+            }
+            if holo.on {
+                Section {
+                    Toggle("Flick up with three fingers to Holo Drop", isOn: $flick)
+                        .onChange(of: flick) { _, v in HoloDrop.flick = v }
+                } header: {
+                    Text("Holo Drop")
+                } footer: {
+                    Text("Best effort: macOS keeps most trackpad swipes for itself, and Jarvis needs Accessibility to see the rest. The shortcut, the notch button and the menu always work.")
+                        .font(.caption)
+                }
             }
         }
         .formStyle(.grouped)

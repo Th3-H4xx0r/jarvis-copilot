@@ -28,7 +28,7 @@ fi
 if [ "$PUSH" = 1 ]; then
   SIGN=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration CODE_SIGN_STYLE=Automatic
         DEVELOPMENT_TEAM=VY5CNF8734 CODE_SIGN_IDENTITY="Apple Development"
-        CODE_SIGN_ENTITLEMENTS=Jarvis-push.entitlements)
+        JARVIS_ENTITLEMENTS=Jarvis-push.entitlements)
   echo "signing: automatic, with Wake Mac push"
 else
   echo "signing: manual, no push (add an Apple ID in Xcode → Settings → Accounts for Wake Mac push)"

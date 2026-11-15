@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 
-from jc_client import service
+from jc_client import credentials, service
 
 
 class FakeWs:
@@ -167,6 +167,23 @@ def test_server_topic_frames_reach_the_app():
     svc._ui = FakeUi()
     svc._handle_frame(FakeWs(), {"type": "topic", "topic": "harness_jobs", "data": {"jobs": []}})
     assert svc._ui.sent == [{"type": "topic", "topic": "harness_jobs", "data": {"jobs": []}}]
+
+
+def test_holo_drop_frames_reach_the_app():
+    svc = service.Service()
+    svc._ui = FakeUi()
+    frame = {"type": "holo_drop", "event": "drop", "drop": {"id": "d1", "kind": "link", "url": "https://x.y"}}
+    svc._handle_frame(FakeWs(), frame)
+    assert svc._ui.sent == [frame]
+
+
+def test_hello_tells_the_app_its_paired_device_id(monkeypatch):
+    # Holo Drop's Bluetooth beacon names this Mac by its paired id.
+    monkeypatch.setattr(service.credentials, "load",
+                        lambda: credentials.Credentials(device_id="dev-mac-1", device_name="MacBook"))
+    monkeypatch.setattr(service, "_imessage_api_origin", lambda: None)
+    hello = service.Service()._ui_hello()
+    assert hello["device_id"] == "dev-mac-1" and hello["device_name"] == "MacBook"
 
 
 def test_config_change_is_told_to_the_app(tmp_path, monkeypatch):

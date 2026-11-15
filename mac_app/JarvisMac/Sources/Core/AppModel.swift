@@ -14,6 +14,8 @@ final class AppModel {
 
     private(set) var connected = false
     private(set) var apiOrigin: String?
+    /// This Mac's paired device id (the one the server's device bridge uses); nil from an older jc-client.
+    private(set) var deviceId: String?
     private(set) var voiceDylib: String?
     private(set) var approvalsOn = false
     private(set) var instructionsOn = false
@@ -75,7 +77,8 @@ final class AppModel {
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0, "screen_shares": 0]])
+                link.request(["type": "subscribe", "topics": ["harness_jobs": 0, "app_update": 0, "screen_shares": 0,
+                                                              "holo_drop": 0]])
                 self?.refreshRoster()
             }
         }
@@ -95,6 +98,7 @@ final class AppModel {
         switch J.s(msg["type"]) {
         case "hello":
             apiOrigin = (msg["api"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            deviceId = (msg["device_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             voiceDylib = msg["voice_dylib"] as? String
             approvalsOn = J.b(msg["approvals"])
             instructionsOn = J.b(msg["instructions"])
@@ -106,6 +110,7 @@ final class AppModel {
             onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
             onAppUpdate?(nil)
             refreshPower()
+            HoloDrop.shared.serverReady()
             JcLink.shared.request(["type": "password_pending"]) { [weak self] reply in
                 self?.passwordRequests = J.arr(reply["pending"])
             }
@@ -137,6 +142,10 @@ final class AppModel {
             }
         case "island":
             onIsland?(J.s(msg["tab"], "agents"), msg["text"] as? String)
+        case "holo_drop":
+            // A Holo Drop bridge frame jc-client passed on (a drop, a landing, a screen-map
+            // request, a beacon).
+            HoloDrop.shared.handle(frame: msg)
         case "config":
             approvalsOn = J.b(msg["approvals"])
             instructionsOn = J.b(msg["instructions"])
@@ -150,6 +159,8 @@ final class AppModel {
                 onAppUpdate?(data)
             case "screen_shares":
                 ScreenShareService.shared.poke()  // a share was asked for or ended: look now
+            case "holo_drop":
+                HoloDrop.shared.handle(frame: data)
             default: break
             }
         default:

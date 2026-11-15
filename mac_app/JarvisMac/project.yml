@@ -33,6 +33,8 @@ targets:
     platform: macOS
     dependencies:
       - package: WebRTC
+      # Share → Jarvis (Holo Drop), embedded in Contents/PlugIns.
+      - target: JarvisHoloShare
     sources:
       - path: Sources
       # The one accent colour, shared with the iPhone app and the voice dylib.
@@ -57,10 +59,37 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_MODULE_NAME: Jarvis
         INFOPLIST_FILE: Info.plist
-        CODE_SIGN_ENTITLEMENTS: Jarvis.entitlements
+        # build-app.sh swaps in Jarvis-push.entitlements through JARVIS_ENTITLEMENTS (not
+        # CODE_SIGN_ENTITLEMENTS, which would land on the Share extension too).
+        JARVIS_ENTITLEMENTS: Jarvis.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(JARVIS_ENTITLEMENTS)
         ENABLE_HARDENED_RUNTIME: NO
         GENERATE_INFOPLIST_FILE: NO
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+  # Share → Jarvis: Holo Drop's Orbit popup for whatever was shared. Sandboxed (every app
+  # extension is); reaches Jarvis through jc-client's loopback proxy, whose address the app
+  # writes to ~/.jarviscopilot-client/holo-share.json. No restricted entitlements, so it signs
+  # with the same profile-free Apple Development identity as the app.
+  JarvisHoloShare:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: HoloShare
+      - path: Sources/HoloDrop/HoloDropModels.swift
+      - path: Sources/HoloDrop/HoloDropAPI.swift
+      - path: Sources/HoloDrop/HoloOrbitView.swift
+      - path: ../../ios_app/JarvisCopilot/Copilot/Shared/JcAccent.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac.holoshare
+        PRODUCT_NAME: JarvisHoloShare
+        PRODUCT_MODULE_NAME: JarvisHoloShare
+        INFOPLIST_FILE: HoloShare/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HoloShare/HoloShare.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
   JarvisTests:
     type: bundle.unit-test
     platform: macOS

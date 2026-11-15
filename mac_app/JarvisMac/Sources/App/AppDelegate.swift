@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.onAppUpdate = { AppUpdater.shared.signal($0) }
         model.attach()
+        HoloDrop.shared.start()
         ScreenShareService.shared.start()
         AppUpdater.shared.start()
         MacPowerBridge.start()
@@ -109,6 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var bindings: [HotKeyCenter.Binding] = []
         for action in ShortcutAction.allCases {
             guard let shortcut = action.shortcut else { continue }
+            // Off means off: the keys go back to the app in front.
+            if action == .holoDrop && !HoloDrop.shared.on { continue }
             if action.holds {
                 bindings.append(HotKeyCenter.Binding(
                     shortcut: shortcut,
@@ -175,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recordCall:
             if !NoteTaker.shared.isRecording { FlowWindow.show(.notes) }
             NoteTaker.shared.toggle()
+        case .holoDrop: HoloDrop.shared.grabAndSend()
         }
     }
 

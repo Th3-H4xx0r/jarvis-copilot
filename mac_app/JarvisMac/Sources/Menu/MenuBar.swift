@@ -27,6 +27,7 @@ final class JarvisMenu: NSObject {
     /// Pops the menu where you right-clicked.
     func popUp(in view: NSView, at point: NSPoint) {
         model.refreshRoster()   // fresh for next time; this menu shows what's cached
+        Task { await HoloDrop.shared.refreshPower() }
         build().popUp(positioning: nil, at: point, in: view)
     }
 
@@ -116,6 +117,7 @@ final class JarvisMenu: NSObject {
         menu.addItem(.separator())
         add(menu, "Show the island", #selector(showIsland))
         add(menu, "Talk to Jarvis", #selector(talk))
+        if HoloDrop.shared.on { add(menu, "Holo Drop what's in front…", #selector(holoDrop)) }
         add(menu, "Weekly recap", #selector(recap))
         add(menu, "Flow…", #selector(flow))
         add(menu, "Notes…", #selector(notes))
@@ -188,6 +190,7 @@ final class JarvisMenu: NSObject {
 
     @objc private func showIsland() { island.attention() }
     @objc private func talk() { island.openVoice() }
+    @objc private func holoDrop() { HoloDrop.shared.grabAndSend() }
     @objc private func recap() { onRecap?() }
     @objc private func flow() { onFlow?() }
     @objc private func notes() { onNotes?() }

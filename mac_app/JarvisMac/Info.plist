@@ -36,13 +36,15 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, and drafts emails in Mail.</string>
+	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, drafts emails in Mail, and reads the page or the Finder selection you send with Holo Drop.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Jarvis records the other side of a call when you ask it to take notes.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Jarvis turns your Mac's Bluetooth on or off when you ask from your iPhone.</string>
+	<string>Jarvis turns your Mac's Bluetooth on or off when you ask from your iPhone, and lets your iPhone find this Mac nearby for Holo Drop.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Jarvis. Notch island after coucou (github.com/Louis-CFM/coucou, MIT).</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Jarvis sends and receives Holo Drops directly with your other devices on this network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Jarvis listens for "Hey Jarvis", takes dictation and records the calls you ask it to.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

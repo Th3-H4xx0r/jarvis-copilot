@@ -290,6 +290,18 @@ private struct ExpandedIsland: View {
                 }
                 .buttonStyle(.plain)
             }
+            if HoloDrop.shared.on {
+                Button {
+                    controller.close()
+                    HoloDrop.shared.grabAndSend()
+                } label: {
+                    Image(systemName: "hand.point.up.braille.fill").font(.system(size: 11, weight: .semibold))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.white.opacity(0.06)))
+                }
+                .buttonStyle(.plain).foregroundStyle(.white.opacity(0.75))
+                .help("Holo Drop what's in front" + (ShortcutAction.holoDrop.shortcut.map { " (\($0.display))" } ?? ""))
+            }
             Button { controller.orbTapped() } label: {
                 OrbView(mood: ui.tab == .voice ? .listening : .idle, skin: OrbSkin.current, size: 18)
                     .orbHome(.row, ui: ui)

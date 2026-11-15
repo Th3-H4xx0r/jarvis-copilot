@@ -136,6 +136,9 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case toggleIsland, openChat, goToAlert, jumpToTerminal, attachWindow
     case nextSession, previousSession, mute, desktopOrb, nextSkin, talk
     case recordCall
+    /// Holo Drop: grab what's in front and fling it to another device (only while Holo
+    /// Drop's Power switch is on).
+    case holoDrop
 
     var id: String { rawValue }
 
@@ -153,6 +156,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .nextSkin: return "Next orb look"
         case .talk: return "Talk to Jarvis"
         case .recordCall: return "Record a call (start / stop)"
+        case .holoDrop: return "Holo Drop what's in front"
         }
     }
 
@@ -168,6 +172,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .mute: return Shortcut(string: "ctrl+opt+m")
         case .desktopOrb: return Shortcut(string: "ctrl+opt+d")
         case .nextSkin: return Shortcut(string: "ctrl+opt+g")
+        // ⌃⌥Space is Open the chat's; H for Holo.
+        case .holoDrop: return Shortcut(string: "ctrl+opt+h")
         }
     }
 

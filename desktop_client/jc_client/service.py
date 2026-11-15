@@ -264,7 +264,8 @@ class Service:
         dylib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "libJarvisVoiceUI.dylib")
         return {"api": _imessage_api_origin(), "paired": creds.paired,
                 "voice_dylib": dylib if os.path.exists(dylib) else None,
-                "device_name": creds.device_name, "approvals": self._agent_approvals,
+                "device_name": creds.device_name, "device_id": creds.device_id,
+                "approvals": self._agent_approvals,
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
                 "pending": self._arbiter.pending() if self._arbiter else [],
@@ -955,6 +956,11 @@ class Service:
             # A server push the Mac app subscribed to (harness_jobs).
             self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
                                 "data": frame.get("data") or {}})
+            return
+
+        if msg_type == "holo_drop":
+            # Holo Drop (drop / landed / screen_request / beacon): the Mac app handles it.
+            self._ui_broadcast(dict(frame))
             return
 
         if self._power is not None and msg_type in ("mac_power_set", "mac_password_answer",
