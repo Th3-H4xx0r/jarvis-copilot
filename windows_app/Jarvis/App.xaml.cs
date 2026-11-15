@@ -27,12 +27,9 @@ public partial class App : Application
             try { StartupRegistration.EnsureDefault(new WinRegistry(), _host.Prefs, exe); }
             catch (UnauthorizedAccessException) { }
         }
-        _single.ListenForShow(() => Dispatcher.BeginInvoke(() => ShowIslandRequested?.Invoke()));
-        _host.Start();
+        _single.ListenForShow(() => Dispatcher.BeginInvoke(() => _host?.ShowIsland()));
+        _host.Start(e.Args);
     }
-
-    /// A second launch asked for the island (Task 5 wires the island to this).
-    public event Action? ShowIslandRequested;
 
     protected override void OnExit(ExitEventArgs e)
     {
