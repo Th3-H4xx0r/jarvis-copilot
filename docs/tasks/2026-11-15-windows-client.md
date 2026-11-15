@@ -5,13 +5,13 @@ Tick only when it works live on the PC / phone.
 
 ## Needs Pranav
 - [x] The gaming PC is "pranav-computer" (100.119.223.124)
-- [ ] Run the one-time setup on the PC (normal PowerShell, click Yes once):
+- [x] Run the one-time setup on the PC (normal PowerShell, click Yes once):
   `irm https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/scripts/windows/setup-pc.ps1 | iex`
 - [ ] Install the iPhone update (build 263191127).
 
 ## Then (me, over SSH)
-- [ ] Read `~\jarvis-setup\summary.txt`; set `User` in the Mac's `Host jc-pc`; fix any FAIL lines
-- [ ] Pair jc-client headlessly (`jc-client pair --server … --code …` with a code minted on the server), then `jc-client start`
+- [x] Read `~\jarvis-setup\summary.txt`; set `User` in the Mac's `Host jc-pc` (krish); fix any FAIL lines
+- [x] Pair jc-client headlessly (`jc-client pair --server … --code …` with a code minted on the server), then `jc-client start`
 - [ ] PC inventory (Python/winget/agents on PATH/anti-cheat games/Wi-Fi wake capability) → `docs/windows/pc-inventory.md`
 - [ ] PC dev checkout + venv; run the jc-client suite on Windows; fix what only Windows shows (plan 01 Task 12)
 - [ ] Install jc-client on the PC (installer), pair it; confirm the PC card appears in Agents (iPhone + web)
@@ -24,6 +24,8 @@ Tick only when it works live on the PC / phone.
 - [ ] Parity walkthrough of spec §6 → `docs/windows/parity-2026-11.md`
 
 ## Windows app (plan 03)
+- [x] App installed on the PC: Start Menu (search), Settings > Apps + uninstall, app owns jc-client (hidden task via conhost --headless; tray Restart/Stop), tray icon fixed
+- [ ] Island redesign to match the Mac pixel for pixel (orb, motion, theme, every screen) — helper running, verified with side-by-side shots
 - [x] Core: link client, models/state, gaming guard, theme/loader/prefs, voice logic, Holo logic, screen-share protocol + cc_state, OTA flow + updater (420 tests, Mac)
 - [ ] WPF/Win32 halves built and compile-checked on the Mac (616 Core tests): island + Agents tab, tray/hotkeys/sounds/recap, Settings, Power + admin UI, voice engine + wake word + push-to-talk, Live, Flow, notes, chat/music, Holo card/BLE/chirp, capture/WebRTC/Command Center, update card. Tick once each runs on the PC.
 - [x] Push-to-talk restored in voice Core
