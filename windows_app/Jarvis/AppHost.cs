@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Threading;
+using Jarvis.Admin;
+using Jarvis.Core.Admin;
 using Jarvis.Core.Gaming;
 using Jarvis.Core.Http;
 using Jarvis.Core.Input;
@@ -7,6 +9,7 @@ using Jarvis.Core.Island;
 using Jarvis.Core.Link;
 using Jarvis.Core.Model;
 using Jarvis.Core.Power;
+using Jarvis.Core.PowerInt;
 using Jarvis.Core.Prefs;
 using Jarvis.Core.Sounds;
 using Jarvis.Core.State;
@@ -45,6 +48,9 @@ public sealed class AppHost : IAsyncDisposable
     public PcPowerClient PcPower { get; }
     public PowerRelay PowerRelay { get; }
     public PowerBroadcastWatcher PowerWatcher { get; }
+    public AdminRunner Admin { get; }
+    public AdminCard AdminCard { get; }
+    public PowerApi PowerApi { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -113,6 +119,12 @@ public sealed class AppHost : IAsyncDisposable
         SettingsWindow.RegisterNative("agents", () => AgentsPane.Build(State));
         SettingsWindow.RegisterNative("pc-power", () => PcPowerPane.Build(PcPower, PowerRelay));
         SettingsWindow.RegisterNative("shortcuts", () => ShortcutsPane.Build(Prefs, HotKeys, BindShortcuts));
+
+        // ── Task 8: Power integrations and the phone-Face-ID admin flow (C6) ──
+        Admin = new AdminRunner(Link);
+        AdminCard = new AdminCard(Admin, Gate);
+        PowerApi = new PowerApi(Api);
+        SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
 
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
