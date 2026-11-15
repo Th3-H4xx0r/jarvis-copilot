@@ -16,6 +16,8 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Screen;
+using Jarvis.Core.Screen;
 using Jarvis.HoloDrop;
 using Jarvis.Core.Holo;
 using Jarvis.Chat;
@@ -89,6 +91,8 @@ public sealed class AppHost : IAsyncDisposable
     public HoloDropService Holo { get; }
     public HoloSender HoloSender { get; }
     public HoloFlingWatcher Fling { get; }
+    public ScreenShareService ScreenShare { get; }
+    public ShareBanner ShareBanner { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -299,6 +303,35 @@ public sealed class AppHost : IAsyncDisposable
         ShortcutsPane.Extras.Add(() => Th.Switch("Mouse fling: hold left Ctrl+Alt and flick the mouse toward a device", Prefs.Get(PrefKeys.HoloFling),
             v => Prefs.Set(PrefKeys.HoloFling, v)));
 
+        // ── Task 18: screen share, Command Center and remote input, under the game guard ──
+        var screenLog = FileLog.For("screen");
+        ScreenShareFactory? shares = null;
+        var pcControls = new PcControls(Media, PcPower,
+            id => shares?.Current?.ShowDisplay(Monitors.All().FirstOrDefault(m => PcControls.DisplayNumber(m.Name) == id)) ?? "Nothing is being shared.",
+            () => shares?.Current?.Display is { } d ? PcControls.DisplayNumber(d.Name) : 0);
+        ScreenShareService? screen = null;
+        shares = new ScreenShareFactory(Api, new SendInputSink(), pcControls, screenLog, id => screen?.SessionEnded(id));
+        screen = new ScreenShareService(Api, () => State.DeviceId, () => State.GameMode, shares);
+        ScreenShare = screen;
+        ShareBanner = new ShareBanner(() =>
+        {
+            if (shares.Current is { } live)
+                _ = Api.PostAsync(ShareSelection.StopPath(live.Id), new System.Text.Json.Nodes.JsonObject { ["error"] = "Stopped on the PC." }, TimeSpan.FromSeconds(10));
+            ScreenShare.StopAll("Stopped on the PC.");
+        });
+        void UpdateBanner() => Dispatcher.BeginInvoke(() => ShareBanner.Update(ScreenShare.Capturing && Gate.CanPresent, ScreenShare.Viewers));
+        shares.CurrentChanged += () =>
+        {
+            if (shares.Current is { } live) live.ViewersChanged += UpdateBanner;
+            UpdateBanner();
+        };
+        State.ScreenSharesPoke += () => _ = ScreenShare.PollAsync();
+        State.HelloReceived += () => _ = ScreenShare.PollAsync();
+        State.GameModeChanged += m => _ = ScreenShare.GameModeChangedAsync(m);
+        var sharePoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        sharePoll.Tick += (_, _) => { if (State.Connected) _ = ScreenShare.PollAsync(); };
+        sharePoll.Start();
+
         // ── Task 14: the note-taker (RecordCall has no default chord, as on the Mac) ──
         NoteTaker = new NoteTaker(Api, () => State.ApiOrigin);
         ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
@@ -481,6 +514,7 @@ public sealed class AppHost : IAsyncDisposable
         PowerWatcher.Dispose();
         await Voice.StopAsync();
         Mic.Dispose();
+        ScreenShare.StopAll(null);
         Holo.Dispose();
         Fling.Dispose();
         Wake?.Dispose();

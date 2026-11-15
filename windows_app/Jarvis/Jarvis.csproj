@@ -16,6 +16,8 @@
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="System.Speech" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="SIPSorcery" />
+    <PackageReference Include="SIPSorceryMedia.Encoders" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\wakeword\*.onnx" CopyToOutputDirectory="PreserveNewest" />
