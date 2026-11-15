@@ -25,6 +25,24 @@ def platform_name(platform: str | None = None) -> str:
     return "linux"
 
 
+APP_EXE_SUFFIX = "\\programs\\jarvis\\app\\jarvis.exe"
+
+
+def is_jarvis_app(pid: int, exe_of: Callable[[int], str] | None = None) -> bool:
+    """Whether the link peer is the installed Jarvis Windows app (the only one allowed to ask
+    for admin actions: the endpoint token alone is readable by any process of this user)."""
+    if not pid:
+        return False
+    if exe_of is None:
+        def exe_of(p: int) -> str:
+            import psutil
+            return psutil.Process(p).exe()
+    try:
+        return str(exe_of(int(pid)) or "").lower().endswith(APP_EXE_SUFFIX)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def win_elevate(command: str) -> int:
     """Start ``command`` elevated through cmd.exe; Windows shows UAC. >32 = started."""
     import ctypes

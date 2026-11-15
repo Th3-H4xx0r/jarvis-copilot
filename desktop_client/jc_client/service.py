@@ -303,6 +303,9 @@ class Service:
         if kind == "admin_run":
             if sys.platform != "win32":
                 return {"ok": False, "status": "denied", "error": "windows only"}
+            from jc_client.pc_admin import is_jarvis_app
+            if not is_jarvis_app(int(req.get("_peer_pid") or 0)):
+                return {"ok": False, "status": "denied", "error": "only the Jarvis app may ask"}
             return self._pc_admin_service().request(str(req.get("command") or ""), str(req.get("why") or ""),
                                                     self._server_device_id or "")
         if kind == "decide":

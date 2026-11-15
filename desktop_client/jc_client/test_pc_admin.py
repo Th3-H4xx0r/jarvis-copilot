@@ -139,3 +139,18 @@ def test_admin_run_does_not_hold_up_other_app_requests(tmp_path):
         s.close()
     finally:
         srv.close()
+
+
+def test_is_jarvis_app_checks_the_installed_exe():
+    good = r"C:\Users\Pranav K\AppData\Local\Programs\Jarvis\app\Jarvis.exe"
+    assert pc_admin.is_jarvis_app(42, lambda p: good)
+    assert not pc_admin.is_jarvis_app(42, lambda p: r"C:\Windows\System32\cmd.exe")
+    assert not pc_admin.is_jarvis_app(0, lambda p: good)
+    assert not pc_admin.is_jarvis_app(42, lambda p: (_ for _ in ()).throw(OSError("gone")))
+
+
+def test_admin_run_from_a_stranger_is_denied(monkeypatch):
+    monkeypatch.setattr(service.sys, "platform", "win32")
+    monkeypatch.setattr(pc_admin, "is_jarvis_app", lambda pid, exe_of=None: False)
+    out = service.Service()._ui_request({"type": "admin_run", "command": "x", "why": "y", "_peer_pid": 9})
+    assert out == {"ok": False, "status": "denied", "error": "only the Jarvis app may ask"}
