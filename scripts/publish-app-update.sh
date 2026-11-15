@@ -2,6 +2,7 @@
 # Publish an app build to the Jarvis server so the apps pop up "Update available".
 #   scripts/publish-app-update.sh --platform ios --file JarvisCopilot.ipa --notes "• line one"
 #   scripts/publish-app-update.sh --platform mac --file Jarvis.zip --notes "..."
+#   scripts/publish-app-update.sh --platform windows --file JarvisWin.zip --notes "..."
 #   scripts/publish-app-update.sh --platform ios --rollback     # previous build becomes current
 # The build number is read from the archive's own Info.plist. The file streams over
 # ssh to the server, where `python -m api.app_updates upload` hands it to the running
@@ -19,7 +20,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-case "$platform" in ios|mac) ;; *) echo "--platform ios|mac is required" >&2; exit 2 ;; esac
+case "$platform" in ios|mac|windows) ;; *) echo "--platform ios|mac|windows is required" >&2; exit 2 ;; esac
 
 if [ "$rollback" = 1 ]; then
   # Stops devices still on the older build from being offered the bad one; a phone that
@@ -30,7 +31,11 @@ fi
 
 [ -f "$file" ] || { echo "--file must be an existing .ipa or .zip" >&2; exit 2; }
 build=$(python3 - "$file" "$platform" <<'PY'
-import plistlib, re, sys, zipfile
+import json, plistlib, re, sys, zipfile
+if sys.argv[2] == "windows":
+    with zipfile.ZipFile(sys.argv[1]) as zf:
+        print(json.loads(zf.read("Jarvis/version.json"))["build"])
+    sys.exit(0)
 pattern = r"^Payload/[^/]+\.app/Info\.plist$" if sys.argv[2] == "ios" else r"^[^/]+\.app/Contents/Info\.plist$"
 with zipfile.ZipFile(sys.argv[1]) as zf:
     name = next(n for n in zf.namelist() if re.match(pattern, n))

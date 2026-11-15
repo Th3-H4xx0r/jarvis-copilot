@@ -37,16 +37,18 @@ from api.helpers import j
 
 logger = logging.getLogger(__name__)
 
-# platform → (file name served to the device, where the app's Info.plist sits in the archive)
+# platform → (file name served to the device, where the app's version file sits in the archive:
+# Info.plist for the Apple apps, Jarvis/version.json {"version", "build"} for the Windows app)
 PLATFORMS = {
     "ios": ("JarvisCopilot.ipa", re.compile(r"^Payload/[^/]+\.app/Info\.plist$")),
     "mac": ("Jarvis.zip", re.compile(r"^[^/]+\.app/Contents/Info\.plist$")),
+    "windows": ("JarvisWin.zip", re.compile(r"^Jarvis/version\.json$")),
 }
 LINK_TTL = 600
 MAX_BYTES = 1024 * 1024 * 1024
 _CHUNK = 1024 * 1024
 _LOCK = threading.Lock()
-_TOKEN_RE = re.compile(r"^(ios|mac)\.(\d{1,12})\.(\d{1,12})\.([0-9a-f]{32})$")
+_TOKEN_RE = re.compile(r"^(ios|mac|windows)\.(\d{1,12})\.(\d{1,12})\.([0-9a-f]{32})$")
 
 
 def _root() -> Path:
@@ -153,10 +155,14 @@ def _read_info_plist(path: Path, platform: str) -> dict:
         with zipfile.ZipFile(path) as zf:
             for name in zf.namelist():
                 if pattern.match(name):
+                    if platform == "windows":
+                        v = json.loads(zf.read(name))
+                        return {"CFBundleVersion": str(v.get("build") or ""),
+                                "CFBundleShortVersionString": str(v.get("version") or "")}
                     return plistlib.loads(zf.read(name))
-    except (zipfile.BadZipFile, plistlib.InvalidFileException, OSError) as exc:
+    except (zipfile.BadZipFile, plistlib.InvalidFileException, OSError, ValueError, AttributeError) as exc:
         raise UploadError(f"not a readable {platform} build: {exc}") from exc
-    raise UploadError(f"no app Info.plist in the {platform} archive")
+    raise UploadError(f"no app version file in the {platform} archive")
 
 
 def store_upload(platform: str, build: int, rfile, length: int, *,
@@ -165,7 +171,7 @@ def store_upload(platform: str, build: int, rfile, length: int, *,
     current build. The archive's own Info.plist must say ``build`` (else the app
     would install, read an older number and offer itself again)."""
     if platform not in PLATFORMS:
-        raise UploadError("platform must be ios or mac")
+        raise UploadError("platform must be ios, mac or windows")
     if build <= 0:
         raise UploadError("build must be a positive integer")
     if length <= 0 or length > MAX_BYTES:
@@ -277,6 +283,7 @@ def latest(platform: str, client_build: int, base: str) -> dict:
         "notes": rec.get("notes") or "", "commit": rec.get("commit") or "",
         "size": rec.get("size") or 0, "uploaded_at": rec.get("uploaded_at") or "",
         "install_url": install_url(platform, rec["build"], base) if base else "",
+        "sha256": rec.get("sha256") or "",
     }
 
 
@@ -301,7 +308,7 @@ def handle_get(handler, parsed) -> bool:
         return False
     platform = _q(parsed, "platform")
     if platform not in PLATFORMS:
-        j(handler, {"error": "platform must be ios or mac"}, status=400)
+        j(handler, {"error": "platform must be ios, mac or windows"}, status=400)
         return True
     j(handler, latest(platform, _int(_q(parsed, "build")), public_base(handler)))
     return True
@@ -328,7 +335,7 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/app-updates/rollback":
         platform = _q(parsed, "platform")
         if platform not in PLATFORMS:
-            j(handler, {"ok": False, "error": "platform must be ios or mac"}, status=400)
+            j(handler, {"ok": False, "error": "platform must be ios, mac or windows"}, status=400)
             return True
         rec = rollback(platform)
         j(handler, {"ok": bool(rec), "build": rec}, status=200 if rec else 404)
