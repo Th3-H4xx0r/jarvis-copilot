@@ -166,6 +166,10 @@ public sealed class IslandPresenter
         Publish(force: true);
     }
 
+    /// The foreground window changed: re-read whether the island may draw (a fullscreen game just
+    /// came forward, or left).
+    public void Recheck() => Publish();
+
     public void Tick()
     {
         Machine.Tick(Now, Hovering, IslandPin.Holds(Typing, Tab, _state.Pending.Count > 0), KeepsTab());

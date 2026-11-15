@@ -18,6 +18,10 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Assets\wakeword\*.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\wakeword\SHA256SUMS;Assets\wakeword\LICENSE-models.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
   </ItemGroup>
 </Project>

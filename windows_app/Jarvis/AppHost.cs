@@ -24,6 +24,8 @@ using Jarvis.Terminal;
 using Jarvis.Tray;
 using Jarvis.Voice;
 using Jarvis.Voice.Audio;
+using Jarvis.Orb;
+using Jarvis.Wake;
 using Jarvis.Core.Voice;
 
 namespace Jarvis;
@@ -61,6 +63,10 @@ public sealed class AppHost : IAsyncDisposable
     public VoiceTab VoiceTab { get; }
     public PushToTalk PushToTalk { get; }
     public SpeakBack SpeakBack { get; }
+    public ForegroundWatcher Foreground { get; }
+    public ScreenGlow Glow { get; }
+    public DesktopOrbWindow Orb { get; }
+    public WakeWordListener? Wake { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -156,6 +162,38 @@ public sealed class AppHost : IAsyncDisposable
         // Voice answers in game mode too, but the island only opens when it may draw.
         PushToTalk.Started += () => { if (Gate.CanPresent) Island.Open(IslandTab.Voice); };
 
+        // ── Task 11: Hey Jarvis, screen glow, desktop orb, Talk pane ──
+        Glow = new ScreenGlow(Gate);
+        Orb = new DesktopOrbWindow(Prefs, Gate, Voice, Island);
+        Foreground = new ForegroundWatcher();
+        Foreground.Changed += OnPresentationMaybeChanged;
+        State.GameModeChanged += _ => OnPresentationMaybeChanged();
+        ShortcutHandlers[ShortcutAction.DesktopOrb] = Orb.Toggle;
+        try
+        {
+            if (System.IO.File.Exists(System.IO.Path.Combine(WakeWordListener.DefaultModelDir, "hey_jarvis_v0.1.onnx")))
+                Wake = new WakeWordListener(WakeWordListener.DefaultModelDir);
+        }
+        catch (Exception e) when (e is Microsoft.ML.OnnxRuntime.OnnxRuntimeException or DllNotFoundException or TypeInitializationException)
+        {
+            voiceLog($"wake word unavailable: {e.Message}");
+        }
+        if (Wake != null)
+        {
+            Wake.Log += voiceLog;
+            Wake.Heard += () => Dispatcher.BeginInvoke(() =>
+            {
+                if (Voice.State.IsActive()) return;
+                _ = Voice.StartConversationAsync("wake");
+                if (Gate.CanPresent) Island.Open(IslandTab.Voice);
+            });
+        }
+        Voice.Changed += () => Dispatcher.BeginInvoke(SyncVoiceSurfaces);
+        Prefs.Changed += k => { if (k == PrefKeys.WakeEnabled.Name) SyncVoiceSurfaces(); };
+        State.HelloReceived += SyncVoiceSurfaces;
+        SettingsWindow.RegisterNative("talk", () => TalkPane.Build(Prefs, AudioEndpoints, () => Wake?.Listening ?? false));
+        Orb.Update();
+
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
         TrayHandlers[TrayCommand.KeepAwake] = () => _ = PcPower.SetKeepAwakeAsync(!(PcPower.Last?.KeepAwake ?? false));
@@ -164,6 +202,27 @@ public sealed class AppHost : IAsyncDisposable
         TrayHandlers[TrayCommand.Recap] = ShowRecap;
         TrayHandlers[TrayCommand.Quit] = () => Application.Current.Shutdown();
         State.IslandRequested += (tab, _) => { if (tab == "recap") ShowRecap(); };
+    }
+
+    /// The foreground or game mode changed: everything that floats re-checks whether it may draw.
+    private void OnPresentationMaybeChanged()
+    {
+        Island.Recheck();
+        Orb.Update();
+        if (!Gate.CanPresent) Glow.HideGlow();
+    }
+
+    /// The wake listener pauses while a conversation owns the mic; the glow shows while listening.
+    private void SyncVoiceSurfaces()
+    {
+        var active = Voice.State.IsActive();
+        if (Wake != null)
+        {
+            if (!active && Prefs.Get(PrefKeys.WakeEnabled) && State.Connected) Wake.Start();
+            else Wake.Stop();
+        }
+        if (Voice.State == VoiceState.Listening) Glow.ShowOn(Monitors.At(Monitors.Cursor()));
+        else Glow.HideGlow();
     }
 
     public void BindShortcuts()
@@ -233,6 +292,8 @@ public sealed class AppHost : IAsyncDisposable
         PowerWatcher.Dispose();
         await Voice.StopAsync();
         Mic.Dispose();
+        Wake?.Dispose();
+        Foreground.Dispose();
         Speaker.Dispose();
         AudioEndpoints.Dispose();
         HotKeys.Dispose();

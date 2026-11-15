@@ -1,0 +1,5 @@
+openWakeWord models (melspectrogram.onnx, embedding_model.onnx, hey_jarvis_v0.1.onnx)
+Source: the dscripka/openWakeWord release v0.5.1 assets, downloaded 2026-11-15.
+Licence: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0),
+https://creativecommons.org/licenses/by-nc-sa/4.0/ . Used here for one person's personal,
+non-commercial assistant. The SHA-256 of each file is in SHA256SUMS (checked by WakeTests).

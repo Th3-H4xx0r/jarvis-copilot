@@ -98,6 +98,20 @@ public class WakeTests
     }
 
     [Fact]
+    public void WakeModels_MatchSha256Sums()
+    {
+        var dir = Path.Combine(Jarvis.Tests.Ui.ThemeInvariantTests.RepoRoot(), "Jarvis", "Assets", "wakeword");
+        var lines = File.ReadAllLines(Path.Combine(dir, "SHA256SUMS")).Where(l => l.Trim().Length > 0).ToList();
+        Assert.Equal(3, lines.Count);
+        foreach (var line in lines)
+        {
+            var parts = line.Split("  ", 2);
+            using var f = File.OpenRead(Path.Combine(dir, parts[1].Trim()));
+            Assert.Equal(parts[0], Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(f)).ToLowerInvariant());
+        }
+    }
+
+    [Fact]
     public void GlowHalf_StartsTopCentreEndsBottomCentre()
     {
         var p = EdgeGlowPath.Half(new(0, 0, 1920, 1080), 12, true);
