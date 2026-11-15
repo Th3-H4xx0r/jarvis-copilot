@@ -8,6 +8,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Jarvis</AssemblyName>
+    <ApplicationIcon>jarvis.ico</ApplicationIcon>
+    <Product>Jarvis</Product>
     <RootNamespace>Jarvis</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

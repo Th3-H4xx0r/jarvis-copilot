@@ -18,6 +18,7 @@ dotnet publish (Join-Path $root 'JarvisUpdater\JarvisUpdater.csproj') -c Release
   -p:PublishSingleFile=true -o $upd --nologo
 if ($LASTEXITCODE -ne 0) { throw 'JarvisUpdater publish failed' }
 Copy-Item -Force (Join-Path $upd 'JarvisUpdater.exe') $stage
+Copy-Item -Force (Join-Path $PSScriptRoot 'uninstall.ps1') $stage   # Settings > Apps > Uninstall runs it
 
 @{ version = $Version; build = $build } | ConvertTo-Json -Compress | Set-Content -Encoding utf8NoBOM (Join-Path $stage 'version.json')
 

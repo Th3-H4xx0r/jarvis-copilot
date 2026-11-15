@@ -185,9 +185,11 @@ public class TrayMenuTests
         var state = new AppState(link, new ManualTime());
         await TrayMenu.RunLinkAction(TrayCommand.Repair, state)!;
         await TrayMenu.RunLinkAction(TrayCommand.Logs, state)!;
-        await TrayMenu.RunLinkAction(TrayCommand.Restart, state)!;
-        Assert.Equal(new[] { "repair", "logs", "restart" }, link.SentOfType("tray").Select(m => (string)m["action"]!));
+        Assert.Equal(new[] { "repair", "logs" }, link.SentOfType("tray").Select(m => (string)m["action"]!));
         Assert.Null(TrayMenu.RunLinkAction(TrayCommand.Settings, state));
+        // Restart / Stop are the app's (they must work while jc-client is down, so not over the link)
+        Assert.Null(TrayMenu.RunLinkAction(TrayCommand.Restart, state));
+        Assert.Null(TrayMenu.RunLinkAction(TrayCommand.StopService, state));
     }
 
     [Fact]
@@ -197,7 +199,7 @@ public class TrayMenuTests
         var items = TrayMenu.Build(roster, true, false, false);
         Assert.Equal("Connected to jarvis.example", items[0].Label);
         Assert.Contains(items, i => i.Label == "iPhone" && i.Online);
-        foreach (var label in new[] { "Holo Drop…", "Weekly recap", "Settings", "Re-pair", "Logs", "Restart Jarvis service", "Quit" })
+        foreach (var label in new[] { "Holo Drop…", "Weekly recap", "Settings", "Re-pair", "Logs", "Restart Jarvis service", "Stop Jarvis service", "Quit" })
             Assert.Contains(items, i => i.Label == label);
     }
 

@@ -4,7 +4,7 @@ using Jarvis.Core.State;
 
 namespace Jarvis.Core.Tray;
 
-public enum TrayCommand { OpenIsland, HoloDrop, Live, Recap, Settings, KeepAwake, RecordCall, Repair, Logs, Restart, Quit }
+public enum TrayCommand { OpenIsland, HoloDrop, Live, Recap, Settings, KeepAwake, RecordCall, Repair, Logs, Restart, StopService, Quit }
 
 public sealed record TrayItem(string Label, TrayCommand? Command = null, bool Enabled = true, bool Header = false,
     bool Separator = false, bool? Checked = null, bool Online = false, string Detail = "")
@@ -36,7 +36,9 @@ public static class TrayMenu
         items.Add(TrayItem.Line);
         items.Add(new("Re-pair", TrayCommand.Repair));
         items.Add(new("Logs", TrayCommand.Logs));
+        // The app's own (JcClientControl): they must work while jc-client is down.
         items.Add(new("Restart Jarvis service", TrayCommand.Restart));
+        items.Add(new("Stop Jarvis service", TrayCommand.StopService, Enabled: connected));
         items.Add(new("Quit", TrayCommand.Quit));
         return items;
     }
@@ -46,7 +48,6 @@ public static class TrayMenu
     {
         TrayCommand.Repair => "repair",
         TrayCommand.Logs => "logs",
-        TrayCommand.Restart => "restart",
         _ => null,
     };
 

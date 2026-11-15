@@ -1,3 +1,4 @@
+using Jarvis.Core.Service;
 using System.Windows;
 using System.Windows.Threading;
 using Jarvis.Admin;
@@ -49,6 +50,7 @@ namespace Jarvis;
 /// on the Dispatcher too (DispatcherTimeProvider). Each task adds its services here.
 public sealed class AppHost : IAsyncDisposable
 {
+    public JcClientControl JcClient { get; private set; } = null!;
     public PrefsStore Prefs { get; }
     public JcLink Link { get; }
     public AppState State { get; }
@@ -354,6 +356,16 @@ public sealed class AppHost : IAsyncDisposable
         ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
 
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => NoteTaker.Recording);
+
+        // The app owns jc-client: start it now and whenever the link is down (unless it was stopped
+        // on purpose); the tray's Restart / Stop drive it (they work while it's down).
+        JcClient = new JcClientControl(local, HiddenProcess.RunAsync);
+        TrayHandlers[TrayCommand.Restart] = () => _ = JcClient.RestartAsync();
+        TrayHandlers[TrayCommand.StopService] = () => _ = JcClient.StopAsync();
+        _ = JcClient.EnsureRunningAsync();
+        var jcWatch = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        jcWatch.Tick += (_, _) => { if (!State.Connected) _ = JcClient.EnsureRunningAsync(); };
+        jcWatch.Start();
         TrayHandlers[TrayCommand.RecordCall] = () =>
         {
             _ = NoteTaker.ToggleAsync();

@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using H.NotifyIcon;
 using Jarvis.Core.State;
 using Jarvis.Core.Tray;
@@ -28,7 +27,7 @@ public sealed class TrayIcon : IDisposable
         _icon = new TaskbarIcon
         {
             ToolTipText = "Jarvis",
-            IconSource = DrawIcon(),
+            Icon = DrawIcon(),
             ContextMenu = _menu,
             NoLeftClickDelay = true,
         };
@@ -69,6 +68,7 @@ public sealed class TrayIcon : IDisposable
             if (item.Command is { } c)
                 mi.Click += async (_, _) =>
                 {
+                    _menu.IsOpen = false;   // close first: a slow jc-client call must never hold the menu up
                     if (TrayMenu.RunLinkAction(c, _state) is { } run) await run;
                     else Command?.Invoke(c);
                 };
@@ -84,19 +84,23 @@ public sealed class TrayIcon : IDisposable
         if (_icon.ToolTipText != tip) _icon.ToolTipText = tip;
     }
 
-    /// A white ring on black: the Jarvis mark, drawn so no image asset is needed.
-    private static ImageSource DrawIcon()
+    /// A white ring on black: the Jarvis mark, drawn so no image asset is needed. A System.Drawing
+    /// icon: H.NotifyIcon can't convert a WPF RenderTargetBitmap (NotImplementedException).
+    private static System.Drawing.Icon DrawIcon()
     {
-        var v = new DrawingVisual();
-        using (var dc = v.RenderOpen())
+        static System.Drawing.Color C(string key) =>
+            Th.B(key) is SolidColorBrush b ? System.Drawing.Color.FromArgb(b.Color.A, b.Color.R, b.Color.G, b.Color.B)
+                                           : System.Drawing.Color.White;
+        using var bmp = new System.Drawing.Bitmap(32, 32);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
         {
-            dc.DrawEllipse(Th.B("JcBackground"), null, new Point(16, 16), 15, 15);
-            dc.DrawEllipse(null, new Pen(Th.B("JcAccent"), 3), new Point(16, 16), 9, 9);
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var fill = new System.Drawing.SolidBrush(C("JcBackground"));
+            using var ring = new System.Drawing.Pen(C("JcAccent"), 3);
+            g.FillEllipse(fill, 1, 1, 30, 30);
+            g.DrawEllipse(ring, 7, 7, 18, 18);
         }
-        var bmp = new RenderTargetBitmap(32, 32, 96, 96, PixelFormats.Pbgra32);
-        bmp.Render(v);
-        bmp.Freeze();
-        return bmp;
+        return System.Drawing.Icon.FromHandle(bmp.GetHicon());
     }
 
     public void Dispose() => _icon.Dispose();

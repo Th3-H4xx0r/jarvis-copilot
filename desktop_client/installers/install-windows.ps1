@@ -115,7 +115,10 @@ Info "Shortcut: $StartMenu"
 # drive this task, cli.py _SCHTASK). The old Startup shortcut is removed.
 $OldStartup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\JarvisCopilot Client.lnk'
 if (Test-Path $OldStartup) { Remove-Item $OldStartup -Force }
-$Action   = New-ScheduledTaskAction -Execute $JcExe -Argument 'start --no-tray' -WorkingDirectory $Dir
+# conhost --headless: no console window, for jc-client or anything it runs (the Jarvis app
+# starts / restarts / stops this task; JcClientControl).
+$Action   = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\conhost.exe" `
+    -Argument "--headless `"$JcExe`" start --no-tray" -WorkingDirectory $Dir
 $Trigger  = New-ScheduledTaskTrigger -AtLogOn -User $Me
 # Every 5 minutes "start it if it isn't running" (IgnoreNew below): Task Scheduler's own restart
 # covers a task that fails to start, not a client that crashes later.
