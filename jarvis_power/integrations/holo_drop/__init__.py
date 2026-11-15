@@ -1,6 +1,6 @@
 """Holo Drop: fling links, photos, files and text onto any of your devices.
 
-Share → Jarvis (or Back Tap / Control Center on the iPhone; a shortcut, trackpad flick or the
+Share → Holo Drop (or Back Tap / Control Center on the iPhone; a shortcut, trackpad flick or the
 menu bar on the Mac) opens an Orbit with your devices around the item; fling it toward one or
 tap it. Drops go direct over the local network when they can, otherwise through Jarvis (held
 and delivered when a device is back; a Mac is woken). Off: the routes refuse, Jarvis's
