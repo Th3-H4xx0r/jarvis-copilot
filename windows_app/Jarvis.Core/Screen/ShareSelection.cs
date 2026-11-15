@@ -33,13 +33,31 @@ public static class ShareSelection
 
 public static class FrameSize
 {
-    /// Fitted inside 1920×1080, aspect kept, both sides even (the VP8/I420 encoder needs that).
+    /// The largest frame sent: a 1440p / 1600p monitor goes out pixel for pixel (text stays
+    /// sharp, like the Mac's share); anything bigger (4K) is fitted inside 2560×1440.
+    public const int MaxW = 2560, MaxH = 1600, FitW = 2560, FitH = 1440;
+
+    /// The frame for a `w`×`h` display: native when it fits, else inside 2560×1440 with the
+    /// aspect kept; both sides even (the VP8/I420 encoder needs that).
     public static (int W, int H) Fit(int w, int h)
     {
         if (w <= 0 || h <= 0) return (2, 2);
-        var scale = Math.Min(1.0, Math.Min(1920.0 / w, 1080.0 / h));
+        var scale = w <= MaxW && h <= MaxH ? 1.0 : Math.Min(1.0, Math.Min((double)FitW / w, (double)FitH / h));
         var fw = (int)Math.Floor(w * scale) & ~1;
         var fh = (int)Math.Floor(h * scale) & ~1;
         return (Math.Max(2, fw), Math.Max(2, fh));
+    }
+}
+
+/// The VP8 encoder's settings for a frame size (Vp8Encoder): ~0.06 bits per pixel at 30 fps,
+/// between 2.5 and 10 Mbps (1440p ≈ 6.6 Mbps, 1080p ≈ 3.7 Mbps); up to 8 threads but never more
+/// than half the cores; libvpx's realtime speed -6; a keyframe at least every 4 s.
+public sealed record Vp8Settings(uint Kbps, uint Threads, int CpuUsed, uint KeyEvery)
+{
+    public static Vp8Settings For(int w, int h, int cores)
+    {
+        var kbps = (uint)Math.Clamp(Math.Round((double)w * h * 30 * 0.06 / 1000), 2500, 10_000);
+        var threads = (uint)Math.Clamp(cores / 2, 1, 8);
+        return new Vp8Settings(kbps, threads, -6, 120);
     }
 }

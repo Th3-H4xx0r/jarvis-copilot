@@ -43,13 +43,14 @@ log = logging.getLogger(__name__)
             "mac": {"type": "string", "description": "The sleeping computer's network MAC, aa:bb:cc:dd:ee:ff"},
             "broadcast": {"type": "string", "description": "Broadcast address (default 255.255.255.255)"},
             "port": {"type": "integer", "description": "UDP port (default 9)"},
+            "ip": {"type": "string", "description": "The sleeping computer's last LAN IPv4 address, if known"},
         },
         "required": ["mac"],
     },
 )
-def wol_send(mac: str, broadcast: str = "255.255.255.255", port: int = 9) -> dict:
+def wol_send(mac: str, broadcast: str = "255.255.255.255", port: int = 9, ip: str = "") -> dict:
     from jc_client.pc_power import send_wol
-    return send_wol(mac, broadcast, port)
+    return send_wol(mac, broadcast, port, ip)
 
 
 @skill(

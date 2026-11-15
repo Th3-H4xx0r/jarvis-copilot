@@ -27,6 +27,7 @@ ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 STATUS_EVERY = 60.0
 _MAC_RE = re.compile(r"^[0-9a-f]{12}$")
+_IPV4_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
 
 
 # ── Wake-on-LAN ────────────────────────────────────────────────────────────────
@@ -37,21 +38,51 @@ def magic_packet(mac: str) -> bytes:
     return b"\xff" * 6 + bytes.fromhex(hexes) * 16
 
 
-def send_wol(mac: str, broadcast: str = "255.255.255.255", port: int = 9) -> dict:
-    """Send a Wake-on-LAN magic packet on this computer's network (the Mac wakes the PC)."""
+def send_wol(mac: str, broadcast: str = "255.255.255.255", port: int = 9, ip: str = "") -> dict:
+    """Send a Wake-on-LAN magic packet on this computer's network (the Mac wakes the PC).
+
+    A sleeping Wi-Fi card (WoWLAN) only hears what its access point passes on, and some access
+    points hold back broadcasts for sleeping clients: with the PC's address the packet also goes
+    straight to it (its card answers ARP while asleep) and to its /24's broadcast, each three
+    times, on ports 9 and 7."""
     try:
         packet = magic_packet(mac)
     except ValueError:
         return {"ok": False, "error": "bad MAC address"}
+    hosts = [broadcast]
+    if _IPV4_RE.match(ip or ""):
+        hosts += [ip, ip.rsplit(".", 1)[0] + ".255"]
+    targets = [(h, p) for h in dict.fromkeys(hosts) for p in dict.fromkeys((int(port), 7))]
+    sent, errors = [], []
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.sendto(packet, (broadcast, int(port)))
-    except OSError as exc:
-        return {"ok": False, "error": f"couldn't send: {exc}"}
+        for _ in range(3):
+            for host, p in targets:
+                try:
+                    s.sendto(packet, (host, p))
+                    sent.append(f"{host}:{p}")
+                except OSError as exc:
+                    errors.append(str(exc))
     finally:
         s.close()
-    return {"ok": True, "sent_to": f"{broadcast}:{int(port)}"}
+    if not sent:
+        return {"ok": False, "error": f"couldn't send: {errors[0] if errors else 'no target'}"}
+    return {"ok": True, "sent_to": ", ".join(dict.fromkeys(sent))}
+
+
+def lan_ip() -> str:
+    """This PC's address on the home network (the interface with the default route). Connecting a
+    UDP socket sends nothing; it only picks the route."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))
+        addr = s.getsockname()[0]
+        return addr if _IPV4_RE.match(addr) and not addr.startswith("127.") else ""
+    except OSError:
+        return ""
+    finally:
+        s.close()
 
 
 # ── what the PC can do ─────────────────────────────────────────────────────────
@@ -140,8 +171,10 @@ class PcPower:
 
     def __init__(self, send_up: Callable[[dict], object], *, set_state: Callable[[int], int] = _win_set_state,
                  lock: Callable[[], None] = _win_lock, suspend: Callable[[], None] = _win_suspend,
-                 probe: Callable[[], tuple] = probe, battery: Callable[[], tuple] = _battery) -> None:
+                 probe: Callable[[], tuple] = probe, battery: Callable[[], tuple] = _battery,
+                 lan_ip: Callable[[], str] = lan_ip) -> None:
         self._send_up = send_up
+        self._lan_ip = lan_ip
         self._set_state = set_state
         self._lock = lock
         self._suspend = suspend
@@ -200,7 +233,7 @@ class PcPower:
             keep = self._keep
         return {"os": "windows", "state": "awake", "held": keep, "reason": "manual" if keep else "",
                 "keep_awake": keep, "timer_on": False, "battery": battery, "on_ac": on_ac, "lid": None,
-                "wifi_mac": mac, "wake": dict(wake)}
+                "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake)}
 
     def status_event(self) -> dict:
         return {"type": "event", "name": "mac_power_status", "data": self.status()}

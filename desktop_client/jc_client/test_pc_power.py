@@ -16,7 +16,7 @@ class Rig:
                              set_state=lambda flags: self.states.append(flags) or 1,
                              lock=lambda: self.locks.append(1), suspend=lambda: self.suspends.append(1),
                              probe=lambda: pc_power.probe(lambda: devquery, lambda: wifi),
-                             battery=lambda: (None, None))
+                             battery=lambda: (None, None), lan_ip=lambda: "192.168.1.80")
 
 
 def test_keep_awake_flags():
@@ -31,9 +31,10 @@ def test_status_event_shape():
     ev = rig.power.status_event()
     assert ev["type"] == "event" and ev["name"] == "mac_power_status"
     assert set(ev["data"]) == {"os", "state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac",
-                               "lid", "wifi_mac", "wake"}
+                               "lid", "wifi_mac", "wifi_ip", "wake"}
     d = ev["data"]
     assert d["os"] == "windows" and d["state"] == "awake" and d["wifi_mac"] == "aa:bb:cc:dd:ee:ff"
+    assert d["wifi_ip"] == "192.168.1.80"
     assert d["wake"] == {"capable": True, "adapter": "Intel(R) Wi-Fi 6E AX211 160MHz", "reason": ""}
 
 
@@ -123,9 +124,20 @@ def test_wol_send_skill(monkeypatch):
 
     monkeypatch.setattr(pc_power.socket, "socket", Sock)
     out = skills.invoke("wol_send", {"mac": "aa:bb:cc:dd:ee:ff"})
-    assert out == {"ok": True, "sent_to": "255.255.255.255:9"}
+    assert out == {"ok": True, "sent_to": "255.255.255.255:9, 255.255.255.255:7"}
     assert sent and sent[0][1] == ("255.255.255.255", 9) and len(sent[0][0]) == 102
+    assert len(sent) == 6   # each target three times
     assert skills.invoke("wol_send", {"mac": "nope"}) == {"ok": False, "error": "bad MAC address"}
+
+    # With the PC's address it also goes straight to it and to its subnet's broadcast.
+    sent.clear()
+    out = skills.invoke("wol_send", {"mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.80"})
+    assert out["ok"] is True
+    assert {a for _, a in sent} == {(h, p) for h in ("255.255.255.255", "192.168.1.80", "192.168.1.255") for p in (9, 7)}
+    assert len(sent) == 18
+    sent.clear()
+    skills.invoke("wol_send", {"mac": "aa:bb:cc:dd:ee:ff", "ip": "not an ip"})
+    assert {a[0] for _, a in sent} == {"255.255.255.255"}
 
 
 def test_service_routes_app_power_requests_to_pc_power(monkeypatch):

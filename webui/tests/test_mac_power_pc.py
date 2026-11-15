@@ -63,6 +63,13 @@ def test_wake_pc_sends_wol_via_mac(tmp_path):
     assert rig.store.device(PC)["wake_requested_at"] == rig.t
 
 
+def test_wake_pc_aims_at_its_last_address(tmp_path):
+    rig = Rig(tmp_path, connected={MAC, PHONE})
+    rig.store.on_status(PC, dict(PC_STATUS, wifi_ip="192.168.1.80"))
+    assert rig.store.wake(PC)["ok"] is True
+    assert rig.invokes == [(MAC, "wol_send", {"mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.80"})]
+
+
 def test_wake_pc_without_sender_errors(tmp_path):
     rig = Rig(tmp_path, connected={PHONE})
     rig.store.on_status(PC, PC_STATUS)

@@ -26,7 +26,7 @@ public sealed class ScreenShareSession : IShareSession
     private readonly EarlyCandidates _early = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly WgcCapture _capture = new();
-    private readonly VpxVideoEncoder _encoder = new();
+    private readonly Vp8Encoder _encoder = new();
     private IReadOnlyList<ShareSignal.IceServer> _ice = Array.Empty<ShareSignal.IceServer>();
     private Monitors.Info? _display;
     private int _seq;
@@ -142,12 +142,23 @@ public sealed class ScreenShareSession : IShareSession
         Peer[] peers;
         lock (_peers) peers = _peers.Values.Where(p => p.Connected).ToArray();
         if (peers.Length == 0) return;
-        var encoded = _encoder.EncodeVideo(w, h, i420, VideoPixelFormatsEnum.I420, VideoCodecsEnum.VP8);
+        var encoded = _encoder.Encode(i420, w, h);
         if (encoded == null || encoded.Length == 0) return;
         var now = Environment.TickCount64;
         var duration = (uint)(_lastFrameTicks == 0 ? 3000 : Math.Clamp((now - _lastFrameTicks) * 90, 900, 9000));   // 90 kHz clock
         _lastFrameTicks = now;
         foreach (var p in peers) p.SendVideo(duration, encoded);
+    }
+
+    private long _lastKeyRequest;
+
+    /// At most one requested keyframe every 500 ms (a burst of PLIs from one loss is one keyframe).
+    private void KeyFrameRequested()
+    {
+        var now = Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastKeyRequest) < 500) return;
+        Interlocked.Exchange(ref _lastKeyRequest, now);
+        _encoder.ForceKeyFrame();
     }
 
     public void Stop(string? error)
@@ -156,6 +167,7 @@ public sealed class ScreenShareSession : IShareSession
         _stopped = true;
         _cts.Cancel();
         _capture.Stop();
+        _encoder.Dispose();
         Peer[] peers;
         lock (_peers) { peers = _peers.Values.ToArray(); _peers.Clear(); }
         foreach (var p in peers)
@@ -199,6 +211,14 @@ public sealed class ScreenShareSession : IShareSession
             {
                 if (state == RTCPeerConnectionState.connected) s._encoder.ForceKeyFrame();
                 if (state is RTCPeerConnectionState.failed or RTCPeerConnectionState.closed) s.ViewersChanged?.Invoke();
+            };
+            // The viewer lost packets and asks for a fresh picture (PLI / FIR): send a keyframe now
+            // rather than leaving the smear until the next one.
+            _pc.OnReceiveReport += (_, media, report) =>
+            {
+                if (media != SDPMediaTypesEnum.video || report.Feedback is not { } fb) return;
+                if (fb.Header.PayloadFeedbackMessageType is PSFBFeedbackTypesEnum.PLI or PSFBFeedbackTypesEnum.FIR)
+                    s.KeyFrameRequested();
             };
             _pc.ondatachannel += dc =>
             {

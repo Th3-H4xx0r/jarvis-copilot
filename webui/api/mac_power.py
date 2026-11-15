@@ -118,7 +118,10 @@ class MacPowerStore:
             return {"ok": False, "error": "No other computer is online to wake the PC."}
         self._update(did, wake_requested_at=self._clock())
         via = self._name_of(senders[0]) or "your other computer"
-        res = self._invoke(senders[0], "wol_send", {"mac": mac}) or {}
+        args = {"mac": mac}
+        if status.get("wifi_ip"):
+            args["ip"] = str(status["wifi_ip"])   # also straight to it: some routers hold broadcasts
+        res = self._invoke(senders[0], "wol_send", args) or {}
         inner = res.get("result") if isinstance(res.get("result"), dict) else {}
         if not res.get("ok") or inner.get("ok") is False:
             return {"ok": False, "error": f"{via} couldn't send the wake signal: "
@@ -210,7 +213,7 @@ class MacPowerStore:
 
     def on_status(self, did: str, data: dict) -> None:
         keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid",
-                "os", "wifi_mac", "wake")
+                "os", "wifi_mac", "wifi_ip", "wake")
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
         if data.get("state") == "awake":
             fields["wake_requested_at"] = None

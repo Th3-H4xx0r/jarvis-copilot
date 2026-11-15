@@ -37,12 +37,22 @@ public class ShareLoopTests
     }
 
     [Fact]
-    public void Scale_Nearest()
+    public void I420_ColourIsTheBlockAverage()
     {
-        // 4×1: red, green, blue, white → 2×1 keeps the first and third.
+        // One red pixel in a 2×2 of black: the block's colour is a quarter red, not all red.
+        var px = new byte[16];
+        px[2] = 255;
+        var i420 = FramePixels.BgraToI420(px, 2, 2);
+        Assert.Equal(156, i420[5]);   // V for mean red 63 (all-red would be 239)
+    }
+
+    [Fact]
+    public void Scale_AveragesArea()
+    {
+        // 4×1: red, green, blue, white → 2×1 averages each pair (red+green, blue+white).
         var src = new byte[] { 0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255 };
         var d = FramePixels.ScaleBgra(src, 4, 1, 16, 2, 1);
-        Assert.Equal(new byte[] { 0, 0, 255, 255, 255, 0, 0, 255 }, d);
+        Assert.Equal(new byte[] { 0, 127, 127, 255, 255, 127, 127, 255 }, d);
     }
 
     [Fact]

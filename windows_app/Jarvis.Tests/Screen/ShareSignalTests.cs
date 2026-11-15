@@ -71,7 +71,27 @@ public class ShareSignalTests
         Assert.Empty(e.Take("v"));
     }
 
-    [Fact] public void FrameSize_Fits4kTo1080p() => Assert.Equal((1920, 1080), FrameSize.Fit(3840, 2160));
+    [Fact] public void FrameSize_Fits4kTo1440p() => Assert.Equal((2560, 1440), FrameSize.Fit(3840, 2160));
     [Fact] public void FrameSize_KeepsSmallEven() => Assert.Equal((1280, 720), FrameSize.Fit(1281, 721));
-    [Fact] public void FrameSize_UltrawideFitsWidth() => Assert.Equal((1920, 802), FrameSize.Fit(3440, 1440));
+    [Fact] public void FrameSize_KeepsA1440pMonitorNative() => Assert.Equal((2560, 1440), FrameSize.Fit(2560, 1440));
+    [Fact] public void FrameSize_Keeps1600pNative() => Assert.Equal((2560, 1600), FrameSize.Fit(2560, 1600));
+    [Fact] public void FrameSize_UltrawideFitsWidth() => Assert.Equal((2560, 1070), FrameSize.Fit(3440, 1440));
+
+    [Fact]
+    public void Vp8Settings_BitrateFollowsTheFrame()
+    {
+        Assert.Equal(6636u, Vp8Settings.For(2560, 1440, 28).Kbps);
+        Assert.Equal(3732u, Vp8Settings.For(1920, 1080, 28).Kbps);
+        Assert.Equal(2500u, Vp8Settings.For(640, 360, 28).Kbps);
+        Assert.Equal(10_000u, Vp8Settings.For(5120, 2880, 28).Kbps);
+    }
+
+    [Fact]
+    public void Vp8Settings_ThreadsAreHalfTheCoresUpTo8()
+    {
+        Assert.Equal(8u, Vp8Settings.For(2560, 1440, 28).Threads);
+        Assert.Equal(2u, Vp8Settings.For(2560, 1440, 4).Threads);
+        Assert.Equal(1u, Vp8Settings.For(2560, 1440, 1).Threads);
+        Assert.Equal(120u, Vp8Settings.For(2560, 1440, 28).KeyEvery);
+    }
 }

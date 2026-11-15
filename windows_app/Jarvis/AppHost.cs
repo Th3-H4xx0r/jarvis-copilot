@@ -584,6 +584,7 @@ public sealed class AppHost : IAsyncDisposable
             case "slowmo": IslandWindow.TimeScale = double.TryParse(Arg(1), System.Globalization.CultureInfo.InvariantCulture, out var k) && k >= 1 ? k : 1; break;
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
             case "settings-shot": Settings.SettingsWindow.Snapshot(State, Arg(1), Arg(2)); break;
+            case "encode-bench": _ = Task.Run(() => Screen.EncodeBench.Run(Arg(1))); break;
             case "orbit-shot":
                 Ui.Snap.Save((FrameworkElement)new HoloOrbitWindow(Holo, HoloSender, null, Holo.Devices).Content, 400, 520, Arg(1));
                 break;
