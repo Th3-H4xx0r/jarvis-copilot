@@ -93,9 +93,15 @@ public sealed class ApiClient
         }
     }
 
-    public async IAsyncEnumerable<SseEvent> SseAsync(string path, [EnumeratorCancellation] CancellationToken ct)
+    public IAsyncEnumerable<SseEvent> SseAsync(string path, CancellationToken ct) =>
+        ReadSse(new HttpRequestMessage(HttpMethod.Get, Url(path)), ct);
+
+    /// POST a JSON body and read the answer as server-sent events (`/api/chat/start?stream=1`).
+    public IAsyncEnumerable<SseEvent> PostSseAsync(string path, JsonNode body, CancellationToken ct) =>
+        ReadSse(new HttpRequestMessage(HttpMethod.Post, Url(path)) { Content = JsonContent(body) }, ct);
+
+    private async IAsyncEnumerable<SseEvent> ReadSse(HttpRequestMessage req, [EnumeratorCancellation] CancellationToken ct)
     {
-        var req = new HttpRequestMessage(HttpMethod.Get, Url(path));
         req.Headers.Accept.ParseAdd("text/event-stream");
         using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         await EnsureOk(resp, ct).ConfigureAwait(false);

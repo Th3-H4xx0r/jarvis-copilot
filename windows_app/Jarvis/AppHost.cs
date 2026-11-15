@@ -16,6 +16,9 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Chat;
+using Jarvis.Music;
+using Jarvis.Core.Chat;
 using Jarvis.Notes;
 using Jarvis.Flow;
 using Jarvis.Core.Flow;
@@ -77,6 +80,9 @@ public sealed class AppHost : IAsyncDisposable
     public FlowController Flow { get; }
     public FlowPill FlowPill { get; }
     public NoteTaker NoteTaker { get; }
+    public FrontWindowProbe FrontProbe { get; }
+    public ChatStore Chat { get; }
+    public MediaSessions Media { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -235,6 +241,19 @@ public sealed class AppHost : IAsyncDisposable
         Prefs.Changed += k => { if (k is "flow.key" or "flow.enabled") SyncFlowKey(); };
         SettingsWindow.RegisterNative("flow", () => FlowPane.Build(Prefs, FlowStore, Flow));
 
+        // ── Task 15: the island's Chat and Music tabs ──
+        FrontProbe = new FrontWindowProbe();
+        Chat = new ChatStore(Api) { Origin = () => State.ApiOrigin };
+        IslandWindow.Register(IslandTab.Chat, new ChatTab(Chat, Island, () => IslandWindow));
+        Media = new MediaSessions();
+        IslandWindow.Register(IslandTab.Music, new MusicTab(Media));
+        ShortcutHandlers[ShortcutAction.AttachWindow] = () =>
+        {
+            // The island never has focus, so the foreground window is still his.
+            Chat.Attached = FrontProbe.Front();
+            Island.Open(IslandTab.Chat, typing: true);
+        };
+
         // ── Task 14: the note-taker (RecordCall has no default chord, as on the Mac) ──
         NoteTaker = new NoteTaker(Api, () => State.ApiOrigin);
         ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
@@ -343,6 +362,7 @@ public sealed class AppHost : IAsyncDisposable
     public void Start(string[] args)
     {
         if (args.Contains("--demo")) RunDemo();
+        _ = Media.StartAsync();
         if (Array.IndexOf(args, "--diag") is var i and >= 0 && i + 1 < args.Length) Diag(args[(i + 1)..]);
         Link.Start();
     }
