@@ -22,6 +22,9 @@ using Jarvis.Settings;
 using Jarvis.Sounds;
 using Jarvis.Terminal;
 using Jarvis.Tray;
+using Jarvis.Voice;
+using Jarvis.Voice.Audio;
+using Jarvis.Core.Voice;
 
 namespace Jarvis;
 
@@ -51,6 +54,13 @@ public sealed class AppHost : IAsyncDisposable
     public AdminRunner Admin { get; }
     public AdminCard AdminCard { get; }
     public PowerApi PowerApi { get; }
+    public AudioEndpoints AudioEndpoints { get; }
+    public VoiceCaptureDsp Mic { get; }
+    public ReplyPlayer Speaker { get; }
+    public VoiceController Voice { get; }
+    public VoiceTab VoiceTab { get; }
+    public PushToTalk PushToTalk { get; }
+    public SpeakBack SpeakBack { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -125,6 +135,26 @@ public sealed class AppHost : IAsyncDisposable
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);
         SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
+
+        // ── Task 10: the voice engine and the island Voice tab ──
+        AudioEndpoints = new AudioEndpoints();
+        Mic = new VoiceCaptureDsp();
+        Speaker = new ReplyPlayer();
+        var routes = new DeviceRoutes(AudioEndpoints, Mic, Speaker);
+        var sessions = new VoiceSessionApi(Api);
+        Voice = new VoiceController(() => State.ApiOrigin, sessions.SessionIdAsync, () => new VoiceSocket(), routes, Mic, Speaker,
+            SapiWordsRecognizer.TryCreate());
+        var voiceLog = FileLog.For("voice");
+        Voice.Log += voiceLog;
+        Mic.Log += voiceLog;
+        routes.Log += voiceLog;
+        VoiceTab = new VoiceTab(Voice);
+        IslandWindow.Register(IslandTab.Voice, VoiceTab);
+        SpeakBack = new SpeakBack(() => State.ApiOrigin);
+        State.Speak += job => _ = SpeakBack.SpeakAsync(job);
+        PushToTalk = new PushToTalk(HoldKeys, Voice, Prefs, Link);
+        // Voice answers in game mode too, but the island only opens when it may draw.
+        PushToTalk.Started += () => { if (Gate.CanPresent) Island.Open(IslandTab.Voice); };
 
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
@@ -201,6 +231,10 @@ public sealed class AppHost : IAsyncDisposable
     {
         Tray.Dispose();
         PowerWatcher.Dispose();
+        await Voice.StopAsync();
+        Mic.Dispose();
+        Speaker.Dispose();
+        AudioEndpoints.Dispose();
         HotKeys.Dispose();
         HoldKeys.Dispose();
         await Link.DisposeAsync();

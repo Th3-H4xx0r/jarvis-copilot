@@ -11,6 +11,15 @@
           "H.NotifyIcon": "2.3.2"
         }
       },
+      "Microsoft.ML.OnnxRuntime": {
+        "type": "Direct",
+        "requested": "[1.32.0, 2.0.0)",
+        "resolved": "1.32.0",
+        "contentHash": "3O3isLjl6ChjMvzZMt3in+uUymFxQK5+vd1UuSShmbUjHezHXgcze6KF5NquC/uPuL/++0CpI7qUBRrf+g1ezg==",
+        "dependencies": {
+          "Microsoft.ML.OnnxRuntime.Managed": "1.32.0"
+        }
+      },
       "Microsoft.Web.WebView2": {
         "type": "Direct",
         "requested": "[1.0.4314.35, 2.0.0)",
@@ -31,6 +40,12 @@
           "NAudio.WinMM": "2.2.1"
         }
       },
+      "System.Speech": {
+        "type": "Direct",
+        "requested": "[8.0.0, 9.0.0)",
+        "resolved": "8.0.0",
+        "contentHash": "CNuiA6vb95Oe5PRjClZEBiaju31vwB8OIeCgeSBXyZL6+MS4RVVB2X/C11z0xCkooHE3Vy91nM2z76emIzR+sg=="
+      },
       "H.GeneratedIcons.System.Drawing": {
         "type": "Transitive",
         "resolved": "2.3.2",
@@ -45,6 +60,15 @@
         "contentHash": "d/kh5nJ9ahjbdM5tyb+UQ/CWSQwYb2xT/tmdot5OWK5E0C3rkyXEq3IfBIO6UEYvYkLE/ppX94Sm42yByxXJXA==",
         "dependencies": {
           "H.GeneratedIcons.System.Drawing": "2.3.2"
+        }
+      },
+      "Microsoft.ML.OnnxRuntime.Managed": {
+        "type": "Transitive",
+        "resolved": "1.32.0",
+        "contentHash": "ApCfJdeUnrO4v+9KWtxnm/Uk3UlzdbNqGb64uBXh85RToxYbW1COJM/avDj3INNTwfEE6LUIWaJIxov0YWNa1g==",
+        "dependencies": {
+          "System.Memory": "4.5.5",
+          "System.Numerics.Tensors": "9.0.0"
         }
       },
       "Microsoft.NETCore.Platforms": {
@@ -121,6 +145,16 @@
           "Microsoft.Win32.SystemEvents": "9.0.1"
         }
       },
+      "System.Memory": {
+        "type": "Transitive",
+        "resolved": "4.5.5",
+        "contentHash": "XIWiDvKPXaTveaB7HVganDlOCRoj03l+jrwNvcge/t8vhGYKvqV+dMv6G4SAX2NoNmN0wZfVPTAlFwZcZvVOUw=="
+      },
+      "System.Numerics.Tensors": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "hyJB4UlpAi19Xr9AXzu2NuagKC4lPfHObNMEAA0HmqFz2rX7wKgzeYzO/jM/eBHDhnUGFFEjk5cOoJaxqg5J4A=="
+      },
       "System.Security.AccessControl": {
         "type": "Transitive",
         "resolved": "4.7.0",
@@ -140,11 +174,26 @@
       }
     },
     "net8.0-windows10.0.22621/win-x64": {
+      "Microsoft.ML.OnnxRuntime": {
+        "type": "Direct",
+        "requested": "[1.32.0, 2.0.0)",
+        "resolved": "1.32.0",
+        "contentHash": "3O3isLjl6ChjMvzZMt3in+uUymFxQK5+vd1UuSShmbUjHezHXgcze6KF5NquC/uPuL/++0CpI7qUBRrf+g1ezg==",
+        "dependencies": {
+          "Microsoft.ML.OnnxRuntime.Managed": "1.32.0"
+        }
+      },
       "Microsoft.Web.WebView2": {
         "type": "Direct",
         "requested": "[1.0.4314.35, 2.0.0)",
         "resolved": "1.0.4314.35",
         "contentHash": "x5MFf2W03xueU1mMNvivXfHSsQ+ODo7vJ36qw/dLtU5Gs+8d7+7N7zzmNNDoT3ffosmcvZNBtUnlzyiDUuBkSQ=="
+      },
+      "System.Speech": {
+        "type": "Direct",
+        "requested": "[8.0.0, 9.0.0)",
+        "resolved": "8.0.0",
+        "contentHash": "CNuiA6vb95Oe5PRjClZEBiaju31vwB8OIeCgeSBXyZL6+MS4RVVB2X/C11z0xCkooHE3Vy91nM2z76emIzR+sg=="
       },
       "Microsoft.Win32.Registry": {
         "type": "Transitive",
