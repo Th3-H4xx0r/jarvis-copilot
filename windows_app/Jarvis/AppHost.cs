@@ -16,6 +16,8 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.HoloDrop;
+using Jarvis.Core.Holo;
 using Jarvis.Chat;
 using Jarvis.Music;
 using Jarvis.Core.Chat;
@@ -34,6 +36,7 @@ using Jarvis.Voice.Audio;
 using Jarvis.Orb;
 using Jarvis.Wake;
 using Jarvis.Core.Voice;
+using Jarvis.Ui;
 
 namespace Jarvis;
 
@@ -83,6 +86,9 @@ public sealed class AppHost : IAsyncDisposable
     public FrontWindowProbe FrontProbe { get; }
     public ChatStore Chat { get; }
     public MediaSessions Media { get; }
+    public HoloDropService Holo { get; }
+    public HoloSender HoloSender { get; }
+    public HoloFlingWatcher Fling { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -254,6 +260,45 @@ public sealed class AppHost : IAsyncDisposable
             Island.Open(IslandTab.Chat, typing: true);
         };
 
+        // ── Tasks 16/17: Holo Drop receive and send ──
+        HoloDropService? holo = null;
+        var holoApi = new HoloDropApi(Api);
+        holo = new HoloDropService(holoApi, Gate,
+            new HoloPorts(new HoloReceiver(), new HoloCards(() => holo), new HoloBeacons(), new HoloScreenReport(), new HoloBleBeacon(), new HoloFirewallProbe()),
+            new HoloDropOptions
+            {
+                GameMode = () => State.GameMode,
+                DeviceId = () => State.DeviceId,
+                Admin = Admin,
+                Dispatch = a => Dispatcher.Invoke(a),
+            });
+        Holo = holo;
+        State.HoloFrame += f => Holo.Handle(f);
+        State.HelloReceived += () => _ = Holo.ServerReadyAsync();
+        State.PowerTopic += () => _ = Holo.PowerTopicAsync();
+        PowerWatcher.Woke += () => _ = Holo.DidWakeAsync();
+        System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) => _ = Holo.NetworkChangedAsync();
+        HoloSender = new HoloSender(holoApi);
+        ShortcutHandlers[ShortcutAction.HoloDrop] = () => OpenOrbit();
+        GeneralPane.Extras.Add(HoloFirewallRow);
+        Fling = new HoloFlingWatcher();
+        Fling.Flung += angle => Dispatcher.BeginInvoke(() =>
+        {
+            var orbit = OpenOrbit();
+            orbit?.SendToward(angle);
+        });
+        HoldKeys.Changed += (name, down) =>
+        {
+            if (name == "fling-ctrl") _flingCtrl = down;
+            else if (name == "fling-alt") _flingAlt = down;
+            else return;
+            Fling.Update(Prefs.Get(PrefKeys.HoloFling), _flingCtrl && _flingAlt, State.GameMode);
+        };
+        SyncFlingKeys();
+        Prefs.Changed += k => { if (k == PrefKeys.HoloFling.Name) SyncFlingKeys(); };
+        ShortcutsPane.Extras.Add(() => Th.Switch("Mouse fling: hold left Ctrl+Alt and flick the mouse toward a device", Prefs.Get(PrefKeys.HoloFling),
+            v => Prefs.Set(PrefKeys.HoloFling, v)));
+
         // ── Task 14: the note-taker (RecordCall has no default chord, as on the Mac) ──
         NoteTaker = new NoteTaker(Api, () => State.ApiOrigin);
         ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
@@ -269,6 +314,7 @@ public sealed class AppHost : IAsyncDisposable
         Tray.Command += c => { if (TrayHandlers.TryGetValue(c, out var h)) h(); };
         TrayHandlers[TrayCommand.OpenIsland] = ShowIsland;
         TrayHandlers[TrayCommand.Recap] = ShowRecap;
+        TrayHandlers[TrayCommand.HoloDrop] = () => OpenOrbit();
         TrayHandlers[TrayCommand.Live] = ShowLive;
         TrayHandlers[TrayCommand.Quit] = () => Application.Current.Shutdown();
         State.IslandRequested += (tab, _) => { if (tab == "recap") ShowRecap(); };
@@ -308,6 +354,43 @@ public sealed class AppHost : IAsyncDisposable
             HoldKeys.Unwatch("flow");
             HoldKeys.Unwatch("flow-esc");
         }
+    }
+
+    private bool _flingCtrl, _flingAlt;
+
+    /// Left Ctrl and left Alt are watched (Raw Input) only while the fling is switched on.
+    private void SyncFlingKeys()
+    {
+        if (Prefs.Get(PrefKeys.HoloFling)) { HoldKeys.Watch("fling-ctrl", 0xA2); HoldKeys.Watch("fling-alt", 0xA4); }
+        else { HoldKeys.Unwatch("fling-ctrl"); HoldKeys.Unwatch("fling-alt"); Fling.Update(false, false, State.GameMode); }
+    }
+
+    private HoloOrbitWindow? _orbit;
+
+    /// Ctrl+Alt+H: grab what's in front and open the Orbit (never over a game).
+    public HoloOrbitWindow? OpenOrbit()
+    {
+        if (!Gate.CanPresent || !Holo.On) return null;
+        if (_orbit is { IsLoaded: true }) return _orbit;
+        var item = HoloGrab.Grab(FrontProbe, System.IO.File.Exists);
+        _orbit = new HoloOrbitWindow(Holo, HoloSender, item, Holo.Devices);
+        _orbit.Closed += (_, _) => _orbit = null;
+        _orbit.Present();
+        return _orbit;
+    }
+
+    private FrameworkElement HoloFirewallRow()
+    {
+        var panel = new System.Windows.Controls.StackPanel();
+        panel.Children.Add(Th.Text("HOLO DROP", 11, "JcTextFaint", bold: true));
+        if (Holo.FirewallNeeded)
+        {
+            panel.Children.Add(Th.Text("Phones on your Wi-Fi can send straight to this PC once Windows allows it. You approve with Face ID on your iPhone, then click Yes on Windows' prompt.", 12, "JcTextDim", wrap: true));
+            panel.Children.Add(Th.Button(HoloFirewall.Why, () => _ = Holo.AllowFirewallAsync()));
+        }
+        else panel.Children.Add(Th.Text(Holo.On ? $"On. Drops are saved to {Holo.SaveFolder}." : "Off (Settings → Power integrations).", 12, "JcTextDim", wrap: true));
+        panel.Margin = new Thickness(0, 22, 0, 0);
+        return panel;
     }
 
     public void BindShortcuts()
@@ -398,6 +481,8 @@ public sealed class AppHost : IAsyncDisposable
         PowerWatcher.Dispose();
         await Voice.StopAsync();
         Mic.Dispose();
+        Holo.Dispose();
+        Fling.Dispose();
         Wake?.Dispose();
         Foreground.Dispose();
         Speaker.Dispose();
