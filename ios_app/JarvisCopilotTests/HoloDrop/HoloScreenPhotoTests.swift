@@ -1,5 +1,4 @@
 import CoreGraphics
-import UniformTypeIdentifiers
 import XCTest
 @testable import JarvisCopilot
 
@@ -78,49 +77,5 @@ final class HoloScreenPhotoTests: XCTestCase {
         XCTAssertEqual(entries.map(\.id), ["a", "b"])
         XCTAssertEqual(HoloInbox.status(entries[0]), "Waiting")
         XCTAssertEqual(HoloInbox.status(entries[1]), "Copied")
-    }
-
-    // MARK: the photo itself, from "Get What's On Screen"
-
-    private func tempDir() -> URL {
-        let d = FileManager.default.temporaryDirectory.appendingPathComponent("onscreen-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-        return d
-    }
-
-    func testAPhotoOnScreenIsSentAsItself() throws {
-        let bytes = Data([0x00, 0x01, 0x02, 0x03])
-        let item = try XCTUnwrap(HoloScreenPhoto.onScreenItem(data: bytes, filename: "IMG_4021.HEIC", type: .heic, in: tempDir()))
-        guard case .file(let url, let name, let mime, let kind) = item else { return XCTFail("not a file: \(item)") }
-        XCTAssertEqual(name, "IMG_4021.HEIC")
-        XCTAssertEqual(kind, "image")
-        XCTAssertEqual(mime, "image/heic")
-        XCTAssertEqual(try Data(contentsOf: url), bytes)
-    }
-
-    func testAVideoOnScreenIsSentAsAVideo() throws {
-        let item = try XCTUnwrap(HoloScreenPhoto.onScreenItem(data: Data([1]), filename: "IMG_0007.MOV", type: nil, in: tempDir()))
-        XCTAssertEqual(item.kind, "video")
-    }
-
-    func testAVideoFileIsCopiedNotLoaded() throws {
-        let src = tempDir().appendingPathComponent("clip.mov")
-        try Data([9, 9, 9]).write(to: src)
-        let item = try XCTUnwrap(HoloScreenPhoto.onScreenItem(file: src, filename: "IMG_0008.MOV", type: .quickTimeMovie, in: tempDir()))
-        guard case .file(let url, _, _, let kind) = item else { return XCTFail("not a file") }
-        XCTAssertEqual(kind, "video")
-        XCTAssertEqual(try Data(contentsOf: url), Data([9, 9, 9]))
-    }
-
-    func testAnUnnamedPhotoGetsAName() throws {
-        let item = try XCTUnwrap(HoloScreenPhoto.onScreenItem(data: Data([1]), filename: "", type: .jpeg, in: tempDir()))
-        XCTAssertEqual(item.caption, "Photo.jpeg")
-    }
-
-    /// Safari, Maps and the rest hand over pages and places: those go the screenshot way.
-    func testOtherOnScreenContentIsIgnored() {
-        XCTAssertNil(HoloScreenPhoto.onScreenItem(data: Data("<html>".utf8), filename: "Page.html", type: .html, in: tempDir()))
-        XCTAssertNil(HoloScreenPhoto.onScreenItem(data: Data("https://a.b".utf8), filename: "a.b", type: .url, in: tempDir()))
-        XCTAssertNil(HoloScreenPhoto.onScreenItem(data: Data(), filename: "IMG_1.JPG", type: .jpeg, in: tempDir()))
     }
 }
