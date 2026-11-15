@@ -136,6 +136,28 @@ public class ChatTests
     }
 
     [Fact]
+    public async Task LocalModels_ListsChatModels_AndPicksTheFirst()
+    {
+        var local = new FakeHttp(r => r.Path == "/v1/models"
+            ? FakeHttp.Json("{\"data\":[{\"id\":\"nomic-embed-text\"},{\"id\":\"llama3.2\"},{\"id\":\"qwen3\"}]}")
+            : FakeHttp.Json("{}", System.Net.HttpStatusCode.NotFound));
+        var store = new ChatStore(new ApiClient(() => "http://o", new FakeHttp(_ => FakeHttp.Json("{}"))), local) { Source = ChatStore.Backend.Ollama };
+        Assert.Equal(new[] { "llama3.2", "qwen3" }, await store.LocalModelsAsync());
+        Assert.Equal("llama3.2", store.LocalModelName);
+        Assert.StartsWith("http://127.0.0.1:11434/", local.Requests.Single().Uri);
+    }
+
+    [Fact]
+    public async Task LocalModels_JarvisOrDownIsEmpty()
+    {
+        var store = new ChatStore(new ApiClient(() => "http://o", new FakeHttp(_ => FakeHttp.Json("{}"))),
+            new FakeHttp(_ => throw new HttpRequestException("refused")));
+        Assert.Empty(await store.LocalModelsAsync());
+        store.Source = ChatStore.Backend.LmStudio;
+        Assert.Empty(await store.LocalModelsAsync());
+    }
+
+    [Fact]
     public async Task Approval_PostsRespond()
     {
         var gate = new TaskCompletionSource();

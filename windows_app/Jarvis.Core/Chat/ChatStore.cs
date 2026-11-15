@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Jarvis.Core.Http;
 using Jarvis.Core.Link;
@@ -151,6 +152,26 @@ public sealed class ChatStore
         var text = LocalModel.Visible(raw.ToString());
         _localHistory.Add(new JsonObject { ["role"] = "assistant", ["content"] = text });
         _turns.Add(new ChatTurn(false, text));
+    }
+
+    /// The chat models the local backend (Ollama / LM Studio) has; empty when it isn't running.
+    /// The first becomes the model when none is chosen yet.
+    public async Task<IReadOnlyList<string>> LocalModelsAsync(CancellationToken ct = default)
+    {
+        if (Source == Backend.Jarvis) return Array.Empty<string>();
+        var baseUrl = Source == Backend.Ollama ? LocalModel.Ollama : LocalModel.LmStudio;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            using var resp = await _local.GetAsync(LocalModel.ModelsUrl(baseUrl), timeout.Token).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return Array.Empty<string>();
+            var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false)) as JsonObject;
+            var models = json == null ? Array.Empty<string>() : LocalModel.ChatModels(json);
+            if (LocalModelName.Length == 0 && models.Count > 0) LocalModelName = models[0];
+            return models;
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { return Array.Empty<string>(); }
     }
 
     public async Task StopAsync()

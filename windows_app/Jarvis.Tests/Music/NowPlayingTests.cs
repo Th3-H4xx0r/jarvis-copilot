@@ -13,4 +13,19 @@ public class NowPlayingTests
         Assert.Equal(10, (playing with { IsPlaying = false }).PositionAt(T0.AddSeconds(5)));
         Assert.Equal(200, playing.PositionAt(T0.AddSeconds(500)));
     }
+
+    [Fact]
+    public void Clock_MinutesAndHours()
+    {
+        Assert.Equal("3:07", NowPlaying.Clock(187.9));
+        Assert.Equal("1:02:03", NowPlaying.Clock(3723));
+        Assert.Equal("0:00", NowPlaying.Clock(-4));
+    }
+
+    [Fact]
+    public void Remaining_RoundsUp_BlankWithoutDuration()
+    {
+        Assert.Equal("-1:01", NowPlaying.Remaining(120, 59.5));
+        Assert.Equal("", NowPlaying.Remaining(0, 3));
+    }
 }

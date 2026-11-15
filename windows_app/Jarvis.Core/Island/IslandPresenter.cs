@@ -42,6 +42,8 @@ public sealed class IslandPresenter
     public IslandTab Tab { get; private set; } = IslandTab.Agents;
     public IslandTab LastTab { get; private set; } = IslandTab.Agents;
     public bool Typing { get; private set; }
+    /// Held open regardless of the hold timer (desktop verification, `--diag island`).
+    public bool Pinned { get; set; }
     public bool Hovering { get; private set; }
     public string? Draft { get; private set; }
     /// A line shown at the top of the Agents tab the next time it shows (a refusal, say).
@@ -172,7 +174,7 @@ public sealed class IslandPresenter
 
     public void Tick()
     {
-        Machine.Tick(Now, Hovering, IslandPin.Holds(Typing, Tab, _state.Pending.Count > 0), KeepsTab());
+        Machine.Tick(Now, Hovering, IslandPin.Holds(Typing || Pinned, Tab, _state.Pending.Count > 0), KeepsTab());
         Publish();
     }
 
