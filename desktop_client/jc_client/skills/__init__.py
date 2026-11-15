@@ -166,6 +166,13 @@ def load_all(allow_shell: bool = False) -> None:
         except Exception as exc:
             log.warning("Failed to load ui skills: %s", exc)
 
+    # Fast computer control on the PC (ui_look / ui_do over UI Automation).
+    if sys.platform == "win32":
+        try:
+            import jc_client.skills.ui_win  # noqa: F401 (registers on win32)
+        except Exception as exc:
+            log.warning("Failed to load ui skills: %s", exc)
+
     # The island (the Jarvis app's, Mac or PC) and VS Code's terminal bridge.
     if sys.platform in ("darwin", "win32"):
         try:
