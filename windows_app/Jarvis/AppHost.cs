@@ -16,6 +16,8 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Update;
+using Jarvis.Core.Update;
 using Jarvis.Screen;
 using Jarvis.Core.Screen;
 using Jarvis.HoloDrop;
@@ -93,6 +95,8 @@ public sealed class AppHost : IAsyncDisposable
     public HoloFlingWatcher Fling { get; }
     public ScreenShareService ScreenShare { get; }
     public ShareBanner ShareBanner { get; }
+    public UpdateCoordinator Updates { get; }
+    public UpdateCard UpdateCard { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -332,6 +336,19 @@ public sealed class AppHost : IAsyncDisposable
         sharePoll.Tick += (_, _) => { if (State.Connected) _ = ScreenShare.PollAsync(); };
         sharePoll.Start();
 
+        // ── Task 19: in-app updates ──
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var version = AppVersion.Read(AppContext.BaseDirectory);
+        var updater = new AppUpdater(Api, version, System.IO.Path.Combine(local, "Jarvis", "update"),
+            System.IO.Path.Combine(local, "Programs", "Jarvis", "app"), System.IO.Path.Combine(local, "Programs", "Jarvis", "updater"),
+            System.IO.Path.Combine(FileLog.Dir, "update.log"), Environment.ProcessId, UpdateCard.Launch);
+        Updates = new UpdateCoordinator(updater.CheckAsync, version);
+        UpdateCard = new UpdateCard(updater, Updates, Gate);
+        State.AppUpdateSignal += topic => _ = Updates.SignalAsync(topic);
+        var updatePoll = new DispatcherTimer { Interval = UpdateCoordinator.PollEvery };
+        updatePoll.Tick += (_, _) => { if (State.Connected) _ = Updates.PollAsync(); };
+        updatePoll.Start();
+
         // ── Task 14: the note-taker (RecordCall has no default chord, as on the Mac) ──
         NoteTaker = new NoteTaker(Api, () => State.ApiOrigin);
         ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
@@ -506,7 +523,11 @@ public sealed class AppHost : IAsyncDisposable
     }
 
     /// A second launch, or the tray, asked for the island.
-    public void ShowIsland() => Island.Open(IslandTab.Agents);
+    public void ShowIsland()
+    {
+        Island.Open(IslandTab.Agents);
+        _ = Updates.ActivationAsync();
+    }
 
     public async ValueTask DisposeAsync()
     {
