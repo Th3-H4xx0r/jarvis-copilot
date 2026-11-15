@@ -6,6 +6,7 @@ using Jarvis.Core.Input;
 using Jarvis.Core.Island;
 using Jarvis.Core.Link;
 using Jarvis.Core.Model;
+using Jarvis.Core.Power;
 using Jarvis.Core.Prefs;
 using Jarvis.Core.Sounds;
 using Jarvis.Core.State;
@@ -14,6 +15,7 @@ using Jarvis.Input;
 using Jarvis.Island;
 using Jarvis.Platform;
 using Jarvis.Recap;
+using Jarvis.Settings;
 using Jarvis.Sounds;
 using Jarvis.Terminal;
 using Jarvis.Tray;
@@ -40,6 +42,9 @@ public sealed class AppHost : IAsyncDisposable
     public HoldKeyWatcher HoldKeys { get; }
     public TerminalJumper Jumper { get; }
     public TrayIcon Tray { get; }
+    public PcPowerClient PcPower { get; }
+    public PowerRelay PowerRelay { get; }
+    public PowerBroadcastWatcher PowerWatcher { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -98,7 +103,20 @@ public sealed class AppHost : IAsyncDisposable
         BindShortcuts();
         Prefs.Changed += k => { if (k.StartsWith("shortcut.", StringComparison.Ordinal)) BindShortcuts(); };
 
-        Tray = new TrayIcon(State, () => false, () => false);
+        // ── Task 7: Settings, PC power, sleep/wake relay ──
+        PcPower = new PcPowerClient(Link);
+        PowerRelay = new PowerRelay(Link, TimeProvider.System);   // its 4 s wait runs while the UI thread is blocked
+        PowerWatcher = new PowerBroadcastWatcher(PowerRelay);
+        State.PowerTopic += () => _ = PcPower.RefreshAsync();
+        State.HelloReceived += () => _ = PcPower.RefreshAsync();
+        SettingsWindow.RegisterNative("general", () => GeneralPane.Build(Prefs));
+        SettingsWindow.RegisterNative("agents", () => AgentsPane.Build(State));
+        SettingsWindow.RegisterNative("pc-power", () => PcPowerPane.Build(PcPower, PowerRelay));
+        SettingsWindow.RegisterNative("shortcuts", () => ShortcutsPane.Build(Prefs, HotKeys, BindShortcuts));
+
+        Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
+        TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
+        TrayHandlers[TrayCommand.KeepAwake] = () => _ = PcPower.SetKeepAwakeAsync(!(PcPower.Last?.KeepAwake ?? false));
         Tray.Command += c => { if (TrayHandlers.TryGetValue(c, out var h)) h(); };
         TrayHandlers[TrayCommand.OpenIsland] = ShowIsland;
         TrayHandlers[TrayCommand.Recap] = ShowRecap;
@@ -125,6 +143,8 @@ public sealed class AppHost : IAsyncDisposable
         }
     }
 
+    public void ShowSettings(string? pane = null) => SettingsWindow.Show(State, pane);
+
     public void ShowRecap()
     {
         if (_recap is { IsLoaded: true }) { _recap.Activate(); return; }
@@ -147,6 +167,7 @@ public sealed class AppHost : IAsyncDisposable
         {
             case "open-tray-menu": Tray.OpenMenu(); break;
             case "island": ShowIsland(); break;
+            case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
         }
     }
 
@@ -167,6 +188,7 @@ public sealed class AppHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Tray.Dispose();
+        PowerWatcher.Dispose();
         HotKeys.Dispose();
         HoldKeys.Dispose();
         await Link.DisposeAsync();
