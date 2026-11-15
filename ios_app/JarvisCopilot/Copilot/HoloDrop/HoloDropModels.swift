@@ -57,6 +57,7 @@ struct HoloDevice: Identifiable, Equatable {
     var symbol: String {
         switch kind {
         case "mac": return "laptopcomputer"
+        case "pc": return "desktopcomputer"
         case "ipad": return "ipad"
         case "iphone": return "iphone"
         case "web": return "globe"

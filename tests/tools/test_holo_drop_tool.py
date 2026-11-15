@@ -30,3 +30,12 @@ def test_unknown_device_lists_choices(monkeypatch):
     monkeypatch.setattr(t, "_api_request", lambda *a, **k: DEVICES)
     out = json.loads(t.holo_drop({"target": "toaster", "text": "hi"}))
     assert "MacBook" in out["error"]
+
+
+def test_pick_pc_by_alias_and_computer_falls_back_to_pc():
+    pc = {"id": "pc-1", "name": "Pranav-Desktop", "kind": "pc", "online": True}
+    mac = {"id": "mac-1", "name": "MacBook", "kind": "mac", "online": True}
+    assert t._pick([mac, pc], "pc") is pc
+    assert t._pick([mac, pc], "windows") is pc
+    assert t._pick([mac, pc], "computer") is mac
+    assert t._pick([pc], "computer") is pc

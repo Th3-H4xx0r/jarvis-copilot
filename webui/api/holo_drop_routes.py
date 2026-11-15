@@ -217,7 +217,7 @@ def _kind(d: dict) -> Optional[str]:
     # jc-client (the Mac app's helper) pairs as a plain "browser" record; its user agent says what it is.
     # Boards and the Pod are "browser" records too, so the agent string, not the kind, decides.
     if raw in ("browser", "") and str(d.get("user_agent") or "").startswith("jc-client"):
-        return "mac"
+        return "pc" if str(d.get("os") or "").lower() == "windows" else "mac"
     if raw.startswith("mobile"):
         return "ipad" if "ipad" in name or "ipad" in raw else "iphone"
     return None
@@ -232,7 +232,7 @@ def _defaults() -> dict:
         return {}
 
 
-_DEFAULT_ACTION = {"mac": "open", "web": "open", "iphone": "save", "ipad": "save", "glasses": "open", "pod": "open"}
+_DEFAULT_ACTION = {"mac": "open", "pc": "open", "web": "open", "iphone": "save", "ipad": "save", "glasses": "open", "pod": "open"}
 
 
 def devices(caller: str) -> list[dict]:
@@ -249,7 +249,7 @@ def devices(caller: str) -> list[dict]:
         out.append({
             "id": d["id"], "name": d.get("name") or kind.title(), "kind": kind,
             "online": d["id"] in online,
-            "accepts": list(KINDS), "aim": kind == "mac",
+            "accepts": list(KINDS), "aim": kind in ("mac", "pc"),
             "default_action": defaults.get(d["id"]) or _DEFAULT_ACTION[kind],
             "lan": st.lan_for(d["id"]) if _settings().get("direct", True) else None,
             "bearing": ({k: b[k] for k in ("deg", "confidence", "source", "at")} if b else None),

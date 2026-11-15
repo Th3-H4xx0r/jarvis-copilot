@@ -25,9 +25,12 @@ def _pick(devices: list[dict], target: str) -> dict | None:
         if t in (d["id"].lower(), d["name"].lower()):
             return d
     aliases = {"mac": "mac", "macbook": "mac", "laptop": "mac", "computer": "mac", "phone": "iphone",
-               "iphone": "iphone", "ipad": "ipad", "web": "web", "browser": "web", "glasses": "glasses", "pod": "pod"}
+               "iphone": "iphone", "ipad": "ipad", "web": "web", "browser": "web", "glasses": "glasses", "pod": "pod",
+               "pc": "pc", "windows": "pc", "gaming pc": "pc", "desktop pc": "pc", "desktop": "pc"}
     kind = aliases.get(t)
     matches = [d for d in devices if d["kind"] == kind] or [d for d in devices if t in d["name"].lower()]
+    if not matches and t == "computer":   # "my computer": the Mac by default, else the PC
+        matches = [d for d in devices if d["kind"] == "pc"]
     matches.sort(key=lambda d: not d.get("online"))
     return matches[0] if matches else None
 

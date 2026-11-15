@@ -315,7 +315,7 @@ struct HoloAppOrbit: View {
                     Button { note = sensing.point(d) } label: {
                         Label("I'm pointing at it", systemImage: "location.north.line")
                     }
-                    if d.kind == "mac" {
+                    if d.kind == "mac" || d.kind == "pc" {
                         Button { Task { note = await sensing.look(d) } } label: {
                             Label("Find it with the camera", systemImage: "camera.viewfinder")
                         }
