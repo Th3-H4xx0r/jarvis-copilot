@@ -4,11 +4,14 @@ Design: `docs/superpowers/specs/2026-11-15-windows-client-design.md` · plans: `
 Tick only when it works live on the PC / phone.
 
 ## Needs Pranav
-- [ ] Which Windows machine is the gaming PC on the tailnet ("pranav-computer" or "rtxpc")?
-- [ ] One-time SSH setup on the PC: `docs/windows/pc-access.md` (the Mac's key is `~/.ssh/jc_pc_ed25519.pub`).
+- [x] The gaming PC is "pranav-computer" (100.119.223.124)
+- [ ] Run the one-time setup on the PC (normal PowerShell, click Yes once):
+  `irm https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/scripts/windows/setup-pc.ps1 | iex`
 - [ ] Install the iPhone update (build 263191127).
 
 ## Then (me, over SSH)
+- [ ] Read `~\jarvis-setup\summary.txt`; set `User` in the Mac's `Host jc-pc`; fix any FAIL lines
+- [ ] Pair jc-client headlessly (`jc-client pair --server … --code …` with a code minted on the server), then `jc-client start`
 - [ ] PC inventory (Python/winget/agents on PATH/anti-cheat games/Wi-Fi wake capability) → `docs/windows/pc-inventory.md`
 - [ ] PC dev checkout + venv; run the jc-client suite on Windows; fix what only Windows shows (plan 01 Task 12)
 - [ ] Install jc-client on the PC (installer), pair it; confirm the PC card appears in Agents (iPhone + web)

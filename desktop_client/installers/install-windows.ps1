@@ -13,7 +13,9 @@
 param(
     [string]$Dir    = $env:JC_CLIENT_DIR,
     [string]$Branch = 'main',
-    [string]$Repo   = 'https://github.com/Th3-H4xx0r/jarvis-copilot.git'
+    [string]$Repo   = 'https://github.com/Th3-H4xx0r/jarvis-copilot.git',
+    # scripts/windows/setup-pc.ps1: the Mac pairs headlessly over SSH, so no tray/pairing dialog
+    [switch]$NoTray
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,10 +136,12 @@ if ($Paired) {
     for ($i = 0; $i -lt 30 -and -not (Test-Path $PidFile); $i++) { Start-Sleep -Milliseconds 500 }
 } else {
     Disable-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' | Out-Null
-    Info "Pair in the dialog; the client starts at your next sign-in (or run: jc-client start)"
+    if (-not $NoTray) { Info "Pair in the dialog; the client starts at your next sign-in (or run: jc-client start)" }
 }
-Info "Launching tray ..."
-$null = Start-Process -WindowStyle Hidden -FilePath $JcExe -ArgumentList 'tray'
+if (-not $NoTray) {
+    Info "Launching tray ..."
+    $null = Start-Process -WindowStyle Hidden -FilePath $JcExe -ArgumentList 'tray'
+}
 
 Ok "Installed at $Dir"
 Write-Host ""

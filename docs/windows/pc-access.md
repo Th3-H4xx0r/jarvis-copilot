@@ -1,7 +1,23 @@
 # Letting the Mac reach the PC (one-time setup)
 
 The Windows client is built and tested on the real PC from the Mac over SSH (Tailscale).
-Do this once on the PC, in **PowerShell opened as Administrator**:
+
+## The easy way: one script does everything
+
+Open a normal **PowerShell** window on the PC, paste this, and click **Yes** on the one admin prompt:
+
+```powershell
+irm https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/scripts/windows/setup-pc.ps1 | iex
+```
+
+`scripts/windows/setup-pc.ps1` installs Git, Python 3.12, the .NET 8 SDK, PowerShell 7 and Node; turns on
+SSH with the Mac's key (the manual steps below); enables wake-on-magic-packet; installs jc-client and the
+Jarvis app; and leaves a summary in `~\jarvis-setup\summary.txt`. The Mac pairs jc-client over SSH after.
+Safe to run again.
+
+## By hand (what the script's SSH part does)
+
+In **PowerShell opened as Administrator**:
 
 ```powershell
 # 1. Turn on the OpenSSH server and start it with Windows
