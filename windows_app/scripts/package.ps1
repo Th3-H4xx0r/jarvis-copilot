@@ -24,6 +24,13 @@ dotnet publish (Join-Path $root 'JarvisUnlock\JarvisUnlock.csproj') -c Release -
   -p:PublishSingleFile=true -o $unl --nologo
 if ($LASTEXITCODE -ne 0) { throw 'JarvisUnlock publish failed' }
 Copy-Item -Force (Join-Path $unl 'JarvisUnlock.exe') $stage
+# The PC Stats sensor helper (a service, installed from Settings with Face ID + UAC). Not trimmed:
+# LibreHardwareMonitor and TraceEvent use reflection.
+$sen = Join-Path $out 'package\sensors'
+dotnet publish (Join-Path $root 'JarvisSensors\JarvisSensors.csproj') -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $sen --nologo
+if ($LASTEXITCODE -ne 0) { throw 'JarvisSensors publish failed' }
+Copy-Item -Force (Join-Path $sen 'JarvisSensors.exe') $stage
 Copy-Item -Force (Join-Path $PSScriptRoot 'uninstall.ps1') $stage   # Settings > Apps > Uninstall runs it
 
 @{ version = $Version; build = $build } | ConvertTo-Json -Compress | Set-Content -Encoding utf8NoBOM (Join-Path $stage 'version.json')
