@@ -32,6 +32,37 @@ public static class ShareSignal
         return m;
     }
 
+    /// One long-poll answer: the viewers' messages after `seq`, the new cursor, and whether the
+    /// share ended (status "ended", or the server said 404/410 through `_status`).
+    public static (int Seq, IReadOnlyList<ShareInbound> Inbound, bool Ended) Batch(JsonObject reply, int seq)
+    {
+        var inbound = new List<ShareInbound>();
+        foreach (var m in J.Arr(reply["messages"]))
+        {
+            seq = Math.Max(seq, J.I(m["seq"]));
+            if (Parse(m) is { } i) inbound.Add(i);
+        }
+        var status = J.I(reply["_status"]);
+        return (seq, inbound, J.S(reply["status"]) == "ended" || status is 404 or 410);
+    }
+
+    public sealed record IceServer(IReadOnlyList<string> Urls, string? Username, string? Credential);
+
+    /// `GET /api/screen/ice` → its servers (urls as a string or a list), else the default STUN.
+    public static IReadOnlyList<IceServer> IceServers(JsonObject? reply)
+    {
+        var o = new List<IceServer>();
+        foreach (var s in J.Arr(reply?["ice_servers"]))
+        {
+            var urls = s["urls"] is JsonArray a ? a.Select(u => J.S(u)).Where(u => u.Length > 0).ToList()
+                : J.S(s["urls"]) is { Length: > 0 } one ? new List<string> { one } : new List<string>();
+            if (urls.Count == 0) continue;
+            o.Add(new IceServer(urls, J.StrOrNull(s["username"]), J.StrOrNull(s["credential"])));
+        }
+        if (o.Count == 0) o.Add(new IceServer(new[] { ShareSelection.DefaultStun }, null, null));
+        return o;
+    }
+
     /// Only messages from a viewer count; our own echoes and unknown types are null.
     public static ShareInbound? Parse(JsonObject msg)
     {
