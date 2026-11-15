@@ -14,6 +14,18 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // A bug in one feature must not take the whole app down mid-game: log it and carry on.
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            FileLog.Write("app", $"unhandled: {ex.Exception}");
+            ex.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) => FileLog.Write("app", $"fatal: {ex.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, ex) =>
+        {
+            FileLog.Write("app", $"unobserved: {ex.Exception}");
+            ex.SetObserved();
+        };
         _single = new SingleInstance();
         if (!_single.IsFirst)
         {

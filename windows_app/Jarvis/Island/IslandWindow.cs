@@ -47,7 +47,7 @@ public sealed class IslandWindow : NoActivateWindow
         _compactText = Th.Text("Jarvis", 12, "JcTextDim");
         var compactRow = Th.Row(8, _compactLoader, _compactDot, _compactText);
         compactRow.HorizontalAlignment = HorizontalAlignment.Center;
-        _compact = new Grid { Children = { compactRow } };
+        _compact = new Grid { Background = Brushes.Transparent, Children = { compactRow } };
 
         _tabBar = new StackPanel { Orientation = Orientation.Horizontal, Height = IslandLayout.TabsHeight };
         _content = new ContentControl();
@@ -116,6 +116,9 @@ public sealed class IslandWindow : NoActivateWindow
         fold.Margin = new Thickness(6, 0, 0, 0);
         _tabBar.Children.Add(fold);
     }
+
+    /// The first draw (AppHost.Start): the presenter may already say "compact" before any change.
+    public void Refresh() => Render();
 
     private void Render()
     {

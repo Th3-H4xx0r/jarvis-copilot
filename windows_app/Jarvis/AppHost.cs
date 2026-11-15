@@ -496,6 +496,7 @@ public sealed class AppHost : IAsyncDisposable
     {
         if (args.Contains("--demo")) RunDemo();
         _ = Media.StartAsync();
+        IslandWindow.Refresh();
         if (Array.IndexOf(args, "--diag") is var i and >= 0 && i + 1 < args.Length) Diag(args[(i + 1)..]);
         Link.Start();
     }
