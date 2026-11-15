@@ -26,17 +26,19 @@ def _in_process():
         return None
 
 
-def start(goal: str, task_id=None) -> Optional[str]:
-    """The new share's id, or None when it could not be requested."""
+def start(goal: str, task_id=None, device_id: str = "") -> Optional[str]:
+    """The new share's id, or None when it could not be requested. ``device_id``: the
+    computer being driven (the Mac or the PC), which is the one that shares."""
     try:
         mod = _in_process()
         if mod is not None:
-            share = mod.start_task_share(str(goal or "")[:300], str(task_id or ""))
+            share = mod.start_task_share(str(goal or "")[:300], str(task_id or ""), device_id=str(device_id or ""))
         else:
             from tools.chrome_device_tool import _api_request
             share = _api_request("POST", "/api/screen/shares",
                                  body={"reason": "task", "task": str(goal or "")[:300],
-                                       "session_id": str(task_id or "")}, timeout=5.0)
+                                       "session_id": str(task_id or ""), "device_id": str(device_id or "")},
+                                 timeout=5.0)
         sid = (share or {}).get("id") if isinstance(share, dict) else None
         return str(sid) if sid else None
     except Exception as exc:  # noqa: BLE001 — the task matters more than its preview

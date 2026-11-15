@@ -18,9 +18,11 @@ def _clean():
 
 def _wire(monkeypatch, *, run=None, share="scr_abc123"):
     calls = []
+    devices = _wire.devices = []
     monkeypatch.setattr("agent.computer.mac.find_mac", lambda task_id=None: ("dev1", "Mac", None))
     monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
-    monkeypatch.setattr(screen, "start", lambda goal, task_id=None: calls.append(("start", goal, task_id)) or share)
+    monkeypatch.setattr(screen, "start", lambda goal, task_id=None, device_id="": calls.append(("start", goal, task_id))
+                        or devices.append(device_id) or share)
     monkeypatch.setattr(screen, "end", lambda sid: calls.append(("end", sid)))
     monkeypatch.setattr(L, "run", run or (lambda *a, **k: L.Result("done", look={"app": "Calc"})))
     return calls
@@ -31,6 +33,7 @@ def test_a_task_starts_a_share_and_ends_it_when_done(monkeypatch):
     result, err = turns.run_task("open Calculator", None, "sess1")
     assert err is None and result.share == "scr_abc123"
     assert calls == [("start", "open Calculator", "sess1"), ("end", "scr_abc123")]
+    assert _wire.devices == ["dev1"]   # the computer being driven is the one that shares
 
 
 def test_the_share_ends_even_when_the_loop_fails(monkeypatch):

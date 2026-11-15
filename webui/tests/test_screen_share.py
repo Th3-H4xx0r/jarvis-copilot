@@ -307,3 +307,27 @@ def test_cloudflare_failure_falls_back_to_stun(monkeypatch):
     servers = ss.ice_servers(now=5000.0)
     assert servers and all(not s.get("username") or "turn:" in s["urls"][0] for s in servers)
     assert any(u.startswith("stun:") for s in servers for u in s["urls"])
+
+
+# ── Which computer shares (2026-11-15: the PC shares too) ──────────────────────
+def test_share_targets_a_computer_and_the_mac_skips_pc_shares(tmp_path, monkeypatch):
+    from api import screen_share as ss
+    reg = ss.reset_for_tests(tmp_path)
+    monkeypatch.setattr(ss, "_os_of", lambda did: {"pc-1": "windows", "mac-1": "macos"}.get(did, "macos"))
+    pc_share = reg.create("anytime", device_id="pc-1")
+    mac_share = reg.create("anytime", device_id="mac-1")
+    old_share = reg.create("anytime")                          # an older phone build: no target
+    assert pc_share["device_id"] == "pc-1" and old_share["device_id"] is None
+    mac_sees = {s["id"] for s in reg.list(active=True, from_mac=True)}
+    assert mac_sees == {mac_share["id"], old_share["id"]}       # the Mac app, unchanged, never takes the PC's
+    pc_sees = {s["id"] for s in reg.list(active=True, from_mac=True, device="pc-1")}
+    assert pc_sees == {pc_share["id"]}                           # the PC only takes its own
+    viewers = {s["id"] for s in reg.list(active=True)}
+    assert viewers == {pc_share["id"], mac_share["id"], old_share["id"]}
+
+
+def test_task_share_names_its_computer(tmp_path):
+    from api import screen_share as ss
+    ss.reset_for_tests(tmp_path)
+    share = ss.start_task_share("open notepad", "sess-1", device_id="pc-1")
+    assert share["device_id"] == "pc-1" and share["reason"] == "task"

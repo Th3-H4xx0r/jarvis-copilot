@@ -250,10 +250,13 @@ def ice_servers(*, now: Optional[float] = None) -> list:
 
 class _Share:
     __slots__ = ("id", "reason", "task", "session_id", "status", "created_at", "started_at", "ended_at",
-                 "error", "replay", "messages", "seq", "cond", "viewers", "mac_seen")
+                 "error", "replay", "messages", "seq", "cond", "viewers", "mac_seen", "device_id")
 
-    def __init__(self, sid: str, reason: str, task: str = "", session_id: str = "", created_at: float = 0.0):
+    def __init__(self, sid: str, reason: str, task: str = "", session_id: str = "", created_at: float = 0.0,
+                 device_id: str = ""):
         self.id = sid
+        # Which computer shares ("" = whichever Mac, as before the PC could share too).
+        self.device_id = device_id
         self.reason = reason
         self.task = task
         self.session_id = session_id
@@ -272,7 +275,8 @@ class _Share:
     def record(self) -> dict:
         return {"id": self.id, "reason": self.reason, "task": self.task, "session_id": self.session_id,
                 "status": self.status, "created_at": self.created_at, "started_at": self.started_at,
-                "ended_at": self.ended_at, "error": self.error, "replay": self.replay}
+                "ended_at": self.ended_at, "error": self.error, "replay": self.replay,
+                "device_id": self.device_id}
 
     @classmethod
     def from_record(cls, rec: dict) -> Optional["_Share"]:
@@ -280,7 +284,8 @@ class _Share:
         if not _ID_RE.match(sid):
             return None
         s = cls(sid, str(rec.get("reason") or "anytime"), str(rec.get("task") or ""),
-                str(rec.get("session_id") or ""), float(rec.get("created_at") or 0) or _now())
+                str(rec.get("session_id") or ""), float(rec.get("created_at") or 0) or _now(),
+                str(rec.get("device_id") or ""))
         s.status = str(rec.get("status") or "ended")
         s.started_at = rec.get("started_at")
         s.ended_at = rec.get("ended_at")
@@ -348,17 +353,19 @@ class Registry:
             "error": s.error,
             "task": s.task or None, "session_id": s.session_id or None,
             "created_at": _iso(s.created_at),
+            "device_id": s.device_id or None,
         }
 
     # lifecycle
-    def create(self, reason: str, task: str = "", session_id: str = "") -> dict:
+    def create(self, reason: str, task: str = "", session_id: str = "", device_id: str = "") -> dict:
         if reason not in REASONS:
             raise ValueError("reason must be anytime or task")
         sid = "scr_" + secrets.token_hex(8)
         with self._lock:
             self._ensure_loaded()
             self._sweep_locked(_now())
-            s = _Share(sid, reason, str(task or "")[:300], str(session_id or "")[:120])
+            s = _Share(sid, reason, str(task or "")[:300], str(session_id or "")[:120],
+                       device_id=str(device_id or "")[:80])
             self._shares[sid] = s
             self._save()
             out = self.view(s)
@@ -373,7 +380,9 @@ class Registry:
             s = self._shares.get(sid)
             return self.view(s) if s else None
 
-    def list(self, *, active: bool, from_mac: bool = False) -> list:
+    def list(self, *, active: bool, from_mac: bool = False, device: str = "") -> list:
+        """``device``: a computer asking for its own shares (the PC passes its id). The Mac
+        app, which passes none, gets untargeted shares and its own, never a PC's."""
         now = _now()
         with self._lock:
             self._ensure_loaded()
@@ -381,6 +390,10 @@ class Registry:
                 self._mac_seen = now
             self._sweep_locked(now)
             shares = [s for s in self._shares.values() if not active or s.status != "ended"]
+            if device:
+                shares = [s for s in shares if s.device_id == device]
+            elif from_mac:
+                shares = [s for s in shares if not s.device_id or _os_of(s.device_id) != "windows"]
             shares.sort(key=lambda s: s.created_at, reverse=True)
             out = [self.view(s, now) for s in shares[: (50 if not active else 20)]]
         if from_mac:
@@ -646,8 +659,16 @@ def reset_for_tests(root: Optional[Path] = None) -> Registry:
 
 # ── in-process API (agent/computer uses these inside the web UI process) ────
 
-def start_task_share(task: str, session_id: str = "") -> dict:
-    return registry().create("task", task, session_id)
+def start_task_share(task: str, session_id: str = "", device_id: str = "") -> dict:
+    return registry().create("task", task, session_id, device_id=device_id)
+
+
+def _os_of(device_id: str) -> str:
+    try:
+        from api import device_bridge
+        return device_bridge.device_os(device_id)
+    except Exception:  # noqa: BLE001
+        return "macos"
 
 
 def end_share(share_id: str) -> bool:
@@ -678,7 +699,8 @@ def handle_get(handler, parsed) -> bool:
     if path == "/api/screen/ice":
         return j(handler, {"ice_servers": ice_servers()}) or True
     if path == "/api/screen/shares":
-        shares = registry().list(active=_truthy(_q(parsed, "active")), from_mac=_q(parsed, "from") == "mac")
+        shares = registry().list(active=_truthy(_q(parsed, "active")), from_mac=_q(parsed, "from") == "mac",
+                                 device=_q(parsed, "device")[:80])
         return j(handler, {"shares": shares}) or True
     m = _SIGNAL.match(path)
     if m:
@@ -745,7 +767,8 @@ def handle_post(handler, parsed) -> bool:
     if path == "/api/screen/shares":
         reason = str(body.get("reason") or "anytime")
         try:
-            share = registry().create(reason, str(body.get("task") or ""), str(body.get("session_id") or ""))
+            share = registry().create(reason, str(body.get("task") or ""), str(body.get("session_id") or ""),
+                                      device_id=str(body.get("device_id") or ""))
         except ValueError as exc:
             return j(handler, {"error": str(exc)}, status=400) or True
         return j(handler, {**share, "ice_servers": ice_servers()}) or True

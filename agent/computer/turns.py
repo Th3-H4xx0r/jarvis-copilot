@@ -91,7 +91,7 @@ def run_task(goal, steps, task_id, app=None) -> tuple:
         return None, err
     b = bound(task_id) or Binding(None, None)
     from agent.computer import screen
-    share = screen.start(goal, task_id)  # the chat's live view; ending it makes the Mac upload the replay
+    share = screen.start(goal, task_id, device)  # the chat's live view; ending it makes the computer upload the replay
     try:
         result = _loop.run(goal, clean_steps(steps), config_for(b.node, b.own_ref), device=device, device_name=name,
                            should_stop=b.should_stop, app=str(app or "").strip() or None,
