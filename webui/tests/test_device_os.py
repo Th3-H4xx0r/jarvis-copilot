@@ -63,6 +63,24 @@ def test_append_frame_keeps_os(monkeypatch):
         db._unregister("pc-2")
 
 
+def test_jc_client_register_shape_sets_windows(monkeypatch):
+    """jc-client puts the platform under device.platform (service.py); 2026-11-15 the server read
+    only a top-level platform, so the PC stayed "macos" and the Mac answered the PC's screen share."""
+    saved = {}
+    monkeypatch.setattr(pairing, "update_device_fields", lambda did, **f: saved.update(f) or True)
+    monkeypatch.setattr(db, "_ws_send_text", lambda *a, **k: None)
+    monkeypatch.setattr(db, "_notify_registry_change", lambda: None)
+    c = _conn("pc-3")
+    try:
+        db._handle_message(c, {"type": "register", "skills": [{"name": "a"}],
+                               "device": {"name": "pranav-computer",
+                                          "platform": {"system": "Windows", "release": "11", "machine": "AMD64"}}})
+        assert db.device_os("pc-3") == "windows"
+        assert saved.get("os") == "windows"
+    finally:
+        db._unregister("pc-3")
+
+
 def test_skill_rows_carry_device_os(monkeypatch):
     monkeypatch.setattr(pairing, "update_device_fields", lambda did, **f: True)
     monkeypatch.setattr(pairing, "list_devices", lambda: [])

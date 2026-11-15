@@ -1498,7 +1498,10 @@ def device_os(device_id: str) -> str:
 def _handle_message(conn: _DeviceConn, msg: dict) -> None:
     t = msg.get("type")
     if t == "register":
-        platform = msg.get("platform")
+        # jc-client sends it as device.platform on the first register chunk (service.py); a
+        # top-level platform is accepted too.
+        device = msg.get("device") if isinstance(msg.get("device"), dict) else {}
+        platform = msg.get("platform") or device.get("platform")
         if isinstance(platform, dict) and platform.get("system"):
             new_os = normalize_os(platform.get("system"))
             if new_os != conn.os:
