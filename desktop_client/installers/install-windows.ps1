@@ -131,7 +131,9 @@ Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on cra
 # Paired already: the task runs the service now, and the tray (started after its pid file
 # exists) only shows it - never a second service. Not paired: the tray's pairing dialog runs
 # the service itself this time; the task takes over from the next logon.
-$Paired = (& $JcExe status 2>$null | Select-String -Pattern 'paired:\s+yes' -Quiet)
+# 'Continue' locally: jc-client logs to stderr, and in Windows PowerShell 5.1 a redirected
+# program's stderr throws under 'Stop'.
+$Paired = & { $ErrorActionPreference = 'Continue'; (& $JcExe status 2>$null | Select-String -Pattern 'paired:\s+yes' -Quiet) }
 if ($Paired) {
     Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
     $PidFile = Join-Path $env:USERPROFILE '.jarviscopilot-client\jc-client.pid'

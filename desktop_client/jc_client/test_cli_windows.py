@@ -60,3 +60,21 @@ def test_windows_powershell_scripts_are_ascii():
         path = root / rel
         if path.exists():
             assert path.read_bytes().isascii(), rel
+
+
+def test_headless_pair_sends_the_cloudflare_token(monkeypatch):
+    """Behind Cloudflare Access the claim 302s without the service token (seen on the PC)."""
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, url, **kw):
+            seen.update(kw)
+
+        def post_json(self, path, body):
+            raise RuntimeError("stop here")
+    monkeypatch.setattr(cli, "HttpClient", FakeClient)
+    monkeypatch.setenv("JC_CF_CLIENT_ID", "cid")
+    monkeypatch.setenv("JC_CF_CLIENT_SECRET", "csec")
+    args = types.SimpleNamespace(server="https://x", code="ABC-123", name="pc", cf_id=None, cf_secret=None)
+    assert cli.cmd_pair(args) == 1
+    assert seen["cf_client_id"] == "cid" and seen["cf_client_secret"] == "csec"

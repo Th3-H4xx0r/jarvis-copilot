@@ -10,8 +10,9 @@ Copy-Item -Force (Join-Path $PSScriptRoot 'dev-run.ps1') (Join-Path $dev 'dev-ru
 $user = $Me
 # Full path: Task Scheduler keeps the PATH it started with, so a fresh pwsh install isn't on it.
 $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
-$action = New-ScheduledTaskAction -Execute $pwsh `
-  -Argument "-NoProfile -WindowStyle Hidden -File `"$dev\dev-run.ps1`""
+# conhost --headless: no console window at all (-WindowStyle Hidden still flashes one on his screen).
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\conhost.exe" `
+  -Argument "--headless `"$pwsh`" -NoProfile -File `"$dev\dev-run.ps1`""
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew

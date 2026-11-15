@@ -248,7 +248,9 @@ def _wait_supervisor(*, loaded: bool, timeout: float = 8.0) -> bool:
 def cmd_pair(args) -> int:
     """Interactive Tk dialog OR headless pairing via --server/--code."""
     if args.server and args.code:
-        return _pair_headless(args.server, args.code, args.name)
+        cf_id = getattr(args, "cf_id", None) or os.environ.get("JC_CF_CLIENT_ID", "")
+        cf_secret = getattr(args, "cf_secret", None) or os.environ.get("JC_CF_CLIENT_SECRET", "")
+        return _pair_headless(args.server, args.code, args.name, cf_id, cf_secret)
     # Interactive.
     try:
         creds = pair_ui.show()
@@ -258,11 +260,14 @@ def cmd_pair(args) -> int:
     return 0 if creds else 1
 
 
-def _pair_headless(url: str, code: str, name: str | None) -> int:
+def _pair_headless(url: str, code: str, name: str | None,
+                   cf_id: str = "", cf_secret: str = "") -> int:
     name = name or socket.gethostname()
     log.info("pairing %s with %s", url, name)
     try:
-        client = HttpClient(url, expected_fingerprint="")
+        # Behind Cloudflare Access the claim needs the service token, or it 302s to the SSO login
+        # (same as the dialog's CF fields).
+        client = HttpClient(url, expected_fingerprint="", cf_client_id=cf_id, cf_client_secret=cf_secret)
         resp, fingerprint = client.post_json(
             "/api/auth/pair/claim", {"code": code, "name": name}
         )
@@ -279,6 +284,7 @@ def _pair_headless(url: str, code: str, name: str | None) -> int:
     creds.cookie = resp.cookie
     creds.cert_fingerprint = fingerprint
     # Capture the Cloudflare Access service token if the tunnel returned one.
+    creds.cf_client_id, creds.cf_client_secret = cf_id, cf_secret
     cf = resp.json().get("cf_access") if resp.body else None
     if isinstance(cf, dict):
         creds.cf_client_id = str(cf.get("client_id") or "")
@@ -1176,6 +1182,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--server", help="https://host:port — skip the dialog when paired with --code")
     pp.add_argument("--code", help="6-char pairing code (XXX-XXX)")
     pp.add_argument("--name", help="Override device name (default: hostname)")
+    pp.add_argument("--cf-id", help="Cloudflare Access service-token client id (or JC_CF_CLIENT_ID)")
+    pp.add_argument("--cf-secret", help="Cloudflare Access service-token secret (or JC_CF_CLIENT_SECRET)")
     pp.set_defaults(func=cmd_pair)
 
     start = sub.add_parser(
