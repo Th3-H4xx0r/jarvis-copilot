@@ -7,7 +7,6 @@ using Jarvis.Core.Island;
 using Jarvis.Core.Prefs;
 using Jarvis.Core.Voice;
 using Jarvis.Ui;
-using Jarvis.Voice;
 
 namespace Jarvis.Orb;
 
@@ -19,7 +18,7 @@ public sealed class DesktopOrbWindow : NoActivateWindow
     private readonly PrefsStore _prefs;
     private readonly PresentationGate _gate;
     private readonly VoiceController _voice;
-    private readonly OrbView _orb = new();
+    private readonly JarvisOrb _orb = new(64);
     private Point _downAt;
 
     public DesktopOrbWindow(PrefsStore prefs, PresentationGate gate, VoiceController voice, IslandPresenter island)
@@ -30,7 +29,7 @@ public sealed class DesktopOrbWindow : NoActivateWindow
         Title = "Jarvis orb";
         Width = Height = 120;
         Background = Brushes.Transparent;
-        Content = _orb;
+        Content = new System.Windows.Controls.Grid { Background = Brushes.Transparent, Children = { _orb } };
         Cursor = Cursors.Hand;
 
         if (ParseOrigin(prefs.Get<string>(OriginKey, "")) is { } o) { Left = o.X; Top = o.Y; }
@@ -50,7 +49,12 @@ public sealed class DesktopOrbWindow : NoActivateWindow
                 _prefs.Set(OriginKey, string.Create(CultureInfo.InvariantCulture, $"{Left:0},{Top:0}"));
             }
         };
-        voice.Changed += () => Dispatcher.BeginInvoke(() => { _orb.Mood = _voice.Mood; _orb.Level = _voice.InputLevel; });
+        voice.Changed += () => Dispatcher.BeginInvoke(() =>
+        {
+            _orb.Listening = _voice.State == VoiceState.Listening;
+            _orb.Mood = _voice.State is VoiceState.Thinking or VoiceState.Connecting ? Core.Model.OrbMood.Working
+                : _voice.State == VoiceState.Error ? Core.Model.OrbMood.Error : Core.Model.OrbMood.Idle;
+        });
         prefs.Changed += k => { if (k == PrefKeys.OrbDesktop.Name) Update(); };
     }
 

@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Jarvis.Core.Island;
 using Jarvis.Core.Model;
 using Jarvis.Core.State;
@@ -7,161 +9,198 @@ using Jarvis.Ui;
 
 namespace Jarvis.Island;
 
-/// An approval waiting on him: Allow (the one white button), Deny with an optional note (typing
-/// into the note is the only thing that takes focus), Always when offered, and Terminal (answer
-/// it there). Clicks are ignored for 0.5 s after it appears (ArmGate).
+/// A one-line text field with no system chrome: a soft rounded fill, a placeholder, and the window
+/// takes the keyboard only while it's focused (typing is the only time the island activates).
+internal sealed class Field : Grid
+{
+    private readonly TextBlock _hint;
+
+    public Field(string placeholder, Func<NoActivateWindow?> window, double size = 12)
+    {
+        Box = new TextBox
+        {
+            Background = Brushes.Transparent,
+            Foreground = K.W(0.92),
+            CaretBrush = K.W(1),
+            SelectionBrush = K.W(0.35),
+            BorderThickness = new Thickness(0),
+            FontFamily = K.Font,
+            FontSize = size,
+            Padding = new Thickness(0),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            FocusVisualStyle = null,
+        };
+        _hint = K.T(placeholder, size, null, K.W(0.35));
+        _hint.IsHitTestVisible = false;
+        _hint.Margin = new Thickness(2, 0, 0, 0);
+        var inner = new Grid { Margin = new Thickness(9, 5, 9, 5) };
+        inner.Children.Add(_hint);
+        inner.Children.Add(Box);
+        Children.Add(new Border { Background = K.W(0.08), CornerRadius = new CornerRadius(7), BorderBrush = K.W(0.10), BorderThickness = new Thickness(0.5) });
+        Children.Add(inner);
+        Box.TextChanged += (_, _) => _hint.Visibility = Box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Box.GotKeyboardFocus += (_, _) => window()?.BeginTyping();
+        Box.LostKeyboardFocus += (_, _) => window()?.EndTyping();
+        Box.PreviewMouseLeftButtonDown += (_, _) => { if (!Box.IsKeyboardFocusWithin) { window()?.BeginTyping(); Box.Focus(); } };
+    }
+
+    public TextBox Box { get; }
+    public string Text => Box.Text.Trim();
+}
+
+/// A request card on the island: amber @8%, radius 12, padding 10; clicks are ignored for
+/// ArmGate.Delay after it appears so a click meant for something else can't answer it.
+internal static class PendingCard
+{
+    public static void Dress(Border card)
+    {
+        card.Background = K.A("JcAmber", 0.08);
+        card.CornerRadius = new CornerRadius(12);
+        card.Padding = new Thickness(10);
+    }
+
+    public static FrameworkElement Title(Sym icon, string text, UIElement? trailing = null)
+    {
+        var left = K.H(8, new IconView(icon, 13, K.A("JcAmber")), K.T(text, 12, FontWeights.SemiBold, K.A("JcAmber")));
+        return K.Spread(left, trailing);
+    }
+}
+
+/// An approval: the exact command, Allow (Y) / Always / Deny (N) — a note when denying — and
+/// Terminal (let the terminal ask instead), as on the Mac.
 public sealed class ApprovalCard : Border
 {
     private readonly ArmGate _arm = new(DateTimeOffset.UtcNow);
+    private readonly AppState _state;
+    private readonly PendingRequest _p;
+    private readonly Func<NoActivateWindow?> _window;
+    private readonly ContentControl _actions = new() { Focusable = false };
 
-    public ApprovalCard(AppState state, PendingRequest p, Func<NoActivateWindow?> window)
+    public ApprovalCard(AppState state, PendingRequest p, Func<NoActivateWindow?> window, int extra = 0)
     {
-        Background = Th.B("JcButton");
-        CornerRadius = new CornerRadius(12);
-        Padding = new Thickness(12);
-        BorderBrush = Th.B("JcAmber");
-        BorderThickness = new Thickness(1);
-
-        var who = AgentSession.DisplayName(p.Agent);
-        var title = Th.Text($"{who} wants to {(p.Tool.Length > 0 ? $"use {p.Tool}" : "do something")}", 13, bold: true, wrap: true);
-        var project = Th.Text(p.Project, 11, "JcTextDim");
-        var body = Th.Text(p.Command.Length > 0 ? p.Command : p.Summary, 12, "JcTextDim", wrap: true, mono: p.Command.Length > 0);
-        body.MaxHeight = 64;
-
-        var note = Th.Input("Tell it why (optional)");
-        note.GotKeyboardFocus += (_, _) => window()?.BeginTyping();
-        note.LostKeyboardFocus += (_, _) => window()?.EndTyping();
-
-        void Decide(string decision, string? message = null)
-        {
-            if (!_arm.IsArmed(DateTimeOffset.UtcNow)) return;
-            window()?.EndTyping();
-            _ = state.DecideAsync(p, decision, message);
-            DecisionMade?.Invoke();
-        }
-
-        note.KeyDown += (_, e) =>
-        {
-            if (e.Key == System.Windows.Input.Key.Enter) Decide("deny", NoteText(note));
-        };
-
-        var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-        void Add(Button b) { b.Margin = new Thickness(0, 0, 6, 0); buttons.Children.Add(b); }
-        Add(Th.Button("Allow", () => Decide("allow"), primary: true));
-        if (p.CanAlways) Add(Th.Button("Always", () => Decide("always")));
-        Add(Th.Button("Deny", () => Decide("deny", NoteText(note))));
-        Add(Th.Button("Terminal", () => Decide("ask")));
-
-        note.Margin = new Thickness(0, 8, 0, 0);
-        Child = Th.Column(4, title, project, body, note, buttons);
+        _state = state;
+        _p = p;
+        _window = window;
+        PendingCard.Dress(this);
+        var who = p.Agent == "claude" ? "Claude" : AgentSession.DisplayName(p.Agent);
+        var title = PendingCard.Title(Sym.Lock, $"{p.Project} — {who} needs approval",
+            extra > 0 ? K.T($"+{extra}", 11, null, K.W(0.5)) : null);
+        var command = K.T(p.Command.Length > 0 ? p.Command : p.Summary, 11, null, K.W(1), mono: true, wrap: true);
+        command.MaxHeight = 5 * 15;
+        var box = K.Rounded(command, K.W(0.07), 8, 8);
+        _actions.Content = Buttons();
+        Child = K.V(8, title, box, _actions);
     }
 
-    /// Fired after any answer (the sound plays here: Task 6).
+    /// Fired after any answer (the sound plays here).
     public static event Action? DecisionMade;
 
-    private static string? NoteText(TextBox t) => t.Text.Trim() is { Length: > 0 } s ? s : null;
+    private FrameworkElement Buttons()
+    {
+        var left = new StackPanel { Orientation = Orientation.Horizontal };
+        K.Add(left, Controls.IslandButton("Allow", "JcSysGreen", () => Decide("allow"), tip: "Allow (Y)"), 8);
+        if (_p.CanAlways) K.Add(left, Controls.IslandButton("Always", "JcAccent", () => Decide("always")), 8);
+        K.Add(left, Controls.IslandButton("Deny", "JcSysRed", ShowDeny, tip: "Deny (N)"), 8);
+        var terminal = Controls.IslandButton("Terminal", "JcText", () => Decide("ask"), 0.7, "Let the terminal ask instead");
+        return K.Spread(left, terminal);
+    }
+
+    private void ShowDeny()
+    {
+        if (!_arm.IsArmed(DateTimeOffset.UtcNow)) return;
+        var note = new Field("Tell it what to do instead (optional)", _window);
+        note.Box.KeyDown += (_, e) => { if (e.Key == Key.Enter) Decide("deny", note.Text); };
+        var deny = Controls.IslandButton("Deny", "JcSysRed", () => Decide("deny", note.Text));
+        var row = new DockPanel();
+        DockPanel.SetDock(deny, Dock.Right);
+        deny.Margin = new Thickness(8, 0, 0, 0);
+        row.Children.Add(deny);
+        row.Children.Add(note);
+        _actions.Content = row;
+        Dispatcher.BeginInvoke(() => { _window()?.BeginTyping(); note.Box.Focus(); });
+    }
+
+    private void Decide(string decision, string? message = null)
+    {
+        if (!_arm.IsArmed(DateTimeOffset.UtcNow)) return;
+        _window()?.EndTyping();
+        _ = _state.DecideAsync(_p, decision, message is { Length: > 0 } ? message : null);
+        DecisionMade?.Invoke();
+    }
 }
 
-/// A question from an agent: each question's options (radio or multi), an "Other" box, then Send
-/// → QuestionAnswers.Build → decide "answer". Terminal answers it in the terminal instead.
+/// A question (AskUserQuestion): pick, multi-select, or type "Other…"; Send answer once every
+/// question has one. Terminal answers it there instead.
 public sealed class QuestionCard : Border
 {
     private readonly ArmGate _arm = new(DateTimeOffset.UtcNow);
     private readonly Dictionary<string, List<string>> _picks = new();
     private readonly Dictionary<string, string> _typed = new();
+    private readonly PendingRequest _p;
+    private readonly Tap _send;
 
     public QuestionCard(AppState state, PendingRequest p, Func<NoActivateWindow?> window)
     {
-        Background = Th.B("JcButton");
-        CornerRadius = new CornerRadius(12);
-        Padding = new Thickness(12);
-        BorderBrush = Th.B("JcAmber");
-        BorderThickness = new Thickness(1);
-
-        var col = new StackPanel();
-        col.Children.Add(Th.Text($"{AgentSession.DisplayName(p.Agent)} has a question", 13, bold: true));
-        col.Children.Add(Th.Text(p.Project, 11, "JcTextDim"));
-        var group = 0;
+        _p = p;
+        PendingCard.Dress(this);
+        var title = PendingCard.Title(Sym.BubbleLeft, $"{p.Project} has a question");
+        var questions = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
         foreach (var q in p.Questions)
         {
-            var qText = q.Text;
-            var header = Th.Text(q.Text, 12, wrap: true);
-            header.Margin = new Thickness(0, 8, 0, 4);
-            col.Children.Add(header);
-            var name = $"q{group++}";
+            var question = q;
+            var block = K.V(4, K.T(q.Text, 12, FontWeights.Medium, K.W(1), wrap: true));
+            var options = new WrapPanel();
+            var chips = new List<(string Label, Tap Chip)>();
             for (var i = 0; i < q.Options.Count; i++)
             {
                 var label = q.Options[i];
-                var detail = i < q.Details.Count ? q.Details[i] : "";
-                ToggleButtonLike option = q.MultiSelect
-                    ? new CheckOption(label, detail)
-                    : new RadioOption(label, detail, name);
-                option.Changed += on =>
+                var chip = new Tap(K.T(label, 11, FontWeights.Medium), PressLook.Dim, i < q.Details.Count && q.Details[i].Length > 0 ? q.Details[i] : null)
                 {
-                    var list = _picks.TryGetValue(qText, out var l) ? l : _picks[qText] = new List<string>();
-                    if (!q.MultiSelect) list.Clear();
-                    if (on && !list.Contains(label)) list.Add(label);
-                    if (!on) list.Remove(label);
+                    Background = K.W(0.08),
+                    CornerRadius = new CornerRadius(999),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    Margin = new Thickness(0, 0, 6, 6),
                 };
-                col.Children.Add(option.Element);
+                chips.Add((label, chip));
+                chip.Click += () =>
+                {
+                    var list = _picks.TryGetValue(question.Text, out var l) ? l : _picks[question.Text] = new List<string>();
+                    var on = list.Contains(label);
+                    if (question.MultiSelect) { if (on) list.Remove(label); else list.Add(label); }
+                    else { list.Clear(); if (!on) list.Add(label); }
+                    foreach (var (lbl, c) in chips) c.Background = list.Contains(lbl) ? K.A("JcAccent", 0.35) : K.W(0.08);
+                    Refresh();
+                };
+                options.Children.Add(chip);
             }
-            var other = Th.Input("Other");
-            other.Margin = new Thickness(0, 4, 0, 0);
-            other.GotKeyboardFocus += (_, _) => window()?.BeginTyping();
-            other.LostKeyboardFocus += (_, _) => window()?.EndTyping();
-            other.TextChanged += (_, _) => _typed[qText] = other.Text;
-            col.Children.Add(other);
+            K.Add(block, options, 4);
+            var other = new Field("Other…", window, 11);
+            other.Box.TextChanged += (_, _) => { _typed[question.Text] = other.Box.Text; Refresh(); };
+            K.Add(block, other, 0);
+            K.Add(questions, block, 8);
         }
-
-        void Send()
+        var scroll = new ScrollViewer { Content = questions, MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, Focusable = false };
+        _send = Controls.IslandButton("Send answer", "JcAccent", () =>
         {
-            if (!_arm.IsArmed(DateTimeOffset.UtcNow)) return;
+            if (!_arm.IsArmed(DateTimeOffset.UtcNow) || !Complete()) return;
             window()?.EndTyping();
             var picks = _picks.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value);
-            var answers = QuestionAnswers.Build(p.Questions, picks, _typed);
-            _ = state.DecideAsync(p, "answer", answers: answers);
-        }
-
-        var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-        var send = Th.Button("Send", Send, primary: true);
-        send.Margin = new Thickness(0, 0, 6, 0);
-        buttons.Children.Add(send);
-        buttons.Children.Add(Th.Button("Terminal", () =>
+            _ = state.DecideAsync(p, "answer", answers: QuestionAnswers.Build(p.Questions, picks, _typed));
+            ApprovalCardSound();
+        });
+        var terminal = Controls.IslandButton("Terminal", "JcText", () =>
         {
             if (_arm.IsArmed(DateTimeOffset.UtcNow)) _ = state.DecideAsync(p, "ask");
-        }));
-        col.Children.Add(buttons);
-        Child = new ScrollViewer { Content = col, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
+        }, 0.7);
+        Child = K.V(8, title, scroll, K.Spread(terminal, _send));
+        Refresh();
     }
 
-    private abstract class ToggleButtonLike
-    {
-        public abstract FrameworkElement Element { get; }
-        public event Action<bool>? Changed;
-        protected void Raise(bool on) => Changed?.Invoke(on);
-    }
+    private static void ApprovalCardSound() { }
 
-    private sealed class CheckOption : ToggleButtonLike
-    {
-        private readonly CheckBox _box;
-        public CheckOption(string label, string detail)
-        {
-            _box = new CheckBox { Content = Th.Text(label, 12), ToolTip = detail.Length > 0 ? detail : null, Margin = new Thickness(0, 2, 0, 2), Focusable = false };
-            _box.Checked += (_, _) => Raise(true);
-            _box.Unchecked += (_, _) => Raise(false);
-        }
-        public override FrameworkElement Element => _box;
-    }
+    /// Every question has a pick or a typed answer.
+    private bool Complete() => _p.Questions.All(q =>
+        (_picks.TryGetValue(q.Text, out var l) && l.Count > 0) || (_typed.TryGetValue(q.Text, out var t) && t.Trim().Length > 0));
 
-    private sealed class RadioOption : ToggleButtonLike
-    {
-        private readonly RadioButton _radio;
-        public RadioOption(string label, string detail, string group)
-        {
-            _radio = new RadioButton { Content = Th.Text(label, 12), GroupName = group, ToolTip = detail.Length > 0 ? detail : null, Margin = new Thickness(0, 2, 0, 2), Focusable = false };
-            _radio.Checked += (_, _) => Raise(true);
-            _radio.Unchecked += (_, _) => Raise(false);
-        }
-        public override FrameworkElement Element => _radio;
-    }
+    private void Refresh() => _send.IsEnabled = Complete();
 }

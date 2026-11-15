@@ -29,6 +29,9 @@ public partial class App : Application
         _single = new SingleInstance();
         if (!_single.IsFirst)
         {
+            // `Jarvis.exe --diag …` while Jarvis runs: hand the switch to the running one.
+            if (Array.IndexOf(e.Args, "--diag") is var d and >= 0 && d + 1 < e.Args.Length)
+                AppHost.QueueDiag(e.Args[(d + 1)..]);
             _single.SignalFirst();
             Shutdown();
             return;
@@ -39,7 +42,11 @@ public partial class App : Application
             try { StartupRegistration.EnsureDefault(new WinRegistry(), _host.Prefs, exe); }
             catch (UnauthorizedAccessException) { }
         }
-        _single.ListenForShow(() => Dispatcher.BeginInvoke(() => _host?.ShowIsland()));
+        _single.ListenForShow(() => Dispatcher.BeginInvoke(() =>
+        {
+            if (AppHost.TakeQueuedDiag() is { } diag) _host?.Diag(diag);
+            else _host?.ShowIsland();
+        }));
         _host.Start(e.Args);
     }
 

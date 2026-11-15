@@ -15,6 +15,17 @@
   <Color x:Key="JcButtonSelectedColor">#3DFFFFFF</Color>
   <Color x:Key="JcHairlineColor">#1FFFFFFF</Color>
   <Color x:Key="JcPrimaryTextColor">#FF000000</Color>
+  <!-- The Mac island's palette (IslandViews / ChatViews / JcTheme), one for one. -->
+  <Color x:Key="JcOrangeColor">#FFFF8C26</Color>
+  <Color x:Key="JcOrbRedColor">#FFF74D4D</Color>
+  <Color x:Key="JcSysGreenColor">#FF30D158</Color>
+  <Color x:Key="JcSysOrangeColor">#FFFF9F0A</Color>
+  <Color x:Key="JcSysRedColor">#FFFF453A</Color>
+  <Color x:Key="JcMutedColor">#FF8A93A8</Color>
+  <Color x:Key="JcStageTextColor">#FFEDF0F8</Color>
+  <Color x:Key="JcSoftColor">#FFDBDBDB</Color>
+  <Color x:Key="JcDangerColor">#FFFF6B61</Color>
+  <Color x:Key="JcCodeColor">#FF111418</Color>
 
   <SolidColorBrush x:Key="JcAccent" Color="{StaticResource JcAccentColor}" />
   <SolidColorBrush x:Key="JcAmber" Color="{StaticResource JcAmberColor}" />
@@ -29,6 +40,21 @@
   <SolidColorBrush x:Key="JcButtonSelected" Color="{StaticResource JcButtonSelectedColor}" />
   <SolidColorBrush x:Key="JcHairline" Color="{StaticResource JcHairlineColor}" />
   <SolidColorBrush x:Key="JcPrimaryText" Color="{StaticResource JcPrimaryTextColor}" />
+  <SolidColorBrush x:Key="JcOrange" Color="{StaticResource JcOrangeColor}" />
+  <SolidColorBrush x:Key="JcOrbRed" Color="{StaticResource JcOrbRedColor}" />
+  <SolidColorBrush x:Key="JcSysGreen" Color="{StaticResource JcSysGreenColor}" />
+  <SolidColorBrush x:Key="JcSysOrange" Color="{StaticResource JcSysOrangeColor}" />
+  <SolidColorBrush x:Key="JcSysRed" Color="{StaticResource JcSysRedColor}" />
+  <SolidColorBrush x:Key="JcMuted" Color="{StaticResource JcMutedColor}" />
+  <SolidColorBrush x:Key="JcStageText" Color="{StaticResource JcStageTextColor}" />
+  <SolidColorBrush x:Key="JcSoft" Color="{StaticResource JcSoftColor}" />
+  <SolidColorBrush x:Key="JcDanger" Color="{StaticResource JcDangerColor}" />
+  <SolidColorBrush x:Key="JcCode" Color="{StaticResource JcCodeColor}" />
+
+  <!-- SF Pro on the Mac; Segoe UI Variable here (Segoe UI where it's missing). SF Mono → Cascadia. -->
+  <FontFamily x:Key="JcFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+  <FontFamily x:Key="JcFontDisplay">Segoe UI Variable Display, Segoe UI</FontFamily>
+  <FontFamily x:Key="JcMono">Cascadia Mono, Consolas</FontFamily>
 
   <CornerRadius x:Key="JcButtonRadius">12</CornerRadius>
 

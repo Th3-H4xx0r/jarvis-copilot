@@ -22,6 +22,7 @@
     <PackageReference Include="SIPSorceryMedia.Encoders" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Orb\OrbShader.hlsl" LogicalName="Jarvis.OrbShader.hlsl" />
     <None Include="Assets\wakeword\*.onnx" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Assets\wakeword\SHA256SUMS;Assets\wakeword\LICENSE-models.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

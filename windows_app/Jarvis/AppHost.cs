@@ -229,6 +229,14 @@ public sealed class AppHost : IAsyncDisposable
         // ── Task 12: Live Jarvis ──
         Live = new LiveController(() => State.ApiOrigin, () => State.DeviceId);
         VoiceTab.LiveRequested += ShowLive;
+        VoiceTab.SettingsRequested += () => ShowSettings("talk");
+        // The island's orbs: the ear (talk at once) and the Agents header (open Voice).
+        IslandWindow.TalkRequested += () =>
+        {
+            if (!Voice.State.IsActive()) _ = Voice.StartConversationAsync("orb");
+            Island.Open(IslandTab.Voice);
+        };
+        AgentsTab.TalkRequested += () => Island.SelectTab(IslandTab.Voice);
 
         // ── Task 13: Flow dictation ──
         FlowStore = new FlowStore();
@@ -260,9 +268,12 @@ public sealed class AppHost : IAsyncDisposable
         // ── Task 15: the island's Chat and Music tabs ──
         FrontProbe = new FrontWindowProbe();
         Chat = new ChatStore(Api) { Origin = () => State.ApiOrigin };
-        IslandWindow.Register(IslandTab.Chat, new ChatTab(Chat, Island, () => IslandWindow));
+        var chatTab = new ChatTab(Chat, Island, () => IslandWindow);
+        chatTab.SettingsRequested += () => ShowSettings();
+        IslandWindow.Register(IslandTab.Chat, chatTab);
         Media = new MediaSessions();
         IslandWindow.Register(IslandTab.Music, new MusicTab(Media));
+        Media.Changed += () => Dispatcher.BeginInvoke(() => IslandWindow.MusicPlaying = Media.Now?.IsPlaying == true);
         ShortcutHandlers[ShortcutAction.AttachWindow] = () =>
         {
             // The island never has focus, so the foreground window is still his.
@@ -290,6 +301,9 @@ public sealed class AppHost : IAsyncDisposable
         System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) => _ = Holo.NetworkChangedAsync();
         HoloSender = new HoloSender(holoApi);
         ShortcutHandlers[ShortcutAction.HoloDrop] = () => OpenOrbit();
+        Holo.Changed += () => Dispatcher.BeginInvoke(() => IslandWindow.HoloAvailable = Holo.On);
+        IslandWindow.HoloAvailable = Holo.On;
+        IslandWindow.HoloRequested += () => OpenOrbit();
         GeneralPane.Extras.Add(HoloFirewallRow);
         Fling = new HoloFlingWatcher();
         Fling.Flung += angle => Dispatcher.BeginInvoke(() =>
@@ -513,13 +527,53 @@ public sealed class AppHost : IAsyncDisposable
         Link.Start();
     }
 
-    /// Dev switches for desktop verification over the PC scripts.
-    private void Diag(string[] rest)
+    private static string DiagFile => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jarvis", "diag.txt");
+
+    /// A second launch's `--diag …`, for the running instance to pick up when poked.
+    public static void QueueDiag(string[] args)
     {
+        try
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(DiagFile)!);
+            System.IO.File.WriteAllLines(DiagFile, args);
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { }
+    }
+
+    public static string[]? TakeQueuedDiag()
+    {
+        try
+        {
+            if (!System.IO.File.Exists(DiagFile)) return null;
+            var args = System.IO.File.ReadAllLines(DiagFile);
+            System.IO.File.Delete(DiagFile);
+            return args.Length > 0 ? args : null;
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// Dev switches for desktop verification over the PC scripts (`Jarvis.exe --diag …`, also
+    /// forwarded to the running instance): put the island in each state for a screenshot.
+    public void Diag(string[] rest)
+    {
+        string Arg(int i) => rest.Length > i ? rest[i] : "";
         switch (rest[0])
         {
             case "open-tray-menu": Tray.OpenMenu(); break;
-            case "island": ShowIsland(); break;
+            case "island":
+                Island.Pinned = Arg(2) != "unpinned";
+                Island.Open(IslandTabs.Parse(Arg(1)) ?? IslandTab.Agents);
+                break;
+            case "fold": Island.Pinned = false; Island.Close(); break;
+            case "unpin": Island.Pinned = false; break;
+            case "limits": AgentsTab.ShowLimits = Arg(1) != "off"; Island.Pinned = true; Island.Open(IslandTab.Agents); break;
+            case "demo":
+                if (int.TryParse(Arg(1), out var n) && n >= 0 && n < DemoData.Steps.Count)
+                    State.SetDemo(DemoData.Steps[n].Sessions, DemoData.Steps[n].Pending);
+                break;
+            case "end-demo": State.EndDemo(); break;
+            case "slowmo": IslandWindow.TimeScale = double.TryParse(Arg(1), System.Globalization.CultureInfo.InvariantCulture, out var k) && k >= 1 ? k : 1; break;
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
         }
     }
