@@ -131,6 +131,8 @@ def _mac(c, method, p, body):
         return _ok(power.let_sleep(device_id))
     if p == "/agents/mac/unlock":
         return _result(power.unlock(device_id))
+    if p == "/agents/mac/lock":
+        return _ok(power.lock(device_id))
     return _err(404, "not found")
 
 
@@ -142,7 +144,7 @@ _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/ag
                         # Wake Mac / keep-awake / password requests (api/mac_power.py)
                         "/agents/mac/wake", "/agents/mac/keep-awake", "/agents/mac/let-sleep",
                         "/agents/mac/timer", "/agents/mac/unlock", "/agents/mac/password/answer",
-                        "/agents/mac/approval-key",
+                        "/agents/mac/approval-key", "/agents/mac/lock",
                         # Run-as-admin requests from the PC, approved with Face ID (api/pc_admin.py)
                         "/agents/pc/admin/answer"})
 _MAX_CONTINUE = 20

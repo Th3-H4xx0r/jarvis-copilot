@@ -46,7 +46,11 @@ class MacPowerStore:
                  alert: Callable[[str, str, dict], None] = lambda title, body, data: None,
                  changed: Callable[[], None] = lambda: None,
                  connected: Callable[[], Iterable[str]] = lambda: (),
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time,
+                 invoke: Callable[[str, str, dict], dict] = lambda d, skill, args: {"ok": False},
+                 os_of: Callable[[str], str] = lambda d: "macos",
+                 skills_of: Callable[[str], Iterable[str]] = lambda d: (),
+                 name_of: Callable[[str], str] = lambda d: "") -> None:
         self._path = Path(path) if path else _default_path()
         self._send = send_frame
         self._push = push
@@ -54,6 +58,11 @@ class MacPowerStore:
         self._changed = changed
         self._connected = connected
         self._clock = clock
+        # The PC (spec 2026-11-15 §6b): woken by another computer's wol_send skill.
+        self._invoke = invoke
+        self._os_of = os_of
+        self._skills_of = skills_of
+        self._name_of = name_of
         self._lock = threading.RLock()
         self._requests: dict = {}
         try:
@@ -90,7 +99,35 @@ class MacPowerStore:
         return d
 
     # ── from the phone / web ─────────────────────────────────────────────
+    def _is_pc(self, did: str) -> bool:
+        status = (self._devices.get(did) or {}).get("status") or {}
+        return (status.get("os") or self._os_of(did)) == "windows"
+
+    def _wake_pc(self, did: str) -> dict:
+        """Wake-on-wireless-LAN: a magic packet from another computer on the home network."""
+        status = (self._devices.get(did) or {}).get("status") or {}
+        wake = status.get("wake") or {}
+        if wake.get("capable") is False:
+            return {"ok": False, "error": "This PC's Wi-Fi adapter can't be woken remotely."}
+        mac = str(status.get("wifi_mac") or "")
+        if not mac:
+            return {"ok": False, "error": "The PC hasn't told Jarvis its network address yet."}
+        senders = [d for d in self._connected() if d != did and "wol_send" in set(self._skills_of(d))]
+        senders.sort(key=lambda d: self._os_of(d) != "macos")      # the Mac first
+        if not senders:
+            return {"ok": False, "error": "No other computer is online to wake the PC."}
+        self._update(did, wake_requested_at=self._clock())
+        via = self._name_of(senders[0]) or "your other computer"
+        res = self._invoke(senders[0], "wol_send", {"mac": mac}) or {}
+        inner = res.get("result") if isinstance(res.get("result"), dict) else {}
+        if not res.get("ok") or inner.get("ok") is False:
+            return {"ok": False, "error": f"{via} couldn't send the wake signal: "
+                                          f"{inner.get('error') or res.get('error') or 'no answer'}"}
+        return {"ok": True, "sent": True, "via": via}
+
     def wake(self, did: str) -> dict:
+        if self._is_pc(did):
+            return self._wake_pc(did)
         d = self._update(did, wake_requested_at=self._clock())
         push = d.get("push") or {}
         pushed = False
@@ -130,7 +167,13 @@ class MacPowerStore:
         self._update(did, keep_awake=False, wake_requested_at=None)
         return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "let_sleep": True})}
 
+    def lock(self, did: str) -> dict:
+        return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "lock": True}))}
+
     def unlock(self, did: str) -> dict:
+        if self._is_pc(did):
+            return {"ok": False, "error": "Windows doesn't let anything type into its lock screen. "
+                                          "Unlock it at the PC."}
         if did not in set(self._connected()):
             return {"ok": False, "error": "The Mac isn't awake. Wake it first."}
         return {"ok": bool(self._send(did, {"type": "mac_password_unlock"}))}
@@ -166,7 +209,8 @@ class MacPowerStore:
         return out
 
     def on_status(self, did: str, data: dict) -> None:
-        keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid")
+        keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid",
+                "os", "wifi_mac", "wake")
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
         if data.get("state") == "awake":
             fields["wake_requested_at"] = None
@@ -242,7 +286,10 @@ class MacPowerStore:
                              "keep_awake": self._keep(d), "timer_on": bool(d.get("timer_on", True)),
                              "battery": status.get("battery"), "on_ac": status.get("on_ac"),
                              "lid": status.get("lid"), "seen_at": d.get("seen_at"),
-                             "wake_requested_at": d.get("wake_requested_at")})
+                             "wake_requested_at": d.get("wake_requested_at"),
+                             "os": status.get("os") or self._os_of(did) or "macos",
+                             "wake_capable": (status.get("wake") or {}).get("capable"),
+                             "wake_reason": (status.get("wake") or {}).get("reason")})
         return {"mac": macs, "password_requests": requests}
 
 
@@ -279,7 +326,11 @@ def store() -> MacPowerStore:
             from api import device_bridge
             _STORE = MacPowerStore(send_frame=device_bridge.send_frame, push=_push_wake,
                                    alert=_alert_phones, changed=_changed,
-                                   connected=device_bridge.connected_device_ids)
+                                   connected=device_bridge.connected_device_ids,
+                                   invoke=lambda d, skill, args: device_bridge.invoke_skill(d, skill, args, timeout=10.0),
+                                   os_of=device_bridge.device_os,
+                                   skills_of=lambda d: [s.get("name") for s in device_bridge.skills_for_device(d)],
+                                   name_of=device_bridge.device_name)
         return _STORE
 
 
