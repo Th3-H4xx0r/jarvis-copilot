@@ -35,6 +35,8 @@ from jc_client import credentials
 from jc_client.logger import setup as setup_logging
 from jc_client.protocol import WsConnection, WsConnectionClosed, _LAN_PROBE_TIMEOUT
 from jc_client import skills
+from jc_client import game_mode
+from jc_client.pc_admin import platform_name
 
 log = logging.getLogger(__name__)
 
@@ -150,6 +152,9 @@ class Service:
         # the local engine (the island) and is simply not forwarded.
         self._agent_engine = None
         self._hook_server = None
+        # Windows: admin actions approved by Face ID on the phone (pc_admin.py), and game mode.
+        self._pc_admin = None
+        self._game_mode = None
         # Approvals / questions wait in the arbiter while the server's
         # remote-approvals switch is on (cached so it holds while offline).
         self._arbiter = None
@@ -274,7 +279,9 @@ class Service:
                 "pending": self._arbiter.pending() if self._arbiter else [],
                 "usage": self._claude_limits(),
                 "usage_codex": self._codex_payload(),
-                "moved": self._agents_link.moved_sessions() if self._agents_link else []}
+                "moved": self._agents_link.moved_sessions() if self._agents_link else [],
+                "platform": platform_name(),
+                "game_mode": _game_state_dict(game_mode.current())}
 
     def _ui_push_sessions(self, _effects=None) -> None:
         if self._hook_server is not None:
@@ -293,6 +300,11 @@ class Service:
             from jc_client.power_service import UI_REQUESTS
             if kind in UI_REQUESTS:
                 return self._power.ui_request(req)
+        if kind == "admin_run":
+            if sys.platform != "win32":
+                return {"ok": False, "status": "denied", "error": "windows only"}
+            return self._pc_admin_service().request(str(req.get("command") or ""), str(req.get("why") or ""),
+                                                    self._server_device_id or "")
         if kind == "decide":
             if self._arbiter is None:
                 return {"ok": False}
@@ -488,6 +500,24 @@ class Service:
             self._agents_link.on_stop_handed(str(payload.get("session_id") or ""))
         return stop_reply(text)
 
+    def _send_up_ok(self, frame: dict) -> bool:
+        """Like _forward_up, but says whether it went (False when offline)."""
+        ws = self._ws
+        if ws is None:
+            return False
+        try:
+            ws.send_text(json.dumps(frame))
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.debug("send up failed: %s", exc)
+            return False
+
+    def _pc_admin_service(self):
+        if self._pc_admin is None:
+            from jc_client.pc_admin import PcAdmin, win_elevate
+            self._pc_admin = PcAdmin(self._send_up_ok, win_elevate)
+        return self._pc_admin
+
     def _forward_up(self, frame: dict) -> None:
         """Send a frame to the server over the live bridge; drop it when offline."""
         ws = self._ws
@@ -547,6 +577,7 @@ class Service:
             ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
             ui.start()
             self._ui = ui
+            self._start_game_mode()
             try:
                 from jc_client.skills import island as _island_skill
                 _island_skill.set_broadcast(self._ui_broadcast)
@@ -555,6 +586,22 @@ class Service:
         except Exception as exc:  # noqa: BLE001 — hooks are optional, never fatal
             log.warning("agent hook server unavailable: %s", exc)
             self._hook_server = None
+
+    def _start_game_mode(self) -> None:
+        """Windows only: watch for a fullscreen / anti-cheat game (game_mode.py) and tell the app."""
+        if sys.platform != "win32" or self._game_mode is not None:
+            return
+        try:
+            games = set(game_mode.DEFAULT_ANTICHEAT_GAMES)
+            extra = credentials.config_value("game_mode_anticheat_games", []) or []
+            games |= {str(g).lower() for g in extra if g}
+            gm = game_mode.GameMode(game_mode.win_foreground, game_mode.process_names, games,
+                                    lambda st: self._ui_broadcast({"type": "game_mode", **_game_state_dict(st)}))
+            gm.start()
+            self._game_mode = gm
+            game_mode.set_current(gm.state)
+        except Exception as exc:  # noqa: BLE001 — never fatal
+            log.warning("game mode unavailable: %s", exc)
 
     def _local_agent_state(self, agent: str, sid: str):
         """What this Mac's hook engine says the session is doing, if it knows it."""
@@ -982,6 +1029,10 @@ class Service:
             self._run_instruction(frame)  # Popen returns at once; the run is in the background
             return
 
+        if msg_type == "pc_admin_decision":
+            if self._pc_admin is not None:
+                self._pc_admin.decision(frame)
+            return
         if msg_type == "agent_decision":
             # A decision from the phone (via the server) for a waiting hook.
             if self._arbiter is not None:
@@ -1203,6 +1254,10 @@ def _relay_mcp_enabled() -> bool:
     (chrome_* device skills) is the supported path. Opt back in with
     ``browser_relay_mcp: true`` in ~/.jarviscopilot-client/config.yaml."""
     return bool(credentials.config_value("browser_relay_mcp"))
+
+
+def _game_state_dict(state) -> dict:
+    return {"on": bool(state.on), "reason": state.reason, "anticheat": bool(state.anticheat)}
 
 
 def _platform_summary() -> dict:

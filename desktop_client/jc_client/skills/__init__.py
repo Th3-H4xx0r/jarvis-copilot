@@ -97,6 +97,11 @@ def invoke(name: str, args: dict | None = None) -> Any:
         entry = _REGISTRY.get(name)
     if not entry:
         raise KeyError(f"unknown skill: {name!r}")
+    from jc_client import game_mode
+    if name in game_mode.GUARDED:
+        state = game_mode.current()
+        if state.on:
+            return game_mode.refusal(state)   # Pranav is playing: no input, no capture
     fn = entry["fn"]
     args = args or {}
     # Reject extra args so a typo on the agent side surfaces loudly

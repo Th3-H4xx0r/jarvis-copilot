@@ -50,6 +50,19 @@ def _peer_pid(conn: socket.socket) -> int:
     return peer_pid(conn)
 
 
+# Requests that wait on Pranav (Face ID on the phone) and so run off the reader thread.
+SLOW_REQUESTS = frozenset({"admin_run"})
+
+
+def _is_slow(line: bytes) -> bool:
+    if b"admin_run" not in line:
+        return False
+    try:
+        return json.loads(line).get("type") in SLOW_REQUESTS
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class UiServer(UnixSocketServer):
     thread_name = "ui"
 
@@ -107,7 +120,11 @@ class UiServer(UnixSocketServer):
                     break
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
-                    self._handle_line(client, line)
+                    if _is_slow(line):   # waits on the phone: never hold up the app's other requests
+                        threading.Thread(target=self._handle_line, args=(client, line), daemon=True,
+                                         name="ui-slow").start()
+                    else:
+                        self._handle_line(client, line)
         except OSError:
             pass
         finally:
