@@ -63,15 +63,30 @@ final class HoloOrbitModel: ObservableObject {
             errorText = "Pick something from the top first"
             return
         }
-        if device.aim {
-            phase = .aiming(device)
-            aim = .center
-            startTilt()
-            Task { screen = try? await client.screen(of: device) }
-        } else {
-            Task { await send(to: device, position: nil) }
-        }
+        // No aiming screen: a throw lands where the phone pointed (`thrown`); a tap lands in the middle.
+        Task { await send(to: device, position: nil) }
     }
+
+    /// Send after a physical throw: on a Mac it lands where the phone was pointing.
+    func pick(_ device: HoloDevice, thrownWith pose: (roll: Double, pitch: Double)?) {
+        if case .text(let t) = item, t.isEmpty {
+            errorText = "Pick something from the top first"
+            return
+        }
+        var position: HoloPosition?
+        if device.aim, let pose, let ref = refPose {
+            position = HoloAim.position(heading: heading, bearing: device.bearingDeg, roll: pose.roll, pitch: pose.pitch,
+                                        refRoll: ref.roll, refPitch: ref.pitch)
+        }
+        Task { await send(to: device, position: position) }
+    }
+
+    /// The last motion readout ("1.1 g · 4.2 rad/s") — shows what a throw measured.
+    @Published var lastMove: String?
+    private var refPose: (roll: Double, pitch: Double)?
+    private var steadyPose: (roll: Double, pitch: Double)?
+    private var movePeak = 0.0
+    private var moveShownAt = 0.0
 
     func send(to device: HoloDevice, position: HoloPosition?) async {
         stopTilt()
@@ -132,8 +147,15 @@ final class HoloOrbitModel: ObservableObject {
             let deg = m.heading >= 0 ? m.heading : nil
             if let deg, abs(HoloOrbitLayout.angleDelta(deg, self.heading ?? -999)) > 2 { self.heading = deg }
             if self.phase == .choosing, self.flung == nil {
-                let a = m.userAcceleration
-                if let flick = self.fling.add(HoloMotionSample(t: m.timestamp, a: SIMD3(a.x, a.y, a.z))) {
+                let a = m.userAcceleration, r = m.rotationRate
+                let sample = HoloMotionSample(t: m.timestamp, a: SIMD3(a.x, a.y, a.z), r: SIMD3(r.x, r.y, r.z))
+                let pose = (roll: m.attitude.roll, pitch: m.attitude.pitch)
+                if self.refPose == nil { self.refPose = pose }
+                if sample.intensity < 0.3 { self.steadyPose = pose }       // how he held it before throwing
+                self.noteMove(sample)
+                if let flick = self.fling.add(sample) {
+                    HoloMotionTrace.log(String(format: "FLING forward=%@ dx=%.2f dy=%.2f strength=%.2f heading=%.0f",
+                                               flick.forward ? "y" : "n", flick.screen.dx, flick.screen.dy, flick.strength, self.heading ?? -1))
                     self.thrown(flick)
                 }
             }
@@ -142,6 +164,25 @@ final class HoloOrbitModel: ObservableObject {
                 if self.tiltRef == nil { self.tiltRef = (m.attitude.roll, m.attitude.pitch) }
                 let ref = self.tiltRef ?? (0, 0)
                 self.tilt = HoloTilt.offset(roll: m.attitude.roll, pitch: m.attitude.pitch, refRoll: ref.0, refPitch: ref.1)
+            }
+        }
+    }
+
+    /// Keeps the readout + trace: the strongest movement of each gesture.
+    private func noteMove(_ s: HoloMotionSample) {
+        let e = s.intensity
+        if e > 0.3 {
+            HoloMotionTrace.log(String(format: "t=%.3f a=%.2f,%.2f,%.2f r=%.2f,%.2f,%.2f e=%.2f",
+                                       s.t, s.a.x, s.a.y, s.a.z, s.r.x, s.r.y, s.r.z, e))
+        }
+        if e > movePeak || s.t - moveShownAt > 1.5 {
+            if e > 0.35 {
+                movePeak = e
+                moveShownAt = s.t
+                lastMove = String(format: "last move %.1f g · %.1f rad/s%@", HoloFlingDetector.mag(s.a),
+                                  HoloFlingDetector.mag(s.r), e >= 1 ? "" : " (throw a bit harder)")
+            } else if s.t - moveShownAt > 1.5 {
+                movePeak = 0
             }
         }
     }
@@ -159,9 +200,10 @@ final class HoloOrbitModel: ObservableObject {
         }
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: min(1, flick.strength / 3))
         flung = id
+        let pose = steadyPose
         Task {
             try? await Task.sleep(for: .milliseconds(260))
-            pick(device)
+            pick(device, thrownWith: pose.map { ($0.roll, $0.pitch) })
             flung = nil
         }
     }
@@ -244,6 +286,10 @@ struct HoloOrbitView: View {
                      : (model.errorText ?? "Throw the phone toward a device · or flick / tap one"))
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
                     .position(x: geo.size.width / 2, y: geo.size.height - 92)
+                if let move = model.lastMove {
+                    Text(move).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.35))
+                        .position(x: geo.size.width / 2, y: geo.size.height - 74)
+                }
                 HoloActionChips(model: model, device: model.devices.first)
                     .position(x: geo.size.width / 2, y: geo.size.height - 48)
             }
@@ -381,5 +427,29 @@ enum HoloThumb {
         let image = UIImage(cgImage: cg)
         cache.setObject(image, forKey: url as NSURL)
         return image
+    }
+}
+
+/// Holo Drop's motion trace (Documents/holo-motion.log in the app): every throw-like movement and
+/// each fling decision, so real throws can be tuned from evidence. Capped at ~200 KB.
+enum HoloMotionTrace {
+    private static let queue = DispatchQueue(label: "holo.motion.trace")
+    static var url: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("holo-motion.log")
+    }
+
+    static func log(_ line: String) {
+        guard let url else { return }
+        queue.async {
+            let data = Data((line + "\n").utf8)
+            if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int), size > 200_000 {
+                try? FileManager.default.removeItem(at: url)
+            }
+            if let h = try? FileHandle(forWritingTo: url) {
+                h.seekToEndOfFile(); h.write(data); try? h.close()
+            } else {
+                try? data.write(to: url)
+            }
+        }
     }
 }

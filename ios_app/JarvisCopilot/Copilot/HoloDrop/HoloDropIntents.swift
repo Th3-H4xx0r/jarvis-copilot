@@ -18,7 +18,9 @@ struct HoloDropScreenIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard PowerState.shared.isOn("holo-drop") else { return .result(dialog: "Holo Drop is switched off.") }
         guard let image else {
-            HoloLauncher.shared.openQuick()
+            // Run without a screenshot (an old shortcut with no Take Screenshot step): say so,
+            // rather than silently sending the wrong photo.
+            HoloLauncher.shared.openQuick(note: "No screenshot came in — add the shortcut again from the Holo Drop page")
             return .result(dialog: "")
         }
         let name = "Screenshot \(Date().formatted(.dateTime.hour().minute().second())).png"

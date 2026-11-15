@@ -253,29 +253,39 @@ enum HoloDefaults {
 
 // MARK: - The physical fling
 
-/// One motion reading: user acceleration (gravity removed) in g, device frame
-/// (x → right edge, y → top edge, z → out of the screen), at `t` seconds.
+/// One motion reading: user acceleration (gravity removed, g) and rotation rate (rad/s), device
+/// frame (x → right edge, y → top edge, z → out of the screen), at `t` seconds.
 struct HoloMotionSample: Equatable {
     let t: Double
     let a: SIMD3<Double>
+    let r: SIMD3<Double>
+
+    init(t: Double, a: SIMD3<Double>, r: SIMD3<Double> = .zero) {
+        self.t = t
+        self.a = a
+        self.r = r
+    }
+
+    /// How throw-like this instant is: 1 = a careful throw (0.9 g) or a wrist flick (4.5 rad/s).
+    var intensity: Double { max(HoloFlingDetector.mag(a) / 0.9, HoloFlingDetector.mag(r) / 4.5) }
 }
 
-/// A throw: which way on screen it went, whether it was a forward throw (the phone pushed out
-/// of its back, toward where it points), and how hard (peak g).
+/// A throw: which way on screen it went, whether it was a forward throw (toward where the phone
+/// points), and how hard (peak intensity).
 struct HoloFlick: Equatable {
     let screen: CGVector
     let forward: Bool
     let strength: Double
 }
 
-/// Spots a throw in the motion stream: a sharp spike (≥ 1.5 g) that has passed; its direction
-/// is the velocity at the fastest moment of the push (integrated acceleration), so the stop at
-/// the end of the throw — usually the bigger spike, the other way — doesn't flip it.
+/// Spots a throw in the motion stream: a peak of either a careful push (≥ 0.9 g) or a wrist flick
+/// (≥ 4.5 rad/s) that has passed. Direction = the velocity at the fastest moment of the push
+/// (integrated acceleration), so the stop at the end doesn't flip it. Anything not clearly
+/// sideways counts as forward: aimed by where the phone points.
 struct HoloFlingDetector {
     let armedAt: Double
     private var window: [HoloMotionSample] = []
     private var lastFling = -100.0
-    static let threshold = 1.5
     static let armDelay = 0.5           // ignore the lift as the popup opens
     static let cooldown = 1.0
 
@@ -283,12 +293,12 @@ struct HoloFlingDetector {
 
     mutating func add(_ s: HoloMotionSample) -> HoloFlick? {
         window.append(s)
-        window.removeAll { s.t - $0.t > 0.4 }
+        window.removeAll { s.t - $0.t > 0.5 }
         guard s.t - lastFling >= Self.cooldown, window.count >= 4,
-              let peakIndex = window.indices.max(by: { Self.mag(window[$0].a) < Self.mag(window[$1].a) }) else { return nil }
-        let peak = Self.mag(window[peakIndex].a)
-        guard peak >= Self.threshold, window[peakIndex].t - armedAt >= Self.armDelay,
-              peakIndex < window.count - 1, Self.mag(s.a) < peak * 0.35 else { return nil }
+              let peakIndex = window.indices.max(by: { window[$0].intensity < window[$1].intensity }) else { return nil }
+        let peak = window[peakIndex].intensity
+        guard peak >= 1, window[peakIndex].t - armedAt >= Self.armDelay,
+              peakIndex < window.count - 1, s.intensity < peak * 0.4 else { return nil }
         var v = SIMD3<Double>.zero, fastest = SIMD3<Double>.zero
         for i in 1..<window.count {
             v += window[i].a * (window[i].t - window[i - 1].t)
@@ -296,13 +306,32 @@ struct HoloFlingDetector {
         }
         lastFling = s.t
         window.removeAll()
+        let lateral = abs(fastest.x), other = max(abs(fastest.y), abs(fastest.z))
+        let sideways = Self.mag(fastest) > 0.02 && lateral > 1.5 * other
         let plane = (fastest.x * fastest.x + fastest.y * fastest.y).squareRoot()
-        let forward = -fastest.z > 1.2 * plane
-        let screen = plane > 1e-9 ? CGVector(dx: fastest.x / plane, dy: -fastest.y / plane) : CGVector(dx: 0, dy: -1)
-        return HoloFlick(screen: screen, forward: forward, strength: peak)
+        let screen = plane > 1e-6 ? CGVector(dx: fastest.x / plane, dy: -fastest.y / plane) : CGVector(dx: 0, dy: -1)
+        return HoloFlick(screen: sideways ? CGVector(dx: fastest.x > 0 ? 1 : -1, dy: 0) : screen,
+                         forward: !sideways, strength: peak)
     }
 
     static func mag(_ v: SIMD3<Double>) -> Double { (v.x * v.x + v.y * v.y + v.z * v.z).squareRoot() }
+}
+
+/// Where a throw lands on the Mac's screen, from how the phone was pointed just before it
+/// (no aiming screen): left/right from the phone's heading against the Mac's bearing (or its
+/// roll when the Mac's direction isn't known), up/down from how far it's tilted up or down.
+enum HoloAim {
+    static func position(heading: Double?, bearing: Double?, roll: Double, pitch: Double,
+                         refRoll: Double, refPitch: Double) -> HoloPosition {
+        let x: Double
+        if let heading, let bearing {
+            x = 0.5 + HoloOrbitLayout.angleDelta(heading, bearing) / 60
+        } else {
+            x = 0.5 + (roll - refRoll) * 0.8
+        }
+        let y = 0.5 - (pitch - refPitch) * 0.9
+        return HoloPosition(x: min(0.95, max(0.05, x)), y: min(0.95, max(0.05, y)))
+    }
 }
 
 enum HoloFling {

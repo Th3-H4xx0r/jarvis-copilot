@@ -17,7 +17,7 @@ EXT = 'JarvisHoloShare'
 BUNDLE = 'com.jarviscopilot.jarviscopilotMobileAndIOS.HoloShare'
 TEAM = 'VY5CNF8734'
 DEPLOYMENT = '18.0'
-SHARED = ['JarvisCopilot/Copilot/Vault/VaultShareKeychain.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloDropModels.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloDropClient.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloOrbitView.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloScreenMapView.swift']
+SHARED = ['JarvisCopilot/Copilot/Vault/VaultShareKeychain.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloDropModels.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloDropClient.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloOrbitView.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloScreenMapView.swift', 'JarvisCopilot/Copilot/HoloDrop/HoloShareRoot.swift']
 LOCK = File.join(ROOT, 'build', '.sync-project.lock')
 
 def ext_settings

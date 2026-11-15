@@ -44,6 +44,9 @@ end
 unless system(RbConfig.ruby, File.join(__dir__, 'add-vault-share-target.rb'), out: File::NULL)
   warn 'sync-project: add-vault-share-target.rb failed; continuing without the vault share extension'
 end
+unless system(RbConfig.ruby, File.join(__dir__, 'add-holo-share-target.rb'), out: File::NULL)
+  warn 'sync-project: add-holo-share-target.rb failed; continuing without the Holo Drop share extension'
+end
 
 FileUtils.mkdir_p(File.dirname(LOCK))
 acquired = false

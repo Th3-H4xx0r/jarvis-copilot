@@ -3,6 +3,10 @@ import XCTest
 @testable import JarvisCopilot
 
 /// The physical fling: a throw with the phone sends the item toward a device.
+private extension SIMD3 where Scalar == Double {
+    var normalizedish: SIMD3<Double> { let m = (x * x + y * y + z * z).squareRoot(); return m > 0 ? self / m : self }
+}
+
 final class HoloFlingTests: XCTestCase {
     /// A throw: still, a push along `dir` (device frame, g), then the stop (opposite and harder).
     private func throwSamples(_ dir: SIMD3<Double>, start: Double = 2.0, peak: Double = 2.4) -> [HoloMotionSample] {
@@ -77,6 +81,50 @@ final class HoloFlingTests: XCTestCase {
                                      heading: nil, devices: devices, positions: pos, center: center)
         XCTAssertNotNil(right)
         XCTAssertGreaterThan(pos[right!]!.x, center.x)
+    }
+
+    // MARK: real-world throws (on-device: no fling at 1.5 g)
+
+    func testACarefulThrowAtAboutOneGFires() {
+        // Holding the phone you don't want to drop: ~1 g push, ~1.2 g stop.
+        let f = run(throwSamples(SIMD3(0, 0.3, -1).normalizedish, peak: 1.0))
+        XCTAssertNotNil(f, "a careful throw must count")
+        XCTAssertEqual(f?.forward, true)
+    }
+
+    func testAWristFlickIsMostlyRotationAndFires() {
+        // A flick of the wrist: little linear push, fast pitch (top tipping away = negative x rotation).
+        var samples: [HoloMotionSample] = []
+        var t = 2.0
+        for _ in 0..<6 { samples.append(.init(t: t, a: .zero)); t += 1 / 60 }
+        for i in 0..<8 { samples.append(.init(t: t, a: SIMD3(0, 0, -0.4), r: SIMD3(-7 * Double(i + 1) / 8, 0, 0))); t += 1 / 60 }
+        for i in 0..<6 { samples.append(.init(t: t, a: SIMD3(0, 0, 0.5), r: SIMD3(3 * Double(6 - i) / 6, 0, 0))); t += 1 / 60 }
+        for _ in 0..<8 { samples.append(.init(t: t, a: .zero)); t += 1 / 60 }
+        let f = run(samples)
+        XCTAssertNotNil(f, "a wrist flick must count")
+        XCTAssertEqual(f?.forward, true)
+    }
+
+    func testJustHoldingAndTurningIsNotAFling() {
+        // Turning around to face another device: slow rotation, tiny acceleration.
+        var samples: [HoloMotionSample] = []
+        var t = 2.0
+        for _ in 0..<90 { samples.append(.init(t: t, a: SIMD3(0.05, 0, 0.05), r: SIMD3(0, 1.2, 0))); t += 1 / 60 }
+        XCTAssertNil(run(samples))
+    }
+
+    // MARK: where a throw lands on the Mac (no aiming screen)
+
+    func testPointingRightOfTheMacLandsOnItsRightSide() {
+        let p = HoloAim.position(heading: 100, bearing: 90, roll: 0, pitch: 1, refRoll: 0, refPitch: 1)
+        XCTAssertGreaterThan(p.x, 0.6)
+        XCTAssertEqual(p.y, 0.5, accuracy: 0.01)
+    }
+
+    func testTiltingUpLandsHigherAndItStaysOnScreen() {
+        XCTAssertLessThan(HoloAim.position(heading: nil, bearing: nil, roll: 0, pitch: 1.3, refRoll: 0, refPitch: 1).y, 0.4)
+        let far = HoloAim.position(heading: 0, bearing: 180, roll: 3, pitch: -3, refRoll: 0, refPitch: 0)
+        XCTAssertTrue((0.05...0.95).contains(far.x) && (0.05...0.95).contains(far.y))
     }
 
     // MARK: one tap in

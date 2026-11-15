@@ -11,18 +11,19 @@ final class HoloLauncher: ObservableObject {
 
     /// One tap from anywhere: the Orbit, already holding the newest photo or screenshot (switch it
     /// from the tray at the top), ready to throw.
-    func openQuick() {
+    func openQuick(note: String? = nil) {
         Task {
             let item = await HoloQuickPick.newestPhoto() ?? .text("")
-            present(item, tray: true)
+            present(item, tray: true, note: note)
         }
     }
 
-    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, tray: Bool = false) {
+    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, tray: Bool = false, note: String? = nil) {
         guard PowerState.shared.isOn("holo-drop") else { return }
         guard let client = HoloDropReceiver.shared.client else { return }
         presented?.dismiss(animated: false)
         let model = HoloOrbitModel(item: item, client: client)
+        model.errorText = note
         let host = UIHostingController(rootView: HoloAppOrbit(model: model, guessFrom: screenshot, tray: tray) { [weak self] in
             self?.presented?.dismiss(animated: true)
         })

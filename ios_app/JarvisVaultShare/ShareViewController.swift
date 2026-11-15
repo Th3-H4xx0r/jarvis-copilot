@@ -11,14 +11,48 @@ final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        let model = ShareModel(context: extensionContext)
-        let host = UIHostingController(rootView: ShareRootView(model: model))
+        let host = UIHostingController(rootView: JarvisShareChooser(context: extensionContext))
         host.view.backgroundColor = .clear
         addChild(host)
         host.view.frame = view.bounds
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(host.view)
         host.didMove(toParent: self)
+    }
+}
+
+/// The Jarvis share option: Holo Drop first (throw it to another device), Vault one tap away.
+/// iOS can show an app's share options under one icon, so this one does both. Several items
+/// at once open the Vault (Holo Drop sends one thing).
+struct JarvisShareChooser: View {
+    weak var context: NSExtensionContext?
+    @State private var holo: Bool
+    @State private var vault: ShareModel?
+
+    init(context: NSExtensionContext?) {
+        self.context = context
+        let count = (context?.inputItems as? [NSExtensionItem])?.reduce(0) { $0 + ($1.attachments?.count ?? 0) } ?? 0
+        _holo = State(initialValue: count <= 1)
+    }
+
+    var body: some View {
+        ZStack(alignment: holo ? .topLeading : .topTrailing) {
+            if holo {
+                HoloShareRoot(context: context)
+            } else if let vault {
+                ShareRootView(model: vault)
+            } else {
+                Color.black.ignoresSafeArea().onAppear { vault = ShareModel(context: context) }
+            }
+            Button { holo.toggle() } label: {
+                Label(holo ? "Save to Vault" : "Holo Drop", systemImage: holo ? "lock.fill" : "hand.point.up.braille.fill")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
+            }
+            .padding(.horizontal, 14).padding(.top, holo ? 14 : 64)
+        }
+        .background(Color.black.ignoresSafeArea())
     }
 }
 
