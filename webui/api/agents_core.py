@@ -208,6 +208,11 @@ class AgentsCore:
     def on_sleeping(self, device_id, data) -> None:
         if data.get("entries"):
             self.on_roster(device_id, data)
+        if self.mac_power is not None:
+            try:
+                self.mac_power.on_sleeping(device_id)   # the PC's card offers Wake at once
+            except Exception:  # noqa: BLE001
+                log.warning("mac power sleeping mark failed", exc_info=True)
         self.presence.on_sleep(device_id, self._name(device_id))
         self._changed()
 

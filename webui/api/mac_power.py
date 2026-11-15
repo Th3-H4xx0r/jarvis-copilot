@@ -156,6 +156,9 @@ class MacPowerStore:
                 return
             d = self.device(did)
             frame = {"type": "mac_power_set", "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
+            if d.get("sleeping_at") is not None:
+                d["sleeping_at"] = None   # it connected: awake again
+                self._save()
         self._send(did, frame)
 
     def keep_awake(self, did: str, on: bool) -> dict:
@@ -168,7 +171,17 @@ class MacPowerStore:
 
     def let_sleep(self, did: str) -> dict:
         self._update(did, keep_awake=False, wake_requested_at=None)
-        return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "let_sleep": True})}
+        delivered = self._send(did, {"type": "mac_power_set", "let_sleep": True})
+        if delivered and self._is_pc(did):
+            self.on_sleeping(did)   # the PC suspends at once (the Mac may decline: it says when it sleeps)
+        return {"ok": True, "delivered": delivered}
+
+    def on_sleeping(self, did: str) -> None:
+        """The PC said it's going to sleep (device_sleeping) or was told to. A sleeping PC's socket
+        can look open for minutes, so the card would keep it "awake" with no Wake button; this
+        marks it asleep until it reports in again (on_status / sync)."""
+        if self._is_pc(did):
+            self._update(did, sleeping_at=self._clock())
 
     def lock(self, did: str) -> dict:
         return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "lock": True}))}
@@ -217,6 +230,7 @@ class MacPowerStore:
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
         if data.get("state") == "awake":
             fields["wake_requested_at"] = None
+            fields["sleeping_at"] = None
         self._update(did, **fields)
 
     def on_token(self, did: str, data: dict) -> None:
@@ -282,7 +296,7 @@ class MacPowerStore:
                 status = d.get("status") or {}
                 if not status and not (d.get("push") or {}).get("token"):
                     continue
-                awake = did in connected
+                awake = did in connected and d.get("sleeping_at") is None
                 macs.append({"device_id": did, "name": name_of(did) or "Mac",
                              "state": "awake" if awake else "sleeping",
                              "held": bool(status.get("held")) if awake else False,

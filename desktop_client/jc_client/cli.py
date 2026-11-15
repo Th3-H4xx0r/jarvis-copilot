@@ -225,6 +225,33 @@ def _supervisor_unload() -> None:
     elif kind == "schtasks":
         _schtasks("/Change", "/TN", _SCHTASK, "/DISABLE")   # else the 5-min watch starts it again
         _schtasks("/End", "/TN", _SCHTASK)
+        # /End kills only the task's own process (the headless conhost); the service under it
+        # kept running, so a restart's /Run found it alive and the old code stayed up.
+        _end_service_process()
+
+
+def _end_service_process(timeout: float = 5.0) -> None:
+    """The running service (its pid file) and anything it started, then wait for them to go."""
+    pid = _read_pid()
+    if not pid:
+        return
+    try:
+        import psutil
+        root = psutil.Process(pid)
+        procs = root.children(recursive=True) + [root]
+    except Exception:  # noqa: BLE001 — gone already, or psutil missing
+        return
+    for proc in procs:
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        _, alive = psutil.wait_procs(procs, timeout=timeout)
+        for proc in alive:
+            proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _wait_supervisor(*, loaded: bool, timeout: float = 8.0) -> bool:

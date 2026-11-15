@@ -14,9 +14,9 @@ namespace JarvisUnlock;
 /// so this small helper runs as a Windows service (LocalSystem), installed once from Settings
 /// with Face ID + UAC. The Jarvis app — after checking his iPhone's Face ID signature — sends it
 /// the password over a pipe only his account can open; the service starts a copy of itself on
-/// the sign-in desktop of the console session, which types it, and only when that desktop is
-/// the one showing (the PC really is locked). Nothing is stored here and nothing is typed
-/// anywhere else.
+/// the sign-in desktop of the console session, which lifts the lock-screen picture if it's up and
+/// types into the PIN / password box, only while Windows says the session is locked. Nothing is
+/// stored here and nothing is typed anywhere else.
 ///
 ///   JarvisUnlock.exe --install &lt;user SID&gt;   (elevated: copies itself to Program Files, registers, starts)
 ///   JarvisUnlock.exe --uninstall              (elevated)
@@ -265,7 +265,7 @@ internal static class Service
             }
             catch (IOException) { }
             stdin.Dispose();
-            var waited = WaitForSingleObject(pi.hProcess, 20000);
+            var waited = WaitForSingleObject(pi.hProcess, 25000);
             GetExitCodeProcess(pi.hProcess, out var code);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
@@ -275,6 +275,7 @@ internal static class Service
             {
                 0 => new JsonObject { ["ok"] = true }.ToJsonString(),
                 3 => Error("The PC isn't locked."),
+                5 => Error("The sign-in screen didn't come up."),
                 _ => Error($"Typing on the lock screen failed ({code})."),
             };
         }
@@ -354,36 +355,105 @@ internal static class Service
     private static extern bool CloseHandle(IntPtr handle);
 }
 
-/// The copy on the sign-in desktop: only if that desktop is the one showing, wake the lock
-/// screen, type the password from stdin and press Enter. Exit 0 typed, 3 not locked.
+/// The copy started in the console session (as SYSTEM). It types only while Windows itself says
+/// the session is locked, and only into the sign-in screen:
+///   • the lock-screen picture (LockApp on the normal desktop): press Space to lift it, wait for
+///     the sign-in screen;
+///   • the sign-in screen (the secure Winlogon desktop, PIN or password box): type, press Enter.
+/// Exit 0 typed, 3 not locked, 5 the sign-in screen never came up.
 internal static unsafe class Typist
 {
+    private static readonly TimeSpan Reach = TimeSpan.FromSeconds(8);
+
     public static int Run()
     {
         var password = Console.In.ReadLine() ?? "";
         if (password.Length == 0) return 4;
-        if (!OnSignInDesktop(out var desk)) return 3;
-        SetThreadDesktop(desk);
-        // A key with no character wakes the screen and lifts the lock-screen picture.
-        Key(0x11 /* Ctrl */);
-        Thread.Sleep(1500);
-        if (!OnSignInDesktop(out _)) return 3;
-        foreach (var ch in password) Unicode(ch);
-        Thread.Sleep(80);
-        Key(0x0D /* Enter */);
-        return 0;
+        if (!SessionLocked()) return 3;
+        var started = DateTime.UtcNow;
+        var lastNudge = DateTime.MinValue;
+        while (DateTime.UtcNow - started < Reach)
+        {
+            if (!SessionLocked()) return 3;
+            var desk = OpenInputDesktop(0, false, 0x01FF /* DESKTOP_ALL */);
+            if (desk != IntPtr.Zero && SetThreadDesktop(desk))
+            {
+                var name = DesktopName(desk);
+                if (name.Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
+                {
+                    // The sign-in screen: give the PIN / password box a moment to take focus.
+                    Thread.Sleep(lastNudge == DateTime.MinValue ? 300 : 900);
+                    if (!SessionLocked() || !DesktopName(OpenInputDesktop(0, false, 0x01FF)).Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    foreach (var ch in password) Unicode(ch);
+                    Thread.Sleep(80);
+                    Key(0x0D /* Enter */);
+                    return 0;
+                }
+                // Locked but on the normal desktop: the lock-screen picture (or a sleeping screen).
+                if (DateTime.UtcNow - lastNudge > TimeSpan.FromSeconds(1.5))
+                {
+                    var front = ForegroundExe();
+                    Key(front.Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? (ushort)0x20 /* Space */ : (ushort)0x11 /* Ctrl */);
+                    lastNudge = DateTime.UtcNow;
+                }
+            }
+            Thread.Sleep(150);
+        }
+        return 5;
     }
 
-    private static bool OnSignInDesktop(out IntPtr desk)
+    /// Windows' own answer: is the console session locked right now (WTSSessionInfoEx)?
+    private static bool SessionLocked()
     {
-        desk = OpenInputDesktop(0, false, 0x01FF /* DESKTOP_ALL */);
-        if (desk == IntPtr.Zero) return false;
+        if (!ProcessIdToSessionId((uint)Environment.ProcessId, out var session)) return false;
+        if (!WTSQuerySessionInformationW(IntPtr.Zero, session, 25 /* WTSSessionInfoEx */, out var buf, out var bytes) || buf == IntPtr.Zero)
+            return false;
+        try
+        {
+            // WTSINFOEXW { Level; WTSINFOEX_LEVEL1_W { SessionId; SessionState; SessionFlags; … } }
+            if (bytes < 16 || Marshal.ReadInt32(buf, 0) != 1) return false;
+            return Marshal.ReadInt32(buf, 12) == 0;   // WTS_SESSIONSTATE_LOCK
+        }
+        finally
+        {
+            WTSFreeMemory(buf);
+        }
+    }
+
+    private static string DesktopName(IntPtr desk)
+    {
+        if (desk == IntPtr.Zero) return "";
         var name = new char[64];
         fixed (char* p = name)
         {
-            if (!GetUserObjectInformationW(desk, 2 /* UOI_NAME */, p, name.Length * 2, out _)) return false;
+            if (!GetUserObjectInformationW(desk, 2 /* UOI_NAME */, p, name.Length * 2, out _)) return "";
         }
-        return new string(name).TrimEnd('\0').Equals("Winlogon", StringComparison.OrdinalIgnoreCase);
+        return new string(name).TrimEnd('\0');
+    }
+
+    /// The exe behind the foreground window of this thread's (input) desktop.
+    private static string ForegroundExe()
+    {
+        var hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return "";
+        GetWindowThreadProcessId(hwnd, out var pid);
+        var proc = OpenProcess(0x1000 /* QUERY_LIMITED_INFORMATION */, false, pid);
+        if (proc == IntPtr.Zero) return "";
+        try
+        {
+            var buf = new char[520];
+            var len = buf.Length;
+            fixed (char* p = buf)
+            {
+                if (!QueryFullProcessImageNameW(proc, 0, p, ref len)) return "";
+            }
+            return Path.GetFileName(new string(buf, 0, len));
+        }
+        finally
+        {
+            CloseHandle(proc);
+        }
     }
 
     private static void Key(ushort vk)
@@ -425,4 +495,28 @@ internal static unsafe class Typist
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint count, INPUT[] inputs, int size);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool QueryFullProcessImageNameW(IntPtr process, int flags, char* name, ref int size);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool ProcessIdToSessionId(uint pid, out uint session);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQuerySessionInformationW(IntPtr server, uint session, int infoClass, out IntPtr buffer, out int bytes);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
 }

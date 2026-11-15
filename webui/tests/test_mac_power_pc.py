@@ -152,3 +152,29 @@ def test_lock_route(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_routes, "_core", lambda: C())
     status, body = agents_routes._v2("POST", "/agents/mac/lock", {}, {"device_id": PC})
     assert status == 200 and body["delivered"] is True
+
+
+def test_pc_shows_asleep_once_it_says_so_even_with_the_socket_open(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    assert _row(rig, PC)["state"] == "awake"
+    rig.store.on_sleeping(PC)                     # device_sleeping; the socket still looks open
+    assert PC in rig.connected and _row(rig, PC)["state"] == "sleeping"
+    rig.store.on_status(PC, PC_STATUS)            # reports in after waking
+    assert _row(rig, PC)["state"] == "awake"
+
+
+def test_pc_let_sleep_shows_asleep_at_once(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.let_sleep(PC)
+    assert _row(rig, PC)["state"] == "sleeping"
+    rig.store.sync(PC)                            # reconnects (hello)
+    assert _row(rig, PC)["state"] == "awake"
+
+
+def test_mac_sleep_mark_is_left_to_its_connection(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(MAC, {"state": "awake", "held": False, "reason": "", "battery": 80, "on_ac": True, "lid": "open"})
+    rig.store.on_sleeping(MAC)
+    assert _row(rig, MAC)["state"] == "awake"
