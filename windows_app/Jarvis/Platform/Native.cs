@@ -102,6 +102,92 @@ internal static partial class Native
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
     public static partial IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
 
+    // ── hotkeys (RegisterHotKey only: never SetWindowsHookEx) ──────────
+    public const int WM_HOTKEY = 0x0312;
+    public const uint MOD_NOREPEAT = 0x4000;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint vk);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool UnregisterHotKey(IntPtr hwnd, int id);
+
+    // ── Raw Input (hold keys, Holo fling): no hooks, nothing injected ──
+    public const int WM_INPUT = 0x00FF;
+    public const uint RIDEV_REMOVE = 0x1, RIDEV_INPUTSINK = 0x100;
+    public const uint RID_INPUT = 0x10000003;
+    public const uint RIM_TYPEMOUSE = 0, RIM_TYPEKEYBOARD = 1;
+    public const ushort RI_KEY_BREAK = 1, RI_KEY_E0 = 2;
+    public const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x1, RI_MOUSE_LEFT_BUTTON_UP = 0x2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTDEVICE { public ushort usUsagePage, usUsage; public uint dwFlags; public IntPtr hwndTarget; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTHEADER { public uint dwType, dwSize; public IntPtr hDevice, wParam; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWKEYBOARD { public ushort MakeCode, Flags, Reserved, VKey; public uint Message, ExtraInformation; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RAWMOUSE { public ushort usFlags; public ushort usButtonFlags, usButtonData; public uint ulRawButtons; public int lLastX, lLastY; public uint ulExtraInformation; }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool RegisterRawInputDevices([In] RAWINPUTDEVICE[] devices, uint count, uint size);
+
+    [LibraryImport("user32.dll")]
+    public static partial uint GetRawInputData(IntPtr hRawInput, uint command, IntPtr data, ref uint size, uint headerSize);
+
+    [LibraryImport("user32.dll")]
+    public static partial short GetAsyncKeyState(int vk);
+
+    // ── windows: find and raise (jump to terminal, only on his key/click) ──
+    public const int SW_RESTORE = 9, SW_MINIMIZE = 6, SW_SHOWNOACTIVATE = 4;
+    public const uint GW_OWNER = 4;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static unsafe partial bool EnumWindows(delegate* unmanaged<IntPtr, IntPtr, int> proc, IntPtr data);
+
+    [LibraryImport("user32.dll")]
+    public static partial uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsWindowVisible(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsIconic(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr GetWindow(IntPtr hwnd, uint cmd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ShowWindow(IntPtr hwnd, int cmd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetForegroundWindow(IntPtr hwnd);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int GetWindowText(IntPtr hwnd, [Out] char[] text, int max);
+
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    // ── power broadcasts (sleep/wake relay) ────────────────────────────
+    public const int WM_POWERBROADCAST = 0x0218;
+    public const int PBT_APMSUSPEND = 0x4, PBT_APMRESUMESUSPEND = 0x7, PBT_APMRESUMEAUTOMATIC = 0x12;
+
+    // ── click-through overlays (screen glow, Holo flash) ───────────────
+    public const int WS_EX_TRANSPARENT = 0x20, WS_EX_LAYERED = 0x80000;
+
     // ── synthetic input (screen share only; never while a game is on) ──
     public const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
 

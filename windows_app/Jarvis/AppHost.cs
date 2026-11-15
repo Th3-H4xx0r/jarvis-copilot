@@ -1,12 +1,22 @@
+using System.Windows;
 using System.Windows.Threading;
 using Jarvis.Core.Gaming;
+using Jarvis.Core.Http;
+using Jarvis.Core.Input;
 using Jarvis.Core.Island;
 using Jarvis.Core.Link;
 using Jarvis.Core.Model;
 using Jarvis.Core.Prefs;
+using Jarvis.Core.Sounds;
 using Jarvis.Core.State;
+using Jarvis.Core.Tray;
+using Jarvis.Input;
 using Jarvis.Island;
 using Jarvis.Platform;
+using Jarvis.Recap;
+using Jarvis.Sounds;
+using Jarvis.Terminal;
+using Jarvis.Tray;
 
 namespace Jarvis;
 
@@ -21,9 +31,23 @@ public sealed class AppHost : IAsyncDisposable
     public PresentationGate Gate { get; }
     public Dispatcher Dispatcher { get; }
     public TimeProvider Time { get; }
+    public ApiClient Api { get; }
     public IslandPresenter Island { get; }
     public IslandWindow IslandWindow { get; }
     public AgentsTab AgentsTab { get; }
+    public SoundCenter Sounds { get; }
+    public HotKeyCenter HotKeys { get; }
+    public HoldKeyWatcher HoldKeys { get; }
+    public TerminalJumper Jumper { get; }
+    public TrayIcon Tray { get; }
+
+    /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
+    public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
+    /// Tray commands the app handles; later tasks add theirs.
+    public Dictionary<TrayCommand, Action> TrayHandlers { get; } = new();
+
+    private readonly SessionCursor _cursor = new();
+    private RecapWindow? _recap;
 
     public AppHost(Dispatcher dispatcher)
     {
@@ -33,6 +57,7 @@ public sealed class AppHost : IAsyncDisposable
         Link = new JcLink(EndpointFile.DefaultPath);
         State = new AppState(Link, Time);
         Gate = new PresentationGate(new Win32ForegroundProbe(), Time);
+        Api = new ApiClient(() => State.ApiOrigin);
 
         Link.Message += m => Dispatcher.BeginInvoke(() => State.Handle(m));
         Link.ConnectionChanged += up => Dispatcher.BeginInvoke(() => State.OnConnection(up));
@@ -43,12 +68,86 @@ public sealed class AppHost : IAsyncDisposable
         IslandWindow = new IslandWindow(Island, State, Prefs);
         AgentsTab = new AgentsTab(State, Island, () => IslandWindow);
         IslandWindow.Register(IslandTab.Agents, AgentsTab);
+
+        // ── Task 6: sounds, hotkeys, hold keys, jump to terminal, tray, recap ──
+        Sounds = new SoundCenter(new SoundPlayer(), Prefs, Gate);
+        State.MomentRaised += (m, _) => Sounds.Play(SoundEvents.For(m));
+        ApprovalCard.DecisionMade += () => Sounds.Play(SoundEvent.Decided);
+
+        Jumper = new TerminalJumper(() => State.GameMode);
+        AgentsTab.JumpRequested += JumpTo;
+        AgentsTab.ReadAloudRequested += State.ReadAloud;
+
+        HoldKeys = new HoldKeyWatcher();
+        HotKeys = new HotKeyCenter();
+        HotKeys.Pressed += a => { if (ShortcutHandlers.TryGetValue(a, out var h)) h(); };
+        ShortcutHandlers[ShortcutAction.ToggleIsland] = Island.Click;
+        ShortcutHandlers[ShortcutAction.OpenChat] = () => Island.Open(IslandTab.Chat, typing: true);
+        ShortcutHandlers[ShortcutAction.GoToAlert] = () => Island.Open(IslandTab.Agents);
+        ShortcutHandlers[ShortcutAction.JumpToTerminal] = () =>
+        {
+            if ((_cursor.Current(State.Sessions) ?? State.Lead) is { } s) JumpTo(s);
+        };
+        ShortcutHandlers[ShortcutAction.NextSession] = () => SelectSession(1);
+        ShortcutHandlers[ShortcutAction.PreviousSession] = () => SelectSession(-1);
+        ShortcutHandlers[ShortcutAction.Mute] = () =>
+        {
+            Sounds.Muted = !Sounds.Muted;
+            Island.ShowNotice(Sounds.Muted ? "Sounds muted." : "Sounds on.");
+        };
+        BindShortcuts();
+        Prefs.Changed += k => { if (k.StartsWith("shortcut.", StringComparison.Ordinal)) BindShortcuts(); };
+
+        Tray = new TrayIcon(State, () => false, () => false);
+        Tray.Command += c => { if (TrayHandlers.TryGetValue(c, out var h)) h(); };
+        TrayHandlers[TrayCommand.OpenIsland] = ShowIsland;
+        TrayHandlers[TrayCommand.Recap] = ShowRecap;
+        TrayHandlers[TrayCommand.Quit] = () => Application.Current.Shutdown();
+        State.IslandRequested += (tab, _) => { if (tab == "recap") ShowRecap(); };
+    }
+
+    public void BindShortcuts()
+    {
+        foreach (var a in ShortcutActions.All) HotKeys.Bind(a, a.Binding(Prefs));
+    }
+
+    private void JumpTo(AgentSession s)
+    {
+        if (Jumper.Jump(s) is { } problem) Island.ShowNotice(problem);
+    }
+
+    private void SelectSession(int by)
+    {
+        if (_cursor.Move(State.Sessions, by) is { } s)
+        {
+            Island.ShowNotice($"{s.Project} · {s.AgentName} (Ctrl+Alt+T jumps to it)");
+            Island.Open(IslandTab.Agents);
+        }
+    }
+
+    public void ShowRecap()
+    {
+        if (_recap is { IsLoaded: true }) { _recap.Activate(); return; }
+        _recap = new RecapWindow(Api);
+        _recap.Closed += (_, _) => _recap = null;
+        _recap.Show();
     }
 
     public void Start(string[] args)
     {
         if (args.Contains("--demo")) RunDemo();
+        if (Array.IndexOf(args, "--diag") is var i and >= 0 && i + 1 < args.Length) Diag(args[(i + 1)..]);
         Link.Start();
+    }
+
+    /// Dev switches for desktop verification over the PC scripts.
+    private void Diag(string[] rest)
+    {
+        switch (rest[0])
+        {
+            case "open-tray-menu": Tray.OpenMenu(); break;
+            case "island": ShowIsland(); break;
+        }
     }
 
     /// `Jarvis.exe --demo`: the made-up tour (sessions working, an approval, a question, a finish).
@@ -65,5 +164,11 @@ public sealed class AppHost : IAsyncDisposable
     /// A second launch, or the tray, asked for the island.
     public void ShowIsland() => Island.Open(IslandTab.Agents);
 
-    public async ValueTask DisposeAsync() => await Link.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        Tray.Dispose();
+        HotKeys.Dispose();
+        HoldKeys.Dispose();
+        await Link.DisposeAsync();
+    }
 }
