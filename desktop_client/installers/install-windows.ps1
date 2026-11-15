@@ -19,6 +19,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# DOMAIN\user from the token: over SSH $env:USERDOMAIN is WORKGROUP, which Task Scheduler can't map.
+$Me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 function Info($m) { Write-Host "[jc-client install] $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "[jc-client install] $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "[jc-client install] $m" -ForegroundColor Yellow }
@@ -114,14 +116,14 @@ Info "Shortcut: $StartMenu"
 $OldStartup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\JarvisCopilot Client.lnk'
 if (Test-Path $OldStartup) { Remove-Item $OldStartup -Force }
 $Action   = New-ScheduledTaskAction -Execute $JcExe -Argument 'start --no-tray' -WorkingDirectory $Dir
-$Trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$Trigger  = New-ScheduledTaskTrigger -AtLogOn -User $Me
 # Every 5 minutes "start it if it isn't running" (IgnoreNew below): Task Scheduler's own restart
 # covers a task that fails to start, not a client that crashes later.
 $Watch    = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $Settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew
-$Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+$Principal = New-ScheduledTaskPrincipal -UserId $Me -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action $Action -Trigger @($Trigger, $Watch) `
     -Settings $Settings -Principal $Principal -Force | Out-Null
 Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"

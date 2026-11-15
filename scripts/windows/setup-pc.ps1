@@ -21,6 +21,8 @@
 param([ValidateSet('', 'admin', 'user')][string]$Part = '')
 
 $ErrorActionPreference = 'Stop'
+# DOMAIN\user from the token: over SSH $env:USERDOMAIN is WORKGROUP, which Task Scheduler can't map.
+$Me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $ScriptUrl = 'https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/scripts/windows/setup-pc.ps1'
 $Repo      = 'https://github.com/Th3-H4xx0r/jarvis-copilot.git'
 $MacKey    = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAbJ0qWmBiRelN9T+C6N30lQPrgmzXHn7tntFkUzHSdO jarvis-mac-to-pc'
@@ -37,6 +39,7 @@ $script:Results = @()
 function Step([string]$name, [scriptblock]$body) {
     Info $name
     try {
+        Refresh-Path   # pick up what earlier steps installed
         & $body
         $script:Results += "ok    $name"
         Ok "  done"
@@ -72,6 +75,16 @@ function Admin-Part {
             Run winget @('install', '--id', $id, '-e', '--scope', 'machine', '--silent',
                          '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
         }
+    }
+
+    Step 'PowerShell 7 (MSI from GitHub if winget could not)' {
+        # winget's PowerShell install can fail with access denied (0x80070005); the MSI works.
+        if (Test-Path (Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe')) { return }
+        $msi = Join-Path $env:TEMP 'pwsh.msi'
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' -OutFile $msi
+        $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart ADD_PATH=1" -Wait -PassThru
+        if ($p.ExitCode -ne 0) { throw "msiexec exited $($p.ExitCode)" }
     }
 
     Step 'OpenSSH server on, starts with Windows' {
@@ -199,7 +212,7 @@ if (Is-Admin) {
     Admin-Part
     $task = 'SetupUserPart'
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (($PsArgs + @('-Part', 'user')) -join ' ')
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    $principal = New-ScheduledTaskPrincipal -UserId $Me -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskPath '\Jarvis\' -TaskName $task -Action $action -Principal $principal -Force | Out-Null
     Start-ScheduledTask -TaskPath '\Jarvis\' -TaskName $task
     Info 'Your part is running in its own window (not as admin) ...'
