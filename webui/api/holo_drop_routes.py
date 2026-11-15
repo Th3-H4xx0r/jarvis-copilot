@@ -164,7 +164,7 @@ def devices(caller: str) -> list[dict]:
             "distance_m": b.get("distance_m") if b else None,
         })
     with _streams_lock:
-        if _claimed["tab"] in _streams:
+        if _claimed["tab"] in _streams and not caller.startswith("web:"):
             out.append({"id": "web", "name": "Web", "kind": "web", "online": True, "accepts": list(KINDS),
                         "aim": False, "default_action": defaults.get("web") or "open", "lan": None,
                         "bearing": None, "distance_m": None})
@@ -285,7 +285,12 @@ def _caller(req) -> str:
     if req.host_signed:
         return "jarvis"
     device = getattr(req, "device", None) or {}
-    return str(device.get("id") or "")
+    if device.get("id"):
+        return str(device["id"])
+    # A browser tab (signed in, not a paired device) names itself with its stream's tab id.
+    headers = getattr(getattr(req, "handler", None), "headers", None) or {}
+    tab = re.sub(r"[^0-9a-f]", "", str(headers.get("X-Holo-Tab") or "").lower())[:32]
+    return f"web:{tab}" if tab else ""
 
 
 def route(req) -> bool:

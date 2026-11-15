@@ -56,3 +56,30 @@
 .intg-confirm { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .intg-confirm-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; max-width: 360px; }
 .intg-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Holo Drop (holo_drop.js): arrival cards bottom-right + the web Orbit. Black & white. */
+.holo-stack { position: fixed; right: 16px; bottom: 16px; z-index: 9000; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
+.holo-card { background: var(--bg); color: var(--text); border: 1px solid var(--border, rgba(255,255,255,.14)); border-radius: 16px; padding: 12px 14px; box-shadow: 0 12px 32px rgba(0,0,0,.45); font-size: 13px; }
+.holo-card-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holo-card-sub { color: var(--muted, #8a8a8a); font-size: 11.5px; margin-top: 2px; }
+.holo-card-text { display: none; margin-top: 8px; max-height: 220px; overflow: auto; white-space: pre-wrap; user-select: text; }
+.holo-card-expanded .holo-card-text { display: block; }
+.holo-card-actions { display: flex; gap: 6px; margin-top: 10px; }
+.holo-card-actions .jci-button { flex: 1; }
+.holo-card-actions .holo-card-close { flex: 0 0 auto; }
+.holo-toast { font-size: 12.5px; }
+.holo-shade { position: fixed; inset: 0; z-index: 9001; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.holo-orbit { position: relative; width: min(460px, 100%); background: #050505; color: #fff; border: 1px solid #2a2a2a; border-radius: 28px; padding: 18px 16px 16px; }
+.holo-orbit-title { text-align: center; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #8a8a8a; }
+.holo-stage { position: relative; height: 360px; }
+.holo-item { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 150px; min-height: 110px; padding: 12px; border-radius: 18px; background: #151515; border: 1px dashed #444; color: #bbb; font-size: 12px; text-align: center; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; touch-action: none; word-break: break-word; }
+.holo-item.has-item { border-style: solid; color: #eee; cursor: grab; }
+.holo-stage .holo-item[style*="translate("] { left: calc(50% - 75px); top: calc(46% - 55px); }
+.holo-bubble { position: absolute; width: 68px; height: 68px; border-radius: 50%; background: #1a1a1a; border: 1px solid #3a3a3a; color: #ddd; font-size: 10.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; padding: 4px; }
+.holo-bubble:hover, .holo-bubble:focus-visible { border-color: #fff; box-shadow: 0 0 0 6px rgba(255,255,255,.08); outline: none; }
+.holo-bubble.offline { opacity: .55; }
+.holo-hint { text-align: center; font-size: 12px; color: #7a7a7a; margin: 4px 0 10px; }
+.holo-chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.holo-chip { padding: 6px 10px; border-radius: 999px; background: #1c1c1c; color: #bbb; font-size: 11.5px; border: 1px solid #2f2f2f; cursor: pointer; }
+.holo-chip.on { background: #fff; color: #000; border-color: #fff; }
+.holo-x { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 50%; padding: 0; }

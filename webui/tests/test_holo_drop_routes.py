@@ -36,10 +36,11 @@ def env(tmp_path, monkeypatch):
     return SimpleNamespace(st=st, frames=frames, pushes=pushes, wakes=wakes, connected=connected)
 
 
-def call(method, path, body=None, caller="iphone-1", raw=None, host=False):
+def call(method, path, body=None, caller="iphone-1", raw=None, host=False, headers=None):
     box = {}
     parsed = urlparse(path)
-    handler = SimpleNamespace(rfile=io.BytesIO(raw or b""), headers={"Content-Length": str(len(raw or b""))})
+    handler = SimpleNamespace(rfile=io.BytesIO(raw or b""),
+                              headers={"Content-Length": str(len(raw or b"")), **(headers or {})})
     req = SimpleNamespace(method=method, path=parsed.path, parsed=parsed, body=body, host_signed=host,
                           prefix="/api/holo-drop", handler=handler, sub=parsed.path[len("/api/holo-drop"):],
                           device={"id": caller} if caller else None)
@@ -164,3 +165,32 @@ def test_direct_file_drop_records_kind_and_name(env, cards):
     assert status == 200 and body["drop"]["kind"] == "image" and body["drop"]["name"] == "IMG_1.HEIC"
     status, body = call("POST", "/api/holo-drop/drops", {"kind": "image", "target": "mac-1", "name": "x"})
     assert status == 400                               # files without bytes only when delivered direct
+
+
+def test_web_tab_sender_hears_its_landing(env, cards):
+    import queue as _q
+    q = _q.Queue()
+    routes._streams["ab1"] = q
+    try:
+        status, body = call("POST", "/api/holo-drop/drops", {"kind": "link", "target": "mac-1", "url": "https://a.b"},
+                            caller=None, headers={"X-Holo-Tab": "ab1"})
+        assert status == 200 and body["drop"]["from"] == "web:ab1" and body["drop"]["from_name"] == "Web"
+        call("POST", f"/api/holo-drop/drops/{body['drop']['id']}/landed", {"outcome": "opened"}, caller="mac-1")
+        event, drop = q.get_nowait()
+        assert event == "landed" and drop["outcome"] == "opened"
+    finally:
+        routes._streams.pop("ab1", None)
+
+
+def test_web_sender_does_not_see_web_target(env):
+    import queue as _q
+    routes._streams["ab2"] = _q.Queue()
+    routes._claimed["tab"] = "ab2"
+    try:
+        status, body = call("GET", "/api/holo-drop/devices", caller=None, headers={"X-Holo-Tab": "ab2"})
+        assert "web" not in [d["id"] for d in body["devices"]]
+        status, body = call("GET", "/api/holo-drop/devices")              # the iPhone does see it
+        assert "web" in [d["id"] for d in body["devices"]]
+    finally:
+        routes._streams.pop("ab2", None)
+        routes._claimed["tab"] = None
