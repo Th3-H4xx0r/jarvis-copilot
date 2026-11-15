@@ -350,6 +350,7 @@ public sealed class AppHost : IAsyncDisposable
             ScreenShare.StopAll("Stopped on the PC.");
         });
         void UpdateBanner() => Dispatcher.BeginInvoke(() => ShareBanner.Update(ScreenShare.Capturing && Gate.CanPresent, ScreenShare.Viewers));
+        _updateShareBanner = UpdateBanner;
         shares.CurrentChanged += () =>
         {
             if (shares.Current is { } live) live.ViewersChanged += UpdateBanner;
@@ -357,7 +358,7 @@ public sealed class AppHost : IAsyncDisposable
         };
         State.ScreenSharesPoke += () => _ = ScreenShare.PollAsync();
         State.HelloReceived += () => _ = ScreenShare.PollAsync();
-        State.GameModeChanged += m => _ = ScreenShare.GameModeChangedAsync(m);
+        State.GameModeChanged += m => { _ = ScreenShare.GameModeChangedAsync(m); UpdateBanner(); };
         var sharePoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         sharePoll.Tick += (_, _) => { if (State.Connected) _ = ScreenShare.PollAsync(); };
         sharePoll.Start();
@@ -412,7 +413,10 @@ public sealed class AppHost : IAsyncDisposable
         Island.Recheck();
         Orb.Update();
         if (!Gate.CanPresent) Glow.HideGlow();
+        _updateShareBanner?.Invoke();   // never over a fullscreen game
     }
+
+    private Action? _updateShareBanner;
 
     /// The wake listener pauses while a conversation owns the mic; the glow shows while listening.
     private void SyncVoiceSurfaces()

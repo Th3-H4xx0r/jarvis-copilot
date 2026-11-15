@@ -43,10 +43,32 @@ public sealed class ScreenShareSession : IShareSession
         _ended = ended;
         _capture.Frame += OnFrame;
         _capture.Stopped += why => Stop(why);
+        _idle = new System.Threading.Timer(_ => CheckIdle(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private void CheckIdle()
+    {
+        if (_stopped) return;
+        var now = Environment.TickCount64;
+        if (Viewers > 0) { Interlocked.Exchange(ref _lastWatchedTicks, now); return; }
+        if (TimeSpan.FromMilliseconds(now - Interlocked.Read(ref _lastWatchedTicks)) < IdleLimit) return;
+        _log($"share {Id}: no one watching for {IdleLimit.TotalSeconds:0} s, ending it");
+        _ = Task.Run(async () =>
+        {
+            try { await _api.PostAsync(ShareSelection.StopPath(Id), new JsonObject { ["error"] = "No one was watching." }, TimeSpan.FromSeconds(10)); }
+            catch (ApiException) { }
+        });
+        Stop(null);
     }
 
     public string Id { get; }
-    public int Viewers { get { lock (_peers) return _peers.Count; } }
+    /// Viewers actually connected (a peer that failed or closed doesn't count).
+    public int Viewers { get { lock (_peers) return _peers.Values.Count(p => p.Connected); } }
+
+    /// No one watching for this long (the phone closed its viewer without a stop): end the share.
+    public static readonly TimeSpan IdleLimit = TimeSpan.FromSeconds(30);
+    private readonly System.Threading.Timer _idle;
+    private long _lastWatchedTicks = Environment.TickCount64;
     public Monitors.Info? Display => _display;
     public event Action? ViewersChanged;
 
@@ -165,6 +187,7 @@ public sealed class ScreenShareSession : IShareSession
     {
         if (_stopped) return;
         _stopped = true;
+        _idle.Dispose();
         _cts.Cancel();
         _capture.Stop();
         _encoder.Dispose();
