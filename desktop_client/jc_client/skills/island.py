@@ -27,7 +27,7 @@ def _app_running() -> bool:
 
 @skill(
     "jarvis_island",
-    "Open the Jarvis island at the top of this Mac's screen on one tab: agents (coding agents and "
+    "Open the Jarvis island at the top of this computer's screen on one tab: agents (coding agents and "
     "what waits on you), chat, music (now playing), or recap (the week with the agents). For chat, "
     "`text` pre-fills the message box.",
     {

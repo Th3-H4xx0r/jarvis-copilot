@@ -165,8 +165,11 @@ def load_all(allow_shell: bool = False) -> None:
             import jc_client.skills.ui  # noqa: F401 (registers via decorator)
         except Exception as exc:
             log.warning("Failed to load ui skills: %s", exc)
+
+    # The island (the Jarvis app's, Mac or PC) and VS Code's terminal bridge.
+    if sys.platform in ("darwin", "win32"):
         try:
-            import jc_client.skills.island  # noqa: F401 (the Jarvis Mac app's island)
+            import jc_client.skills.island  # noqa: F401 (the Jarvis app's island)
         except Exception as exc:
             log.warning("Failed to load island skill: %s", exc)
         try:

@@ -57,15 +57,30 @@ function shutdown() {
 }
 
 // ── connection ──────────────────────────────────────────────────────────
+// Where jc-client listens: a Unix socket, or (Windows, where its Python has no Unix sockets)
+// an endpoint file {"v":1,"port","token","pid"} whose token must be the first line we send.
+function connectTarget() {
+  try {
+    const text = fs.readFileSync(SOCK_PATH, 'utf8');
+    if (text.trimStart().startsWith('{')) {
+      const ep = JSON.parse(text);
+      return { options: { port: Number(ep.port), host: '127.0.0.1' }, auth: String(ep.token || '') };
+    }
+  } catch (_) { /* a socket file (or nothing yet) can't be read like a file */ }
+  return { options: SOCK_PATH, auth: null };
+}
+
 function connect() {
   reconnectTimer = null;
   if (stopped) return;
-  const s = net.createConnection(SOCK_PATH);
+  const target = connectTarget();
+  const s = net.createConnection(target.options);
   let buf = '';
   s.setEncoding('utf8');
   s.on('connect', () => {
     sock = s;
     backoff = MIN_BACKOFF_MS;
+    if (target.auth !== null) s.write(JSON.stringify({ auth: target.auth }) + '\n');
     sendHello();
   });
   s.on('data', (chunk) => {

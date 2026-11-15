@@ -16,6 +16,7 @@ import glob
 import json
 import logging
 import os
+import sys
 import shutil
 import subprocess
 import threading
@@ -96,6 +97,12 @@ def find_npx() -> Optional[str]:
     if p:
         return p
     home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        # Node's installer and npm's global dir (a scheduled task may not have the user's PATH).
+        candidates = [os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "nodejs", "npx.cmd"),
+                      os.path.join(os.environ.get("APPDATA", ""), "npm", "npx.cmd")]
+        candidates += sorted(glob.glob(os.path.join(os.environ.get("NVM_HOME", ""), "*", "npx.cmd")), reverse=True)
+        return next((c for c in candidates if c and os.path.isfile(c)), None)
     candidates = sorted(
         glob.glob(os.path.join(home, ".nvm/versions/node/*/bin/npx")), reverse=True
     ) + ["/opt/homebrew/bin/npx", "/usr/local/bin/npx"]

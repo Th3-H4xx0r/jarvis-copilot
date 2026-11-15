@@ -176,3 +176,52 @@ test('a folder that is not open is refused', async () => {
     ext.stop();
   }
 });
+
+// Windows: no Unix sockets in jc-client's Python, so vscode.sock is an endpoint file
+// {"v":1,"port","token","pid"} and the first line must be the auth line (unix_server.py).
+test('on an endpoint file it connects over loopback and authenticates first', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jtb-'));
+  fs.mkdirSync(path.join(home, '.jarviscopilot-client'));
+  const lines = [];
+  const server = net.createServer((c) => {
+    let buf = '';
+    c.setEncoding('utf8');
+    c.on('data', (d) => {
+      buf += d;
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        lines.push(JSON.parse(buf.slice(0, nl)));
+        buf = buf.slice(nl + 1);
+      }
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const token = 'ab'.repeat(32);
+  fs.writeFileSync(path.join(home, '.jarviscopilot-client', 'vscode.sock'),
+    JSON.stringify({ v: 1, port: server.address().port, token, pid: 1 }));
+  const realHome = process.env.HOME;
+  process.env.HOME = home;
+  const extPath = require.resolve('../extension.js');
+  delete require.cache[extPath];
+  const load = Module._load;
+  const vscode = fakeVscode({ shellIntegrationApi: true });
+  Module._load = function (request, ...rest) {
+    return request === 'vscode' ? vscode : load.call(this, request, ...rest);
+  };
+  let ext;
+  try {
+    ext = require(extPath);
+  } finally {
+    Module._load = load;
+    process.env.HOME = realHome;
+  }
+  ext.activate({ subscriptions: [] });
+  try {
+    await until(() => lines.length >= 2);
+    assert.deepStrictEqual(lines[0], { auth: token });
+    assert.strictEqual(lines[1].type, 'hello');
+  } finally {
+    ext.deactivate();
+    server.close();
+  }
+});
