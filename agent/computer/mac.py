@@ -8,6 +8,7 @@ True}`` when the Mac itself could not be reached.
 from __future__ import annotations
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +44,57 @@ def _origin(task_id):
         return None
 
 
+_SAYS_PC = re.compile(r"\b(?:gaming\s+pc|windows(?:\s+pc)?|pc)\b", re.I)
+_SAYS_MAC = re.compile(r"\bmac(?:book)?\b", re.I)
+
+
+def _os_of(row: dict) -> str:
+    return str(row.get("device_os") or "macos")
+
+
+def pick_computer(offers: list, origin, text: str) -> tuple:
+    """``(row, "")`` for the computer to drive, else ``(None, error)``.
+
+    Pranav's rule (2026-11-15): the turn's own computer first; then the one the words name
+    (its device name, "PC"/"Windows" or "Mac"); else the Mac; else whatever computer is on."""
+    if not offers:
+        return None, ("No computer with computer control is online. Open Jarvis on your Mac or PC "
+                      "(jc-client) and make sure it is up to date.")
+    own = next((o for o in offers if origin and o.get("device_id") == origin), None)
+    if own is not None:
+        return own, ""
+    words = str(text or "")
+    low = words.lower()
+    named = next((o for o in offers if str(o.get("device_name") or "").strip()
+                  and str(o.get("device_name")).lower() in low), None)
+    if named is not None:
+        return named, ""
+    wants = "windows" if _SAYS_PC.search(words) else "macos" if _SAYS_MAC.search(words) else ""
+    if wants:
+        hit = next((o for o in offers if _os_of(o) == wants), None)
+        if hit is None:
+            return None, f"Your {'PC' if wants == 'windows' else 'Mac'} isn't online with computer control."
+        return hit, ""
+    return next((o for o in offers if _os_of(o) == "macos"), offers[0]), ""
+
+
 def find_mac(task_id=None) -> tuple:
-    """``(device_id, name, None)`` for a reachable device offering ``ui_look`` (the
-    turn's own device first), else ``(None, "", error)``."""
+    """``(device_id, name, None)`` for the computer offering ``ui_look`` that this turn
+    means (pick_computer), else ``(None, "", error)``."""
     try:
         offers = [s for s in _skills() if isinstance(s, dict) and s.get("name") == LOOK_SKILL and s.get("device_id")]
     except Exception as exc:
         return None, "", f"could not list devices: {exc}"
-    if not offers:
-        return None, "", ("No Mac with computer control is online. Open the JarvisCopilot Mac app "
-                          "(jc-client) and make sure it is up to date.")
-    origin = _origin(task_id)
-    pick = next((s for s in offers if s["device_id"] == origin), offers[0])
-    return str(pick["device_id"]), str(pick.get("device_name") or "Mac"), None
+    try:
+        from agent import mac_browser_gate
+        text = mac_browser_gate.turn_text(task_id)
+    except Exception:
+        text = ""
+    pick, err = pick_computer(offers, _origin(task_id), text)
+    if pick is None:
+        return None, "", err
+    fallback = "PC" if _os_of(pick) == "windows" else "Mac"
+    return str(pick["device_id"]), str(pick.get("device_name") or fallback), None
 
 
 def _invoke(device_id: str, skill: str, args: dict) -> dict:

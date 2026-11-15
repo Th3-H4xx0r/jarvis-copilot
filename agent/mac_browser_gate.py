@@ -28,7 +28,7 @@ _MAC_TOOL_PREFIXES = ("chrome_", "device_chrome_", "mcp_playwright_desktop", "mc
 # screen / mouse / keyboard skills — follows the same rule.
 _MAC_CONTROL_PREFIXES = ("computer_do", "device_ui_", "device_mouse_", "device_type_text", "device_key_",
                          "device_system_command", "device_run_shell", "device_quit_app", "device_focus_window")
-_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop)"
+_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop|gaming\s+pc|windows(?:\s+pc)?|pc)"
 _BROWSER = r"(?:chrome|browser)"
 _ASKS = (
     # "on my mac", "in Chrome on the Mac", "pull up kayak on my MacBook"
@@ -47,7 +47,7 @@ _ASKS = (
                rf"(?:screen|display|monitor)\b", re.I),
     # "use computer control", "do it with visual control", "you must choose Computer Control"
     # (live 2026-10-30: "use visual control with clicks to do this" was refused)
-    re.compile(r"\b(?:computer|visual|screen|mac|desktop)[\s-]+control\b", re.I),
+    re.compile(r"\b(?:computer|visual|screen|mac|desktop|pc)[\s-]+control\b", re.I),
 )
 # "stop using my Mac", "no more controlling my laptop" — takes a chat's ask back.
 _STOP_MAC = re.compile(rf"\b(?:stop|quit|no\s+more)\s+(?:using|controlling|driving|touching)\s+(?:the\s+|my\s+(?:own\s+)?)"
@@ -159,8 +159,8 @@ def _from_mac(task_id) -> bool:
 
 
 CONTROL_BLOCK_MESSAGE = (
-    "Blocked: this drives the user's own Mac (its screen, mouse and keyboard), which is only done when the "
-    "user explicitly asks for it (e.g. \"on my Mac\"). Ask the user first."
+    "Blocked: this drives the user's own computer (his Mac or PC: its screen, mouse and keyboard), which is only done when the "
+    "user explicitly asks for it (e.g. \"on my Mac\", \"on my PC\"). Ask the user first."
 )
 
 
