@@ -223,7 +223,6 @@ public sealed class IslandWindow : NoActivateWindow
         var state = _p.State;
         var from = _shownState;
         var wasHidden = !IsVisible || from == IslandStateMachine.State.Hidden;
-        var tabChanged = _shownTab != _p.Tab;
         _shownState = state;
         _shownTab = _p.Tab;
 
@@ -271,7 +270,7 @@ public sealed class IslandWindow : NoActivateWindow
         if (!IsVisible) Show();
         Place();
 
-        if (!wasHidden && from != state && !tabChanged || !wasHidden && from != state)
+        if (!wasHidden && from != state)
         {
             if (from == IslandStateMachine.State.Compact && state == IslandStateMachine.State.Expanded) FlyOut();
             else if (from == IslandStateMachine.State.Expanded && state == IslandStateMachine.State.Compact) FlyBack();

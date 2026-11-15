@@ -186,7 +186,6 @@ public sealed class QuestionCard : Border
             window()?.EndTyping();
             var picks = _picks.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value);
             _ = state.DecideAsync(p, "answer", answers: QuestionAnswers.Build(p.Questions, picks, _typed));
-            ApprovalCardSound();
         });
         var terminal = Controls.IslandButton("Terminal", "JcText", () =>
         {
@@ -195,8 +194,6 @@ public sealed class QuestionCard : Border
         Child = K.V(8, title, scroll, K.Spread(terminal, _send));
         Refresh();
     }
-
-    private static void ApprovalCardSound() { }
 
     /// Every question has a pick or a typed answer.
     private bool Complete() => _p.Questions.All(q =>
