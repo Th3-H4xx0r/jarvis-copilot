@@ -36,7 +36,7 @@ New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
   -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
 
 # 4. Only Tailscale (and this PC) may reach SSH
-Get-NetFirewallRule -Name *OpenSSH* | Set-NetFirewallRule -RemoteAddress 100.64.0.0/10,LocalSubnet
+Get-NetFirewallRule -Name *OpenSSH* | Set-NetFirewallRule -Profile Any -RemoteAddress 100.64.0.0/10,LocalSubnet
 ```
 
 Then on the Mac, `~/.ssh/config` gets:

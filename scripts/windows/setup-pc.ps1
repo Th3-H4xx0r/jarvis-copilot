@@ -108,7 +108,9 @@ function Admin-Part {
                 -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
             $rules = Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP'
         }
-        $rules | Set-NetFirewallRule -Enabled True -RemoteAddress @('100.64.0.0/10', 'LocalSubnet')
+        # Profile Any: Windows often calls the Wi-Fi and the Tailscale adapter "Public", and the
+        # built-in rule covers only Private; the address limit is what keeps it off the internet.
+        $rules | Set-NetFirewallRule -Enabled True -Profile Any -RemoteAddress @('100.64.0.0/10', 'LocalSubnet')
     }
 
     Step 'Wake on magic packet (Wi-Fi and Ethernet)' {
