@@ -115,11 +115,7 @@ def _read_service_pid() -> Optional[int]:
         pid = int(raw)
     except (FileNotFoundError, ValueError):
         return None
-    try:
-        os.kill(pid, 0)
-        return pid
-    except (OSError, ProcessLookupError):
-        return None
+    return pid if _pid_alive(pid) else None
 
 
 def _icon_image(color: tuple[int, int, int]):
@@ -697,6 +693,9 @@ def _format_supervised_status_line(pid: Optional[int]) -> str:
 
 
 def _pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":   # os.kill(pid, 0) TERMINATES the process on Windows
+        from jc_client import winproc
+        return winproc.pid_alive(pid)
     try:
         os.kill(pid, 0)
         return True
@@ -789,8 +788,7 @@ def _mac_app_running() -> bool:
     try:
         with open(_mac_app_marker(), encoding="utf-8") as f:
             pid = int(f.read().strip())
-        os.kill(pid, 0)
-        return True
+        return _pid_alive(pid)
     except (OSError, ValueError):
         return False
 

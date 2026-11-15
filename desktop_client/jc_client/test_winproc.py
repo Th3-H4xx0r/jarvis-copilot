@@ -105,3 +105,11 @@ def test_read_json_lines_without_select(monkeypatch):
     stream = io.BytesIO(b'{"id": 1}\n{"id": 2, "result": {"x": 1}}\n')
     got = plan_usage._first_reply_threaded(stream, 2, timeout=2.0)
     assert got == {"id": 2, "result": {"x": 1}}
+
+
+def test_tray_never_signals_to_check_a_pid_on_windows(monkeypatch):
+    from jc_client import tray
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    monkeypatch.setattr(tray.os, "kill", lambda *a: pytest.fail("os.kill(pid, 0) terminates on Windows"))
+    monkeypatch.setattr(winproc, "pid_alive", lambda pid: pid == 11)
+    assert tray._pid_alive(11) is True and tray._pid_alive(12) is False
