@@ -1,10 +1,11 @@
 import CoreBluetooth
-import CoreMotion
 import Foundation
+import UIKit
 
 /// Where Holo Drop's devices are, while the app's popup is open: UWB for iPhones/iPads, the
-/// Mac by ear (chirp) or by eye (camera + screen flash), the nearest by Bluetooth. Readings
-/// become bearings on the server (so the share sheet knows them too) until either device moves.
+/// Mac by ear (chirp) or by eye (camera + screen flash), any device by pointing at it, the nearest
+/// by Bluetooth. Readings become bearings on the server (so the share sheet knows them too) and
+/// stay until he locates the device again.
 @MainActor
 final class HoloSensing: ObservableObject {
     static let shared = HoloSensing()
@@ -15,7 +16,6 @@ final class HoloSensing: ObservableObject {
     private var heading: () -> Double? = { nil }
     private var devices: [HoloDevice] = []
     private let ble = HoloBLE()
-    private let pedometer = CMPedometer()
 
     /// This phone's paired id (the bridge's hello): what it advertises over Bluetooth.
     var myDeviceID: String? {
@@ -42,7 +42,6 @@ final class HoloSensing: ObservableObject {
         }
         ble.onRSSI = { [weak self] tag, rssi in self?.rssi(tag: tag, value: rssi) }
         ble.scan()
-        Task { await forgetIfPhoneMoved() }
     }
 
     func end() {
@@ -73,6 +72,28 @@ final class HoloSensing: ObservableObject {
                                        source: "ultrasonic"))
         return deg == nil ? String(format: "%@ is about %.0f m away", mac.name, reading.distance)
                           : "Heard \(mac.name)"
+    }
+
+    /// "I'm pointing at it": any device (the Pod, glasses, a Mac) is where the phone points now.
+    func point(_ device: HoloDevice) -> String {
+        guard let r = Self.pointReading(heading: heading(), distance: live[device.id]?.distance) else {
+            return "No compass reading yet — move the phone a little and try again"
+        }
+        record(device.id, r)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        return "Saved — \(device.name) is where you're pointing. It stays until you set it again."
+    }
+
+    nonisolated static func pointReading(heading: Double?, distance: Double?) -> HoloLiveReading? {
+        guard let heading else { return nil }
+        return HoloLiveReading(deg: HoloOrbitLayout.normalized(heading), confidence: 0.85, distance: distance, source: "set")
+    }
+
+    /// Forget a device's saved spot (until he sets it again or a throw teaches it).
+    func forget(_ device: HoloDevice) async -> String {
+        live[device.id] = nil
+        _ = try? await client?.json("DELETE", "/bearings/\(device.id)")
+        return "Forgot where \(device.name) is"
     }
 
     /// "Look at it": point the phone at the Mac; its screen flashes a code the camera finds.
@@ -140,34 +161,12 @@ final class HoloSensing: ObservableObject {
     private func record(_ device: String, _ r: HoloLiveReading) {
         live[device] = r
         guard Self.remembers(r) else { return }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "holoDrop.bearingAt")
         var row: [String: Any] = ["device": device, "confidence": r.confidence, "source": r.source,
                                   "at": Date().timeIntervalSince1970]
         if let deg = r.deg { row["deg"] = deg }
         if let m = r.distance { row["distance_m"] = m }
         Task { await client?.postBearings([row]) }
     }
-
-    /// "Remember until either moves": a walk since the last reading makes remembered bearings wrong.
-    private func forgetIfPhoneMoved() async {
-        let at = UserDefaults.standard.double(forKey: "holoDrop.bearingAt")
-        guard at > 0, CMPedometer.isStepCountingAvailable() else { return }
-        let steps: Int = await withCheckedContinuation { cont in
-            pedometer.queryPedometerData(from: Date(timeIntervalSince1970: at), to: Date()) { data, _ in
-                cont.resume(returning: data?.numberOfSteps.intValue ?? 0)
-            }
-        }
-        guard HoloMovement.moved(steps: steps) else { return }
-        UserDefaults.standard.removeObject(forKey: "holoDrop.bearingAt")
-        for d in devices where d.bearingDeg != nil {
-            _ = try? await client?.json("DELETE", "/bearings/\(d.id)")
-        }
-    }
-}
-
-enum HoloMovement {
-    /// A few steps is shifting in a chair; more is walking somewhere else.
-    static func moved(steps: Int) -> Bool { steps > 12 }
 }
 
 /// Bluetooth presence: each Jarvis device advertises Holo Drop's service with a short tag of its

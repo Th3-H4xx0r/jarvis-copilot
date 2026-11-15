@@ -207,6 +207,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         // The dashcam syncing (on its Wi-Fi, clips moving).
         DashcamSyncActivity()
         HoloDropActivity()
+        // Holo Drop's loader between Back Tap and the Orbit.
+        HoloGrabActivity()
         // Ring health: any of the server's scores on the home or lock screen.
         if #available(iOS 17.0, *) {
             HealthWidget()

@@ -25,6 +25,9 @@ class TooLarge(Exception):
     """The upload is over the size cap; nothing was written."""
 
 
+# He set these: pointing at it ("set"), the camera ("look"), listening ("ultrasonic").
+PINNED_SOURCES = ("set", "look", "ultrasonic")
+
 class HoloStore:
     def __init__(self, root: Optional[Path] = None, clock: Callable[[], float] = time.time) -> None:
         if root is None:
@@ -171,6 +174,8 @@ class HoloStore:
         return len(rows), [d for d in (self.get(i) for i in waiting) if d]
 
     # ── bearings ─────────────────────────────────────────────────────────────
+    # Kept until he locates the device again (no expiry, no "it moved" wipe). A throw teaches a
+    # direction for a device with none, but never moves one he set by pointing, looking or listening.
     def put_bearings(self, caller: str, rows: list[dict]) -> None:
         now = self.clock()
         with self._lock, self._conn() as db:
@@ -186,18 +191,20 @@ class HoloStore:
                     dist = float(b["distance_m"]) if b.get("distance_m") is not None else None
                 except (KeyError, TypeError, ValueError):
                     continue
+                source = str(b.get("source") or "")[:20]
+                if source == "throw":                    # learned from a throw: never over a spot he set
+                    row = db.execute("SELECT source FROM bearings WHERE caller = ? AND device = ?",
+                                     (caller, str(b["device"]))).fetchone()
+                    if row is not None and row["source"] in PINNED_SOURCES:
+                        continue
                 db.execute("INSERT OR REPLACE INTO bearings VALUES (?,?,?,?,?,?,?)",
-                           (caller, str(b["device"]), deg, conf, str(b.get("source") or "")[:20], dist, at))
+                           (caller, str(b["device"]), deg, conf, source, dist, at))
 
     def bearings_for(self, caller: str) -> dict[str, dict]:
         with self._conn() as db:
             rows = db.execute("SELECT * FROM bearings WHERE caller = ?", (caller,)).fetchall()
         return {r["device"]: {"deg": r["deg"], "confidence": r["confidence"], "source": r["source"],
                               "distance_m": r["distance_m"], "at": r["at"]} for r in rows}
-
-    def clear_bearings_to(self, device: str) -> None:
-        with self._lock, self._conn() as db:
-            db.execute("DELETE FROM bearings WHERE device = ?", (device,))
 
     def clear_bearing(self, caller: str, device: str) -> None:
         with self._lock, self._conn() as db:

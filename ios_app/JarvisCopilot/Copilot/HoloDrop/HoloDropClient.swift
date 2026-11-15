@@ -1,4 +1,6 @@
+import AVFoundation
 import Foundation
+import ImageIO
 
 /// `/api/holo-drop` for the app and the share extension (credentials injected), plus the
 /// direct LAN path: a receiver that advertised an endpoint gets the bytes straight from
@@ -27,8 +29,13 @@ struct HoloDropClient {
     }
 
     func devices() async throws -> [HoloDevice] {
+        try await deviceRows().compactMap(HoloDevice.init(json:))
+    }
+
+    /// The server's device rows as they came (the Orbit caches them).
+    func deviceRows() async throws -> [[String: Any]] {
         let o = try await json("GET", "/devices")
-        return (o["devices"] as? [[String: Any]] ?? []).compactMap(HoloDevice.init(json:))
+        return o["devices"] as? [[String: Any]] ?? []
     }
 
     func screen(of device: HoloDevice) async throws -> HoloScreen? {
@@ -80,6 +87,7 @@ struct HoloDropClient {
     /// Send: direct over the LAN when the target advertises it, else through Jarvis.
     func send(_ item: HoloItem, to device: HoloDevice, action: HoloAction,
               position: HoloPosition?, allowDirect: Bool = true) async throws -> [String: Any] {
+        let item = device.showsTextOnly ? await Self.forTextDevice(item) : item
         if allowDirect, let url = device.lanURL, let token = device.lanToken,
            let outcome = try await sendDirect(item, url: url, token: token, action: action, position: position) {
             var body = meta(item, device: device, action: action, position: position)
@@ -103,6 +111,31 @@ struct HoloDropClient {
             try check(response, data: data)
             return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         }
+    }
+
+    /// For the Pod or glasses: a photo, or a video's first frame, as a JPEG no bigger than 480 px
+    /// (the Pod draws it; the glasses only need its name). Anything else goes as it is.
+    static func forTextDevice(_ item: HoloItem) async -> HoloItem {
+        guard case .file(let url, let name, _, let kind) = item, kind == "image" || kind == "video" else { return item }
+        let picture: CGImage?
+        if kind == "image" {
+            let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                         kCGImageSourceCreateThumbnailWithTransform: true,
+                                         kCGImageSourceThumbnailMaxPixelSize: 480]
+            picture = CGImageSourceCreateWithURL(url as CFURL, nil)
+                .flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, opts as CFDictionary) }
+        } else {
+            let frames = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            frames.appliesPreferredTrackTransform = true
+            frames.maximumSize = CGSize(width: 480, height: 480)
+            picture = try? await frames.image(at: .zero).image
+        }
+        guard let picture else { return item }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("holo-small-\(UUID().uuidString.prefix(8)).jpg")
+        guard let dest = CGImageDestinationCreateWithURL(out as CFURL, "public.jpeg" as CFString, 1, nil) else { return item }
+        CGImageDestinationAddImage(dest, picture, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return item }
+        return .file(out, name: name, mime: "image/jpeg", kind: kind)
     }
 
     /// The receiver's outcome ("opened", "saved", …); nil when the receiver isn't reachable (then the

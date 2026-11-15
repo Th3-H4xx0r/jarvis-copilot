@@ -163,11 +163,6 @@ final class HoloDropReceiverTests: XCTestCase {
         XCTAssertEqual(HoloBLE.tag("mac-1"), "HD93d11faa")    // same formula as the Mac's HoloBLEAdvertiser
     }
 
-    func testAWalkForgetsRememberedBearings() {
-        XCTAssertFalse(HoloMovement.moved(steps: 5))
-        XCTAssertTrue(HoloMovement.moved(steps: 40))
-    }
-
     func testLiveReadingOverridesWeakerRememberedBearing() {
         let d = HoloDevice(json: ["id": "m", "kind": "mac", "bearing": ["deg": 10, "confidence": 0.3]])!
         let strong = d.applying(HoloLiveReading(deg: 80, confidence: 0.9, distance: 2, source: "look"), nearest: true)

@@ -31,32 +31,58 @@ final class HoloOrbitModel: ObservableObject {
     var onFinish: () -> Void = {}
     private let motion = CMMotionManager()
 
-    init(item: HoloItem, client: HoloDropClient) {
+    /// The server's device rows (tests swap this out).
+    var fetchDevices: @MainActor () async throws -> [[String: Any]]
+    private let deviceCache: UserDefaults
+
+    init(item: HoloItem, client: HoloDropClient, deviceCache: UserDefaults = .standard) {
         self.item = item
         self.client = client
+        self.deviceCache = deviceCache
+        fetchDevices = { [client] in try await client.deviceRows() }
     }
 
+    /// Opens at once on the devices seen last time, then swaps in the server's fresh list. Only
+    /// with nothing cached does it wait for the server (and fail when it can't be reached).
     func load() async {
+        let cached = HoloDeviceCache.load(from: deviceCache).filter { $0.accepts(item) }
+        if !cached.isEmpty {
+            show(cached)
+            startHeading()
+        }
         do {
-            serverDevices = try await client.devices().filter { $0.accepts(item) }
-            devices = serverDevices
-            phase = .choosing
-            fling = HoloFlingDetector(armedAt: ProcessInfo.processInfo.systemUptime)
-        } catch {
+            let rows = try await fetchDevices()
+            HoloDeviceCache.save(rows, to: deviceCache)
+            show(rows.compactMap(HoloDevice.init(json:)).filter { $0.accepts(item) })
+        } catch where cached.isEmpty {
             errorText = error.localizedDescription
             phase = .done(.failed(error.localizedDescription))
             settled = true
-        }
-        startHeading()
+        } catch {}
+        if cached.isEmpty { startHeading() }
     }
 
     func action(for device: HoloDevice) -> HoloAction { override ?? device.defaultAction }
 
     /// The app's live sensing (the share extension has none): readings + the nearest device.
     func applyLive(_ live: [String: HoloLiveReading], nearest: String?) {
+        self.live = live
+        self.nearest = nearest
         devices = serverDevices.map { $0.applying(live[$0.id], nearest: $0.id == nearest) }
     }
     private var serverDevices: [HoloDevice] = []
+    private var live: [String: HoloLiveReading] = [:]
+    private var nearest: String?
+
+    /// The devices to throw at. The first list opens the Orbit and arms the throw.
+    private func show(_ list: [HoloDevice]) {
+        serverDevices = list
+        devices = list.map { $0.applying(live[$0.id], nearest: $0.id == nearest) }
+        if phase == .loading {
+            phase = .choosing
+            fling = HoloFlingDetector(armedAt: ProcessInfo.processInfo.systemUptime)
+        }
+    }
 
     func pick(_ device: HoloDevice) {
         if case .text(let t) = item, t.isEmpty {
@@ -200,6 +226,12 @@ final class HoloOrbitModel: ObservableObject {
         }
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: min(1, flick.strength / 3))
         flung = id
+        if let deg = HoloFling.learned(flick, heading: heading, device: device) {
+            // The server keeps it unless he set this device's spot himself.
+            let row: [String: Any] = ["device": device.id, "deg": deg, "confidence": 0.6, "source": "throw",
+                                      "at": Date().timeIntervalSince1970]
+            Task { [client] in await client.postBearings([row]) }
+        }
         let pose = steadyPose
         Task {
             try? await Task.sleep(for: .milliseconds(260))
@@ -439,6 +471,11 @@ enum HoloMotionTrace {
     }
 
     static func log(_ line: String) {
+        write(line, to: url, on: queue)
+    }
+
+    /// Appends a line to a small log file (cleared past 200 KB), off the main thread.
+    static func write(_ line: String, to url: URL?, on queue: DispatchQueue) {
         guard let url else { return }
         queue.async {
             let data = Data((line + "\n").utf8)

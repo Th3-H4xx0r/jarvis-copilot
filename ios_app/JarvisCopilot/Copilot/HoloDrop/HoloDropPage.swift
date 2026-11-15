@@ -46,7 +46,8 @@ final class HoloLauncher: ObservableObject {
             }
             return
         }
-        top.present(vc, animated: true)
+        HoloScreenTrace.log("orbit.present", "waited=\(attempt * 100)ms")
+        top.present(vc, animated: true) { HoloScreenTrace.log("orbit.shown") }
     }
 
     /// The Holo Drop page (saved items, arrival default, Back Tap setup).
@@ -211,7 +212,7 @@ struct HoloAppOrbit: View {
         ZStack(alignment: .top) {
             HoloOrbitView(model: model)
             HStack(alignment: .top) {
-                if model.phase == .choosing, !macs.isEmpty { locateMenu }
+                if model.phase == .choosing, !locatable.isEmpty { locateMenu }
                 Spacer()
                 Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
@@ -251,6 +252,7 @@ struct HoloAppOrbit: View {
         .background(Color.black.ignoresSafeArea())
         .onChange(of: model.phase) { _, phase in
             if phase == .choosing, !began {
+                HoloScreenTrace.log("orbit.ready", "devices=\(model.devices.count)")
                 began = true
                 sensing.begin(devices: model.devices) { [weak model] in model?.heading }
             }
@@ -264,7 +266,8 @@ struct HoloAppOrbit: View {
         .onDisappear { sensing.end() }
     }
 
-    private var macs: [HoloDevice] { model.devices.filter { $0.kind == "mac" && $0.online } }
+    /// Everything with a place in the room (a web tab has none).
+    private var locatable: [HoloDevice] { model.devices.filter { $0.online && $0.kind != "web" } }
 
     /// Switch what's being dropped without leaving the popup.
     private var trayRow: some View {
@@ -306,12 +309,25 @@ struct HoloAppOrbit: View {
 
     private var locateMenu: some View {
         Menu {
-            ForEach(macs) { mac in
-                Button { Task { note = await sensing.look(mac) } } label: {
-                    Label("Look at \(mac.name)", systemImage: "camera.viewfinder")
-                }
-                Button { Task { note = await sensing.hear(mac) } } label: {
-                    Label("Listen for \(mac.name)", systemImage: "waveform")
+            // A spot stays until it's set again here. Throws teach the rest on their own.
+            ForEach(locatable) { d in
+                Section(d.name) {
+                    Button { note = sensing.point(d) } label: {
+                        Label("I'm pointing at it", systemImage: "location.north.line")
+                    }
+                    if d.kind == "mac" {
+                        Button { Task { note = await sensing.look(d) } } label: {
+                            Label("Find it with the camera", systemImage: "camera.viewfinder")
+                        }
+                        Button { Task { note = await sensing.hear(d) } } label: {
+                            Label("Listen for it", systemImage: "waveform")
+                        }
+                    }
+                    if d.bearingDeg != nil {
+                        Button(role: .destructive) { Task { note = await sensing.forget(d); await model.load() } } label: {
+                            Label("Forget its spot", systemImage: "location.slash")
+                        }
+                    }
                 }
             }
         } label: {

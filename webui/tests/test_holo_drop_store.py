@@ -73,7 +73,7 @@ def test_pending_and_bearings_and_lan(st):
     assert [p["id"] for p in st.pending_for("mac-1")] == [d["id"]]
     st.put_bearings("iphone-1", [{"device": "mac-1", "deg": 40, "confidence": 0.8, "source": "look"}])
     assert st.bearings_for("iphone-1")["mac-1"]["deg"] == 40
-    st.clear_bearings_to("mac-1")
+    st.clear_bearing("iphone-1", "mac-1")
     assert st.bearings_for("iphone-1") == {}
     st.set_lan("mac-1", "http://10.0.0.5:5555", "tok", st._clock_box["t"] + 600)
     assert st.lan_for("mac-1")["token"] == "tok"

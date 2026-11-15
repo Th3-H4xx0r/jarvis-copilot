@@ -43,6 +43,42 @@ struct HoloDropActivity: Widget {
     }
 }
 
+/// Holo Drop's loader: Back Tap → the island shows a filling ring until Jarvis opens on the Orbit.
+/// Views live in `Copilot/Shared/HoloGrabActivity.swift`.
+struct HoloGrabActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: HoloGrabActivityAttributes.self) { context in
+            HoloGrabLockScreenView(state: context.state)
+                .activityBackgroundTint(Color.black.opacity(0.72))
+                .activitySystemActionForegroundColor(.white)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "hand.point.up.braille.fill")
+                        .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                        .padding(.leading, 6)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(HoloGrabText.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    HoloGrabRing(state: context.state, size: 22).padding(.trailing, 6)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text(HoloGrabText.detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                }
+            } compactLeading: {
+                Image(systemName: "hand.point.up.braille.fill").foregroundStyle(.white)
+            } compactTrailing: {
+                HoloGrabRing(state: context.state)
+            } minimal: {
+                HoloGrabRing(state: context.state)
+            }
+            .keylineTint(.white)
+        }
+    }
+}
+
 /// Control Center: one tap into Holo Drop — the Orbit with your newest photo, ready to throw.
 @available(iOS 18.0, *)
 struct HoloDropControl: ControlWidget {

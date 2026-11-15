@@ -67,6 +67,33 @@ struct HoloDevice: Identifiable, Equatable {
     }
 
     func accepts(_ item: HoloItem) -> Bool { accepts.contains(item.kind) }
+
+    /// The Pod and the glasses show text (the Pod a small picture too): they get a small JPEG,
+    /// never the whole original.
+    var showsTextOnly: Bool { kind == "pod" || kind == "glasses" }
+}
+
+/// The last device list the server gave, so the Orbit opens at once and refreshes behind it.
+/// LAN addresses and tokens are left out: a direct send waits for the fresh list.
+enum HoloDeviceCache {
+    static let key = "holo.devices.v1"
+
+    static func save(_ rows: [[String: Any]], to defaults: UserDefaults = .standard) {
+        let clean = rows.map { row -> [String: Any] in
+            var row = row
+            row["lan"] = nil
+            return row
+        }
+        guard JSONSerialization.isValidJSONObject(clean),
+              let data = try? JSONSerialization.data(withJSONObject: clean) else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    static func load(from defaults: UserDefaults = .standard) -> [HoloDevice] {
+        guard let data = defaults.data(forKey: key),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return rows.compactMap(HoloDevice.init(json:))
+    }
 }
 
 /// The thing being dropped.
@@ -353,5 +380,13 @@ enum HoloFling {
         }
         return HoloOrbitLayout.target(forVelocity: CGVector(dx: f.screen.dx * 1000, dy: f.screen.dy * 1000),
                                       from: center, positions: positions)
+    }
+
+    /// What a throw teaches: a forward throw lands on the device in front of the phone, so the
+    /// compass heading is where that device is (no calibrating). A sideways flick picked a bubble
+    /// on screen, which says nothing about the room; a web tab has no place.
+    static func learned(_ f: HoloFlick, heading: Double?, device: HoloDevice) -> Double? {
+        guard f.forward, let heading, device.kind != "web" else { return nil }
+        return HoloOrbitLayout.normalized(heading)
     }
 }

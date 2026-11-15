@@ -98,9 +98,10 @@ def test_bearings_round_trip_and_moved(env):
                                                           "source": "look"}]})
     status, body = call("GET", "/api/holo-drop/devices")
     assert [d for d in body["devices"] if d["id"] == "mac-1"][0]["bearing"]["deg"] == 30
+    # A saved spot stays until he changes it: the Mac waking or switching Wi-Fi doesn't clear it.
     call("POST", "/api/holo-drop/moved", {}, caller="mac-1")
     status, body = call("GET", "/api/holo-drop/devices")
-    assert [d for d in body["devices"] if d["id"] == "mac-1"][0]["bearing"] is None
+    assert [d for d in body["devices"] if d["id"] == "mac-1"][0]["bearing"]["deg"] == 30
 
 
 def test_unknown_target_is_400(env):
@@ -352,3 +353,85 @@ def test_history_names_the_sender_and_target(env):
     status, body = call("GET", "/api/holo-drop/history?limit=5", caller="iphone-1")
     d = body["drops"][0]
     assert d["from_name"] == "MacBook" and d["target"] == "iphone-1" and "file" not in d
+
+
+def _bearing(source, deg):
+    call("POST", "/api/holo-drop/bearings", {"bearings": [{"device": "mac-1", "deg": deg, "confidence": .6,
+                                                          "source": source}]})
+    status, body = call("GET", "/api/holo-drop/devices")
+    return [d for d in body["devices"] if d["id"] == "mac-1"][0]["bearing"]
+
+
+def test_a_throw_teaches_a_direction_but_never_overrides_one_he_set(env):
+    assert _bearing("throw", 90)["deg"] == 90          # nothing saved: the throw teaches it
+    assert _bearing("throw", 100)["deg"] == 100        # a later throw updates what a throw taught
+    assert _bearing("set", 30)["deg"] == 30            # he points at it: that wins
+    assert _bearing("throw", 120)["deg"] == 30         # and throws don't move it
+    assert _bearing("look", 40)["deg"] == 40           # locating again does
+    assert _bearing("throw", 50)["deg"] == 40
+    assert _bearing("ultrasonic", 60)["deg"] == 60     # so does listening for it
+    assert _bearing("throw", 70)["deg"] == 60
+
+
+@pytest.fixture()
+def wearables(env, monkeypatch):
+    shown = []
+    monkeypatch.setattr(routes, "_text_targets", lambda: [
+        {"id": "pod:pod-1", "kind": "pod", "via": "pod-1", "skill": "pod_show"},
+        {"id": "glasses:iphone-1", "kind": "glasses", "via": "iphone-1", "skill": "glasses_show_answer"},
+    ])
+    monkeypatch.setattr(routes, "_invoke", lambda via, skill, args: shown.append((via, skill, args)) or True)
+    return shown
+
+
+def test_pod_and_glasses_show_up_for_every_kind(env, wearables):
+    status, body = call("GET", "/api/holo-drop/devices")
+    by_id = {d["id"]: d for d in body["devices"]}
+    for target in ("pod:pod-1", "glasses:iphone-1"):
+        assert {"link", "text", "image", "video", "file"} <= set(by_id[target]["accepts"])
+
+
+def _jpeg(size=(1200, 900)):
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new("RGB", size, (200, 120, 40)).save(out, "JPEG", quality=95)
+    return out.getvalue()
+
+
+def test_a_photo_thrown_at_the_pod_shows_on_its_screen(env, wearables):
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=image&target=pod:pod-1&name=IMG_1.jpg&mime=image/jpeg",
+                        raw=_jpeg())
+    assert status == 200 and body["drop"]["state"] == "landed"
+    via, skill, args = wearables[-1]
+    assert (via, skill) == ("pod-1", "pod_show")
+    images = [c for c in args["page"]["root"]["children"] if c.get("type") == "image"]
+    assert images and images[0]["source"].startswith("data:image/jpeg;base64,")
+    assert len(images[0]["source"]) <= 140000            # the Pod's limit
+
+
+def test_a_file_the_pod_cannot_draw_becomes_a_text_card(env, wearables):
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=image&target=pod:pod-1&name=IMG_2.HEIC&mime=image/heic",
+                        raw=b"not a picture the server can read")
+    assert status == 200 and body["drop"]["state"] == "landed"
+    children = wearables[-1][2]["page"]["root"]["children"]
+    assert all(c.get("type") != "image" for c in children)
+    assert any("IMG_2.HEIC" in str(c.get("value")) for c in children)
+
+
+def test_a_photo_thrown_at_the_glasses_is_a_line_of_text(env, wearables):
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=image&target=glasses:iphone-1&name=IMG_3.jpg&mime=image/jpeg",
+                        raw=_jpeg())
+    assert status == 200 and body["drop"]["state"] == "landed"
+    via, skill, args = wearables[-1]
+    assert skill == "glasses_show_answer"
+    assert "Photo" in args["text"] and "IMG_3.jpg" in args["text"]
+
+
+def test_a_video_thrown_at_the_pod_shows_its_first_frame(env, wearables):
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=video&target=pod:pod-1&name=IMG_4.MOV&mime=image/jpeg",
+                        raw=_jpeg((640, 360)))
+    assert status == 200 and body["drop"]["state"] == "landed"
+    children = wearables[-1][2]["page"]["root"]["children"]
+    assert children[0]["type"] == "image"
+    assert any("Video from" in str(c.get("value")) for c in children)
+

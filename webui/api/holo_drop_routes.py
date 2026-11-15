@@ -7,6 +7,7 @@ that isn't reachable gets the drop held (a Mac is woken) and delivered when it's
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import queue
@@ -144,8 +145,55 @@ def _text_targets() -> list[dict]:
         return []
 
 
+_FILE_WORDS = {"image": "Photo", "video": "Video", "file": "File"}
+_POD_BOX = 170               # px: the picture's box on the Pod's 240 px round screen, caption below
+_POD_MAX_SOURCE = 138_000    # the Pod refuses an image source over ~100 KB of JPEG
+
+
+def _pod_picture(drop: dict) -> Optional[dict]:
+    """A photo as the Pod's image node: a small JPEG data URI sized to its box. None when the
+    server can't read it (an iPhone sends a JPEG for the Pod; HEIC from elsewhere can't be read)."""
+    path = store().content_path(drop["id"])
+    if path is None:
+        return None
+    try:
+        import base64
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            for box, quality in ((_POD_BOX, 70), (_POD_BOX, 50), (130, 45)):
+                pic = im.copy()
+                pic.thumbnail((box, box))
+                out = io.BytesIO()
+                pic.save(out, "JPEG", quality=quality)
+                source = "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
+                if len(source) <= _POD_MAX_SOURCE:
+                    return {"type": "image", "source": source,
+                            "style": {"width": pic.width, "height": pic.height}}
+    except Exception:
+        return None
+    return None
+
+
+def _file_args(kind: str, drop: dict) -> dict:
+    """A photo, video or file for a text-only device: the Pod shows the photo when it can (else
+    the name); the glasses get one line."""
+    word = _FILE_WORDS.get(drop.get("kind") or "", "File")
+    name = _short(drop.get("name") or word, 60)
+    sender = drop.get("from_name") or "Holo Drop"
+    if kind != "pod":
+        return {"text": f"{word} from {sender}\n{name}"}
+    pic = _pod_picture(drop) if drop.get("kind") in ("image", "video") else None   # a video: the phone sends its first frame
+    children = [pic] if pic else [{"type": "text", "value": name, "style": {"size": 18, "weight": "bold"}}]
+    children.append({"type": "text", "value": f"{word} from {sender}", "style": {"size": 12, "color": "muted"}})
+    return {"page": {"id": "holo-drop", "title": "Holo Drop",
+                     "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": children}}}
+
+
 def _text_args(kind: str, drop: dict) -> dict:
-    """What the glasses / Pod skill is called with for a link or text drop."""
+    """What the glasses / Pod skill is called with for a drop."""
+    if drop.get("kind") in _FILE_WORDS:
+        return _file_args(kind, drop)
     text = drop.get("url") or drop.get("text") or ""
     if kind == "pod":
         children = []
@@ -213,8 +261,9 @@ def devices(caller: str) -> list[dict]:
                         "aim": False, "default_action": defaults.get("web") or "open", "lan": None,
                         "bearing": None, "distance_m": None})
     for t in _text_targets():
+        # Everything: a photo shows on the Pod, the glasses get a line saying what came.
         out.append({"id": t["id"], "name": "Glasses" if t["kind"] == "glasses" else "Pod", "kind": t["kind"],
-                    "online": True, "accepts": ["link", "text"], "aim": False,
+                    "online": True, "accepts": list(KINDS), "aim": False,
                     "default_action": "open", "lan": None, "bearing": None, "distance_m": None})
     return out
 
@@ -438,7 +487,8 @@ def route(req) -> bool:
         st.clear_bearing(caller, parts[1])
         return req.reply(200, {"ok": True})
     if parts == ["moved"] and m == "POST":
-        st.clear_bearings_to(caller)
+        # Heard, but saved spots stay: he wants a device's spot kept until he changes it (the Mac
+        # says "moved" on every wake and Wi-Fi change, which kept wiping it).
         return req.reply(200, {"ok": True})
     if len(parts) == 3 and parts[0] == "devices" and parts[2] == "screen" and m == "GET":
         return _screen(req, parts[1])
@@ -503,8 +553,8 @@ def _upload(req, caller: str) -> bool:
     if kind not in ("image", "video", "file"):
         return req.reply(400, {"error": "kind must be image, video or file"})
     target = _target(get("target"), caller)
-    if target is None or target["kind"] in ("glasses", "pod"):
-        return req.reply(400, {"error": "that device can't take files"})
+    if target is None:
+        return req.reply(400, {"error": "unknown target"})
     try:
         length = int(req.handler.headers.get("Content-Length") or 0)
     except (TypeError, ValueError):

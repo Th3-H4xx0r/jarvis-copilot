@@ -1093,6 +1093,7 @@
 		CAB535D85A2B2C5FC486EE2F /* IntegrationUIStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2098F446209FA34284B51AD9 /* IntegrationUIStore.swift */; };
 		CAC205899FA6589E4739E6BA /* HoloShareRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A28543220FAC00F60480F23 /* HoloShareRoot.swift */; };
 		CAEBBA8929F6E1CE8516BF25 /* ButtonActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14100C45C66E3FEC99C0C7E0 /* ButtonActivityIntents.swift */; };
+		CB05ACA25F257203EFD8A39B /* HoloGrabActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB015398F75336EB2B7D779E /* HoloGrabActivity.swift */; };
 		CB2215F7CA9CCB8C1CC8CCE2 /* DashcamWiFiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */; };
 		CB8E57E2F81A03837631380B /* MacPasswordWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18693DBCA0CC536BC52961EE /* MacPasswordWire.swift */; };
 		CBCA6B57F0CFA107FD12DD05 /* TodosAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C33AE6A0497001C7C380800 /* TodosAPI.swift */; };
@@ -1212,6 +1213,7 @@
 		E12B341F28C6D00B1B8A456F /* ProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 511AEFA506655EE9813D0062 /* ProfilesUITests.swift */; };
 		E136026F0F8AD4CF4C26A72A /* GlassesFaceLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA820429AD3C7EFA393784FF /* GlassesFaceLibrary.swift */; };
 		E16E7D8628C4588FB7AFE444 /* InmoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C9ED9005DA1A4A017DA098 /* InmoGallery.swift */; };
+		E19A1F852B80FC8A46E74199 /* HoloGrabActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB015398F75336EB2B7D779E /* HoloGrabActivity.swift */; };
 		E1BED137F8CAB4046FBD2651 /* BandMeasureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B03806339DC62C1BC69A10 /* BandMeasureSheet.swift */; };
 		E1FB19731B9061893FEA909E /* ColmiR12.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE0D7CD4CD48E51AD9157DE /* ColmiR12.swift */; };
 		E2363AA38B495EFA78DF0237 /* CodeMemoryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D393D8AEBF63040E8423BFA /* CodeMemoryModels.swift */; };
@@ -2478,6 +2480,7 @@
 		CACEC2930E15C9759206B2B3 /* LiveActivityAgentController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityAgentController.swift; sourceTree = "<group>"; };
 		CAD3843097850821EB958726 /* AudioInputEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioInputEngine.swift; sourceTree = "<group>"; };
 		CAEAF18B42FBDA8394DFE880 /* CostsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CostsStore.swift; sourceTree = "<group>"; };
+		CB015398F75336EB2B7D779E /* HoloGrabActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoloGrabActivity.swift; sourceTree = "<group>"; };
 		CB3DB82EBFC47CDE95434CD1 /* VoiceBargeIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceBargeIn.swift; sourceTree = "<group>"; };
 		CB51502D6B32282610806346 /* RouteStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteStoreTests.swift; sourceTree = "<group>"; };
 		CB853687443BF6D01424F199 /* ExerciseDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
@@ -4774,6 +4777,7 @@
 				F7BCE97ADCC56A3070D02CA7 /* PowerShared.swift */,
 				46E7958E633E6CAE67C3552F /* HoloDropActivityAttributes.swift */,
 				877967F5A7483E2DB7432532 /* HoloDropLiveIntents.swift */,
+				CB015398F75336EB2B7D779E /* HoloGrabActivity.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -5514,6 +5518,7 @@
 				CF9132DEE82AD8EA7054911A /* HoloDropActivity.swift in Sources */,
 				64220308B1C6456309DEE235 /* HoloDropActivityAttributes.swift in Sources */,
 				921EA0C4AE82C6AF4462BFB3 /* HoloDropLiveIntents.swift in Sources */,
+				CB05ACA25F257203EFD8A39B /* HoloGrabActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6811,6 +6816,7 @@
 				CAC205899FA6589E4739E6BA /* HoloShareRoot.swift in Sources */,
 				264FA75DDB14E94F1CD040A2 /* HoloScreenPhoto.swift in Sources */,
 				06BBBCAA54A99E97DF779F9E /* HoloDropLiveIntents.swift in Sources */,
+				E19A1F852B80FC8A46E74199 /* HoloGrabActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

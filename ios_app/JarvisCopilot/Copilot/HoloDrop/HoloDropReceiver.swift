@@ -441,6 +441,7 @@ final class HoloDropReceiver: ObservableObject {
     }
 
     static func endActivities() async {
+        HoloGrab.end()
         for activity in Activity<HoloDropActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
