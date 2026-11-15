@@ -45,3 +45,12 @@ Tick only when it works live on the PC / phone.
 - Computer control on the PC has no OCR fallback yet (UIA only).
 - Uninstalling the Windows app leaves the JarvisUnlock service (needs admin: `"C:\Program Files\Jarvis\JarvisUnlock.exe" --uninstall`).
 - iPhone Agents shows PC admin requests on the Face ID card, not yet as a row under Needs you.
+
+## PC Stats probe (2026-11-15, on pranav-computer)
+- PawnIO already installed and RUNNING (WattSeal installed it); LibreHardwareMonitorLib 0.9.6 reads everything (elevated/SYSTEM).
+- CPU i7-14700F: `/intelcpu/0/temperature/22` CPU Package, `/intelcpu/0/temperature/0` Core Max, `/intelcpu/0/power/0` CPU Package W, `/intelcpu/0/clock/1..20` core clocks, Load "CPU Total".
+- GPU RTX 5070 (12 GB): `/gpu-nvidia/0/temperature/0` core, `/temperature/3` memory junction, `/power/0` package W, `/clock/0` core, `/clock/4` memory, `/fan/1` rpm, `/control/1` fan %, `/load/0` core load, `/smalldata/1` and `/smalldata/2` VRAM used/total (MB).
+- Motherboard ASRock B760M-C, Nuvoton NCT6796D-R: fans `/lpc/nct6796dr/0/fan/0,1,5` spin (3027/1062/1034 rpm), the rest read 0; temps `/lpc/.../temperature/0..6` (#3 and #6 are junk: 6 °C, -2 °C).
+- RAM `/ram/data/0` used GB, `/ram/data/1` available GB; DIMM temps `/memory/dimm/1|3/temperature/0`; NVMe `/nvme/0/temperature/0`.
+- Windows Energy Meter counters exist without a driver: `RAPL_Package0_PKG`, `RAPL_Package0_DRAM`, `RAPL_Package0_PP0`, `RAPL_Package0_PP1`.
+- FPS: ETW `Microsoft-Windows-DXGI` event 42 (Present/Start) per PID = FPS for DXGI games (CoD 63/s); `Microsoft-Windows-DxgKrnl` (keyword 0x8000000) event 215 (PresentHistoryDetailed/Start) matches it and covers non-DXGI; event 184 fires twice per frame (don't use).

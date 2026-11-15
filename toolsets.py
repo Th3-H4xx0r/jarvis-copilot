@@ -84,6 +84,8 @@ _HERMES_CORE_TOOLS = [
     "power_list", "power_set",
     # Holo Drop (a Power integration): fling a link, text or file onto one of his devices.
     "holo_drop",
+    # PC Stats (a Power integration): the gaming PC's stats history and dashboards.
+    "pc_stats_query", "pc_dashboard",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
@@ -313,6 +315,12 @@ TOOLSETS = {
     "holo_drop": {
         "description": "Holo Drop: put a link, text or a file onto one of Pranav's devices.",
         "tools": ["holo_drop"],
+        "includes": []
+    },
+
+    "pc_stats": {
+        "description": "PC Stats: the gaming PC's live stats, history, game sessions, energy, and its dashboards.",
+        "tools": ["pc_stats_query", "pc_dashboard"],
         "includes": []
     },
 

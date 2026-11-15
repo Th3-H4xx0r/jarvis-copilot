@@ -42,15 +42,19 @@ CATALOG: dict[str, str] = {
     "ios.codemaster.agent_activity": "Agent activity section in Code Master settings (Copilot/Agents/Views/CodeMasterSettingsPage.swift)",
     "ios.share.holo_drop": "Jarvis share extension → Holo Drop Orbit (JarvisHoloShare)",
     "ios.trigger.holo_drop": "Holo Drop screen intent / Back Tap shortcut / Control Center action (Copilot/HoloDrop)",
+    "ios.pc_stats": "PC card live numbers + View stats + the stats page (Copilot/Agents/PcStats)",
     # ── web ─────────────────────────────────────────────────────────────────
     "web.rail.kanban": "Kanban rail button + header tab (index.html data-power)",
     "web.rail.security": "Security rail button + header tab (index.html data-power)",
     "web.settings.photon": "Photon card in Settings → Integrations (panels.js)",
     "web.integrations.imessage": "iMessage memory card in the Integrations sidebar (integrations.js)",
     "web.holo_drop": "Holo Drop rail button + receiver toasts (holo_drop.js, data-power)",
+    "web.pc_stats": "PC card live numbers + View stats + the stats page (pc_stats.js, data-power)",
     # ── Mac ─────────────────────────────────────────────────────────────────
     "mac.settings.photon": "Photon card in the Mac settings window (embedded web settings)",
     "mac.tray.imessage": "iMessage uploader in the Mac tray (desktop_client/jc_client/imessage_memory.py)",
     "mac.share.holo_drop": "Jarvis share extension in the Mac app (JarvisHoloShareMac)",
     "mac.trigger.holo_drop": "Holo Drop hotkey, trackpad flick, menu bar + notch button (JarvisMac/Sources/HoloDrop)",
+    # ── Windows ─────────────────────────────────────────────────────────────
+    "windows.pc_stats": "PC Stats collector, uploads and the side-monitor dashboard window (windows_app/Jarvis/Stats)",
 }

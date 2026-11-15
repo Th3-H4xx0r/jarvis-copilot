@@ -1,0 +1,28 @@
+{
+  "presentations": {
+    "card": {
+      "type": "section",
+      "title": "PC Stats",
+      "children": [
+        {"type": "stat", "value": {"$": "cpu"}, "caption": "CPU"},
+        {"type": "stat", "value": {"$": "gpu"}, "caption": "GPU"},
+        {"type": "stat", "value": {"$": "watts"}, "caption": "PC (est.)"}
+      ]
+    },
+    "page": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "section",
+          "title": "Now",
+          "children": [
+            {"type": "stat", "value": {"$": "cpu"}, "caption": "CPU"},
+            {"type": "stat", "value": {"$": "gpu"}, "caption": "GPU"},
+            {"type": "stat", "value": {"$": "watts"}, "caption": "PC (est.)"}
+          ]
+        },
+        {"type": "button", "label": "Refresh", "action": "refresh"}
+      ]
+    }
+  }
+}
