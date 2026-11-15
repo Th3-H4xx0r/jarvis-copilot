@@ -16,6 +16,8 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Flow;
+using Jarvis.Core.Flow;
 using Jarvis.Live;
 using Jarvis.Platform;
 using Jarvis.Recap;
@@ -69,6 +71,10 @@ public sealed class AppHost : IAsyncDisposable
     public DesktopOrbWindow Orb { get; }
     public WakeWordListener? Wake { get; }
     public LiveController Live { get; }
+    public FlowStore FlowStore { get; }
+    public FlowCapture FlowCapture { get; }
+    public FlowController Flow { get; }
+    public FlowPill FlowPill { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -200,6 +206,33 @@ public sealed class AppHost : IAsyncDisposable
         Live = new LiveController(() => State.ApiOrigin, () => State.DeviceId);
         VoiceTab.LiveRequested += ShowLive;
 
+        // ── Task 13: Flow dictation ──
+        FlowStore = new FlowStore();
+        FlowCapture = new FlowCapture();
+        var paster = new FlowPaster(new WpfClipboard(), new SendInputKeys(), global::Jarvis.Flow.Foreground.ElevatedAboveUs, Time);
+        Flow = new FlowController(Api, () => State.ApiOrigin, paster, FlowCapture, () => State.GameMode, FlowStore.LoadSettings, global::Jarvis.Flow.Foreground.Exe, Time);
+        FlowPill = new FlowPill(Flow, FlowCapture);
+        var flowClock = System.Diagnostics.Stopwatch.StartNew();
+        var flowTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        flowTick.Tick += (_, _) => { Flow.Tick(flowClock.Elapsed.TotalSeconds); if (!Flow.TickNeeded) flowTick.Stop(); };
+        HoldKeys.Changed += (name, down) =>
+        {
+            if (name == "flow") Flow.OnKey(down, flowClock.Elapsed.TotalSeconds);
+            else if (name == "flow-esc" && down) Flow.OnEscape();
+            if (Flow.TickNeeded) flowTick.Start();
+        };
+        HoldKeys.OtherKey += Flow.OnOtherKey;
+        Flow.Pasted += _ =>
+        {
+            var stats = FlowStore.LoadStats();
+            foreach (var (day, d) in Flow.Stats.Days) stats.Add(d.Words, d.Seconds, null, day);
+            Flow.Stats.Days.Clear();
+            FlowStore.SaveStats(stats);
+        };
+        SyncFlowKey();
+        Prefs.Changed += k => { if (k is "flow.key" or "flow.enabled") SyncFlowKey(); };
+        SettingsWindow.RegisterNative("flow", () => FlowPane.Build(Prefs, FlowStore, Flow));
+
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
         TrayHandlers[TrayCommand.KeepAwake] = () => _ = PcPower.SetKeepAwakeAsync(!(PcPower.Last?.KeepAwake ?? false));
@@ -230,6 +263,21 @@ public sealed class AppHost : IAsyncDisposable
         }
         if (Voice.State == VoiceState.Listening) Glow.ShowOn(Monitors.At(Monitors.Cursor()));
         else Glow.HideGlow();
+    }
+
+    /// Flow watches its key (and Esc) only while it is on.
+    private void SyncFlowKey()
+    {
+        if (Prefs.Get(PrefKeys.FlowEnabled) && Jarvis.Core.Input.HoldKeys.Vk(Prefs.Get(PrefKeys.FlowKey)) is { } vk)
+        {
+            HoldKeys.Watch("flow", vk);
+            HoldKeys.Watch("flow-esc", 0x1B);
+        }
+        else
+        {
+            HoldKeys.Unwatch("flow");
+            HoldKeys.Unwatch("flow-esc");
+        }
     }
 
     public void BindShortcuts()
