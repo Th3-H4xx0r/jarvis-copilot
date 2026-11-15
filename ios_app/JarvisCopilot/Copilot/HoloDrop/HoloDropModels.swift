@@ -229,3 +229,24 @@ enum HoloOutcomeWords {
         }
     }
 }
+
+/// Each device's arrival default, kept on the server as one JSON object (`defaults` setting):
+/// `{"<device id>": "save" | "open" | "copy" | "save_open" | "save_copy"}`.
+enum HoloDefaults {
+    static func parse(_ json: String) -> [String: String] {
+        guard let data = json.data(using: .utf8),
+              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
+        return o.compactMapValues { $0 as? String }
+    }
+
+    static func action(json: String, device: String, fallback: HoloAction) -> HoloAction {
+        parse(json)[device].flatMap(HoloAction.init(rawValue:)) ?? fallback
+    }
+
+    static func merge(json: String, device: String, action: HoloAction) -> String {
+        var o = parse(json)
+        o[device] = action.rawValue
+        let data = (try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])) ?? Data("{}".utf8)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+}

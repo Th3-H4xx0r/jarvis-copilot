@@ -196,4 +196,14 @@ final class HoloDropReceiverTests: XCTestCase {
         XCTAssertEqual(HoloDropActivityText.url("abc")?.absoluteString, "jarviscopilot://holo-drop?drop=abc")
         XCTAssertEqual(HoloDropActivityText.headline(.init(title: "x", from: "Mac", kind: "link", count: 3)), "3 drops waiting")
     }
+
+    func testArrivalDefaultsMergePerDevice() {
+        XCTAssertEqual(HoloDefaults.action(json: "", device: "p1", fallback: .save), .save)
+        let one = HoloDefaults.merge(json: #"{"mac-1":"open"}"#, device: "p1", action: .copy)
+        XCTAssertEqual(HoloDefaults.action(json: one, device: "p1", fallback: .save), .copy)
+        XCTAssertEqual(HoloDefaults.action(json: one, device: "mac-1", fallback: .save), .open)
+        XCTAssertEqual(HoloDefaults.action(json: "not json", device: "p1", fallback: .saveOpen), .saveOpen)
+        XCTAssertEqual(HoloDefaults.action(json: HoloDefaults.merge(json: "garbage", device: "p1", action: .open),
+                                           device: "p1", fallback: .save), .open)
+    }
 }

@@ -7,7 +7,8 @@ integration: own HTTP routes, background services, agent tools, plugin hooks and
 native device code. They can't be created from the chat setup flow.
 
 Today's Power integrations: `imessage-memory`, `jarvis-health`, `car`, `door-alarm`,
-`dashcam`, `vault`, `widgets`, `kanban`, `security-advisor`, `island-designs`, `photon`.
+`dashcam`, `vault`, `widgets`, `kanban`, `security-advisor`, `island-designs`, `photon`,
+`holo-drop`.
 
 ## Power or regular?
 
@@ -138,6 +139,25 @@ list the piece in the manifest's `native`. A platform without it falls back to J
    checks the manifest for you.
 6. Ship: deploy the server, iPhone via `release.sh`, Mac via `mac_app/build.sh`
    (commit the dylib) + `build-app.sh` + `publish-app-update.sh`.
+
+## Worked example: Holo Drop (built on this framework from scratch)
+
+Holo Drop flings links, photos, files and text between his devices. It shows every piece:
+
+| Piece | Where |
+|---|---|
+| Manifest: `processes=("webui",)` (a sweeper thread: held drops + 24 h expiry), `toolsets=("holo_drop",)`, `route_prefixes=("/api/holo-drop",)`, five `surfaces`, settings `direct` / `max_mb` (`jarvis="never"`) / `defaults` | `jarvis_power/integrations/holo_drop/` |
+| Store (SQLite + files, 500 MB cap checked before reading, 24 h TTL, history without bytes) | `webui/api/holo_drop_store.py` |
+| Routes + delivery over the device bridge (frame `holo_drop`), held + Mac wake, "Drop waiting" Live Activity push for phones, SSE for web tabs | `webui/api/holo_drop_routes.py` |
+| Agent tool `holo_drop` (follows each device's arrival default) | `tools/holo_drop_tool.py` |
+| iPhone: share extension, receiver, Live Activity, direct Wi-Fi, sensing, screen intent, page | `ios_app/JarvisHoloShare/`, `ios_app/JarvisCopilot/Copilot/HoloDrop/` |
+| Mac: receiver cards, grab what's in front, beacons, LAN, share extension | `mac_app/JarvisMac/Sources/HoloDrop/`, `mac_app/JarvisMac/HoloShare/` |
+| Web: receiver + web Orbit | `webui/static/holo_drop.js` |
+
+Things it taught: a device service gated with `PowerGates.follow(id, start:, stop:)` needs a real
+`stop()` (the receiver stops listening, advertising and cancels the Live Activity token);
+extensions can't see `PowerState`, so the share sheet learns "off" from the 409; a Mac reaches
+server frames only through jc-client, so a new frame type needs a jc-client pass-through.
 
 ## Pitfalls
 

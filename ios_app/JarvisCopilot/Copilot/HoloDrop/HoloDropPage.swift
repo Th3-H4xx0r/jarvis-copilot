@@ -167,11 +167,26 @@ struct HoloDropPage: View {
     @State private var photo: PhotosPickerItem?
     @State private var importing = false
     @State private var problem: String?
+    @State private var arrival: HoloAction = .save
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                JcSectionLabel("Drop something", first: true) { EmptyView() }
+                JcSectionLabel("When something arrives here", first: true) { EmptyView() }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(HoloAction.allCases) { a in
+                            Button { setArrival(a) } label: {
+                                Text(a.label).font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(arrival == a ? .black : .white.opacity(0.85))
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(Capsule().fill(arrival == a ? Color.white : Color.white.opacity(0.12)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                JcSectionLabel("Drop something") { EmptyView() }
                 GlassGroup {
                     PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
                         GlassRow(symbol: "photo.on.rectangle", title: "Photo or video") { chevron }
@@ -228,12 +243,37 @@ struct HoloDropPage: View {
             .padding(.bottom, 40)
         }
         .jcPageChrome("Holo Drop")
+        .onAppear { arrival = currentArrival() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
             if case .success(let url) = result { dropFile(url) }
         }
         .onChange(of: photo) { _, item in
             guard let item else { return }
             Task { await dropPhoto(item) }
+        }
+    }
+
+    private var defaultsJSON: String {
+        if case .text(let t) = PowerState.shared.row("holo-drop")?.settings["defaults"] { return t }
+        return ""
+    }
+
+    private func currentArrival() -> HoloAction {
+        guard let me = HoloSensing.shared.myDeviceID else { return .save }
+        return HoloDefaults.action(json: defaultsJSON, device: me, fallback: .save)
+    }
+
+    /// This device's arrival default (the server applies it to every drop sent here).
+    private func setArrival(_ a: HoloAction) {
+        guard let me = HoloSensing.shared.myDeviceID else {
+            problem = "Connect to Jarvis once, then pick this."
+            return
+        }
+        let previous = arrival
+        arrival = a
+        Task {
+            let result = await PowerState.shared.setSettings("holo-drop", ["defaults": HoloDefaults.merge(json: defaultsJSON, device: me, action: a)])
+            if case .failed(let why) = result { arrival = previous; problem = why }
         }
     }
 
