@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net8.0-windows10.0.22621": {
+      "jarvis.core": {
+        "type": "Project"
+      }
+    },
+    "net8.0-windows10.0.22621/win-x64": {}
+  }
+}

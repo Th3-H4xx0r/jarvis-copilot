@@ -1,0 +1,69 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The ONLY place a colour literal may appear in windows_app/Jarvis (ThemeInvariantTests). -->
+  <!-- Black and white with one accent. Amber = waiting on you. Green = working. -->
+  <Color x:Key="JcAccentColor">#FFFFFFFF</Color>
+  <Color x:Key="JcAmberColor">#FFFABF24</Color>
+  <Color x:Key="JcGreenColor">#FF34D399</Color>
+  <Color x:Key="JcRedColor">#FFF87171</Color>
+  <Color x:Key="JcBackgroundColor">#FF000000</Color>
+  <Color x:Key="JcSurfaceColor">#FF0E0E0E</Color>
+  <Color x:Key="JcTextColor">#FFFFFFFF</Color>
+  <Color x:Key="JcTextDimColor">#99FFFFFF</Color>
+  <Color x:Key="JcTextFaintColor">#59FFFFFF</Color>
+  <Color x:Key="JcButtonColor">#17FFFFFF</Color>
+  <Color x:Key="JcButtonSelectedColor">#3DFFFFFF</Color>
+  <Color x:Key="JcHairlineColor">#1FFFFFFF</Color>
+  <Color x:Key="JcPrimaryTextColor">#FF000000</Color>
+
+  <SolidColorBrush x:Key="JcAccent" Color="{StaticResource JcAccentColor}" />
+  <SolidColorBrush x:Key="JcAmber" Color="{StaticResource JcAmberColor}" />
+  <SolidColorBrush x:Key="JcGreen" Color="{StaticResource JcGreenColor}" />
+  <SolidColorBrush x:Key="JcRed" Color="{StaticResource JcRedColor}" />
+  <SolidColorBrush x:Key="JcBackground" Color="{StaticResource JcBackgroundColor}" />
+  <SolidColorBrush x:Key="JcSurface" Color="{StaticResource JcSurfaceColor}" />
+  <SolidColorBrush x:Key="JcText" Color="{StaticResource JcTextColor}" />
+  <SolidColorBrush x:Key="JcTextDim" Color="{StaticResource JcTextDimColor}" />
+  <SolidColorBrush x:Key="JcTextFaint" Color="{StaticResource JcTextFaintColor}" />
+  <SolidColorBrush x:Key="JcButton" Color="{StaticResource JcButtonColor}" />
+  <SolidColorBrush x:Key="JcButtonSelected" Color="{StaticResource JcButtonSelectedColor}" />
+  <SolidColorBrush x:Key="JcHairline" Color="{StaticResource JcHairlineColor}" />
+  <SolidColorBrush x:Key="JcPrimaryText" Color="{StaticResource JcPrimaryTextColor}" />
+
+  <CornerRadius x:Key="JcButtonRadius">12</CornerRadius>
+
+  <!-- Grey button: white@9%, selected white@24%, radius 12. -->
+  <Style x:Key="JcButtonStyle" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource JcText}" />
+    <Setter Property="Background" Value="{StaticResource JcButton}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="{StaticResource JcButtonRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="{StaticResource JcButtonSelected}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.4" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- The single main action: white fill, black text. -->
+  <Style x:Key="JcPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource JcButtonStyle}">
+    <Setter Property="Foreground" Value="{StaticResource JcPrimaryText}" />
+    <Setter Property="Background" Value="{StaticResource JcAccent}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+</ResourceDictionary>
