@@ -22,9 +22,13 @@ Tick only when it works live on the PC / phone.
 
 ## Windows app (plan 03)
 - [x] Core: link client, models/state, gaming guard, theme/loader/prefs, voice logic, Holo logic, screen-share protocol + cc_state, OTA flow + updater (420 tests, Mac)
-- [ ] WPF/Win32 halves: island + Agents tab, tray/hotkeys/sounds/recap, Settings, Power + admin UI, voice engine + wake word + push-to-talk, Live, Flow, notes, chat/music, Holo card/BLE/chirp, capture/WebRTC/Command Center, update card (in progress)
-- [ ] Restore push-to-talk in voice Core (the first pass dropped it)
+- [ ] WPF/Win32 halves built and compile-checked on the Mac (616 Core tests): island + Agents tab, tray/hotkeys/sounds/recap, Settings, Power + admin UI, voice engine + wake word + push-to-talk, Live, Flow, notes, chat/music, Holo card/BLE/chirp, capture/WebRTC/Command Center, update card. Tick once each runs on the PC.
+- [x] Push-to-talk restored in voice Core
 
 ## Known gaps / follow-ups
+- Windows app: island chat model/harness picker in General not built yet.
+- Windows app screen share sends no brightness or Wi-Fi name, so those Command Center tiles hide on the phone.
+- Windows app task shares don't record a replay.
+- Holo grab on Windows has no "front document"; it goes straight to selected text.
 - Computer control on the PC has no OCR fallback yet (UIA only).
 - iPhone Agents shows PC admin requests on the Face ID card, not yet as a row under Needs you.
