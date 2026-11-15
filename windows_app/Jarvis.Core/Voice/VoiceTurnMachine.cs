@@ -1,8 +1,10 @@
 namespace Jarvis.Core.Voice;
 
 // The voice turn FSM. A 1:1 port of ios_app/JarvisCopilot/Copilot/Voice/VoiceTurnMachine.swift,
-// realtime mode only (the phone's push-to-talk "quality" mode is not ported). Pure: no timers, no
-// I/O; the controller raises events and performs the effects it gets back.
+// realtime mode (the phone's "quality" upload mode is not ported), plus the Mac app's push to talk
+// (PushToTalk.swift): hold the talk key and Jarvis listens with the endpointer off, let go and the
+// turn is sent, one answer, then it closes. Pure: no timers, no I/O; the controller raises events
+// and performs the effects it gets back.
 
 public enum VoiceState { Idle, Connecting, Listening, Thinking, Speaking, Error }
 
@@ -40,6 +42,10 @@ public enum VoiceEventKind
     StopRequested,
     /// A cut-off reply's `end_turn` never came; stop dropping server output.
     InterruptedTurnExpired,
+    /// The push-to-talk key has been held long enough (TalkKeyLogic.Start).
+    TalkKeyDown,
+    /// The push-to-talk key came up after talking (TalkKeyLogic.Send).
+    TalkKeyUp,
 }
 
 public sealed record VoiceEvent(VoiceEventKind Kind, string Reason = "", bool ProducedReply = false, string Message = "")
@@ -55,6 +61,8 @@ public sealed record VoiceEvent(VoiceEventKind Kind, string Reason = "", bool Pr
     public static readonly VoiceEvent InterruptRequested = new(VoiceEventKind.InterruptRequested);
     public static readonly VoiceEvent StopRequested = new(VoiceEventKind.StopRequested);
     public static readonly VoiceEvent InterruptedTurnExpired = new(VoiceEventKind.InterruptedTurnExpired);
+    public static readonly VoiceEvent TalkKeyDown = new(VoiceEventKind.TalkKeyDown);
+    public static readonly VoiceEvent TalkKeyUp = new(VoiceEventKind.TalkKeyUp);
 
     public static VoiceEvent TurnEnded(string reason, bool producedReply) =>
         new(VoiceEventKind.TurnEnded, Reason: reason, ProducedReply: producedReply);
@@ -150,6 +158,12 @@ public sealed class VoiceTurnMachine
     public bool OneShotAnswered { get; private set; }
     /// This one-shot turn's reply asked him something: listen for that one answer instead of closing.
     public bool ReplyAsks { get; set; }
+    /// The talk key is held: he is still talking, so the endpointer's EndOfSpeech is ignored and
+    /// the controller doesn't feed it. Letting go sends the turn.
+    public bool PushToTalk { get; private set; }
+    /// The key came up before the socket opened: send the turn as soon as it does (the audio said
+    /// while connecting is held and flushed first).
+    public bool SendOnConnect { get; private set; }
 
     /// Barge-in is allowed while speaking, and while thinking mid-reply once the server has started
     /// answering. A one-shot turn never takes it.
@@ -178,6 +192,21 @@ public sealed class VoiceTurnMachine
         };
     }
 
+    /// Listening, then thinking: the turn goes to the server.
+    private IReadOnlyList<VoiceEffect> EndTurn()
+    {
+        OneShotAnswered = false;
+        ServerProducedOutput = false;
+        ServerTurnDone = false;
+        State = VoiceState.Thinking;
+        ServerTurnOpen = true;
+        return new[]
+        {
+            VoiceEffect.CancelResume, VoiceEffect.ResetEndpointer, VoiceEffect.ClearReply, VoiceEffect.NewTurnEpoch,
+            VoiceEffect.MarkSpeechEnd, VoiceEffect.SendEndTurn, VoiceEffect.ArmThinkingWatchdog,
+        };
+    }
+
     public IReadOnlyList<VoiceEffect> Handle(VoiceEvent e)
     {
         switch (e.Kind)
@@ -201,20 +230,48 @@ public sealed class VoiceTurnMachine
             case VoiceEventKind.Connected:
                 if (State != VoiceState.Connecting) return None;
                 State = VoiceState.Listening;
+                if (SendOnConnect)
+                {
+                    SendOnConnect = false;
+                    return new[] { VoiceEffect.RestartRecognizer }.Concat(EndTurn()).ToList();
+                }
                 return new[] { VoiceEffect.RestartRecognizer };
 
-            case VoiceEventKind.EndOfSpeech:
-                if (State != VoiceState.Listening) return None;
-                OneShotAnswered = false;
-                ServerProducedOutput = false;
-                ServerTurnDone = false;
-                State = VoiceState.Thinking;
-                ServerTurnOpen = true;
-                return new[]
+            case VoiceEventKind.TalkKeyDown:
+                SendOnConnect = false;
+                if (!State.IsActive())
                 {
-                    VoiceEffect.CancelResume, VoiceEffect.ResetEndpointer, VoiceEffect.ClearReply, VoiceEffect.NewTurnEpoch,
-                    VoiceEffect.MarkSpeechEnd, VoiceEffect.SendEndTurn, VoiceEffect.ArmThinkingWatchdog,
-                };
+                    // A fresh push-to-talk turn: one answer, then close (the Mac's small voice island).
+                    var start = Handle(VoiceEvent.StartRequested);
+                    OneShot = true;
+                    PushToTalk = true;
+                    return start;
+                }
+                PushToTalk = true;
+                if (State is VoiceState.Speaking or VoiceState.Thinking)
+                {
+                    // Holding the key over a reply is the plainest barge-in there is.
+                    DiscardingInterruptedTurn = ServerTurnOpen;
+                    ServerTurnOpen = false;
+                    State = VoiceState.Listening;
+                    return new[]
+                    {
+                        VoiceEffect.CancelResume, VoiceEffect.CancelThinkingWatchdog, VoiceEffect.NewTurnEpoch, VoiceEffect.SendInterrupt,
+                        VoiceEffect.StopPlayback, VoiceEffect.ResetEndpointer, VoiceEffect.AbortRecognizer, VoiceEffect.RestartRecognizer,
+                    };
+                }
+                // Listening or connecting: keep going; the endpointer is off while it is held.
+                return new[] { VoiceEffect.CancelResume, VoiceEffect.ResetEndpointer };
+
+            case VoiceEventKind.TalkKeyUp:
+                if (!PushToTalk) return None;
+                PushToTalk = false;
+                if (State == VoiceState.Connecting) { SendOnConnect = true; return None; }
+                return State == VoiceState.Listening ? EndTurn() : None;
+
+            case VoiceEventKind.EndOfSpeech:
+                if (State != VoiceState.Listening || PushToTalk) return None;
+                return EndTurn();
 
             case VoiceEventKind.ServerOutput:
             {
@@ -310,6 +367,8 @@ public sealed class VoiceTurnMachine
             }
 
             case VoiceEventKind.Failed:
+                PushToTalk = false;
+                SendOnConnect = false;
                 OneShot = false;
                 AwaitingFollowup = false;
                 ServerTurnOpen = false;
@@ -322,6 +381,8 @@ public sealed class VoiceTurnMachine
                 };
 
             case VoiceEventKind.StopRequested:
+                PushToTalk = false;
+                SendOnConnect = false;
                 OneShot = false;
                 AwaitingFollowup = false;
                 ReplyAsks = false;
