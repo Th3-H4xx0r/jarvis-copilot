@@ -70,8 +70,8 @@ public class IslandLogicTests
     [Fact] public void TabBar_ExcludesVoice() => Assert.DoesNotContain(IslandTab.Voice, IslandTabs.TabBar);
     [Fact] public void Placement_TopCentreHangingFromTop() => Assert.Equal(new RectI(1180, 0, 1380, 32), IslandPlacement.Frame(new(0, 0, 2560, 1440), 200, 32));
     [Fact] public void Placement_NegativeMonitor() => Assert.Equal(new RectI(-1060, 0, -860, 32), IslandPlacement.Frame(new(-1920, 0, 0, 1080), 200, 32));
-    [Fact] public void AgentsHeight_Approval() => Assert.Equal(420, IslandLayout.AgentsHeight(3, PendingKind.Approval, false));
-    [Fact] public void AgentsHeight_Caps() => Assert.Equal(500, IslandLayout.AgentsHeight(10, PendingKind.Question, true));
+    [Fact] public void AgentsHeight_Approval() => Assert.Equal(IslandLayout.AgentsHeight(3, null, false) + 160, IslandLayout.AgentsHeight(3, PendingKind.Approval, false));
+    [Fact] public void AgentsHeight_Caps() => Assert.Equal(IslandLayout.MaxHeight, IslandLayout.AgentsHeight(10, PendingKind.Question, true));
 
     [Fact]
     public void ArmGate_HalfSecond()
