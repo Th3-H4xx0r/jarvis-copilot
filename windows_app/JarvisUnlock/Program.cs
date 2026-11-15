@@ -15,7 +15,7 @@ namespace JarvisUnlock;
 /// with Face ID + UAC. The Jarvis app — after checking his iPhone's Face ID signature — sends it
 /// the password over a pipe only his account can open; the service starts a copy of itself on
 /// the sign-in desktop of the console session, which lifts the lock-screen picture if it's up and
-/// types into the PIN / password box, only while Windows says the session is locked. Nothing is
+/// types into the PIN / password box, never anywhere else. Nothing is
 /// stored here and nothing is typed anywhere else.
 ///
 ///   JarvisUnlock.exe --install &lt;user SID&gt;   (elevated: copies itself to Program Files, registers, starts)
@@ -355,8 +355,8 @@ internal static class Service
     private static extern bool CloseHandle(IntPtr handle);
 }
 
-/// The copy started in the console session (as SYSTEM). It types only while Windows itself says
-/// the session is locked, and only into the sign-in screen:
+/// The copy started in the console session (as SYSTEM). It types only into the sign-in screen,
+/// judged from what's on screen:
 ///   • the lock-screen picture (LockApp on the normal desktop): press Space to lift it, wait for
 ///     the sign-in screen;
 ///   • the sign-in screen (the secure Winlogon desktop, PIN or password box): type, press Enter.
@@ -365,60 +365,52 @@ internal static unsafe class Typist
 {
     private static readonly TimeSpan Reach = TimeSpan.FromSeconds(8);
 
+    private enum Screen { Unlocked, Picture, SignIn }
+
     public static int Run()
     {
         var password = Console.In.ReadLine() ?? "";
         if (password.Length == 0) return 4;
-        if (!SessionLocked()) return 3;
+        if (Look() == Screen.Unlocked) return 3;   // nothing pressed at all
         var started = DateTime.UtcNow;
         var lastNudge = DateTime.MinValue;
         while (DateTime.UtcNow - started < Reach)
         {
-            if (!SessionLocked()) return 3;
-            var desk = OpenInputDesktop(0, false, 0x01FF /* DESKTOP_ALL */);
-            if (desk != IntPtr.Zero && SetThreadDesktop(desk))
+            switch (Look())
             {
-                var name = DesktopName(desk);
-                if (name.Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
-                {
-                    // The sign-in screen: give the PIN / password box a moment to take focus.
+                case Screen.Unlocked:
+                    return 3;
+                case Screen.SignIn:
+                    // Give the PIN / password box a moment to take focus, then make sure it's still up.
                     Thread.Sleep(lastNudge == DateTime.MinValue ? 300 : 900);
-                    if (!SessionLocked() || !DesktopName(OpenInputDesktop(0, false, 0x01FF)).Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
-                        continue;
+                    if (Look() != Screen.SignIn) continue;
                     foreach (var ch in password) Unicode(ch);
                     Thread.Sleep(80);
                     Key(0x0D /* Enter */);
                     return 0;
-                }
-                // Locked but on the normal desktop: the lock-screen picture (or a sleeping screen).
-                if (DateTime.UtcNow - lastNudge > TimeSpan.FromSeconds(1.5))
-                {
-                    var front = ForegroundExe();
-                    Key(front.Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? (ushort)0x20 /* Space */ : (ushort)0x11 /* Ctrl */);
-                    lastNudge = DateTime.UtcNow;
-                }
+                case Screen.Picture:
+                    if (DateTime.UtcNow - lastNudge > TimeSpan.FromSeconds(1.5))
+                    {
+                        Key(0x20 /* Space: lifts the picture */);
+                        lastNudge = DateTime.UtcNow;
+                    }
+                    break;
             }
             Thread.Sleep(150);
         }
         return 5;
     }
 
-    /// Windows' own answer: is the console session locked right now (WTSSessionInfoEx)?
-    private static bool SessionLocked()
+    /// What's on screen, read from the screen itself (Windows' session-lock flag isn't reliable):
+    /// the secure Winlogon desktop is the sign-in screen; LockApp in front on the normal desktop is
+    /// the lock-screen picture; anything else is an unlocked PC. Attaches this thread to the
+    /// input desktop, so keys go there.
+    private static Screen Look()
     {
-        if (!ProcessIdToSessionId((uint)Environment.ProcessId, out var session)) return false;
-        if (!WTSQuerySessionInformationW(IntPtr.Zero, session, 25 /* WTSSessionInfoEx */, out var buf, out var bytes) || buf == IntPtr.Zero)
-            return false;
-        try
-        {
-            // WTSINFOEXW { Level; WTSINFOEX_LEVEL1_W { SessionId; SessionState; SessionFlags; … } }
-            if (bytes < 16 || Marshal.ReadInt32(buf, 0) != 1) return false;
-            return Marshal.ReadInt32(buf, 12) == 0;   // WTS_SESSIONSTATE_LOCK
-        }
-        finally
-        {
-            WTSFreeMemory(buf);
-        }
+        var desk = OpenInputDesktop(0, false, 0x01FF /* DESKTOP_ALL */);
+        if (desk == IntPtr.Zero || !SetThreadDesktop(desk)) return Screen.Unlocked;
+        if (DesktopName(desk).Equals("Winlogon", StringComparison.OrdinalIgnoreCase)) return Screen.SignIn;
+        return ForegroundExe().Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? Screen.Picture : Screen.Unlocked;
     }
 
     private static string DesktopName(IntPtr desk)
@@ -511,12 +503,4 @@ internal static unsafe class Typist
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr handle);
 
-    [DllImport("kernel32.dll")]
-    private static extern bool ProcessIdToSessionId(uint pid, out uint session);
-
-    [DllImport("wtsapi32.dll", SetLastError = true)]
-    private static extern bool WTSQuerySessionInformationW(IntPtr server, uint session, int infoClass, out IntPtr buffer, out int bytes);
-
-    [DllImport("wtsapi32.dll")]
-    private static extern void WTSFreeMemory(IntPtr memory);
 }
