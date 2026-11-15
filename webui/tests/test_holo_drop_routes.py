@@ -111,7 +111,7 @@ def test_unknown_target_is_400(env):
 @pytest.fixture()
 def cards(env, monkeypatch):
     started, later = [], []
-    monkeypatch.setattr(routes, "_start_card", lambda drop, from_name: started.append((drop["id"], from_name)))
+    monkeypatch.setattr(routes, "_start_card", lambda drop, from_name: started.append((drop["id"], from_name)) or 1)
     monkeypatch.setattr(routes, "_later", lambda seconds, fn, *args: later.append((seconds, fn, args)))
     return SimpleNamespace(started=started, later=later)
 
@@ -122,7 +122,7 @@ def test_held_drop_for_phone_starts_waiting_card(env, cards):
                         caller="mac-1")
     assert body["drop"]["state"] == "held"
     assert cards.started == [(body["drop"]["id"], "MacBook")]
-    assert env.pushes and "MacBook" in env.pushes[-1][1]
+    assert env.pushes == []                            # the island card, no notification on top
 
 
 def test_delivered_phone_drop_nobody_opens_gets_card_later(env, cards):
@@ -130,7 +130,7 @@ def test_delivered_phone_drop_nobody_opens_gets_card_later(env, cards):
                         caller="mac-1")
     assert body["drop"]["state"] == "delivered" and cards.started == []
     seconds, fn, args = cards.later[-1]
-    assert 4 <= seconds <= 15
+    assert 1 <= seconds <= 3                           # right away, not after a long wait
     fn(*args)                                          # the phone never picked it up
     assert cards.started == [(body["drop"]["id"], "MacBook")]
 
@@ -337,3 +337,18 @@ def test_text_targets_use_the_real_pod_and_glasses_skills():
     texts = [c.get("value") for c in pod_args["page"]["root"]["children"]]
     assert "A page" in texts or "https://a.b" in texts
     assert routes._text_args("glasses", {"kind": "text", "text": "hi"})["text"] == "hi"
+
+
+def test_banner_only_when_the_island_card_cannot_start(env, monkeypatch):
+    monkeypatch.setattr(routes, "_start_card", lambda drop, from_name: 0)   # no push-to-start token
+    monkeypatch.setattr(routes, "_later", lambda s, fn, *a: None)
+    env.connected.discard("iphone-1")
+    call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "iphone-1", "text": "hi"}, caller="mac-1")
+    assert env.pushes and "MacBook" in env.pushes[-1][1]
+
+
+def test_history_names_the_sender_and_target(env):
+    call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "iphone-1", "text": "hi"}, caller="mac-1")
+    status, body = call("GET", "/api/holo-drop/history?limit=5", caller="iphone-1")
+    d = body["drops"][0]
+    assert d["from_name"] == "MacBook" and d["target"] == "iphone-1" and "file" not in d

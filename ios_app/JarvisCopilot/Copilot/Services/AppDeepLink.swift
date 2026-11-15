@@ -29,6 +29,8 @@ enum AppDeepLink: Equatable, Sendable {
     /// `jarviscopilot://holo-drop/send` — one tap into Holo Drop (Control Center, app icon,
     /// Siri): the Orbit with the newest photo, ready to throw.
     case holoDropSend
+    /// `jarviscopilot://holo-drop?drop=<id>&do=open` — a button on the "Drop waiting" card.
+    case holoDropAction(drop: String, action: String)
     /// `jarviscopilot://shortcut-result/<rid>` and `…/shortcut-error/<rid>`.
     /// Parsed here only so a caller can *recognise* one; `ShortcutResultBus` owns
     /// the payload.
@@ -57,6 +59,7 @@ enum AppDeepLink: Equatable, Sendable {
             return .security
         case "holo-drop":
             if url.path.lowercased() == "/send" { return .holoDropSend }
+            if let drop = query(url, "drop"), let action = query(url, "do") { return .holoDropAction(drop: drop, action: action) }
             return .holoDrop(drop: query(url, "drop"))
         case "shortcut-result", "shortcut-error":
             return .shortcutCallback
@@ -157,6 +160,9 @@ struct AppDeepLinkRouter {
             return true
         case .holoDropSend:
             HoloLauncher.shared.openQuick()
+            return true
+        case .holoDropAction(let drop, let action):
+            HoloDropReceiver.shared.performFromIsland(drop, action: action)
             return true
         case .shortcutCallback:
             return false

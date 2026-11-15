@@ -24,8 +24,11 @@ struct HoloDropActivity: Widget {
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(HoloDropActivityText.detail(context.state))
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                    VStack(spacing: 8) {
+                        Text(HoloDropActivityText.detail(context.state))
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                        HoloDropActivityButtons(dropID: context.attributes.dropID, kind: context.state.kind)
+                    }
                 }
             } compactLeading: {
                 Image(systemName: "hand.point.up.braille.fill").foregroundStyle(.white)

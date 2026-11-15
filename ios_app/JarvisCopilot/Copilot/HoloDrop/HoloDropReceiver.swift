@@ -18,7 +18,7 @@ struct HoloDropRecord: Identifiable, Equatable {
     let text: String
     let url: String
     let title: String
-    let action: HoloAction
+    var action: HoloAction
 
     init?(json: [String: Any]) {
         guard let id = json["id"] as? String, !id.isEmpty,
@@ -165,6 +165,7 @@ struct HoloArrivalCard: Identifiable, Equatable {
     let record: HoloDropRecord
     var state: State = .working
     var expanded = false            // text "open": the card shows the whole text
+    var busy: HoloAction?           // a card button is working (spinner; the others greyed)
     var fileURL: URL?               // a received file (Quick Look / Save / Copy again)
     var id: String { record.id }
 }
@@ -256,10 +257,8 @@ final class HoloDropReceiver: ObservableObject {
     /// A drop for this device. Open app → card + action now; otherwise a banner whose tap opens it.
     func arrived(_ rec: HoloDropRecord, file: URL? = nil) {
         guard running, !handled.contains(rec.id) else { return }
-        guard UIApplication.shared.applicationState == .active else {
-            notify(rec)
-            return
-        }
+        // Not in front: the server puts up the "Drop waiting" island card (no notification).
+        guard UIApplication.shared.applicationState == .active else { return }
         handled.insert(rec.id)
         Task { _ = await receive(rec, file: file, report: true) }
     }
@@ -269,6 +268,26 @@ final class HoloDropReceiver: ObservableObject {
         guard running else { return "failed" }
         handled.insert(rec.id)
         return await receive(rec, file: file, report: false)
+    }
+
+    /// A button on the "Drop waiting" card: Save / Copy run in the background, Open in front.
+    func performFromIsland(_ dropID: String, action: String) {
+        guard let chosen = HoloAction(rawValue: action) else { return }
+        Task {
+            _ = await run(dropID, action: chosen, showCard: UIApplication.shared.applicationState == .active)
+            await Self.endActivities()
+        }
+    }
+
+    /// Do `action` with a drop that came to this device (the island card, the page's inbox): fetch
+    /// it, act, report the landing. Works for drops already handled too (Save after Open). Nil = gone.
+    func run(_ dropID: String, action: HoloAction, showCard: Bool) async -> String? {
+        guard running, let client,
+              let json = try? await client.drop(dropID), var rec = HoloDropRecord(json: json) else { return nil }
+        if json["expired"] as? Bool == true { return nil }
+        rec.action = action
+        handled.insert(rec.id)
+        return await receive(rec, file: nil, report: true, showCard: showCard)
     }
 
     /// The Live Activity / banner tap (`jarviscopilot://holo-drop?drop=<id>`).
@@ -314,8 +333,8 @@ final class HoloDropReceiver: ObservableObject {
     // MARK: performing
 
     @discardableResult
-    private func receive(_ rec: HoloDropRecord, file: URL?, report: Bool) async -> String {
-        show(HoloArrivalCard(record: rec))
+    private func receive(_ rec: HoloDropRecord, file: URL?, report: Bool, showCard: Bool = true) async -> String {
+        if showCard { show(HoloArrivalCard(record: rec)) }
         let plan = HoloArrival.plan(rec.action, kind: rec.kind)
         do {
             var local = file
@@ -395,27 +414,20 @@ final class HoloDropReceiver: ObservableObject {
     /// Card buttons: do one more thing with an arrival (Open / Save / Copy).
     func again(_ id: String, _ action: HoloAction) {
         guard let card = cards.first(where: { $0.id == id }) else { return }
+        guard card.busy == nil else { return }
         let plan = HoloArrival.plan(action, kind: card.record.kind)
+        update(id) { $0.busy = action }
         Task {
             do {
                 try await perform(card.record, plan: plan, file: card.fileURL)
-                update(id) { $0.state = .done(HoloArrival.words(plan.outcome)) }
+                update(id) { $0.state = .done(HoloArrival.words(plan.outcome)); $0.busy = nil }
             } catch {
-                update(id) { $0.state = .failed(error.localizedDescription) }
+                update(id) { $0.state = .failed(error.localizedDescription); $0.busy = nil }
             }
         }
     }
 
     // MARK: banner + Live Activity
-
-    private func notify(_ rec: HoloDropRecord) {
-        let content = UNMutableNotificationContent()
-        content.title = "Holo Drop"
-        content.body = "\(rec.sender) dropped \(rec.caption) — tap to get it"
-        content.userInfo = ["type": "holo_drop", "id": rec.id, "url": "jarviscopilot://holo-drop?drop=\(rec.id)"]
-        let request = UNNotificationRequest(identifier: "holo-\(rec.id)", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
 
     private func watchStartToken() {
         guard #available(iOS 17.2, *) else { return }

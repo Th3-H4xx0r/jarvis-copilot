@@ -43,7 +43,9 @@ enum HoloDropActivityText {
         return s.from.isEmpty ? what : "\(what) · from \(s.from)"
     }
 
-    static func url(_ dropID: String) -> URL? { URL(string: "jarviscopilot://holo-drop?drop=\(dropID)") }
+    static func url(_ dropID: String, do action: String? = nil) -> URL? {
+        URL(string: "jarviscopilot://holo-drop?drop=\(dropID)" + (action.map { "&do=\($0)" } ?? ""))
+    }
 }
 
 struct HoloDropLockScreenView: View {
@@ -51,6 +53,7 @@ struct HoloDropLockScreenView: View {
     let state: HoloDropActivityAttributes.ContentState
 
     var body: some View {
+        VStack(spacing: 0) {
         HStack(spacing: 12) {
             Image(systemName: HoloDropActivityText.symbol(state.kind))
                 .font(.system(size: 18, weight: .semibold))
@@ -64,11 +67,38 @@ struct HoloDropLockScreenView: View {
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
             Spacer(minLength: 0)
-            Text("Open")
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(Color.white.opacity(0.16)))
         }
-        .padding(16)
+        .padding([.horizontal, .top], 16)
+        HoloDropActivityButtons(dropID: dropID, kind: state.kind)
+            .padding([.horizontal, .bottom], 16).padding(.top, 10)
+        }
+    }
+}
+
+/// Open · Save · Copy on the card. Save and Copy run in the background (Live Activity intents);
+/// Open brings Jarvis forward. Grey pills, white for the main one (his black & white rule).
+struct HoloDropActivityButtons: View {
+    let dropID: String
+    let kind: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let url = HoloDropActivityText.url(dropID, do: "open") {
+                Link(destination: url) { pill("Open", main: true) }
+            }
+            Button(intent: HoloDropLiveIntent(dropID: dropID, action: "save")) { pill("Save", main: false) }
+                .buttonStyle(.plain)
+            if kind != "video" && kind != "file" {
+                Button(intent: HoloDropLiveIntent(dropID: dropID, action: "copy")) { pill("Copy", main: false) }
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func pill(_ title: String, main: Bool) -> some View {
+        Text(title).font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(main ? .black : .white)
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .background(Capsule().fill(main ? Color.white : Color.white.opacity(0.16)))
     }
 }

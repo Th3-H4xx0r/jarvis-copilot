@@ -83,19 +83,20 @@ def _wake_mac(device_id: str) -> None:
         logger.debug("holo drop: could not wake %s", device_id, exc_info=True)
 
 
-def _start_card(drop: dict, from_name: str) -> None:
+def _start_card(drop: dict, from_name: str) -> int:
     """Push-to-start the phones' "Drop waiting" Live Activity (Lock Screen notifications are
     off on his iPhone, so a banner alone would go unseen while it's locked)."""
     try:
         from api import live_routes
         what = (drop.get("name") or drop.get("title") or drop.get("url") or drop.get("text") or "A drop")[:48]
-        live_routes.start_activity(
+        return live_routes.start_activity(
             "holo", {"title": what, "from": from_name[:32], "kind": drop.get("kind") or "file", "count": 1},
             attributes_type="HoloDropActivityAttributes", attributes={"dropID": drop["id"]},
             alert={"title": "Holo Drop", "body": f"{what} from {from_name}"}, stale_after=24 * 3600,
-            devices={drop["target"]})
+            devices={drop["target"]}, relevance=100)
     except Exception:
         logger.debug("holo drop: waiting card failed", exc_info=True)
+        return 0
 
 
 def _later(seconds: float, fn, *args) -> None:
@@ -270,7 +271,7 @@ def deliver(drop: dict) -> dict:
 
 _MIME = re.compile(r"^[\w.+-]+/[\w.+-]+$")
 PHONES = ("iphone", "ipad")
-WAITING_AFTER_S = 8.0
+WAITING_AFTER_S = 1.5    # an open app takes it first; otherwise the island card, at once
 _seen: set = set()          # drop ids their phone has picked up (record, content or pending)
 
 
@@ -293,10 +294,11 @@ def _waiting(drop: dict) -> None:
     _announced.add(drop["id"])
     who = _name_of(drop.get("sender") or "")
     what = _short(drop.get("name") or drop.get("title") or drop.get("url") or "Something", 80)
-    _start_card(drop, who)
-    _push("Holo Drop", f"{who} dropped {what} — open Jarvis to get it",
-          {"type": "holo_drop", "id": drop["id"], "url": f"jarviscopilot://holo-drop?drop={drop['id']}"},
-          device=drop["target"])
+    # The Dynamic Island / Lock Screen card with Open · Save · Copy; a banner only if it can't start.
+    if not _start_card(drop, who):
+        _push("Holo Drop", f"{who} dropped {what} — open Jarvis to get it",
+              {"type": "holo_drop", "id": drop["id"], "url": f"jarviscopilot://holo-drop?drop={drop['id']}"},
+              device=drop["target"])
 
 
 def _check_waiting(drop_id: str) -> None:
@@ -416,7 +418,7 @@ def route(req) -> bool:
             limit = int((req.query.get("limit") or ["50"])[0]) if hasattr(req, "query") else 50
         except (TypeError, ValueError):
             limit = 50
-        return req.reply(200, {"drops": st.history(min(200, max(1, limit)))})
+        return req.reply(200, {"drops": [public(d) for d in st.history(min(200, max(1, limit)))]})
     if parts == ["lan"]:
         if m == "POST":
             try:

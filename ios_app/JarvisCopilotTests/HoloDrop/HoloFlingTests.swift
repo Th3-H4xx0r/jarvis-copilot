@@ -133,6 +133,8 @@ final class HoloFlingTests: XCTestCase {
         XCTAssertEqual(AppDeepLink.parse(URL(string: "jarviscopilot://holo-drop/send")!), .holoDropSend)
         XCTAssertEqual(AppDeepLink.parse(URL(string: "jarviscopilot://holo-drop?drop=x")!), .holoDrop(drop: "x"))
         XCTAssertEqual(QuickAction.parse(type: QuickAction.holoDrop.rawValue)?.link, .holoDropSend)
+        // The island card's Open button.
+        XCTAssertEqual(AppDeepLink.parse(HoloDropActivityText.url("d9", do: "open")!), .holoDropAction(drop: "d9", action: "open"))
     }
 
     func testTheGeneratedShortcutIsSigned() {

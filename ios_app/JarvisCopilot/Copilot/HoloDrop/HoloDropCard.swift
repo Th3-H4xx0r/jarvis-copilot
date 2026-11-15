@@ -12,9 +12,11 @@ final class HoloCardsWindow {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .filter { $0.session.role == .windowApplication }
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
-        let host = UIHostingController(rootView: HoloArrivalCardsView(receiver: .shared))
-        host.view.backgroundColor = .clear
         let w = PassThroughWindow(windowScene: scene)
+        let host = UIHostingController(rootView: HoloArrivalCardsView(receiver: .shared) { [weak w] frames in
+            w?.interactive = frames
+        })
+        host.view.backgroundColor = .clear
         w.windowLevel = .alert + 2
         w.backgroundColor = .clear
         w.rootViewController = host
@@ -28,23 +30,35 @@ final class HoloCardsWindow {
     }
 }
 
-/// A window whose empty space isn't there: a hit on its root view (the clear background)
-/// goes to the window below.
+/// A window that only exists where its cards are: touches anywhere else go to the app below.
+/// (Testing the hit view doesn't work for SwiftUI — its hosting view answers for everything,
+/// which sent taps on the card's own buttons through to the app.)
 final class PassThroughWindow: UIWindow {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let hit = super.hitTest(point, with: event) else { return nil }
-        return hit === rootViewController?.view ? nil : hit
+    /// The cards' frames, in window coordinates (reported by the SwiftUI view).
+    var interactive: [CGRect] = []
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        interactive.contains { $0.insetBy(dx: -6, dy: -6).contains(point) }
     }
+}
+
+struct HoloCardFrames: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
 /// The stack of arrivals at the top of the screen. Swipe one up to dismiss it.
 struct HoloArrivalCardsView: View {
     @ObservedObject var receiver: HoloDropReceiver
+    var onFrames: ([CGRect]) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 8) {
             ForEach(receiver.cards) { card in
                 HoloArrivalCardView(card: card, receiver: receiver)
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: HoloCardFrames.self, value: [g.frame(in: .global)])
+                    })
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -52,13 +66,14 @@ struct HoloArrivalCardsView: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .animation(.spring(duration: 0.35), value: receiver.cards)
+        .onPreferenceChange(HoloCardFrames.self) { onFrames($0) }
     }
 }
 
 struct HoloArrivalCardView: View {
     let card: HoloArrivalCard
     let receiver: HoloDropReceiver
-    @State private var drag: CGFloat = 0
+    @State private var drag: CGSize = .zero
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -93,11 +108,23 @@ struct HoloArrivalCardView: View {
         .background(RoundedRectangle(cornerRadius: 20).fill(Color(white: 0.08).opacity(0.97)))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.14), lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
-        .offset(y: min(0, drag))
-        .gesture(DragGesture()
-            .onChanged { drag = $0.translation.height }
+        // Swipe it away like a notification: up, or off either side. It stays in the Holo Drop
+        // page's inbox.
+        .offset(x: drag.width, y: min(0, drag.height))
+        .opacity(1 - min(0.6, abs(drag.width) / 400))
+        .simultaneousGesture(DragGesture(minimumDistance: 8)
+            .onChanged { drag = $0.translation }
             .onEnded { g in
-                if g.translation.height < -40 { receiver.dismiss(card.id) } else { withAnimation(.spring) { drag = 0 } }
+                let t = g.predictedEndTranslation
+                if g.translation.height < -30 || t.height < -120 {
+                    withAnimation(.easeIn(duration: 0.2)) { drag = CGSize(width: 0, height: -260) }
+                    receiver.dismiss(card.id)
+                } else if abs(g.translation.width) > 90 || abs(t.width) > 240 {
+                    withAnimation(.easeIn(duration: 0.2)) { drag = CGSize(width: g.translation.width > 0 ? 500 : -500, height: 0) }
+                    receiver.dismiss(card.id)
+                } else {
+                    withAnimation(.spring) { drag = .zero }
+                }
             })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Holo Drop from \(card.record.sender): \(card.record.caption), \(status)")
@@ -125,13 +152,25 @@ struct HoloArrivalCardView: View {
     }
 
     /// Grey chips; white fill only for the one the drop already did (his black & white rule).
+    /// Tapped: this one spins (the Jarvis loader), the others grey out until it's done.
     private func chip(_ title: String, _ action: HoloAction, main: Bool) -> some View {
-        Button { receiver.again(card.id, action) } label: {
-            Text(title).font(.system(size: 12, weight: .medium))
-                .foregroundStyle(main ? .black : .white.opacity(0.85))
-                .frame(maxWidth: .infinity).padding(.vertical, 7)
-                .background(Capsule().fill(main ? Color.white : Color.white.opacity(0.12)))
+        let working = card.busy == action
+        let locked = card.busy != nil && !working
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            receiver.again(card.id, action)
+        } label: {
+            ZStack {
+                Text(title).font(.system(size: 12, weight: .medium)).opacity(working ? 0 : 1)
+                if working { JcLoader(size: 14) }
+            }
+            .foregroundStyle(main ? .black : .white.opacity(0.85))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .background(Capsule().fill(main ? Color.white : Color.white.opacity(0.12)))
+            .opacity(locked ? 0.35 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(card.busy != nil)
+        .animation(.easeOut(duration: 0.15), value: card.busy)
     }
 }

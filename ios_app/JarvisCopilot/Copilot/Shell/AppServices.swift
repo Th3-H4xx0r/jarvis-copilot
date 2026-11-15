@@ -378,6 +378,7 @@ final class AppServices {
         }
         // Log a set, change its weight / reps, move a rest, pause: the workout Live Activity's buttons.
         WorkoutLiveBridge.perform = { action in WearablesHub.shared.workout.liveAction(action) }
+        HoloDropLiveBridge.perform = { drop, action in HoloDropReceiver.shared.performFromIsland(drop, action: action) }
         // Directions, a call, an app handed to the car: that reply ends the conversation.
         CarHandoff.shared.onQueued = { VoiceStore.shared.endAfterThisReply() }
 

@@ -254,7 +254,7 @@ def needs_start(source: str, tokens: LiveTokens | None = None) -> bool:
 def start_activity(source: str, content_state: dict, *, attributes_type: str, attributes: dict, alert: dict,
                    stale_after: Optional[int] = None, expiration: Optional[int] = None,
                    tokens: LiveTokens | None = None, sender: Callable | None = None,
-                   devices: Optional[set] = None) -> int:
+                   devices: Optional[set] = None, relevance: Optional[int] = None) -> int:
     """Push-to-start a ``source`` card on each phone that wants one and has none running (iOS 17.2+);
     ``devices`` limits it to those device ids.
     ``input-push-token`` asks iOS for the new card's own token, which the app then reports."""
@@ -262,6 +262,8 @@ def start_activity(source: str, content_state: dict, *, attributes_type: str, at
     sender = sender or _apns("send_live_activity")
     running = {device for device, _t, _a in tokens.activities(source)}
     extra = {"attributes-type": attributes_type, "attributes": attributes, "alert": alert, "input-push-token": 1}
+    if relevance is not None:          # which of the app's cards the Dynamic Island shows first
+        extra["relevance-score"] = relevance
     sent = 0
     for device, token, _at in tokens.activities(f"{source}-start"):
         if device in running or (devices is not None and device not in devices):

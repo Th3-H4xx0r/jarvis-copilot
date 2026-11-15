@@ -57,6 +57,70 @@ final class HoloLauncher: ObservableObject {
     }
 }
 
+/// Drops that came to this phone in the last day — waiting, swiped away or already handled —
+/// for the Holo Drop page: status, Open · Save · Copy, Dismiss.
+@MainActor
+final class HoloInbox: ObservableObject {
+    struct Entry: Identifiable, Equatable {
+        let record: HoloDropRecord
+        let state: String
+        let outcome: String
+        let created: Date
+        var id: String { record.id }
+        var waiting: Bool { ["held", "sent", "delivered"].contains(state) }
+    }
+
+    static let shared = HoloInbox()
+    @Published private(set) var entries: [Entry] = []
+    @Published private(set) var busy: [String: HoloAction] = [:]
+    private var dismissed: Set<String>
+    private let key = "holoDrop.inboxDismissed"
+
+    init() { dismissed = Set(UserDefaults.standard.stringArray(forKey: key) ?? []) }
+
+    func refresh() async {
+        guard let client = HoloDropReceiver.shared.client, let me = HoloSensing.shared.myDeviceID,
+              let o = try? await client.json("GET", "/history?limit=80") else { return }
+        entries = Self.entries(from: o["drops"] as? [[String: Any]] ?? [], me: me, dismissed: dismissed)
+    }
+
+    /// This device's drops from the history: newest first, last 24 h, not expired or dismissed.
+    nonisolated static func entries(from drops: [[String: Any]], me: String, dismissed: Set<String>,
+                                    now: Date = Date()) -> [Entry] {
+        drops.compactMap { d in
+            guard (d["target"] as? String) == me, d["expired"] as? Bool != true,
+                  let rec = HoloDropRecord(json: d), !dismissed.contains(rec.id) else { return nil }
+            let created = Date(timeIntervalSince1970: (d["created"] as? NSNumber)?.doubleValue ?? 0)
+            guard now.timeIntervalSince(created) < 86400 else { return nil }
+            return Entry(record: rec, state: d["state"] as? String ?? "", outcome: d["outcome"] as? String ?? "",
+                         created: created)
+        }
+    }
+
+    nonisolated static func status(_ e: Entry) -> String {
+        if e.waiting { return "Waiting" }
+        if e.state == "failed" { return "Didn't land" }
+        return HoloArrival.words(e.outcome)
+    }
+
+    func act(_ e: Entry, _ action: HoloAction) {
+        guard busy[e.id] == nil else { return }
+        busy[e.id] = action
+        Task {
+            _ = await HoloDropReceiver.shared.run(e.id, action: action, showCard: false)
+            busy[e.id] = nil
+            await refresh()
+        }
+    }
+
+    func dismiss(_ e: Entry) {
+        dismissed.insert(e.id)
+        UserDefaults.standard.set(Array(dismissed.suffix(300)), forKey: key)
+        entries.removeAll { $0.id == e.id }
+        if e.waiting { Task { await HoloDropReceiver.shared.client?.landed(e.id, outcome: "dismissed") } }
+    }
+}
+
 /// What a one-tap Holo Drop starts with, and the tray's sources.
 @MainActor
 enum HoloQuickPick {
@@ -300,6 +364,8 @@ struct HoloDropPage: View {
     @State private var importing = false
     @State private var problem: String?
     @State private var arrival: HoloAction = .save
+    @ObservedObject private var inbox = HoloInbox.shared
+    @ObservedObject private var receiver = HoloDropReceiver.shared
 
     var body: some View {
         ScrollView {
@@ -326,6 +392,12 @@ struct HoloDropPage: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 6)
+                if !inbox.entries.isEmpty {
+                    JcSectionLabel("Arrived here") { EmptyView() }
+                    VStack(spacing: 8) {
+                        ForEach(inbox.entries) { e in HoloInboxCard(entry: e, inbox: inbox) }
+                    }
+                }
                 JcSectionLabel("Drop something") { EmptyView() }
                 GlassGroup {
                     PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
@@ -381,6 +453,9 @@ struct HoloDropPage: View {
         }
         .jcPageChrome("Holo Drop")
         .onAppear { arrival = currentArrival() }
+        .task { await inbox.refresh() }
+        .refreshable { await inbox.refresh() }
+        .onChange(of: receiver.cards.count) { _, _ in Task { await inbox.refresh() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
             if case .success(let url) = result { dropFile(url) }
         }
@@ -471,5 +546,57 @@ struct HoloPickedFile: Transferable {
             try FileManager.default.copyItem(at: received.file, to: dest)
             return HoloPickedFile(url: dest)
         }
+    }
+}
+
+/// One drop in the page's inbox: what, from whom, status, Open · Save · Copy, dismiss.
+struct HoloInboxCard: View {
+    let entry: HoloInbox.Entry
+    @ObservedObject var inbox: HoloInbox
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: entry.record.symbol).font(.system(size: 16)).foregroundStyle(.white.opacity(0.8))
+                    .frame(width: 40, height: 40).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.07)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.record.caption).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text("From \(entry.record.sender) · \(entry.created.formatted(.relative(presentation: .named))) · \(HoloInbox.status(entry))")
+                        .font(.system(size: 11)).foregroundStyle(entry.waiting ? .white.opacity(0.85) : JcTheme.muted).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Button { inbox.dismiss(entry) } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(JcTheme.muted)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+            HStack(spacing: 6) {
+                button("Open", .open, main: entry.waiting)
+                button("Save", .save, main: false)
+                if !entry.record.isFile || entry.record.kind == "image" { button("Copy", .copy, main: false) }
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.1)))
+    }
+
+    private func button(_ title: String, _ action: HoloAction, main: Bool) -> some View {
+        let working = inbox.busy[entry.id] == action
+        let locked = inbox.busy[entry.id] != nil && !working
+        return Button { inbox.act(entry, action) } label: {
+            ZStack {
+                Text(title).font(.system(size: 12, weight: .medium)).opacity(working ? 0 : 1)
+                if working { JcLoader(size: 14) }
+            }
+            .foregroundStyle(main ? .black : .white.opacity(0.85))
+            .frame(maxWidth: .infinity).frame(height: 30)
+            .background(Capsule().fill(main ? Color.white : Color.white.opacity(0.12)))
+            .opacity(locked ? 0.35 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(inbox.busy[entry.id] != nil)
     }
 }

@@ -201,3 +201,12 @@ def test_push_to_start_can_target_one_phone(tokens):
                                    attributes={"dropID": "d1"}, alert={"title": "Holo Drop", "body": "x"},
                                    tokens=tokens, sender=send, devices={"ipad1"})
     assert n == 1 and [t for t, _, _ in send.sent] == [START[::-1]]
+
+
+def test_push_to_start_can_ask_for_the_dynamic_island(tokens):
+    tokens.set_activity("phone1", "holo-start", START)
+    send = Sender()
+    live_routes.start_activity("holo", {"title": "x"}, attributes_type="HoloDropActivityAttributes",
+                               attributes={"dropID": "d1"}, alert={"title": "Holo Drop", "body": "x"},
+                               tokens=tokens, sender=send, relevance=100)
+    assert send.sent[0][2]["extra"]["relevance-score"] == 100

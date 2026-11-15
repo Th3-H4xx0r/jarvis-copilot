@@ -61,4 +61,21 @@ final class HoloScreenPhotoTests: XCTestCase {
         XCTAssertNil(HoloScreenPhoto.pick([("a", 3), ("b", 5)]), "two near-identical candidates: not sure which")
         XCTAssertNil(HoloScreenPhoto.pick([("a", 18), ("b", 30)]), "nothing close")
     }
+
+    // MARK: the page's inbox
+
+    func testInboxListsThisPhonesRecentDropsWithStatus() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let drops: [[String: Any]] = [
+            ["id": "a", "kind": "link", "url": "https://a.b", "target": "me", "state": "delivered", "created": 99_000],
+            ["id": "b", "kind": "text", "text": "hi", "target": "me", "state": "landed", "outcome": "copied", "created": 98_000],
+            ["id": "c", "kind": "text", "text": "x", "target": "mac", "state": "delivered", "created": 99_500],     // not mine
+            ["id": "d", "kind": "text", "text": "old", "target": "me", "state": "landed", "created": 1_000],         // > 24 h
+            ["id": "e", "kind": "text", "text": "gone", "target": "me", "state": "delivered", "created": 99_900],
+        ]
+        let entries = HoloInbox.entries(from: drops, me: "me", dismissed: ["e"], now: now)
+        XCTAssertEqual(entries.map(\.id), ["a", "b"])
+        XCTAssertEqual(HoloInbox.status(entries[0]), "Waiting")
+        XCTAssertEqual(HoloInbox.status(entries[1]), "Copied")
+    }
 }
