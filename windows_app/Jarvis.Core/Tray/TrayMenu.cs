@@ -4,7 +4,7 @@ using Jarvis.Core.State;
 
 namespace Jarvis.Core.Tray;
 
-public enum TrayCommand { OpenIsland, HoloDrop, Recap, Settings, KeepAwake, RecordCall, Repair, Logs, Restart, Quit }
+public enum TrayCommand { OpenIsland, HoloDrop, Live, Recap, Settings, KeepAwake, RecordCall, Repair, Logs, Restart, Quit }
 
 public sealed record TrayItem(string Label, TrayCommand? Command = null, bool Enabled = true, bool Header = false,
     bool Separator = false, bool? Checked = null, bool Online = false, string Detail = "")
@@ -28,6 +28,7 @@ public static class TrayMenu
         items.Add(TrayItem.Line);
         items.Add(new("Open the island", TrayCommand.OpenIsland));
         items.Add(new("Holo Drop…", TrayCommand.HoloDrop, Enabled: connected));
+        items.Add(new("Live Jarvis", TrayCommand.Live, Enabled: connected));
         items.Add(new("Weekly recap", TrayCommand.Recap, Enabled: connected));
         items.Add(new(recording ? "Stop recording the call" : "Record a call", TrayCommand.RecordCall, Enabled: connected));
         items.Add(new("Keep PC awake", TrayCommand.KeepAwake, Enabled: connected, Checked: keepAwake));

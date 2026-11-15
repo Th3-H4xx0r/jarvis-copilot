@@ -16,6 +16,7 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Live;
 using Jarvis.Platform;
 using Jarvis.Recap;
 using Jarvis.Settings;
@@ -67,6 +68,7 @@ public sealed class AppHost : IAsyncDisposable
     public ScreenGlow Glow { get; }
     public DesktopOrbWindow Orb { get; }
     public WakeWordListener? Wake { get; }
+    public LiveController Live { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -194,12 +196,17 @@ public sealed class AppHost : IAsyncDisposable
         SettingsWindow.RegisterNative("talk", () => TalkPane.Build(Prefs, AudioEndpoints, () => Wake?.Listening ?? false));
         Orb.Update();
 
+        // ── Task 12: Live Jarvis ──
+        Live = new LiveController(() => State.ApiOrigin, () => State.DeviceId);
+        VoiceTab.LiveRequested += ShowLive;
+
         Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
         TrayHandlers[TrayCommand.KeepAwake] = () => _ = PcPower.SetKeepAwakeAsync(!(PcPower.Last?.KeepAwake ?? false));
         Tray.Command += c => { if (TrayHandlers.TryGetValue(c, out var h)) h(); };
         TrayHandlers[TrayCommand.OpenIsland] = ShowIsland;
         TrayHandlers[TrayCommand.Recap] = ShowRecap;
+        TrayHandlers[TrayCommand.Live] = ShowLive;
         TrayHandlers[TrayCommand.Quit] = () => Application.Current.Shutdown();
         State.IslandRequested += (tab, _) => { if (tab == "recap") ShowRecap(); };
     }
@@ -245,6 +252,16 @@ public sealed class AppHost : IAsyncDisposable
     }
 
     public void ShowSettings(string? pane = null) => SettingsWindow.Show(State, pane);
+
+    private LivePanel? _livePanel;
+
+    public void ShowLive()
+    {
+        if (_livePanel is { IsLoaded: true }) { _livePanel.Activate(); return; }
+        _livePanel = new LivePanel(Live);
+        _livePanel.Closed += (_, _) => _livePanel = null;
+        _livePanel.Show();
+    }
 
     public void ShowRecap()
     {
