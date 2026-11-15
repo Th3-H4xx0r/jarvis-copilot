@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -74,8 +75,11 @@ public static class J
     public static JsonObject Parse(string json) =>
         JsonNode.Parse(json) as JsonObject ?? throw new JsonException("not a JSON object");
 
+    /// Text as-is (no \u escapes for quotes, apostrophes or non-ASCII), like the Swift side.
+    public static readonly JsonSerializerOptions Plain = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     /// Compact JSON with object keys sorted ordinally at every level.
-    public static string SortedJson(JsonNode n) => Sorted(n)?.ToJsonString() ?? "null";
+    public static string SortedJson(JsonNode n) => Sorted(n)?.ToJsonString(Plain) ?? "null";
 
     private static JsonNode? Sorted(JsonNode? n) => n switch
     {
