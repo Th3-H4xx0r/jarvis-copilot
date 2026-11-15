@@ -403,6 +403,8 @@ _DEVICE_MUTABLE_FIELDS = frozenset({
     "skills",
     # Notification channels this device can display (glasses, ring, etc.).
     "notification_channels",
+    # A computer's OS from jc-client's register frame: "macos" | "windows" | "linux".
+    "os",
 })
 
 

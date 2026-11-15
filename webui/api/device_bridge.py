@@ -59,6 +59,8 @@ class _DeviceConn:
         self.conn = conn
         self.skills: list[dict] = []
         self.notification_channels: list[dict] = []
+        # A computer's OS from its register frame (normalize_os); "" until it says.
+        self.os = ""
         self.send_lock = threading.Lock()
         # call_id -> {"event": Event, "result": ..., "error": ...}
         self.pending: dict[str, dict] = {}
@@ -510,7 +512,7 @@ def all_device_skills() -> list[dict]:
                 continue
             live.add(did)
             for s in c.skills:
-                out.append({"device_id": did, "device_name": c.name, **s})
+                out.append({"device_id": did, "device_name": c.name, "device_os": c.os or "macos", **s})
 
     try:
         from api.pairing import list_devices
@@ -519,7 +521,8 @@ def all_device_skills() -> list[dict]:
             if not did or did in live or not _push_reachable(d):
                 continue
             for s in (d.get("skills") or []):
-                out.append({"device_id": did, "device_name": d.get("name", "device"), **s})
+                out.append({"device_id": did, "device_name": d.get("name", "device"),
+                            "device_os": d.get("os") or "macos", **s})
     except Exception as exc:
         logger.debug("could not list push-reachable skills: %s", exc)
     return out
@@ -1465,9 +1468,46 @@ def _capped_skills(conn: _DeviceConn, skills: list[dict]) -> list[dict]:
     return skills[:_MAX_SKILLS_PER_DEVICE]
 
 
+def normalize_os(system) -> str:
+    """jc-client's ``platform.system`` → "windows" | "linux" | "macos" (the default: every
+    computer paired before the PC client said nothing and was a Mac)."""
+    s = str(system or "").strip().lower()
+    if s.startswith("win"):
+        return "windows"
+    if s == "linux":
+        return "linux"
+    return "macos"
+
+
+def device_os(device_id: str) -> str:
+    """The computer's OS: the live connection's word, else the paired record's, else macos."""
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+        if c is not None and c.os:
+            return c.os
+    try:
+        from api.pairing import list_devices
+        for d in list_devices():
+            if d.get("id") == device_id and d.get("os"):
+                return str(d["os"])
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not read device os for %s: %s", device_id, exc)
+    return "macos"
+
+
 def _handle_message(conn: _DeviceConn, msg: dict) -> None:
     t = msg.get("type")
     if t == "register":
+        platform = msg.get("platform")
+        if isinstance(platform, dict) and platform.get("system"):
+            new_os = normalize_os(platform.get("system"))
+            if new_os != conn.os:
+                conn.os = new_os
+                try:
+                    from api.pairing import update_device_fields
+                    update_device_fields(conn.device_id, os=new_os)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("could not persist os for %s: %s", conn.device_id, exc)
         skills = msg.get("skills") or []
         clean: list[dict] = []
         if isinstance(skills, list):
