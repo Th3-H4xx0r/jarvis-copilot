@@ -407,6 +407,7 @@
 		49326CF148F4B41C2D00294A /* DashcamAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A709DD60E60C1D6F93F561 /* DashcamAPI.swift */; };
 		4955B0954EB14C95944FCC4B /* RingFirmwareUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE029576C3EECD8DD6F9EC4A /* RingFirmwareUpdate.swift */; };
 		49A787FB213EF4697F68FDCE /* BandHandModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5FF67E8522F08547878377 /* BandHandModel.swift */; };
+		49B6EFE7506E8A41298D2821 /* HoloOrbitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC33A69AEBAAA613B9473AA6 /* HoloOrbitView.swift */; };
 		4A0B3B63E8C947CF07138CC5 /* VoiceLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF5836BFF32185E7E51741C /* VoiceLiveActivity.swift */; };
 		4A530EFE0BE2E6977B483B50 /* BandSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839501072D2A279527117F51 /* BandSceneView.swift */; };
 		4A896AABBF3808C8639793C2 /* TodosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50286C204C30CC4F88E81AE1 /* TodosStore.swift */; };
@@ -447,6 +448,7 @@
 		5174A26ED9017B64BEBADBD3 /* LivePollPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3374BB246B978CAE1C310365 /* LivePollPolicy.swift */; };
 		518BC1FFB250C9F924108191 /* InmoControlsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AF54CA5093E96BDBB2A681 /* InmoControlsTests.swift */; };
 		51951845319EC77D2FE4FEB5 /* TrainingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */; };
+		51EE7F21B1BFCC5B3BF635D4 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11ABFE6D55A27E89C5B4F06F /* ShareViewController.swift */; };
 		51FB8ABF7AFBF6DBA11EA7D0 /* CarHealthScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5E9E6A5C82AFC8CAC3CD8F /* CarHealthScreen.swift */; };
 		51FD53949E1CF39AE6E5F881 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D76A517B3307E494EEF348 /* WidgetSync.swift */; };
 		520517F90001E591844373AA /* ChatApprovalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14920E4028E5FD68F9F5C1CA /* ChatApprovalViews.swift */; };
@@ -644,6 +646,7 @@
 		78274C30A0E5FDB17D3CB89B /* WebViewCookies.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3B263227AE6CB95AF99B5A /* WebViewCookies.swift */; };
 		7856A64A1EC4CED675468265 /* InmoBatteryHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486B67B9BB447E41C0AEA12D /* InmoBatteryHistoryTests.swift */; };
 		78A0E1E9C0A83B6797F28DFA /* BandSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F6F58D2A73AD00B96144243 /* BandSync.swift */; };
+		78B7439127B454582F03277F /* HoloDropClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D34A1ABDB9D01EE1244A887 /* HoloDropClient.swift */; };
 		78BFC7F936F83C887EB7C56A /* PowerApprovals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394B878D6FC958BE371D916E /* PowerApprovals.swift */; };
 		78C6A8801C1E904234FAACB5 /* DashcamCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A241647380A74702800C4614 /* DashcamCard.swift */; };
 		78D334D3C4A3F7C899993859 /* GlassesNoteRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF223B04A284F6970E4CC848 /* GlassesNoteRecorder.swift */; };
@@ -683,6 +686,7 @@
 		8075F033A6C81EB43976A1F7 /* RingWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05020FDF91A61E75B981519B /* RingWorkoutTests.swift */; };
 		807AB2423466D1BA1B56AA53 /* AgentsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EFDB0B847063A1CBE9BCB80 /* AgentsModels.swift */; };
 		8098335C7BE0DD6FEFBF023F /* LiquidGlassOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */; };
+		81A110A02F8DAAEC6065917F /* HoloScreenMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 227B3061BADB1078C5A7116A /* HoloScreenMapView.swift */; };
 		81BCF0AC70AC23CEE8FEFAA7 /* WorkspacesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */; };
 		81C2ABAE763A7A3E0C53385A /* CostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41A860495DC44B663022674F /* CostsView.swift */; };
 		81DA501E048CE0D97595129D /* AgentLiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F0D88DF1A2FAFE47BE1F6C /* AgentLiveActivityTests.swift */; };
@@ -957,6 +961,7 @@
 		B702131C489F94D2E5DF658D /* AgentLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3B787CD98A2B37225ADAD4 /* AgentLiveActivity.swift */; };
 		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
 		B7855CFF3F28D8DE39AEDFB2 /* CarCardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132AAD600C97329A4954EDA6 /* CarCardText.swift */; };
+		B78D5B847FD1F3528F44C11E /* JarvisHoloShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B7A1E4237DECBE4E1AB3BD77 /* JcSegmentedWidthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5204C195CB600382AFA40E2A /* JcSegmentedWidthTests.swift */; };
 		B7FE2B1590C9CEB980287CC2 /* BandMeasureSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */; };
 		B824037A86A3E016B210D41D /* BridgeReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF33F3938A72F9C0C684413 /* BridgeReconnectTests.swift */; };
@@ -1130,6 +1135,7 @@
 		D7CEDEB9510DC3173F7B8A7B /* IslandModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7092ACC37A0C23D9431E399F /* IslandModelsTests.swift */; };
 		D80F84C203223D7237ADD649 /* JCPulse3.otf in Resources */ = {isa = PBXBuildFile; fileRef = 77248C98D52A65557D359E55 /* JCPulse3.otf */; };
 		D865BCBC4C49AD109FCA8239 /* InmoGo3Device.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D43893111AC5290831A841D /* InmoGo3Device.swift */; };
+		D880D2B7A02B742003229EBA /* HoloDropModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6B32B794E91C83AF7A1D7E /* HoloDropModels.swift */; };
 		D8B88663E19CB038E45E262D /* AgentsListPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D027CFC3776C8AC9A57126DF /* AgentsListPresentation.swift */; };
 		D8BF34C43E27FAE21057566B /* ChatMarkdownCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FE4EA7B8C34DDDB922C004 /* ChatMarkdownCache.swift */; };
 		D8C76CF30D009E4B8D01475A /* PhoneCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49C6321567B4B9E63AE85410 /* PhoneCommandTests.swift */; };
@@ -1312,6 +1318,7 @@
 		FD3D77AD611C57774C7D223F /* MelkWriteQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24090A87FCE1CE3FEB502377 /* MelkWriteQueue.swift */; };
 		FD5D894E637CB850201974B1 /* InsightsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB3F558D05BF433A58D7179 /* InsightsUITests.swift */; };
 		FD74ED10B9F9C1F02B65DF83 /* LiveCaptureSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */; };
+		FDA7AA2034E71618649E73FD /* VaultShareKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CBA105F4A41164C52585E8 /* VaultShareKeychain.swift */; };
 		FDA9F508F8771C36BC6132F0 /* InmoAIChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07FB9679704687D68406EB4 /* InmoAIChannel.swift */; };
 		FE9FD545EED63E5F9A92218D /* GlassesSubtitlesWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F483D12BC467246059041C /* GlassesSubtitlesWire.swift */; };
 		FEC5436CF7CC309FA1DBA6F0 /* JarvisActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3634082F63862E42A4DC85D /* JarvisActivityViews.swift */; };
@@ -1329,6 +1336,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 98C03E7F054E6C4D8E971275;
 			remoteInfo = JarvisWatchWidget;
+		};
+		7FF063690BB2CEA0FF15EDED /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7223D615A08A5EE00D7F6FEE;
+			remoteInfo = JarvisHoloShare;
 		};
 		8242D535309B42E3C94580B6 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -1380,6 +1394,7 @@
 			files = (
 				9BCA1C00E849DB26FB73A830 /* JarvisWidget.appex in Embed Foundation Extensions */,
 				759DC61C81D11F959FD36874 /* JarvisVaultShare.appex in Embed Foundation Extensions */,
+				B78D5B847FD1F3528F44C11E /* JarvisHoloShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1488,6 +1503,7 @@
 		10B8CC657BF59DCC1CF4F62C /* OnDeviceModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceModel.swift; sourceTree = "<group>"; };
 		10BD6E60B775C0E654677787 /* StrengthWorkoutDetail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthWorkoutDetail.swift; sourceTree = "<group>"; };
 		1149A90FF4FCDA8183EBD619 /* DashcamLiveTrace.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLiveTrace.swift; sourceTree = "<group>"; };
+		11ABFE6D55A27E89C5B4F06F /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareViewController.swift; path = JarvisHoloShare/ShareViewController.swift; sourceTree = "<group>"; };
 		11C68CD5E3CB910CEC450F59 /* TasksPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TasksPage.swift; sourceTree = "<group>"; };
 		11F708B679062508F6A76A13 /* QuotaAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaAPI.swift; sourceTree = "<group>"; };
 		1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlButtonsPage.swift; sourceTree = "<group>"; };
@@ -1904,6 +1920,7 @@
 		6955E6F49FF77ADA0A0F7E05 /* WorkoutActivityRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutActivityRenderTests.swift; sourceTree = "<group>"; };
 		695DF5E83265D57DABAD99BB /* TrainingStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingStore.swift; sourceTree = "<group>"; };
 		6998747AD0EC6B5B3EB2EA90 /* AppleFoundationModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleFoundationModel.swift; sourceTree = "<group>"; };
+		69A4F73ACB9901C2A91248A3 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisHoloShare/Info.plist; sourceTree = "<group>"; };
 		69C0D975BD69E363B9954EE9 /* BandEcgTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcgTests.swift; sourceTree = "<group>"; };
 		69C4ACCC9C12F7ADBC039E5E /* NavigationMinimap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NavigationMinimap.swift; sourceTree = "<group>"; };
 		69DF5FD1836D99C7F69E11A7 /* LiveSpeakersScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakersScreen.swift; sourceTree = "<group>"; };
@@ -2035,6 +2052,7 @@
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
 		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
+		84E1E62E93275CAC85801E97 /* JarvisHoloShare.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = JarvisHoloShare.entitlements; path = JarvisHoloShare/JarvisHoloShare.entitlements; sourceTree = "<group>"; };
 		851FB69615D107957C2AB5D8 /* SmartKeepalive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SmartKeepalive.swift; sourceTree = "<group>"; };
 		8525CA4201FDCC140611DEF8 /* CarTalkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarTalkTests.swift; sourceTree = "<group>"; };
 		8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLiveCameraTests.swift; sourceTree = "<group>"; };
@@ -2495,6 +2513,7 @@
 		DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
 		DD4AD08296D0BB6CACA7C8ED /* GlassesPlaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesPlaces.swift; sourceTree = "<group>"; };
 		DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoderTests.swift; sourceTree = "<group>"; };
+		DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisHoloShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutLiveIntents.swift; sourceTree = "<group>"; };
 		DE15106A360CC72986B8C768 /* ButtonStates.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonStates.swift; sourceTree = "<group>"; };
 		DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
@@ -2693,6 +2712,13 @@
 			files = (
 				FC2F266FDB8D65FAA123BC96 /* WidgetKit.framework in Frameworks */,
 				AD287ED70C82C175E44537FB /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6D129696D08DD6777C831DC5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3953,6 +3979,16 @@
 			path = Notes;
 			sourceTree = "<group>";
 		};
+		858DC2512E3C6AA3191D686C /* JarvisHoloShare */ = {
+			isa = PBXGroup;
+			children = (
+				84E1E62E93275CAC85801E97 /* JarvisHoloShare.entitlements */,
+				69A4F73ACB9901C2A91248A3 /* Info.plist */,
+				11ABFE6D55A27E89C5B4F06F /* ShareViewController.swift */,
+			);
+			name = JarvisHoloShare;
+			sourceTree = SOURCE_ROOT;
+		};
 		85FE704E5D70F9AA7F4F3D3E /* Health */ = {
 			isa = PBXGroup;
 			children = (
@@ -4104,6 +4140,7 @@
 				4757C5F4EF7713DDC093F1BE /* JarvisWatch.app */,
 				AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */,
 				BC449F4C312C8DC3777C4C79 /* JarvisVaultShare.appex */,
+				DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -4706,6 +4743,7 @@
 				FB1D55B7557E3B576D5F78E7 /* JarvisWidget */,
 				5CF76FDF8DFDFDF6C37CFE2E /* JarvisWatchWidget */,
 				86EED5ADED4A9CAB5AB7E11A /* JarvisVaultShare */,
+				858DC2512E3C6AA3191D686C /* JarvisHoloShare */,
 			);
 			sourceTree = "<group>";
 		};
@@ -5150,6 +5188,7 @@
 				39D497787426CEABC6492CEE /* PBXTargetDependency */,
 				5B25FEDC2AF6625A69FA759F /* PBXTargetDependency */,
 				E0D8537D7F6A2FF933CA2DDB /* PBXTargetDependency */,
+				583A8CA7106A8A22CCF31147 /* PBXTargetDependency */,
 			);
 			name = JarvisCopilot;
 			packageProductDependencies = (
@@ -5161,6 +5200,23 @@
 			productName = JarvisCopilot;
 			productReference = F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */;
 			productType = "com.apple.product-type.application";
+		};
+		7223D615A08A5EE00D7F6FEE /* JarvisHoloShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B70CCC77EC20645F7AE4EBE /* Build configuration list for PBXNativeTarget "JarvisHoloShare" */;
+			buildPhases = (
+				68FB383C2E82D0E4BDB1817A /* Sources */,
+				6D129696D08DD6777C831DC5 /* Frameworks */,
+				81084DCE8F79308E3473CA11 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JarvisHoloShare;
+			productName = JarvisHoloShare;
+			productReference = DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		8A4346D0C3C1C511C49C7C56 /* JarvisWidget */ = {
 			isa = PBXNativeTarget;
@@ -5253,6 +5309,7 @@
 				227B7F147CF4B2CAB61ED403 /* JarvisWatch */,
 				98C03E7F054E6C4D8E971275 /* JarvisWatchWidget */,
 				998D6945AC105416C13BBC94 /* JarvisVaultShare */,
+				7223D615A08A5EE00D7F6FEE /* JarvisHoloShare */,
 			);
 		};
 /* End PBXProject section */
@@ -5303,6 +5360,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7C63417BF2BB9D749ECBBAB7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		81084DCE8F79308E3473CA11 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -5756,6 +5820,19 @@
 				28A32C0FF9F2ABBB6AACB2A8 /* PowerPageTests.swift in Sources */,
 				6FD5EEC60E08EE58C9114B3B /* PowerGatingTests.swift in Sources */,
 				9F4E29FC75DC99FC233B34F7 /* HoloDropCoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		68FB383C2E82D0E4BDB1817A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				51EE7F21B1BFCC5B3BF635D4 /* ShareViewController.swift in Sources */,
+				FDA7AA2034E71618649E73FD /* VaultShareKeychain.swift in Sources */,
+				D880D2B7A02B742003229EBA /* HoloDropModels.swift in Sources */,
+				78B7439127B454582F03277F /* HoloDropClient.swift in Sources */,
+				49B6EFE7506E8A41298D2821 /* HoloOrbitView.swift in Sources */,
+				81A110A02F8DAAEC6065917F /* HoloScreenMapView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6654,6 +6731,12 @@
 			target = 8A4346D0C3C1C511C49C7C56 /* JarvisWidget */;
 			targetProxy = 99F10A20669F2A82AB91482E /* PBXContainerItemProxy */;
 		};
+		583A8CA7106A8A22CCF31147 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = JarvisHoloShare;
+			target = 7223D615A08A5EE00D7F6FEE /* JarvisHoloShare */;
+			targetProxy = 7FF063690BB2CEA0FF15EDED /* PBXContainerItemProxy */;
+		};
 		5B25FEDC2AF6625A69FA759F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 227B7F147CF4B2CAB61ED403 /* JarvisWatch */;
@@ -6697,6 +6780,41 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JarvisCopilot.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JarvisCopilot";
+			};
+			name = Debug;
+		};
+		30085CB489755D085DB0240A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = JarvisHoloShare/JarvisHoloShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = VY5CNF8734;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JarvisHoloShare/Info.plist;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS.HoloShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
 			};
 			name = Debug;
 		};
@@ -7065,6 +7183,42 @@
 			};
 			name = Release;
 		};
+		C41AB469BC7DF803BF5F1466 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = JarvisHoloShare/JarvisHoloShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = VY5CNF8734;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JarvisHoloShare/Info.plist;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS.HoloShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
 		C55EB4388726D8526E972015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -7162,6 +7316,15 @@
 			buildConfigurations = (
 				558CA7F341970D08F5DD48D1 /* Debug */,
 				47A4A45D67EBF6E0B89D6720 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2B70CCC77EC20645F7AE4EBE /* Build configuration list for PBXNativeTarget "JarvisHoloShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C41AB469BC7DF803BF5F1466 /* Release */,
+				30085CB489755D085DB0240A /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

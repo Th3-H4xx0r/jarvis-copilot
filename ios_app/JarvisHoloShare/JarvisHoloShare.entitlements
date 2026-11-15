@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- A team Keychain group shared with the app (VaultShareKeychain): the paired server and the
+	     vault's folder names. A team group rather than the App Group, so the extension signs with
+	     the team's existing profile — no new App ID capability needed. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.jarviscopilot.vaultshare</string>
+	</array>
+</dict>
+</plist>
