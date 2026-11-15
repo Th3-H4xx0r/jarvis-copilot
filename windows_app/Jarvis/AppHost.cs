@@ -306,7 +306,13 @@ public sealed class AppHost : IAsyncDisposable
         ShortcutHandlers[ShortcutAction.HoloDrop] = () => OpenOrbit();
         Holo.Changed += () => Dispatcher.BeginInvoke(() => IslandWindow.HoloAvailable = Holo.On);
         IslandWindow.HoloAvailable = Holo.On;
-        IslandWindow.HoloRequested += () => OpenOrbit();
+        // The island's hand button toggles: a click on it while the Orbit is open has already closed
+        // it (a click outside), so don't open it again straight away.
+        IslandWindow.HoloRequested += () =>
+        {
+            if (DateTime.UtcNow - _orbitClosedAt < TimeSpan.FromMilliseconds(600)) return;
+            OpenOrbit();
+        };
         GeneralPane.Extras.Add(HoloFirewallRow);
         Fling = new HoloFlingWatcher();
         Fling.Flung += angle => Dispatcher.BeginInvoke(() =>
@@ -445,6 +451,7 @@ public sealed class AppHost : IAsyncDisposable
     }
 
     private HoloOrbitWindow? _orbit;
+    private DateTime _orbitClosedAt;
 
     /// Ctrl+Alt+H: grab what's in front and open the Orbit (never over a game).
     public HoloOrbitWindow? OpenOrbit()
@@ -453,23 +460,19 @@ public sealed class AppHost : IAsyncDisposable
         if (_orbit is { IsLoaded: true }) return _orbit;
         var item = HoloGrab.Grab(FrontProbe, System.IO.File.Exists);
         _orbit = new HoloOrbitWindow(Holo, HoloSender, item, Holo.Devices);
-        _orbit.Closed += (_, _) => _orbit = null;
+        _orbit.Closed += (_, _) => { _orbit = null; _orbitClosedAt = DateTime.UtcNow; };
         _orbit.Present();
         return _orbit;
     }
 
     private FrameworkElement HoloFirewallRow()
     {
-        var panel = new System.Windows.Controls.StackPanel();
-        panel.Children.Add(Th.Text("HOLO DROP", 11, "JcTextFaint", bold: true));
-        if (Holo.FirewallNeeded)
-        {
-            panel.Children.Add(Th.Text("Phones on your Wi-Fi can send straight to this PC once Windows allows it. You approve with Face ID on your iPhone, then click Yes on Windows' prompt.", 12, "JcTextDim", wrap: true));
-            panel.Children.Add(Th.Button(HoloFirewall.Why, () => _ = Holo.AllowFirewallAsync()));
-        }
-        else panel.Children.Add(Th.Text(Holo.On ? $"On. Drops are saved to {Holo.SaveFolder}." : "Off (Settings → Power integrations).", 12, "JcTextDim", wrap: true));
-        panel.Margin = new Thickness(0, 22, 0, 0);
-        return panel;
+        if (!Holo.FirewallNeeded)
+            return Pane.Group(Pane.Section("Holo Drop"),
+                Th.Text(Holo.On ? $"On. Drops are saved to {Holo.SaveFolder}." : "Off (Settings → Power integrations).", 13, "JcSetLabel", wrap: true));
+        return Pane.Group(Pane.Section("Holo Drop"),
+            Pane.Labeled("Let phones on your Wi-Fi send straight to this PC", Th.Button(HoloFirewall.Why, () => _ = Holo.AllowFirewallAsync()),
+                "You approve with Face ID on your iPhone, then click Yes on Windows' prompt."));
     }
 
     public void BindShortcuts()
@@ -580,6 +583,10 @@ public sealed class AppHost : IAsyncDisposable
             case "chat-menu": Island.Pinned = true; Island.Open(IslandTab.Chat); Dispatcher.BeginInvoke(() => _chatTab?.ShowMenu(), DispatcherPriority.Background); break;
             case "slowmo": IslandWindow.TimeScale = double.TryParse(Arg(1), System.Globalization.CultureInfo.InvariantCulture, out var k) && k >= 1 ? k : 1; break;
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
+            case "settings-shot": Settings.SettingsWindow.Snapshot(State, Arg(1), Arg(2)); break;
+            case "orbit-shot":
+                Ui.Snap.Save((FrameworkElement)new HoloOrbitWindow(Holo, HoloSender, null, Holo.Devices).Content, 400, 520, Arg(1));
+                break;
         }
     }
 

@@ -17,10 +17,13 @@ public static class PowerPane
     public static FrameworkElement Build(PowerApi api)
     {
         var p = Pane.Page("Power integrations", "Built-in features you can switch off. Protected ones ask your iPhone for Face ID first.");
-        var list = new StackPanel();
-        var status = Th.Text("", 12, "JcTextDim", wrap: true);
+        // One card per integration (its switch, then its settings), like the Mac's Integrations pane.
+        var list = new StackPanel { Tag = SettingsForm.CardsTag };
+        var status = Th.Text("", 12, "JcSetSecondary", wrap: true);
         var loader = new JcLoader { Size = 18 };
-        p.Children.Add(Th.Row(10, loader, status));
+        var top = Th.Row(10, loader, status);
+        top.Tag = SettingsForm.CardsTag;
+        p.Children.Add(top);
         p.Children.Add(list);
         var poll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         IReadOnlyList<PowerRow> rows = Array.Empty<PowerRow>();
@@ -55,23 +58,20 @@ public static class PowerPane
             foreach (var row in rows)
             {
                 var r = row;
-                var sw = new CheckBox { IsChecked = r.Enabled, IsEnabled = !r.Pending, VerticalAlignment = VerticalAlignment.Center, ToolTip = r.Enabled ? "Switch off" : "Switch on" };
+                var sw = new CheckBox { IsChecked = r.Enabled, IsEnabled = !r.Pending, ToolTip = r.Enabled ? "Switch off" : "Switch on" };
                 sw.Click += (_, _) => _ = Change(r, new JsonObject { ["enabled"] = sw.IsChecked == true });
-                var name = Th.Row(6, Th.Text(r.Name, 14, bold: true));
-                if (r.Protected) name.Children.Add(Th.Text("Face ID", 11, "JcTextFaint"));
-                var head = new DockPanel();
-                DockPanel.SetDock(sw, Dock.Right);
-                head.Children.Add(sw);
-                head.Children.Add(Th.Column(2, name, Th.Text(r.Summary, 12, "JcTextDim", wrap: true)));
-                var col = new StackPanel();
-                col.Children.Add(head);
-                if (r.Line.Length > 0) col.Children.Add(Th.Text(r.Line, 12, r.Pending ? "JcAmber" : r.Error != null ? "JcRed" : "JcTextDim", wrap: true));
+                var name = Th.Row(6, Th.Text(r.Name, 13, "JcSetLabel", bold: true));
+                if (r.Protected) name.Children.Add(Th.Text("Face ID", 11, "JcSetTertiary"));
+                sw.Content = Th.Column(2, name, Th.Text(r.Summary, 11.5, "JcSetSecondary", wrap: true));
+                var cardRows = new List<UIElement> { SettingsForm.Row(sw) };
+                if (r.Line.Length > 0)
+                    cardRows.Add(SettingsForm.Row(Th.Text(r.Line, 12, r.Pending ? "JcAmber" : r.Error != null ? "JcRed" : "JcSetSecondary", wrap: true)));
                 if (r.Enabled)
                     foreach (var s in r.SettingsSchema)
-                        col.Children.Add(Field(s, r.Settings.TryGetValue(s.Key, out var v) ? v : new PowerValue.None(),
+                        cardRows.Add(Field(s, r.Settings.TryGetValue(s.Key, out var v) ? v : new PowerValue.None(),
                             value => _ = Change(r, new JsonObject { ["settings"] = new JsonObject { [s.Key] = value } })));
-                var card = Th.Card(col, pad: 14);
-                card.Margin = new Thickness(0, 10, 0, 0);
+                var card = SettingsForm.Card(cardRows);
+                card.Margin = new Thickness(0, list.Children.Count == 0 ? 0 : 12, 0, 0);
                 list.Children.Add(card);
             }
         }
@@ -112,12 +112,12 @@ public static class PowerPane
                     if (s.Max is { } hi) d = Math.Min(hi, d);
                     set(d);
                 };
-                control = Th.Row(6, box, Th.Text(s.Unit, 12, "JcTextDim"));
+                control = Th.Row(6, box, Th.Text(s.Unit, 12, "JcSetSecondary"));
                 break;
             }
             case PowerSettingKind.Secret:
             {
-                var box = new PasswordBox { Width = 200, Background = Th.B("JcButton"), Foreground = Th.B("JcText"), BorderThickness = new Thickness(0), Padding = new Thickness(8, 6, 8, 6) };
+                var box = new PasswordBox { Width = 200 };
                 box.ToolTip = v is PowerValue.SecretSet { IsSet: true } ? "Set. Type to replace it." : "Not set";
                 box.LostFocus += (_, _) => { if (box.Password.Length > 0) set(box.Password); };
                 control = box;

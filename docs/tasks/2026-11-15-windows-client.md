@@ -29,9 +29,10 @@ Tick only when it works live on the PC / phone.
 - [x] Core: link client, models/state, gaming guard, theme/loader/prefs, voice logic, Holo logic, screen-share protocol + cc_state, OTA flow + updater (420 tests, Mac)
 - [ ] WPF/Win32 halves built and compile-checked on the Mac (616 Core tests): island + Agents tab, tray/hotkeys/sounds/recap, Settings, Power + admin UI, voice engine + wake word + push-to-talk, Live, Flow, notes, chat/music, Holo card/BLE/chirp, capture/WebRTC/Command Center, update card. Tick once each runs on the PC.
 - [x] Push-to-talk restored in voice Core
+- [ ] Round 2 fixes (build 263192121, installed): tray menu is a native Win32 menu (closes on Quit/any click); capsules no longer drawn as ovals (WPF radius clamp, app-wide); Holo Drop Orbit redrawn as the Mac's panel with close/Esc/click-outside; click outside the island folds it; Settings redrawn as the Mac's (sidebar tiles, grouped cards, switches, pop-ups). Tick once he's checked them live.
 
 ## Known gaps / follow-ups
-- Island: Segoe UI not SF Pro; no compact push-to-talk island; clicking elsewhere doesn't fold it (would need a global mouse hook); chat replies plain text (no markdown); model menu has no harnesses; Voice chip opens settings, not a session picker.
+- Island: Segoe UI not SF Pro; no compact push-to-talk island; chat replies plain text (no markdown); model menu has no harnesses; Voice chip opens settings, not a session picker.
 - PC screen share (phone -> PC) not yet tried live after the os fix.
 - Windows app: island chat model/harness picker in General not built yet.
 - Windows app screen share sends no brightness or Wi-Fi name, so those Command Center tiles hide on the phone.

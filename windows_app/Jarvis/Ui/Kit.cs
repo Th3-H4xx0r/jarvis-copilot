@@ -18,6 +18,34 @@ internal static class K
 
     private static readonly Dictionary<(string, int), SolidColorBrush> Cache = new();
 
+    /// `CornerRadius(999)` means a capsule (SwiftUI's `Capsule()`). WPF doesn't clamp a corner
+    /// radius to half the short side the way SwiftUI does: it scales each corner on both axes
+    /// separately, so a radius bigger than half the height drew an oval. One class handler clamps
+    /// every Border with a uniform radius like SwiftUI: min(asked, short side / 2).
+    public const double CapsuleRadius = 999;
+
+    private static readonly DependencyProperty AskedRadiusProperty =
+        DependencyProperty.RegisterAttached("AskedRadius", typeof(double), typeof(K), new PropertyMetadata(-1.0));
+    private static readonly DependencyProperty SetRadiusProperty =
+        DependencyProperty.RegisterAttached("SetRadius", typeof(double), typeof(K), new PropertyMetadata(-1.0));
+
+    public static void EnableCapsules() =>
+        EventManager.RegisterClassHandler(typeof(Border), FrameworkElement.SizeChangedEvent,
+            new SizeChangedEventHandler((sender, e) => ClampRadius((Border)sender, e.NewSize)));
+
+    private static void ClampRadius(Border b, Size size)
+    {
+        var r = b.CornerRadius;
+        if (r.TopLeft != r.TopRight || r.TopLeft != r.BottomLeft || r.TopLeft != r.BottomRight || r.TopLeft <= 0) return;
+        // A radius we didn't set is a new ask (the view changed it since).
+        if (r.TopLeft != (double)b.GetValue(SetRadiusProperty)) b.SetValue(AskedRadiusProperty, r.TopLeft);
+        var fit = Math.Min((double)b.GetValue(AskedRadiusProperty), Math.Min(size.Width, size.Height) / 2);
+        if (fit <= 0 || fit == r.TopLeft) { b.SetValue(SetRadiusProperty, r.TopLeft); return; }
+        b.SetValue(SetRadiusProperty, fit);
+        b.CornerRadius = new CornerRadius(fit);
+    }
+
+
     public static Color C(string key) => ((SolidColorBrush)Th.B(key)).Color;
 
     /// The theme colour `key` at `opacity` (SwiftUI's `.opacity`), cached and frozen.

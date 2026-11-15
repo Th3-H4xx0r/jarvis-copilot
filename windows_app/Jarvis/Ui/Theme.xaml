@@ -51,6 +51,16 @@
   <SolidColorBrush x:Key="JcDanger" Color="{StaticResource JcDangerColor}" />
   <SolidColorBrush x:Key="JcCode" Color="{StaticResource JcCodeColor}" />
 
+  <!-- Holo Drop's Orbit (HoloOrbitView.swift): white 0.02 @97%, bubbles white 0.10, card white 0.085,
+       the card's art white 0.17 to 0.07. -->
+  <SolidColorBrush x:Key="JcOrbitPanel" Color="#F7050505" />
+  <SolidColorBrush x:Key="JcOrbitBubble" Color="#FF1A1A1A" />
+  <SolidColorBrush x:Key="JcOrbitCard" Color="#FF161616" />
+  <LinearGradientBrush x:Key="JcOrbitCardArt" StartPoint="0,0" EndPoint="1,1">
+    <GradientStop Color="#FF2B2B2B" Offset="0" />
+    <GradientStop Color="#FF121212" Offset="1" />
+  </LinearGradientBrush>
+
   <!-- SF Pro on the Mac; Segoe UI Variable here (Segoe UI where it's missing). SF Mono → Cascadia. -->
   <FontFamily x:Key="JcFont">Segoe UI Variable Text, Segoe UI</FontFamily>
   <FontFamily x:Key="JcFontDisplay">Segoe UI Variable Display, Segoe UI</FontFamily>
@@ -91,5 +101,384 @@
     <Setter Property="Foreground" Value="{StaticResource JcPrimaryText}" />
     <Setter Property="Background" Value="{StaticResource JcAccent}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- ═══ Settings: the Mac's Jarvis Settings window (MacSettingsWindow.swift: dark NavigationSplitView,
+       grouped Form), in macOS's dark-mode system colours with its default blue accent. Applied inside
+       the Settings window only (SettingsWindow puts these under the stock control types). ═══ -->
+  <SolidColorBrush x:Key="JcSetWindow" Color="#FF1E1E1E" />
+  <SolidColorBrush x:Key="JcSetSidebar" Color="#FF282828" />
+  <SolidColorBrush x:Key="JcSetCard" Color="#FF2A2A2A" />
+  <SolidColorBrush x:Key="JcSetHairline" Color="#17FFFFFF" />
+  <SolidColorBrush x:Key="JcSetSeparator" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="JcSetControl" Color="#FF4A4A4C" />
+  <SolidColorBrush x:Key="JcSetControlHover" Color="#FF56565A" />
+  <SolidColorBrush x:Key="JcSetControlPressed" Color="#FF636367" />
+  <SolidColorBrush x:Key="JcSetField" Color="#FF1F1F1F" />
+  <SolidColorBrush x:Key="JcSetFieldBorder" Color="#29FFFFFF" />
+  <SolidColorBrush x:Key="JcSetMenu" Color="#FF2C2C2E" />
+  <SolidColorBrush x:Key="JcSetAccent" Color="#FF0A84FF" />
+  <SolidColorBrush x:Key="JcSetAccentPressed" Color="#FF0066D6" />
+  <SolidColorBrush x:Key="JcSetSelection" Color="#FF0058D0" />
+  <SolidColorBrush x:Key="JcSetRowHover" Color="#0DFFFFFF" />
+  <SolidColorBrush x:Key="JcSetLabel" Color="#E6FFFFFF" />
+  <SolidColorBrush x:Key="JcSetSecondary" Color="#8CFFFFFF" />
+  <SolidColorBrush x:Key="JcSetTertiary" Color="#59FFFFFF" />
+  <SolidColorBrush x:Key="JcSetSwitchOff" Color="#29FFFFFF" />
+  <SolidColorBrush x:Key="JcSetKnob" Color="#FFF2F2F2" />
+  <SolidColorBrush x:Key="JcSetScroll" Color="#4DFFFFFF" />
+  <!-- The sidebar's icon tiles: MacSettingsSection.tint / appSettingsPanes, one per pane id. -->
+  <Color x:Key="JcTint.general">#FF7C8494</Color>
+  <Color x:Key="JcTint.agents">#FF2FBF8F</Color>
+  <Color x:Key="JcTint.pc-power">#FFF2B53A</Color>
+  <Color x:Key="JcTint.talk">#FF2F8CFF</Color>
+  <Color x:Key="JcTint.flow">#FF9B6BFF</Color>
+  <Color x:Key="JcTint.shortcuts">#FF6B7280</Color>
+  <Color x:Key="JcTint.power">#FF5B6CF0</Color>
+  <Color x:Key="JcTint.voice">#FF2F8CFF</Color>
+  <Color x:Key="JcTint.live">#FFFF4D5A</Color>
+  <Color x:Key="JcTint.speech">#FF9B6BFF</Color>
+  <Color x:Key="JcTint.voices">#FF2FBF8F</Color>
+  <Color x:Key="JcTint.conversation">#FF19A7C9</Color>
+  <Color x:Key="JcTint.providers">#FFF28C28</Color>
+  <Color x:Key="JcTint.appearance">#FFE0529C</Color>
+  <Color x:Key="JcTint.preferences">#FF7C8494</Color>
+  <Color x:Key="JcTint.plugins">#FF3FAE4A</Color>
+  <Color x:Key="JcTint.integrations">#FF5B6CF0</Color>
+  <Color x:Key="JcTint.system">#FF6B7280</Color>
+  <Color x:Key="JcTintLight">#38FFFFFF</Color>
+
+  <!-- Toggle: a label on the left, the macOS switch on the right (a Form row's Toggle). -->
+  <Style x:Key="JcSetToggleStyle" TargetType="CheckBox">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <DockPanel Background="Transparent" LastChildFill="True">
+            <Border x:Name="Track" DockPanel.Dock="Right" Width="32" Height="18" CornerRadius="9"
+                    Background="{StaticResource JcSetSwitchOff}" VerticalAlignment="Center" Margin="12,0,0,0">
+              <Ellipse x:Name="Knob" Width="16" Height="16" Fill="{StaticResource JcSetKnob}" HorizontalAlignment="Left" Margin="1,0,0,0">
+                <Ellipse.Effect>
+                  <DropShadowEffect BlurRadius="3" ShadowDepth="0.5" Opacity="0.35" />
+                </Ellipse.Effect>
+              </Ellipse>
+            </Border>
+            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="False" />
+          </DockPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Track" Property="Background" Value="{StaticResource JcSetAccent}" />
+              <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+              <Setter TargetName="Knob" Property="Margin" Value="0,0,1,0" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Push button: macOS's dark grey bezel, radius 6. -->
+  <Style x:Key="JcSetButtonStyle" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="Background" Value="{StaticResource JcSetControl}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="11,3,11,4" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="MinHeight" Value="24" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="{StaticResource JcSetControlHover}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="{StaticResource JcSetControlPressed}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- The default button (Install, Save): the accent fill. -->
+  <Style x:Key="JcSetPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource JcSetButtonStyle}">
+    <Setter Property="Foreground" Value="{StaticResource JcText}" />
+    <Setter Property="Background" Value="{StaticResource JcSetAccent}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="{StaticResource JcSetAccentPressed}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Text field: a dark well with a hairline, radius 6. -->
+  <Style x:Key="JcSetTextBoxStyle" TargetType="TextBox">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="CaretBrush" Value="{StaticResource JcText}" />
+    <Setter Property="SelectionBrush" Value="{StaticResource JcSetAccent}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="7,4,7,4" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <Border x:Name="Bd" Background="{StaticResource JcSetField}" BorderBrush="{StaticResource JcSetFieldBorder}"
+                  BorderThickness="1" CornerRadius="6">
+            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False"
+                          HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource JcSetAccent}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="JcSetPasswordBoxStyle" TargetType="PasswordBox">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="CaretBrush" Value="{StaticResource JcText}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="7,4,7,4" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="PasswordBox">
+          <Border x:Name="Bd" Background="{StaticResource JcSetField}" BorderBrush="{StaticResource JcSetFieldBorder}"
+                  BorderThickness="1" CornerRadius="6">
+            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" Focusable="False" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource JcSetAccent}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Pop-up button (a Form Picker): grey bezel, the value, and macOS's up/down chevrons. -->
+  <Style x:Key="JcSetComboItemStyle" TargetType="ComboBoxItem">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="10,4,16,4" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBoxItem">
+          <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}" Margin="5,0">
+            <DockPanel>
+              <TextBlock x:Name="Check" DockPanel.Dock="Left" Width="16" Text="&#xE73E;" FontSize="10"
+                         FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" VerticalAlignment="Center" Visibility="Hidden" />
+              <ContentPresenter VerticalAlignment="Center" />
+            </DockPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger Property="IsHighlighted" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource JcSetAccent}" />
+              <Setter Property="Foreground" Value="{StaticResource JcText}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="JcSetComboStyle" TargetType="ComboBox">
+    <Setter Property="Foreground" Value="{StaticResource JcSetLabel}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="MinWidth" Value="140" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="ItemContainerStyle" Value="{StaticResource JcSetComboItemStyle}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border x:Name="Bg" Background="{StaticResource JcSetControl}" CornerRadius="6" Padding="9,3,6,4" MinHeight="24">
+                    <DockPanel>
+                      <Border DockPanel.Dock="Right" Width="16" Height="16" CornerRadius="4" Background="{StaticResource JcSetAccent}" Margin="8,0,0,0">
+                        <Path Data="M 4,6.5 L 8,3 L 12,6.5 M 4,9.5 L 8,13 L 12,9.5" Stroke="{StaticResource JcText}" StrokeThickness="1.4"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                      </Border>
+                      <ContentPresenter />
+                    </DockPanel>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Bg" Property="Background" Value="{StaticResource JcSetControlHover}" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </ToggleButton.Template>
+              <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                VerticalAlignment="Center" IsHitTestVisible="False" />
+            </ToggleButton>
+            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
+                   Focusable="False" PopupAnimation="Fade" VerticalOffset="3">
+              <Border Background="{StaticResource JcSetMenu}" BorderBrush="{StaticResource JcSetHairline}" BorderThickness="1"
+                      CornerRadius="8" Padding="0,5" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                <Border.Effect>
+                  <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.5" />
+                </Border.Effect>
+                <ScrollViewer>
+                  <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Slider: a thin track, the accent up to a round white knob. -->
+  <Style x:Key="JcSetSliderThumbStyle" TargetType="Thumb">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Thumb">
+          <Ellipse Width="18" Height="18" Fill="{StaticResource JcSetKnob}">
+            <Ellipse.Effect>
+              <DropShadowEffect BlurRadius="3" ShadowDepth="0.5" Opacity="0.4" />
+            </Ellipse.Effect>
+          </Ellipse>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="JcSetSliderRepeatStyle" TargetType="RepeatButton">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="RepeatButton">
+          <Border Background="Transparent">
+            <Border Height="4" CornerRadius="2" Background="{TemplateBinding Background}" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="JcSetSliderStyle" TargetType="Slider">
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Slider">
+          <Track x:Name="PART_Track" Height="22">
+            <Track.DecreaseRepeatButton>
+              <RepeatButton Style="{StaticResource JcSetSliderRepeatStyle}" Background="{StaticResource JcSetAccent}" Command="Slider.DecreaseLarge" />
+            </Track.DecreaseRepeatButton>
+            <Track.IncreaseRepeatButton>
+              <RepeatButton Style="{StaticResource JcSetSliderRepeatStyle}" Background="{StaticResource JcSetSwitchOff}" Command="Slider.IncreaseLarge" />
+            </Track.IncreaseRepeatButton>
+            <Track.Thumb>
+              <Thumb Style="{StaticResource JcSetSliderThumbStyle}" />
+            </Track.Thumb>
+          </Track>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Overlay-thin scroll bars, like macOS's. -->
+  <Style x:Key="JcSetScrollThumbStyle" TargetType="Thumb">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Thumb">
+          <Border CornerRadius="3" Background="{StaticResource JcSetScroll}" Margin="2" />
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="JcSetScrollBarStyle" TargetType="ScrollBar">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="MinWidth" Value="10" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ScrollBar">
+          <Track x:Name="PART_Track" IsDirectionReversed="True" Orientation="Vertical">
+            <Track.Thumb>
+              <Thumb Style="{StaticResource JcSetScrollThumbStyle}" />
+            </Track.Thumb>
+          </Track>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+    <Style.Triggers>
+      <Trigger Property="Orientation" Value="Horizontal">
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="ScrollBar">
+              <Track x:Name="PART_Track" IsDirectionReversed="False" Orientation="Horizontal">
+                <Track.Thumb>
+                  <Thumb Style="{StaticResource JcSetScrollThumbStyle}" />
+                </Track.Thumb>
+              </Track>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+  <!-- The island's own text field look (Th.Input outside Settings). -->
+  <Style x:Key="JcInputStyle" TargetType="TextBox">
+    <Setter Property="Background" Value="{StaticResource JcButton}" />
+    <Setter Property="Foreground" Value="{StaticResource JcText}" />
+    <Setter Property="CaretBrush" Value="{StaticResource JcText}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="8,6,8,6" />
+    <Setter Property="FontSize" Value="13" />
   </Style>
 </ResourceDictionary>

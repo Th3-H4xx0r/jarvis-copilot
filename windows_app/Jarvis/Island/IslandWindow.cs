@@ -47,6 +47,11 @@ public sealed class IslandWindow : NoActivateWindow
     private readonly ContentControl _content = new() { Focusable = false };
     private readonly Dictionary<IslandTab, FrameworkElement> _tabs = new();
     private readonly System.Windows.Threading.DispatcherTimer _timer;
+    /// While open: a click anywhere outside the island folds it, like the Mac's. The island never
+    /// takes focus, so there's no deactivation to hear: the button state is read every 50 ms while
+    /// it's open (no hook; never while hidden, so never during a game).
+    private readonly System.Windows.Threading.DispatcherTimer _outside = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private bool _mouseWasDown;
 
     // compact ears
     private readonly JarvisOrb _earOrb;
@@ -172,6 +177,7 @@ public sealed class IslandWindow : NoActivateWindow
 
         _timer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => _p.Tick();
+        _outside.Tick += (_, _) => WatchOutsideClick();
 
         _p.Changed += Render;
         _p.TypingRequested += () => Dispatcher.BeginInvoke(BeginTyping);
@@ -207,10 +213,26 @@ public sealed class IslandWindow : NoActivateWindow
 
     // ── state → shape ────────────────────────────────────────────────
 
+    private static bool AnyButtonDown() =>
+        (Native.GetAsyncKeyState(0x01) & 0x8000) != 0 || (Native.GetAsyncKeyState(0x02) & 0x8000) != 0;
+
+    private void WatchOutsideClick()
+    {
+        if (_shownState != IslandStateMachine.State.Expanded) { _outside.Stop(); return; }
+        var down = AnyButtonDown();
+        var pressed = down && !_mouseWasDown;
+        _mouseWasDown = down;
+        // Over the drawn island (transparent pixels let the click through, so they count as outside).
+        if (!pressed || _shape.IsMouseOver || _p.Pinned) return;
+        if (_p.Typing) { EndTyping(); _p.EndTyping(); }
+        _p.ClickedOutside();
+    }
+
     private void Render()
     {
         if (!_p.Visible)
         {
+            _outside.Stop();
             _timer.Stop();
             StopLoop();
             _flight.Cancel();
@@ -229,6 +251,7 @@ public sealed class IslandWindow : NoActivateWindow
         RenderEars();
         if (state == IslandStateMachine.State.Expanded)
         {
+            if (!_outside.IsEnabled) { _mouseWasDown = AnyButtonDown(); _outside.Start(); }
             RenderRow();
             var view = _tabs.TryGetValue(_p.Tab, out var v) ? v : null;
             if (_content.Content != view) _content.Content = view;

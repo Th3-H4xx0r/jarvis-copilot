@@ -36,10 +36,11 @@ internal static class Th
         var b = new Button
         {
             Content = label,
-            Style = S(primary ? "JcPrimaryButtonStyle" : "JcButtonStyle"),
             FontSize = size,
             Focusable = false,
         };
+        // A resource reference, not the style itself: the Settings window swaps in the Mac's buttons.
+        b.SetResourceReference(FrameworkElement.StyleProperty, primary ? "JcPrimaryButtonStyle" : "JcButtonStyle");
         b.Click += (_, _) => onClick();
         return b;
     }
@@ -105,22 +106,19 @@ internal static class Th
     {
         var t = new TextBox
         {
-            Background = B("JcButton"),
-            Foreground = B("JcText"),
-            CaretBrush = B("JcText"),
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(8, 6, 8, 6),
-            FontSize = 13,
             AcceptsReturn = multiline,
             TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
             ToolTip = placeholder.Length > 0 ? placeholder : null,
         };
+        t.SetResourceReference(FrameworkElement.StyleProperty, "JcInputStyle");
         return t;
     }
 
+    /// A Settings row: the label, then the switch at the right edge (the Mac Form's Toggle).
     public static CheckBox Switch(string label, bool on, Action<bool> changed)
     {
-        var c = new CheckBox { Content = Text(label), IsChecked = on, Foreground = B("JcText"), Margin = new Thickness(0, 4, 0, 4) };
+        var c = new CheckBox { Content = Text(label, 13, "JcSetLabel", wrap: true), IsChecked = on };
+        c.SetResourceReference(FrameworkElement.StyleProperty, "JcSetToggleStyle");
         c.Checked += (_, _) => changed(true);
         c.Unchecked += (_, _) => changed(false);
         return c;

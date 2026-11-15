@@ -25,7 +25,7 @@ public sealed class ServerPane : IDisposable
         _web = new WebView2
         {
             DefaultBackgroundColor = System.Drawing.Color.Transparent,
-            MinHeight = 560,
+            MinHeight = 0,
         };
         _ready = InitAsync();
     }

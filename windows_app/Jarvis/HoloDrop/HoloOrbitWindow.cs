@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using Jarvis.Core.Gaming;
 using Jarvis.Core.Holo;
@@ -12,17 +14,25 @@ using Jarvis.Ui;
 
 namespace Jarvis.HoloDrop;
 
-/// The Orbit (Ctrl+Alt+H): what's in front in the middle, his devices around it; a click sends
-/// with the device's default action. Nothing grabbed → Paste or drop a file onto it. Opens on the
-/// monitor under the cursor, never activated; closes 1.2 s after a send lands.
+/// The Orbit (Ctrl+Alt+H), drawn as the Mac's (HoloOrbitView.swift): a 400x520 black panel,
+/// HOLO DROP and a close button on top, his devices on a dashed ring around the item card, the
+/// nearest one lit, a status line and the action chips at the bottom (only the chosen chip
+/// filled). A click on a device sends with the chosen action; nothing grabbed → Paste or drop a
+/// file. Opens on the monitor under the cursor, never activated, so Esc, Ctrl+V and a click
+/// outside are read from the key state while it's open (no hook); closes after a send lands.
 public sealed class HoloOrbitWindow : NoActivateWindow
 {
-    private const double Side = 420, Ring = 150, Bubble = 76;
+    private const double W = 400, H = 520, Ring = 138, CentreY = 248;
     private readonly HoloDropService _service;
     private readonly HoloSender _sender;
-    private readonly Canvas _canvas = new() { Width = Side, Height = Side };
-    private readonly TextBlock _status = Th.Text("", 12, "JcTextDim", wrap: true);
+    private readonly Canvas _canvas = new() { Width = W, Height = H };
+    private readonly TextBlock _status = K.T("", 11, null, K.W(0.5));
+    private readonly DispatcherTimer _keys = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private readonly Border _panel;
     private HoloItem? _item;
+    private HoloAction? _override;
+    private string? _aimed;
+    private bool _busy, _closing, _escWas, _vWas, _mouseWas;
     private IReadOnlyList<HoloDevice> _devices;
 
     public HoloOrbitWindow(HoloDropService service, HoloSender sender, HoloItem? item, IReadOnlyList<HoloDevice> devices)
@@ -33,23 +43,34 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         _devices = devices;
         Title = "Holo Drop";
         Background = Brushes.Transparent;
-        Width = Side;
-        Height = Side + 40;
+        Width = W;
+        Height = H;
         AllowDrop = true;
+        _panel = new Border
+        {
+            Background = Th.B("JcOrbitPanel"),
+            BorderBrush = K.W(0.12),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(26),
+            Child = _canvas,
+        };
+        Content = _panel;
+        DragEnter += (_, _) => _panel.BorderBrush = K.W(0.6);
+        DragLeave += (_, _) => _panel.BorderBrush = K.W(0.12);
         Drop += (_, e) =>
         {
+            _panel.BorderBrush = K.W(0.12);
             if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) _item = HoloItem.Files(files);
             else if (e.Data.GetData(DataFormats.UnicodeText) is string text) _item = HoloItem.FromText(text);
             Render();
         };
-        Content = new Border
-        {
-            Background = Th.B("JcBackground"),
-            CornerRadius = new CornerRadius(Side / 2),
-            Child = new Grid { Children = { _canvas } },
-        };
         _service.ShowInOrbit = (_, line) => { Dispatcher.BeginInvoke(() => Done(line)); return IsVisible; };
-        Closed += (_, _) => _service.ShowInOrbit = null;
+        _keys.Tick += (_, _) => WatchKeys();
+        Closed += (_, _) =>
+        {
+            _keys.Stop();
+            _service.ShowInOrbit = null;
+        };
         Render();
     }
 
@@ -64,52 +85,226 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         var left = (int)Math.Clamp(c.X - w / 2.0, m.Work.Left, m.Work.Right - w);
         var top = (int)Math.Clamp(c.Y - h / 2.0, m.Work.Top, m.Work.Bottom - h);
         Monitors.Place(hwnd, new RectI(left, top, left + w, top + h));
+        // Whatever is held down as it opens (the click or the keys that opened it) isn't a new press.
+        _escWas = Down(0x1B);
+        _vWas = Down(0x56);
+        _mouseWas = Down(0x01) || Down(0x02);
+        _keys.Start();
     }
 
     /// Fling: send to the device nearest the angle without a click.
     public void SendToward(double angleDeg)
     {
         if (_item == null) return;
-        var placed = HoloOrbitLayout.Place(HoloSendDefaults.Targets(_devices, _item));
+        var placed = HoloOrbitLayout.Place(Targets());
         if (HoloOrbitLayout.Pick(angleDeg, placed) is { } d) _ = SendAsync(d);
     }
+
+    public void CloseOrbit()
+    {
+        if (_closing) return;
+        _closing = true;
+        Close();
+    }
+
+    private static bool Down(int vk) => (Native.GetAsyncKeyState(vk) & 0x8000) != 0;
+
+    /// Esc closes, Ctrl+V pastes, a click outside the panel closes (the Mac's panel resigns).
+    private void WatchKeys()
+    {
+        var esc = Down(0x1B);
+        if (esc && !_escWas) { CloseOrbit(); return; }
+        _escWas = esc;
+        var v = Down(0x56);
+        if (v && !_vWas && Down(0x11) && IsMouseOver) Paste();
+        _vWas = v;
+        var mouse = Down(0x01) || Down(0x02);
+        if (mouse && !_mouseWas && !IsMouseOver && !_busy) { CloseOrbit(); return; }
+        _mouseWas = mouse;
+    }
+
+    private IReadOnlyList<HoloDevice> Targets() => _item == null ? _devices : HoloSendDefaults.Targets(_devices, _item);
+
+    private HoloDevice? Hot(IReadOnlyList<HoloDevice> targets) =>
+        targets.FirstOrDefault(d => d.Id == _aimed) ?? HoloOrbitLayout.Nearest(targets);
+
+    private HoloAction Action(IReadOnlyList<HoloDevice> targets) =>
+        _override ?? (_item is { } i ? HoloSendDefaults.Action(i) : Hot(targets)?.DefaultAction ?? HoloAction.Open);
+
+    private static void Place(UIElement e, double x, double y) { Canvas.SetLeft(e, x); Canvas.SetTop(e, y); }
 
     private void Render()
     {
         _canvas.Children.Clear();
-        var centre = new PointD(Side / 2, Side / 2);
-        var middle = new StackPanel { Width = 160, HorizontalAlignment = HorizontalAlignment.Center };
-        middle.Children.Add(Th.Text(_item?.Caption ?? "Nothing in front", 13, bold: true, wrap: true));
-        if (_item == null) middle.Children.Add(Th.Button("Paste", Paste, size: 12));
-        middle.Children.Add(_status);
-        Canvas.SetLeft(middle, centre.X - 80);
-        Canvas.SetTop(middle, centre.Y - 30);
-        _canvas.Children.Add(middle);
+        var targets = Targets();
 
-        var targets = _item == null ? _devices : HoloSendDefaults.Targets(_devices, _item);
+        // ── header ──
+        var title = K.T("HOLO DROP", 12, FontWeights.SemiBold, K.W(0.5));
+        title.TextAlignment = TextAlignment.Center;
+        title.Width = W;
+        Place(title, 0, 21);
+        _canvas.Children.Add(title);
+        var xIcon = new Grid { Width = 26, Height = 26 };
+        xIcon.Children.Add(new Ellipse { Fill = K.W(0.08) });
+        xIcon.Children.Add(K.Glyph("\uE711", 10, K.W(0.7)));
+        var close = new Tap(xIcon, PressLook.Shrink, "Close (Esc)");
+        close.Click += CloseOrbit;
+        Place(close, W - 16 - 26, 16);
+        _canvas.Children.Add(close);
+
+        // ── the ring ──
+        var ring = new Ellipse
+        {
+            Width = Ring * 2, Height = Ring * 2, Stroke = K.W(0.06), StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 3, 5 },
+        };
+        Place(ring, W / 2 - Ring, CentreY - Ring);
+        _canvas.Children.Add(ring);
+        if (targets.Count == 0)
+        {
+            var none = K.T(_devices.Count == 0 ? "Finding your devices…" : "No device can take this right now", 11, null, K.W(0.45));
+            none.TextAlignment = TextAlignment.Center;
+            none.Width = W;
+            Place(none, 0, CentreY - Ring - 8);
+            _canvas.Children.Add(none);
+        }
         var placed = HoloOrbitLayout.Place(targets);
-        var spots = HoloOrbitLayout.Positions(placed, centre, Ring);
-        var nearest = HoloOrbitLayout.Nearest(targets);
+        var spots = HoloOrbitLayout.Positions(placed, new PointD(W / 2, CentreY), Ring);
+        var hot = Hot(targets);
         foreach (var (device, _) in placed)
         {
-            var d = device;
-            var b = new Button
-            {
-                Width = Bubble,
-                Height = Bubble,
-                Style = Th.S(nearest?.Id == d.Id ? "JcPrimaryButtonStyle" : "JcButtonStyle"),
-                Content = Th.Text(d.Name, 11, nearest?.Id == d.Id ? "JcPrimaryText" : "JcText", wrap: true),
-                IsEnabled = _item != null,
-                Focusable = false,
-            };
-            b.Click += (_, _) => _ = SendAsync(d);
-            var p = spots[d.Id];
-            Canvas.SetLeft(b, p.X - Bubble / 2);
-            Canvas.SetTop(b, p.Y - Bubble / 2);
-            _canvas.Children.Add(b);
+            var bubble = Bubble(device, hot?.Id == device.Id);
+            var p = spots[device.Id];
+            Place(bubble, p.X - 40, p.Y + 10 - 26);
+            _canvas.Children.Add(bubble);
         }
-        if (targets.Count == 0) _status.Text = "No device can take this right now.";
+
+        // ── the item ──
+        var card = ItemCard();
+        Place(card, W / 2 - 62, CentreY - 76);
+        _canvas.Children.Add(card);
+
+        // ── footer: status, then the chips ──
+        if (!_busy && _status.Tag is not "set")
+            _status.Text = _item == null ? "Paste or drop a file" : "Click a device to drop it there";
+        // The Mac's footer: the status line 12 pt above the chips, growing upward if it wraps.
+        _status.TextAlignment = TextAlignment.Center;
+        _status.TextWrapping = TextWrapping.Wrap;
+        _status.VerticalAlignment = VerticalAlignment.Bottom;
+        if (_status.Parent is Grid old) old.Children.Remove(_status);
+        var statusBox = new Grid { Width = W - 40, Height = 34 };
+        statusBox.Children.Add(_status);
+        Place(statusBox, 20, H - 18 - 26 - 12 - 34);
+        _canvas.Children.Add(statusBox);
+        var chips = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        var chosen = Action(targets);
+        foreach (var a in Enum.GetValues<HoloAction>())
+        {
+            var on = a == chosen;
+            var chip = new Tap(K.T(a.Title(), 10.5, on ? FontWeights.SemiBold : FontWeights.Normal, on ? Th.B("JcPrimaryText") : K.W(0.72)), PressLook.Dim)
+            {
+                Background = on ? Th.B("JcAccent") : K.W(0.10),
+                CornerRadius = new CornerRadius(K.CapsuleRadius),
+                Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(chips.Children.Count == 0 ? 0 : 5, 0, 0, 0),
+                IsEnabled = !_busy,
+            };
+            var action = a;
+            chip.Click += () => { _override = action; Render(); };
+            chips.Children.Add(chip);
+        }
+        var chipRow = new Grid { Width = W };
+        chipRow.Children.Add(chips);
+        Place(chipRow, 0, H - 18 - 26);
+        _canvas.Children.Add(chipRow);
     }
+
+    private FrameworkElement Bubble(HoloDevice d, bool hot)
+    {
+        var circle = new Grid { Width = 52, Height = 52 };
+        if (hot) circle.Children.Add(new Ellipse { Fill = K.W(0.08), Margin = new Thickness(-6) });
+        circle.Children.Add(new Ellipse { Fill = Th.B("JcOrbitBubble"), Stroke = hot ? K.W(1) : K.W(0.2), StrokeThickness = 1 });
+        circle.Children.Add(K.Glyph(DeviceGlyph(d.Kind), 19, K.W(d.Online ? 0.92 : 0.45)));
+        var name = K.T(d.Name, 10.5, FontWeights.Medium, K.W(d.Online ? 0.92 : 0.45));
+        name.MaxWidth = 80;
+        name.HorizontalAlignment = HorizontalAlignment.Center;
+        var col = new StackPanel { Width = 80 };
+        circle.HorizontalAlignment = HorizontalAlignment.Center;
+        col.Children.Add(circle);
+        name.Margin = new Thickness(0, 6, 0, 0);
+        col.Children.Add(name);
+        var tap = new Tap(col, PressLook.Shrink, d.Online ? $"Drop on {d.Name}" : $"{d.Name} is away — Jarvis holds it until it's back")
+        {
+            IsEnabled = _item != null && !_busy,
+        };
+        tap.MouseEnter += (_, _) => { if (_aimed != d.Id) { _aimed = d.Id; Dispatcher.BeginInvoke(Render); } };
+        tap.Click += () => _ = SendAsync(d);
+        return tap;
+    }
+
+    private FrameworkElement ItemCard()
+    {
+        var art = new Grid { Height = 92, Background = Th.B("JcOrbitCardArt") };
+        art.Children.Add(K.Glyph(ItemGlyph(_item), 28, K.W(0.45)));
+        var caption = K.T(_item?.Caption ?? "Nothing in front", 11, FontWeights.Medium, K.W(0.85), wrap: true);
+        caption.MaxHeight = 30;
+        var detail = K.T(_item == null ? "Paste or drop a file" : ItemDetail(_item), 10, null, K.W(0.45));
+        var text = new StackPanel { Margin = new Thickness(10, 8, 10, 8) };
+        text.Children.Add(caption);
+        detail.Margin = new Thickness(0, 2, 0, 0);
+        text.Children.Add(detail);
+        var col = new StackPanel();
+        col.Children.Add(art);
+        col.Children.Add(text);
+        var card = new Border
+        {
+            Width = 124, Height = 152,
+            Background = Th.B("JcOrbitCard"),
+            CornerRadius = new CornerRadius(18),
+            BorderBrush = K.W(_item == null ? 0.12 : 0.2),
+            BorderThickness = new Thickness(1),
+            Child = col,
+            ClipToBounds = true,
+            ToolTip = _item == null ? "Paste (Ctrl+V) or drop a file here" : null,
+        };
+        card.Clip = new RectangleGeometry(new Rect(0, 0, 124, 152), 18, 18);
+        if (_item == null)
+        {
+            var paste = new Tap(card, PressLook.Dim, "Paste (Ctrl+V)");
+            paste.Click += Paste;
+            return paste;
+        }
+        return card;
+    }
+
+    private static string DeviceGlyph(string kind) => kind switch
+    {
+        "iphone" => "\uE8EA",
+        "ipad" => "\uE70A",
+        "mac" => "\uE7F8",
+        "pc" => "\uE7F4",
+        "web" => "\uE774",
+        "glasses" => "\uE7B3",
+        "pod" => "\uE7F5",
+        _ => "\uE703",
+    };
+
+    private static string ItemGlyph(HoloItem? item) => item switch
+    {
+        HoloLinkItem => "\uE71B",
+        HoloTextItem => "\uE8C1",
+        HoloFilesItem => "\uE8A5",
+        _ => "\uE896",
+    };
+
+    private static string ItemDetail(HoloItem item) => item switch
+    {
+        HoloLinkItem l => HoloItem.WebUri(l.Url)?.Host ?? "Link",
+        HoloTextItem t => $"{t.Value.Length} characters",
+        HoloFilesItem { Paths.Count: 1 } f => System.IO.Path.GetExtension(f.Paths[0]).TrimStart('.').ToUpperInvariant() + " file",
+        HoloFilesItem f => $"{f.Paths.Count} files",
+        _ => "",
+    };
 
     private void Paste()
     {
@@ -122,22 +317,41 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         Render();
     }
 
-    private async Task SendAsync(HoloDevice d)
+    private void SetStatus(string text, double opacity = 0.85)
     {
-        if (_item is not { } item) return;
-        _status.Text = $"Sending to {d.Name}…";
-        var sent = await _sender.SendDetailedAsync(item, d, HoloSendDefaults.Action(item));
-        _service.Track(sent, d.Name);
-        if (sent.Error is { } err) { _status.Text = err; return; }
-        if (sent.Outcome is { } o) Done(HoloDropRecord.LandedLine(d.Name, o.Wire, null));
-        else _status.Text = $"Sent to {d.Name}.";
+        _status.Text = text;
+        _status.Tag = "set";
+        _status.Foreground = K.W(opacity);
     }
 
-    private void Done(string line)
+    private async Task SendAsync(HoloDevice d)
     {
-        _status.Text = line;
-        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
-        t.Tick += (_, _) => { t.Stop(); Close(); };
+        if (_item is not { } item || _busy) return;
+        var action = _override ?? HoloSendDefaults.Action(item);
+        _aimed = d.Id;
+        _busy = true;
+        SetStatus($"Sending to {d.Name}…");
+        Render();
+        try
+        {
+            var sent = await _sender.SendDetailedAsync(item, d, action);
+            _service.Track(sent, d.Name);
+            if (sent.Error is { } err) { SetStatus(err, 1); return; }
+            if (sent.Outcome is { } o) Done(HoloDropRecord.LandedLine(d.Name, o.Wire, null));
+            else Done($"Sent to {d.Name}.", 2.2);
+        }
+        finally
+        {
+            _busy = false;
+            if (!_closing) Render();
+        }
+    }
+
+    private void Done(string line, double seconds = 1.2)
+    {
+        SetStatus(line, 1);
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
+        t.Tick += (_, _) => { t.Stop(); CloseOrbit(); };
         t.Start();
     }
 }

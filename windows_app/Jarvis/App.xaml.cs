@@ -36,6 +36,7 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        Jarvis.Ui.K.EnableCapsules();
         _host = new AppHost(Dispatcher);
         if (Environment.ProcessPath is { } exe)
         {

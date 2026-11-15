@@ -15,7 +15,8 @@ public sealed class TrayIcon : IDisposable
 {
     private readonly AppState _state;
     private readonly TaskbarIcon _icon;
-    private readonly ContextMenu _menu = new();
+    private readonly NativeMenu _menu = new();
+    private bool _menuOpen;
     private readonly Func<bool> _keepAwake;
     private readonly Func<bool> _recording;
 
@@ -28,15 +29,15 @@ public sealed class TrayIcon : IDisposable
         {
             ToolTipText = "Jarvis",
             Icon = DrawIcon(),
-            ContextMenu = _menu,
             NoLeftClickDelay = true,
         };
         _icon.TrayLeftMouseUp += (_, _) => Command?.Invoke(TrayCommand.OpenIsland);
-        _menu.Opened += async (_, _) =>
+        _icon.TrayRightMouseUp += async (_, _) =>
         {
-            Rebuild();
-            await _state.RefreshRosterAsync();
-            if (_menu.IsOpen) Rebuild();
+            if (_menuOpen) return;
+            // A fresh roster if jc-client answers quickly; never hold the menu up for it.
+            await Task.WhenAny(_state.RefreshRosterAsync(), Task.Delay(300));
+            OpenMenu();
         };
         _state.Changed += UpdateTip;
         _icon.ForceCreate(false);
@@ -48,33 +49,28 @@ public sealed class TrayIcon : IDisposable
     /// `Jarvis.exe --diag open-tray-menu` (desktop verification).
     public void OpenMenu()
     {
-        Rebuild();
-        _menu.IsOpen = true;
+        if (_menuOpen) return;
+        _menuOpen = true;
+        try { _menu.Show(Entries()); }
+        finally { _menuOpen = false; }
     }
 
-    private void Rebuild()
-    {
-        _menu.Items.Clear();
-        foreach (var item in TrayMenu.Build(_state.Roster, _state.Connected, _keepAwake(), _recording()))
+    /// The menu has closed before an entry runs, so a slow jc-client call never holds it up.
+    private List<NativeMenu.Entry> Entries() =>
+        TrayMenu.Build(_state.Roster, _state.Connected, _keepAwake(), _recording()).Select(item =>
         {
-            if (item.Separator) { _menu.Items.Add(new Separator()); continue; }
-            var mi = new MenuItem
-            {
-                Header = item.Detail.Length > 0 ? $"{item.Label}  ·  {item.Detail}" : item.Label,
-                IsEnabled = item.Enabled,
-                FontWeight = item.Header ? FontWeights.SemiBold : FontWeights.Normal,
-            };
-            if (item.Checked is { } on) { mi.IsCheckable = true; mi.IsChecked = on; }
-            if (item.Command is { } c)
-                mi.Click += async (_, _) =>
+            if (item.Separator) return new NativeMenu.Entry("", Separator: true);
+            Action? run = item.Command is { } c
+                ? () =>
                 {
-                    _menu.IsOpen = false;   // close first: a slow jc-client call must never hold the menu up
-                    if (TrayMenu.RunLinkAction(c, _state) is { } run) await run;
+                    if (TrayMenu.RunLinkAction(c, _state) is { } task) _ = task;
                     else Command?.Invoke(c);
-                };
-            _menu.Items.Add(mi);
-        }
-    }
+                }
+                : null;
+            // Headers and roster rows are information, not commands: shown, never greyed out.
+            return new NativeMenu.Entry(item.Detail.Length > 0 ? $"{item.Label}  ·  {item.Detail}" : item.Label,
+                run, Enabled: item.Enabled || item.Command == null, Checked: item.Checked == true, Bold: item.Header);
+        }).ToList();
 
     private void UpdateTip()
     {
@@ -103,5 +99,9 @@ public sealed class TrayIcon : IDisposable
         return System.Drawing.Icon.FromHandle(bmp.GetHicon());
     }
 
-    public void Dispose() => _icon.Dispose();
+    public void Dispose()
+    {
+        _icon.Dispose();
+        _menu.Dispose();
+    }
 }

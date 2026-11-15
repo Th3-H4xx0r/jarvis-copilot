@@ -17,42 +17,54 @@ using Jarvis.Ui;
 
 namespace Jarvis.Settings;
 
-/// Shared layout for native panes: a title, then sections of rows.
+/// Shared layout for native panes, after the Mac's grouped Form: the title goes in the window's
+/// header (the Mac's navigation title), sections are headers over rounded cards of rows
+/// (SettingsForm lays them out), labels on the left and controls on the right.
 internal static class Pane
 {
-    public static StackPanel Page(string title, string? subtitle = null)
+    public sealed record Header(string Title, string? Subtitle);
+
+    public static StackPanel Page(string title, string? subtitle = null) =>
+        new() { Tag = new Header(title, subtitle) };
+
+    public static TextBlock Section(string title) =>
+        new() { Text = title, Tag = SettingsForm.SectionTag };
+
+    /// Small grey text under a section's card (a Form section footer).
+    public static TextBlock Footer(string text)
     {
-        var p = new StackPanel { MaxWidth = 680, HorizontalAlignment = HorizontalAlignment.Left };
-        p.Children.Add(Th.Text(title, 22, bold: true));
-        if (subtitle != null)
-        {
-            var s = Th.Text(subtitle, 13, "JcTextDim", wrap: true);
-            s.Margin = new Thickness(0, 4, 0, 0);
-            p.Children.Add(s);
-        }
-        return p;
+        var t = Th.Text(text, 11.5, "JcSetSecondary", wrap: true);
+        t.Tag = SettingsForm.FooterTag;
+        return t;
     }
 
-    public static TextBlock Section(string title)
+    /// Several parts as one (an Extras entry with its own section): spliced into the page.
+    public static StackPanel Group(params UIElement[] parts)
     {
-        var t = Th.Text(title.ToUpperInvariant(), 11, "JcTextFaint", bold: true);
-        t.Margin = new Thickness(0, 22, 0, 6);
-        return t;
+        var p = new StackPanel { Tag = SettingsForm.GroupTag };
+        foreach (var x in parts) p.Children.Add(x);
+        return p;
     }
 
     public static FrameworkElement Labeled(string label, UIElement control, string? hint = null)
     {
-        var left = hint == null ? (UIElement)Th.Text(label, 13) : Th.Column(2, Th.Text(label, 13), Th.Text(hint, 11, "JcTextDim", wrap: true));
-        var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4), LastChildFill = true };
+        var name = Th.Text(label, 13, "JcSetLabel", wrap: true);
+        var left = hint == null ? (UIElement)name : Th.Column(2, name, Th.Text(hint, 11.5, "JcSetSecondary", wrap: true));
+        var row = new DockPanel { LastChildFill = true };
+        if (control is FrameworkElement fe)
+        {
+            fe.VerticalAlignment = VerticalAlignment.Center;
+            fe.Margin = new Thickness(16, 0, 0, 0);
+        }
         DockPanel.SetDock(control, Dock.Right);
         row.Children.Add(control);
         row.Children.Add(left);
-        return row;
+        return SettingsForm.Row(row);
     }
 
     public static ComboBox Picker(IEnumerable<(string Value, string Label)> items, string current, Action<string> changed)
     {
-        var c = new ComboBox { MinWidth = 200 };
+        var c = new ComboBox { MinWidth = 160 };
         foreach (var (v, l) in items) c.Items.Add(new ComboBoxItem { Content = l, Tag = v, IsSelected = v == current });
         c.SelectionChanged += (_, _) => { if (c.SelectedItem is ComboBoxItem { Tag: string v }) changed(v); };
         return c;
