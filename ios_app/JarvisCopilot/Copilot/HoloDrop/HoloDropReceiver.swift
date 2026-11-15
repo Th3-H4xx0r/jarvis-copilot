@@ -516,8 +516,9 @@ enum HoloQuickLook {
     static func topController() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication }
-        var top = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
-        while let next = top?.presentedViewController { top = next }
+        let window = scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first(where: { $0.windowLevel == .normal })
+        var top = window?.rootViewController
+        while let next = top?.presentedViewController, !next.isBeingDismissed { top = next }
         return top
     }
 }

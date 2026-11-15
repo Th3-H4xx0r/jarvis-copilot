@@ -42,11 +42,17 @@ enum PowerLinkDestination {
         case "island_designs": IslandDesignsPage()
         case "photon": PhotonSetupPage()
         case "imessage": IMessageMemoryView(store: IMessageMemoryStore())
-        case "holo_drop": HoloDropPage()
+        case "holo_drop", "holo_drop_page": HoloDropPage()
         default: Text("This opens elsewhere on your iPhone.").foregroundStyle(JcTheme.muted)
         }
     }
 
     /// Targets that switch tabs instead of pushing a screen.
     static func isTab(_ target: String) -> Bool { target == "health_tab" }
+
+    /// Targets that do something at once instead of pushing a screen (Holo Drop's Orbit).
+    @MainActor
+    static func action(_ target: String) -> (() -> Void)? {
+        target == "holo_drop" ? { HoloLauncher.shared.openQuick() } : nil
+    }
 }

@@ -152,12 +152,14 @@ enum QuickAction: String, CaseIterable, Sendable {
     case voice = "com.jarviscopilot.jarviscopilotMobileAndIOS.quick.voice"
     case chat = "com.jarviscopilot.jarviscopilotMobileAndIOS.quick.chat"
     case coding = "com.jarviscopilot.jarviscopilotMobileAndIOS.quick.coding"
+    case holoDrop = "com.jarviscopilot.jarviscopilotMobileAndIOS.quick.holodrop"
 
     var title: String {
         switch self {
         case .voice:  return "Talk to JARVIS"
         case .chat:   return "New chat"
         case .coding: return "Coding agents"
+        case .holoDrop: return "Holo Drop"
         }
     }
 
@@ -166,6 +168,7 @@ enum QuickAction: String, CaseIterable, Sendable {
         case .voice:  return "mic.fill"
         case .chat:   return "bubble.left.fill"
         case .coding: return "terminal.fill"
+        case .holoDrop: return "hand.point.up.braille.fill"
         }
     }
 
@@ -176,6 +179,7 @@ enum QuickAction: String, CaseIterable, Sendable {
         case .voice:  return .voice
         case .chat:   return .chat(session: nil)
         case .coding: return .agents(key: nil)
+        case .holoDrop: return .holoDropSend
         }
     }
 

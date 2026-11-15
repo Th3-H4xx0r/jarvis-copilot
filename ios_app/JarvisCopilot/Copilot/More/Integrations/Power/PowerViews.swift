@@ -208,7 +208,9 @@ struct PowerPage: View {
             JcSectionLabel("Open")
             GlassGroup {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, link in
-                    if PowerLinkDestination.isTab(link.target) {
+                    if let run = PowerLinkDestination.action(link.target) {
+                        GlassRow(symbol: row.icon, title: link.label, last: index == shown.count - 1, action: run) { EmptyView() }
+                    } else if PowerLinkDestination.isTab(link.target) {
                         GlassRow(symbol: row.icon, title: link.label, last: index == shown.count - 1) {
                             router?.selectedTab = .health
                         }

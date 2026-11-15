@@ -78,6 +78,7 @@
 		0D71CED774F4761CD29B88B8 /* ChatAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58650A5C9B15B6832F2CB9D0 /* ChatAPITests.swift */; };
 		0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */; };
 		0D7CC8B9BED4D8B8F29E778C /* InmoAdvancedControlsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0572D9FE6F17A755CEDBB2F /* InmoAdvancedControlsTests.swift */; };
+		0D7D3F0D4BC089E2FD5F705E /* HoloFlingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF8CC282826785EB0B143F0 /* HoloFlingTests.swift */; };
 		0DE57AD0613CDD6A01D5C9E9 /* X5ModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */; };
 		0E08A4E71E8B533FBA967C64 /* AppleHealthSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */; };
 		0E417891F65C1C75850F30E3 /* OnDeviceAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */; };
@@ -920,6 +921,7 @@
 		AD32EEEE4CCFBDDACA4FE12E /* WidgetModelSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50DBF31FAD4DAF34B9F011DD /* WidgetModelSnapshots.swift */; };
 		AD39E628942C7960B7BF9B92 /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBB75BCC6096760AD3D53ACA /* QRScanner.swift */; };
 		AD3D92C39867CAB0C33C1F7A /* DashcamPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87639CBA234ADE09893580C /* DashcamPlayerView.swift */; };
+		AD628349E79A1B14173E05DB /* HoloShortcutFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AD3155204FF8EA89DC98FF /* HoloShortcutFile.swift */; };
 		ADC006527C34D6651C07D759 /* SessionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA9D4EC439F17779A618B99 /* SessionsSheet.swift */; };
 		ADC43651C6F071A5394B984A /* CodingChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEECBD4B5207707D0F7D6AAF /* CodingChatModels.swift */; };
 		AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */; };
@@ -2029,6 +2031,7 @@
 		7BAB54D4A34591ED45C42CF9 /* InmoTraceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoTraceTests.swift; sourceTree = "<group>"; };
 		7BB6FB8DF96DF15354DEBB91 /* VoicePageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePageTests.swift; sourceTree = "<group>"; };
 		7BF235F5545898FE39755885 /* DashcamLibraryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLibraryView.swift; sourceTree = "<group>"; };
+		7BF8CC282826785EB0B143F0 /* HoloFlingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoloFlingTests.swift; sourceTree = "<group>"; };
 		7BFB57E1CEDF9A23E02C86EB /* DashcamNovatek.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamNovatek.swift; sourceTree = "<group>"; };
 		7C07DE7D137AE52D58065960 /* IslandDesignsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDesignsUITests.swift; sourceTree = "<group>"; };
 		7C28D93963C3124D74BFC1E6 /* ServerLogsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsModels.swift; sourceTree = "<group>"; };
@@ -2266,6 +2269,7 @@
 		A648CAF7E0841BBA95CEC575 /* AmbientSegmenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientSegmenter.swift; sourceTree = "<group>"; };
 		A68F90FA4094E69A21A10278 /* RingWorkout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkout.swift; sourceTree = "<group>"; };
 		A6ACD7A5F1C74BAD1BA7ECB9 /* HealthStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
+		A6AD3155204FF8EA89DC98FF /* HoloShortcutFile.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HoloShortcutFile.swift; sourceTree = "<group>"; };
 		A6DDD351067C14D230E2285D /* PhotonTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotonTests.swift; sourceTree = "<group>"; };
 		A6EB9C7771C46F50FD2210D9 /* CarPlayScreensTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayScreensTests.swift; sourceTree = "<group>"; };
 		A6FC1077A89BDD3610381855 /* RingChartScrub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingChartScrub.swift; sourceTree = "<group>"; };
@@ -4189,6 +4193,7 @@
 				2E29D4463496AE6FA937940E /* HoloNearby.swift */,
 				7A2F6AE64C072B0D4E535FFC /* HoloSensing.swift */,
 				05F5B7D45F45B44953E3BB6E /* HoloUltrasonic.swift */,
+				A6AD3155204FF8EA89DC98FF /* HoloShortcutFile.swift */,
 			);
 			name = HoloDrop;
 			path = HoloDrop;
@@ -4995,6 +5000,7 @@
 				ECD1EBFFFD4902BF7127FE48 /* HoloDropCoreTests.swift */,
 				90F33A8E13C961CEE5FA59A3 /* HoloDropReceiverTests.swift */,
 				29FF9720865EA6DDA0D768E2 /* HoloDropSweepTests.swift */,
+				7BF8CC282826785EB0B143F0 /* HoloFlingTests.swift */,
 			);
 			name = HoloDrop;
 			path = HoloDrop;
@@ -5864,6 +5870,7 @@
 				9F4E29FC75DC99FC233B34F7 /* HoloDropCoreTests.swift in Sources */,
 				8CDAE99D425CFD5026A53B22 /* HoloDropReceiverTests.swift in Sources */,
 				19CCC260025039531F2D511D /* HoloDropSweepTests.swift in Sources */,
+				0D7D3F0D4BC089E2FD5F705E /* HoloFlingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6773,6 +6780,7 @@
 				35958D7799FC6722EA28D199 /* HoloSensing.swift in Sources */,
 				DC27AA02829B28875447A282 /* HoloUltrasonic.swift in Sources */,
 				8595B1D87134FED9941CE055 /* HoloDropActivityAttributes.swift in Sources */,
+				AD628349E79A1B14173E05DB /* HoloShortcutFile.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

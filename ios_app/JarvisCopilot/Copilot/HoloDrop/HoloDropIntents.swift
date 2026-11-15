@@ -10,12 +10,17 @@ struct HoloDropScreenIntent: AppIntent {
         "Drop a screenshot onto another device — and the page it shows, when Jarvis recognises it.")
     static let openAppWhenRun = true
 
+    /// Optional: run on its own (no screenshot step) it opens Holo Drop with the newest photo.
     @Parameter(title: "Screenshot")
-    var image: IntentFile
+    var image: IntentFile?
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard PowerState.shared.isOn("holo-drop") else { return .result(dialog: "Holo Drop is switched off.") }
+        guard let image else {
+            HoloLauncher.shared.openQuick()
+            return .result(dialog: "")
+        }
         let name = "Screenshot \(Date().formatted(.dateTime.hour().minute().second())).png"
             .replacingOccurrences(of: ":", with: ".")
         let dir = HoloTemp.root.appendingPathComponent("screen-\(UUID().uuidString.prefix(6))", isDirectory: true)
@@ -34,7 +39,7 @@ struct OpenHoloDropIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        HoloLauncher.shared.openPage()
+        HoloLauncher.shared.openQuick()
         return .result()
     }
 }

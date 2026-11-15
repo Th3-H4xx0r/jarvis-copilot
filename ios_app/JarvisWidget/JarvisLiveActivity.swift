@@ -229,6 +229,7 @@ struct JarvisWidgetBundle: WidgetBundle {
             JarvisButtonControl()
             JarvisSwitchControl()
             AgentsControl()
+            HoloDropControl()
         }
     }
 }

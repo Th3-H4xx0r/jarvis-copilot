@@ -3,41 +3,125 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Opens the in-app Orbit from anywhere (the screen intent, the page, a pasted link).
+/// Opens the in-app Orbit from anywhere (one-tap entries, the screen shortcut, the page).
 @MainActor
 final class HoloLauncher: ObservableObject {
     static let shared = HoloLauncher()
     private weak var presented: UIViewController?
 
-    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, attempt: Int = 0) {
-        guard let client = HoloDropReceiver.shared.client else { return }
-        // A cold launch from Back Tap: the scene may not be up yet.
-        guard let top = HoloQuickLook.topController() else {
-            if attempt < 20 {
-                Task { try? await Task.sleep(for: .milliseconds(150)); present(item, guessFrom: screenshot, attempt: attempt + 1) }
-            }
-            return
+    /// One tap from anywhere: the Orbit, already holding the newest photo or screenshot (switch it
+    /// from the tray at the top), ready to throw.
+    func openQuick() {
+        Task {
+            let item = await HoloQuickPick.newestPhoto() ?? .text("")
+            present(item, tray: true)
         }
+    }
+
+    func present(_ item: HoloItem, guessFrom screenshot: URL? = nil, tray: Bool = false) {
+        guard PowerState.shared.isOn("holo-drop") else { return }
+        guard let client = HoloDropReceiver.shared.client else { return }
         presented?.dismiss(animated: false)
         let model = HoloOrbitModel(item: item, client: client)
-        let host = UIHostingController(rootView: HoloAppOrbit(model: model, guessFrom: screenshot) { [weak self] in
+        let host = UIHostingController(rootView: HoloAppOrbit(model: model, guessFrom: screenshot, tray: tray) { [weak self] in
             self?.presented?.dismiss(animated: true)
         })
         host.modalPresentationStyle = .fullScreen
         host.view.backgroundColor = .black
         presented = host
-        (HoloQuickLook.topController() ?? top).present(host, animated: true)
+        presentWhenReady(host)
     }
 
-    /// The Holo Drop page over whatever is open (Siri/Shortcuts "Open Holo Drop").
-    func openPage(attempt: Int = 0) {
-        guard let top = HoloQuickLook.topController() else {
-            if attempt < 20 { Task { try? await Task.sleep(for: .milliseconds(150)); openPage(attempt: attempt + 1) } }
+    /// Present once nothing else is mid-animation: right after a photo picker or file browser
+    /// closes, presenting on the closing screen is silently dropped by UIKit (the "picked a
+    /// photo and nothing happened" bug). A cold launch from Back Tap waits for the scene.
+    private func presentWhenReady(_ vc: UIViewController, attempt: Int = 0) {
+        guard let top = HoloQuickLook.topController(), !top.isBeingDismissed, !top.isBeingPresented,
+              top.transitionCoordinator == nil, top.view.window != nil else {
+            if attempt < 40 {
+                Task { try? await Task.sleep(for: .milliseconds(100)); presentWhenReady(vc, attempt: attempt + 1) }
+            }
             return
         }
+        top.present(vc, animated: true)
+    }
+
+    /// The Holo Drop page (saved items, arrival default, Back Tap setup).
+    func openPage() {
         let host = UIHostingController(rootView: NavigationStack { HoloDropPage() })
         host.view.backgroundColor = .black
-        top.present(host, animated: true)
+        presentWhenReady(host)
+    }
+}
+
+/// What a one-tap Holo Drop starts with, and the tray's sources.
+@MainActor
+enum HoloQuickPick {
+    /// The newest photo or video in the library (a screenshot just taken included), as a file.
+    static func newestPhoto() async -> HoloItem? {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        guard status == .authorized || status == .limited else { return nil }
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        opts.predicate = NSPredicate(format: "mediaType == %d OR mediaType == %d",
+                                     PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
+        opts.fetchLimit = 1
+        guard let asset = PHAsset.fetchAssets(with: opts).firstObject else { return nil }
+        return await export(asset)
+    }
+
+    /// The asset's original file, streamed to Holo Drop's temp folder (never into memory).
+    static func export(_ asset: PHAsset) async -> HoloItem? {
+        let video = asset.mediaType == .video
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let res = resources.first(where: { video ? ($0.type == .video || $0.type == .fullSizeVideo)
+                                                       : ($0.type == .photo || $0.type == .fullSizePhoto) })
+                ?? resources.first else { return nil }
+        let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent(HoloArrival.safeName(res.originalFilename))
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true                 // iCloud Photos originals
+        do { try await PHAssetResourceManager.default().writeData(for: res, toFile: dest, options: options) } catch { return nil }
+        let mime = UTType(res.uniformTypeIdentifier)?.preferredMIMEType ?? (video ? "video/quicktime" : "image/jpeg")
+        return .file(dest, name: dest.lastPathComponent, mime: mime, kind: video ? "video" : "image")
+    }
+
+    /// What's on the clipboard (reading it may show iOS's paste prompt, so only on a tap).
+    static func clipboard() -> HoloItem? {
+        let pb = UIPasteboard.general
+        if let url = pb.url, url.scheme?.hasPrefix("http") == true { return .link(url, title: nil) }
+        if let s = pb.string?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+            if let url = URL(string: s), url.scheme?.hasPrefix("http") == true { return .link(url, title: nil) }
+            return .text(s)
+        }
+        if let image = pb.image, let data = image.pngData() {
+            let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("Copied image.png")
+            if (try? data.write(to: url)) != nil { return .file(url, name: "Copied image.png", mime: "image/png", kind: "image") }
+        }
+        return nil
+    }
+
+    static func file(_ picked: URL) -> HoloItem? {
+        let scoped = picked.startAccessingSecurityScopedResource()
+        defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
+        let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let copy = dir.appendingPathComponent(picked.lastPathComponent)
+        guard (try? FileManager.default.copyItem(at: picked, to: copy)) != nil else { return nil }
+        let type = UTType(filenameExtension: copy.pathExtension)
+        let kind = type?.conforms(to: .image) == true ? "image" : type?.conforms(to: .movie) == true ? "video" : "file"
+        return .file(copy, name: copy.lastPathComponent, mime: type?.preferredMIMEType ?? "application/octet-stream", kind: kind)
+    }
+
+    static func photo(_ item: PhotosPickerItem) async -> HoloItem? {
+        let type = item.supportedContentTypes.first ?? .jpeg
+        guard let picked = try? await item.loadTransferable(type: HoloPickedFile.self) else { return nil }
+        let isVideo = type.conforms(to: .movie)
+        return .file(picked.url, name: picked.url.lastPathComponent,
+                     mime: type.preferredMIMEType ?? "application/octet-stream", kind: isVideo ? "video" : "image")
     }
 }
 
@@ -46,7 +130,10 @@ final class HoloLauncher: ObservableObject {
 struct HoloAppOrbit: View {
     @ObservedObject var model: HoloOrbitModel
     let guessFrom: URL?
+    var tray = false
     let close: () -> Void
+    @State private var trayPhoto: PhotosPickerItem?
+    @State private var trayFiles = false
     @ObservedObject private var sensing = HoloSensing.shared
     @ObservedObject private var look = HoloLook.shared
     @State private var began = false
@@ -68,6 +155,7 @@ struct HoloAppOrbit: View {
             .padding(14)
             VStack(spacing: 8) {
                 Spacer().frame(height: 64)
+                if tray, model.phase == .choosing { trayRow }
                 if look.running {
                     HoloCameraPreview(session: look.session)
                         .frame(width: 150, height: 200).clipShape(RoundedRectangle(cornerRadius: 14))
@@ -110,6 +198,44 @@ struct HoloAppOrbit: View {
     }
 
     private var macs: [HoloDevice] { model.devices.filter { $0.kind == "mac" && $0.online } }
+
+    /// Switch what's being dropped without leaving the popup.
+    private var trayRow: some View {
+        HStack(spacing: 10) {
+            trayTile("photo.on.rectangle", "Latest") {
+                Task { if let item = await HoloQuickPick.newestPhoto() { model.item = item } }
+            }
+            PhotosPicker(selection: $trayPhoto, matching: .any(of: [.images, .videos])) {
+                trayLabel("photo.stack", "Photos")
+            }
+            trayTile("doc.on.clipboard", "Clipboard") {
+                if let item = HoloQuickPick.clipboard() { model.item = item } else { note = "Nothing copied" }
+            }
+            trayTile("folder", "Files") { trayFiles = true }
+        }
+        .onChange(of: trayPhoto) { _, picked in
+            guard let picked else { return }
+            Task {
+                if let item = await HoloQuickPick.photo(picked) { model.item = item }
+                trayPhoto = nil
+            }
+        }
+        .fileImporter(isPresented: $trayFiles, allowedContentTypes: [.item]) { result in
+            if case .success(let url) = result, let item = HoloQuickPick.file(url) { model.item = item }
+        }
+    }
+
+    private func trayTile(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { trayLabel(symbol, title) }.buttonStyle(.plain)
+    }
+
+    private func trayLabel(_ symbol: String, _ title: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(.white.opacity(0.85))
+                .frame(width: 52, height: 40).background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.08)))
+            Text(title).font(.system(size: 10)).foregroundStyle(.white.opacity(0.6))
+        }
+    }
 
     private var locateMenu: some View {
         Menu {
@@ -186,6 +312,14 @@ struct HoloDropPage: View {
                         }
                     }
                 }
+                Button { HoloLauncher.shared.openQuick() } label: {
+                    Label("Holo Drop something", systemImage: "hand.point.up.braille.fill")
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(.black)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Capsule().fill(Color.white))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 6)
                 JcSectionLabel("Drop something") { EmptyView() }
                 GlassGroup {
                     PhotosPicker(selection: $photo, matching: .any(of: [.images, .videos])) {
@@ -222,22 +356,19 @@ struct HoloDropPage: View {
                     }
                 }
 
-                JcSectionLabel("Without the share sheet") { EmptyView() }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Back Tap or your Control Center button can drop whatever's on screen:")
-                    Text("1. In Shortcuts, make a shortcut: Take Screenshot → Holo Drop Screen.")
-                    Text("2. Settings → Accessibility → Touch → Back Tap → Double Tap → that shortcut.")
-                    Text("3. Or pick it for a Control Center button.")
-                }
-                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
-                Button {
-                    if let url = URL(string: "shortcuts://create-shortcut") { UIApplication.shared.open(url) }
-                } label: {
-                    Text("Open Shortcuts").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+                JcSectionLabel("Back Tap: drop what's on screen") { EmptyView() }
+                Button(action: addShortcut) {
+                    Text("Add the Holo Drop Screen shortcut").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
                         .frame(maxWidth: .infinity).padding(.vertical, 12)
                         .background(Capsule().fill(Color.white.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("1. Tap above, then Shortcuts → Add (replace any old one).")
+                    Text("2. Settings → Accessibility → Touch → Back Tap → Double Tap → Holo Drop Screen.")
+                    Text("Then double-tap the back of the phone on anything and throw it. The Control Center control and the app icon (press and hold) open Holo Drop too.")
+                }
+                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40)
@@ -251,6 +382,16 @@ struct HoloDropPage: View {
             guard let item else { return }
             Task { await dropPhoto(item) }
         }
+    }
+
+    /// Hands the signed "Holo Drop Screen" shortcut (Take Screenshot → Holo Drop) to Shortcuts.
+    private func addShortcut() {
+        let url = HoloTemp.root.appendingPathComponent("\(HoloShortcutFile.name).shortcut")
+        try? FileManager.default.createDirectory(at: HoloTemp.root, withIntermediateDirectories: true)
+        guard (try? HoloShortcutFile.data.write(to: url)) != nil, let top = HoloQuickLook.topController() else { return }
+        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = top.view
+        top.present(share, animated: true)
     }
 
     private var defaultsJSON: String {
@@ -287,59 +428,19 @@ struct HoloDropPage: View {
     }
 
     private func dropClipboard() {
-        let pb = UIPasteboard.general
-        if let url = pb.url, url.scheme?.hasPrefix("http") == true {
-            HoloLauncher.shared.present(.link(url, title: nil))
-        } else if let s = pb.string, !s.isEmpty {
-            if let url = URL(string: s.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme?.hasPrefix("http") == true {
-                HoloLauncher.shared.present(.link(url, title: nil))
-            } else {
-                HoloLauncher.shared.present(.text(s))
-            }
-        } else if let image = pb.image, let data = image.pngData() {
-            let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let url = dir.appendingPathComponent("Copied image.png")
-            if (try? data.write(to: url)) != nil {
-                HoloLauncher.shared.present(.file(url, name: "Copied image.png", mime: "image/png", kind: "image"))
-            }
-        } else {
-            problem = "Nothing on the clipboard to drop."
-        }
+        guard let item = HoloQuickPick.clipboard() else { problem = "Nothing on the clipboard to drop."; return }
+        HoloLauncher.shared.present(item)
     }
 
     private func dropFile(_ picked: URL) {
-        let scoped = picked.startAccessingSecurityScopedResource()
-        defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
-        let dir = HoloTemp.root.appendingPathComponent("out-\(UUID().uuidString.prefix(6))")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let copy = dir.appendingPathComponent(picked.lastPathComponent)
-        do { try FileManager.default.copyItem(at: picked, to: copy) } catch {
-            problem = "Couldn't read that file."
-            return
-        }
-        let type = UTType(filenameExtension: copy.pathExtension)
-        let mime = type?.preferredMIMEType ?? "application/octet-stream"
-        let kind = type?.conforms(to: .image) == true ? "image" : type?.conforms(to: .movie) == true ? "video" : "file"
-        HoloLauncher.shared.present(.file(copy, name: copy.lastPathComponent, mime: mime, kind: kind))
+        guard let item = HoloQuickPick.file(picked) else { problem = "Couldn't read that file."; return }
+        HoloLauncher.shared.present(item)
     }
 
     private func dropPhoto(_ item: PhotosPickerItem) async {
         defer { photo = nil }
-        let type = item.supportedContentTypes.first ?? .jpeg
-        // Copied to a file, never into memory (a video can be gigabytes).
-        guard let picked = try? await item.loadTransferable(type: HoloPickedFile.self) else {
-            problem = "Couldn't load that from Photos."
-            return
-        }
-        let isVideo = type.conforms(to: .movie)
-        let ext = picked.url.pathExtension.isEmpty ? (type.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")) : picked.url.pathExtension
-        let name = "\(isVideo ? "Video" : "Photo") \(Date().formatted(.dateTime.month().day().hour().minute())).\(ext)"
-            .replacingOccurrences(of: ":", with: ".").replacingOccurrences(of: "/", with: "-")
-        let url = picked.url.deletingLastPathComponent().appendingPathComponent(name)
-        try? FileManager.default.moveItem(at: picked.url, to: url)
-        HoloLauncher.shared.present(.file(url, name: name, mime: type.preferredMIMEType ?? "application/octet-stream",
-                                          kind: isVideo ? "video" : "image"))
+        guard let drop = await HoloQuickPick.photo(item) else { problem = "Couldn't load that from Photos."; return }
+        HoloLauncher.shared.present(drop)
     }
 
     private func use(_ e: HoloSavedList.Entry) {

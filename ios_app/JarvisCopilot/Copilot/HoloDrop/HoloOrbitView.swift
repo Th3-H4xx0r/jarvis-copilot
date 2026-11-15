@@ -1,5 +1,7 @@
 import CoreMotion
 import SwiftUI
+import ImageIO
+import UIKit
 
 /// The Holo Drop popup's state, shared by the app and the share extension.
 @MainActor
@@ -16,7 +18,13 @@ final class HoloOrbitModel: ObservableObject {
     @Published var errorText: String?
     /// The drop's story is told (landed / failed / held, or the landing wait ran out): a popup may close.
     @Published var settled = false
-    let item: HoloItem
+    /// What's being dropped (the app's popup can switch it from its tray).
+    @Published var item: HoloItem
+    /// A physical throw picked this device: the card flies to its bubble, then it's sent.
+    @Published var flung: String?
+    /// The Orbit's size, from the view: a throw resolves against the bubbles' real positions.
+    var layoutSize: CGSize = .zero
+    private var fling = HoloFlingDetector(armedAt: ProcessInfo.processInfo.systemUptime)
     /// Sent right after `item` to the same device (a screenshot's best-guess link).
     @Published var extra: HoloItem?
     let client: HoloDropClient
@@ -33,6 +41,7 @@ final class HoloOrbitModel: ObservableObject {
             serverDevices = try await client.devices().filter { $0.accepts(item) }
             devices = serverDevices
             phase = .choosing
+            fling = HoloFlingDetector(armedAt: ProcessInfo.processInfo.systemUptime)
         } catch {
             errorText = error.localizedDescription
             phase = .done(.failed(error.localizedDescription))
@@ -50,6 +59,10 @@ final class HoloOrbitModel: ObservableObject {
     private var serverDevices: [HoloDevice] = []
 
     func pick(_ device: HoloDevice) {
+        if case .text(let t) = item, t.isEmpty {
+            errorText = "Pick something from the top first"
+            return
+        }
         if device.aim {
             phase = .aiming(device)
             aim = .center
@@ -113,17 +126,43 @@ final class HoloOrbitModel: ObservableObject {
 
     private func startHeading() {
         guard motion.isDeviceMotionAvailable else { return }
-        motion.deviceMotionUpdateInterval = 1 / 15
+        motion.deviceMotionUpdateInterval = 1 / 60           // fast enough to see a throw
         motion.startDeviceMotionUpdates(using: .xMagneticNorthZVertical, to: .main) { [weak self] m, _ in
             guard let self, let m else { return }
             let deg = m.heading >= 0 ? m.heading : nil
             if let deg, abs(HoloOrbitLayout.angleDelta(deg, self.heading ?? -999)) > 2 { self.heading = deg }
+            if self.phase == .choosing, self.flung == nil {
+                let a = m.userAcceleration
+                if let flick = self.fling.add(HoloMotionSample(t: m.timestamp, a: SIMD3(a.x, a.y, a.z))) {
+                    self.thrown(flick)
+                }
+            }
             if case .aiming = self.phase {
                 // Relative to how he held the phone when aiming began (not the absolute angle).
                 if self.tiltRef == nil { self.tiltRef = (m.attitude.roll, m.attitude.pitch) }
                 let ref = self.tiltRef ?? (0, 0)
                 self.tilt = HoloTilt.offset(roll: m.attitude.roll, pitch: m.attitude.pitch, refRoll: ref.0, refPitch: ref.1)
             }
+        }
+    }
+
+    /// A physical throw: send to the device it points at (or the bubble on that side).
+    private func thrown(_ flick: HoloFlick) {
+        let size = layoutSize == .zero ? CGSize(width: 390, height: 760) : layoutSize
+        let positions = HoloOrbitLayout.positions(devices: devices, heading: heading, size: size)
+        let center = CGPoint(x: size.width / 2, y: size.height * 0.48)
+        guard let id = HoloFling.target(flick, heading: heading, devices: devices, positions: positions, center: center),
+              let device = devices.first(where: { $0.id == id }) else {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            errorText = "Point the phone at a device and throw — or flick toward its bubble"
+            return
+        }
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: min(1, flick.strength / 3))
+        flung = id
+        Task {
+            try? await Task.sleep(for: .milliseconds(260))
+            pick(device)
+            flung = nil
         }
     }
 
@@ -159,6 +198,8 @@ struct HoloOrbitView: View {
                 HoloResultView(result: result)
             }
         }
+        .background(GeometryReader { g in Color.clear.onAppear { model.layoutSize = g.size }
+            .onChange(of: g.size) { _, size in model.layoutSize = size } })
         .task { await model.load() }
         .onDisappear { model.stopSensors() }
     }
@@ -167,6 +208,7 @@ struct HoloOrbitView: View {
         GeometryReader { geo in
             let positions = HoloOrbitLayout.positions(devices: model.devices, heading: model.heading, size: geo.size)
             let center = CGPoint(x: geo.size.width / 2, y: geo.size.height * 0.48)
+            let flyTo = model.flung.flatMap { positions[$0] }
             ZStack {
                 Text("HOLO DROP").font(.system(size: 13, weight: .medium)).tracking(1)
                     .foregroundStyle(.white.opacity(0.5)).position(x: geo.size.width / 2, y: 40)
@@ -179,7 +221,10 @@ struct HoloOrbitView: View {
                     }
                 }
                 HoloItemCard(item: model.item)
-                    .offset(drag)
+                    .scaleEffect(flyTo == nil ? 1 : 0.35)
+                    .opacity(flyTo == nil ? 1 : 0.2)
+                    .offset(flyTo.map { CGSize(width: $0.x - center.x, height: $0.y - center.y) } ?? drag)
+                    .animation(.easeIn(duration: 0.25), value: model.flung)
                     .position(center)
                     .gesture(DragGesture()
                         .onChanged { drag = $0.translation }
@@ -195,7 +240,8 @@ struct HoloOrbitView: View {
                                 withAnimation(.spring) { drag = .zero }
                             }
                         })
-                Text(model.devices.isEmpty ? "No devices to drop onto right now" : "Fling toward a device · or tap one")
+                Text(model.devices.isEmpty ? "No devices to drop onto right now"
+                     : (model.errorText ?? "Throw the phone toward a device · or flick / tap one"))
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
                     .position(x: geo.size.width / 2, y: geo.size.height - 92)
                 HoloActionChips(model: model, device: model.devices.first)
@@ -243,9 +289,15 @@ struct HoloItemCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: item.symbol).font(.system(size: 28)).foregroundStyle(.white.opacity(0.5))
-                .frame(maxWidth: .infinity, minHeight: 90)
-                .background(Color.white.opacity(0.06))
+            Group {
+                if case .file(let url, _, _, "image") = item, let image = HoloThumb.image(url) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Image(systemName: item.symbol).font(.system(size: 28)).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(width: 124, height: 96).clipped()
+            .background(Color.white.opacity(0.06))
             Text(item.caption).font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
                 .lineLimit(2).padding(8)
         }
@@ -312,5 +364,22 @@ enum HoloTilt {
     static func offset(roll: Double, pitch: Double, refRoll: Double, refPitch: Double) -> CGSize {
         CGSize(width: max(-0.4, min(0.4, (roll - refRoll) * 0.6)),
                height: max(-0.4, min(0.4, (pitch - refPitch) * 0.6)))
+    }
+}
+
+/// Small thumbnails for the item card, decoded once (a full photo per redraw would stutter).
+enum HoloThumb {
+    private static let cache = NSCache<NSURL, UIImage>()
+
+    static func image(_ url: URL, max: CGFloat = 320) -> UIImage? {
+        if let hit = cache.object(forKey: url as NSURL) { return hit }
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: max] as CFDictionary) else { return nil }
+        let image = UIImage(cgImage: cg)
+        cache.setObject(image, forKey: url as NSURL)
+        return image
     }
 }

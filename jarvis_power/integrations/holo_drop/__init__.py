@@ -23,7 +23,8 @@ class HoloDrop(PowerIntegration):
     route_prefixes = ("/api/holo-drop",)
     surfaces = ("ios.share.holo_drop", "ios.trigger.holo_drop", "mac.share.holo_drop",
                 "mac.trigger.holo_drop", "web.holo_drop")
-    links = (Link("ios", "holo_drop", "Holo Drop something"), Link("web", "holo_drop", "Holo Drop something"))
+    links = (Link("ios", "holo_drop", "Holo Drop something"), Link("ios", "holo_drop_page", "Saved, arrival & Back Tap"),
+             Link("web", "holo_drop", "Holo Drop something"))
     settings = (
         Setting("direct", "Send directly on the same Wi-Fi", "toggle", default=True,
                 help="Fastest, no size limit. Otherwise drops go through Jarvis."),

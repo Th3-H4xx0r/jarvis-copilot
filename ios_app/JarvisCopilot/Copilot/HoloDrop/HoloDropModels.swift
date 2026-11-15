@@ -250,3 +250,79 @@ enum HoloDefaults {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 }
+
+// MARK: - The physical fling
+
+/// One motion reading: user acceleration (gravity removed) in g, device frame
+/// (x → right edge, y → top edge, z → out of the screen), at `t` seconds.
+struct HoloMotionSample: Equatable {
+    let t: Double
+    let a: SIMD3<Double>
+}
+
+/// A throw: which way on screen it went, whether it was a forward throw (the phone pushed out
+/// of its back, toward where it points), and how hard (peak g).
+struct HoloFlick: Equatable {
+    let screen: CGVector
+    let forward: Bool
+    let strength: Double
+}
+
+/// Spots a throw in the motion stream: a sharp spike (≥ 1.5 g) that has passed; its direction
+/// is the velocity at the fastest moment of the push (integrated acceleration), so the stop at
+/// the end of the throw — usually the bigger spike, the other way — doesn't flip it.
+struct HoloFlingDetector {
+    let armedAt: Double
+    private var window: [HoloMotionSample] = []
+    private var lastFling = -100.0
+    static let threshold = 1.5
+    static let armDelay = 0.5           // ignore the lift as the popup opens
+    static let cooldown = 1.0
+
+    init(armedAt: Double) { self.armedAt = armedAt }
+
+    mutating func add(_ s: HoloMotionSample) -> HoloFlick? {
+        window.append(s)
+        window.removeAll { s.t - $0.t > 0.4 }
+        guard s.t - lastFling >= Self.cooldown, window.count >= 4,
+              let peakIndex = window.indices.max(by: { Self.mag(window[$0].a) < Self.mag(window[$1].a) }) else { return nil }
+        let peak = Self.mag(window[peakIndex].a)
+        guard peak >= Self.threshold, window[peakIndex].t - armedAt >= Self.armDelay,
+              peakIndex < window.count - 1, Self.mag(s.a) < peak * 0.35 else { return nil }
+        var v = SIMD3<Double>.zero, fastest = SIMD3<Double>.zero
+        for i in 1..<window.count {
+            v += window[i].a * (window[i].t - window[i - 1].t)
+            if Self.mag(v) > Self.mag(fastest) { fastest = v }
+        }
+        lastFling = s.t
+        window.removeAll()
+        let plane = (fastest.x * fastest.x + fastest.y * fastest.y).squareRoot()
+        let forward = -fastest.z > 1.2 * plane
+        let screen = plane > 1e-9 ? CGVector(dx: fastest.x / plane, dy: -fastest.y / plane) : CGVector(dx: 0, dy: -1)
+        return HoloFlick(screen: screen, forward: forward, strength: peak)
+    }
+
+    static func mag(_ v: SIMD3<Double>) -> Double { (v.x * v.x + v.y * v.y + v.z * v.z).squareRoot() }
+}
+
+enum HoloFling {
+    /// Where a throw goes. Forward throw: the device whose real bearing is within 35° of where the
+    /// phone points; otherwise (or a sideways/up flick) the bubble on that side of the Orbit.
+    static func target(_ f: HoloFlick, heading: Double?, devices: [HoloDevice],
+                       positions: [String: CGPoint], center: CGPoint) -> String? {
+        if f.forward {
+            if let h = heading {
+                let near = devices.compactMap { d -> (String, Double)? in
+                    guard let b = d.bearingDeg else { return nil }
+                    let delta = abs(HoloOrbitLayout.angleDelta(b, h))
+                    return delta <= 35 ? (d.id, delta) : nil
+                }
+                if let best = near.min(by: { $0.1 < $1.1 }) { return best.0 }
+            }
+            if devices.count == 1 { return devices[0].id }
+            return HoloOrbitLayout.target(forVelocity: CGVector(dx: 0, dy: -1000), from: center, positions: positions)
+        }
+        return HoloOrbitLayout.target(forVelocity: CGVector(dx: f.screen.dx * 1000, dy: f.screen.dy * 1000),
+                                      from: center, positions: positions)
+    }
+}
