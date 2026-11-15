@@ -163,13 +163,7 @@ public sealed class ChatTab : Border
     {
         var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "Attach to the chat" };
         if (dlg.ShowDialog() != true) return;
-        foreach (var path in dlg.FileNames)
-        {
-            var a = ChatContext.ForFile(path, p => { try { return new System.IO.FileInfo(p).Length; } catch (System.IO.IOException) { return null; } },
-                p => { try { return System.IO.File.ReadAllBytes(p); } catch (System.IO.IOException) { return null; } });
-            if (a != null) _chat.Files.Add(a);
-        }
-        Render();
+        AttachFiles(dlg.FileNames);
     }
 
     private async Task LoadLocalModelsAsync()
@@ -196,6 +190,24 @@ public sealed class ChatTab : Border
     }
 
     // ── the model menu ──────────────────────────────────────────────
+
+    /// Files dropped on the island, or picked with +.
+    public void AttachFiles(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            var a = ChatContext.ForFile(path, p => { try { return new System.IO.FileInfo(p).Length; } catch (System.IO.IOException) { return null; } },
+                p => { try { return System.IO.File.ReadAllBytes(p); } catch (System.IO.IOException) { return null; } });
+            if (a != null) _chat.Files.Add(a);
+        }
+        Render();
+    }
+
+    /// `--diag chat-menu`: the model menu, for a screenshot.
+    public void ShowMenu()
+    {
+        if (_menuLayer.Visibility != Visibility.Visible) ToggleMenu();
+    }
 
     private void ToggleMenu()
     {

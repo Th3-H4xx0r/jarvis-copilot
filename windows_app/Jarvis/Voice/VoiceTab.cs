@@ -141,11 +141,26 @@ public sealed class VoiceTab : Border
         else _ = _voice.StartConversationAsync("orb");
     }
 
-    private bool HasContent => !string.IsNullOrEmpty(_voice.Error) || _voice.UserLine.Length > 0 || _voice.Reply.Text.Length > 0;
+    /// `--diag voice-preview`: a made-up turn (his words, a reply half spoken) to check the layout.
+    private (VoiceState State, string User, string Reply, int Spoken)? _preview;
+
+    public void Preview(bool on)
+    {
+        _preview = on ? (VoiceState.Speaking, "What's on my calendar this afternoon?",
+            "You have a design review at two, then a call with Sam at four. The rest of the afternoon is free.", 9) : null;
+        Render();
+    }
+
+    private VoiceState State => _preview?.State ?? _voice.State;
+    private string UserLine => _preview?.User ?? _voice.UserLine;
+    private string ReplyText => _preview?.Reply ?? _voice.Reply.Text;
+    private int Spoken => _preview?.Spoken ?? _voice.Reply.SpokenWords;
+
+    private bool HasContent => !string.IsNullOrEmpty(_voice.Error) || UserLine.Length > 0 || ReplyText.Length > 0;
 
     private void Render()
     {
-        var s = _voice.State;
+        var s = State;
         var active = s.IsActive();
         if (active != _wasActive) _sticky = active ? false : HasContent;
         _wasActive = active;
@@ -178,9 +193,9 @@ public sealed class VoiceTab : Border
         }
         else
         {
-            _lead.Text = _voice.UserLine;
-            _lead.Visibility = _voice.UserLine.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-            _reply.Show(_voice.Reply.Text, _voice.Reply.SpokenWords);
+            _lead.Text = UserLine;
+            _lead.Visibility = UserLine.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _reply.Show(ReplyText, Spoken);
         }
 
         _rowRight.Children.Clear();

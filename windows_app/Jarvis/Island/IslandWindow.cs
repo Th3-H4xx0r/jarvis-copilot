@@ -81,6 +81,8 @@ public sealed class IslandWindow : NoActivateWindow
     public event Action? TalkRequested;
     /// The tab row's hand: Holo Drop what's in front.
     public event Action? HoloRequested;
+    /// Files dropped on the island: they go to the chat.
+    public event Action<string[]>? FilesDropped;
 
     public IslandWindow(IslandPresenter presenter, AppState state, PrefsStore prefs)
     {
@@ -152,6 +154,12 @@ public sealed class IslandWindow : NoActivateWindow
         Content = _root;
         ApplyShape();
 
+        _shape.AllowDrop = true;
+        _shape.DragEnter += (_, e) => e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        _shape.Drop += (_, e) =>
+        {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) FilesDropped?.Invoke(files);
+        };
         _shape.MouseEnter += (_, _) => _p.HoverChanged(true);
         _shape.MouseLeave += (_, _) => _p.HoverChanged(false);
         Deactivated += (_, _) =>

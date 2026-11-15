@@ -107,6 +107,7 @@ public sealed class AppHost : IAsyncDisposable
 
     private readonly SessionCursor _cursor = new();
     private RecapWindow? _recap;
+    private ChatTab? _chatTab;
 
     public AppHost(Dispatcher dispatcher)
     {
@@ -269,6 +270,8 @@ public sealed class AppHost : IAsyncDisposable
         FrontProbe = new FrontWindowProbe();
         Chat = new ChatStore(Api) { Origin = () => State.ApiOrigin };
         var chatTab = new ChatTab(Chat, Island, () => IslandWindow);
+        _chatTab = chatTab;
+        IslandWindow.FilesDropped += files => { chatTab.AttachFiles(files); Island.Open(IslandTab.Chat, typing: true); };
         chatTab.SettingsRequested += () => ShowSettings();
         IslandWindow.Register(IslandTab.Chat, chatTab);
         Media = new MediaSessions();
@@ -573,6 +576,8 @@ public sealed class AppHost : IAsyncDisposable
                     State.SetDemo(DemoData.Steps[n].Sessions, DemoData.Steps[n].Pending);
                 break;
             case "end-demo": State.EndDemo(); break;
+            case "voice-preview": VoiceTab.Preview(Arg(1) != "off"); Island.Pinned = true; Island.Open(IslandTab.Voice); break;
+            case "chat-menu": Island.Pinned = true; Island.Open(IslandTab.Chat); Dispatcher.BeginInvoke(() => _chatTab?.ShowMenu(), DispatcherPriority.Background); break;
             case "slowmo": IslandWindow.TimeScale = double.TryParse(Arg(1), System.Globalization.CultureInfo.InvariantCulture, out var k) && k >= 1 ? k : 1; break;
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
         }
