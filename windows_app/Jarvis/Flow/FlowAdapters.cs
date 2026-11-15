@@ -39,16 +39,22 @@ public sealed class FlowCapture : IFlowCapture, IDisposable
     public void Dispose() => _mic.Dispose();
 }
 
-/// Text on the Windows clipboard (STA thread: the Dispatcher's).
+/// Text on the Windows clipboard. The clipboard needs the STA UI thread, and a dictation
+/// finishes on a pool thread, so every call is marshalled to the Dispatcher.
 public sealed class WpfClipboard : IClipboardText
 {
-    public string? GetText()
+    private static T OnUi<T>(Func<T> f) =>
+        Application.Current.Dispatcher.CheckAccess() ? f() : Application.Current.Dispatcher.Invoke(f);
+
+    public string? GetText() => OnUi(() =>
     {
         try { return Clipboard.ContainsText() ? Clipboard.GetText() : null; }
-        catch (COMException) { return null; }
-    }
+        catch (COMException) { return (string?)null; }
+    });
 
-    public void SetText(string text)
+    public void SetText(string text) => OnUi(() => { SetNow(text); return true; });
+
+    private static void SetNow(string text)
     {
         for (var i = 0; i < 3; i++)
         {

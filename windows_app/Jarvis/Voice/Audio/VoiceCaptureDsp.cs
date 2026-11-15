@@ -29,6 +29,7 @@ public sealed class VoiceCaptureDsp : IAecCapture, IDisposable
     public void Start(string renderId, string captureId)
     {
         Stop();
+        DuckingOptOut.Apply(Log);
         var render = AudioEndpoints.IndexOf(renderId, DataFlow.Render);
         var capture = AudioEndpoints.IndexOf(captureId, DataFlow.Capture);
         _running = true;

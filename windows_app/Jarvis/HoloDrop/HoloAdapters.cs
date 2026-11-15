@@ -27,7 +27,11 @@ public sealed class HoloReceiver : IHoloReceiver
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return false; }
     }
 
-    public bool Copy(HoloDropRecord drop, string? localFile)
+    /// The clipboard needs the STA UI thread; landings can arrive on any thread.
+    public bool Copy(HoloDropRecord drop, string? localFile) =>
+        Application.Current.Dispatcher.CheckAccess() ? CopyNow(drop, localFile) : Application.Current.Dispatcher.Invoke(() => CopyNow(drop, localFile));
+
+    private static bool CopyNow(HoloDropRecord drop, string? localFile)
     {
         try
         {
