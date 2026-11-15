@@ -28,6 +28,18 @@ struct HoloDropClient {
         _ = try? await json("POST", "/beacon/\(device)", body: body)
     }
 
+    /// A best-guess link for a screenshot: `{url?, title?, confidence, best_guess}`.
+    func screenGuess(_ png: Data) async throws -> [String: Any] {
+        var req = request("POST", "/screen-guess")
+        req.timeoutInterval = 20
+        req.setValue("image/png", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await session.upload(for: req, from: png)
+        try check(response, data: data)
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    func drop(_ id: String) async throws -> [String: Any] { try await json("GET", "/drops/\(id)") }
+
     func pending() async throws -> [[String: Any]] {
         try await json("GET", "/pending")["drops"] as? [[String: Any]] ?? []
     }
@@ -52,10 +64,11 @@ struct HoloDropClient {
     func send(_ item: HoloItem, to device: HoloDevice, action: HoloAction,
               position: HoloPosition?, allowDirect: Bool = true) async throws -> [String: Any] {
         if allowDirect, let url = device.lanURL, let token = device.lanToken,
-           (try? await sendDirect(item, url: url, token: token, action: action, position: position)) == true {
+           let outcome = try? await sendDirect(item, url: url, token: token, action: action, position: position) {
             var body = meta(item, device: device, action: action, position: position)
-            body["delivered_direct"] = true
-            if case .file = item { body["kind"] = "text"; body["text"] = item.caption }   // record only
+            body["delivered_direct"] = true                    // the record only: the bytes already went
+            body["outcome"] = outcome
+            if case .file(_, _, let mime, _) = item { body["mime"] = mime }
             return try await json("POST", "/drops", body: body)
         }
         switch item {
@@ -77,7 +90,8 @@ struct HoloDropClient {
         }
     }
 
-    func sendDirect(_ item: HoloItem, url: URL, token: String, action: HoloAction, position: HoloPosition?) async throws -> Bool {
+    /// The receiver's outcome ("opened", "saved", …), or nil when the direct path didn't take it.
+    func sendDirect(_ item: HoloItem, url: URL, token: String, action: HoloAction, position: HoloPosition?) async throws -> String? {
         var req = URLRequest(url: url.appendingPathComponent("holo-drop"), timeoutInterval: lanTimeout)
         req.httpMethod = "POST"
         req.setValue(token, forHTTPHeaderField: "X-Holo-Token")
@@ -94,8 +108,10 @@ struct HoloDropClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             (data, response) = try await session.upload(for: req, from: metaData)
         }
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
-        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["ok"] as? Bool ?? false
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              o["ok"] as? Bool == true else { return nil }
+        return o["outcome"] as? String ?? "delivered"
     }
 
     func meta(_ item: HoloItem, device: HoloDevice?, action: HoloAction, position: HoloPosition?) -> [String: Any] {

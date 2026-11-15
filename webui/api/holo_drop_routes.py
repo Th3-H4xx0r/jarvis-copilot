@@ -67,6 +67,26 @@ def _wake_mac(device_id: str) -> None:
         logger.debug("holo drop: could not wake %s", device_id, exc_info=True)
 
 
+def _start_card(drop: dict, from_name: str) -> None:
+    """Push-to-start the phones' "Drop waiting" Live Activity (Lock Screen notifications are
+    off on his iPhone, so a banner alone would go unseen while it's locked)."""
+    try:
+        from api import live_routes
+        what = (drop.get("name") or drop.get("title") or drop.get("url") or drop.get("text") or "A drop")[:48]
+        live_routes.start_activity(
+            "holo", {"title": what, "from": from_name[:32], "kind": drop.get("kind") or "file", "count": 1},
+            attributes_type="HoloDropActivityAttributes", attributes={"dropID": drop["id"]},
+            alert={"title": "Holo Drop", "body": f"{what} from {from_name}"}, stale_after=24 * 3600)
+    except Exception:
+        logger.debug("holo drop: waiting card failed", exc_info=True)
+
+
+def _later(seconds: float, fn, *args) -> None:
+    t = threading.Timer(seconds, fn, args)
+    t.daemon = True
+    t.start()
+
+
 def _settings() -> dict:
     try:
         from jarvis_power import discovery
@@ -164,7 +184,9 @@ def _target(target: str, caller: str) -> Optional[dict]:
 
 # ── delivery ───────────────────────────────────────────────────────────────────
 def public(d: dict) -> dict:
-    return {k: v for k, v in d.items() if k not in ("file",)}
+    out = {k: v for k, v in d.items() if k not in ("file",)}
+    out["from_name"] = _name_of(d.get("sender") or "")
+    return out
 
 
 def deliver(drop: dict) -> dict:
@@ -187,12 +209,46 @@ def deliver(drop: dict) -> dict:
                                     outcome="shown" if ok else "failed",
                                     error=None if ok else "the device didn't take it")
         return st.set_state(drop["id"], "failed", error="that device isn't reachable")
+    kind = next((_kind(d) for d in _paired() if d.get("id") == target), None)
     if target in _connected() and _send_frame(target, {"type": "holo_drop", "event": "drop", "drop": public(drop)}):
-        return st.set_state(drop["id"], "delivered")
-    for d in _paired():
-        if d.get("id") == target and _kind(d) == "mac":
-            _wake_mac(target)
-    return st.set_state(drop["id"], "held")
+        out = st.set_state(drop["id"], "delivered")
+        if kind in PHONES:
+            _later(WAITING_AFTER_S, _check_waiting, drop["id"])
+        return out
+    if kind == "mac":
+        _wake_mac(target)
+    out = st.set_state(drop["id"], "held")
+    if kind in PHONES and drop.get("state") != "held":
+        _waiting(out)
+    return out
+
+
+PHONES = ("iphone", "ipad")
+WAITING_AFTER_S = 8.0
+_seen: set = set()          # drop ids their phone has picked up (record, content or pending)
+
+
+def _name_of(device_id: str) -> str:
+    if device_id == "jarvis":
+        return "Jarvis"
+    if device_id.startswith("web:"):
+        return "Web"
+    return next((d.get("name") for d in _paired() if d.get("id") == device_id), None) or "your device"
+
+
+def _waiting(drop: dict) -> None:
+    """A phone drop nobody picked up: the Lock Screen card + a banner (seen when unlocked)."""
+    who = _name_of(drop.get("sender") or "")
+    what = drop.get("name") or drop.get("title") or drop.get("url") or "Something"
+    _start_card(drop, who)
+    _push("Holo Drop", f"{who} dropped {what} — open Jarvis to get it",
+          {"type": "holo_drop", "id": drop["id"], "url": f"jarviscopilot://holo-drop?drop={drop['id']}"})
+
+
+def _check_waiting(drop_id: str) -> None:
+    d = store().get(drop_id)
+    if d is not None and d["state"] == "delivered" and drop_id not in _seen:
+        _waiting(d)
 
 
 def deliver_held() -> int:
@@ -250,6 +306,8 @@ def route(req) -> bool:
         d = st.get(parts[1])
         if d is None:
             return req.reply(404, {"error": "no such drop"})
+        if caller and caller == d["target"] and m == "GET":
+            _seen.add(d["id"])
         if len(parts) == 2 and m == "GET":
             return req.reply(200, public(d))
         if parts[2:] == ["content"] and m == "GET":
@@ -272,6 +330,7 @@ def route(req) -> bool:
     if parts == ["pending"] and m == "GET":
         drops = st.pending_for(caller)
         for d in drops:
+            _seen.add(d["id"])
             if d["state"] == "held":
                 st.set_state(d["id"], "delivered")
         return req.reply(200, {"drops": [public(d) for d in drops]})
@@ -327,7 +386,8 @@ def _action(body_action, target: dict, kind: str) -> str:
 
 def _create(req, body: dict, caller: str) -> bool:
     kind = str(body.get("kind") or "")
-    if kind not in ("link", "text"):
+    direct = bool(body.get("delivered_direct"))
+    if kind not in ("link", "text") and not (direct and kind in ("image", "video", "file")):
         return req.reply(400, {"error": "kind must be link or text here (files use /drops/upload)"})
     target = _target(str(body.get("target") or ""), caller)
     if target is None:
@@ -337,9 +397,11 @@ def _create(req, body: dict, caller: str) -> bool:
     d = store().create(kind, sender=caller, target=target["id"], action=_action(body.get("action"), target, kind),
                        position=body.get("position"), text=str(body.get("text") or ""),
                        url=str(body.get("url") or ""), title=str(body.get("title") or ""),
-                       direct=bool(body.get("delivered_direct")))
-    if body.get("delivered_direct"):
-        d = store().set_state(d["id"], "delivered")
+                       name=str(body.get("name") or "")[:200], mime=str(body.get("mime") or "")[:100],
+                       direct=direct)
+    if direct:                         # the receiver already answered over the LAN
+        outcome = str(body.get("outcome") or "") or None
+        d = store().set_state(d["id"], "failed" if outcome == "failed" else "landed", outcome=outcome)
     else:
         d = deliver(d)
     return req.reply(200, {"drop": public(d)})

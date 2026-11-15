@@ -412,6 +412,12 @@ final class AppServices {
         // 10f. The door alarm: it runs on the server; the phone lends its alarm sound and Face ID.
         PowerGates.whenOn("door-alarm") { DoorAlarmDevice.shared.start() }
 
+        // 10g. Holo Drop: receive drops (cards, Lock Screen card, direct Wi-Fi), Bluetooth presence.
+        PowerGates.follow("holo-drop", start: {
+            HoloDropReceiver.shared.start()
+            HoloSensing.shared.startAdvertising()
+        }, stop: { HoloDropReceiver.shared.stop() })
+
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.

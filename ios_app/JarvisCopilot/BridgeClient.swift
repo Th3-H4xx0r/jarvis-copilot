@@ -505,6 +505,10 @@ final class BridgeClient: NSObject, ObservableObject {
             // What this phone wants pushed, and a catch-up for whatever was missed while away.
             BridgeTopics.shared.resubscribe()
             WearablesHub.shared.sendStateSoon(force: true)
+            if let id = msg["device_id"] as? String, !id.isEmpty { HoloSensing.shared.myDeviceID = id }
+            HoloDropReceiver.shared.reconnected()
+        case "holo_drop":
+            HoloDropReceiver.shared.handle(msg)
         case "registered":
             registeredSkills = msg["count"] as? Int ?? 0
         case "invoke":

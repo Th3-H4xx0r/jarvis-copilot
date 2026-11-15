@@ -14,7 +14,11 @@ final class HoloOrbitModel: ObservableObject {
     @Published var aim = HoloPosition.center
     @Published var tilt = CGSize.zero             // tilt-to-aim offset, fractions of the screen
     @Published var errorText: String?
+    /// The drop's story is told (landed / failed / held, or the landing wait ran out): a popup may close.
+    @Published var settled = false
     let item: HoloItem
+    /// Sent right after `item` to the same device (a screenshot's best-guess link).
+    @Published var extra: HoloItem?
     let client: HoloDropClient
     var onFinish: () -> Void = {}
     private let motion = CMMotionManager()
@@ -26,16 +30,24 @@ final class HoloOrbitModel: ObservableObject {
 
     func load() async {
         do {
-            devices = try await client.devices().filter { $0.accepts(item) }
+            serverDevices = try await client.devices().filter { $0.accepts(item) }
+            devices = serverDevices
             phase = .choosing
         } catch {
             errorText = error.localizedDescription
             phase = .done(.failed(error.localizedDescription))
+            settled = true
         }
         startHeading()
     }
 
     func action(for device: HoloDevice) -> HoloAction { override ?? device.defaultAction }
+
+    /// The app's live sensing (the share extension has none): readings + the nearest device.
+    func applyLive(_ live: [String: HoloLiveReading], nearest: String?) {
+        devices = serverDevices.map { $0.applying(live[$0.id], nearest: $0.id == nearest) }
+    }
+    private var serverDevices: [HoloDevice] = []
 
     func pick(_ device: HoloDevice) {
         if device.aim {
@@ -53,14 +65,43 @@ final class HoloOrbitModel: ObservableObject {
         phase = .sending(device)
         do {
             let reply = try await client.send(item, to: device, action: action(for: device), position: position?.clamped())
-            let state = (reply["drop"] as? [String: Any])?["state"] as? String ?? ""
-            switch state {
-            case "landed": phase = .done(.landed("Landed on \(device.name)"))
-            case "held": phase = .done(.sent("Held for \(device.name) — it gets it when it's back"))
-            default: phase = .done(.sent("Sent to \(device.name)"))
+            if let extra, device.accepts(extra) {
+                _ = try? await client.send(extra, to: device, action: action(for: device), position: position?.clamped())
+            }
+            let drop = reply["drop"] as? [String: Any] ?? [:]
+            phase = .done(Self.result(drop, device: device))
+            if case .done(.sent) = phase, drop["state"] as? String != "held", let id = drop["id"] as? String {
+                await waitForLanding(id, device: device)
             }
         } catch {
             phase = .done(.failed(error.localizedDescription))
+        }
+        settled = true
+    }
+
+    /// What the popup says for a drop record: landed (with what happened), held, failed, sent.
+    static func result(_ drop: [String: Any], device: HoloDevice) -> HoloSendResult {
+        switch drop["state"] as? String ?? "" {
+        case "landed":
+            let outcome = drop["outcome"] as? String ?? ""
+            let words = HoloOutcomeWords.text(outcome)
+            return .landed(words.isEmpty ? "Landed on \(device.name)" : "Landed on \(device.name) · \(words)")
+        case "held": return .sent("Sent — waiting for \(device.name)")
+        case "failed": return .failed("\(device.name) couldn't take it\((drop["error"] as? String).map { ": \($0)" } ?? "")")
+        default: return .sent("Sent to \(device.name)")
+        }
+    }
+
+    /// A few seconds for the landing; after that the sender hears by notification.
+    private func waitForLanding(_ id: String, device: HoloDevice) async {
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let d = try? await client.drop(id) else { continue }
+            let state = d["state"] as? String
+            if state == "landed" || state == "failed" {
+                phase = .done(Self.result(d, device: device))
+                return
+            }
         }
     }
 
@@ -175,11 +216,16 @@ struct HoloBubble: View {
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
                 .background(Circle().fill(Color.white.opacity(0.07)))
-                .overlay(Circle().stroke(hot ? Color.white : Color.white.opacity(0.22), lineWidth: hot ? 1.5 : 1))
+                .overlay(Circle().stroke(hot ? Color.white : Color.white.opacity(device.nearest ? 0.6 : 0.22),
+                                         lineWidth: hot ? 1.5 : 1))
                 .shadow(color: hot ? .white.opacity(0.35) : .clear, radius: 12)
                 .opacity(device.online ? 1 : 0.55)
             Text(device.name).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                 .frame(maxWidth: 76)
+            if device.nearest || device.distance != nil {
+                Text(device.distance.map { $0 < 1 ? "here" : String(format: "%.0f m", $0) } ?? "nearest")
+                    .font(.system(size: 9)).foregroundStyle(.white.opacity(0.45))
+            }
         }
         .accessibilityLabel("Drop on \(device.name)")
     }

@@ -64,6 +64,7 @@ def test_link_drop_delivered_and_landed_notifies_sender(env):
     dev, frame = env.frames[-1]
     assert dev == "mac-1" and frame["event"] == "drop" and frame["drop"]["url"] == "https://x.y"
     assert frame["drop"]["position"] == {"x": 0.8, "y": 0.2}
+    assert frame["drop"]["from_name"] == "Pranav's iPhone"
     call("POST", f"/api/holo-drop/drops/{drop['id']}/landed", {"outcome": "opened"}, caller="mac-1")
     dev, frame = env.frames[-1]
     assert dev == "iphone-1" and frame["event"] == "landed" and frame["drop"]["outcome"] == "opened"
@@ -104,3 +105,62 @@ def test_bearings_round_trip_and_moved(env):
 def test_unknown_target_is_400(env):
     status, body = call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "nope", "text": "x"})
     assert status == 400
+
+
+@pytest.fixture()
+def cards(env, monkeypatch):
+    started, later = [], []
+    monkeypatch.setattr(routes, "_start_card", lambda drop, from_name: started.append((drop["id"], from_name)))
+    monkeypatch.setattr(routes, "_later", lambda seconds, fn, *args: later.append((seconds, fn, args)))
+    return SimpleNamespace(started=started, later=later)
+
+
+def test_held_drop_for_phone_starts_waiting_card(env, cards):
+    env.connected.discard("iphone-1")
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "iphone-1", "text": "hi"},
+                        caller="mac-1")
+    assert body["drop"]["state"] == "held"
+    assert cards.started == [(body["drop"]["id"], "MacBook")]
+    assert env.pushes and "MacBook" in env.pushes[-1][1]
+
+
+def test_delivered_phone_drop_nobody_opens_gets_card_later(env, cards):
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "link", "target": "iphone-1", "url": "https://a.b"},
+                        caller="mac-1")
+    assert body["drop"]["state"] == "delivered" and cards.started == []
+    seconds, fn, args = cards.later[-1]
+    assert 4 <= seconds <= 15
+    fn(*args)                                          # the phone never picked it up
+    assert cards.started == [(body["drop"]["id"], "MacBook")]
+
+
+def test_delivered_phone_drop_picked_up_gets_no_card(env, cards):
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "link", "target": "iphone-1", "url": "https://a.b"},
+                        caller="mac-1")
+    call("GET", f"/api/holo-drop/drops/{body['drop']['id']}", caller="iphone-1")
+    seconds, fn, args = cards.later[-1]
+    fn(*args)
+    assert cards.started == []
+
+
+def test_mac_target_never_gets_phone_card(env, cards):
+    env.connected.discard("mac-1")
+    call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "mac-1", "text": "hi"})
+    assert cards.started == [] and cards.later == []
+
+
+def test_direct_drop_is_recorded_as_landed(env, cards):
+    status, body = call("POST", "/api/holo-drop/drops",
+                        {"kind": "link", "target": "mac-1", "url": "https://a.b", "delivered_direct": True,
+                         "outcome": "opened"})
+    assert body["drop"]["state"] == "landed" and body["drop"]["outcome"] == "opened"
+    assert env.frames == [] and cards.later == []
+
+
+def test_direct_file_drop_records_kind_and_name(env, cards):
+    status, body = call("POST", "/api/holo-drop/drops",
+                        {"kind": "image", "target": "mac-1", "name": "IMG_1.HEIC", "mime": "image/heic",
+                         "size": 2048, "delivered_direct": True, "outcome": "saved"})
+    assert status == 200 and body["drop"]["kind"] == "image" and body["drop"]["name"] == "IMG_1.HEIC"
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "image", "target": "mac-1", "name": "x"})
+    assert status == 400                               # files without bytes only when delivered direct

@@ -107,6 +107,14 @@ struct JarvisAppShortcuts: AppShortcutsProvider {
             shortTitle: "Start voice",
             systemImageName: "mic.fill")
         AppShortcut(
+            intent: OpenHoloDropIntent(),
+            phrases: [
+                "Open \(.applicationName) Holo Drop",
+                "\(.applicationName) Holo Drop",
+            ],
+            shortTitle: "Holo Drop",
+            systemImageName: "hand.point.up.braille.fill")
+        AppShortcut(
             intent: AskJarvisIntent(),
             phrases: [
                 "Ask \(.applicationName)",

@@ -23,6 +23,9 @@ enum AppDeepLink: Equatable, Sendable {
     case island
     /// `jarviscopilot://security` — More → Security (a Security Advisor alert push lands here).
     case security
+    /// `jarviscopilot://holo-drop[?drop=<id>]` — the "Drop waiting" Live Activity or banner:
+    /// take the waiting drops.
+    case holoDrop(drop: String?)
     /// `jarviscopilot://shortcut-result/<rid>` and `…/shortcut-error/<rid>`.
     /// Parsed here only so a caller can *recognise* one; `ShortcutResultBus` owns
     /// the payload.
@@ -49,6 +52,8 @@ enum AppDeepLink: Equatable, Sendable {
             return .island
         case "security":
             return .security
+        case "holo-drop":
+            return .holoDrop(drop: query(url, "drop"))
         case "shortcut-result", "shortcut-error":
             return .shortcutCallback
         default:
@@ -142,6 +147,9 @@ struct AppDeepLinkRouter {
         case .security:
             guard PowerState.shared.isOn("security-advisor") else { return true }
             router.openMore(.security)
+            return true
+        case .holoDrop(let drop):
+            HoloDropReceiver.shared.open(dropID: drop)
             return true
         case .shortcutCallback:
             return false

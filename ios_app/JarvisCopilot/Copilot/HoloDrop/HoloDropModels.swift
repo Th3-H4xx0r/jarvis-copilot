@@ -30,9 +30,11 @@ struct HoloDevice: Identifiable, Equatable {
     let defaultAction: HoloAction
     let lanURL: URL?
     let lanToken: String?
-    let bearingDeg: Double?
-    let bearingConfidence: Double
-    let distance: Double?
+    var bearingDeg: Double?
+    var bearingConfidence: Double
+    var distance: Double?
+    /// Strongest Bluetooth signal right now (the app's popup ranks devices; highlighted).
+    var nearest = false
 
     init?(json o: [String: Any]) {
         guard let id = o["id"] as? String, let kind = o["kind"] as? String else { return nil }
@@ -187,4 +189,43 @@ enum HoloSendResult: Equatable {
     case landed(String)          // "Landed on MacBook · Opened"
     case sent(String)            // "Sent — waiting for MacBook"
     case failed(String)
+}
+
+/// A live direction reading from the app's sensors (UWB, camera look, chirp, learned).
+struct HoloLiveReading: Equatable {
+    var deg: Double?
+    var confidence: Double
+    var distance: Double?
+    var source: String
+}
+
+extension HoloDevice {
+    /// This device with a live reading laid over what the server remembered: a reading wins
+    /// when it has a bearing at least as confident, or brings a distance the server lacked.
+    func applying(_ r: HoloLiveReading?, nearest: Bool) -> HoloDevice {
+        var d = self
+        d.nearest = nearest
+        guard let r else { return d }
+        if let deg = r.deg, r.confidence >= (bearingDeg == nil ? 0 : bearingConfidence) {
+            d.bearingDeg = deg
+            d.bearingConfidence = r.confidence
+        }
+        if let m = r.distance { d.distance = m }
+        return d
+    }
+}
+
+/// "Opened", "Saved + copied": a landing's outcome in words (popup, cards, banners).
+enum HoloOutcomeWords {
+    static func text(_ outcome: String) -> String {
+        switch outcome {
+        case "opened": return "Opened"
+        case "saved": return "Saved"
+        case "copied": return "Copied"
+        case "saved_opened": return "Saved + opened"
+        case "saved_copied": return "Saved + copied"
+        case "shown": return "Shown"
+        default: return ""
+        }
+    }
 }

@@ -238,6 +238,11 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         let content = notification.request.content
         // A switched-off Power integration's alert (iMessage facts, security) isn't shown.
         if PowerPush.suppressed(category: content.categoryIdentifier) { return [] }
+        // A Holo Drop for this phone while the app is open: its card shows instead of a banner.
+        if HoloDropPush.isArrival(content.userInfo) {
+            await MainActor.run { HoloDropReceiver.shared.open(dropID: HoloDropPush.dropID(content.userInfo)) }
+            return []
+        }
         // An update banner while the app is open: the card itself shows instead.
         if AppUpdateRules.isUpdatePush(content.userInfo) {
             await MainActor.run { Task { await AppUpdateCenter.shared.check() } }
@@ -270,6 +275,13 @@ extension PushHandler: UNUserNotificationCenterDelegate {
     ) async {
         if AppUpdateRules.isUpdatePush(response.notification.request.content.userInfo) {
             await MainActor.run { AppUpdateCenter.shared.openFromNotification() }
+            return
+        }
+        let info = response.notification.request.content.userInfo
+        if HoloDropPush.isHoloDrop(info) {
+            if HoloDropPush.isArrival(info) {
+                await MainActor.run { HoloDropReceiver.shared.open(dropID: HoloDropPush.dropID(info)) }
+            }
             return
         }
         let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""

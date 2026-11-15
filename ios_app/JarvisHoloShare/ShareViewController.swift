@@ -30,8 +30,8 @@ struct HoloShareRoot: View {
             Color.black.ignoresSafeArea()
             if let model {
                 HoloOrbitView(model: model)
-                    .onChange(of: model.phase) { _, phase in
-                        if case .done = phase { closeSoon() }
+                    .onChange(of: model.settled) { _, settled in
+                        if settled { closeSoon() }
                     }
             } else if let problem {
                 Text(problem).foregroundStyle(.white).multilineTextAlignment(.center).padding(32)

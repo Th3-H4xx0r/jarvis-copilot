@@ -42,6 +42,7 @@ enum PowerLinkDestination {
         case "island_designs": IslandDesignsPage()
         case "photon": PhotonSetupPage()
         case "imessage": IMessageMemoryView(store: IMessageMemoryStore())
+        case "holo_drop": HoloDropPage()
         default: Text("This opens elsewhere on your iPhone.").foregroundStyle(JcTheme.muted)
         }
     }

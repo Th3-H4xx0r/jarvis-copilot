@@ -206,6 +206,7 @@ struct JarvisWidgetBundle: WidgetBundle {
         LiveCaptureActivity()
         // The dashcam syncing (on its Wi-Fi, clips moving).
         DashcamSyncActivity()
+        HoloDropActivity()
         // Ring health: any of the server's scores on the home or lock screen.
         if #available(iOS 17.0, *) {
             HealthWidget()
