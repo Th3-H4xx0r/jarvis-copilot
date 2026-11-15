@@ -92,15 +92,38 @@ def test_unknown_decision_rejected():
     assert sent == []
 
 
-def test_answer_route_needs_signature_for_allow(monkeypatch):
-    from api import agents_routes
+def test_approvals_in_face_id_card_shape():
+    st, _, _, clock, _ = _store()
+    st.on_request("pc-1", REQ)
+    clock.t += 10
+    [a] = st.approvals()
+    assert a["id"] == "a" * 32 and a["command"] == pc_admin.SIGNED_COMMAND
+    assert a["title"] == "Run as admin on Pranav-Desktop" and a["age_s"] == 10
+    assert a["expires_in_s"] == int(pc_admin.REQUEST_TTL) - 10
+    assert a["detail"] == "install Spotify\nwinget install Spotify"
+
+
+def _req(method, sub, body=None, host=False):
+    from types import SimpleNamespace
+    box = {}
+    req = SimpleNamespace(method=method, sub=sub, body=body or {}, host_signed=host)
+    req.reply = lambda status, payload: box.update(status=status, body=payload) or True
+    return req, box
+
+
+def test_route_lists_approves_and_refuses_jarvis(monkeypatch):
     st, sent, _, _, _ = _store()
     st.on_request("pc-1", REQ)
-    monkeypatch.setattr(agents_routes, "_core", lambda: object())
     monkeypatch.setattr(pc_admin, "store", lambda: st)
-    status, body = agents_routes._v2("POST", "/agents/pc/admin/answer", {}, {"id": "a" * 32, "decision": "allow"})
-    assert status == 400 and "Face ID" in body["error"]
-    status, body = agents_routes._v2("POST", "/agents/pc/admin/answer", {},
-                                     {"id": "a" * 32, "decision": "allow", "ts": 1000, "signature": "s"})
-    assert status == 200 and body["ok"] is True
-    assert sent[-1][1]["approved"] is True
+    req, box = _req("GET", "/approvals")
+    pc_admin.route(req)
+    assert box["status"] == 200 and box["body"]["approvals"][0]["id"] == "a" * 32
+    req, box = _req("POST", f"/approvals/{'a' * 32}/approve", {"ts": 1000, "signature": "s"}, host=True)
+    pc_admin.route(req)
+    assert box["status"] == 403 and sent == []          # Jarvis can't approve its own request
+    req, box = _req("POST", f"/approvals/{'a' * 32}/approve", {})
+    pc_admin.route(req)
+    assert box["status"] == 400
+    req, box = _req("POST", f"/approvals/{'a' * 32}/approve", {"ts": 1000, "signature": "s"})
+    pc_admin.route(req)
+    assert box["status"] == 200 and sent[-1][1]["approved"] is True

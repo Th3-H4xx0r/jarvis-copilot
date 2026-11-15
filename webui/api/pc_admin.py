@@ -89,6 +89,17 @@ class PcAdminStore:
         return {"ok": True}
 
 
+    def approvals(self) -> list[dict]:
+        """The waiting requests in the phone's Face ID card shape (FaceIDApprovals.swift):
+        command is fixed (the app words the title itself); detail is what will run."""
+        now = self._clock()
+        return [{"id": r["id"], "command": SIGNED_COMMAND, "title": f"Run as admin on {r['device_name']}",
+                 "source": r["device_name"], "age_s": int(now - r["created"]),
+                 "expires_in_s": max(0, int(r["expires"] - now)),
+                 "detail": (r["why"] + "\n" if r["why"] else "") + r["command"]}
+                for r in self.pending()]
+
+
 _STORE: Optional[PcAdminStore] = None
 _STORE_LOCK = threading.Lock()
 
@@ -98,13 +109,50 @@ def _verify(command: str, nonce: str, ts, signature) -> None:
     approval.approver().verify(command, nonce, ts, signature, domain=DOMAIN)
 
 
+def _notify_phone(title: str, body: str, data: dict) -> None:
+    """A push with fixed words (never the command itself) and the phone's Face ID card if the
+    app is connected (its ``pc_admin_show_approvals`` skill). Best effort, off the caller."""
+    def send():
+        try:
+            from api.coding_routes import _push_device_alert
+            _push_device_alert(title, "Approve it with Face ID.", data={"type": "pc_admin_approval", **data})
+        except Exception as exc:  # noqa: BLE001
+            log.warning("PC admin push failed: %s", type(exc).__name__)
+        try:
+            from api import device_bridge
+            device = device_bridge.device_offering("pc_admin_show_approvals")
+            if device and device in device_bridge.connected_device_ids():
+                device_bridge.invoke_skill(device, "pc_admin_show_approvals", {}, timeout=8.0)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("PC admin card nudge failed: %s", type(exc).__name__)
+
+    threading.Thread(target=send, name="pc-admin-notify", daemon=True).start()
+
+
 def store() -> PcAdminStore:
     global _STORE
     with _STORE_LOCK:
         if _STORE is None:
             from api import device_bridge
             from api import mac_power
-            _STORE = PcAdminStore(send_frame=device_bridge.send_frame, alert=mac_power._alert_phones,
+            _STORE = PcAdminStore(send_frame=device_bridge.send_frame, alert=_notify_phone,
                                   verify=_verify, name_of=device_bridge.device_name,
                                   changed=mac_power._changed)
         return _STORE
+
+
+def route(req) -> bool:
+    """Mounted at /api/pc-admin (api/mounts.py): the phone's Face ID card reads and answers here."""
+    parts = [p for p in req.sub.strip("/").split("/") if p]
+    body = req.body if isinstance(req.body, dict) else {}
+    if parts == ["approvals"] and req.method == "GET":
+        return req.reply(200, {"approvals": store().approvals()})
+    if len(parts) == 3 and parts[0] == "approvals" and parts[2] in ("approve", "deny") and req.method == "POST":
+        if req.host_signed:
+            return req.reply(403, {"ok": False, "error": "PC admin requests are answered with Face ID."})
+        if parts[2] == "approve" and not (body.get("ts") and body.get("signature")):
+            return req.reply(400, {"ok": False, "error": "an approval needs the Face ID signature"})
+        decision = "allow" if parts[2] == "approve" else "deny"
+        out = store().answer(parts[1], decision, body.get("ts"), body.get("signature"))
+        return req.reply(200 if out.get("ok") else 409, out)
+    return req.reply(404, {"error": "not found"})

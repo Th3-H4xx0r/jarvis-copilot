@@ -33,6 +33,7 @@ MOUNTS = (
     ("/api/jarvis-memory", "api.jarvis_memory_routes"),
     ("/api/kanban", "api.kanban_bridge"),
     ("/api/live", "api.live_ws"),
+    ("/api/pc-admin", "api.pc_admin"),
     ("/api/power", "api.power_routes"),
     ("/api/screen", "api.screen_share"),
     ("/api/security", "api.security_routes"),
