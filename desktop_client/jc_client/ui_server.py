@@ -26,7 +26,7 @@ import socket
 import threading
 from typing import Callable, Optional
 
-from jc_client.unix_server import UnixSocketServer
+from jc_client.unix_server import UnixSocketServer, peer_pid
 
 log = logging.getLogger(__name__)
 
@@ -46,12 +46,8 @@ class _Client:
 
 
 def _peer_pid(conn: socket.socket) -> int:
-    """The connecting process (macOS LOCAL_PEERPID); 0 when unknown."""
-    try:
-        import struct
-        return struct.unpack("i", conn.getsockopt(0, 2, 4))[0]   # SOL_LOCAL, LOCAL_PEERPID
-    except (OSError, AttributeError, ValueError):
-        return 0
+    """The connecting process (macOS LOCAL_PEERPID, Windows the loopback port's owner); 0 when unknown."""
+    return peer_pid(conn)
 
 
 class UiServer(UnixSocketServer):
