@@ -16,6 +16,7 @@ using Jarvis.Core.State;
 using Jarvis.Core.Tray;
 using Jarvis.Input;
 using Jarvis.Island;
+using Jarvis.Notes;
 using Jarvis.Flow;
 using Jarvis.Core.Flow;
 using Jarvis.Live;
@@ -75,6 +76,7 @@ public sealed class AppHost : IAsyncDisposable
     public FlowCapture FlowCapture { get; }
     public FlowController Flow { get; }
     public FlowPill FlowPill { get; }
+    public NoteTaker NoteTaker { get; }
 
     /// What each global shortcut does; later tasks add theirs (orb, Holo Drop, record a call…).
     public Dictionary<ShortcutAction, Action> ShortcutHandlers { get; } = new();
@@ -233,7 +235,16 @@ public sealed class AppHost : IAsyncDisposable
         Prefs.Changed += k => { if (k is "flow.key" or "flow.enabled") SyncFlowKey(); };
         SettingsWindow.RegisterNative("flow", () => FlowPane.Build(Prefs, FlowStore, Flow));
 
-        Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => false);
+        // ── Task 14: the note-taker (RecordCall has no default chord, as on the Mac) ──
+        NoteTaker = new NoteTaker(Api, () => State.ApiOrigin);
+        ShortcutHandlers[ShortcutAction.RecordCall] = () => _ = NoteTaker.ToggleAsync();
+
+        Tray = new TrayIcon(State, () => PcPower.Last?.KeepAwake ?? false, () => NoteTaker.Recording);
+        TrayHandlers[TrayCommand.RecordCall] = () =>
+        {
+            _ = NoteTaker.ToggleAsync();
+            ShowNotes();
+        };
         TrayHandlers[TrayCommand.Settings] = () => ShowSettings();
         TrayHandlers[TrayCommand.KeepAwake] = () => _ = PcPower.SetKeepAwakeAsync(!(PcPower.Last?.KeepAwake ?? false));
         Tray.Command += c => { if (TrayHandlers.TryGetValue(c, out var h)) h(); };
@@ -309,6 +320,16 @@ public sealed class AppHost : IAsyncDisposable
         _livePanel = new LivePanel(Live);
         _livePanel.Closed += (_, _) => _livePanel = null;
         _livePanel.Show();
+    }
+
+    private NotesWindow? _notesWindow;
+
+    public void ShowNotes()
+    {
+        if (_notesWindow is { IsLoaded: true }) { _notesWindow.Activate(); return; }
+        _notesWindow = new NotesWindow(NoteTaker);
+        _notesWindow.Closed += (_, _) => _notesWindow = null;
+        _notesWindow.Show();
     }
 
     public void ShowRecap()
