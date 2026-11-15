@@ -564,7 +564,7 @@ class Service:
             elif sys.platform == "win32":
                 try:
                     from jc_client.pc_power import PcPower
-                    self._power = PcPower(self._send_up_ok)   # the PC in the phone's Agents card
+                    self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast)   # the PC in the phone's Agents card
                     self._power.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("pc power unavailable: %s", exc)

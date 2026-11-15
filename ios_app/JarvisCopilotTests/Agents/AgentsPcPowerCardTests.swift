@@ -2,7 +2,7 @@ import XCTest
 @testable import JarvisCopilot
 
 /// The PC in Agents (Windows client, 2026-11-15): the same card as the Mac, told apart by
-/// `os`, with Wake PC / Sleep / Lock and never Unlock; its live view's Command Center shows
+/// `os`, with Wake PC / Sleep / Lock / Unlock; its live view's Command Center shows
 /// only what Windows has; a share asks for the PC by its device id.
 @MainActor
 final class AgentsPcPowerCardTests: XCTestCase {
@@ -30,8 +30,8 @@ final class AgentsPcPowerCardTests: XCTestCase {
         XCTAssertEqual(AgentsMacPowerCopy.wakeTitle(os: "macos"), "Wake Mac")
     }
 
-    func testPcActionsHideUnlock() {
-        XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "windows"])), [.letSleep, .lock])
+    func testPcActionsOfferLockAndUnlock() {
+        XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "windows"])), [.letSleep, .lock, .unlock])
         XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "macos"])), [.letSleep, .unlock])
         XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "windows", "state": "sleeping"])), [.wake])
     }

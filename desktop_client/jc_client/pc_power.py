@@ -85,6 +85,11 @@ def lan_ip() -> str:
         s.close()
 
 
+def _installed_app(pid: int) -> bool:
+    from jc_client.pc_admin import is_jarvis_app
+    return is_jarvis_app(pid)
+
+
 # ── what the PC can do ─────────────────────────────────────────────────────────
 _WIFI_PS = (
     "$a = Get-NetAdapter -Physical | Where-Object { $_.NdisPhysicalMedium -eq 9 -or $_.Name -like '*Wi-Fi*' } "
@@ -166,15 +171,24 @@ def _battery() -> tuple:
 
 
 class PcPower:
-    UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set"})
+    UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set", "password_fill_result"})
     power = None   # the Mac's MacPower hold logic has no Windows twin (AgentsLink takes None)
 
     def __init__(self, send_up: Callable[[dict], object], *, set_state: Callable[[int], int] = _win_set_state,
                  lock: Callable[[], None] = _win_lock, suspend: Callable[[], None] = _win_suspend,
                  probe: Callable[[], tuple] = probe, battery: Callable[[], tuple] = _battery,
-                 lan_ip: Callable[[], str] = lan_ip) -> None:
+                 lan_ip: Callable[[], str] = lan_ip, ui_broadcast: Callable[[dict], None] = lambda m: None,
+                 is_app: Optional[Callable[[int], bool]] = None) -> None:
         self._send_up = send_up
         self._lan_ip = lan_ip
+        # Unlock PC (the Mac's "Unlock Mac" flow): his iPhone's Face ID yes comes back through the
+        # broker; the Jarvis app checks it against its pinned key and types through its helper.
+        from jc_client.password_broker import PasswordBroker
+        self._ui = ui_broadcast
+        self._is_app = is_app or _installed_app
+        self._fills: dict = {}    # request id -> (Event, reply holder)
+        self._fill_lock = threading.Lock()
+        self.passwords = PasswordBroker(lambda m: self._send_up(m), ui_broadcast, self._ask_app)
         self._set_state = set_state
         self._lock = lock
         self._suspend = suspend
@@ -246,8 +260,31 @@ class PcPower:
 
     # ── from the server / the app ────────────────────────────────────────
     def handle_frame(self, frame: dict) -> None:
-        if frame.get("type") == "mac_power_set":
+        t = frame.get("type")
+        if t == "mac_power_set":
             self._apply(frame)
+        elif t == "mac_password_unlock":
+            if not any(p["kind"] == "unlock" for p in self.passwords.pending()):
+                threading.Thread(target=self.passwords.request, args=("unlock", "Unlock PC"), daemon=True,
+                                 name="jc-pc-unlock").start()
+        elif t == "mac_password_answer":
+            self.passwords.on_answer(str(frame.get("id") or ""), str(frame.get("decision") or ""),
+                                     frame.get("ts"), frame.get("signature"))
+
+    def _ask_app(self, msg: dict, timeout: float) -> dict:
+        """password_fill to the Jarvis app (broadcast); it answers with password_fill_result."""
+        rid = str(msg.get("id") or "")
+        event, holder = threading.Event(), {}
+        with self._fill_lock:
+            self._fills[rid] = (event, holder)
+        try:
+            self._ui(msg)
+            if not event.wait(timeout):
+                return {"ok": False, "error": "The Jarvis app on the PC didn't answer"}
+            return holder
+        finally:
+            with self._fill_lock:
+                self._fills.pop(rid, None)
 
     def _apply(self, change: dict) -> None:
         if "keep_awake" in change:
@@ -267,6 +304,18 @@ class PcPower:
         if kind == "mac_power_set":
             self._apply(req)
             return {"ok": True, **self.status()}
+        if kind == "password_fill_result":
+            # Only the installed Jarvis app may hand in a result (any process of his can reach the link).
+            if not self._is_app(int(req.get("_peer_pid") or 0)):
+                return {"ok": False, "error": "not the Jarvis app"}
+            with self._fill_lock:
+                waiter = self._fills.get(str(req.get("request_id") or ""))
+            if waiter is None:
+                return {"ok": False}
+            event, holder = waiter
+            holder.update({k: req[k] for k in ("ok", "error") if k in req})
+            event.set()
+            return {"ok": True}
         return {"ok": False, "error": "unknown power request"}
 
     def on_connected(self) -> None:

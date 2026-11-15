@@ -174,11 +174,11 @@ class MacPowerStore:
         return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "lock": True}))}
 
     def unlock(self, did: str) -> dict:
-        if self._is_pc(did):
-            return {"ok": False, "error": "Windows doesn't let anything type into its lock screen. "
-                                          "Unlock it at the PC."}
+        # The PC unlocks like the Mac: its jc-client asks his iPhone for Face ID, the Jarvis app
+        # checks the signed yes and its helper service types the password on the lock screen.
         if did not in set(self._connected()):
-            return {"ok": False, "error": "The Mac isn't awake. Wake it first."}
+            return {"ok": False, "error": ("The PC isn't awake. Wake it first." if self._is_pc(did)
+                                           else "The Mac isn't awake. Wake it first.")}
         return {"ok": bool(self._send(did, {"type": "mac_password_unlock"}))}
 
     def answer(self, rid: str, decision: str, ts, signature) -> dict:
@@ -249,7 +249,8 @@ class MacPowerStore:
             self._requests[rid] = req
         self._changed()
         try:
-            self._alert(_KIND_TITLE.get(kind, "Mac password requested"), req["context"] or "Tap to review",
+            title = "Unlock your PC" if kind == "unlock" and self._is_pc(did) else _KIND_TITLE.get(kind, "Mac password requested")
+            self._alert(title, req["context"] or "Tap to review",
                         {"kind": "mac_password", "id": rid, "device_id": did})
         except Exception:  # noqa: BLE001
             log.warning("Mac password push failed", exc_info=True)

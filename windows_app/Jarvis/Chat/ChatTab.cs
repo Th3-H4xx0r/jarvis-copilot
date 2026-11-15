@@ -314,7 +314,7 @@ public sealed class ChatTab : Border
         foreach (var f in _chat.Files.ToList())
         {
             var file = f;
-            K.Add(_chips, Chip(f.Name, f.Size is { } s ? Size(s) : null, () => { _chat.Files.Remove(file); Render(); }), 6);
+            K.Add(_chips, Chip(f.Name, f.Size is { } s ? Size(s) : null, () => { _chat.Files.Remove(file); Render(); }, f.IsImage ? f.Path : null), 6);
         }
         _chips.Visibility = _chips.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -326,20 +326,48 @@ public sealed class ChatTab : Border
         _ => $"{bytes / 1024.0 / 1024.0:0.#} MB",
     };
 
-    private static FrameworkElement Chip(string text, string? detail, Action remove)
+    /// The Mac's ContextChip: a 24 pt rounded thumbnail for a picture (else a doc icon), the name
+    /// and size, and an ✕.
+    private static FrameworkElement Chip(string text, string? detail, Action remove, string? thumbnail = null)
     {
         var label = K.T(text, 11, null, K.W(0.88));
         label.MaxWidth = 180;
         var col = K.V(0, label);
         if (detail != null) K.Add(col, K.T(detail, 8.5, null, K.W(0.55)), 0);
-        var x = Controls.IconButton(Sym.Plus, 10, K.W(0.55), remove, 18, 18, "Remove");
-        x.RenderTransform = new RotateTransform(45, 9, 9);
-        var row = K.H(6, new IconView(Sym.Doc, 11, K.W(0.55)), col, x);
+        var x = Controls.GlyphButton("\uE711", 9, K.W(0.55), remove, 18, 18, "Remove");
+        UIElement lead = Thumbnail(thumbnail) is { } image
+            ? new Border { Width = 24, Height = 24, CornerRadius = new CornerRadius(6), ClipToBounds = true, Child = image,
+                           Clip = new RectangleGeometry(new Rect(0, 0, 24, 24), 6, 6) }
+            : new IconView(Sym.Doc, 11, K.W(0.55));
+        var row = K.H(6, lead, col, x);
         return new Border
         {
-            Background = K.W(0.08), BorderBrush = K.W(0.10), BorderThickness = new Thickness(0.5), CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(9, 3, 3, 3), Child = row,
+            Background = K.W(0.08), BorderBrush = K.W(0.10), BorderThickness = new Thickness(0.5), CornerRadius = new CornerRadius(K.CapsuleRadius),
+            Padding = new Thickness(thumbnail != null && lead is Border ? 4 : 9, 3, 3, 3), Child = row,
         };
+    }
+
+    /// A small decoded copy of a picture (WIC: PNG, JPEG, GIF, BMP, and HEIC/WebP when Windows has
+    /// the extension); null when it can't be read.
+    private static Image? Thumbnail(string? path)
+    {
+        if (path == null || !System.IO.File.Exists(path)) return null;
+        try
+        {
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = new Uri(path);
+            bmp.DecodePixelWidth = 72;
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile;
+            bmp.EndInit();
+            bmp.Freeze();
+            return new Image { Source = bmp, Stretch = Stretch.UniformToFill, Width = 24, Height = 24 };
+        }
+        catch (Exception e) when (e is NotSupportedException or System.IO.IOException or System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     /// A new chat: the orb and the question, like the phone's.

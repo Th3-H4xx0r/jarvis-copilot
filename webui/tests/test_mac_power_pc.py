@@ -1,5 +1,5 @@
 """The PC in the Agents power card (spec §6b): it reports like the Mac, wakes over Wi-Fi through
-another computer's wol_send, locks and sleeps, and never offers Unlock."""
+another computer's wol_send, locks and sleeps, and unlocks through the Face ID password flow."""
 from __future__ import annotations
 
 import os
@@ -99,11 +99,27 @@ def test_lock_sends_set_frame(tmp_path):
     assert rig.frames[-1] == (PC, {"type": "mac_power_set", "lock": True})
 
 
-def test_unlock_pc_refused_with_reason(tmp_path):
+def test_unlock_pc_asks_the_pc(tmp_path):
     rig = Rig(tmp_path)
     rig.store.on_status(PC, PC_STATUS)
-    assert rig.store.unlock(PC) == {
-        "ok": False, "error": "Windows doesn't let anything type into its lock screen. Unlock it at the PC."}
+    assert rig.store.unlock(PC) == {"ok": True}
+    assert rig.frames[-1] == (PC, {"type": "mac_password_unlock"})
+
+
+def test_unlock_pc_offline_says_wake_it(tmp_path):
+    rig = Rig(tmp_path, connected=(MAC,))
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.unlock(PC) == {"ok": False, "error": "The PC isn't awake. Wake it first."}
+    assert rig.frames == []
+
+
+def test_pc_unlock_request_alert_says_pc(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, PC_STATUS)
+    alerts = []
+    rig.store._alert = lambda title, body, data: alerts.append((title, body, data["kind"]))
+    rig.store.on_password_request(PC, {"id": "r1", "kind": "unlock", "context": "Unlock PC", "nonce": "n"})
+    assert alerts == [("Unlock your PC", "Unlock PC", "mac_password")]
 
 
 def test_list_payload_additive_fields(tmp_path):

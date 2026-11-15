@@ -26,7 +26,7 @@ struct MacPasswordSheet: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let over = request.expires <= context.date
             VStack(alignment: .leading, spacing: 0) {
-                Text(MacPasswordSheetCopy.title(kind: request.kind))
+                Text(MacPasswordSheetCopy.title(for: request))
                     .font(JcText.title)
                     .foregroundStyle(JcTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -134,6 +134,11 @@ private struct MacPasswordSheetHeight: PreferenceKey {
 
 /// The sheet's words, kept pure for the tests.
 enum MacPasswordSheetCopy {
+    /// The bold title for a request: the PC's unlock (its jc-client asks "Unlock PC") says PC.
+    static func title(for request: MacPasswordRequest) -> String {
+        request.kind == "unlock" && request.context.hasPrefix("Unlock PC") ? "Unlock your PC" : title(kind: request.kind)
+    }
+
     /// The bold title, by what asked.
     static func title(kind: String) -> String {
         switch kind {

@@ -183,9 +183,9 @@ public static class AgentsPane
 
 /// PC power: Keep awake, what holds the PC awake, whether it can be woken, and the last
 /// sleep/wake relay.
-public static class PcPowerPane
+public static partial class PcPowerPane
 {
-    public static FrameworkElement Build(PcPowerClient power, PowerRelay relay)
+    public static FrameworkElement Build(PcPowerClient power, PowerRelay relay, Unlock.PcUnlock? unlock = null)
     {
         var p = Pane.Page("PC power", "Keep the PC reachable from your phone, and see whether it can be woken.");
         var held = Th.Text("", 13, "JcTextDim", wrap: true);
@@ -220,9 +220,74 @@ public static class PcPowerPane
         p.Children.Add(detail);
         p.Children.Add(Pane.Section("Sleep and wake"));
         p.Children.Add(last);
+        if (unlock != null) AddUnlock(p, unlock);
         Render(power.Last);
         _ = power.RefreshAsync();
         return p;
+    }
+}
+
+public static partial class PcPowerPane
+{
+    /// Unlock from your iPhone: trust its Face ID key, save the Windows password or PIN (kept
+    /// encrypted for this Windows account), install the helper that types it on the lock screen.
+    private static void AddUnlock(StackPanel p, Unlock.PcUnlock unlock)
+    {
+        // Rows re-built in place (already Form rows inside).
+        var keyRow = new ContentControl { Tag = SettingsForm.RowTag };
+        var passRow = new ContentControl { Tag = SettingsForm.RowTag };
+        var helperRow = new ContentControl { Tag = SettingsForm.RowTag };
+        var note = Th.Text("", 12, "JcSetSecondary", wrap: true);
+
+        void Render()
+        {
+            keyRow.Content = unlock.PinnedKey is { } k
+                ? Pane.Labeled("Your iPhone", Th.Row(10, Th.Text($"Trusted · code {Core.Unlock.UnlockApproval.Fingerprint(k)}", 13, "JcSetSecondary"),
+                    Th.Button("Trust again", () => _ = Trust())), "Only a Face ID yes signed by this iPhone unlocks the PC.")
+                : Pane.Labeled("Your iPhone", Th.Button("Trust my iPhone", () => _ = Trust(), primary: true),
+                    "Uses the Face ID key your iPhone set up for Jarvis approvals.");
+            var box = new PasswordBox { Width = 180 };
+            passRow.Content = Pane.Labeled("Windows password or PIN",
+                Th.Row(8, box, Th.Button(unlock.HasPassword ? "Replace" : "Save", () =>
+                {
+                    if (box.Password.Length == 0) { note.Text = "Type the password or PIN you use on the lock screen."; return; }
+                    unlock.SavePassword(box.Password);
+                    box.Clear();
+                    note.Text = "Saved, encrypted for your Windows account.";
+                }), unlock.HasPassword ? Th.Button("Forget", unlock.ForgetPassword) : new TextBlock()),
+                unlock.HasPassword ? "Saved. What you type on the lock screen." : "What you type on the lock screen. Kept encrypted on this PC; it never leaves it.");
+            var installed = Unlock.PcUnlock.HelperInstalled;
+            helperRow.Content = Pane.Labeled("Unlock helper",
+                installed ? Th.Text(Core.Unlock.UnlockSetup.HelperLine(true), 13, "JcSetSecondary") : Th.Button("Install", () => _ = Install()),
+                "Windows lets nothing type on its lock screen except a system helper. Installing asks Face ID on your iPhone, then Windows' Yes.");
+        }
+
+        async Task Trust()
+        {
+            try
+            {
+                var key = await unlock.FetchKeyAsync();
+                if (string.IsNullOrEmpty(key)) { note.Text = "Your iPhone hasn't set up Face ID approvals yet."; return; }
+                unlock.Pin(key);
+                note.Text = $"Trusted. Code {Core.Unlock.UnlockApproval.Fingerprint(key)}.";
+            }
+            catch (Core.Http.ApiException e) { note.Text = $"Couldn't get your iPhone's key: {e.Error}"; }
+        }
+
+        async Task Install()
+        {
+            var r = await unlock.InstallHelperAsync();
+            note.Text = r.Message;
+        }
+
+        unlock.Changed += () => p.Dispatcher.BeginInvoke(Render);
+        p.Children.Add(Pane.Section("Unlock from your iPhone"));
+        p.Children.Add(keyRow);
+        p.Children.Add(passRow);
+        p.Children.Add(helperRow);
+        p.Children.Add(note);
+        p.Children.Add(Pane.Footer("Tap Unlock on the PC's card in Agents on your iPhone and approve with Face ID. The helper types only when the lock screen is showing."));
+        Render();
     }
 }
 

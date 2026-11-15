@@ -18,6 +18,12 @@ dotnet publish (Join-Path $root 'JarvisUpdater\JarvisUpdater.csproj') -c Release
   -p:PublishSingleFile=true -o $upd --nologo
 if ($LASTEXITCODE -ne 0) { throw 'JarvisUpdater publish failed' }
 Copy-Item -Force (Join-Path $upd 'JarvisUpdater.exe') $stage
+# The PC-unlock helper (installed as a service from Settings with Face ID + UAC).
+$unl = Join-Path $out 'package\unlock'
+dotnet publish (Join-Path $root 'JarvisUnlock\JarvisUnlock.csproj') -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -o $unl --nologo
+if ($LASTEXITCODE -ne 0) { throw 'JarvisUnlock publish failed' }
+Copy-Item -Force (Join-Path $unl 'JarvisUnlock.exe') $stage
 Copy-Item -Force (Join-Path $PSScriptRoot 'uninstall.ps1') $stage   # Settings > Apps > Uninstall runs it
 
 @{ version = $Version; build = $build } | ConvertTo-Json -Compress | Set-Content -Encoding utf8NoBOM (Join-Path $stage 'version.json')

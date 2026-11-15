@@ -140,17 +140,21 @@ struct AgentsMacPowerCard: View {
                 actionButton(.letSleep, title: "Sleep", symbol: "moon.fill",
                              hint: mac.isPC ? "Puts the PC to sleep now" : "Lets the Mac go to sleep now")
                 if mac.isPC {
-                    // Windows never lets anything type into its lock screen: Lock, no Unlock.
                     actionButton(.lock, title: "Lock", symbol: "lock.fill",
                                  hint: "Locks the PC's screen")
+                    // Its helper types the saved password on the lock screen after Face ID here.
+                    actionButton(.unlock, title: "Unlock", symbol: "lock.open.fill",
+                                 hint: "Unlocks the PC's screen after Face ID")
                 } else {
                     actionButton(.unlock, title: "Unlock", symbol: "lock.open.fill",
                                  hint: "Asks the Mac to unlock its screen")
                 }
                 MacShareScreenButton(deviceId: mac.deviceId) {
-                    HStack(spacing: 7) {
+                    let layout = compactRow ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 7))
+                    layout {
                         Image(systemName: "rectangle.on.rectangle").font(.subheadline.weight(.semibold))
-                        Text("Screen").lineLimit(1)
+                        Text("Screen").lineLimit(1).minimumScaleFactor(0.85)
+                            .font(compactRow ? .caption.weight(.semibold) : nil)
                     }
                 }
                 .buttonStyle(MacActionButtonStyle(prominent: false))
@@ -170,16 +174,21 @@ struct AgentsMacPowerCard: View {
         .padding(.bottom, 16)
     }
 
+    private var compactRow: Bool { mac.isPC && mac.isAwake }
+
     private func actionButton(_ action: AgentsStore.MacPowerAction, title: String, symbol: String,
                               prominent: Bool = false, hint: String) -> some View {
         Button { run(action) } label: {
-            HStack(spacing: 7) {
+            // The awake PC has four buttons in the row: icon over label so they fit.
+            let layout = compactRow ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 7))
+            layout {
                 if busy && pending == action {
                     JcLoader(size: 16).foregroundStyle(prominent ? JcAccent.onFill : JcButton.label)
                 } else {
                     Image(systemName: symbol).font(.subheadline.weight(.semibold))
                 }
-                Text(title).lineLimit(1)
+                Text(title).lineLimit(1).minimumScaleFactor(0.85)
+                    .font(compactRow ? .caption.weight(.semibold) : nil)
             }
         }
         .buttonStyle(MacActionButtonStyle(prominent: prominent))
@@ -261,7 +270,7 @@ struct AgentsMacPasswordRow: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             JcRow(symbol: MacPasswordSheetCopy.symbol(kind: request.kind),
-                  title: MacPasswordSheetCopy.title(kind: request.kind),
+                  title: MacPasswordSheetCopy.title(for: request),
                   subtitle: "\(macName) · \(MacPasswordApproval.countdown(request.expires, now: context.date))",
                   subtitleLines: 1, last: last, action: open)
                 .accessibilityHint("Opens the request to allow or deny it")
@@ -344,10 +353,10 @@ enum AgentsMacPowerCopy {
     /// "Wake Mac" / "Wake PC".
     static func wakeTitle(os: String) -> String { os == "windows" ? "Wake PC" : "Wake Mac" }
 
-    /// What the card offers right now, in order (pure, for the tests): an awake PC can sleep
-    /// and lock but never unlock; an awake Mac sleeps and unlocks; asleep, either wakes.
+    /// What the card offers right now, in order (pure, for the tests): an awake PC sleeps, locks
+    /// and unlocks; an awake Mac sleeps and unlocks; asleep, either wakes.
     static func actions(for mac: AgentMacPower) -> [AgentsStore.MacPowerAction] {
-        if mac.isAwake { return mac.isPC ? [.letSleep, .lock] : [.letSleep, .unlock] }
+        if mac.isAwake { return mac.isPC ? [.letSleep, .lock, .unlock] : [.letSleep, .unlock] }
         return [.wake]
     }
 

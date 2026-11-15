@@ -174,3 +174,54 @@ def test_keep_awake_is_held_and_released_by_one_thread():
     t.join(3)
     assert [f for f, _ in seen] == [0x80000001, 0x80000000]
     assert seen[0][1] == seen[1][1]
+
+
+# ── Unlock PC (the Mac's "Unlock Mac" flow) ─────────────────────────────────────
+def _unlock_rig(app_pid_ok=True):
+    sent, ui = [], []
+    power = PcPower(lambda f: sent.append(f) or True, set_state=lambda f: 1, lock=lambda: None,
+                    suspend=lambda: None, probe=lambda: ({}, ""), battery=lambda: (None, None),
+                    lan_ip=lambda: "", ui_broadcast=ui.append, is_app=lambda pid: app_pid_ok and pid == 4242)
+    return power, sent, ui
+
+
+def _wait_for(pred, timeout=3.0):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_unlock_asks_his_iphone_then_the_app():
+    power, sent, ui = _unlock_rig()
+    power.handle_frame({"type": "mac_password_unlock"})
+    assert _wait_for(lambda: any(f.get("name") == "mac_password_request" for f in sent))
+    req = next(f["data"] for f in sent if f.get("name") == "mac_password_request")
+    assert req["kind"] == "unlock" and req["context"] == "Unlock PC" and req["nonce"]
+    # A second press while one is waiting doesn't ask twice.
+    power.handle_frame({"type": "mac_password_unlock"})
+    power.handle_frame({"type": "mac_password_answer", "id": req["id"], "decision": "allow", "ts": 1, "signature": "sig"})
+    assert _wait_for(lambda: any(m.get("type") == "password_fill" for m in ui))
+    fill = next(m for m in ui if m.get("type") == "password_fill")
+    assert fill["kind"] == "unlock" and fill["context"] == "Unlock PC" and fill["proof"] == {"ts": 1, "signature": "sig"}
+    # Only the installed app may answer.
+    assert power.ui_request({"type": "password_fill_result", "request_id": req["id"], "ok": True, "_peer_pid": 7}) \
+        == {"ok": False, "error": "not the Jarvis app"}
+    assert power.ui_request({"type": "password_fill_result", "request_id": req["id"], "ok": True, "_peer_pid": 4242}) == {"ok": True}
+    assert _wait_for(lambda: any(f.get("name") == "mac_password_done" for f in sent))
+    done = next(f["data"] for f in sent if f.get("name") == "mac_password_done")
+    assert done == {"id": req["id"], "ok": True}
+    assert sum(1 for f in sent if f.get("name") == "mac_password_request") == 1
+
+
+def test_unlock_denied_never_reaches_the_app():
+    power, sent, ui = _unlock_rig()
+    power.handle_frame({"type": "mac_password_unlock"})
+    assert _wait_for(lambda: any(f.get("name") == "mac_password_request" for f in sent))
+    req = next(f["data"] for f in sent if f.get("name") == "mac_password_request")
+    power.handle_frame({"type": "mac_password_answer", "id": req["id"], "decision": "deny", "ts": 1, "signature": "x"})
+    assert _wait_for(lambda: any(f.get("name") == "mac_password_done" for f in sent))
+    assert not any(m.get("type") == "password_fill" for m in ui)

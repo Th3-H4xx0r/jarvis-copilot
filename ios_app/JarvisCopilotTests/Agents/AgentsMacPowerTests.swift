@@ -192,6 +192,10 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "admin"), "Admin access on your Mac")
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "keychain"), "Keychain access")
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "unlock"), "Unlock your Mac")
+        let pc = MacPasswordRequest(json: ["id": "r", "device_id": "pc", "kind": "unlock", "context": "Unlock PC", "nonce": "n", "expires": 0])
+        XCTAssertEqual(MacPasswordSheetCopy.title(for: pc), "Unlock your PC")
+        let mac = MacPasswordRequest(json: ["id": "r", "device_id": "m", "kind": "unlock", "context": "Unlock Mac", "nonce": "n", "expires": 0])
+        XCTAssertEqual(MacPasswordSheetCopy.title(for: mac), "Unlock your Mac")
         XCTAssertEqual(MacPasswordSheetCopy.title(kind: "something-new"), "Your Mac wants its password")
         let expires = Date(timeIntervalSince1970: 1_700_000_120)
         XCTAssertEqual(MacPasswordApproval.countdown(expires, now: Date(timeIntervalSince1970: 1_700_000_015)),

@@ -67,6 +67,7 @@ public sealed class AppHost : IAsyncDisposable
     public TerminalJumper Jumper { get; }
     public TrayIcon Tray { get; }
     public PcPowerClient PcPower { get; }
+    public Unlock.PcUnlock Unlock { get; }
     public PowerRelay PowerRelay { get; }
     public PowerBroadcastWatcher PowerWatcher { get; }
     public AdminRunner Admin { get; }
@@ -166,11 +167,12 @@ public sealed class AppHost : IAsyncDisposable
         State.HelloReceived += () => _ = PcPower.RefreshAsync();
         SettingsWindow.RegisterNative("general", () => GeneralPane.Build(Prefs));
         SettingsWindow.RegisterNative("agents", () => AgentsPane.Build(State));
-        SettingsWindow.RegisterNative("pc-power", () => PcPowerPane.Build(PcPower, PowerRelay));
+        SettingsWindow.RegisterNative("pc-power", () => PcPowerPane.Build(PcPower, PowerRelay, Unlock));
         SettingsWindow.RegisterNative("shortcuts", () => ShortcutsPane.Build(Prefs, HotKeys, BindShortcuts));
 
         // ── Task 8: Power integrations and the phone-Face-ID admin flow (C6) ──
         Admin = new AdminRunner(Link);
+        Unlock = new Unlock.PcUnlock(Link, Api, Admin);
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);
         SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
@@ -306,12 +308,11 @@ public sealed class AppHost : IAsyncDisposable
         ShortcutHandlers[ShortcutAction.HoloDrop] = () => OpenOrbit();
         Holo.Changed += () => Dispatcher.BeginInvoke(() => IslandWindow.HoloAvailable = Holo.On);
         IslandWindow.HoloAvailable = Holo.On;
-        // The island's hand button toggles: a click on it while the Orbit is open has already closed
-        // it (a click outside), so don't open it again straight away.
+        // The island's hand button toggles the Orbit.
         IslandWindow.HoloRequested += () =>
         {
-            if (DateTime.UtcNow - _orbitClosedAt < TimeSpan.FromMilliseconds(600)) return;
-            OpenOrbit();
+            if (_orbit is { IsLoaded: true } open) open.CloseOrbit();
+            else OpenOrbit();
         };
         GeneralPane.Extras.Add(HoloFirewallRow);
         Fling = new HoloFlingWatcher();
@@ -451,7 +452,6 @@ public sealed class AppHost : IAsyncDisposable
     }
 
     private HoloOrbitWindow? _orbit;
-    private DateTime _orbitClosedAt;
 
     /// Ctrl+Alt+H: grab what's in front and open the Orbit (never over a game).
     public HoloOrbitWindow? OpenOrbit()
@@ -460,7 +460,7 @@ public sealed class AppHost : IAsyncDisposable
         if (_orbit is { IsLoaded: true }) return _orbit;
         var item = HoloGrab.Grab(FrontProbe, System.IO.File.Exists);
         _orbit = new HoloOrbitWindow(Holo, HoloSender, item, Holo.Devices);
-        _orbit.Closed += (_, _) => { _orbit = null; _orbitClosedAt = DateTime.UtcNow; };
+        _orbit.Closed += (_, _) => _orbit = null;
         _orbit.Present();
         return _orbit;
     }
@@ -586,7 +586,7 @@ public sealed class AppHost : IAsyncDisposable
             case "settings-shot": Settings.SettingsWindow.Snapshot(State, Arg(1), Arg(2)); break;
             case "encode-bench": _ = Task.Run(() => Screen.EncodeBench.Run(Arg(1))); break;
             case "orbit-shot":
-                Ui.Snap.Save((FrameworkElement)new HoloOrbitWindow(Holo, HoloSender, null, Holo.Devices).Content, 400, 520, Arg(1));
+                Ui.Snap.Save((FrameworkElement)new HoloOrbitWindow(Holo, HoloSender, null, Holo.Devices).Content, 400, 572, Arg(1));
                 break;
         }
     }

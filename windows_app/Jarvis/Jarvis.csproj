@@ -29,4 +29,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The tray loads it at its own size (TrayIcon). -->
+    <Content Include="jarvis.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

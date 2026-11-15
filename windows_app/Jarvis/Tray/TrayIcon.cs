@@ -80,24 +80,21 @@ public sealed class TrayIcon : IDisposable
         if (_icon.ToolTipText != tip) _icon.ToolTipText = tip;
     }
 
-    /// A white ring on black: the Jarvis mark, drawn so no image asset is needed. A System.Drawing
-    /// icon: H.NotifyIcon can't convert a WPF RenderTargetBitmap (NotImplementedException).
+    /// The Jarvis app icon (jarvis.ico, the same one as the Mac and iPhone apps), at the tray's
+    /// size for this screen's scale.
     private static System.Drawing.Icon DrawIcon()
     {
-        static System.Drawing.Color C(string key) =>
-            Th.B(key) is SolidColorBrush b ? System.Drawing.Color.FromArgb(b.Color.A, b.Color.R, b.Color.G, b.Color.B)
-                                           : System.Drawing.Color.White;
-        using var bmp = new System.Drawing.Bitmap(32, 32);
-        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "jarvis.ico");
+        var side = Math.Max(16, GetSystemMetrics(49 /* SM_CXSMICON */));
+        try { return new System.Drawing.Icon(path, side, side); }
+        catch (Exception e) when (e is System.IO.IOException or ArgumentException or UnauthorizedAccessException)
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using var fill = new System.Drawing.SolidBrush(C("JcBackground"));
-            using var ring = new System.Drawing.Pen(C("JcAccent"), 3);
-            g.FillEllipse(fill, 1, 1, 30, 30);
-            g.DrawEllipse(ring, 7, 7, 18, 18);
+            return System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application;
         }
-        return System.Drawing.Icon.FromHandle(bmp.GetHicon());
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
 
     public void Dispose()
     {

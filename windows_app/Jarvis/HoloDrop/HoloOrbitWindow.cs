@@ -18,11 +18,13 @@ namespace Jarvis.HoloDrop;
 /// HOLO DROP and a close button on top, his devices on a dashed ring around the item card, the
 /// nearest one lit, a status line and the action chips at the bottom (only the chosen chip
 /// filled). A click on a device sends with the chosen action; nothing grabbed → Paste or drop a
-/// file. Opens on the monitor under the cursor, never activated, so Esc, Ctrl+V and a click
-/// outside are read from the key state while it's open (no hook); closes after a send lands.
+/// file. Opens on the monitor under the cursor, never activated, so Esc and Ctrl+V are read from
+/// the key state while it's open (no hook). Stays open on clicks elsewhere (so a file can be
+/// dragged onto it from Explorer); closes on its ✕, Esc, or after a send lands. Starts with the
+/// clipboard when nothing was grabbed; Clipboard / File… / Screenshot pick something else.
 public sealed class HoloOrbitWindow : NoActivateWindow
 {
-    private const double W = 400, H = 520, Ring = 138, CentreY = 248;
+    private const double W = 400, H = 572, Ring = 138, CentreY = 248;
     private readonly HoloDropService _service;
     private readonly HoloSender _sender;
     private readonly Canvas _canvas = new() { Width = W, Height = H };
@@ -32,15 +34,17 @@ public sealed class HoloOrbitWindow : NoActivateWindow
     private HoloItem? _item;
     private HoloAction? _override;
     private string? _aimed;
-    private bool _busy, _closing, _escWas, _vWas, _mouseWas;
+    private bool _busy, _closing, _escWas, _vWas, _fromClipboard;
     private IReadOnlyList<HoloDevice> _devices;
 
     public HoloOrbitWindow(HoloDropService service, HoloSender sender, HoloItem? item, IReadOnlyList<HoloDevice> devices)
     {
         _service = service;
         _sender = sender;
-        _item = item;
         _devices = devices;
+        // Nothing grabbed from the window in front: start with what's on his clipboard.
+        _item = item ?? ClipboardItem();
+        _fromClipboard = item == null && _item != null;
         Title = "Holo Drop";
         Background = Brushes.Transparent;
         Width = W;
@@ -62,6 +66,7 @@ public sealed class HoloOrbitWindow : NoActivateWindow
             _panel.BorderBrush = K.W(0.12);
             if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) _item = HoloItem.Files(files);
             else if (e.Data.GetData(DataFormats.UnicodeText) is string text) _item = HoloItem.FromText(text);
+            _fromClipboard = false;
             Render();
         };
         _service.ShowInOrbit = (_, line) => { Dispatcher.BeginInvoke(() => Done(line)); return IsVisible; };
@@ -88,7 +93,6 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         // Whatever is held down as it opens (the click or the keys that opened it) isn't a new press.
         _escWas = Down(0x1B);
         _vWas = Down(0x56);
-        _mouseWas = Down(0x01) || Down(0x02);
         _keys.Start();
     }
 
@@ -109,7 +113,8 @@ public sealed class HoloOrbitWindow : NoActivateWindow
 
     private static bool Down(int vk) => (Native.GetAsyncKeyState(vk) & 0x8000) != 0;
 
-    /// Esc closes, Ctrl+V pastes, a click outside the panel closes (the Mac's panel resigns).
+    /// Esc closes and Ctrl+V pastes. A click elsewhere does NOT close it (as on the Mac): he
+    /// clicks in Explorer to drag a file onto it.
     private void WatchKeys()
     {
         var esc = Down(0x1B);
@@ -118,9 +123,6 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         var v = Down(0x56);
         if (v && !_vWas && Down(0x11) && IsMouseOver) Paste();
         _vWas = v;
-        var mouse = Down(0x01) || Down(0x02);
-        if (mouse && !_mouseWas && !IsMouseOver && !_busy) { CloseOrbit(); return; }
-        _mouseWas = mouse;
     }
 
     private IReadOnlyList<HoloDevice> Targets() => _item == null ? _devices : HoloSendDefaults.Targets(_devices, _item);
@@ -194,8 +196,18 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         if (_status.Parent is Grid old) old.Children.Remove(_status);
         var statusBox = new Grid { Width = W - 40, Height = 34 };
         statusBox.Children.Add(_status);
-        Place(statusBox, 20, H - 18 - 26 - 12 - 34);
+        Place(statusBox, 20, H - 18 - 26 - 10 - 28 - 8 - 34);
         _canvas.Children.Add(statusBox);
+
+        // Where the item comes from: the clipboard, a file, a screenshot (or drag one on).
+        var sources = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        sources.Children.Add(Source("\uE77F", "Clipboard", "What you last copied", () => { Paste(); }));
+        sources.Children.Add(Source("\uE8E5", "File…", "Pick files to send", PickFiles));
+        sources.Children.Add(Source("\uE722", "Screenshot", "This screen, without the Holo Drop panel", () => _ = ScreenshotAsync()));
+        var sourceRow = new Grid { Width = W };
+        sourceRow.Children.Add(sources);
+        Place(sourceRow, 0, H - 18 - 26 - 10 - 28);
+        _canvas.Children.Add(sourceRow);
         var chips = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         var chosen = Action(targets);
         foreach (var a in Enum.GetValues<HoloAction>())
@@ -217,6 +229,23 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         chipRow.Children.Add(chips);
         Place(chipRow, 0, H - 18 - 26);
         _canvas.Children.Add(chipRow);
+    }
+
+    private Tap Source(string glyph, string label, string tip, Action run)
+    {
+        var row = K.H(5, K.Glyph(glyph, 12, K.W(0.8)), K.T(label, 11, FontWeights.Medium, K.W(0.85)));
+        var t = new Tap(row, PressLook.Dim, tip)
+        {
+            Background = K.W(0.08),
+            BorderBrush = K.W(0.12),
+            BorderThickness = new Thickness(0.5),
+            CornerRadius = new CornerRadius(K.CapsuleRadius),
+            Padding = new Thickness(10, 6, 11, 6),
+            Margin = new Thickness(4, 0, 4, 0),
+            IsEnabled = !_busy,
+        };
+        t.Click += run;
+        return t;
     }
 
     private FrameworkElement Bubble(HoloDevice d, bool hot)
@@ -248,7 +277,7 @@ public sealed class HoloOrbitWindow : NoActivateWindow
         art.Children.Add(K.Glyph(ItemGlyph(_item), 28, K.W(0.45)));
         var caption = K.T(_item?.Caption ?? "Nothing in front", 11, FontWeights.Medium, K.W(0.85), wrap: true);
         caption.MaxHeight = 30;
-        var detail = K.T(_item == null ? "Paste or drop a file" : ItemDetail(_item), 10, null, K.W(0.45));
+        var detail = K.T(_item == null ? "Paste or drop a file" : _fromClipboard ? "From your clipboard" : ItemDetail(_item), 10, null, K.W(0.45));
         var text = new StackPanel { Margin = new Thickness(10, 8, 10, 8) };
         text.Children.Add(caption);
         detail.Margin = new Thickness(0, 2, 0, 0);
@@ -308,13 +337,80 @@ public sealed class HoloOrbitWindow : NoActivateWindow
 
     private void Paste()
     {
+        if (ClipboardItem() is { } item) { _item = item; _fromClipboard = true; }
+        else SetStatus("Your clipboard is empty.", 0.6);
+        Render();
+    }
+
+    /// Files, a picture (saved as a PNG) or text from the clipboard; null when it holds nothing usable.
+    private static HoloItem? ClipboardItem()
+    {
         try
         {
-            if (Clipboard.ContainsFileDropList()) _item = HoloItem.Files(Clipboard.GetFileDropList().Cast<string>());
-            else if (Clipboard.ContainsText()) _item = HoloItem.FromText(Clipboard.GetText());
+            if (Clipboard.ContainsFileDropList()) return HoloItem.Files(Clipboard.GetFileDropList().Cast<string>());
+            if (Clipboard.ContainsImage() && Clipboard.GetImage() is { } image)
+                return HoloItem.Files(new[] { SavePng(image, "Pasted image") });
+            if (Clipboard.ContainsText()) return HoloItem.FromText(Clipboard.GetText());
         }
-        catch (COMException) { }
+        catch (Exception e) when (e is COMException or System.IO.IOException or ExternalException) { }
+        return null;
+    }
+
+    private void PickFiles()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "Send with Holo Drop" };
+        if (dialog.ShowDialog(this) != true || dialog.FileNames.Length == 0) return;
+        _item = HoloItem.Files(dialog.FileNames);
+        _fromClipboard = false;
         Render();
+    }
+
+    /// The monitor the panel is on, with the panel hidden for the shot.
+    private async Task ScreenshotAsync()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        Native.GetWindowRect(hwnd, out var r);
+        var m = Monitors.At(new PointD((r.Left + r.Right) / 2.0, (r.Top + r.Bottom) / 2.0)) ?? Monitors.Primary();
+        if (m == null) return;
+        Opacity = 0;
+        await Task.Delay(250);
+        try
+        {
+            var b = m.Bounds;
+            using var bmp = new System.Drawing.Bitmap(b.Right - b.Left, b.Bottom - b.Top);
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+                g.CopyFromScreen(b.Left, b.Top, 0, 0, bmp.Size);
+            var path = System.IO.Path.Combine(TempFolder(), $"Screenshot {DateTime.Now:yyyy-MM-dd HH.mm.ss}.png");
+            bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            _item = HoloItem.Files(new[] { path });
+            _fromClipboard = false;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or ExternalException or System.IO.IOException)
+        {
+            SetStatus("Couldn't take the screenshot.", 1);
+        }
+        finally
+        {
+            Opacity = 1;
+        }
+        Render();
+    }
+
+    private static string TempFolder()
+    {
+        var dir = System.IO.Path.Combine(HoloTemp.DefaultRoot, "HoloDrop-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private static string SavePng(System.Windows.Media.Imaging.BitmapSource image, string name)
+    {
+        var path = System.IO.Path.Combine(TempFolder(), name + ".png");
+        var png = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+        using var f = System.IO.File.Create(path);
+        png.Save(f);
+        return path;
     }
 
     private void SetStatus(string text, double opacity = 0.85)
