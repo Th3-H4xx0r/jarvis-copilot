@@ -36,13 +36,20 @@ struct PcAdminApprovalDomain: FaceIDApprovalDomain {
                     .foregroundStyle(JcTheme.text)
                     .frame(width: 96, height: 96)
                     .background(JcButton.fill, in: Circle())
-                // Exactly what will run, so he approves that and nothing else.
+                // Exactly what will run, ALL of it (scrolls when long), so he approves that and
+                // nothing hidden past a cut-off line.
                 if let detail = approval.detail {
-                    Text(detail)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(JcTheme.muted)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(6)
+                    ScrollView {
+                        Text(detail)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(JcTheme.muted)
+                            .multilineTextAlignment(.leading)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    .frame(maxHeight: 180)
+                    .background(JcButton.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
             .padding(.top, 12)
