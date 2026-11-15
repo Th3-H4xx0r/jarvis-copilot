@@ -94,24 +94,37 @@ if (Test-Path $JcExe) {
 }
 Info "CLI shim placed at $Shim"
 
-# --- Start Menu + Startup shortcut → tray ----------------------------------
+# --- Start Menu shortcut → tray (the Jarvis Windows app replaces it once installed) ---
 $Shell      = New-Object -ComObject WScript.Shell
 $StartMenu  = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\JarvisCopilot Client.lnk'
-$Startup    = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\JarvisCopilot Client.lnk'
-foreach ($Path in @($StartMenu, $Startup)) {
-    $Sc = $Shell.CreateShortcut($Path)
-    $Sc.TargetPath       = $JcExe
-    $Sc.Arguments        = 'tray'
-    $Sc.WorkingDirectory = $Dir
-    $Sc.Description      = 'JarvisCopilot desktop client (system tray)'
-    $Sc.IconLocation     = "$env:SystemRoot\System32\shell32.dll,167"
-    $Sc.Save()
-}
-Info "Shortcuts: $StartMenu / $Startup"
+$Sc = $Shell.CreateShortcut($StartMenu)
+$Sc.TargetPath       = $JcExe
+$Sc.Arguments        = 'tray'
+$Sc.WorkingDirectory = $Dir
+$Sc.Description      = 'JarvisCopilot desktop client (system tray)'
+$Sc.IconLocation     = "$env:SystemRoot\System32\shell32.dll,167"
+$Sc.Save()
+Info "Shortcut: $StartMenu"
 
-# Launch the tray immediately so the user can pair without opening a shell.
+# --- Supervision: a per-user scheduled task, at logon, restarted on crash -----
+# (a Startup shortcut never restarts a crashed client; `jc-client start/stop/restart`
+# drive this task, cli.py _SCHTASK). The old Startup shortcut is removed.
+$OldStartup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\JarvisCopilot Client.lnk'
+if (Test-Path $OldStartup) { Remove-Item $OldStartup -Force }
+$Action   = New-ScheduledTaskAction -Execute $JcExe -Argument 'start --no-tray' -WorkingDirectory $Dir
+$Trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$Settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable -MultipleInstances IgnoreNew
+$Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client' -Action $Action -Trigger $Trigger `
+    -Settings $Settings -Principal $Principal -Force | Out-Null
+Info "Scheduled task \JarvisCopilot\jc-client registered (logon + restart on crash)"
+
+# Pair first if needed (the tray opens the pairing dialog), then the task runs the service.
 Info "Launching tray ..."
 $null = Start-Process -WindowStyle Hidden -FilePath $JcExe -ArgumentList 'tray'
+Start-ScheduledTask -TaskPath '\JarvisCopilot\' -TaskName 'jc-client'
 
 Ok "Installed at $Dir"
 Write-Host ""

@@ -122,6 +122,13 @@ def _say_mac_app(opened: bool) -> None:
 
 
 def _is_running(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) TERMINATES the process on Windows; ask, never signal.
+        try:
+            import psutil
+            return psutil.pid_exists(int(pid))
+        except Exception:  # noqa: BLE001
+            return False
     try:
         os.kill(pid, 0)
         return True
@@ -134,6 +141,13 @@ def _is_running(pid: int) -> bool:
 _LAUNCHCTL_LABEL = "com.jarviscopilot.client"
 _LAUNCHCTL_PLIST = Path.home() / "Library/LaunchAgents/com.jarviscopilot.client.plist"
 _SYSTEMD_UNIT = "jc-client.service"
+# Windows: a per-user scheduled task (installers/install-windows.ps1) — at logon, restart on crash.
+_SCHTASK = "\\JarvisCopilot\\jc-client"
+
+
+def _schtasks(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["schtasks", *args], capture_output=True, text=True, check=False,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def _supervisor_kind() -> str | None:
@@ -144,6 +158,11 @@ def _supervisor_kind() -> str | None:
     it rather than fight it."""
     if sys.platform == "darwin" and _LAUNCHCTL_PLIST.is_file():
         return "launchctl"
+    if sys.platform == "win32":
+        try:
+            return "schtasks" if _schtasks("/Query", "/TN", _SCHTASK).returncode == 0 else None
+        except OSError:
+            return None
     if sys.platform.startswith("linux"):
         try:
             unit = Path.home() / f".config/systemd/user/{_SYSTEMD_UNIT}"
@@ -168,6 +187,9 @@ def _supervisor_is_loaded() -> bool:
             capture_output=True, text=True,
         )
         return rc.returncode == 0
+    if kind == "schtasks":
+        out = _schtasks("/Query", "/TN", _SCHTASK, "/FO", "LIST")
+        return out.returncode == 0 and "running" in (out.stdout or "").lower()
     return False
 
 
@@ -183,6 +205,8 @@ def _supervisor_load() -> None:
             ["systemctl", "--user", "start", _SYSTEMD_UNIT],
             capture_output=True, text=True, check=False,
         )
+    elif kind == "schtasks":
+        _schtasks("/Run", "/TN", _SCHTASK)
 
 
 def _supervisor_unload() -> None:
@@ -197,6 +221,8 @@ def _supervisor_unload() -> None:
             ["systemctl", "--user", "stop", _SYSTEMD_UNIT],
             capture_output=True, text=True, check=False,
         )
+    elif kind == "schtasks":
+        _schtasks("/End", "/TN", _SCHTASK)
 
 
 def _wait_supervisor(*, loaded: bool, timeout: float = 8.0) -> bool:

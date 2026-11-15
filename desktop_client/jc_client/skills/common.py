@@ -34,6 +34,25 @@ log = logging.getLogger(__name__)
 
 
 @skill(
+    "wol_send",
+    "Wake another computer on this network (Pranav's PC) with a Wake-on-LAN magic packet. "
+    "The server sends this itself for Wake PC; you don't need to.",
+    {
+        "type": "object",
+        "properties": {
+            "mac": {"type": "string", "description": "The sleeping computer's network MAC, aa:bb:cc:dd:ee:ff"},
+            "broadcast": {"type": "string", "description": "Broadcast address (default 255.255.255.255)"},
+            "port": {"type": "integer", "description": "UDP port (default 9)"},
+        },
+        "required": ["mac"],
+    },
+)
+def wol_send(mac: str, broadcast: str = "255.255.255.255", port: int = 9) -> dict:
+    from jc_client.pc_power import send_wol
+    return send_wol(mac, broadcast, port)
+
+
+@skill(
     "open_url",
     "Open a URL in the default browser.",
     {
@@ -421,6 +440,11 @@ def key_press(keys, hold: float = 0) -> dict:
 # ── Notifications ──────────────────────────────────────────────────────────
 
 
+# A toast needs an app id Windows knows; an unregistered one ("JarvisCopilot") is silently
+# dropped. PowerShell's own id is always registered (the Windows app shows its own toasts).
+_WIN_TOAST_APP_ID = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe"
+
+
 @skill(
     "notify",
     "Show a desktop notification (toast). Platform-native: macOS uses "
@@ -474,7 +498,7 @@ def notify(title: str = "JarvisCopilot", message: str = "") -> dict:
             f'$x.LoadXml($T); '
             f'$n = New-Object Windows.UI.Notifications.ToastNotification($x); '
             f'[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('
-            f'"JarvisCopilot").Show($n)'
+            f'"{_WIN_TOAST_APP_ID}").Show($n)'
         )
         subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps],

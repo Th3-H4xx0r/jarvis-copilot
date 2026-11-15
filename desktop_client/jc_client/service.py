@@ -297,8 +297,10 @@ class Service:
     def _ui_request(self, req: dict) -> dict:
         kind = req.get("type")
         if self._power is not None:
-            from jc_client.power_service import UI_REQUESTS
-            if kind in UI_REQUESTS:
+            ui_requests = getattr(self._power, "UI_REQUESTS", None)   # PcPower on Windows
+            if ui_requests is None:
+                from jc_client.power_service import UI_REQUESTS as ui_requests
+            if kind in ui_requests:
                 return self._power.ui_request(req)
         if kind == "admin_run":
             if sys.platform != "win32":
@@ -558,6 +560,14 @@ class Service:
                     self._power.start()
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("mac power unavailable: %s", exc)
+                    self._power = None
+            elif sys.platform == "win32":
+                try:
+                    from jc_client.pc_power import PcPower
+                    self._power = PcPower(self._send_up_ok)   # the PC in the phone's Agents card
+                    self._power.start()
+                except Exception as exc:  # noqa: BLE001 — never fatal
+                    log.warning("pc power unavailable: %s", exc)
                     self._power = None
             self._start_agents_link()
             link = self._agents_link
@@ -913,6 +923,9 @@ class Service:
             "registered %d skills in %d frame(s)", len(manifest), len(chunks)
         )
         self._agent_hello()
+        on_connected = getattr(self._power, "on_connected", None)   # PcPower: status at once
+        if on_connected is not None:
+            on_connected()
         if self._agents_link is not None:
             self._agents_link.on_connected()
         if self._ui_topics:
