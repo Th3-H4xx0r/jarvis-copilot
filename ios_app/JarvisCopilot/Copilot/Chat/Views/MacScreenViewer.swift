@@ -670,6 +670,7 @@ struct MacScreenControlView: View {
     @State private var lastDrag: CGPoint?
     @State private var showCenter = false
     @State private var showRailControls = false
+    @State private var zoom = MacScreenZoom()
 
     var body: some View {
         GeometryReader { outer in
@@ -727,28 +728,42 @@ struct MacScreenControlView: View {
         .task { if session.phase == .idle { await session.start() } }
     }
 
-    /// The Mac's picture with the input layer over it, sized to the space it gets.
+    /// The Mac's picture with the input layer over it, sized to the space it gets. Two fingers
+    /// pinch to zoom and pan (MacScreenZoom); taps and drags map back through the zoom.
     private var screen: some View {
         GeometryReader { geo in
             ZStack {
                 Color.black
-                if session.phase == .live {
-                    MacScreenVideoView(track: session.track) { session.setVideoSize($0) }
-                } else {
-                    MacScreenPreview(session: session)
+                Group {
+                    if session.phase == .live {
+                        MacScreenVideoView(track: session.track) { session.setVideoSize($0) }
+                    } else {
+                        MacScreenPreview(session: session)
+                    }
                 }
+                // Zoom by sizing the picture up (the video view renders at that size, so it stays
+                // sharp), pinned top-left and shifted by the pan.
+                .frame(width: geo.size.width * zoom.scale, height: geo.size.height * zoom.scale)
+                .offset(x: zoom.offset.x, y: zoom.offset.y)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 // Input layer over the picture.
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(dragGesture(container: geo.size))
-                    // One tap = click, double tap = double-click (never both).
-                    .simultaneousGesture(
-                        SpatialTapGesture(count: 2).onEnded { tap in
-                            click(at: tap.location, container: geo.size, count: 2)
-                        }
-                        .exclusively(before: SpatialTapGesture(count: 1).onEnded { tap in
-                            click(at: tap.location, container: geo.size, count: 1)
-                        }))
+                MacScreenTouchLayer(
+                    onTap: { point, count in click(at: point, container: geo.size, count: count) },
+                    onDrag: { state, start, now in drag(state, start: start, now: now, container: geo.size) },
+                    onPinch: { factor, center in zoom.pinch(by: factor, at: center, in: geo.size) },
+                    onPan: { delta in zoom.pan(by: delta, in: geo.size) })
+                if zoom.isZoomed {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { zoom = MacScreenZoom() }
+                    } label: {
+                        Text("1×").font(.system(size: 13, weight: .semibold)).foregroundStyle(JcTheme.text)
+                            .frame(width: 40, height: 30)
+                            .background(.black.opacity(0.6), in: Capsule())
+                    }
+                    .accessibilityLabel("Zoom out")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(10)
+                }
                 TextField("", text: $typing)
                     .focused($keyboard)
                     .opacity(0.01)
@@ -765,6 +780,7 @@ struct MacScreenControlView: View {
                         keyboard = true
                     }
             }
+            .clipped()
         }
     }
 
@@ -773,33 +789,37 @@ struct MacScreenControlView: View {
         dismiss()
     }
 
+    /// A point on the visible (maybe zoomed) picture → normalised computer coordinates.
+    private func normalised(_ point: CGPoint, container: CGSize) -> CGPoint? {
+        macScreenNormalised(zoom.base(point), video: session.videoSize, in: container)
+    }
+
     private func click(at point: CGPoint, container: CGSize, count: Int) {
-        guard let p = macScreenNormalised(point, video: session.videoSize, in: container) else { return }
+        guard let p = normalised(point, container: container) else { return }
         session.send(["t": "click", "x": p.x, "y": p.y, "button": "left", "count": count])
     }
 
-    private func dragGesture(container: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 6)
-            .onChanged { value in
-                guard let p = macScreenNormalised(value.location, video: session.videoSize, in: container) else { return }
-                if !dragging,
-                   let start = macScreenNormalised(value.startLocation, video: session.videoSize, in: container) {
-                    dragging = true
-                    session.send(["t": "down", "x": start.x, "y": start.y, "button": "left"])
-                }
-                guard dragging else { return }
-                lastDrag = p
-                session.send(["t": "move", "x": p.x, "y": p.y])
+    /// One finger dragging: press where it started, move, release where it ends.
+    private func drag(_ state: UIGestureRecognizer.State, start: CGPoint, now: CGPoint, container: CGSize) {
+        switch state {
+        case .began, .changed:
+            guard let p = normalised(now, container: container) else { return }
+            if !dragging, let s = normalised(start, container: container) {
+                dragging = true
+                session.send(["t": "down", "x": s.x, "y": s.y, "button": "left"])
             }
-            .onEnded { value in
-                // A drag that never pressed sends no release; one leaving the picture
-                // releases where it last was, never at the Mac's corner.
-                if dragging, let p = macScreenNormalised(value.location, video: session.videoSize, in: container) ?? lastDrag {
-                    session.send(["t": "up", "x": p.x, "y": p.y, "button": "left"])
-                }
-                dragging = false
-                lastDrag = nil
+            guard dragging else { return }
+            lastDrag = p
+            session.send(["t": "move", "x": p.x, "y": p.y])
+        default:
+            // A drag that never pressed sends no release; one leaving the picture (or cut short by a
+            // pinch) releases where it last was, never at the computer's corner.
+            if dragging, let p = (state == .ended ? normalised(now, container: container) : nil) ?? lastDrag {
+                session.send(["t": "up", "x": p.x, "y": p.y, "button": "left"])
             }
+            dragging = false
+            lastDrag = nil
+        }
     }
 }
 

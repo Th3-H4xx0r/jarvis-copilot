@@ -922,6 +922,7 @@
 		ABCC761098A143292F5BDE98 /* AudioOutputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43F3AA0AC3B28393D27CB98 /* AudioOutputEngine.swift */; };
 		ABD3DF32AFA46F7B7A26F6B6 /* OnDeviceChatBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */; };
 		AC1C44052C38DEF2846BC18B /* LocalExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F3CB09A458987759A7E8A9 /* LocalExecutor.swift */; };
+		AC3E4020EBDB71DF3ADA47A1 /* MacScreenZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9A02224CE4CABCB77107B2 /* MacScreenZoomTests.swift */; };
 		AC4FD32D369AFD0E6321BCAC /* WidgetModelSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38365D25A4F93E45A104174 /* WidgetModelSnapshotTests.swift */; };
 		AC9F27C23FEE2517EFE0823E /* WidgetAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20ED061D8FC3A1B3E6629303 /* WidgetAgent.swift */; };
 		ACBA31DCC006F4EDD106BDC9 /* GlassesSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24D328A885596746DD8CB52C /* GlassesSceneView.swift */; };
@@ -1284,6 +1285,7 @@
 		ECED814028FBA24B42228563 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96A33C9D808787F7E83495B /* RouteMap.swift */; };
 		ECEDEEA043E2E99FC35200E7 /* PasteboardAttachmentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC385D221268401C6257A37 /* PasteboardAttachmentsTests.swift */; };
 		ED1634C71A49D7D0C50976E1 /* InmoRuntimeDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92160D7DC26CA93B6E15D30E /* InmoRuntimeDiagnostics.swift */; };
+		EDFFBBFF5F07C9ED56CC8C73 /* MacScreenZoom.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB87422657BB46F190B79AA6 /* MacScreenZoom.swift */; };
 		EE0965D3101557370F1BEAA2 /* QuotaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CDD52DB7E10082EBDBF61E9 /* QuotaStore.swift */; };
 		EE4E8C9A6546DE7556EDBA01 /* HealthVitalDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D09F857A67375B1E077EC2A /* HealthVitalDay.swift */; };
 		EEA47EE31FFC14A780D13DD0 /* SkillArgsFormStructuredTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FD33F15C1578B1FBC8F6BC0 /* SkillArgsFormStructuredTests.swift */; };
@@ -1839,6 +1841,7 @@
 		4EFB64F0F30061B8E32B5218 /* SpotifyRemoteTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpotifyRemoteTests.swift; sourceTree = "<group>"; };
 		4EFDB0B847063A1CBE9BCB80 /* AgentsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsModels.swift; sourceTree = "<group>"; };
 		4F8762B90BF3DAFD1DB92442 /* RouteFollowerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteFollowerTests.swift; sourceTree = "<group>"; };
+		4F9A02224CE4CABCB77107B2 /* MacScreenZoomTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacScreenZoomTests.swift; sourceTree = "<group>"; };
 		4FDE6F832C56A99B29B9776A /* DashcamSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSetupView.swift; sourceTree = "<group>"; };
 		5005246D6DE943011DE1BE73 /* HealthWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthWire.swift; sourceTree = "<group>"; };
 		5012A8FA2E076631A6DEEAB7 /* KanbanPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPage.swift; sourceTree = "<group>"; };
@@ -2558,6 +2561,7 @@
 		DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementPage.swift; sourceTree = "<group>"; };
 		DB59ED4224F14087BA8945D4 /* ColmiR12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColmiR12Tests.swift; sourceTree = "<group>"; };
 		DB5A91DA5C61B6D8B1CAAA17 /* LiveTranslatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranslatorTests.swift; sourceTree = "<group>"; };
+		DB87422657BB46F190B79AA6 /* MacScreenZoom.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacScreenZoom.swift; sourceTree = "<group>"; };
 		DBAE5308628C3C7DE9907031 /* WorkspacesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesModels.swift; sourceTree = "<group>"; };
 		DBB75BCC6096760AD3D53ACA /* QRScanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QRScanner.swift; sourceTree = "<group>"; };
 		DC12AEB9707F723F078D3812 /* BandBatteryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandBatteryView.swift; sourceTree = "<group>"; };
@@ -4235,6 +4239,7 @@
 				E074ECEB6407AC738B7DCCA1 /* CodingStreamReducerTests.swift */,
 				64226045049E492743BEB4C5 /* AgentsMacPowerTests.swift */,
 				91EB591A7BB841A8ADB17AE1 /* AgentsPcPowerCardTests.swift */,
+				4F9A02224CE4CABCB77107B2 /* MacScreenZoomTests.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -4658,6 +4663,7 @@
 				98E3A770F216FA4EEB5CCECD /* MacControlItems.swift */,
 				C02BAB8B3ABF0BFC3F0B6424 /* MacControlStrip.swift */,
 				56133A49B35BB42CCB07A3FE /* MacDockMenu.swift */,
+				DB87422657BB46F190B79AA6 /* MacScreenZoom.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -5904,6 +5910,7 @@
 				0D7D3F0D4BC089E2FD5F705E /* HoloFlingTests.swift in Sources */,
 				4DCB7337A9825EAD8F286B6E /* HoloScreenPhotoTests.swift in Sources */,
 				10B35ABFA20B8AE5FEED1713 /* AgentsPcPowerCardTests.swift in Sources */,
+				AC3E4020EBDB71DF3ADA47A1 /* MacScreenZoomTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6825,6 +6832,7 @@
 				06BBBCAA54A99E97DF779F9E /* HoloDropLiveIntents.swift in Sources */,
 				E19A1F852B80FC8A46E74199 /* HoloGrabActivity.swift in Sources */,
 				99B1B5C284C1F2AE8D18C380 /* PcAdminApprovals.swift in Sources */,
+				EDFFBBFF5F07C9ED56CC8C73 /* MacScreenZoom.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
