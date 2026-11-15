@@ -173,6 +173,28 @@ def render_nginx(settings: Dict[str, Any]) -> str:
             proxy_read_timeout 600s;
         }}
 """
+        # Holo Drop file drops: up to its own cap (setting, default 500 MB, max 2000), streamed
+        # straight through — the 64 MB limit below is for everything else.
+        holo_location = ""
+        if webui_upstream and upstream == webui_upstream:
+            holo_location = f"""
+        location ^~ /api/holo-drop/drops/upload {{
+            proxy_pass {upstream};{proxy_ssl}
+            proxy_set_header Forwarded "";
+            proxy_set_header X-Forwarded-Host {fqdn};
+            proxy_set_header X-Real-Host {fqdn};
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Host {fqdn};
+            proxy_http_version 1.1;
+            client_max_body_size 2100m;
+            proxy_request_buffering off;
+            proxy_buffering off;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+        }}
+"""
         server_blocks.append(
             f"""    server {{
         listen 127.0.0.1:{listen_port};
@@ -203,7 +225,7 @@ def render_nginx(settings: Dict[str, Any]) -> str:
         limit_conn jc_edge_conn 512;
 
         client_max_body_size 64m;
-{ota_location}
+{ota_location}{holo_location}
         location / {{
             proxy_pass {upstream};{proxy_ssl}
 

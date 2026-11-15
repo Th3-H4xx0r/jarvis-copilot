@@ -191,3 +191,13 @@ def test_a_corrupt_file_reads_as_empty(tokens):
 def test_live_state_is_a_server_only_skill():
     from api.device_bridge import SERVER_ONLY_SKILLS
     assert "live_state" in SERVER_ONLY_SKILLS
+
+
+def test_push_to_start_can_target_one_phone(tokens):
+    tokens.set_activity("phone1", "holo-start", START)
+    tokens.set_activity("ipad1", "holo-start", START[::-1])
+    send = Sender()
+    n = live_routes.start_activity("holo", {"title": "x"}, attributes_type="HoloDropActivityAttributes",
+                                   attributes={"dropID": "d1"}, alert={"title": "Holo Drop", "body": "x"},
+                                   tokens=tokens, sender=send, devices={"ipad1"})
+    assert n == 1 and [t for t, _, _ in send.sent] == [START[::-1]]

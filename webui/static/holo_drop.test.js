@@ -65,3 +65,11 @@ test('outcomes in words', () => {
   assert.equal(H.words('saved_opened'), 'Saved + opened');
   assert.equal(H.outcome('save_copy'), 'saved_copied');
 });
+
+test('a dropped stream retries with backoff; only a focused tab claims Web on reconnect', () => {
+  assert.equal(H.retryDelay(0), 15000);
+  assert.ok(H.retryDelay(3) > H.retryDelay(1));
+  assert.ok(H.retryDelay(50) <= 120000);
+  assert.equal(H.claimOnHello(true), true);
+  assert.equal(H.claimOnHello(false), false);
+});

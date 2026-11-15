@@ -52,6 +52,12 @@
         saved_copied: 'Saved + copied', shown: 'Shown' })[outcome] || 'Done';
     },
 
+    /** Wait before reopening a stream the browser gave up on (deploys, switch-off): 15 s, doubling, ≤ 2 min. */
+    retryDelay: function (attempt) { return Math.min(120000, 15000 * Math.pow(2, Math.max(0, attempt))); },
+
+    /** A tab that reconnects in the background must not steal "Web" from the one he's using. */
+    claimOnHello: function (focused) { return !!focused; },
+
     /** Only web links ever open. */
     safeLink: function (url) {
       try { var u = new URL(String(url)); return (u.protocol === 'https:' || u.protocol === 'http:') ? u.href : null; }
@@ -114,7 +120,13 @@
     if (H.es || !on() || typeof EventSource === 'undefined') return;
     var es = new EventSource(url('api/holo-drop/stream'), { withCredentials: true });
     H.es = es;
-    es.addEventListener('hello', function (ev) { try { H.tab = JSON.parse(ev.data).tab; H.claim(true); } catch (e) {} });
+    es.addEventListener('hello', function (ev) {
+      try {
+        H.tab = JSON.parse(ev.data).tab;
+        H.attempt = 0;
+        if (H.claimOnHello(document.hasFocus())) H.claim(true);
+      } catch (e) {}
+    });
     es.addEventListener('drop', function (ev) { try { H.arrive(JSON.parse(ev.data)); } catch (e) {} });
     es.addEventListener('landed', function (ev) {
       try {
@@ -122,7 +134,14 @@
         H.toast(d.state === 'failed' ? 'Didn’t land: ' + (d.error || 'the device couldn’t take it') : 'Landed · ' + H.words(d.outcome));
       } catch (e) {}
     });
-    es.onerror = function () { if (!on()) H.stop(); };   // switched off: stop retrying
+    es.onerror = function () {
+      if (es.readyState !== 2) return;                    // the browser is still retrying by itself
+      // It gave up (a 409 while off, a 502 during a deploy): drop it and try again later.
+      if (H.es === es) { H.es = null; H.tab = null; }
+      clearTimeout(H.retryTimer);
+      H.retryTimer = setTimeout(function () { H.attempt = (H.attempt || 0) + 1; if (on()) H.listen(); },
+                                H.retryDelay(H.attempt || 0));
+    };
   };
 
   H.stop = function () { if (H.es) { H.es.close(); H.es = null; } H.tab = null; };
@@ -312,7 +331,7 @@
 
   root.JCHoloDrop = H;
   document.addEventListener('DOMContentLoaded', function () { setTimeout(H.listen, 1500); });
-  window.addEventListener('focus', function () { if (on()) { H.listen(); H.claim(); } else { H.stop(); } });
+  window.addEventListener('focus', function () { if (on()) { H.listen(); H.claim(true); } else { H.stop(); } });
   document.addEventListener('pointerdown', function () { H.claim(); }, { passive: true });
 })(typeof window !== 'undefined' ? window : globalThis);
 

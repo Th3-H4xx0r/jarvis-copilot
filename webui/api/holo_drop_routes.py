@@ -22,9 +22,10 @@ logger = logging.getLogger(__name__)
 
 ACTIONS = ("save", "open", "copy", "save_open", "save_copy")
 KINDS = ("link", "text", "image", "video", "file")
+# Text-only targets: the skill that shows text, best first (the glasses' answer card; the Pod's page).
 _TEXT_SKILLS = {
-    "glasses": re.compile(r"^(go3|glasses|inmo|lens)_(show|card|text|display)"),
-    "pod": re.compile(r"^pod_(say|speak)"),
+    "glasses": ("glasses_show_answer", "go3_show", "glasses_show_card", "glasses_show_transcription"),
+    "pod": ("pod_show",),
 }
 
 # Web tabs: one SSE queue per tab; the tab that claimed "Web" most recently answers.
@@ -51,12 +52,27 @@ def _send_frame(device_id: str, frame: dict) -> bool:
     return bool(device_bridge.send_frame(device_id, frame))
 
 
-def _push(title: str, body: str, data: dict) -> None:
+def _push(title: str, body: str, data: dict, device: Optional[str] = None) -> None:
+    """A banner — on ``device`` only when given (a drop's target or sender), else every phone."""
     try:
-        from api.coding_routes import _push_device_alert
-        _push_device_alert(title, body, data=data)
+        from api import push
+        push.push_phones(data, alert={"title": title, "body": _short(body, 180)},
+                         only={device} if device else None)
     except Exception:
         logger.debug("holo drop push failed", exc_info=True)
+
+
+def _short(text: str, n: int) -> str:
+    text = str(text or "")
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def _power_on() -> bool:
+    try:
+        from jarvis_power.state import is_on
+        return bool(is_on("holo-drop"))
+    except Exception:
+        return True
 
 
 def _wake_mac(device_id: str) -> None:
@@ -76,7 +92,8 @@ def _start_card(drop: dict, from_name: str) -> None:
         live_routes.start_activity(
             "holo", {"title": what, "from": from_name[:32], "kind": drop.get("kind") or "file", "count": 1},
             attributes_type="HoloDropActivityAttributes", attributes={"dropID": drop["id"]},
-            alert={"title": "Holo Drop", "body": f"{what} from {from_name}"}, stale_after=24 * 3600)
+            alert={"title": "Holo Drop", "body": f"{what} from {from_name}"}, stale_after=24 * 3600,
+            devices={drop["target"]})
     except Exception:
         logger.debug("holo drop: waiting card failed", exc_info=True)
 
@@ -104,20 +121,42 @@ def _invoke(device_id: str, skill: str, args: dict) -> bool:
         return False
 
 
+def _pick_text_skills(skills_by_device: dict) -> list[dict]:
+    """``{device: [skill names]}`` → one target per kind, using the best skill any device offers."""
+    out = []
+    for kind, preferred in _TEXT_SKILLS.items():
+        for skill in preferred:
+            via = next((d for d, names in skills_by_device.items() if skill in names), None)
+            if via:
+                out.append({"id": f"{kind}:{via}", "via": via, "skill": skill, "kind": kind})
+                break
+    return out
+
+
 def _text_targets() -> list[dict]:
     """Glasses / Pod reachable through a text skill on a connected device."""
     try:
         from api import device_bridge
-        out = []
-        for device_id in device_bridge.connected_device_ids():
-            for s in device_bridge.skills_for_device(device_id):
-                name = str(s.get("name") or "")
-                for kind, pattern in _TEXT_SKILLS.items():
-                    if pattern.match(name) and not any(t["kind"] == kind for t in out):
-                        out.append({"id": f"{kind}:{device_id}", "via": device_id, "skill": name, "kind": kind})
-        return out
+        return _pick_text_skills({d: [str(s.get("name") or "") for s in device_bridge.skills_for_device(d)]
+                                  for d in device_bridge.connected_device_ids()})
     except Exception:
         return []
+
+
+def _text_args(kind: str, drop: dict) -> dict:
+    """What the glasses / Pod skill is called with for a link or text drop."""
+    text = drop.get("url") or drop.get("text") or ""
+    if kind == "pod":
+        children = []
+        if drop.get("title"):
+            children.append({"type": "text", "value": _short(drop["title"], 60), "style": {"size": 20, "weight": "bold"}})
+        children.append({"type": "text", "value": _short(text, 180), "style": {"size": 16}})
+        children.append({"type": "text", "value": f"from {drop.get('from_name') or 'Holo Drop'}",
+                         "style": {"size": 12, "color": "muted"}})
+        return {"page": {"id": "holo-drop", "title": "Holo Drop",
+                         "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": children}}}
+    title = drop.get("title")
+    return {"text": f"{title}\n{text}" if title and title != text else text}
 
 
 # ── devices ────────────────────────────────────────────────────────────────────
@@ -125,6 +164,10 @@ def _kind(d: dict) -> Optional[str]:
     raw = str(d.get("kind") or "").lower()
     name = str(d.get("name") or "").lower()
     if raw == "desktop":
+        return "mac"
+    # jc-client (the Mac app's helper) pairs as a plain "browser" record; its user agent says what it is.
+    # Boards and the Pod are "browser" records too, so the agent string, not the kind, decides.
+    if raw in ("browser", "") and str(d.get("user_agent") or "").startswith("jc-client"):
         return "mac"
     if raw.startswith("mobile"):
         return "ipad" if "ipad" in name or "ipad" in raw else "iphone"
@@ -197,32 +240,35 @@ def deliver(drop: dict) -> dict:
         with _streams_lock:
             q = _streams.get(_claimed["tab"] or "")
         if q is None:
-            return st.set_state(drop["id"], "held")
+            return st.set_state(drop["id"], "held", only_if=("sent", "held"))
         q.put(("drop", public(drop)))
-        return st.set_state(drop["id"], "delivered")
+        return st.set_state(drop["id"], "delivered", only_if=("sent", "held"))
     if ":" in target:                                         # glasses:<via> / pod:<via>
         for t in _text_targets():
             if t["id"] == target:
-                text = drop.get("url") or drop.get("text") or ""
-                ok = _invoke(t["via"], t["skill"], {"text": text, "title": drop.get("title") or "Holo Drop"})
+                ok = _invoke(t["via"], t["skill"], _text_args(t["kind"], public(drop)))
                 return st.set_state(drop["id"], "landed" if ok else "failed",
                                     outcome="shown" if ok else "failed",
                                     error=None if ok else "the device didn't take it")
         return st.set_state(drop["id"], "failed", error="that device isn't reachable")
     kind = next((_kind(d) for d in _paired() if d.get("id") == target), None)
-    if target in _connected() and _send_frame(target, {"type": "holo_drop", "event": "drop", "drop": public(drop)}):
-        out = st.set_state(drop["id"], "delivered")
-        if kind in PHONES:
+    current = st.get(drop["id"]) or drop
+    if current["state"] not in ("sent", "held"):          # landed/failed meanwhile: a stale snapshot
+        return current
+    if target in _connected() and _send_frame(target, {"type": "holo_drop", "event": "drop", "drop": public(current)}):
+        out = st.set_state(drop["id"], "delivered", only_if=("sent", "held"))
+        if kind in PHONES and out and out["state"] == "delivered":
             _later(WAITING_AFTER_S, _check_waiting, drop["id"])
         return out
     if kind == "mac":
         _wake_mac(target)
-    out = st.set_state(drop["id"], "held")
-    if kind in PHONES and drop.get("state") != "held":
+    out = st.set_state(drop["id"], "held", only_if=("sent", "held"))
+    if kind in PHONES and out and out["state"] == "held":
         _waiting(out)
     return out
 
 
+_MIME = re.compile(r"^[\w.+-]+/[\w.+-]+$")
 PHONES = ("iphone", "ipad")
 WAITING_AFTER_S = 8.0
 _seen: set = set()          # drop ids their phone has picked up (record, content or pending)
@@ -236,19 +282,38 @@ def _name_of(device_id: str) -> str:
     return next((d.get("name") for d in _paired() if d.get("id") == device_id), None) or "your device"
 
 
+_announced: set = set()     # drop ids whose "Drop waiting" card + banner already went out
+
+
 def _waiting(drop: dict) -> None:
-    """A phone drop nobody picked up: the Lock Screen card + a banner (seen when unlocked)."""
+    """A phone drop nobody picked up: the Lock Screen card + a banner (seen when unlocked) —
+    once per drop, on the target phone only."""
+    if drop["id"] in _announced:
+        return
+    _announced.add(drop["id"])
     who = _name_of(drop.get("sender") or "")
-    what = drop.get("name") or drop.get("title") or drop.get("url") or "Something"
+    what = _short(drop.get("name") or drop.get("title") or drop.get("url") or "Something", 80)
     _start_card(drop, who)
     _push("Holo Drop", f"{who} dropped {what} — open Jarvis to get it",
-          {"type": "holo_drop", "id": drop["id"], "url": f"jarviscopilot://holo-drop?drop={drop['id']}"})
+          {"type": "holo_drop", "id": drop["id"], "url": f"jarviscopilot://holo-drop?drop={drop['id']}"},
+          device=drop["target"])
 
 
 def _check_waiting(drop_id: str) -> None:
     d = store().get(drop_id)
-    if d is not None and d["state"] == "delivered" and drop_id not in _seen:
+    if d is not None and d["state"] == "delivered" and drop_id not in _seen and _power_on():
         _waiting(d)
+
+
+def sweep_and_tell() -> int:
+    """24 h expiry; a drop that expired still waiting tells its sender (never a silent failure)."""
+    st = store()
+    expired = st.sweep_detail()
+    for d in expired:
+        d = st.set_state(d["id"], "failed", error=f"expired — {_name_of(d['target'])} never came back")
+        if d:
+            _tell_sender(d)
+    return len(expired)
 
 
 def deliver_held() -> int:
@@ -274,10 +339,13 @@ def _tell_sender(drop: dict) -> None:
         return
     if sender in _connected() and _send_frame(sender, {"type": "holo_drop", "event": "landed", "drop": public(drop)}):
         return
-    target_name = next((d.get("name") for d in _paired() if d.get("id") == drop["target"]), drop["target"])
-    what = drop.get("name") or drop.get("title") or drop.get("url") or "Your drop"
-    _push("Holo Drop", f"{what} landed on {target_name} · {drop.get('outcome') or 'done'}",
-          {"type": "holo_drop_landed", "id": drop["id"]})
+    target_name = _name_of(drop["target"]) if drop["target"] != "web" else "Web"
+    what = _short(drop.get("name") or drop.get("title") or drop.get("url") or "Your drop", 80)
+    if drop.get("state") in ("failed", "expired"):
+        line = f"{what} didn't land on {target_name}: {_short(drop.get('error') or 'it never came back', 80)}"
+    else:
+        line = f"{what} landed on {target_name} · {drop.get('outcome') or 'done'}"
+    _push("Holo Drop", line, {"type": "holo_drop_landed", "id": drop["id"]}, device=sender)
 
 
 # ── HTTP ───────────────────────────────────────────────────────────────────────
@@ -296,17 +364,19 @@ def _caller(req) -> str:
 def route(req) -> bool:
     sub = req.sub.strip("/")
     parts = sub.split("/") if sub else []
-    body = req.body if isinstance(req.body, dict) else {}
     caller = _caller(req)
     st = store()
     m = req.method
+    # Raw-body routes first: reading req.body would swallow the upload's bytes.
+    if parts == ["drops", "upload"] and m == "POST":
+        return _upload(req, caller)
+    raw_body = req.body if m != "GET" else None
+    body = raw_body if isinstance(raw_body, dict) else {}
 
     if parts == ["devices"] and m == "GET":
         return req.reply(200, {"devices": devices(caller)})
     if parts == ["drops"] and m == "POST":
         return _create(req, body, caller)
-    if parts == ["drops", "upload"] and m == "POST":
-        return _upload(req, caller)
     if len(parts) >= 2 and parts[0] == "drops":
         d = st.get(parts[1])
         if d is None:
@@ -318,9 +388,11 @@ def route(req) -> bool:
         if parts[2:] == ["content"] and m == "GET":
             return _content(req, d)
         if parts[2:] == ["landed"] and m == "POST":
-            outcome = str(body.get("outcome") or "")
+            if d["state"] in ("landed", "failed") and d.get("outcome"):
+                return req.reply(200, {"ok": True, "drop": public(d)})   # already told the sender
+            outcome = str(body.get("outcome") or "")[:20]
             state = "failed" if outcome == "failed" else "landed"
-            d = st.set_state(d["id"], state, outcome=outcome, error=body.get("error"))
+            d = st.set_state(d["id"], state, outcome=outcome or "shown", error=_short(body.get("error") or "", 200) or None)
             _tell_sender(d)
             return req.reply(200, {"ok": True, "drop": public(d)})
         if parts[2:] == ["again"] and m == "POST":
@@ -340,18 +412,25 @@ def route(req) -> bool:
                 st.set_state(d["id"], "delivered")
         return req.reply(200, {"drops": [public(d) for d in drops]})
     if parts == ["history"] and m == "GET":
-        limit = int((req.query.get("limit") or ["50"])[0]) if hasattr(req, "query") else 50
+        try:
+            limit = int((req.query.get("limit") or ["50"])[0]) if hasattr(req, "query") else 50
+        except (TypeError, ValueError):
+            limit = 50
         return req.reply(200, {"drops": st.history(min(200, max(1, limit)))})
     if parts == ["lan"]:
         if m == "POST":
-            st.set_lan(caller, str(body.get("url") or ""), str(body.get("token") or ""),
-                       float(body.get("expires") or time.time() + 900))
+            try:
+                expires = float(body.get("expires") or time.time() + 900)
+            except (TypeError, ValueError):
+                expires = time.time() + 900
+            st.set_lan(caller, str(body.get("url") or "")[:200], str(body.get("token") or "")[:128], expires)
             return req.reply(200, {"ok": True})
         if m == "DELETE":
             st.clear_lan(caller)
             return req.reply(200, {"ok": True})
     if parts == ["bearings"] and m == "POST":
-        st.put_bearings(caller, body.get("bearings") or [])
+        rows = body.get("bearings")
+        st.put_bearings(caller, rows if isinstance(rows, list) else [])
         return req.reply(200, {"ok": True})
     if len(parts) == 2 and parts[0] == "bearings" and m == "DELETE":
         st.clear_bearing(caller, parts[1])
@@ -435,8 +514,9 @@ def _upload(req, caller: str) -> bool:
         return req.reply(413, {"error": f"That's over the {max_bytes // (1024 * 1024)} MB limit for drops through Jarvis"})
     pos = {"x": get("x"), "y": get("y")} if get("x") and get("y") else None
     st = store()
+    mime = get("mime")[:100]
     d = st.create(kind, sender=caller, target=target["id"], action=_action(get("action"), target, kind),
-                  position=pos, name=get("name") or "drop", mime=get("mime"))
+                  position=pos, name=(get("name") or "drop")[:200], mime=mime if _MIME.match(mime) else "")
     try:
         st.attach_file(d["id"], req.handler.rfile, length, max_bytes)
     except TooLarge as exc:
@@ -445,6 +525,12 @@ def _upload(req, caller: str) -> bool:
     except Exception as exc:
         st.set_state(d["id"], "failed", error=str(exc))
         return req.reply(400, {"error": f"the upload didn't finish: {exc}"})
+    if not _power_on():                                  # switched off while it streamed: nothing kept
+        path = st.content_path(d["id"])
+        if path is not None:
+            path.unlink(missing_ok=True)
+        st.set_state(d["id"], "failed", error="Holo Drop was switched off")
+        return req.reply(409, {"error": "Holo Drop is switched off", "power_off": "holo-drop"})
     return req.reply(200, {"drop": public(deliver(st.get(d["id"])))})
 
 
@@ -455,10 +541,12 @@ def _content(req, d: dict) -> bool:
     h = req.handler
     if not hasattr(h, "send_response"):                     # tests
         return req.reply(200, {"ok": True, "size": path.stat().st_size})
+    from api.helpers import _content_disposition_value
+    mime = str(d.get("mime") or "")
     h.send_response(200)
-    h.send_header("Content-Type", d.get("mime") or "application/octet-stream")
+    h.send_header("Content-Type", mime if _MIME.match(mime) else "application/octet-stream")
     h.send_header("Content-Length", str(path.stat().st_size))
-    h.send_header("Content-Disposition", f'attachment; filename="{(d.get("name") or "drop").replace(chr(34), "")}"')
+    h.send_header("Content-Disposition", _content_disposition_value("attachment", d.get("name") or "drop"))
     h.end_headers()
     with open(path, "rb") as fh:
         while True:
@@ -544,6 +632,8 @@ def _stream(req) -> bool:
             try:
                 event, data = q.get(timeout=20)
             except queue.Empty:
+                if not _power_on():                       # switched off: the tab stops listening
+                    break
                 sse.keepalive(req.handler)
                 continue
             sse.send(req.handler, event, data)

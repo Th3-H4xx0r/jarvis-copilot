@@ -253,8 +253,10 @@ def needs_start(source: str, tokens: LiveTokens | None = None) -> bool:
 
 def start_activity(source: str, content_state: dict, *, attributes_type: str, attributes: dict, alert: dict,
                    stale_after: Optional[int] = None, expiration: Optional[int] = None,
-                   tokens: LiveTokens | None = None, sender: Callable | None = None) -> int:
-    """Push-to-start a ``source`` card on each phone that wants one and has none running (iOS 17.2+).
+                   tokens: LiveTokens | None = None, sender: Callable | None = None,
+                   devices: Optional[set] = None) -> int:
+    """Push-to-start a ``source`` card on each phone that wants one and has none running (iOS 17.2+);
+    ``devices`` limits it to those device ids.
     ``input-push-token`` asks iOS for the new card's own token, which the app then reports."""
     tokens = tokens or store()
     sender = sender or _apns("send_live_activity")
@@ -262,7 +264,7 @@ def start_activity(source: str, content_state: dict, *, attributes_type: str, at
     extra = {"attributes-type": attributes_type, "attributes": attributes, "alert": alert, "input-push-token": 1}
     sent = 0
     for device, token, _at in tokens.activities(f"{source}-start"):
-        if device in running:
+        if device in running or (devices is not None and device not in devices):
             continue
         res = _send(sender, token, content_state, event="start", priority=10, stale_after=stale_after,
                     extra=extra, expiration=expiration)

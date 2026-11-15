@@ -191,6 +191,7 @@
   function _powerOpenLink(target) {
     if (target === 'kanban' || target === 'security') { switchPanel(target); return; }
     if (target === 'imessage' && typeof openIMessageMemory === 'function') { openIMessageMemory(); return; }
+    if (target === 'holo_drop' && typeof JCHoloDrop !== 'undefined') { JCHoloDrop.openOrbit(); return; }
   }
 
   function _powerSettings(host, r) {

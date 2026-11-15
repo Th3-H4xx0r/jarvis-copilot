@@ -42,7 +42,7 @@ def _mobile_devices() -> list:
     return list_devices()
 
 
-def push_phones(data: dict, *, alert: Optional[dict] = None) -> int:
+def push_phones(data: dict, *, alert: Optional[dict] = None, only: Optional[set] = None) -> int:
     """``data`` to every paired phone, each through its own app's topic and APNs environment: a
     visible banner with ``alert``, else a silent wake. Best effort; returns how many phones APNs
     accepted it for."""
@@ -52,6 +52,8 @@ def push_phones(data: dict, *, alert: Optional[dict] = None) -> int:
     except Exception:
         return 0
     for d in devices:
+        if only is not None and d.get("id") not in only:
+            continue
         token = (d.get("push_token") or "").strip()
         if not token or (d.get("push_kind") or "").strip().lower() != "apns":
             continue

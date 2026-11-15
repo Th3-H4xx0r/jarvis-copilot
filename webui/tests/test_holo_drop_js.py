@@ -20,3 +20,8 @@ def test_page_loads_holo_drop_and_gates_its_button():
     html = (STATIC / "index.html").read_text()
     assert 'static/holo_drop.js' in html
     assert 'data-power="holo-drop"' in html and "JCHoloDrop.openOrbit()" in html
+
+
+def test_power_page_link_opens_the_web_orbit():
+    js = (STATIC / "power.js").read_text()
+    assert "holo_drop" in js and "JCHoloDrop" in js

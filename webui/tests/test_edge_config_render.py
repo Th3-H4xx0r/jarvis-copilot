@@ -83,3 +83,14 @@ def test_renderer_emits_low_latency_streaming_directives():
         "tcp_nodelay on;",
     ):
         assert directive in conf, f"missing edge directive: {directive!r}"
+
+
+def test_holo_drop_uploads_get_their_own_body_limit():
+    """Holo Drop takes files up to its own cap (default 500 MB): the 64 MB edge limit must not
+    cut it off, and the body must stream (no temp-file spill)."""
+    conf = _render()
+    block = conf[conf.index("location ^~ /api/holo-drop/drops/upload"):]
+    block = block[: block.index("}") + 1]
+    assert "client_max_body_size 2100m;" in block
+    assert "proxy_request_buffering off;" in block
+    assert "proxy_pass https://127.0.0.1:8787" in block

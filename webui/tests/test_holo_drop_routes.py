@@ -5,7 +5,7 @@ import io
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -30,7 +30,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "_paired", lambda: list(DEVICES))
     monkeypatch.setattr(routes, "_connected", lambda: set(connected))
     monkeypatch.setattr(routes, "_send_frame", lambda dev, frame: frames.append((dev, frame)) or dev in connected)
-    monkeypatch.setattr(routes, "_push", lambda title, body, data: pushes.append((title, body, data)))
+    monkeypatch.setattr(routes, "_push", lambda title, body, data, device=None: pushes.append((title, body, data)))
     monkeypatch.setattr(routes, "_wake_mac", lambda dev: wakes.append(dev))
     monkeypatch.setattr(routes, "_settings", lambda: {"max_mb": 1, "direct": True, "defaults": ""})
     return SimpleNamespace(st=st, frames=frames, pushes=pushes, wakes=wakes, connected=connected)
@@ -43,7 +43,7 @@ def call(method, path, body=None, caller="iphone-1", raw=None, host=False, heade
                               headers={"Content-Length": str(len(raw or b"")), **(headers or {})})
     req = SimpleNamespace(method=method, path=parsed.path, parsed=parsed, body=body, host_signed=host,
                           prefix="/api/holo-drop", handler=handler, sub=parsed.path[len("/api/holo-drop"):],
-                          device={"id": caller} if caller else None)
+                          device={"id": caller} if caller else None, query=parse_qs(parsed.query))
     req.reply = lambda status, payload: box.update(status=status, body=payload) or True
     assert routes.route(req) is not False
     return box["status"], box["body"]
@@ -194,3 +194,146 @@ def test_web_sender_does_not_see_web_target(env):
     finally:
         routes._streams.pop("ab2", None)
         routes._claimed["tab"] = None
+
+
+# ── bug sweep (2026-11-14) ─────────────────────────────────────────────────────
+class _BodyTrap(SimpleNamespace):
+    """A request whose JSON body must never be read (a raw-body route would lose its bytes)."""
+    @property
+    def body(self):
+        raise AssertionError("route read req.body before the raw-body handler")
+
+
+def test_upload_never_reads_the_json_body(env):
+    raw = b"x" * 10
+    parsed = urlparse("/api/holo-drop/drops/upload?kind=file&target=mac-1&name=a.bin&mime=application/octet-stream")
+    box = {}
+    handler = SimpleNamespace(rfile=io.BytesIO(raw), headers={"Content-Length": str(len(raw))})
+    req = _BodyTrap(method="POST", path=parsed.path, parsed=parsed, host_signed=False, prefix="/api/holo-drop",
+                    handler=handler, sub=parsed.path[len("/api/holo-drop"):], device={"id": "iphone-1"},
+                    query={k: [v] for k, v in (p.split("=") for p in parsed.query.split("&"))})
+    req.reply = lambda status, payload: box.update(status=status, body=payload) or True
+    routes.route(req)
+    assert box["status"] == 200 and box["body"]["drop"]["kind"] == "file"
+
+
+def test_jc_client_mac_is_a_target_but_boards_are_not(env, monkeypatch):
+    monkeypatch.setattr(routes, "_paired", lambda: [
+        {"id": "mac-9", "name": "Pranavs-MacBook-Pro.local", "kind": "browser", "user_agent": "jc-client/0.1"},
+        {"id": "pod-1", "name": "Jarvis Pod", "kind": "browser", "user_agent": "JarvisPod/2.5.0"},
+        {"id": "web-9", "name": "Macbook Web", "kind": "browser", "user_agent": "Mozilla/5.0 (Macintosh)"},
+    ])
+    kinds = {d["id"]: d["kind"] for d in call("GET", "/api/holo-drop/devices")[1]["devices"]}
+    assert kinds.get("mac-9") == "mac" and "pod-1" not in kinds and "web-9" not in kinds
+
+
+def test_content_headers_survive_any_name_and_mime(env):
+    sent = {}
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=image&target=mac-1"
+                        "&name=Screenshot%209.41.03%E2%80%AFPM%0D%0ASet-Cookie%3A%20x%3D1.png&mime=image/png%0D%0AX-Evil%3A%201",
+                        raw=b"pngbytes")
+    d = env.st.get(body["drop"]["id"])
+
+    class H:
+        wfile = io.BytesIO()
+        def send_response(self, code): sent["status"] = code
+        def send_header(self, k, v):
+            v.encode("latin-1")                        # the real send_header encodes strictly
+            assert "\r" not in v and "\n" not in v, (k, v)
+            sent[k] = v
+        def end_headers(self): pass
+
+    req = SimpleNamespace(handler=H(), reply=lambda s, p: True)
+    routes._content(req, d)
+    assert sent["status"] == 200 and sent["Content-Type"] == "application/octet-stream"
+    assert "attachment" in sent["Content-Disposition"]
+
+
+def test_waiting_card_announced_once_and_only_to_the_target(env, monkeypatch):
+    started, later = [], []
+    monkeypatch.setattr(routes, "_start_card", lambda drop, from_name: started.append(drop["id"]))
+    monkeypatch.setattr(routes, "_later", lambda s, fn, *a: later.append((fn, a)))
+    pushed_to = []
+    monkeypatch.setattr(routes, "_push", lambda title, body, data, device=None: pushed_to.append((device, body)))
+    env.connected.discard("iphone-1")
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "link", "target": "iphone-1",
+                                                          "url": "https://a.b/" + "x" * 3000}, caller="mac-1")
+    env.connected.add("iphone-1")
+    routes.deliver_held()                              # phone back in the background
+    for fn, a in later:
+        fn(*a)                                         # nobody opened it
+    assert started == [body["drop"]["id"]]             # one card, not two
+    assert pushed_to and all(dev == "iphone-1" for dev, _ in pushed_to)
+    assert all(len(b) <= 200 for _, b in pushed_to)
+
+
+def test_upload_in_progress_is_not_pending(env):
+    d = env.st.create("video", sender="iphone-1", target="mac-1", name="big.mov", mime="video/quicktime")
+    status, body = call("GET", "/api/holo-drop/pending", caller="mac-1")
+    assert d["id"] not in [x["id"] for x in body["drops"]]
+
+
+def test_second_landed_report_does_not_tell_sender_again(env):
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "mac-1", "text": "hi"})
+    n0 = len(env.frames)
+    call("POST", f"/api/holo-drop/drops/{body['drop']['id']}/landed", {"outcome": "copied"}, caller="mac-1")
+    call("POST", f"/api/holo-drop/drops/{body['drop']['id']}/landed", {"outcome": "copied"}, caller="mac-1")
+    landed = [f for _, f in env.frames[n0:] if f.get("event") == "landed"]
+    assert len(landed) == 1
+
+
+def test_held_redelivery_does_not_undo_a_landing(env):
+    env.connected.discard("mac-1")
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "mac-1", "text": "hi"})
+    snapshot = env.st.held()
+    call("POST", f"/api/holo-drop/drops/{body['drop']['id']}/landed", {"outcome": "copied"}, caller="mac-1")
+    env.connected.add("mac-1")
+    for d in snapshot:                                 # the sweeper's stale snapshot
+        routes.deliver(d)
+    assert env.st.get(body["drop"]["id"])["state"] == "landed"
+
+
+def test_upload_finishing_after_switch_off_is_refused_and_removed(env, monkeypatch):
+    monkeypatch.setattr(routes, "_power_on", lambda: False)
+    status, body = call("POST", "/api/holo-drop/drops/upload?kind=file&target=mac-1&name=a.bin&mime=x/y",
+                        raw=b"abc")
+    assert status == 409
+    assert list((env.st.root / "files").glob("*")) == []
+
+
+def test_expired_held_drop_tells_the_sender(env):
+    env.connected.discard("mac-1")
+    status, body = call("POST", "/api/holo-drop/drops", {"kind": "text", "target": "mac-1", "text": "hi"})
+    env.st.clock = lambda: 10 ** 10
+    routes.sweep_and_tell()
+    told = [f for d, f in env.frames if d == "iphone-1" and f.get("event") == "landed"]
+    assert told and told[-1]["drop"]["state"] == "failed" and "expired" in (told[-1]["drop"]["error"] or "")
+
+
+def test_bad_numbers_are_not_server_errors(env):
+    req_status, body = call("GET", "/api/holo-drop/history?limit=abc")
+    assert req_status == 200
+
+
+def test_bearing_without_direction_is_not_stored_and_junk_is_not_500(env):
+    status, _ = call("POST", "/api/holo-drop/bearings", {"bearings": [{"device": "mac-1", "confidence": 0.2,
+                                                                         "distance_m": 2}]})
+    assert status == 200
+    mac = [d for d in call("GET", "/api/holo-drop/devices")[1]["devices"] if d["id"] == "mac-1"][0]
+    assert mac["bearing"] is None
+    status, _ = call("POST", "/api/holo-drop/bearings", {"bearings": [{"device": "mac-1", "deg": "north"}]})
+    assert status in (200, 400)
+
+
+def test_text_targets_use_the_real_pod_and_glasses_skills():
+    picked = routes._pick_text_skills({
+        "iphone-1": ["glasses_show_transcription", "glasses_show_answer", "add_calendar_event"],
+        "pod-1": ["pod_status", "pod_show", "pod_reboot"],
+    })
+    by_kind = {t["kind"]: t for t in picked}
+    assert by_kind["glasses"]["skill"] == "glasses_show_answer" and by_kind["glasses"]["via"] == "iphone-1"
+    assert by_kind["pod"]["skill"] == "pod_show" and by_kind["pod"]["id"] == "pod:pod-1"
+    pod_args = routes._text_args("pod", {"kind": "link", "url": "https://a.b", "title": "A page", "from_name": "iPhone"})
+    texts = [c.get("value") for c in pod_args["page"]["root"]["children"]]
+    assert "A page" in texts or "https://a.b" in texts
+    assert routes._text_args("glasses", {"kind": "text", "text": "hi"})["text"] == "hi"

@@ -128,6 +128,7 @@ class Service:
     ``stop()`` from any thread (tray, signal handler, etc.)."""
 
     def __init__(self) -> None:
+        self._server_device_id = ""
         self._stop = threading.Event()
         self._paused = threading.Event()
         # When paused, invokes return {"ok":false,"error":"paused"}.
@@ -264,7 +265,9 @@ class Service:
         dylib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "libJarvisVoiceUI.dylib")
         return {"api": _imessage_api_origin(), "paired": creds.paired,
                 "voice_dylib": dylib if os.path.exists(dylib) else None,
-                "device_name": creds.device_name, "device_id": creds.device_id,
+                # The server's pairing id (from its bridge hello) when known: it's the id the phones
+                # see in /api/holo-drop/devices (Holo Drop's Bluetooth tag); creds.device_id is local.
+                "device_name": creds.device_name, "device_id": self._server_device_id or creds.device_id,
                 "approvals": self._agent_approvals,
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
@@ -1009,7 +1012,16 @@ class Service:
                 pass
             return
 
-        if msg_type in ("hello", "registered", "pong"):
+        if msg_type == "hello":
+            server_id = str(frame.get("device_id") or "")
+            if server_id and server_id != self._server_device_id:
+                self._server_device_id = server_id
+                hello = self._ui_hello()
+                hello["type"] = "hello"
+                self._ui_broadcast(hello)
+            return
+
+        if msg_type in ("registered", "pong"):
             log.debug("server: %s", msg_type)
             return
 

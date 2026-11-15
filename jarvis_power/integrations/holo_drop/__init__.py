@@ -40,20 +40,27 @@ class HoloDrop(PowerIntegration):
         type(self)._stop = stop
 
         def loop():
-            while not stop.wait(30):
+            # Sweep first (an expired drop must never be delivered), at once, then every 30 s.
+            while True:
                 try:
                     from api import holo_drop_routes
-                    from api.holo_drop_store import store
+                    holo_drop_routes.sweep_and_tell()
                     holo_drop_routes.deliver_held()
-                    store().sweep()
                 except Exception:
                     pass
+                if stop.wait(30):
+                    return
 
         threading.Thread(target=loop, name="holo-drop-sweeper", daemon=True).start()
 
     def stop(self, process: str) -> None:
         if type(self)._stop is not None:
             type(self)._stop.set()
+        try:                                       # nothing outlives its 24 h while switched off
+            from api import holo_drop_routes
+            holo_drop_routes.sweep_and_tell()
+        except Exception:
+            pass
 
     def _today(self) -> list[dict]:
         import time

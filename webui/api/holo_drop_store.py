@@ -108,16 +108,24 @@ class HoloStore:
         return path if path.is_file() else None
 
     def set_state(self, drop_id: str, state: str, outcome: Optional[str] = None,
-                  error: Optional[str] = None) -> Optional[dict]:
+                  error: Optional[str] = None, only_if: Optional[tuple] = None) -> Optional[dict]:
+        """Set a drop's state; with ``only_if``, only while it is still in one of those states
+        (a stale sweeper snapshot must never turn a landing back into "delivered")."""
+        sql = "UPDATE drops SET state = ?, outcome = COALESCE(?, outcome), error = ?, updated = ? WHERE id = ?"
+        args: list = [state, outcome, error, self.clock(), drop_id]
+        if only_if:
+            sql += f" AND state IN ({','.join('?' * len(only_if))})"
+            args += list(only_if)
         with self._lock, self._conn() as db:
-            db.execute("UPDATE drops SET state = ?, outcome = COALESCE(?, outcome), error = ?, updated = ?"
-                       " WHERE id = ?", (state, outcome, error, self.clock(), drop_id))
+            db.execute(sql, args)
         return self.get(drop_id)
 
     def pending_for(self, device: str) -> list[dict]:
         with self._conn() as db:
+            # A file still uploading (no file yet) isn't waiting for anyone: fetching it would fail.
             rows = db.execute("SELECT * FROM drops WHERE target = ? AND state IN ('held', 'sent', 'delivered')"
-                              " AND expired = 0 ORDER BY created", (device,)).fetchall()
+                              " AND expired = 0 AND (kind IN ('link', 'text') OR file IS NOT NULL)"
+                              " ORDER BY created", (device,)).fetchall()
         return [_row(r) for r in rows]
 
     def held(self) -> list[dict]:
@@ -137,10 +145,19 @@ class HoloStore:
 
     def sweep(self, now: Optional[float] = None) -> int:
         """Delete payloads older than 24 h (rows stay, marked expired). Returns how many."""
+        return self._sweep(now)[0]
+
+    def sweep_detail(self, now: Optional[float] = None) -> list[dict]:
+        """``sweep``, returning the drops that expired while still waiting for their device
+        (so their senders can be told)."""
+        return self._sweep(now)[1]
+
+    def _sweep(self, now: Optional[float] = None) -> tuple[int, list[dict]]:
         now = self.clock() if now is None else now
         with self._conn() as db:
-            rows = db.execute("SELECT id, file FROM drops WHERE expired = 0 AND created < ?",
+            rows = db.execute("SELECT id, file, state FROM drops WHERE expired = 0 AND created < ?",
                               (now - PAYLOAD_TTL,)).fetchall()
+        waiting = [r["id"] for r in rows if r["state"] in ("held", "sent", "delivered")]
         for r in rows:
             if r["file"]:
                 (self.files / r["file"]).unlink(missing_ok=True)
@@ -151,7 +168,7 @@ class HoloStore:
         for part in self.files.glob("*.part"):
             if part.stat().st_mtime < now - 3600:
                 part.unlink(missing_ok=True)
-        return len(rows)
+        return len(rows), [d for d in (self.get(i) for i in waiting) if d]
 
     # ── bearings ─────────────────────────────────────────────────────────────
     def put_bearings(self, caller: str, rows: list[dict]) -> None:
@@ -160,9 +177,17 @@ class HoloStore:
             for b in rows:
                 if not isinstance(b, dict) or not b.get("device"):
                     continue
+                # A reading without a direction (distance only) is not a bearing: storing 0° would
+                # put the device confidently at north.
+                try:
+                    deg = float(b["deg"]) % 360
+                    conf = float(b.get("confidence") or 0)
+                    at = float(b.get("at") or now)
+                    dist = float(b["distance_m"]) if b.get("distance_m") is not None else None
+                except (KeyError, TypeError, ValueError):
+                    continue
                 db.execute("INSERT OR REPLACE INTO bearings VALUES (?,?,?,?,?,?,?)",
-                           (caller, str(b["device"]), float(b.get("deg") or 0), float(b.get("confidence") or 0),
-                            str(b.get("source") or ""), b.get("distance_m"), float(b.get("at") or now)))
+                           (caller, str(b["device"]), deg, conf, str(b.get("source") or "")[:20], dist, at))
 
     def bearings_for(self, caller: str) -> dict[str, dict]:
         with self._conn() as db:
