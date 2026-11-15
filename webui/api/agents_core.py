@@ -461,6 +461,13 @@ class AgentsCore:
                 out.update(self.mac_power.list_payload(self._name))
             except Exception:  # noqa: BLE001
                 log.warning("mac power list failed", exc_info=True)
+        try:
+            from api import pc_admin
+            out["pc_admin_requests"] = [{k: r[k] for k in ("id", "device_id", "device_name", "command",
+                                                            "why", "created", "expires")}
+                                        for r in pc_admin.store().pending()]
+        except Exception:  # noqa: BLE001
+            log.debug("pc admin list failed", exc_info=True)
         return out
 
     def messages(self, ckey: str, *, after: int = 0, before: Optional[int] = None,
@@ -866,6 +873,8 @@ def start(store) -> AgentsCore:
                      ("mac_power_set", power.on_set), ("mac_password_request", power.on_password_request),
                      ("mac_password_done", power.on_password_done)):
         device_bridge.on_device_event(name, fn)
+    from api import pc_admin
+    device_bridge.on_device_event("pc_admin_request", pc_admin.store().on_request)
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
                      ("agent_transcript_chunk", c.on_chunk),
                      ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery),

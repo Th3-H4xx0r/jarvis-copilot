@@ -142,7 +142,9 @@ _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/ag
                         # Wake Mac / keep-awake / password requests (api/mac_power.py)
                         "/agents/mac/wake", "/agents/mac/keep-awake", "/agents/mac/let-sleep",
                         "/agents/mac/timer", "/agents/mac/unlock", "/agents/mac/password/answer",
-                        "/agents/mac/approval-key"})
+                        "/agents/mac/approval-key",
+                        # Run-as-admin requests from the PC, approved with Face ID (api/pc_admin.py)
+                        "/agents/pc/admin/answer"})
 _MAX_CONTINUE = 20
 
 
@@ -172,6 +174,17 @@ def _v2(method, p, query, body):
     ckey = str((query or {}).get("ckey") or body.get("ckey") or "").strip()
     if p.startswith("/agents/mac/"):
         return _mac(c, method, p, body)
+    if p == "/agents/pc/admin/answer":
+        if method != "POST":
+            return _err(405, "method not allowed")
+        decision = str(body.get("decision") or "")
+        if decision not in ("allow", "deny"):
+            return _err(400, "decision must be allow or deny")
+        if decision == "allow" and not (body.get("ts") and body.get("signature")):
+            return _err(400, "an allow needs the Face ID signature")
+        from api import pc_admin
+        return _result(pc_admin.store().answer(str(body.get("id") or ""), decision,
+                                               body.get("ts"), body.get("signature")))
     if p == "/agents/list" and method == "GET":
         return _ok(c.list_payload())
     if p == "/agents/messages" and method == "GET":
