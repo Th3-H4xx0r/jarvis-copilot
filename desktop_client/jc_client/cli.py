@@ -1091,10 +1091,10 @@ def _ui_socket() -> str:
 
 def cmd_agents(args) -> int:
     """Print the coding-agent sessions the running service sees (from its hooks)."""
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(3)
+    from jc_client.unix_server import connect
+    s = None
     try:
-        s.connect(_ui_socket())
+        s = connect(_ui_socket(), 3)
         buf = b""
         while b"\n" not in buf:
             chunk = s.recv(65536)
@@ -1105,7 +1105,8 @@ def cmd_agents(args) -> int:
         print("jc-client is not running (no ui.sock) — start it with `jc-client start`.", file=sys.stderr)
         return 1
     finally:
-        s.close()
+        if s is not None:
+            s.close()
     hello = json.loads(buf.split(b"\n", 1)[0] or b"{}")
     if getattr(args, "json", False):
         print(json.dumps({"sessions": hello.get("sessions", []), "pending": hello.get("pending", [])}, indent=2))

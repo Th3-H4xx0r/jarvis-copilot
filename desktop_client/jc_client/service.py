@@ -499,8 +499,9 @@ class Service:
             log.debug("forward up failed: %s", exc)
 
     def start_agent_hooks(self) -> None:
-        """Start the coding-agent hook server (idempotent; POSIX only)."""
-        if self._hook_server is not None or sys.platform == "win32":
+        """Start the coding-agent hook server (idempotent). On Windows the local
+        links are loopback + token endpoint files (unix_server.py)."""
+        if self._hook_server is not None:
             return
         try:
             from jc_client.agent_engine import Engine

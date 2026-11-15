@@ -65,7 +65,9 @@ def _previous_statusline_file():
 
 
 def _default_socket(env):
-    home = env.get("HOME") or os.path.expanduser("~")
+    # Windows: jc-client's state dir is under USERPROFILE (Path.home()); Git Bash's HOME may differ.
+    home = (env.get("USERPROFILE") if sys.platform == "win32" else None) or env.get("HOME") \
+        or os.path.expanduser("~")
     return os.path.join(home, ".jarviscopilot-client", "hook.sock")
 
 
@@ -233,13 +235,37 @@ def _trim(frame):
     return _fits(frame, _cap(slim, 200, 20)) or json.dumps(dict(frame, payload={"jc_trimmed": True}))
 
 
+def _connect(sock_path, timeout):
+    """jc-client's local link: on Windows ``sock_path`` is an endpoint file
+    ``{"port", "token"}`` (loopback + an auth line first), else a Unix socket.
+    Mirrors jc_client/unix_server.connect, kept here so this file stays stdlib-only."""
+    head = b""
+    try:
+        with open(sock_path, "rb") as fh:
+            head = fh.read(4096)
+    except OSError:
+        pass
+    if head.lstrip().startswith(b"{"):
+        ep = json.loads(head)
+        s = socket.create_connection(("127.0.0.1", int(ep["port"])), timeout=timeout)
+        s.sendall(json.dumps({"auth": str(ep["token"])}).encode() + b"\n")
+        return s
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(timeout)
+        s.connect(sock_path)
+    except Exception:
+        s.close()
+        raise
+    return s
+
+
 def _send(sock_path, frame, wait):
     """Send one frame; with ``wait`` read one reply line. None on any failure."""
     line = (_trim(frame) + "\n").encode()
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s = None
     try:
-        s.settimeout(FIRE_TIMEOUT)
-        s.connect(sock_path)
+        s = _connect(sock_path, FIRE_TIMEOUT)
         s.sendall(line)
         if not wait:
             return None
