@@ -481,11 +481,42 @@ enum HoloGeometry {
     /// The card's frame: centred on the aimed spot, kept wholly inside `visible`.
     static func cardFrame(position: HoloPosition?, visible: CGRect, size: CGSize = cardSize) -> CGRect {
         let c = point(for: position, in: visible)
+        return centred(on: c, size: size, visible: visible)
+    }
+
+    /// A card already on screen at `frame`, resized to `size` about its centre (a picture
+    /// arriving grows the card where it sits), kept wholly inside `visible`.
+    static func refit(_ frame: CGRect, to size: CGSize, visible: CGRect) -> CGRect {
+        centred(on: CGPoint(x: frame.midX, y: frame.midY), size: size, visible: visible)
+    }
+
+    private static func centred(on c: CGPoint, size: CGSize, visible: CGRect) -> CGRect {
         var x = c.x - size.width / 2
         var y = c.y - size.height / 2
         x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
         y = min(max(y, visible.minY + 8), visible.maxY - size.height - 8)
         return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    /// A picture card is the picture: about the same area whatever its shape (a panorama
+    /// weighs what a portrait does), at the picture's own aspect ratio. A shape too extreme
+    /// for the box is cropped a little at the clamp, never letterboxed.
+    static let heroArea: CGFloat = 320 * 240
+    static let heroMin = CGSize(width: 220, height: 150)
+    static let heroMax = CGSize(width: 360, height: 400)
+    /// Link, text and file cards (no picture): this wide, as tall as their content.
+    static let compactWidth: CGFloat = 360
+
+    static func heroSize(aspect: CGFloat) -> CGSize {
+        guard aspect.isFinite, aspect > 0 else { return CGSize(width: 320, height: 240) }
+        var w = (heroArea * aspect).squareRoot()
+        var h = w / aspect
+        let down = min(1, heroMax.width / w, heroMax.height / h)
+        w *= down
+        h *= down
+        w = min(max(w, heroMin.width), heroMax.width)
+        h = min(max(h, heroMin.height), heroMax.height)
+        return CGSize(width: w.rounded(), height: h.rounded())
     }
 
     /// Windows from the window server (global top-left coordinates, front to back) as fractions

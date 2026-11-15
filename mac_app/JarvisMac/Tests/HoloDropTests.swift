@@ -200,6 +200,82 @@ final class HoloDropTests: XCTestCase {
         XCTAssertTrue(left.contains(HoloGeometry.cardFrame(position: HoloPosition(x: 0.5, y: 0.5), visible: left)))
     }
 
+    func testAPictureCardTakesThePicturesShapeWithinItsBounds() {
+        let lo = HoloGeometry.heroMin, hi = HoloGeometry.heroMax
+        // 4:3, 3:4, 16:9, 9:16, square, panoramas, an iPhone screenshot, nonsense.
+        let shapes: [CGFloat] = [1.3333, 0.75, 1.7778, 0.5625, 1, 3, 0.3333, 0.4615, 0.01, 100]
+        for aspect in shapes {
+            let s = HoloGeometry.heroSize(aspect: aspect)
+            XCTAssertTrue((lo.width...hi.width).contains(s.width) && (lo.height...hi.height).contains(s.height),
+                          "\(aspect) → \(s) leaves the bounds")
+        }
+        // Ordinary shapes are shown whole, at their own ratio (no letterbox, no crop)...
+        let ordinary: [CGFloat] = [1.3333, 0.75, 1.5, 0.6667, 1]
+        for aspect in ordinary {
+            let s = HoloGeometry.heroSize(aspect: aspect)
+            XCTAssertEqual(s.width / s.height, aspect, accuracy: 0.01, "\(aspect)")
+        }
+        // ...at about the same area whatever the shape.
+        let landscape = HoloGeometry.heroSize(aspect: 4.0 / 3.0)
+        let portrait = HoloGeometry.heroSize(aspect: 0.75)
+        XCTAssertEqual(landscape.width * landscape.height, portrait.width * portrait.height, accuracy: 400)
+        XCTAssertEqual(landscape.width, portrait.height)
+        // Nonsense from a broken preview still gives a card.
+        XCTAssertGreaterThan(HoloGeometry.heroSize(aspect: .nan).width, 0)
+        XCTAssertGreaterThan(HoloGeometry.heroSize(aspect: 0).height, 0)
+    }
+
+    func testARefitGrowsTheCardWhereItSitsAndKeepsItOnScreen() {
+        let visible = CGRect(x: 0, y: 70, width: 1512, height: 875)
+        let small = CGRect(x: 600, y: 400, width: 340, height: 62)
+        let grown = HoloGeometry.refit(small, to: CGSize(width: 320, height: 240), visible: visible)
+        XCTAssertEqual(grown.midX, small.midX, accuracy: 0.5)
+        XCTAssertEqual(grown.midY, small.midY, accuracy: 0.5)
+        XCTAssertEqual(grown.size, CGSize(width: 320, height: 240))
+        // Near the bottom edge it grows upward instead of off the screen.
+        let low = HoloGeometry.refit(CGRect(x: 600, y: 80, width: 340, height: 62), to: CGSize(width: 240, height: 400),
+                                     visible: visible)
+        XCTAssertTrue(visible.contains(low))
+    }
+
+    @MainActor
+    func testTheCardSizesItselfToItsPictureOrItsContent() throws {
+        let photo = HoloCardModel(drop: try XCTUnwrap(HoloDropRecord(json: ["id": "p", "kind": "image", "name": "IMG_1.HEIC"])),
+                                  fromName: "iPhone")
+        let compact = HoloCardView.size(for: photo)
+        XCTAssertEqual(compact.width, HoloGeometry.compactWidth, "no picture yet: the compact card")
+        XCTAssertLessThan(compact.height, 100, "a compact card has no empty picture area")
+        photo.thumbnail = NSImage(size: CGSize(width: 400, height: 300))
+        XCTAssertEqual(HoloCardView.size(for: photo), HoloGeometry.heroSize(aspect: 4.0 / 3.0))
+        // A link never becomes a picture card, whatever is set on it.
+        let link = HoloCardModel(drop: try XCTUnwrap(HoloDropRecord(json: ["id": "l", "kind": "link",
+                                                                           "url": "https://apple.com"])), fromName: "iPhone")
+        link.thumbnail = NSImage(size: CGSize(width: 400, height: 300))
+        XCTAssertNil(link.heroAspect)
+        XCTAssertEqual(HoloCardView.size(for: link).width, HoloGeometry.compactWidth)
+    }
+
+    @MainActor
+    func testOneCardButtonAtATime() async throws {
+        let text = HoloCardModel(drop: try XCTUnwrap(HoloDropRecord(json: ["id": "t", "kind": "text", "text": "hi"])),
+                                 fromName: "iPad")
+        text.state = .receiving
+        text.run(.copy)
+        XCTAssertNil(text.busy, "nothing runs while the drop is still arriving")
+        text.state = .ready
+        var ran: [HoloCardModel.Action] = []
+        text.perform = { ran.append($0) }
+        text.run(.copy)
+        XCTAssertEqual(text.busy, .copy)
+        text.run(.save)
+        XCTAssertEqual(text.busy, .copy, "a second button waits for the first")
+        while text.busy != nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(ran, [.copy])
+        text.run(.save)
+        while text.busy != nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(ran, [.copy, .save], "free again once the first is done")
+    }
+
     func testWindowOutlinesAreFractionsOfTheDisplay() {
         let display = CGRect(x: 0, y: 0, width: 1000, height: 500)
         let out = HoloGeometry.outlines([
@@ -559,15 +635,114 @@ final class HoloDropRenderTests: XCTestCase {
         empty.loading = false
         empty.phase = .waiting("Sent — waiting for iPhone")
         try shoot(HoloOrbitView(model: empty).environment(\.colorScheme, .dark), "orbit-empty")
-        let card = HoloCardModel(drop: HoloDropRecord(json: ["id": "d", "kind": "image", "name": "IMG_4021.HEIC",
-                                                             "created": Date().timeIntervalSince1970])!,
-                                 fromName: "iPhone")
-        try shoot(HoloCardView(card: card), "card")
-        let text = HoloCardModel(drop: HoloDropRecord(json: ["id": "t", "kind": "text",
-                                                             "text": "Pick up the dry cleaning\nand call the plumber"])!,
-                                 fromName: "iPad")
+    }
+
+    /// The arrival card in each of its shapes, at 2x, on a plain backdrop with the panel's
+    /// shadow. Photos come from `<out>/src/{landscape,portrait,video}.jpg` when present (real
+    /// pictures read better), else a drawn stand-in.
+    @MainActor
+    func testTheArrivalCardRenders() throws {
+        let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JC_HOLO_SNAPSHOT"] ?? "/tmp/macshots")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        func picture(_ name: String, _ size: CGSize) -> NSImage {
+            if let real = NSImage(contentsOf: out.appendingPathComponent("src/\(name).jpg")) { return real }
+            return NSImage(size: size, flipped: false) { r in
+                NSGradient(colors: [NSColor(white: 0.75, alpha: 1), NSColor(white: 0.2, alpha: 1)])?.draw(in: r, angle: -60)
+                return true
+            }
+        }
+        func drop(_ json: [String: Any]) throws -> HoloCardModel {
+            var o = json
+            o["created"] = Date().timeIntervalSince1970
+            return HoloCardModel(drop: try XCTUnwrap(HoloDropRecord(json: o)), fromName: "iPhone")
+        }
+        func shoot(_ card: HoloCardModel, _ name: String) throws {
+            let size = HoloCardView.size(for: card)
+            let view = HoloCardView(card: card)
+                .frame(width: size.width, height: size.height)
+                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+                .padding(40)
+                .background(Color(white: 0.36))
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage, name)
+            let png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+            try png.write(to: out.appendingPathComponent("card-\(name).png"))
+        }
+
+        let landscape = try drop(["id": "1", "kind": "image", "name": "IMG_9766.HEIC"])
+        landscape.thumbnail = picture("landscape", CGSize(width: 800, height: 600))
+        landscape.outcome = .opened
+        try shoot(landscape, "photo-landscape")
+
+        let portrait = try drop(["id": "2", "kind": "image", "name": "IMG_9771.HEIC"])
+        portrait.thumbnail = picture("portrait", CGSize(width: 600, height: 800))
+        portrait.outcome = .saved
+        portrait.savedFile = URL(fileURLWithPath: "/tmp/IMG_9771.HEIC")
+        try shoot(portrait, "photo-portrait")
+
+        let video = try drop(["id": "3", "kind": "video", "name": "IMG_9766.MOV"])
+        video.thumbnail = picture("video", CGSize(width: 960, height: 540))
+        video.outcome = .opened
+        try shoot(video, "video")
+
+        let link = try drop(["id": "4", "kind": "link", "url": "https://www.apple.com/apple-vision-pro/",
+                             "title": "Apple Vision Pro — Apple"])
+        link.outcome = .opened
+        try shoot(link, "link")
+
+        let busy = try drop(["id": "5", "kind": "image", "name": "IMG_9766.HEIC"])
+        busy.thumbnail = landscape.thumbnail
+        busy.outcome = .opened
+        busy.busy = .copy
+        try shoot(busy, "busy")
+
+        let text = try drop(["id": "6", "kind": "text",
+                             "text": "Pick up the dry cleaning before 6, then call the plumber about the kitchen tap."])
         text.outcome = .copied
-        try shoot(HoloCardView(card: text), "card-text")
+        text.copied = true
+        try shoot(text, "text")
+
+        let arriving = try drop(["id": "7", "kind": "video", "name": "IMG_9766.MOV"])
+        arriving.state = .receiving
+        try shoot(arriving, "receiving")
+
+        let zip = FileManager.default.temporaryDirectory.appendingPathComponent("Quarterly report.zip")
+        try Data("PK".utf8).write(to: zip)
+        defer { try? FileManager.default.removeItem(at: zip) }
+        let file = try drop(["id": "8", "kind": "file", "name": "Quarterly report.zip"])
+        file.file = zip
+        file.savedFile = zip
+        file.outcome = .saved
+        try shoot(file, "file")
+
+        // The close button, on hover: top right on a picture, over the icon's corner on a compact card.
+        landscape.hovering = true
+        try shoot(landscape, "photo-hover")
+        link.hovering = true
+        try shoot(link, "link-hover")
+
+        // Text asked to open: all of it, scrolling past a point. (Hosted, not ImageRenderer:
+        // the renderer leaves a ScrollView out.)
+        let long = try drop(["id": "10", "kind": "text", "text": Array(repeating:
+            "Notes from the call: ship the Mac card redesign, then the iPhone one; check the dark desktop.",
+            count: 6).joined(separator: "\n\n")])
+        long.outcome = .shown
+        long.expanded = true
+        let size = HoloCardView.size(for: long)
+        let host = NSHostingView(rootView: HoloCardView(card: long).frame(width: size.width, height: size.height)
+            .padding(40).background(Color(white: 0.36)))
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: out.appendingPathComponent("card-text-open.png"))
+        XCTAssertLessThan(size.height, 300, "long text scrolls inside the card rather than growing it")
+
+        let failed = try drop(["id": "9", "kind": "image", "name": "IMG_9780.HEIC"])
+        failed.state = .failed("the phone went to sleep")
+        try shoot(failed, "failed")
     }
 }
 
