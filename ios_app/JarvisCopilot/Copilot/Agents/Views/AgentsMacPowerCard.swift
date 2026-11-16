@@ -24,6 +24,11 @@ struct AgentsMacPowerCard: View {
             JcCard(padding: 0) {
                 header(status)
                 JcRowSeparator()
+                if mac.isPC && PowerState.shared.isOn("pc-stats") {
+                    // PC Stats: four live numbers and View stats.
+                    PcStatsCardSection(deviceId: mac.deviceId, name: name)
+                    JcRowSeparator()
+                }
                 JcRow(symbol: "cup.and.saucer", title: "Keep awake",
                       subtitle: AgentsMacPowerCopy.keepAwakeSubtitle(on: mac.keepAwake), last: true) {
                     Toggle("Keep awake", isOn: Binding(
