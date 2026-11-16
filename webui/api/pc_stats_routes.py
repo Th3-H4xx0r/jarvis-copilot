@@ -68,6 +68,7 @@ def _summary(device_id: str) -> dict:
     temps = [v for k, v in r.items() if k in ("cpu.temp", "gpu.temp") or k.startswith("temp.")]
     return {"device_id": live["device_id"], "online": live["online"], "at": live["at"],
             "cpu": r.get("cpu.load"), "gpu": r.get("gpu.load"),
+            "cpu_temp": r.get("cpu.temp"), "gpu_temp": r.get("gpu.temp"),
             "hottest": max(temps) if temps else None, "watts": r.get("power.total")}
 
 

@@ -209,8 +209,15 @@ class PcStatsStore:
         self.dashboards()   # seed first
         with self._lock, closing(self._conn()) as db, db:
             row = db.execute("SELECT rev, pos, data FROM dashboards WHERE id=?", (body["id"],)).fetchone()
-            if row is not None and rev is not None and int(rev) != row["rev"]:
+            # Writing over an existing dashboard needs its current revision (none = a new one).
+            if row is not None and (rev is None or int(rev) != row["rev"]):
                 raise Conflict({**json.loads(row["data"]), "rev": row["rev"]})
+            if body.get("auto") == "game":   # only one dashboard is the gaming one
+                for other in db.execute("SELECT id, rev, data FROM dashboards WHERE id != ?", (body["id"],)).fetchall():
+                    od = json.loads(other["data"])
+                    if od.get("auto") == "game":
+                        od["auto"] = None
+                        db.execute("UPDATE dashboards SET data=?, rev=? WHERE id=?", (json.dumps(od), other["rev"] + 1, other["id"]))
             new_rev = (row["rev"] if row else 0) + 1
             pos = row["pos"] if row else (db.execute("SELECT COALESCE(MAX(pos), -1) + 1 FROM dashboards").fetchone()[0])
             db.execute("INSERT OR REPLACE INTO dashboards (id, rev, pos, data) VALUES (?,?,?,?)",

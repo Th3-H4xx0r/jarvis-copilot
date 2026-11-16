@@ -61,6 +61,31 @@
     <GradientStop Color="#FF121212" Offset="1" />
   </LinearGradientBrush>
 
+  <!-- PC Stats dashboard, look B ("Jarvis"): near-black with a faint cool glow, glass panels, a cool
+       blue line and area fill, gradient bars. -->
+  <RadialGradientBrush x:Key="JcStatsBg" Center="0.8,-0.1" GradientOrigin="0.8,-0.1" RadiusX="0.9" RadiusY="0.9">
+    <GradientStop Color="#FF10202A" Offset="0" />
+    <GradientStop Color="#FF050506" Offset="0.55" />
+  </RadialGradientBrush>
+  <SolidColorBrush x:Key="JcStatsGlass" Color="#09FFFFFF" />
+  <SolidColorBrush x:Key="JcStatsHairline" Color="#12FFFFFF" />
+  <SolidColorBrush x:Key="JcStatsLabel" Color="#FF8B929C" />
+  <SolidColorBrush x:Key="JcStatsMeta" Color="#FFA3A9B1" />
+  <SolidColorBrush x:Key="JcStatsLine" Color="#FF8FDCFF" />
+  <SolidColorBrush x:Key="JcStatsSecondLine" Color="#B3FFFFFF" />
+  <SolidColorBrush x:Key="JcStatsThirdLine" Color="#FF6B7480" />
+  <SolidColorBrush x:Key="JcStatsTrack" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="JcStatsGrid" Color="#1FFFFFFF" />
+  <SolidColorBrush x:Key="JcStatsPill" Color="#0FFFFFFF" />
+  <LinearGradientBrush x:Key="JcStatsArea" StartPoint="0,0" EndPoint="0,1">
+    <GradientStop Color="#595CC8FF" Offset="0" />
+    <GradientStop Color="#005CC8FF" Offset="1" />
+  </LinearGradientBrush>
+  <LinearGradientBrush x:Key="JcStatsBar" StartPoint="0,0" EndPoint="1,0">
+    <GradientStop Color="#FF3FB6FF" Offset="0" />
+    <GradientStop Color="#FF9FE7FF" Offset="1" />
+  </LinearGradientBrush>
+
   <!-- SF Pro on the Mac; Segoe UI Variable here (Segoe UI where it's missing). SF Mono → Cascadia. -->
   <FontFamily x:Key="JcFont">Segoe UI Variable Text, Segoe UI</FontFamily>
   <FontFamily x:Key="JcFontDisplay">Segoe UI Variable Display, Segoe UI</FontFamily>

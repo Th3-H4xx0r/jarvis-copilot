@@ -175,6 +175,8 @@ public sealed class AppHost : IAsyncDisposable
         Admin = new AdminRunner(Link);
         Unlock = new Unlock.PcUnlock(Link, Api, Admin);
         Stats = new Stats.StatsService(Api, State);
+        Stats.SettingsChanged += () => Dispatcher.BeginInvoke(SyncStatsWindow);
+        PcPowerPane.Extras.Add(StatsSettingsSection);
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);
         SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
@@ -479,6 +481,86 @@ public sealed class AppHost : IAsyncDisposable
         return Pane.Group(Pane.Section("Holo Drop"),
             Pane.Labeled("Let phones on your Wi-Fi send straight to this PC", Th.Button(HoloFirewall.Why, () => _ = Holo.AllowFirewallAsync()),
                 "You approve with Face ID on your iPhone, then click Yes on Windows' prompt."));
+    }
+
+    private Stats.DashboardWindow? _statsWindow;
+    private string? _statsMonitor;
+
+    /// PC Stats' side-monitor window: open on the chosen monitor while the integration is on (and
+    /// the monitor isn't "off"); closed otherwise. It never takes focus when it opens.
+    private void SyncStatsWindow()
+    {
+        var monitor = Stats.Monitor;
+        var want = Stats.On && !string.Equals(monitor, "off", StringComparison.OrdinalIgnoreCase);
+        if (!want)
+        {
+            _statsWindow?.Close();
+            _statsWindow = null;
+            return;
+        }
+        if (_statsWindow == null)
+        {
+            _statsWindow = new Stats.DashboardWindow(Api, Stats, State, Prefs);
+            _statsWindow.Closed += (_, _) => _statsWindow = null;
+            _statsMonitor = null;
+        }
+        if (_statsMonitor != monitor)
+        {
+            _statsMonitor = monitor;
+            _statsWindow.Place(monitor);
+        }
+    }
+
+    /// Settings → PC power → PC Stats: which monitor the dashboard opens on, open it, and the sensor
+    /// helper (a service; installing it asks Face ID on his iPhone, then Windows' Yes).
+    private FrameworkElement StatsSettingsSection()
+    {
+        var monitors = new List<(string, string)> { ("", "Automatic (a side monitor)"), ("off", "Don't show it") };
+        monitors.AddRange(Monitors.All().Select(m => (m.Name.Replace(@"\\.\", ""), m.Name.Replace(@"\\.\", "") + (m.Primary ? " (main)" : ""))));
+        var note = Th.Text(Stats.On ? "" : "PC Stats is switched off (Integrations).", 12, "JcSetSecondary", wrap: true);
+        var picker = Pane.Picker(monitors, Stats.Monitor, v => _ = SetStatsMonitorAsync(v, note));
+        var helperInstalled = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\JarvisSensors") != null;
+        var helper = helperInstalled
+            ? (UIElement)Th.Row(8, Th.Text(Stats.HelperConnected ? "Running" : "Installed", 13, "JcSetSecondary"),
+                Th.Button("Reinstall", () => _ = InstallSensorsAsync(note)))
+            : Th.Button("Install", () => _ = InstallSensorsAsync(note), primary: true);
+        return Pane.Group(Pane.Section("PC Stats"),
+            Pane.Labeled("Show the dashboard on", picker),
+            Pane.Labeled("Dashboard", Th.Button("Open", OpenStatsWindow)),
+            Pane.Labeled("Sensor helper", helper, "Reads temperatures, fans, watts and frame rate. A system service; installing asks Face ID on your iPhone, then Windows' Yes."),
+            note);
+    }
+
+    private async Task SetStatsMonitorAsync(string monitor, System.Windows.Controls.TextBlock note)
+    {
+        try
+        {
+            await Api.PostAsync("/api/power/pc-stats", new System.Text.Json.Nodes.JsonObject
+            {
+                ["settings"] = new System.Text.Json.Nodes.JsonObject { ["monitor"] = monitor }, ["client"] = "windows",
+            }, TimeSpan.FromSeconds(10));
+            await Stats.RefreshSettingsAsync();
+            note.Text = "";
+        }
+        catch (Core.Http.ApiException e) { note.Text = "Couldn't change it: " + e.Error; }
+    }
+
+    private async Task InstallSensorsAsync(System.Windows.Controls.TextBlock note)
+    {
+        var exe = System.IO.Path.Combine(AppContext.BaseDirectory, "JarvisSensors.exe");
+        if (!System.IO.File.Exists(exe)) { note.Text = "The sensor helper is missing from this build."; return; }
+        var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+        var driver = Stats.DriverOn ? " --driver" : "";
+        var result = await Admin.RunAsync($"\"{exe}\" --install {sid}{driver}", "Install the PC Stats sensor helper");
+        note.Text = result.Message;
+    }
+
+    /// Settings → PC power's "Open dashboard": reopen it if he closed it.
+    public void OpenStatsWindow()
+    {
+        _statsMonitor = null;
+        SyncStatsWindow();
+        _statsWindow?.Place(Stats.Monitor);
     }
 
     public void BindShortcuts()

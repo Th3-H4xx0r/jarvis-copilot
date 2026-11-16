@@ -60,7 +60,7 @@ def test_samples_then_live_and_summary(env):
     assert live["name"] == "pranav-computer"
     _, summary = call("GET", "/api/pc-stats/summary", caller="iphone")   # defaults to the reporting PC
     assert summary == {"device_id": "pc-1", "online": True, "at": env.clock.t, "cpu": 38.0, "gpu": 96.0,
-                       "hottest": 72.0, "watts": 462.0}
+                       "cpu_temp": 72.0, "gpu_temp": 67.0, "hottest": 72.0, "watts": 462.0}
 
 
 def test_live_offline_returns_last_seen(env):

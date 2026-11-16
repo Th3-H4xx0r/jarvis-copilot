@@ -221,6 +221,7 @@ public static partial class PcPowerPane
         p.Children.Add(Pane.Section("Sleep and wake"));
         p.Children.Add(last);
         if (unlock != null) AddUnlock(p, unlock);
+        foreach (var extra in Extras) p.Children.Add(extra());
         Render(power.Last);
         _ = power.RefreshAsync();
         return p;
@@ -229,6 +230,9 @@ public static partial class PcPowerPane
 
 public static partial class PcPowerPane
 {
+    /// Sections other features add (PC Stats).
+    public static readonly List<Func<FrameworkElement>> Extras = new();
+
     /// Unlock from your iPhone: trust its Face ID key, save the Windows password or PIN (kept
     /// encrypted for this Windows account), install the helper that types it on the lock screen.
     private static void AddUnlock(StackPanel p, Unlock.PcUnlock unlock)

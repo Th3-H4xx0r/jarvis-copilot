@@ -54,6 +54,12 @@ public sealed class ApiClient
     public Task<JsonObject> PostAsync(string path, JsonNode body, TimeSpan timeout) =>
         SendJsonAsync(new HttpRequestMessage(HttpMethod.Post, Url(path)) { Content = JsonContent(body) }, timeout);
 
+    public Task<JsonObject> PutAsync(string path, JsonNode body, TimeSpan timeout) =>
+        SendJsonAsync(new HttpRequestMessage(HttpMethod.Put, Url(path)) { Content = JsonContent(body) }, timeout);
+
+    public Task<JsonObject> DeleteAsync(string path, TimeSpan timeout) =>
+        SendJsonAsync(new HttpRequestMessage(HttpMethod.Delete, Url(path)), timeout);
+
     /// POST with extra headers (Holo Drop's LAN receiver needs X-Holo-*), to an absolute URL.
     public async Task<JsonObject> PostAbsoluteAsync(Uri url, HttpContent content, IReadOnlyDictionary<string, string> headers, TimeSpan timeout)
     {

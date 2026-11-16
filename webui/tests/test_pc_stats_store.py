@@ -114,4 +114,13 @@ def test_put_stale_rev_conflicts(rig):
     assert e.value.current["name"] == "Main"
     with pytest.raises(ValueError):
         s.put_dashboard({**d, "widgets": [{"id": "z", "kind": "pie"}]}, rev=None)
+    with pytest.raises(Conflict):                      # no rev over an existing one
+        s.put_dashboard({**d, "name": "Clobber"}, rev=None)
     assert s.dashboard("overview")["name"] == "Main"
+
+
+def test_only_one_gaming_dashboard(rig):
+    s, _ = rig
+    o = s.dashboard("overview")
+    s.put_dashboard({**o, "auto": "game"}, rev=o["rev"])
+    assert [d["id"] for d in s.dashboards() if d.get("auto") == "game"] == ["overview"]
