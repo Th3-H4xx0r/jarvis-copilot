@@ -225,3 +225,15 @@ def test_unlock_denied_never_reaches_the_app():
     power.handle_frame({"type": "mac_password_answer", "id": req["id"], "decision": "deny", "ts": 1, "signature": "x"})
     assert _wait_for(lambda: any(f.get("name") == "mac_password_done" for f in sent))
     assert not any(m.get("type") == "password_fill" for m in ui)
+
+
+def test_service_routes_every_power_frame_the_module_handles():
+    """The service only forwards POWER_FRAMES to PcPower; a handled type missing there is silently dropped
+    ("unknown frame type"), which is how Remote Desktop's Face ID request once never reached the phone."""
+    import inspect
+    import re
+    from jc_client import pc_power
+    from jc_client.service import POWER_FRAMES
+    handled = set(re.findall(r't == "([a-z_]+)"', inspect.getsource(pc_power.PcPower.handle_frame)))
+    assert "rdp_credential_request" in POWER_FRAMES
+    assert handled <= set(POWER_FRAMES), handled - set(POWER_FRAMES)

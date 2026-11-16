@@ -40,6 +40,10 @@ from jc_client.pc_admin import platform_name
 
 log = logging.getLogger(__name__)
 
+# Server frames the Mac/PC power module (pc_power.PcPower.handle_frame) answers. Keep in step with it:
+# test_pc_power checks every one of these is handled.
+POWER_FRAMES = ("mac_power_set", "mac_password_answer", "mac_password_unlock", "rdp_credential_request")
+
 # Reconnection backoff schedule (seconds).
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
 # How long a connection has to survive before it counts as healthy enough to
@@ -1032,8 +1036,7 @@ class Service:
             self._ui_broadcast(dict(frame))
             return
 
-        if self._power is not None and msg_type in ("mac_power_set", "mac_password_answer",
-                                                     "mac_password_unlock"):
+        if self._power is not None and msg_type in POWER_FRAMES:
             self._executor.submit(self._power.handle_frame, frame)   # may tick the helper
             return
 
