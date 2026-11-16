@@ -26,9 +26,10 @@ def _raw_request(handler) -> bytes:
     return "\r\n".join(lines).encode("latin-1")
 
 
-def accept(handler):
+def accept(handler, subprotocol=None):
     """Accepts the upgrade: ``(conn, sock)``, or None once the request has been answered (wsproto
-    missing → 503) or the client sent no valid upgrade.
+    missing → 503) or the client sent no valid upgrade. ``subprotocol``: agreed when the client
+    offers it (guacamole-common-js insists on "guacamole").
 
     The socket goes to no read timeout: the connection is long-lived and one thread owns it, so a
     timeout would only cycle it out from under a blocking recv."""
@@ -50,8 +51,9 @@ def accept(handler):
         return None
     for event in conn.events():
         if isinstance(event, Request):
+            chosen = subprotocol if subprotocol and subprotocol in (event.subprotocols or []) else None
             try:
-                sock.sendall(conn.send(AcceptConnection()))
+                sock.sendall(conn.send(AcceptConnection(subprotocol=chosen)))
             except Exception:
                 return None
             return conn, sock

@@ -386,6 +386,12 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                try:
+                    from api.rdp_guac import handle_websocket as _rdp_guac
+                    if _rdp_guac(self, parsed):
+                        return
+                except Exception:
+                    pass
                 # Local TUI gateway bridge (/api/tui/ws → spawned tui_gateway).
                 try:
                     from api.tui_bridge import handle_websocket as _tui_ws
