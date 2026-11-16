@@ -36,3 +36,28 @@ Every colour comes from the platform's existing app tokens, so the stats re-colo
 ## Done when
 Screenshots of Overview and Gaming on each platform read as the same Jarvis app (black/white/grey with
 amber/red only for warnings), nothing hard-codes a hue outside the token files, and tests pass.
+
+## Revision (same day): colour inside the data
+He said "the colors aren't too good, some things should have color". Apply his app rule ("metric colours
+only inside rings and charts", the Health tab's coloured icons): **chrome stays Jarvis monochrome** (cards,
+labels, values, buttons, segmented, header), **the data is coloured** — chart lines and area fills, rings,
+bars, sparklines, legend dots, and the small icon in each card header. Values stay white (amber/red past
+warn/crit). One stats metric palette, defined once per platform in its token file (iOS next to `JcMetric`,
+web `--jc-metric-*` in jarvis.css, Windows `JcStatsMetric.*` in Theme.xaml), built on the app's health hues:
+
+| group (keys) | colour |
+|---|---|
+| GPU (`gpu.*` except below) | teal `#3EC7C7` (JcMetric.activity) |
+| CPU (`cpu.*`) | light blue `#7CB7FF` (JcMetric.rhythm) |
+| Frames (`fps*`, `frametime`) | violet `#A78BFA` |
+| Power (`power.*`) | amber `#FABF24` (the app amber) |
+| Temperatures (`*.temp`, `temp.*`, `gpu.hotspot`) | coral `#FF5966` (JcMetric.heart) |
+| Memory / disk (`ram.*`, `gpu.vram*`, `disk.*`) | mint `#6EE7B7` |
+| Network (`net.*`) | pink `#F472B6` |
+| Cooling (`fan.*`, `gpu.fan`) | sky `#67E8F9` |
+- A chart with lines from different groups uses each line's own colour (GPU temp vs CPU temp → teal vs light
+  blue: the PART's colour wins for `gpu.temp`/`cpu.temp` in multi-line charts and in "98% · 65°" heroes the
+  chart is the part colour). Same-group lines (net down/up, disk read/write): 2nd line = the colour at 55%.
+- Area fills: the colour 22% → 0%. Ring track: the colour at 18%. Bar track: white ≈ 8%; bar fill = colour.
+- Single-reading number tiles use their reading's colour (GPU temperature tile = coral).
+- Warn/crit: value text amber/red; a ring/bar past crit turns red.
