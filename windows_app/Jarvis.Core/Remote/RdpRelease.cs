@@ -22,7 +22,8 @@ public sealed class RdpRelease
         try { ctx = JsonNode.Parse(context) as JsonObject; }
         catch (System.Text.Json.JsonException) { ctx = null; }
         var session = J.S(ctx?["session"]);
-        JsonObject Fail(string why) => new() { ["type"] = "rdp_credential", ["session_id"] = session, ["ok"] = false, ["error"] = why };
+        var requestId = J.S(release["id"]);   // jc-client matches the answer to its request by this
+        JsonObject Fail(string why) => new() { ["type"] = "rdp_credential", ["request_id"] = requestId, ["session_id"] = session, ["ok"] = false, ["error"] = why };
 
         if (J.S(release["kind"]) != "rdp" || ctx == null || session.Length == 0) return Fail("Not a Remote Desktop request.");
         var proof = release["proof"] as JsonObject;
@@ -55,6 +56,6 @@ public sealed class RdpRelease
                 ["ciphertext"] = Convert.ToBase64String(ct), ["ephemeral_pub"] = Convert.ToBase64String(eph), ["nonce"] = Convert.ToBase64String(nonce),
             };
         }
-        return new JsonObject { ["type"] = "rdp_credential", ["session_id"] = session, ["ok"] = true, ["credential"] = credential };
+        return new JsonObject { ["type"] = "rdp_credential", ["request_id"] = requestId, ["session_id"] = session, ["ok"] = true, ["credential"] = credential };
     }
 }

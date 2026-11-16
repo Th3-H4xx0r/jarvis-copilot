@@ -45,6 +45,7 @@ public class RdpReleaseTests
         var r = new RdpRelease().Handle(Frame(Ctx("web", null), "rdp", sign), pub, () => "pw!", Now);
         Assert.Equal("rdp_credential", (string)r["type"]!);
         Assert.Equal("s1", (string)r["session_id"]!);
+        Assert.Equal("r1", (string)r["request_id"]!);   // the release's id, so jc-client can match it
         Assert.True((bool)r["ok"]!);
         Assert.Equal("pw!", (string)r["credential"]!["password"]!);
     }
@@ -83,6 +84,7 @@ public class RdpReleaseTests
         Assert.False((bool)new RdpRelease().Handle(Frame(Ctx("ios", null), "rdp", sign), pub, () => "pw", Now)["ok"]!);
         var r = new RdpRelease().Handle(Frame(Ctx("web", null), "rdp", sign), pub, () => null, Now);
         Assert.False((bool)r["ok"]!);
+        Assert.Equal("r1", (string)r["request_id"]!);
         Assert.Contains("Settings → PC power", (string)r["error"]!);
     }
 
