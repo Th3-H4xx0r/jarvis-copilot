@@ -16,7 +16,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, Optional
 
-from api.pc_stats_catalog import default_dashboards, reading_info, validate_dashboard
+from api.pc_stats_catalog import DEFAULTS_VERSION, default_dashboards, reading_info, validate_dashboard
 
 TABLES = (("s10", 10, 7 * 86400), ("m1", 60, 90 * 86400), ("h1", 3600, None))
 
@@ -195,6 +195,13 @@ class PcStatsStore:
                     db.execute("INSERT OR IGNORE INTO dashboards (id, rev, pos, data) VALUES (?,?,?,?)",
                                (d["id"], 1, i, json.dumps(d)))
                 db.execute("INSERT INTO meta (k, v) VALUES ('seeded', '1')")
+                db.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('defaults', ?)", (str(DEFAULTS_VERSION),))
+            version = db.execute("SELECT v FROM meta WHERE k='defaults'").fetchone()
+            if version is None or int(version["v"]) < DEFAULTS_VERSION:
+                # New defaults: replace the ones he never edited (still at revision 1).
+                for d in default_dashboards():
+                    db.execute("UPDATE dashboards SET data=? WHERE id=? AND rev=1", (json.dumps(d), d["id"]))
+                db.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('defaults', ?)", (str(DEFAULTS_VERSION),))
             rows = db.execute("SELECT rev, data FROM dashboards ORDER BY pos, id").fetchall()
         return [{**json.loads(r["data"]), "rev": r["rev"]} for r in rows]
 

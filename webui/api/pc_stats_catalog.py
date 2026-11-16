@@ -145,29 +145,35 @@ def _w(wid, kind, x, y, w, h, readings, **style) -> dict:
     return {"id": wid, "kind": kind, "x": x, "y": y, "w": w, "h": h, "readings": list(readings), "style": style}
 
 
+DEFAULTS_VERSION = 2   # bump when the defaults change: dashboards nobody edited are re-seeded
+
+
 def default_dashboards() -> list[dict]:
-    """What a new install starts with: Overview (look B), Gaming (shown while a game runs), Power."""
+    """What a new install starts with (the Apple look, docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md):
+    Overview, Gaming (shown on the PC while a game runs) and Power."""
     overview = {"id": "overview", "name": "Overview", "auto": None, "widgets": [
         _w("gpu", "hero", 0, 0, 6, 4, ["gpu.load"], label="GPU", chart="area",
            meta=["gpu.temp", "gpu.clock", "gpu.power", "gpu.vram_used"], warn=85, crit=95),
-        _w("cpu", "hero", 6, 0, 3, 4, ["cpu.load"], label="CPU", chart="area",
-           meta=["cpu.temp", "cpu.clock", "cpu.power"]),
-        _w("frames", "hero", 9, 0, 3, 4, ["fps"], label="Frames", chart="area", meta=["fps.low1", "frametime"]),
-        _w("power", "bars", 0, 4, 4, 4, ["power.gpu", "power.cpu", "power.ram", "power.disk"], label="Whole-PC power",
+        _w("cpu", "hero", 6, 0, 6, 4, ["cpu.load"], label="CPU", chart="area",
+           meta=["cpu.temp", "cpu.clock", "cpu.power"], warn=90, crit=100),
+        _w("frames", "number", 0, 4, 4, 3, ["fps"], label="Frames", chart="area"),
+        _w("power", "bars", 4, 4, 4, 3, ["power.gpu", "power.cpu", "power.ram", "power.disk"], label="Power",
            meta=["power.total"]),
-        _w("memory", "bars", 4, 4, 4, 4, ["ram.used", "gpu.vram_used", "disk.used"], label="Memory"),
-        _w("cooling", "bars", 8, 4, 4, 4, ["gpu.fan"], label="Cooling"),
+        _w("memory", "bars", 8, 4, 4, 3, ["ram.used", "gpu.vram_used", "disk.used"], label="Memory"),
+        _w("cooling", "bars", 0, 7, 6, 2, ["gpu.fan"], label="Cooling"),
+        _w("network", "chart", 6, 7, 6, 2, ["net.down", "net.up"], label="Network", chart="line", window=600),
     ]}
     gaming = {"id": "gaming", "name": "Gaming", "auto": "game", "widgets": [
-        _w("fps", "hero", 0, 0, 6, 4, ["fps"], label="Frame rate", chart="area", meta=["fps.low1", "frametime"]),
-        _w("frametime", "chart", 6, 0, 6, 4, ["frametime"], label="Frame time", chart="line", window=300),
-        _w("gpu", "number", 0, 4, 3, 2, ["gpu.temp"], label="GPU temp", warn=85, crit=95),
-        _w("cpu", "number", 3, 4, 3, 2, ["cpu.temp"], label="CPU temp", warn=90, crit=100),
-        _w("gpuload", "ring", 6, 4, 3, 2, ["gpu.load"], label="GPU"),
-        _w("watts", "number", 9, 4, 3, 2, ["power.total"], label="PC (est.)"),
+        _w("fps", "hero", 0, 0, 8, 4, ["fps"], label="Frame rate", chart="area", meta=["fps.low1", "frametime"]),
+        _w("gpuload", "ring", 8, 0, 4, 2, ["gpu.load"], label="GPU"),
+        _w("cpuload", "ring", 8, 2, 4, 2, ["cpu.load"], label="CPU"),
+        _w("gputemp", "number", 0, 4, 3, 3, ["gpu.temp"], label="GPU temperature", warn=85, crit=95),
+        _w("cputemp", "number", 3, 4, 3, 3, ["cpu.temp"], label="CPU temperature", warn=90, crit=100),
+        _w("watts", "number", 6, 4, 3, 3, ["power.total"], label="Power"),
+        _w("frametime", "number", 9, 4, 3, 3, ["frametime"], label="Frame time", chart="line"),
     ]}
     power = {"id": "power", "name": "Power", "auto": None, "widgets": [
-        _w("total", "hero", 0, 0, 6, 4, ["power.total"], label="PC (est.)", chart="area"),
+        _w("total", "hero", 0, 0, 6, 4, ["power.total"], label="Power", chart="area"),
         _w("split", "bars", 6, 0, 6, 4, ["power.gpu", "power.cpu", "power.ram", "power.disk", "power.net"],
            label="By part"),
         _w("history", "chart", 0, 4, 12, 4, ["power.total", "power.gpu", "power.cpu"], label="Last hour",

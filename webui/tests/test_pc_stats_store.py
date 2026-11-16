@@ -124,3 +124,19 @@ def test_only_one_gaming_dashboard(rig):
     o = s.dashboard("overview")
     s.put_dashboard({**o, "auto": "game"}, rev=o["rev"])
     assert [d["id"] for d in s.dashboards() if d.get("auto") == "game"] == ["overview"]
+
+
+def test_new_defaults_replace_only_unedited(rig, monkeypatch):
+    s, _ = rig
+    s.dashboards()
+    o = s.dashboard("overview")
+    s.put_dashboard({**o, "name": "Mine"}, rev=o["rev"])          # edited: keep it
+    import api.pc_stats_store as store_mod
+    import sqlite3
+    with sqlite3.connect(str(s._db)) as db:
+        db.execute("UPDATE meta SET v='1' WHERE k='defaults'")
+    fresh = [dict(d, name=d["name"] + " v3") for d in store_mod.default_dashboards()]
+    monkeypatch.setattr(store_mod, "default_dashboards", lambda: fresh)
+    monkeypatch.setattr(store_mod, "DEFAULTS_VERSION", 3)
+    names = {d["id"]: d["name"] for d in s.dashboards()}
+    assert names["overview"] == "Mine" and names["gaming"] == "Gaming v3"
