@@ -324,6 +324,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "remote_desktop": {
+        "description": "Remote Desktop: whether the Windows PC is ready for RDP and who is connected (never starts a session).",
+        "tools": ["remote_desktop_status"],
+        "includes": []
+    },
+
     "power": {
         "description": (
             "Power integrations: the built-in features (car, door alarm, dashcam, vault, "

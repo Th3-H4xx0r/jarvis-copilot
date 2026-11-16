@@ -1,0 +1,26 @@
+{
+  "presentations": {
+    "card": {
+      "type": "section",
+      "title": "Remote Desktop",
+      "children": [
+        {"type": "stat", "value": {"$": "open"}, "caption": "Open"},
+        {"type": "stat", "value": {"$": "waiting"}, "caption": "Waiting for Face ID"}
+      ]
+    },
+    "page": {
+      "type": "vstack",
+      "children": [
+        {
+          "type": "section",
+          "title": "Sessions",
+          "children": [
+            {"type": "stat", "value": {"$": "open"}, "caption": "Open"},
+            {"type": "stat", "value": {"$": "waiting"}, "caption": "Waiting for Face ID"}
+          ]
+        },
+        {"type": "button", "label": "Refresh", "action": "refresh"}
+      ]
+    }
+  }
+}

@@ -183,6 +183,11 @@ class MacPowerStore:
         if self._is_pc(did):
             self._update(did, sleeping_at=self._clock())
 
+    def sleeping(self, did: str) -> bool:
+        """The device said it's going to sleep (or was told to) and hasn't reported in since."""
+        with self._lock:
+            return (self._devices.get(did) or {}).get("sleeping_at") is not None
+
     def lock(self, did: str) -> dict:
         return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "lock": True}))}
 

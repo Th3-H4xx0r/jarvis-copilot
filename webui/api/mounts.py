@@ -36,6 +36,7 @@ MOUNTS = (
     ("/api/pc-admin", "api.pc_admin"),
     ("/api/pc-stats", "api.pc_stats_routes"),
     ("/api/power", "api.power_routes"),
+    ("/api/rdp", "api.rdp_routes"),
     ("/api/screen", "api.screen_share"),
     ("/api/security", "api.security_routes"),
     ("/api/session", "api.session_routes"),
