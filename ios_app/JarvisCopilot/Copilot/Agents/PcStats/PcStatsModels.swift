@@ -141,21 +141,27 @@ struct PcLive: Equatable {
     var at: Date?
     var values: [String: Double]
     var game: String?
+    /// The game's friendly name from the server ("Call of Duty"), when it sent one.
+    var gameName: String? = nil
     var estimated: Set<String>
     /// The server had a sample (possibly old) for this PC.
     var hasSample: Bool
+
+    /// What to call the running game: the server's name, else the exe without ".exe".
+    var displayGame: String? { game.map { PcGames.name(exe: $0, known: gameName) } }
 
     static let none = PcLive(deviceId: nil, name: "", online: false, at: nil, values: [:], game: nil,
                              estimated: [], hasSample: false)
 
     init(deviceId: String?, name: String, online: Bool, at: Date?, values: [String: Double], game: String?,
-         estimated: Set<String>, hasSample: Bool) {
+         gameName: String? = nil, estimated: Set<String>, hasSample: Bool) {
         self.deviceId = deviceId
         self.name = name
         self.online = online
         self.at = at
         self.values = values
         self.game = game
+        self.gameName = gameName
         self.estimated = estimated
         self.hasSample = hasSample
     }
@@ -174,6 +180,7 @@ struct PcLive: Equatable {
         self.values = values
         let game = PcJSON.text(sample?["game"])?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.game = (game?.isEmpty ?? true) ? nil : game
+        gameName = PcJSON.text(json["game_name"])
         estimated = Set(PcJSON.strings(json["estimated"]))
     }
 }
@@ -189,6 +196,11 @@ struct PcSummary: Equatable {
     var gpuTemp: Double?
     var hottest: Double?
     var watts: Double?
+    /// The running game's exe and friendly name.
+    var game: String? = nil
+    var gameName: String? = nil
+
+    var displayGame: String? { game.map { PcGames.name(exe: $0, known: gameName) } }
 
     init(online: Bool, at: Date?, cpu: Double?, gpu: Double?, cpuTemp: Double? = nil, gpuTemp: Double? = nil,
          hottest: Double?, watts: Double?) {
@@ -211,6 +223,9 @@ struct PcSummary: Equatable {
         gpuTemp = PcJSON.double(json["gpu_temp"])
         hottest = PcJSON.double(json["hottest"])
         watts = PcJSON.double(json["watts"])
+        let g = PcJSON.text(json["game"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        game = (g?.isEmpty ?? true) ? nil : g
+        gameName = PcJSON.text(json["game_name"])
     }
 
     /// One of the card's numbers: a usage with its temperature beside it at the same size.
@@ -233,6 +248,46 @@ struct PcSummary: Equatable {
         }
         out.append(Metric(label: "PC (est.)", value: PcFormat.compact(watts, unit: "W"), temp: nil))
         return out
+    }
+}
+
+// MARK: - Games
+
+/// A game the PC has seen: its friendly name and its Windows icon (PNG bytes).
+struct PcGame: Equatable {
+    let name: String
+    let icon: Data?
+}
+
+/// `GET /api/pc-stats/games` → `{games: {exe: {name, icon: "data:image/png;base64,…" | null}}}`.
+enum PcGames {
+    static func parse(_ json: [String: Any]) -> [String: PcGame] {
+        var out: [String: PcGame] = [:]
+        for (exe, v) in PcJSON.dict(json["games"]) ?? [:] {
+            guard let g = v as? [String: Any] else { continue }
+            out[exe.lowercased()] = PcGame(name: PcJSON.text(g["name"]) ?? name(exe: exe, known: nil),
+                                           icon: decodeDataURL(g["icon"] as? String))
+        }
+        return out
+    }
+
+    /// The bytes of a `data:image/…;base64,…` URL; nil for anything else or bad base64.
+    static func decodeDataURL(_ s: String?) -> Data? {
+        guard let s, s.hasPrefix("data:image/"), let comma = s.range(of: ";base64,") else { return nil }
+        let b64 = String(s[comma.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !b64.isEmpty, let data = Data(base64Encoded: b64), !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    /// A game's name: the one the server knows, else the exe without ".exe" ("cod.exe" → "cod").
+    static func name(exe: String, known: String?) -> String {
+        if let k = known?.trimmingCharacters(in: .whitespacesAndNewlines), !k.isEmpty { return k }
+        var e = exe.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let slash = e.lastIndex(where: { $0 == "\\" || $0 == "/" }) { e = String(e[e.index(after: slash)...]) }
+        if e.lowercased().hasSuffix(".exe") { e = String(e.dropLast(4)) }
+        return e.isEmpty ? "Game" : e
     }
 }
 
@@ -524,8 +579,13 @@ struct PcSession: Identifiable, Equatable, Hashable {
     var name: String {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty { return t }
-        let e = exe.hasSuffix(".exe") ? String(exe.dropLast(4)) : exe
-        return e.isEmpty ? "Game" : e
+        return PcGames.name(exe: exe, known: nil)
+    }
+
+    /// Its name as the games map knows it ("Call of Duty"), else `name`.
+    func name(games: [String: PcGame]) -> String {
+        if let n = games[exe.lowercased()]?.name ?? games[exe]?.name, !n.isEmpty { return n }
+        return name
     }
 
     func duration(now: Date = Date()) -> TimeInterval { (end ?? now).timeIntervalSince(start) }
@@ -946,10 +1006,10 @@ enum PcFormat {
 
 /// The PC Stats words, pure for the tests.
 enum PcStatsCopy {
-    /// "Online", "Online · Playing Cyberpunk 2077", "PC offline · last seen 5 min ago", or
+    /// "Online", "Playing Call of Duty", "PC offline · last seen 5 min ago", or
     /// "No stats from this PC yet".
     static func status(online: Bool, at: Date?, game: String? = nil, now: Date = Date()) -> String {
-        if online { return game.map { "Online · Playing \($0)" } ?? "Online" }
+        if online { return game.map { "Playing \($0)" } ?? "Online" }
         guard let at else { return "No stats from this PC yet" }
         return "PC offline · last seen \(AgentsMacPowerCopy.ago(at, now: now))"
     }

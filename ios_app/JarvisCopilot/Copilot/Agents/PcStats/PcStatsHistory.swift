@@ -37,8 +37,7 @@ struct PcStatsHistorySections: View {
             let list = showAllSessions ? model.sessions : Array(model.sessions.prefix(5))
             PcPanel(padding: 0) {
                 ForEach(Array(list.enumerated()), id: \.element.id) { i, s in
-                    JcRow(symbol: "gamecontroller", title: s.name, subtitle: PcHistoryCopy.sessionLine(s),
-                          subtitleLines: 1, last: i == list.count - 1, action: { openSession = s })
+                    PcSessionRow(session: s, last: i == list.count - 1) { openSession = s }
                 }
             }
         }
@@ -211,6 +210,42 @@ struct PcStatsHistorySections: View {
     }
 }
 
+/// A game session in the history list: the game's Windows icon, its name, when · how long · fps.
+/// The app's row shape (JcRow metrics) with the icon in place of the symbol square.
+struct PcSessionRow: View {
+    let session: PcSession
+    var last = false
+    let open: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: open) {
+                HStack(spacing: 12) {
+                    PcGameIcon(game: PcGameStore.shared.game(session.exe), size: JcUnified.iconSquare)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.name(games: PcGameStore.shared.games))
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(JcTheme.text)
+                            .lineLimit(2)
+                        Text(PcHistoryCopy.sessionLine(session))
+                            .font(.system(size: 12))
+                            .foregroundStyle(JcTheme.muted)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    JcRowChevron()
+                }
+                .padding(.horizontal, JcUnified.cardPadding)
+                .padding(.vertical, 12)
+                .frame(minHeight: 52)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if !last { JcRowSeparator(inset: 56) }
+        }
+    }
+}
+
 enum PcHistoryCopy {
     /// "Yesterday 21:04 · 2 h 10 min · 141 fps".
     static func sessionLine(_ s: PcSession, now: Date = Date()) -> String {
@@ -266,10 +301,14 @@ struct PcSessionDetail: View {
             JcPageColumn {
                 PcPanel(padding: 18) {
                     PcWidgetLabel(text: session.start.formatted(.dateTime.weekday(.wide).month().day().hour().minute()))
-                    Text(session.name)
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(JcTheme.text)
-                        .padding(.top, 6)
+                    HStack(spacing: 12) {
+                        PcGameIcon(game: PcGameStore.shared.game(session.exe), size: 40)
+                        Text(session.name(games: PcGameStore.shared.games))
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(JcTheme.text)
+                            .lineLimit(2)
+                    }
+                    .padding(.top, 8)
                     Text(PcFormat.duration(session.duration()) + (session.end == nil ? " · playing now" : ""))
                         .font(.system(size: 13)).foregroundStyle(PcLook.secondary).padding(.top, 2)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4),
@@ -304,7 +343,7 @@ struct PcSessionDetail: View {
             }
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .jcPageChrome(session.name, header: .inline)
+        .jcPageChrome(session.name(games: PcGameStore.shared.games), header: .inline)
         .task {
             let keys = ["fps", "fps.low1", "gpu.temp", "cpu.temp", "power.total", "power.gpu", "power.cpu"]
             var out: [String: [PcPoint]] = [:]

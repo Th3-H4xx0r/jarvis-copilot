@@ -77,31 +77,33 @@ struct PcStatsPage: View {
     private var header: some View {
         TimelineView(.periodic(from: .now, by: 15)) { context in
             let status = model.liveLoaded
-                ? PcStatsCopy.status(online: model.live.online, at: model.live.at, game: model.live.game, now: context.date)
+                ? PcStatsCopy.status(online: model.live.online, at: model.live.at, game: model.live.displayGame, now: context.date)
                 : "Connecting…"
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 12) {
-                    PcOrb(online: model.live.online)
                     statusLine(status).fixedSize()
                     Spacer(minLength: 8)
                     switcher
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        PcOrb(online: model.live.online)
-                        statusLine(status)
-                    }
+                    statusLine(status)
                     switcher
                 }
             }
         }
     }
 
+    /// Playing: the game's Windows icon + "Playing Call of Duty"; else a small dot (white when
+    /// online, faint when not) + the status.
     private func statusLine(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Circle()
-                .fill(model.live.online ? PcLook.accent : PcLook.tertiary)
-                .frame(width: 8, height: 8)
+        HStack(alignment: .center, spacing: 8) {
+            if model.live.online, model.live.game != nil {
+                PcGameIcon(game: PcGameStore.shared.game(model.live.game), size: 22)
+            } else {
+                Circle()
+                    .fill(model.live.online ? PcLook.accent : PcLook.tertiary)
+                    .frame(width: 8, height: 8)
+            }
             Text(text).lineLimit(2)
         }
         .font(.system(size: 15))
@@ -290,8 +292,20 @@ struct PcStatsCardSection: View {
     private func content(now: Date) -> some View {
         let s = model.summary
         if let s, s.online {
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(s.cardMetrics, id: \.label) { m in metric(m) }
+            VStack(alignment: .leading, spacing: 12) {
+                if let name = s.displayGame {
+                    HStack(spacing: 8) {
+                        PcGameIcon(game: PcGameStore.shared.game(s.game), size: 22)
+                        Text("Playing \(name)")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(JcTheme.text)
+                            .lineLimit(1)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(s.cardMetrics, id: \.label) { m in metric(m) }
+                }
             }
         } else {
             HStack(spacing: 8) {

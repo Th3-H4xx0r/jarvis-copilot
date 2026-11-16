@@ -149,6 +149,42 @@ final class PcStatsTests: XCTestCase {
         XCTAssertThrowsError(try PcStatsClient.saveResult(status: 409, data: Data(#"{"error":"PC Stats is off"}"#.utf8)))
     }
 
+    // MARK: Games
+
+    func testGameNamesNeverShowTheExe() {
+        XCTAssertEqual(PcGames.name(exe: "cod.exe", known: "Call of Duty"), "Call of Duty")
+        XCTAssertEqual(PcGames.name(exe: "cod.exe", known: nil), "cod")
+        XCTAssertEqual(PcGames.name(exe: "cod.exe", known: "  "), "cod")
+        XCTAssertEqual(PcGames.name(exe: "C:\\Games\\EldenRing.EXE", known: nil), "EldenRing")
+        XCTAssertEqual(PcGames.name(exe: "", known: nil), "Game")
+        let live = PcLive(json: json(#"{"online":true,"at":1,"game_name":"Call of Duty","sample":{"r":{},"game":"cod.exe"},"estimated":[]}"#))
+        XCTAssertEqual(live.displayGame, "Call of Duty")
+        XCTAssertEqual(PcLive(json: json(#"{"online":true,"at":1,"sample":{"r":{},"game":"cod.exe"}}"#)).displayGame, "cod")
+        XCTAssertNil(PcLive(json: json(#"{"online":true,"at":1,"sample":{"r":{}}}"#)).displayGame)
+        let s = PcSummary(json: json(#"{"online":true,"game":"cod.exe","game_name":"Call of Duty"}"#))
+        XCTAssertEqual(s.displayGame, "Call of Duty")
+        let session = PcSession(json: ["id": "1", "exe": "cod.exe", "title": "", "start": 0])!
+        XCTAssertEqual(session.name(games: ["cod.exe": PcGame(name: "Call of Duty", icon: nil)]), "Call of Duty")
+        XCTAssertEqual(session.name(games: [:]), "cod")
+    }
+
+    func testGameIconsDecodeSafely() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let url = "data:image/png;base64," + png.base64EncodedString()
+        XCTAssertEqual(PcGames.decodeDataURL(url), png)
+        XCTAssertNil(PcGames.decodeDataURL(nil))
+        XCTAssertNil(PcGames.decodeDataURL(""))
+        XCTAssertNil(PcGames.decodeDataURL("data:image/png;base64,"), "empty")
+        XCTAssertNil(PcGames.decodeDataURL("data:image/png;base64,%%%not-base64%%%"), "garbage")
+        XCTAssertNil(PcGames.decodeDataURL("https://example.com/icon.png"), "only data URLs")
+        XCTAssertNil(PcGames.decodeDataURL("data:text/plain;base64,aGk="), "only images")
+        let games = PcGames.parse(json(#"{"games":{"COD.exe":{"name":"Call of Duty","icon":"data:image/png;base64,iVBORw0KGgo="},"x.exe":{"name":null,"icon":null},"bad":"nope"}}"#))
+        XCTAssertEqual(games["cod.exe"]?.name, "Call of Duty", "exes match case-insensitively")
+        XCTAssertNotNil(games["cod.exe"]?.icon)
+        XCTAssertEqual(games["x.exe"], PcGame(name: "x", icon: nil))
+        XCTAssertNil(games["bad"])
+    }
+
     // MARK: Reflow and grid placement
 
     func testReflowOrdersByRowThenColumn() {
@@ -337,7 +373,7 @@ final class PcStatsTests: XCTestCase {
     func testStatusWords() {
         let now = Date(timeIntervalSince1970: 10_000)
         XCTAssertEqual(PcStatsCopy.status(online: true, at: now, now: now), "Online")
-        XCTAssertEqual(PcStatsCopy.status(online: true, at: now, game: "Elden Ring", now: now), "Online · Playing Elden Ring")
+        XCTAssertEqual(PcStatsCopy.status(online: true, at: now, game: "Elden Ring", now: now), "Playing Elden Ring")
         XCTAssertEqual(PcStatsCopy.status(online: false, at: now.addingTimeInterval(-300), now: now),
                        "PC offline · last seen 5 min ago")
         XCTAssertEqual(PcStatsCopy.status(online: false, at: nil, now: now), "No stats from this PC yet")

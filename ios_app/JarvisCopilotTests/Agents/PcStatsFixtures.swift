@@ -36,7 +36,7 @@ enum PcStatsFixtures {
 
     static var live: PcLive {
         PcLive(deviceId: "pc", name: "pranav-computer", online: true, at: Date(), values: values,
-               game: "cod.exe", estimated: ["power.cpu", "power.gpu", "power.total"], hasSample: true)
+               game: "cod.exe", gameName: "Call of Duty", estimated: ["power.cpu", "power.gpu", "power.total"], hasSample: true)
     }
 
     static func series(_ key: String, now: Double, window: Int) -> [PcPoint] {

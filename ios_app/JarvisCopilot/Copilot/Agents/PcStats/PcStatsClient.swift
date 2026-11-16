@@ -43,6 +43,10 @@ struct PcStatsClient {
         PcEnergy(json: try await api.get("/api/pc-stats/energy", query: query(deviceId, ["period": period.rawValue])).object())
     }
 
+    func games() async throws -> [String: PcGame] {
+        PcGames.parse(try await api.get("/api/pc-stats/games").object())
+    }
+
     func catalog() async throws -> PcCatalog {
         PcCatalog(json: try await api.get("/api/pc-stats/catalog").object())
     }
@@ -205,6 +209,7 @@ final class PcStatsModel {
     // MARK: Loading
 
     func start() async {
+        Task { await PcGameStore.shared.load() }
         async let a: Void = loadDashboards()
         async let b: Void = loadCatalog()
         async let c: Void = pollOnce()
@@ -248,6 +253,7 @@ final class PcStatsModel {
             live = l
             liveLoaded = true
             appendLive(l)
+            if l.game != nil { Task { await PcGameStore.shared.ensure(l.game) } }
         } catch {
             if !wasCancelled(error) { liveLoaded = true }
         }
@@ -418,6 +424,40 @@ final class PcStatsModel {
     }
 }
 
+/// The PC's games (names + Windows icons), cached in memory for the app's life: fetched once per
+/// page open and again when an exe it doesn't know shows up.
+@Observable
+@MainActor
+final class PcGameStore {
+    static let shared = PcGameStore()
+
+    private(set) var games: [String: PcGame] = [:]
+    @ObservationIgnored private var asked: Set<String> = []
+    @ObservationIgnored private var loading = false
+    @ObservationIgnored private let client: PcStatsClient
+
+    init(client: PcStatsClient = PcStatsClient()) { self.client = client }
+
+    func game(_ exe: String?) -> PcGame? { exe.flatMap { games[$0.lowercased()] } }
+
+    /// Fills the cache without the network (tests and rendered previews).
+    func seed(_ games: [String: PcGame]) { self.games.merge(games) { $1 } }
+
+    func load() async {
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
+        if let g = try? await client.games() { games.merge(g) { $1 } }
+    }
+
+    /// Fetches the map again the first time an unknown exe appears.
+    func ensure(_ exe: String?) async {
+        guard let exe = exe?.lowercased(), !exe.isEmpty, games[exe] == nil, !asked.contains(exe) else { return }
+        asked.insert(exe)
+        await load()
+    }
+}
+
 /// The Agents card's four numbers, every 5 s while the card is on screen.
 @Observable
 @MainActor
@@ -433,7 +473,10 @@ final class PcStatsSummaryModel {
 
     func poll() async {
         while !Task.isCancelled {
-            if let s = try? await client.summary(deviceId: deviceId) { summary = s }
+            if let s = try? await client.summary(deviceId: deviceId) {
+                summary = s
+                await PcGameStore.shared.ensure(s.game)
+            }
             try? await Task.sleep(nanoseconds: 5_000_000_000)
         }
     }

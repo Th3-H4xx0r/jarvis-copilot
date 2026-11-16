@@ -87,20 +87,27 @@ enum PcLook {
     }
 }
 
-/// The Jarvis orb in the page header, in shades of the accent (dim while the PC is offline).
-struct PcOrb: View {
-    var size: CGFloat = 26
-    var online = true
+/// A game's Windows icon with 6 pt rounded corners; a muted controller in a grey square when the
+/// PC hasn't sent one (or it doesn't decode).
+struct PcGameIcon: View {
+    let game: PcGame?
+    var size: CGFloat = 22
 
     var body: some View {
-        Circle()
-            .fill(RadialGradient(colors: [PcLook.accent(online ? 0.95 : 0.4), PcLook.accent(online ? 0.35 : 0.12),
-                                          PcLook.accent(0.04)],
-                                 center: UnitPoint(x: 0.38, y: 0.32), startRadius: 0, endRadius: size * 0.6))
-            .overlay(Circle().strokeBorder(PcLook.accent(0.18), lineWidth: 1))
-            .frame(width: size, height: size)
-            .shadow(color: PcLook.accent(online ? 0.25 : 0), radius: 8)
-            .accessibilityHidden(true)
+        Group {
+            if let data = game?.icon, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: size * 0.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.muted)
+                    .frame(width: size, height: size)
+                    .background(JcButton.fill)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 6 / 22, style: .continuous))
+        .accessibilityHidden(true)
     }
 }
 
@@ -1028,9 +1035,9 @@ struct PcSessionWidget: View {
 
     var body: some View {
         PcPanel(padding: 18) {
-            if let game = ctx.live.game, ctx.live.online {
+            if let game = ctx.live.displayGame, ctx.live.online {
                 PcCardHeader(title: widget.style.label ?? "Playing now", symbol: PcLook.symbol(widget), tint: PcLook.tint(widget))
-                Text(game).font(.system(size: 22, weight: .semibold)).foregroundStyle(PcLook.primary).lineLimit(1).padding(.top, 8)
+                gameTitle(PcGameStore.shared.game(ctx.live.game), game)
                 PcFlow(spacing: 22, lineSpacing: 12) {
                     stat(ctx.live.values["fps"].map { PcFormat.number($0, unit: "fps") }, "fps")
                     stat(ctx.live.values["fps.low1"].map { PcFormat.number($0, unit: "fps") }, "1% low")
@@ -1040,7 +1047,7 @@ struct PcSessionWidget: View {
             } else if let s = ctx.latestSession {
                 PcCardHeader(title: widget.style.label ?? "Last session", symbol: PcLook.symbol(widget), tint: PcLook.tint(widget),
                              context: s.start.formatted(.relative(presentation: .named)))
-                Text(s.name).font(.system(size: 22, weight: .semibold)).foregroundStyle(PcLook.primary).lineLimit(1).padding(.top, 8)
+                gameTitle(PcGameStore.shared.game(s.exe), s.name(games: PcGameStore.shared.games))
                 PcFlow(spacing: 22, lineSpacing: 12) {
                     stat(PcFormat.duration(s.duration(now: ctx.now)), "played")
                     stat(s.fpsAvg.map { PcFormat.number($0, unit: "fps") }, "avg fps")
@@ -1056,6 +1063,15 @@ struct PcSessionWidget: View {
                     .padding(.top, 10)
             }
         }
+    }
+
+    private func gameTitle(_ game: PcGame?, _ name: String) -> some View {
+        HStack(spacing: 10) {
+            PcGameIcon(game: game, size: 32)
+            Text(name).font(.system(size: 22, weight: .semibold)).foregroundStyle(PcLook.primary).lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.top, 10)
     }
 
     private func stat(_ value: String?, _ label: String) -> some View {
