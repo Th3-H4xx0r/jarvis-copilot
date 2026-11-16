@@ -93,7 +93,9 @@
       return null;
     },
 
-    tunnelPath: function (sid) { return 'api/rdp/guac/' + encodeURIComponent(sid); },
+    // Absolute: guacamole-common-js resolves a relative path against the PAGE path, so from a chat
+    // (/session/…) it asked /session/api/rdp/guac/… and got the app page instead of the tunnel.
+    tunnelPath: function (sid) { return '/api/rdp/guac/' + encodeURIComponent(sid); },
 
     /** The session size: the stage in device pixels, and its DPI. */
     connectQuery: function (w, h, dpr) {

@@ -94,7 +94,7 @@ test('upload refuses files over 2 GB before sending', () => {
 });
 
 test('the guac tunnel URL carries the session and the size', () => {
-  assert.equal(R.tunnelPath('sid-1'), 'api/rdp/guac/sid-1');
+  assert.equal(R.tunnelPath('sid-1'), '/api/rdp/guac/sid-1');
   assert.equal(R.connectQuery(1600.4, 900.6, 2), 'w=1600&h=901&dpi=192');
 });
 
@@ -146,4 +146,9 @@ test('only a real Mac opens Windows App (an iPad says Macintosh too)', () => {
   assert.equal(R.isMac({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', maxTouchPoints: 5 }), false);
   assert.equal(R.isMac({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', maxTouchPoints: 0 }), false);
   assert.equal(R.isMac({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', maxTouchPoints: 5 }), false);
+});
+
+test('tunnel path is absolute (a page under /session/ must not prefix it)', () => {
+  assert.equal(R.tunnelPath('abc'), '/api/rdp/guac/abc');
+  assert.ok(R.tunnelPath('a b').startsWith('/api/rdp/guac/a%20b'));
 });
