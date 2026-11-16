@@ -34,7 +34,8 @@ MAX_AUDIT = 200
 CLIENTS = ("ios", "web")
 DEFAULT_SETTINGS = {"idle_minutes": 30, "warn_game": True, "allow_web": True, "transfer_folder": "Downloads\\Jarvis"}
 _STATUS_KEYS = ("device_id", "edition", "rdp_enabled", "firewall_scoped", "username", "tailscale_ip", "idle_s",
-                "locked", "game", "remote_session", "has_password")
+                "locked", "game", "remote_session", "has_password",
+                "pro", "hello_only_off", "at")   # the Windows app also sends these (every 30 s)
 _LIVE = ("approving", "approved", "connected")
 
 

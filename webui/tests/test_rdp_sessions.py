@@ -205,3 +205,10 @@ def test_unreachable_pc_cancels_at_once(tmp_path):
     s.put_status("pc-1", dict(READY))
     sid = s.create("pc-1", "web", True, None)["session"]["id"]
     assert s.get(sid).state == "cancelled" and s.public(sid)["error"] == "pranav-computer didn't answer"
+
+
+def test_status_keeps_the_windows_apps_extra_keys(env):
+    _status(env, pro=True, hello_only_off=True, at=1_800_000_000.0, secret="never-kept")
+    st = env.s.status("pc-1")
+    assert st["pro"] is True and st["hello_only_off"] is True and st["at"] == 1_800_000_000.0
+    assert "secret" not in st
