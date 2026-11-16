@@ -689,6 +689,8 @@ public sealed class SessionView : WidgetView
     private readonly TextBlock _game = Numeral(30), _since = Text("", 14, Th.B("JcStatsSecondary"));
     private readonly UniformGrid _cells = new() { Columns = 2, Margin = new Thickness(0, 14, 0, 0) };
     private readonly (TextBlock Label, TextBlock Value)[] _parts = new (TextBlock, TextBlock)[4];
+    private readonly Image _icon = new() { Stretch = Stretch.UniformToFill };
+    private Border? _iconHost;
 
     public SessionView(Widget w) : base(w)
     {
@@ -705,10 +707,19 @@ public sealed class SessionView : WidgetView
             _cells.Children.Add(cell);
             _parts[i] = (label, value);
         }
+        var gameRow = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
+        var iconHost = new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(10), ClipToBounds = true, Margin = new Thickness(0, 0, 12, 0), Child = _icon, VerticalAlignment = VerticalAlignment.Center };
+        _iconHost = iconHost;
+        DockPanel.SetDock(iconHost, Dock.Left);
+        var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        _game.Margin = new Thickness(0);
+        names.Children.Add(_game);
+        names.Children.Add(_since);
+        gameRow.Children.Add(iconHost);
+        gameRow.Children.Add(names);
         var top = new StackPanel();
         top.Children.Add(Header());
-        top.Children.Add(_game);
-        top.Children.Add(_since);
+        top.Children.Add(gameRow);
         var root = new DockPanel();
         DockPanel.SetDock(top, Dock.Top);
         root.Children.Add(top);
@@ -722,9 +733,11 @@ public sealed class SessionView : WidgetView
         var s = f.Session ?? f.LastSession;
         Context.Text = f.Session != null ? "Live" : s != null ? "Last" : "";
         _cells.Visibility = s == null ? Visibility.Collapsed : Visibility.Visible;
-        if (s == null) { _game.Text = "No game yet"; _game.Foreground = Th.B("JcStatsSecondary"); _since.Text = "Sessions start when a game is in front."; return; }
+        if (s == null) { if (_iconHost != null) _iconHost.Visibility = Visibility.Collapsed; _game.Text = "No game yet"; _game.Foreground = Th.B("JcStatsSecondary"); _since.Text = "Sessions start when a game is in front."; return; }
         _game.Foreground = Th.B("JcText");
-        _game.Text = Title(s.Exe);
+        _game.Text = GameInfo.Cached(s.Exe)?.Name ?? Title(s.Exe);
+        _icon.Source = GameInfo.Cached(s.Exe)?.Icon;
+        if (_iconHost != null) _iconHost.Visibility = _icon.Source != null ? Visibility.Visible : Visibility.Collapsed;
         var mins = (int)Math.Round((s.End - s.Start) / 60);
         var len = mins >= 60 ? $"{mins / 60} h {mins % 60} min" : $"{Math.Max(1, mins)} min";
         _since.Text = f.Session != null ? $"Playing for {len}" : $"Played {len}";

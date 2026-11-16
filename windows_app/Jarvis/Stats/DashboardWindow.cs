@@ -33,6 +33,9 @@ public sealed class DashboardWindow : Window
     private readonly Grid _grid = new();
     private readonly Canvas _overlay = new() { IsHitTestVisible = false };
     private readonly TextBlock _name = new(), _status = new();
+    private readonly Image _gameIcon = new() { Stretch = Stretch.UniformToFill };
+    private Border? _gameIconHost;
+
     // An Apple segmented control: one segment per dashboard.
     private readonly StackPanel _segments = new() { Orientation = Orientation.Horizontal };
     private readonly Border _switcher = new() { CornerRadius = new CornerRadius(10), Padding = new Thickness(2), Margin = new Thickness(8, 0, 0, 0) };
@@ -88,7 +91,13 @@ public sealed class DashboardWindow : Window
         _editBar.Children.Add(Pill("Delete dashboard", DeleteBoard));
 
         var header = new DockPanel { Margin = new Thickness(30, 26, 30, 14) };
-        var orb = new JarvisOrb(40) { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
+        // The game's own Windows icon while one is running (no orb).
+        var orb = new Border
+        {
+            Width = 40, Height = 40, CornerRadius = new CornerRadius(9), Margin = new Thickness(0, 0, 14, 0), ClipToBounds = true,
+            VerticalAlignment = VerticalAlignment.Center, Child = _gameIcon, Visibility = Visibility.Collapsed,
+        };
+        _gameIconHost = orb;
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(_name);
         titles.Children.Add(_status);
@@ -192,7 +201,10 @@ public sealed class DashboardWindow : Window
             _lastFrame = new WidgetFrame(s, estimated, driverOff && !_stats.DriverOn, _series, _labels, _units,
                 _stats.CurrentSession, _stats.LastSession, _stats.Price, _stats.Currency);
             _name.Text = Environment.MachineName.ToLowerInvariant();
-            _status.Text = (s.Game is { } g ? $"Gaming · {System.IO.Path.GetFileNameWithoutExtension(g)}" : "Live") +
+            var info = GameInfo.Cached(s.Game);
+            _gameIcon.Source = info?.Icon;
+            if (_gameIconHost != null) _gameIconHost.Visibility = s.Game != null && info?.Icon != null ? Visibility.Visible : Visibility.Collapsed;
+            _status.Text = (s.Game is { } g ? $"Playing {GameInfo.NameOf(g)}" : "Live") +
                            (_stats.HelperConnected ? "" : " · sensor helper not running (Settings → PC power)");
             if (WindowState == WindowState.Minimized || !IsVisible) return;   // nothing drawn while out of sight
             foreach (var v in _views) v.Update(_lastFrame);

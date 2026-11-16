@@ -46,6 +46,28 @@ public sealed class StatsService : IDisposable
     public string Monitor => J.S(Settings["monitor"]);
     public bool DriverOn => Settings["sensor_driver"] is not JsonValue v || !v.TryGetValue<bool>(out var b) || b;
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _gamesSent = new(StringComparer.OrdinalIgnoreCase);
+
+    /// Reads a newly seen game's name and icon and tells the server (the icon only if it hasn't got one).
+    private async Task SendGameAsync(string exe)
+    {
+        try
+        {
+            var info = await Task.Run(() => GameInfo.Read(exe));
+            if (info == null || _state.ApiOrigin == null) return;
+            var known = await _api.GetAsync("/api/pc-stats/games/" + Uri.EscapeDataString(exe), TimeSpan.FromSeconds(10));
+            var body = new JsonObject { ["exe"] = exe, ["name"] = info.Name };
+            if (known["icon"] is not JsonValue v || !v.TryGetValue<bool>(out var has) || !has)
+                if (info.IconPng != null) body["icon"] = Convert.ToBase64String(info.IconPng);
+            await _api.PostAsync("/api/pc-stats/games", body, TimeSpan.FromSeconds(15));
+        }
+        catch (Exception e) when (e is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            _gamesSent.TryRemove(exe, out _);   // try again next time
+            _log("game info: " + e.Message);
+        }
+    }
+
     private void Tick()
     {
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;
@@ -62,6 +84,7 @@ public sealed class StatsService : IDisposable
             var raw = helper?.R ?? PdhFallback.Read();
             var game = GameExe(_state.GameMode.On ? _state.GameMode.Reason : "");
             var frames = game != null && helper != null ? FramesFor(game, helper.Value.Fps) : null;
+            if (game != null && GameInfo.Cached(game) == null && _gamesSent.TryAdd(game, 0)) _ = SendGameAsync(game);
             if (_logic.Tick(now, raw, frames, game) is { } sample)
                 Sample?.Invoke(sample, _logic.Estimated, helper == null);
             if (_logic.DueUpload(now) is { } batch && Interlocked.Exchange(ref _uploading, 1) == 0) _ = UploadAsync(batch);
