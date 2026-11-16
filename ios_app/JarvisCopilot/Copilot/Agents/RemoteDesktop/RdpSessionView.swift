@@ -64,10 +64,26 @@ struct RdpSessionScreen: View {
             progress("Checking \(model.pcName)…")
             cancelButton
         case .approving:
-            progress("Approve with Face ID to connect")
-            Text("Jarvis asks \(model.pcName) for your Windows password; it's sent encrypted to this iPhone only.")
-                .font(.footnote).foregroundStyle(JcTheme.muted).padding(.top, 8)
-            cancelButton
+            if let request = model.approvalRequest {
+                // The approval itself (the same words as the PC's request card): one Face ID.
+                Text(MacPasswordSheetCopy.title(for: request))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(JcTheme.text)
+                Text("Asked \(MacPasswordSheetCopy.subtitle(for: request) ?? "from this iPhone"). Allow sends your Windows password to this iPhone, encrypted to it.")
+                    .font(.footnote).foregroundStyle(JcTheme.muted).padding(.top, 6)
+                HStack(spacing: 10) {
+                    Button("Deny") { Task { await model.deny(); close() } }.buttonStyle(MacActionButtonStyle())
+                    Button { Task { await model.allow() } } label: {
+                        if model.approving { JcLoader(size: 16) } else { Label("Allow", systemImage: "faceid") }
+                    }
+                    .buttonStyle(MacActionButtonStyle(prominent: true))
+                    .disabled(model.approving)
+                }
+                .padding(.top, 16)
+            } else {
+                progress("Asking \(model.pcName)…")
+                cancelButton
+            }
         case .connecting:
             progress("Connecting to \(model.pcName)…")
             cancelButton

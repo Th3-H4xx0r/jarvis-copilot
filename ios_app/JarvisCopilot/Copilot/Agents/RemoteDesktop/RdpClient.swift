@@ -52,6 +52,9 @@ final class RdpClient: @unchecked Sendable {
     @ObservationIgnored private var displayPending = false
     @ObservationIgnored private var frameTimes: [CFTimeInterval] = []
     @ObservationIgnored private var connected = false
+    /// FreeRDP's thread calls back through an unretained pointer: the client keeps itself alive
+    /// from connect until the session has ENDED (then it can go, on the main thread).
+    @ObservationIgnored private var keepAlive: RdpClient?
     #if canImport(FreeRDP)
     @ObservationIgnored private var session: OpaquePointer?
     #endif
@@ -92,6 +95,7 @@ final class RdpClient: @unchecked Sendable {
         }
         guard let s = jrdp_create(&callbacks) else { throw RdpCredentialError.noKey }
         session = s
+        keepAlive = self
         let (user, domain) = Self.split(username)
         let rc: Int32 = host.withCString { h in user.withCString { u in domain.withCString { d in
             (drivePath ?? "").withCString { dp in "Jarvis iPhone".withCString { dn in
@@ -103,7 +107,7 @@ final class RdpClient: @unchecked Sendable {
                 }
             } }
         } } }
-        if rc != 0 { throw RdpCredentialError.badCredential }
+        if rc != 0 { keepAlive = nil; throw RdpCredentialError.badCredential }
         #else
         DispatchQueue.main.async { self.onState?(.ended, .notInThisBuild) }
         #endif
@@ -130,6 +134,7 @@ final class RdpClient: @unchecked Sendable {
                 let failure = RdpErrors.failure(code: error, message: message, wasConnected: connected)
                 connected = false
                 onState?(.ended, failure)
+                keepAlive = nil   // the thread is done calling back
             }
         }
     }

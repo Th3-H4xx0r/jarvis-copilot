@@ -199,7 +199,8 @@ enum MacPasswordQueue {
     /// The next one to put up: the first live request he hasn't swiped away.
     static func next(_ requests: [MacPasswordRequest], snoozed: Set<String>,
                      now: Date = Date()) -> MacPasswordRequest? {
-        requests.first { !snoozed.contains($0.id) && $0.expires > now }
+        // A Remote Desktop request the session screen shows itself never gets a second card.
+        requests.first { !snoozed.contains($0.id) && $0.expires > now && !RdpApproval.isInline($0) }
     }
 
     /// The open sheet's request was answered (it left the list) or ran out.

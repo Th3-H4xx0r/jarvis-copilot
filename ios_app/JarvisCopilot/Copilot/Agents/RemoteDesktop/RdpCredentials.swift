@@ -43,12 +43,17 @@ enum RdpEcies {
     }
 }
 
-/// The phone's key for Remote Desktop: in the Secure Enclave, usable only after Face ID
-/// (biometry, current set). The simulator has no enclave: a software key in the Keychain there.
+/// The phone's key for Remote Desktop, in the Secure Enclave (a software key in the simulator).
+/// It needs no Face ID of its own: the PC releases ciphertext only after his Face ID-signed
+/// approval, and only to this phone's key, so a second biometric would add nothing but a second
+/// prompt (2026-11-16: "exactly ONE Face ID"). The approval's Face ID is the only one.
 final class RdpKey: @unchecked Sendable {
     static let shared = RdpKey()
+    /// No user presence / biometry on the key itself (see above).
+    static let accessFlags: SecAccessControlCreateFlags = [.privateKeyUsage]
 
-    private let account = "rdp.ecies.v1"
+    /// v2: v1 keys were created with .biometryCurrentSet (a second Face ID at decrypt).
+    private let account = "rdp.ecies.v2"
     private let service = "com.jarviscopilot.rdp"
     private let lock = NSLock()
 
@@ -70,7 +75,7 @@ final class RdpKey: @unchecked Sendable {
             }
             var error: Unmanaged<CFError>?
             guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                                               [.privateKeyUsage, .biometryCurrentSet], &error) else {
+                                                               Self.accessFlags, &error) else {
                 throw RdpCredentialError.noKey
             }
             let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access)

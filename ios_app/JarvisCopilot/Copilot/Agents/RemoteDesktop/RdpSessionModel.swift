@@ -189,6 +189,23 @@ struct RdpServerAPI: RdpServer {
 // MARK: - Approval (the Unlock chain with kind "rdp": one Face ID approves and opens the key)
 
 enum RdpApproval {
+    /// Sessions whose approval the Remote Desktop screen shows itself: the generic Mac/PC
+    /// password sheet skips their request, so there's one card and one Face ID.
+    private static let inlineLock = NSLock()
+    nonisolated(unsafe) private static var inline: Set<String> = []
+
+    static func showInline(_ sessionId: String, _ on: Bool) {
+        inlineLock.lock(); defer { inlineLock.unlock() }
+        if on { inline.insert(sessionId) } else { inline.remove(sessionId) }
+    }
+
+    /// Whether the Remote Desktop screen is showing this request's approval.
+    static func isInline(_ request: MacPasswordRequest) -> Bool {
+        guard request.kind == "rdp" else { return false }
+        inlineLock.lock(); defer { inlineLock.unlock() }
+        return inline.contains { request.context.contains("\"\($0)\"") }
+    }
+
     /// The PC's rdp request for this session, from the Agents list's password requests.
     static func request(for sessionId: String, in requests: [MacPasswordRequest]) -> MacPasswordRequest? {
         requests.first { $0.kind == "rdp" && $0.context.contains("\"\(sessionId)\"") }
@@ -220,13 +237,17 @@ final class RdpSessionModel {
     private(set) var client: RdpClient?
     /// Shown briefly over the session ("Copied from pranav-computer").
     var note: String?
+    /// The PC's request for this session, waiting for Allow (the one Face ID).
+    private(set) var approvalRequest: MacPasswordRequest?
+    private(set) var approving = false
 
     @ObservationIgnored private let server: RdpServer
     @ObservationIgnored private let encPub: () throws -> Data
     @ObservationIgnored private let refreshRequests: () async -> [MacPasswordRequest]
+    @ObservationIgnored private let answer: (MacPasswordRequest, Bool) async throws -> Void
+    @ObservationIgnored private var approved = false
     @ObservationIgnored private var secret: RdpSecret?
     @ObservationIgnored private var username = ""
-    @ObservationIgnored private var faceIDContext: LAContext?
     @ObservationIgnored private var droppedAt: Date?
     @ObservationIgnored private var bridge: RdpLoopbackBridge?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -236,11 +257,18 @@ final class RdpSessionModel {
 
     init(deviceId: String, pcName: String, server: RdpServer = RdpServerAPI(),
          encPub: @escaping () throws -> Data = { try RdpKey.shared.publicX963() },
-         refreshRequests: (() async -> [MacPasswordRequest])? = nil) {
+         refreshRequests: (() async -> [MacPasswordRequest])? = nil,
+         answer: ((MacPasswordRequest, Bool) async throws -> Void)? = nil) {
         self.deviceId = deviceId
         self.pcName = pcName
         self.server = server
         self.encPub = encPub
+        let pc = pcName
+        // Allow = the one Face ID (signs the yes); Deny needs none.
+        self.answer = answer ?? { request, allow in
+            if allow { _ = try await RdpApproval.allow(request, pc: pc) }
+            else { try await MacPasswordApproval.deny(request, api: AgentsAPI()) }
+        }
         self.refreshRequests = refreshRequests ?? {
             await AgentsStore.shared.refresh()
             return AgentsStore.shared.passwordRequests
@@ -273,19 +301,15 @@ final class RdpSessionModel {
 
     private func waitForApproval(_ id: String) async {
         let deadline = Date().addingTimeInterval(approvalTimeout)
-        var approved = false
+        approved = false
+        RdpApproval.showInline(id, true)
+        defer { RdpApproval.showInline(id, false) }
         var tries = 0
         while !Task.isCancelled, Date() < deadline {
-            // Answer the PC's request from here: one Face ID signs the yes and opens the key.
-            if !approved, tries % 2 == 0, let request = RdpApproval.request(for: id, in: await refreshRequests()) {
-                approved = true
-                do {
-                    faceIDContext = try await RdpApproval.allow(request, pc: pcName)
-                } catch {
-                    await server.end(id)
-                    state = .error(.notApproved)
-                    return
-                }
+            // The PC's request shows here as the approval card; Allow is the only Face ID.
+            if !approved, approvalRequest == nil, tries % 2 == 0,
+               let request = RdpApproval.request(for: id, in: await refreshRequests()) {
+                approvalRequest = request
             }
             tries += 1
             do {
@@ -311,14 +335,34 @@ final class RdpSessionModel {
         }
     }
 
+    /// Allow on the approval card: Face ID once, the signed yes goes to the PC.
+    func allow() async {
+        guard let request = approvalRequest, !approving else { return }
+        approving = true
+        defer { approving = false }
+        do {
+            try await answer(request, true)
+            approved = true
+            approvalRequest = nil
+        } catch {
+            if (error as? CarSignError) == .cancelled { return }   // he cancelled Face ID: the card stays
+            state = .error(.other("Couldn't approve: \(apiErrorMessage(error))"))
+        }
+    }
+
+    /// Deny on the approval card (no Face ID): nothing is released.
+    func deny() async {
+        if let request = approvalRequest { try? await answer(request, false) }
+        approvalRequest = nil
+        cancel()
+    }
+
     private func open(_ credential: [String: String], sessionId: String) async {
         state = .connecting
         do {
             let p = try RdpEcies.parts(credential)
-            let password = try RdpCredentials.open(ciphertext: p.ciphertext, ephemeralPub: p.ephemeral, nonce: p.nonce,
-                                                   context: faceIDContext)
-            faceIDContext?.invalidate()
-            faceIDContext = nil
+            // No Face ID here: the key needs none (the approval was the one Face ID).
+            let password = try RdpCredentials.open(ciphertext: p.ciphertext, ephemeralPub: p.ephemeral, nonce: p.nonce)
             secret = RdpSecret(password)
             try await connect(sessionId: sessionId)
         } catch {
@@ -402,8 +446,7 @@ final class RdpSessionModel {
         bridge = nil
         secret?.wipe()
         secret = nil
-        faceIDContext?.invalidate()
-        faceIDContext = nil
+        approvalRequest = nil
         if let id = sessionId { Task { [server] in await server.end(id) } }
         sessionId = nil
     }

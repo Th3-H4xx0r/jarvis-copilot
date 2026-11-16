@@ -277,3 +277,165 @@ final class RdpApprovalCopyTests: XCTestCase {
         XCTAssertNil(MacPasswordSheetCopy.subtitle(for: sudo))
     }
 }
+
+
+/// The bridge speaks the relay's rules (webui/api/rdp_relay.py): BINARY carries RDP, TEXT is a
+/// keepalive both ends drop; the first bytes from FreeRDP go out at once and are pushed past the
+/// proxy with a TEXT "k" (2026-11-16: the PC never saw the X.224 request without it).
+final class RdpBridgeTests: XCTestCase {
+    final class FakeLink: RdpWebSocketLink {
+        private let lock = NSLock()
+        private(set) var sent: [URLSessionWebSocketTask.Message] = []
+        private var inbox: [URLSessionWebSocketTask.Message] = []
+        private var waiting: ((Result<URLSessionWebSocketTask.Message, Error>) -> Void)?
+        func resume() {}
+        func cancel() {}
+        func send(_ m: URLSessionWebSocketTask.Message, completion: @escaping (Error?) -> Void) {
+            lock.lock(); sent.append(m); lock.unlock()
+            completion(nil)
+        }
+        func receive(completion: @escaping (Result<URLSessionWebSocketTask.Message, Error>) -> Void) {
+            lock.lock()
+            if !inbox.isEmpty {
+                let m = inbox.removeFirst(); lock.unlock()
+                DispatchQueue.global().async { completion(.success(m)) }
+            } else { waiting = completion; lock.unlock() }
+        }
+        func push(_ m: URLSessionWebSocketTask.Message) {
+            lock.lock()
+            if let w = waiting { waiting = nil; lock.unlock(); DispatchQueue.global().async { w(.success(m)) } }
+            else { inbox.append(m); lock.unlock() }
+        }
+        var snapshot: [URLSessionWebSocketTask.Message] { lock.lock(); defer { lock.unlock() }; return sent }
+    }
+
+    private func describe(_ m: URLSessionWebSocketTask.Message) -> String {
+        switch m {
+        case .data(let d): return "data:" + d.map { String(format: "%02x", $0) }.joined()
+        case .string(let s): return "text:" + s
+        @unknown default: return "?"
+        }
+    }
+
+    private func connect(_ port: UInt16) -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        _ = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        return fd
+    }
+
+    private func wait(_ seconds: Double, _ cond: () -> Bool) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end, !cond() { usleep(20_000) }
+    }
+
+    func testFirstBytesGoOutAsBinaryAtOnceThenAPush() async throws {
+        let link = FakeLink()
+        let bridge = RdpLoopbackBridge(request: URLRequest(url: URL(string: "wss://x/api/rdp/relay/s")!), makeLink: { _ in link })
+        bridge.keepaliveEvery = 60
+        let fd = connect(try await bridge.start())
+        defer { close(fd); bridge.close() }
+        let x224: [UInt8] = [0x03, 0x00, 0x00, 0x13, 0x0e, 0xe0, 0, 0, 0, 0, 0, 0x01, 0, 0x08, 0, 0x03, 0, 0, 0]
+        _ = x224.withUnsafeBytes { write(fd, $0.baseAddress!, $0.count) }
+        wait(2) { link.snapshot.count >= 2 }
+        let sent = link.snapshot.map(describe)
+        XCTAssertEqual(sent.first, "data:" + x224.map { String(format: "%02x", $0) }.joined(),
+                       "FreeRDP's connection request goes out at once, as BINARY")
+        XCTAssertEqual(sent.dropFirst().first, "text:k", "then a TEXT push so the proxy doesn't hold it")
+        XCTAssertEqual(bridge.bytesOut, x224.count)
+    }
+
+    func testTextFramesAreIgnoredBinaryReachesFreeRDP() async throws {
+        let link = FakeLink()
+        let bridge = RdpLoopbackBridge(request: URLRequest(url: URL(string: "wss://x/api/rdp/relay/s")!), makeLink: { _ in link })
+        bridge.keepaliveEvery = 60
+        let fd = connect(try await bridge.start())
+        defer { close(fd); bridge.close() }
+        wait(1) { bridge.closeReason == nil }
+        usleep(200_000)
+        link.push(.string("k"))
+        link.push(.data(Data("hi".utf8)))
+        link.push(.string("k"))
+        link.push(.data(Data("!".utf8)))
+        var got = [UInt8]()
+        var buf = [UInt8](repeating: 0, count: 64)
+        var tv = timeval(tv_sec: 2, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        while got.count < 3 { let n = read(fd, &buf, buf.count); if n <= 0 { break }; got += buf[0..<n] }
+        XCTAssertEqual(String(decoding: got, as: UTF8.self), "hi!", "only the BINARY bytes, never the relay's 'k'")
+        wait(1) { bridge.textIgnored == 2 }
+        XCTAssertEqual(bridge.textIgnored, 2)
+        XCTAssertEqual(bridge.bytesIn, 3)
+    }
+
+    func testIdleBridgeSendsKeepalives() async throws {
+        let link = FakeLink()
+        let bridge = RdpLoopbackBridge(request: URLRequest(url: URL(string: "wss://x/api/rdp/relay/s")!), makeLink: { _ in link })
+        bridge.keepaliveEvery = 0.2
+        let fd = connect(try await bridge.start())
+        defer { close(fd); bridge.close() }
+        wait(2) { link.snapshot.count >= 2 }
+        XCTAssertTrue(link.snapshot.count >= 2)
+        XCTAssertTrue(link.snapshot.allSatisfy { if case .string("k") = $0 { return true }; return false },
+                      "an idle bridge sends only TEXT keepalives")
+    }
+}
+
+/// Exactly one Face ID: tapping Remote Desktop asks for none; Allow on the approval card asks once;
+/// opening the password asks none (the key has no biometric of its own).
+@MainActor
+final class RdpOneFaceIDTests: XCTestCase {
+    private final class Server: RdpServer {
+        var credential: [String: Any]?
+        func create(deviceId: String, confirm: Bool, encPub: String) async throws -> RdpCreateResult {
+            .session(RdpSessionInfo(json: ["session": ["id": "sess0001", "state": "approving"]])!)
+        }
+        func session(_ id: String) async throws -> RdpSessionInfo? {
+            if let credential { return RdpSessionInfo(json: ["id": id, "state": "approved", "username": ".\\u", "credential": credential]) }
+            return RdpSessionInfo(json: ["id": id, "state": "approving"])
+        }
+        func end(_ id: String) async {}
+        func relayURL(_ id: String) throws -> URLRequest { URLRequest(url: URL(string: "ws://127.0.0.1:1/x")!) }
+    }
+
+    func testTheFlowAsksFaceIDExactlyOnce() async throws {
+        XCTAssertEqual(RdpKey.accessFlags, [.privateKeyUsage], "no biometry on the key: no second prompt at decrypt")
+        let server = Server()
+        var faceIDs = 0
+        let request = MacPasswordRequest(json: ["id": "r1", "kind": "rdp", "nonce": "n", "expires": Date().timeIntervalSince1970 + 60,
+                                                "context": #"{"client": "ios", "device": "pc", "enc_pub": "x", "session": "sess0001"}"#])
+        let m = RdpSessionModel(deviceId: "pc-1", pcName: "pranav-computer", server: server,
+                                refreshRequests: { [request] }, answer: { _, allow in if allow { faceIDs += 1 } })
+        m.pollInterval = 20_000_000
+        m.start()
+        for _ in 0..<100 where m.approvalRequest == nil { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(m.approvalRequest?.id, "r1", "the approval card shows on the Remote Desktop screen")
+        XCTAssertEqual(faceIDs, 0, "tapping Remote Desktop asks no Face ID")
+        XCTAssertTrue(RdpApproval.isInline(request), "the generic password sheet skips it: one card")
+        XCTAssertNil(MacPasswordQueue.next([request], snoozed: []))
+
+        // The PC encrypts the password to this phone's key once he allows.
+        let pub = try P256.KeyAgreement.PublicKey(x963Representation: RdpKey.shared.publicX963())
+        let eph = P256.KeyAgreement.PrivateKey()
+        let key = try eph.sharedSecretFromKeyAgreement(with: pub)
+            .hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(), sharedInfo: RdpEcies.info, outputByteCount: 32)
+        let sealed = try AES.GCM.seal(Data("pw".utf8), using: key)
+        await m.allow()
+        XCTAssertEqual(faceIDs, 1)
+        server.credential = ["ciphertext": (sealed.ciphertext + sealed.tag).base64EncodedString(),
+                             "ephemeral_pub": eph.publicKey.x963Representation.base64EncodedString(),
+                             "nonce": Data(sealed.nonce).base64EncodedString()]
+        for _ in 0..<150 where m.state == .approving { try await Task.sleep(nanoseconds: 20_000_000) }
+        if case .error(.other(let why)) = m.state { XCTAssertFalse(why.contains("open the password"), why) }
+        XCTAssertNotEqual(m.state, .approving, "the credential opened and it moved on to connecting")
+        XCTAssertEqual(faceIDs, 1, "still exactly one Face ID")
+        XCTAssertFalse(RdpApproval.isInline(request), "the inline claim ends with the approval")
+        m.disconnect()
+    }
+}
