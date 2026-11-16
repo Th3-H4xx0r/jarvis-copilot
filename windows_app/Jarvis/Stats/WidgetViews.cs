@@ -56,13 +56,16 @@ public static class StatsLook
         _ => "other",
     };
 
-    /// The app's one accent (white today): every chart, ring and bar is drawn in shades of it.
+    /// The app's one accent (white today), for anything that isn't data.
     public static Color Accent => Application.Current.TryFindResource("JcAccentColor") is Color c ? c : Colors.White;
 
-    public static Color Tint(string key) => Accent;
+    /// A reading's data colour (charts, rings, bars, sparklines, header icon); grey for anything unknown.
+    public static Color Tint(string key) =>
+        Application.Current.TryFindResource("JcStatsMetric." + Group(key)) is Color c ? c : Fade(Accent, 0.7);
 
-    /// Series 1 = the accent, 2 = 55%, 3 = 30%.
-    public static Color Shade(int index) => Fade(Accent, index switch { 0 => 1, 1 => 0.55, _ => 0.3 });
+    /// In a chart mixing parts, gpu.temp / cpu.temp take their part's colour so the lines differ.
+    public static Color PartTint(string key) => key.StartsWith("gpu.") && key != "gpu.vram_used" && key != "gpu.fan" ? Tint("gpu.load")
+        : key.StartsWith("cpu.") ? Tint("cpu.load") : Tint(key);
 
     public static Color Fade(Color c, double opacity) => Color.FromArgb((byte)(c.A * opacity), c.R, c.G, c.B);
 
@@ -102,7 +105,7 @@ public abstract class WidgetView : Border
         Padding = new Thickness(20, 16, 20, 16);
         Margin = new Thickness(6);
         ClipToBounds = true;
-        Icon = new TextBlock { Text = StatsLook.Icon(key), FontFamily = StatsLook.Icons, FontSize = 13, Foreground = Th.B("JcStatsSecondary"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 8, 0) };
+        Icon = new TextBlock { Text = StatsLook.Icon(key), FontFamily = StatsLook.Icons, FontSize = 13, Foreground = StatsLook.Brush(Tint), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 8, 0) };
         Label = Caps(Th.B("JcStatsSecondary"));
         Context = Caps(Th.B("JcStatsTertiary"));
         Context.HorizontalAlignment = HorizontalAlignment.Right;
@@ -301,7 +304,7 @@ public sealed class Chart : Grid
                     g.PolyLineTo(pts.Select(p => new Point(X(p.T), Y(p.V))).Append(new Point(X(pts[^1].T), h)).ToList(), false, true);
                 }
                 area.Freeze();
-                var grad = new LinearGradientBrush(StatsLook.Fade(color, 0.16), StatsLook.Fade(color, 0), 90);
+                var grad = new LinearGradientBrush(StatsLook.Fade(color, 0.22), StatsLook.Fade(color, 0), 90);
                 _canvas.Children.Add(new Path { Data = area, Fill = grad });
             }
             _canvas.Children.Add(new Path { Data = line, Stroke = new SolidColorBrush(color), StrokeThickness = s == 0 ? 2 : 1.6, StrokeLineJoin = PenLineJoin.Round });
@@ -452,7 +455,14 @@ public sealed class ChartView : WidgetView
         var window = W.Style.Window ?? 600;
         Context.Text = window >= 3600 ? $"{window / 3600} h" : $"{window / 60} min";
         var keys = W.Readings.Take(3).ToList();
-        var colors = keys.Select((_, i) => StatsLook.Shade(i)).ToList();
+        // Lines from different parts take their own colours; same-group lines step down to 55%.
+        var mixed = keys.Select(StatsLook.PartTint).Distinct().Count() > 1;
+        var colors = new List<Color>();
+        foreach (var k in keys)
+        {
+            var c = mixed ? StatsLook.PartTint(k) : StatsLook.Tint(k);
+            colors.Add(colors.Contains(c) ? StatsLook.Fade(c, 0.55) : c);
+        }
         var series = keys.Select(k => f.Series.Window(k, window, f.Sample.T)).ToList();
         var unit = keys.Count > 0 ? RawUnit(f, keys[0]) : "";
         _chart.Draw(series, colors, ChartMath.Range(keys.FirstOrDefault() ?? "", unit, series.SelectMany(s => s.Select(p => p.V))), f.Sample.T - window, f.Sample.T, W.Style.Chart != "line", unit);
@@ -518,9 +528,9 @@ public sealed class BarsView : WidgetView
             line.Children.Add(val);
             line.Children.Add(name);
             var track = new Grid { Height = compact ? 6 : 8, Margin = new Thickness(0, compact ? 3 : 5, 0, 0) };
-            track.Children.Add(new Border { Background = StatsLook.Brush(StatsLook.Accent, 0.1), CornerRadius = new CornerRadius(4) });
-            var hot = k.EndsWith(".temp") || k.StartsWith("temp.") || k == "gpu.hotspot" ? (v >= 95 ? StatsLook.Crit : v >= 85 ? StatsLook.Warn : (Color?)null) : null;
-            var fill = new Border { Background = hot is { } h ? new SolidColorBrush(h) : StatsLook.Brush(StatsLook.Accent, 0.85), CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left };
+            track.Children.Add(new Border { Background = StatsLook.Brush(StatsLook.Accent, 0.08), CornerRadius = new CornerRadius(4) });
+            var hot = (k.EndsWith(".temp") || k.StartsWith("temp.") || k == "gpu.hotspot") && v >= 95;
+            var fill = new Border { Background = new SolidColorBrush(hot ? StatsLook.Crit : StatsLook.Tint(k)), CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left };
             track.Children.Add(fill);
             track.SizeChanged += (_, e) => fill.Width = have && max > 0 ? Math.Clamp(v / max, 0.02, 1) * e.NewSize.Width : 0;
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, Math.Max(4, rowH - (compact ? 26 : 30))) };
@@ -578,9 +588,9 @@ public sealed class RingView : WidgetView
         var stroke = Math.Max(6, side * 0.13);
         _track.Width = _track.Height = side;
         _track.StrokeThickness = _arc.StrokeThickness = stroke;
-        _track.Stroke = StatsLook.Brush(StatsLook.Accent, 0.12);
+        _track.Stroke = StatsLook.Brush(Tint, 0.18);
         var level = WidgetText.Level(f.Sample.R.TryGetValue(key, out var lv) ? lv : null, W.Style);
-        _arc.Stroke = new SolidColorBrush(level == "crit" ? StatsLook.Crit : level == "warn" ? StatsLook.Warn : StatsLook.Accent);
+        _arc.Stroke = new SolidColorBrush(level == "crit" ? StatsLook.Crit : Tint);
         _value.FontSize = Math.Clamp(side / 4, 16, 64);
         var have = Has(f, key);
         _value.Text = have ? Value(f, key) + Unit(f, key) : "—";
@@ -662,7 +672,7 @@ public sealed class StatsView : WidgetView
             var u = have ? Unit(f, k) : "";
             if (u == "°") { value.Text += "°"; u = ""; }
             unit.Text = u;
-            var tint = StatsLook.Fade(StatsLook.Accent, 0.7);
+            var tint = StatsLook.Tint(k);
             var pts = f.Series.Window(k, 300, f.Sample.T);
             spark.Height = Math.Max(18, Math.Floor(cellH - value.FontSize * 1.35 - 44));
             spark.Visibility = cellH > 70 ? Visibility.Visible : Visibility.Collapsed;

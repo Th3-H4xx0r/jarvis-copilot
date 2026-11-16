@@ -72,6 +72,15 @@
   <SolidColorBrush x:Key="JcStatsGrid" Color="#12FFFFFF" />
   <SolidColorBrush x:Key="JcStatsWarn" Color="{StaticResource JcAmberColor}" />
   <SolidColorBrush x:Key="JcStatsCrit" Color="{StaticResource JcRedColor}" />
+  <!-- Colour inside the data only (charts, rings, bars, sparklines, header icons), built on the app's health hues. -->
+  <Color x:Key="JcStatsMetric.gpu">#FF3EC7C7</Color>
+  <Color x:Key="JcStatsMetric.cpu">#FF7CB7FF</Color>
+  <Color x:Key="JcStatsMetric.frames">#FFA78BFA</Color>
+  <Color x:Key="JcStatsMetric.power">#FFFABF24</Color>
+  <Color x:Key="JcStatsMetric.temps">#FFFF5966</Color>
+  <Color x:Key="JcStatsMetric.memory">#FF6EE7B7</Color>
+  <Color x:Key="JcStatsMetric.network">#FFF472B6</Color>
+  <Color x:Key="JcStatsMetric.cooling">#FF67E8F9</Color>
 
   <!-- SF Pro on the Mac; Segoe UI Variable here (Segoe UI where it's missing). SF Mono → Cascadia. -->
   <FontFamily x:Key="JcFont">Segoe UI Variable Text, Segoe UI</FontFamily>
