@@ -60,8 +60,24 @@ public sealed class RemoteDesktop : IDisposable
     public static string Edition =>
         Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion")?.GetValue("EditionID") as string ?? "";
 
-    public static string ProductName =>
-        Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion")?.GetValue("ProductName") as string ?? "Windows";
+    /// "Windows 11 Home": the registry still says "Windows 10" on Windows 11, so the build number decides.
+    public static string ProductName
+    {
+        get
+        {
+            using var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            var name = k?.GetValue("ProductName") as string ?? "Windows";
+            return int.TryParse(k?.GetValue("CurrentBuildNumber") as string, out var build) && build >= 22000
+                ? name.Replace("Windows 10", "Windows 11") : name;
+        }
+    }
+
+    /// His Microsoft account's email (Windows records it under IdentityCRL); whoami /upn only works on a domain.
+    private static string? MicrosoftAccountEmail()
+    {
+        using var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\IdentityCRL\UserExtendedProperties");
+        return k?.GetSubKeyNames().FirstOrDefault(n => n.Contains('@'));
+    }
 
     public static bool RdpEnabled =>
         Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Terminal Server")?.GetValue("fDenyTSConnections") is int deny && deny == 0;
@@ -90,7 +106,7 @@ public sealed class RemoteDesktop : IDisposable
         }
     }
 
-    public string Username => RdpSetup.Username(_upn ??= Run("whoami", "/upn"), Environment.UserName);
+    public string Username => RdpSetup.Username(_upn ??= MicrosoftAccountEmail() ?? Run("whoami", "/upn"), Environment.UserName);
 
     public void SavePassword(string password)
     {
@@ -114,8 +130,12 @@ public sealed class RemoteDesktop : IDisposable
     /// Face ID on his iPhone, then UAC: switches RDP on, Tailscale-only (also the Repair).
     public async Task<AdminResult> SetUpAsync(int idleMinutes = 30)
     {
-        var r = await _admin.RunAsync(RdpSetup.PowerShellCommand(RdpSetup.SetupScript(idleMinutes: idleMinutes)),
-            "Turn on Remote Desktop for Tailscale only");
+        var script = RdpSetup.SetupScript(idleMinutes: idleMinutes);
+        // Same Windows prompt: refresh the Unlock helper too (it now also switches RDP off/on with the integration).
+        var helper = Path.Combine(AppContext.BaseDirectory, "JarvisUnlock.exe");
+        if (File.Exists(helper))
+            script += $"\n& '{helper.Replace("'", "''")}' --install {System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value}";
+        var r = await _admin.RunAsync(RdpSetup.PowerShellCommand(script), "Turn on Remote Desktop for Tailscale only");
         if (r.Ok) { Directory.CreateDirectory(Dir); File.WriteAllText(SetupMarker, DateTimeOffset.UtcNow.ToString("O")); }
         _firewall = default;
         _ = Task.Delay(TimeSpan.FromSeconds(6)).ContinueWith(_ => { _firewall = default; Changed?.Invoke(); _ = PostAsync(); });
