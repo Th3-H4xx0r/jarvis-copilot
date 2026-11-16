@@ -378,6 +378,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                # Remote Desktop: the iPhone's relay to the PC's RDP port (/api/rdp/relay/<id>) and
+                # the web's Guacamole tunnel (/api/rdp/guac/<id>). Before the voice handler.
+                try:
+                    from api.rdp_relay import handle_websocket as _rdp_relay
+                    if _rdp_relay(self, parsed):
+                        return
+                except Exception:
+                    pass
                 # Local TUI gateway bridge (/api/tui/ws → spawned tui_gateway).
                 try:
                     from api.tui_bridge import handle_websocket as _tui_ws
