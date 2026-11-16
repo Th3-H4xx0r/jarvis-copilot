@@ -9,7 +9,7 @@ from typing import Optional
 
 GRID_COLUMNS = 12
 MAX_WIDGETS = 64
-WIDGET_KINDS = ("hero", "number", "chart", "bars", "ring", "sparkline", "text", "session", "moments")
+WIDGET_KINDS = ("hero", "number", "chart", "bars", "ring", "sparkline", "stats", "text", "session", "moments")
 CHARTS = ("area", "line", "none")
 STYLE_KEYS = {"chart", "color", "warn", "crit", "window", "decimals", "meta", "label", "unit"}
 _COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -58,6 +58,10 @@ def reading_info(key: str) -> Optional[dict]:
     """A fixed reading, or a named fan / temperature the PC reported (fan.<slug>, temp.<slug>)."""
     if key in READINGS:
         return READINGS[key]
+    if key == "temp.*":   # every named temperature the PC reports
+        return _r("All temperatures", "°C", "temps")
+    if key == "fan.*":
+        return _r("All fans", "rpm", "cooling")
     if isinstance(key, str) and _DYNAMIC.match(key):
         kind, _, slug = key.partition(".")
         name = slug.replace("_", " ").title()
@@ -145,38 +149,51 @@ def _w(wid, kind, x, y, w, h, readings, **style) -> dict:
     return {"id": wid, "kind": kind, "x": x, "y": y, "w": w, "h": h, "readings": list(readings), "style": style}
 
 
-DEFAULTS_VERSION = 2   # bump when the defaults change: dashboards nobody edited are re-seeded
+DEFAULTS_VERSION = 3   # bump when the defaults change: dashboards nobody edited are re-seeded
 
 
 def default_dashboards() -> list[dict]:
     """What a new install starts with (the Apple look, docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md):
-    Overview, Gaming (shown on the PC while a game runs) and Power."""
+    Overview, Gaming (shown on the PC while a game runs) and Power — dense, 10 grid rows each."""
     overview = {"id": "overview", "name": "Overview", "auto": None, "widgets": [
-        _w("gpu", "hero", 0, 0, 6, 4, ["gpu.load"], label="GPU", chart="area",
+        _w("gpu", "hero", 0, 0, 4, 4, ["gpu.load"], label="GPU", chart="area",
            meta=["gpu.temp", "gpu.clock", "gpu.power", "gpu.vram_used"], warn=85, crit=95),
-        _w("cpu", "hero", 6, 0, 6, 4, ["cpu.load"], label="CPU", chart="area",
+        _w("cpu", "hero", 4, 0, 4, 4, ["cpu.load"], label="CPU", chart="area",
            meta=["cpu.temp", "cpu.clock", "cpu.power"], warn=90, crit=100),
-        _w("frames", "number", 0, 4, 4, 3, ["fps"], label="Frames", chart="area"),
-        _w("power", "bars", 4, 4, 4, 3, ["power.gpu", "power.cpu", "power.ram", "power.disk"], label="Power",
-           meta=["power.total"]),
-        _w("memory", "bars", 8, 4, 4, 3, ["ram.used", "gpu.vram_used", "disk.used"], label="Memory"),
-        _w("cooling", "bars", 0, 7, 6, 2, ["gpu.fan"], label="Cooling"),
-        _w("network", "chart", 6, 7, 6, 2, ["net.down", "net.up"], label="Network", chart="line", window=600),
+        _w("gpudetail", "stats", 8, 0, 4, 4, ["gpu.clock", "gpu.mem_clock", "gpu.power", "gpu.fan", "gpu.hotspot",
+                                              "gpu.vram_used"], label="Graphics card"),
+        _w("frames", "number", 0, 4, 3, 3, ["fps"], label="Frame rate", chart="area"),
+        _w("frametime", "number", 3, 4, 3, 3, ["frametime"], label="Frame time", chart="line"),
+        _w("watts", "number", 6, 4, 3, 3, ["power.total"], label="Power", chart="area"),
+        _w("memory", "bars", 9, 4, 3, 3, ["ram.used", "gpu.vram_used", "disk.used"], label="Memory"),
+        _w("temps", "bars", 0, 7, 3, 3, ["cpu.temp", "gpu.temp", "gpu.hotspot", "temp.*"], label="Temperatures"),
+        _w("cooling", "bars", 3, 7, 3, 3, ["gpu.fan", "fan.*"], label="Cooling"),
+        _w("network", "chart", 6, 7, 3, 3, ["net.down", "net.up"], label="Network", chart="line", window=600),
+        _w("disk", "chart", 9, 7, 3, 3, ["disk.read", "disk.write"], label="Disk", chart="line", window=600),
     ]}
     gaming = {"id": "gaming", "name": "Gaming", "auto": "game", "widgets": [
-        _w("fps", "hero", 0, 0, 8, 4, ["fps"], label="Frame rate", chart="area", meta=["fps.low1", "frametime"]),
-        _w("gpuload", "ring", 8, 0, 4, 2, ["gpu.load"], label="GPU"),
-        _w("cpuload", "ring", 8, 2, 4, 2, ["cpu.load"], label="CPU"),
+        _w("fps", "hero", 0, 0, 6, 4, ["fps"], label="Frame rate", chart="area", meta=["fps.low1", "frametime"]),
+        _w("gpuload", "ring", 6, 0, 2, 2, ["gpu.load"], label="GPU"),
+        _w("cpuload", "ring", 6, 2, 2, 2, ["cpu.load"], label="CPU"),
+        _w("perf", "stats", 8, 0, 4, 4, ["fps.low1", "frametime", "gpu.clock", "cpu.clock", "gpu.power",
+                                         "gpu.vram_used"], label="Performance"),
         _w("gputemp", "number", 0, 4, 3, 3, ["gpu.temp"], label="GPU temperature", warn=85, crit=95),
         _w("cputemp", "number", 3, 4, 3, 3, ["cpu.temp"], label="CPU temperature", warn=90, crit=100),
         _w("watts", "number", 6, 4, 3, 3, ["power.total"], label="Power"),
         _w("frametime", "number", 9, 4, 3, 3, ["frametime"], label="Frame time", chart="line"),
+        _w("load", "chart", 0, 7, 6, 3, ["gpu.load", "cpu.load"], label="Load", chart="area", window=600),
+        _w("tempchart", "chart", 6, 7, 3, 3, ["gpu.temp", "cpu.temp"], label="Temperatures", chart="line", window=600),
+        _w("session", "session", 9, 7, 3, 3, [], label="Game session"),
     ]}
     power = {"id": "power", "name": "Power", "auto": None, "widgets": [
-        _w("total", "hero", 0, 0, 6, 4, ["power.total"], label="Power", chart="area"),
-        _w("split", "bars", 6, 0, 6, 4, ["power.gpu", "power.cpu", "power.ram", "power.disk", "power.net"],
+        _w("total", "hero", 0, 0, 6, 4, ["power.total"], label="Power", chart="area", meta=["power.gpu", "power.cpu"]),
+        _w("split", "bars", 6, 0, 3, 4, ["power.gpu", "power.cpu", "power.ram", "power.disk", "power.net"],
            label="By part"),
-        _w("history", "chart", 0, 4, 12, 4, ["power.total", "power.gpu", "power.cpu"], label="Last hour",
+        _w("measured", "stats", 9, 0, 3, 4, ["gpu.power", "cpu.power", "gpu.clock", "cpu.clock"], label="Measured"),
+        _w("history", "chart", 0, 4, 12, 3, ["power.total", "power.gpu", "power.cpu"], label="Last hour",
            chart="line", window=3600),
+        _w("gpupower", "number", 0, 7, 4, 3, ["gpu.power"], label="GPU power", chart="area"),
+        _w("cpupower", "number", 4, 7, 4, 3, ["cpu.power"], label="CPU power", chart="area"),
+        _w("load", "chart", 8, 7, 4, 3, ["gpu.load", "cpu.load"], label="Load", chart="line", window=600),
     ]}
     return [overview, gaming, power]

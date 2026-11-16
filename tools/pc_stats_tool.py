@@ -146,9 +146,9 @@ def pc_dashboard(args=None, **_kw) -> str:
 
 _WIDGET = {
     "type": "object",
-    "description": ("A widget on the 12-column grid: id, kind (hero, number, chart, bars, ring, sparkline, text, "
-                    "session, moments), x, y, w, h (grid cells; omit x/y to auto-place), readings (e.g. "
-                    "[\"gpu.temp\"]), style {chart: area|line|none, color: #RRGGBB, warn, crit, window (s), "
+    "description": ("A widget on the 12-column grid: id, kind (hero, number, chart, bars, ring, sparkline, stats = a grid "
+                    "of labelled numbers, text, session, moments), x, y, w, h (grid cells; omit x/y to auto-place), "
+                    "readings (e.g. [\"gpu.temp\"]; \"temp.*\" / \"fan.*\" = every temperature / fan), style {chart: area|line|none, color: #RRGGBB, warn, crit, window (s), "
                     "decimals, meta: [readings shown under a hero], label, unit}."),
 }
 

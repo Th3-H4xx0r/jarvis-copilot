@@ -140,3 +140,12 @@ def test_new_defaults_replace_only_unedited(rig, monkeypatch):
     monkeypatch.setattr(store_mod, "DEFAULTS_VERSION", 3)
     names = {d["id"]: d["name"] for d in s.dashboards()}
     assert names["overview"] == "Mine" and names["gaming"] == "Gaming v3"
+
+
+def test_defaults_are_valid_and_wildcards_known():
+    from api.pc_stats_catalog import default_dashboards, reading_info, validate_dashboard
+    for d in default_dashboards():
+        assert validate_dashboard(d) == []
+    assert reading_info("temp.*")["unit"] == "°C" and reading_info("fan.*")["unit"] == "rpm"
+    assert reading_info("fan.fan_1")["label"] == "Fan 1"
+    assert reading_info("gpu.*") is None
