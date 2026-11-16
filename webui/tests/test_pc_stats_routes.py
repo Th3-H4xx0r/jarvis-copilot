@@ -60,7 +60,8 @@ def test_samples_then_live_and_summary(env):
     assert live["name"] == "pranav-computer"
     _, summary = call("GET", "/api/pc-stats/summary", caller="iphone")   # defaults to the reporting PC
     assert summary == {"device_id": "pc-1", "online": True, "at": env.clock.t, "cpu": 38.0, "gpu": 96.0,
-                       "cpu_temp": 72.0, "gpu_temp": 67.0, "hottest": 72.0, "watts": 462.0}
+                       "cpu_temp": 72.0, "gpu_temp": 67.0, "hottest": 72.0, "watts": 462.0,
+                       "game": summary["game"], "game_name": summary["game_name"]}
 
 
 def test_live_offline_returns_last_seen(env):
@@ -96,3 +97,25 @@ def test_catalog_and_energy_shape(env):
     assert "gpu.temp" in cat["readings"] and cat["columns"] == 12 and "hero" in cat["widget_kinds"]
     _, energy = call("GET", "/api/pc-stats/energy?device_id=pc-1&period=week")
     assert energy["currency"] == "USD" and len(energy["buckets"]) == 12
+
+
+def test_games_name_and_icon(env, monkeypatch, tmp_path):
+    import base64
+    import api.pc_stats_games as games
+    monkeypatch.setattr(games, "_path", lambda: tmp_path / "games.json")
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"x" * 40).decode()
+    assert call("POST", "/api/pc-stats/games", {"exe": "cod.exe", "name": "Call of Duty", "icon": png})[0] == 200
+    assert call("POST", "/api/pc-stats/games", {"exe": "../evil", "name": "x"})[0] == 400
+    assert call("POST", "/api/pc-stats/games", {"exe": "a.exe", "icon": base64.b64encode(b"GIF89a").decode()})[0] == 400
+    _, body = call("GET", "/api/pc-stats/games", caller="iphone")
+    assert body["games"]["cod.exe"]["name"] == "Call of Duty"
+    assert body["games"]["cod.exe"]["icon"].startswith("data:image/png;base64,")
+    assert call("GET", "/api/pc-stats/games/COD.exe")[1]["icon"] is True
+    # a later name-only update keeps the icon; live and summary carry the friendly name
+    call("POST", "/api/pc-stats/games", {"exe": "cod.exe", "name": "Call of Duty"})
+    assert games.has_icon("cod.exe")
+    call("POST", "/api/pc-stats/samples", {"device_id": "pc-1", "samples": [{"t": env.clock.t, "r": {"fps": 120}, "game": "cod.exe"}]})
+    _, live = call("GET", "/api/pc-stats/live?device_id=pc-1", caller="iphone")
+    assert live["game_name"] == "Call of Duty"
+    _, summary = call("GET", "/api/pc-stats/summary?device_id=pc-1", caller="iphone")
+    assert summary["game"] == "cod.exe" and summary["game_name"] == "Call of Duty"

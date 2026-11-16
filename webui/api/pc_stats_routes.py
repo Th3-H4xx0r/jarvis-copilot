@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import time
 
+from api import pc_stats_games
 from api.pc_stats_catalog import GRID_COLUMNS, READINGS, WIDGET_KINDS
 from api.pc_stats_store import Conflict, store
 
@@ -59,6 +60,7 @@ def _live(device_id: str) -> dict:
     return {"device_id": device_id or None, "name": _name(device_id) if device_id else "",
             "online": bool(at and _clock() - at < ONLINE_WINDOW), "at": at,
             "sample": {"r": latest["r"], "game": latest.get("game")} if latest else None,
+            "game_name": pc_stats_games.name_of(latest.get("game")) if latest else "",
             "estimated": latest.get("estimated", []) if latest else []}
 
 
@@ -69,7 +71,8 @@ def _summary(device_id: str) -> dict:
     return {"device_id": live["device_id"], "online": live["online"], "at": live["at"],
             "cpu": r.get("cpu.load"), "gpu": r.get("gpu.load"),
             "cpu_temp": r.get("cpu.temp"), "gpu_temp": r.get("gpu.temp"),
-            "hottest": max(temps) if temps else None, "watts": r.get("power.total")}
+            "hottest": max(temps) if temps else None, "watts": r.get("power.total"),
+            "game": (live["sample"] or {}).get("game"), "game_name": live["game_name"]}
 
 
 def route(req) -> bool:
@@ -117,6 +120,13 @@ def route(req) -> bool:
         period = req.query.get("period", ["day"])[0]
         return req.reply(200, {"buckets": s.energy(_device(req, body), period, price), "price": price,
                                "currency": cfg.get("currency") or "USD", "period": period})
+    if parts == ["games"] and req.method == "POST":   # the PC: a game's name and icon
+        errors = pc_stats_games.put(body.get("exe"), body.get("name"), body.get("icon"))
+        return req.reply(400, {"errors": errors}) if errors else req.reply(200, {"ok": True})
+    if parts == ["games"] and req.method == "GET":
+        return req.reply(200, {"games": pc_stats_games.all_games()})
+    if len(parts) == 2 and parts[0] == "games" and req.method == "GET":   # does the server have this icon yet?
+        return req.reply(200, {"exe": parts[1], "name": pc_stats_games.name_of(parts[1]), "icon": pc_stats_games.has_icon(parts[1])})
     if req.method == "GET" and parts == ["catalog"]:
         return req.reply(200, {"readings": READINGS, "widget_kinds": list(WIDGET_KINDS), "columns": GRID_COLUMNS})
     if req.method == "GET" and parts == ["settings"]:
