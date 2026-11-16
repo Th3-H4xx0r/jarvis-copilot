@@ -135,6 +135,11 @@ def check_drive(folder: Path, limit: int = MAX_FILE) -> list:
 
 
 def _drive_root() -> Path:
+    """Where per-session transfer folders live. JC_RDP_DRIVE_ROOT moves them out of HERMES_HOME when
+    guacd runs as its own user and can't reach it (the server: /var/lib/jarvis-rdp/drive)."""
+    override = os.getenv("JC_RDP_DRIVE_ROOT", "").strip()
+    if override:
+        return Path(override)
     from jarviscopilot_constants import get_hermes_home
     return get_hermes_home() / "rdp" / "drive"
 
@@ -262,6 +267,7 @@ def run(sess, browser, store, *, guacd: tuple = GUACD, width: int = 1280, height
 
     try:
         drive.mkdir(parents=True, exist_ok=True)
+        os.chmod(drive, 0o2770)   # guacd (its own user, group of the setgid parent on the server) writes here
         if not store.attach(sid, close_all):
             close_all()
             return

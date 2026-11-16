@@ -7,7 +7,15 @@ public interface.
 
 Not installed yet — install it when the PC is on Windows 11 Pro (plan Task 10).
 
-## Install (Debian 13, jc-hermes)
+## Install (Debian 13, jc-hermes) — native build
+
+Debian 13 no longer packages guacd, and jc-hermes is an LXC container (no Docker), so build it:
+`sudo deploy/guacd/build-guacd.sh` (Guacamole 1.6.0 — the first with FreeRDP 3 —, checksum-verified,
+RDP only, systemd unit `guacd` as user `guacd` on 127.0.0.1:4822, transfer folders in
+`/var/lib/jarvis-rdp/drive`). Then add `Environment=JC_RDP_DRIVE_ROOT=/var/lib/jarvis-rdp/drive` to the
+webui unit (drop-in) and restart it. The apt steps below are kept for other hosts.
+
+## Install (Debian 12 and older, where the package exists)
 
 ```bash
 sudo apt update

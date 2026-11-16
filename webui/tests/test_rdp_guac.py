@@ -284,3 +284,11 @@ def test_path_parsing_and_size_query():
     assert rdp_guac.session_id_of("/api/rdp/guac/../x") is None
     assert rdp_guac.size_from_query("w=1600&h=900&dpi=144") == (1600, 900, 144)
     assert rdp_guac.size_from_query("w=99999&h=-3&dpi=abc") == (4096, 480, 96)    # clamped, defaults
+
+
+def test_drive_root_override(monkeypatch, tmp_path):
+    import api.rdp_guac as g
+    monkeypatch.setenv("JC_RDP_DRIVE_ROOT", str(tmp_path / "drive"))
+    assert g._drive_root() == tmp_path / "drive"
+    monkeypatch.delenv("JC_RDP_DRIVE_ROOT")
+    assert g._drive_root().parts[-2:] == ("rdp", "drive")
