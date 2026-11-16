@@ -29,8 +29,8 @@
   var WINDOWED = { hero: 1, number: 1, chart: 1, sparkline: 1, stats: 1 };
   var META = { hero: 1, number: 1, bars: 1 };
   var WINDOWS = [[60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h'], [21600, '6 h'], [86400, '24 h']];
-  // Apple system colours (dark): green, blue, purple, yellow, teal, indigo, cyan, orange, pink, white
-  var SWATCHES = ['#30d158', '#0a84ff', '#bf5af2', '#ffd60a', '#64d2ff', '#5e5ce6', '#5ac8fa', '#ff9f0a', '#ff375f', '#ffffff'];
+  // No preset hues (the page follows the app accent); white, or any colour from the picker.
+  var SWATCHES = ['#ffffff'];
   var GROUPS = { cpu: 'CPU', gpu: 'GPU', frames: 'Frames', memory: 'Memory', disk: 'Disk', network: 'Network',
     power: 'Power', cooling: 'Fans', temps: 'Temperatures' };
 
@@ -217,7 +217,7 @@
       text: '<rect x="2" y="10" width="30" height="4" rx="2" fill="currentColor"/><rect x="2" y="18" width="20" height="3" rx="1.5" fill="currentColor" opacity=".5"/>',
       session: '<rect x="3" y="8" width="34" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="17" r="2.2" fill="currentColor"/><path d="M25 15 h6 M28 12 v6" stroke="currentColor" stroke-width="1.6"/>',
       stats: '<text x="2" y="10" font-size="8" font-weight="700" fill="currentColor">72°</text><text x="22" y="10" font-size="8" font-weight="700" fill="currentColor">96%</text><path d="M2 16 L6 14 L10 15 L16 12" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M22 16 L26 13 L30 15 L36 11" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="2" y="28" font-size="8" font-weight="700" fill="currentColor" opacity=".6">5.4</text><text x="22" y="28" font-size="8" font-weight="700" fill="currentColor" opacity=".6">312</text>',
-      moments: '<path d="M2 24 C10 18 16 22 22 14 S32 16 38 10" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/><circle cx="22" cy="14" r="3" fill="#f5b14a"/><path d="M22 4 V30" stroke="#f5b14a" stroke-width="1" stroke-dasharray="2 2"/>',
+      moments: '<path d="M2 24 C10 18 16 22 22 14 S32 16 38 10" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/><circle cx="22" cy="14" r="3" fill="currentColor"/><path d="M22 4 V30" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2"/>',
     };
     return '<svg viewBox="0 0 40 32" aria-hidden="true">' + (paths[kind] || '') + '</svg>';
   }
@@ -340,11 +340,11 @@
     }
     if (w.kind !== 'session' && w.kind !== 'moments' && w.kind !== 'text') {
       f.push('<div class="pcs-field"><span>Colour</span><div class="pcs-swatches">' +
-        '<button type="button" class="pcs-swatch is-default' + (!st.color ? ' is-on' : '') + '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="" title="Category colour">A</button>' +
+        '<button type="button" class="pcs-swatch is-default' + (!st.color ? ' is-on' : '') + '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="" title="App accent">A</button>' +
         SWATCHES.map(function (c) {
           return '<button type="button" class="pcs-swatch' + (st.color && st.color.toLowerCase() === c ? ' is-on' : '') + '" style="--sw:' + c +
             '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="' + c + '" aria-label="Colour ' + c + '"></button>';
-        }).join('') + '<input type="color" class="pcs-color" data-f="color" value="' + esc(st.color || '#0a84ff') + '" aria-label="Custom colour"></div></div>');
+        }).join('') + '<input type="color" class="pcs-color" data-f="color" value="' + esc(st.color || '#ffffff') + '" aria-label="Custom colour"></div></div>');
     }
     if (THRESHOLDS[w.kind]) {
       f.push('<div class="pcs-field-row"><label class="pcs-field"><span>Amber at</span><input class="pcs-input" type="number" step="any" data-f="warn" value="' +

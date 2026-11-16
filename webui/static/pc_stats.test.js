@@ -281,17 +281,17 @@ test('the stat row reads min, avg and max of the window', () => {
   assert.equal(C.stats([]), null);
 });
 
-test('readings take their category tint', () => {
-  assert.equal(C.tint('gpu.load'), '#30D158');
-  assert.equal(C.tint('cpu.load'), '#0A84FF');
-  assert.equal(C.tint('gpu.temp'), '#FF9F0A');
-  assert.equal(C.tint('temp.vrm'), '#FF9F0A');
-  assert.equal(C.tint('gpu.vram_used'), '#64D2FF');
-  assert.equal(C.tint('gpu.fan'), '#5AC8FA');
-  assert.equal(C.tint('fps.low1'), '#BF5AF2');
-  assert.equal(C.tint('power.total'), '#FFD60A');
-  assert.equal(C.tint('net.down'), '#5E5CE6');
+test('readings take their icon family (no colours: the page uses the app accent)', () => {
+  assert.equal(C.family('gpu.load'), 'gpu');
   assert.equal(C.family('cpu.clock'), 'cpu');
+  assert.equal(C.family('gpu.temp'), 'temps');
+  assert.equal(C.family('temp.vrm'), 'temps');
+  assert.equal(C.family('gpu.vram_used'), 'memory');
+  assert.equal(C.family('gpu.fan'), 'cooling');
+  assert.equal(C.family('fan.*'), 'cooling');
+  assert.equal(C.family('fps.low1'), 'frames');
+  assert.equal(C.family('power.total'), 'power');
+  assert.equal(C.family('net.down'), 'network');
 });
 
 // ── dense dashboards: wildcards, dynamic labels, fitting ──────────────────
@@ -313,7 +313,6 @@ test('dynamic fans and temperatures read as names, never raw keys', () => {
   assert.equal(C.info('temp.vrm_mos', {}).label, 'VRM MOS');
   assert.equal(C.info('temp.2', {}).label, 'Sensor 2');
   assert.equal(C.info('temp.*', {}).unit, '°C');
-  assert.equal(C.tint('fan.*'), C.TINTS.cooling);
   for (const k of ['fan.fan_1', 'temp.vrm_mos']) assert.ok(!C.info(k, {}).label.includes('_'));
 });
 
@@ -321,4 +320,50 @@ test('a card shows only the rows that fit', () => {
   assert.equal(C.fit(181, 31, 6), 5);
   assert.equal(C.fit(30, 31, 6), 1);
   assert.equal(C.fit(0, 31, 6), 1);
+});
+
+// ── Jarvis look: every colour comes from the app's tokens ──────────────────
+test('no hard-coded hues in the PC Stats files (only var(--jc-*), white/black, transparent)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const files = ['pc_stats.css', 'pc_stats.js', 'pc_stats_core.js', 'pc_stats_edit.js'];
+  const WHITE_BLACK = /^#(f{3}|f{6}|0{3}|0{6})$/i;
+  for (const f of files) {
+    // comments may mention colours
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const m of src.match(/#[0-9a-f]{3,8}\b/gi) || []) {
+      if (/^#[0-9a-f]{3}$|^#[0-9a-f]{6}$|^#[0-9a-f]{8}$/i.test(m) && !WHITE_BLACK.test(m)) {
+        assert.fail(`${f}: hard-coded colour ${m}`);
+      }
+    }
+    for (const m of src.match(/rgba?\([^)]*\)/gi) || []) {
+      const n = m.replace(/\s/g, '');
+      assert.ok(/^rgba?\((255,255,255|0,0,0)(,[\d.]+)?\)$/i.test(n), `${f}: hard-coded colour ${m}`);
+    }
+    assert.ok(!/\b(hsla?|oklch|lab)\(/i.test(src), `${f}: hard-coded colour function`);
+  }
+});
+
+test('the data takes the metric palette: part colours win for temps in multi-line charts', () => {
+  assert.equal(C.metricVar('gpu'), 'var(--jc-metric-gpu)');
+  assert.equal(C.metricVar('other'), 'var(--pcs-a)');
+  // a single GPU temperature tile is coral (temps); next to the CPU's it becomes the parts' colours
+  assert.deepEqual(C.seriesColors(['gpu.temp']), ['var(--jc-metric-temps)']);
+  assert.deepEqual(C.seriesColors(['gpu.temp', 'cpu.temp']), ['var(--jc-metric-gpu)', 'var(--jc-metric-cpu)']);
+  // same-group lines: the 2nd at 55%, the 3rd at 30%
+  assert.deepEqual(C.seriesColors(['net.down', 'net.up']),
+    ['var(--jc-metric-network)', 'color-mix(in srgb, var(--jc-metric-network) 55%, transparent)']);
+  assert.deepEqual(C.seriesColors(['power.total', 'power.gpu', 'power.cpu'])[2],
+    'color-mix(in srgb, var(--jc-metric-power) 30%, transparent)');
+  assert.deepEqual(C.seriesColors(['fps', 'gpu.load', 'fan.case']),
+    ['var(--jc-metric-frames)', 'var(--jc-metric-gpu)', 'var(--jc-metric-cooling)']);
+});
+
+test('the metric palette is defined once, in jarvis.css', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const css = fs.readFileSync(path.join(__dirname, 'jarvis.css'), 'utf8');
+  for (const g of ['gpu', 'cpu', 'frames', 'power', 'temps', 'memory', 'network', 'cooling']) {
+    assert.match(css, new RegExp('--jc-metric-' + g + ':#[0-9A-Fa-f]{6}'));
+  }
 });

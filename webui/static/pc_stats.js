@@ -23,7 +23,8 @@
   var LIVE_MS = 1000, CARD_MS = 5000, HIST_REFRESH_MS = 60000;
   var RANGES = { live: 0, '1h': 3600, '24h': 86400 };
   var DEFAULT_WINDOW = 300;
-  var SERIES = ['#30D158', '#0A84FF', '#FF9F0A', '#5AC8FA', '#BF5AF2', '#FFD60A'];
+  // Series shades of the app accent (pc_stats.css): 1 = accent, 2 = 55%, 3 = 30%, then in between.
+  var SERIES = ['var(--pcs-a)', 'var(--pcs-a-55)', 'var(--pcs-a-30)', 'var(--pcs-a-75)', 'var(--pcs-a-42)'];
   var KIND_NAMES = {
     hero: 'Hero number', number: 'Number', chart: 'Chart', bars: 'Bars', ring: 'Ring',
     sparkline: 'Sparkline', text: 'Text', session: 'Game session', moments: 'Marked moments', stats: 'Details',
@@ -86,7 +87,7 @@
       return '<div class="pcs-card-cell' + (c.ok ? '' : ' is-na') + '"><b>' + esc(c.num) +
         (c.unit ? '<small>' + esc(c.unit) + '</small>' : '') +
         (c.temp ? '<i class="pcs-card-dot"> · </i>' + esc(c.temp) + '<small class="is-deg">' + esc(c.tempUnit === '°C' ? '°' : c.tempUnit) + '</small>' : '') +
-        '</b><span style="color:' + ({ CPU: C.TINTS.cpu, GPU: C.TINTS.gpu }[c.label] || C.TINTS.power) + '">' + esc(c.label) + '</span></div>';
+        '</b><span>' + esc(c.label) + '</span></div>';
     }).join('') + '</div><div class="pcs-card-foot"><span></span>' + btn + '</div>';
   }
 
@@ -345,6 +346,15 @@
         labels += '<span class="pcs-gl" style="top:' + (y / H * 100).toFixed(2) + '%">' + esc(C.format(v, first.unit === '%' ? '%' : first.unit, v % 1 ? 1 : 0).num) + '</span>';
       });
     }
+    // a warn/crit threshold, when set: a faint dashed amber/red line
+    if (first && opts.thresholds) {
+      var dmt = doms[first.unit];
+      opts.thresholds.forEach(function (th) {
+        if (typeof th.v !== 'number' || th.v <= dmt[0] || th.v >= dmt[1]) return;
+        var ty = (H - (th.v - dmt[0]) / (dmt[1] - dmt[0]) * H).toFixed(2);
+        body += '<line class="pcs-th is-' + th.lvl + '" x1="0" x2="' + W + '" y1="' + ty + '" y2="' + ty + '" vector-effect="non-scaling-stroke"/>';
+      });
+    }
     var drawn = false;
     series.forEach(function (s, i) {
       var dm = doms[s.unit];
@@ -355,12 +365,12 @@
       drawn = true;
       if (mode === 'area' && i === 0) {
         var gid = 'pcsg-' + id.replace(/[^a-z0-9_-]/gi, '') + '-' + i;
-        defs += '<linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + s.color +
-          '" stop-opacity=".35"/><stop offset="1" stop-color="' + s.color + '" stop-opacity="0"/></linearGradient>';
+        defs += '<linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:' + s.color +
+          ';stop-opacity:' + (opts.areaTop || 0.22) + '"/><stop offset="1" style="stop-color:' + s.color + ';stop-opacity:0"/></linearGradient>';
         body += '<path d="' + p.area + '" fill="url(#' + gid + ')"/>';
       }
-      body += '<path class="pcs-line" d="' + p.line + '" fill="none" stroke="' + s.color + '" stroke-width="' +
-        (opts.thin ? 1.8 : 2.5) + '" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+      body += '<path class="pcs-line" d="' + p.line + '" fill="none" style="stroke:' + s.color + '" stroke-width="' +
+        (opts.thin ? 1.5 : 2) + '" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
     });
     (opts.markers || []).forEach(function (m) {
       if (m.t < t0 || m.t > t1) return;
@@ -447,11 +457,11 @@
   /** The widget's tint: its own colour, else its first reading's category (Apple system colours). */
   function tintOf(w) {
     var st = w.style || {};
-    if (st.color) return st.color;
-    if (w.kind === 'session') return C.TINTS.frames;
-    if (w.kind === 'moments') return C.TINTS.temps;
-    if (w.kind === 'text' && !w.readings.length) return '#FFFFFF';
-    return C.tint(w.readings[0]);
+    if (st.color) return st.color;   // a widget's own colour wins
+    if (w.kind === 'session') return C.metricVar('frames');
+    if (w.kind === 'moments') return C.metricVar('temps');
+    if (w.kind === 'text') return 'var(--pcs-label-2)';
+    return C.seriesColors(keysOf(w))[0] || 'var(--pcs-a)';   // the data's metric colour
   }
   function famOf(w) {
     if (w.kind === 'session' || w.kind === 'moments') return w.kind;
@@ -463,12 +473,12 @@
   /** Tinted icon + label on the left, secondary context on the right ("Now", "5 min"). */
   function headHtml(w, right, estKey) {
     var label = labelOf(w);
-    return '<div class="pcs-head"><span class="pcs-head-l" style="color:' + esc(tintOf(w)) + '">' + icon(famOf(w)) +
+    return '<div class="pcs-head"><span class="pcs-head-l"><span class="pcs-ico-c" style="color:' + esc(tintOf(w)) + '">' + icon(famOf(w)) + '</span>' +
       '<span class="pcs-head-t">' + esc(label) + '</span></span>' + (estKey ? estHtml(estKey, label) : '') +
       '<span class="pcs-head-r">' + (right || '') + '</span></div>';
   }
   function plainHead(key, label, right) {
-    return '<div class="pcs-head"><span class="pcs-head-l" style="color:' + esc(C.tint(key)) + '">' + icon(C.family(key)) +
+    return '<div class="pcs-head"><span class="pcs-head-l"><span class="pcs-ico-c" style="color:' + esc(C.seriesColors([key])[0]) + '">' + icon(C.family(key)) + '</span>' +
       '<span class="pcs-head-t">' + esc(label) + '</span></span>' + estHtml(key, label) + '<span class="pcs-head-r">' + (right || '') + '</span></div>';
   }
   function contextOf(w) { return hasChart(w) ? esc(windowLabel(chartWindow(w).span)) : 'Now'; }
@@ -499,14 +509,9 @@
         (unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</b>' + trail + est + '</span>';
     }).join('') + '</div>';
   }
-  var EXTRA = ['#FFFFFF', '#8E8E93', '#FF375F', '#AC8E68'];
   function colorOf(w, i) {
     if (i === 0) return tintOf(w);
-    var used = [tintOf(w)];
-    for (var j = 1; j < i; j++) used.push(colorOf(w, j));
-    var c = C.tint(keysOf(w)[i]);
-    if (used.indexOf(c) < 0) return c;
-    return EXTRA.filter(function (x) { return used.indexOf(x) < 0; })[0] || EXTRA[i % EXTRA.length];
+    return C.seriesColors(keysOf(w))[i] || SERIES[i % SERIES.length];
   }
 
   function widgetChart(w, mode, keys, opts) {
@@ -517,7 +522,10 @@
         win: s.win, loading: s.loading };
     });
     var win = series.length ? series[0].win : chartWindow(w);
-    return chartHtml('w-' + w.id, series, win.t0, win.t1, mode, Object.assign({ gap: win.gap, markers: markersFor(keys),
+    var st = w.style || {};
+    // thresholds belong to the plotted reading (a load hero's warn/crit are its temperature's)
+    var ths = C.heroTemp(w).temp ? [] : [{ v: st.warn, lvl: 'warn' }, { v: st.crit, lvl: 'crit' }];
+    return chartHtml('w-' + w.id, series, win.t0, win.t1, mode, Object.assign({ gap: win.gap, markers: markersFor(keys), thresholds: ths,
       emptyText: series.some(function (s) { return s.loading; }) ? ' ' : 'No history yet' }, opts || {}));
   }
 
@@ -551,7 +559,7 @@
         var v = C.read(k, readCtx(st));
         var info = infoOf(k);
         var unit = v.unit === '°C' ? '°' : v.unit;
-        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(ckeys.length > 1 ? C.shortLabel(k, S.catalog) || info.label : info.label) +
+        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(ckeys.length > 1 ? (/^(gpu|cpu)\.(load|temp)$/.test(k) ? barName(k, info) : C.shortLabel(k, S.catalog) || info.label) : info.label) +
           estHtml(k, info.label) + ' <b class="num' + (v.ok ? '' : ' pcs-na') + '">' + esc(v.num) + (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</b></span>';
       }).join('');
       return headHtml(w, contextOf(w)) + '<div class="pcs-legend">' + legend + '</div>' +
@@ -585,7 +593,8 @@
           esc(barName(k, info)) + estHtml(k, info.label) + '</span>' +
           '<span class="pcs-bval num' + (v.ok ? '' : ' pcs-na') + '" title="' + esc(v.reason) + '">' + esc(v.num) +
           (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</span></div>' +
-          '<div class="pcs-btrack"><div class="pcs-bfill" style="width:' + (frac * 100).toFixed(1) + '%"></div></div></div>';
+          '<div class="pcs-btrack"><div class="pcs-bfill" style="width:' + (frac * 100).toFixed(1) + '%;background:' +
+          esc(lvl === 'crit' ? 'var(--pcs-crit)' : (st.color || C.seriesColors([k])[0])) + '"></div></div></div>';
       }).join('');
       if (!rows) rows = '<div class="pcs-empty-small">' + (S.live && S.live.at ? 'Nothing reported yet.' : 'Waiting for the PC.') + '</div>';
       return headHtml(w, headline, meta[0]) + '<div class="pcs-bars">' + rows +
@@ -607,8 +616,8 @@
         var v = C.read(k, readCtx(st));
         var lvl = C.level(v.value, st);
         var s = seriesFor(k, w);
-        var spark = chartHtml('w-' + w.id + '-' + k, [{ key: k, pts: s.pts, color: C.tint(k), unit: info.unit, label: info.label,
-          decimals: st.decimals }], s.win.t0, s.win.t1, 'line', { gap: s.win.gap, grid: false, thin: true, cls: 'pcs-c-spark', emptyText: ' ' });
+        var spark = chartHtml('w-' + w.id + '-' + k, [{ key: k, pts: s.pts, color: st.color || C.seriesColors([k])[0], unit: info.unit, label: info.label,
+          decimals: st.decimals }], s.win.t0, s.win.t1, 'area', { gap: s.win.gap, grid: false, thin: true, cls: 'pcs-c-spark', emptyText: ' ', areaTop: 0.18 });
         var unit = v.unit === '°C' ? '°' : v.unit;
         return '<div class="pcs-sc"><span class="pcs-sc-l" title="' + esc(info.label) + '">' + esc(barName(k, info)) + estHtml(k, info.label) + '</span>' +
           (v.ok ? '<div class="pcs-sc-v num' + (lvl ? ' is-' + lvl : '') + '">' + esc(v.num) +
@@ -625,15 +634,14 @@
       var lvl = C.level(v.value, st);
       var r = (S.live && S.live.sample && S.live.sample.r) || {};
       var frac = C.fraction(key, v.value, r, [v.value], info.unit);
-      // Activity ring: stroke 13% of the diameter, round caps, track = the tint at 20%
-      var SW = 13, R = 50 - SW / 2, L = 2 * Math.PI * R, tint = tintOf(w);
-      var gid = 'pcsr-' + w.id.replace(/[^a-z0-9_-]/gi, '');
+      // accent arc with round caps on an accent-12% track; amber/red only past warn/crit
+      var SW = 11, R = 50 - SW / 2, L = 2 * Math.PI * R;
+      var arc = lvl === 'crit' ? 'var(--pcs-crit)' : tintOf(w);   // value text turns amber at warn
       var unit = v.unit === '°C' ? '°' : v.unit;
       return '<div class="pcs-ring">' +
-        '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1">' +
-        '<stop offset="0" style="stop-color:color-mix(in srgb, ' + esc(tint) + ' 70%, #fff)"/><stop offset="1" stop-color="' + esc(tint) + '"/></linearGradient></defs>' +
-        '<circle cx="50" cy="50" r="' + R + '" fill="none" stroke="' + esc(tint) + '" stroke-opacity=".2" stroke-width="' + SW + '"/>' +
-        (frac > 0 ? '<circle cx="50" cy="50" r="' + R + '" class="pcs-ring-arc" fill="none" stroke="url(#' + gid + ')" stroke-width="' + SW +
+        '<svg viewBox="0 0 100 100" aria-hidden="true">' +
+        '<circle cx="50" cy="50" r="' + R + '" class="pcs-ring-track" fill="none" style="stroke:color-mix(in srgb, ' + esc(tintOf(w)) + ' 18%, transparent)" stroke-width="' + SW + '"/>' +
+        (frac > 0 ? '<circle cx="50" cy="50" r="' + R + '" class="pcs-ring-arc" fill="none" style="stroke:' + esc(arc) + '" stroke-width="' + SW +
           '" stroke-linecap="round" stroke-dasharray="' + Math.max(0.01, L * frac).toFixed(2) + ' ' + L.toFixed(2) + '" transform="rotate(-90 50 50)"/>' : '') +
         '</svg><div class="pcs-ring-v">' + (v.ok ? '<b class="num' + (lvl ? ' is-' + lvl : '') + '">' + esc(v.num) + '<small>' + esc(unit) + '</small></b>'
           : '<b class="pcs-na" title="' + esc(v.reason) + '">—</b>') +
@@ -679,7 +687,8 @@
   };
   function barName(k, info) {
     var short = { 'power.gpu': 'GPU', 'power.cpu': 'CPU', 'power.ram': 'RAM', 'power.disk': 'Disk', 'power.net': 'Network',
-      'ram.used': 'RAM', 'gpu.vram_used': 'VRAM', 'disk.used': 'Disk C:', 'gpu.fan': 'GPU fan', 'cpu.load': 'CPU', 'gpu.load': 'GPU' }[k];
+      'ram.used': 'RAM', 'gpu.vram_used': 'VRAM', 'disk.used': 'Disk C:', 'gpu.fan': 'GPU fan', 'cpu.load': 'CPU', 'gpu.load': 'GPU',
+      'cpu.temp': 'CPU', 'gpu.temp': 'GPU', 'gpu.hotspot': 'GPU junction' }[k];
     return short || info.label;
   }
   function sessionMeta(s) {
@@ -745,8 +754,9 @@
     var d = dash();
     var html =
       '<button type="button" class="pcs-back" data-pcs="close" aria-label="Close PC Stats">‹</button>' +
+      '<div class="pcs-orb' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></div>' +
       '<div class="pcs-id"><h1 class="pcs-name">' + esc(name) + '</h1><div class="pcs-status' +
-        (l && !l.online ? ' is-off' : '') + '">' + (l && l.online ? '<i class="pcs-live-dot" aria-hidden="true"></i>' : '') + esc(status) + '</div></div>';
+        (l && !l.online ? ' is-off' : '') + '">' + '<i class="pcs-live-dot' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></i>' + esc(status) + '</div></div>';
     if (!S.edit) {
       html += '<div class="pcs-pills" role="group" aria-label="Range">' + ['live', '1h', '24h'].map(function (r) {
         return '<button type="button" class="pcs-pill' + (S.range === r ? ' is-on' : '') + '" data-pcs="range" data-range="' + r +
@@ -837,10 +847,10 @@
       if (!S.health) { hb.innerHTML = '<div class="pcs-h-empty">' + (S.healthLoading ? 'Reading 90 days of history…' : '') + '</div>'; return; }
       var h = S.health;
       var temps = [['gpu.temp', 'GPU'], ['cpu.temp', 'CPU']].map(function (x, i) {
-        return { key: x[0], pts: h.series[x[0]] || [], color: C.TINTS[i ? 'cpu' : 'gpu'], unit: '°C', label: x[1] };
+        return { key: x[0], pts: h.series[x[0]] || [], color: C.seriesColors(['gpu.temp', 'cpu.temp'])[i], unit: '°C', label: x[1] };
       });
       var fans = h.fans.map(function (k, i) {
-        return { key: k, pts: h.series[k] || [], color: [C.TINTS.cooling, '#FFFFFF', '#8E8E93', C.TINTS.cpu, C.TINTS.gpu][i % 5], unit: 'rpm', label: infoOf(k).label };
+        return { key: k, pts: h.series[k] || [], color: C.seriesColors(h.fans)[i], unit: 'rpm', label: infoOf(k).label };
       });
       var gap = 3 * 3600;
       hb.innerHTML = '<div class="pcs-h-grid">' +
@@ -916,7 +926,7 @@
         var panel = sheet.querySelector('[data-skey="' + k[0] + '"]');
         if (!panel) return;
         panel.innerHTML = plainHead(k[0], k[1]) +
-          chartHtml('sess-' + k[0], [{ key: k[0], pts: pts, color: C.tint(k[0]), unit: info.unit, label: info.label }], t0, t1,
+          chartHtml('sess-' + k[0], [{ key: k[0], pts: pts, color: C.seriesColors([k[0]])[0], unit: info.unit, label: info.label }], t0, t1,
             i === 0 ? 'area' : 'line', { gap: Math.max(35, 3 * span / 300), cls: 'pcs-h-chart', markers: momentsIn.filter(function (m) { return m.key === k[0]; }),
               emptyText: 'Not recorded for this session', stats: true });
       }).catch(function () {

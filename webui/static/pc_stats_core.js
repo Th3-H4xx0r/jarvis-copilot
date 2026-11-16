@@ -27,18 +27,11 @@
   // A bar's "full": its pair, else a sensible top for the unit.
   var PAIRS = { 'ram.used': 'ram.total', 'ram.commit': 'ram.total', 'gpu.vram_used': 'gpu.vram_total' };
 
-  // Apple system colours (dark appearance) per category; warn = orange, crit = red.
-  var TINTS = {
-    gpu: '#30D158', cpu: '#0A84FF', frames: '#BF5AF2', power: '#FFD60A', memory: '#64D2FF',
-    network: '#5E5CE6', cooling: '#5AC8FA', temps: '#FF9F0A', other: '#FFFFFF',
-  };
-
   function num(v) { return typeof v === 'number' && isFinite(v); }
   function rect(w) { return { x: w.x | 0, y: w.y | 0, w: Math.max(1, w.w | 0), h: Math.max(1, w.h | 0) }; }
 
   var C = {
     COLS: COLS,
-    TINTS: TINTS,
 
     // ── grid ────────────────────────────────────────────────────────────────
     overlaps: function (a, b) {
@@ -414,24 +407,40 @@
       return out;
     },
 
-    /** The category tint (Apple system colours, dark) a reading is drawn in. */
-    tint: function (key) {
-      key = String(key || '');
-      if (/\.temp$|^temp\.|^gpu\.hotspot$/.test(key)) return TINTS.temps;
-      if (/^fan\.|^gpu\.fan$/.test(key)) return TINTS.cooling;
-      if (/^gpu\.vram|^ram\.|^disk\./.test(key)) return TINTS.memory;
-      if (/^power\./.test(key)) return TINTS.power;
-      if (/^fps|^frametime$/.test(key)) return TINTS.frames;
-      if (/^net\./.test(key)) return TINTS.network;
-      if (/^gpu\./.test(key)) return TINTS.gpu;
-      if (/^cpu\./.test(key)) return TINTS.cpu;
-      return TINTS.other;
+    /** The metric colour (a --jc-metric-* token in jarvis.css) for a group; anything else uses the accent. */
+    metricVar: function (group, pct) {
+      var base = ['gpu', 'cpu', 'frames', 'power', 'temps', 'memory', 'network', 'cooling'].indexOf(group) >= 0
+        ? 'var(--jc-metric-' + group + ')' : 'var(--pcs-a)';
+      return pct && pct < 100 ? 'color-mix(in srgb, ' + base + ' ' + pct + '%, transparent)' : base;
     },
 
-    /** The icon family for a reading (pc_stats.js draws the glyph). */
+    /**
+     * Each line's colour for a set of readings drawn together: its group's metric colour; in a
+     * multi-line chart gpu.temp / cpu.temp take their part's colour (GPU teal vs CPU blue, not two
+     * corals); a 2nd line from the same group is that colour at 55%, a 3rd at 30%.
+     */
+    seriesColors: function (keys) {
+      keys = keys || [];
+      var seen = {};
+      return keys.map(function (k) {
+        var g = C.family(k);
+        if (keys.length > 1 && /^(gpu|cpu)\.(temp|hotspot)$/.test(k)) g = k.split('.')[0];
+        seen[g] = (seen[g] || 0) + 1;
+        return C.metricVar(g, [100, 55, 30, 75, 42][(seen[g] - 1) % 5]);
+      });
+    },
+
+    /** The icon family for a reading (pc_stats.js draws the glyph in the reading's metric colour). */
     family: function (key) {
-      var t = C.tint(key);
-      for (var k in TINTS) if (TINTS[k] === t) return k;
+      key = String(key || '');
+      if (/\.temp$|^temp\.|^gpu\.hotspot$/.test(key)) return 'temps';
+      if (/^fan\.|^gpu\.fan$/.test(key)) return 'cooling';
+      if (/^gpu\.vram|^ram\.|^disk\./.test(key)) return 'memory';
+      if (/^power\./.test(key)) return 'power';
+      if (/^fps|^frametime$/.test(key)) return 'frames';
+      if (/^net\./.test(key)) return 'network';
+      if (/^gpu\./.test(key)) return 'gpu';
+      if (/^cpu\./.test(key)) return 'cpu';
       return 'other';
     },
 

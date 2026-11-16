@@ -265,6 +265,20 @@
   --jc-ease:cubic-bezier(.2,.8,.2,1);
 }
 
+/* PC Stats metric palette — colour only inside the data (charts, rings, bars, sparklines, legend dots,
+   card-header icons); built on the app's health hues. docs/superpowers/specs/2026-11-15-pc-stats-jarvis-look.md
+   Not skin-scoped: pc_stats.css reads these on every skin. */
+:root{
+  --jc-metric-gpu:#3EC7C7;      /* teal (JcMetric.activity) */
+  --jc-metric-cpu:#7CB7FF;      /* light blue (JcMetric.rhythm) */
+  --jc-metric-frames:#A78BFA;   /* violet */
+  --jc-metric-power:#FABF24;    /* the app amber */
+  --jc-metric-temps:#FF5966;    /* coral (JcMetric.heart) */
+  --jc-metric-memory:#6EE7B7;   /* mint */
+  --jc-metric-network:#F472B6;  /* pink */
+  --jc-metric-cooling:#67E8F9;  /* sky */
+}
+
 /* Overlays + the app's own dialog: a calm dark sheet, no blue tint or blur. */
 :root.dark[data-skin="jarvis"] [class*="overlay"]:not([class*="orb"]):not([class*="map"]){
   background-color:rgba(0,0,0,0.62);-webkit-backdrop-filter:none;backdrop-filter:none;
