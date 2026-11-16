@@ -30,6 +30,9 @@ struct RdpSessionScreen: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(model.state == .connected)
+        // Landscape while the session is open (the app is portrait otherwise); rotating resizes the PC's desktop.
+        .onAppear { MacScreenOrientation.allowLandscape(true) }
+        .onDisappear { MacScreenOrientation.allowLandscape(false) }
         .onChange(of: model.state) { _, state in
             if case .ended = state { close() }
             if state == .connected { try? AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers) }
