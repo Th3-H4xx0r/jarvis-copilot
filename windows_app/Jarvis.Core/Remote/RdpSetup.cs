@@ -42,9 +42,11 @@ public static class RdpSetup
         $"Set-ItemProperty -Path {Ts} -Name fDenyTSConnections -Value 1",
         $"Remove-NetFirewallRule -DisplayName '{RuleName}' -ErrorAction SilentlyContinue");
 
-    /// How RDP wants his name: Microsoft-account sign-ins as MicrosoftAccount\email, local ones as .\user.
+    /// How RDP wants his name: a Microsoft account as its plain email (Windows App sent
+    /// "MicrosoftAccount\email" as one literal user name → "no such user" 0xC0000064; the plain email signed
+    /// him in, 2026-11-16), a local account as .\user.
     public static string Username(string? upn, string user) =>
-        string.IsNullOrWhiteSpace(upn) ? $@".\{user}" : $@"MicrosoftAccount\{upn.Trim()}";
+        string.IsNullOrWhiteSpace(upn) ? $@".\{user}" : upn.Trim();
 
     /// A script as one command line for AdminRunner / the helper (UTF-16 base64, so no quoting trouble).
     public static string PowerShellCommand(string script) =>

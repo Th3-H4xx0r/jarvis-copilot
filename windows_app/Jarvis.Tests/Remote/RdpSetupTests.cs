@@ -53,7 +53,7 @@ public class RdpSetupTests
     }
 
     [Theory]
-    [InlineData("krish@x.com", "krish", @"MicrosoftAccount\krish@x.com")]
+    [InlineData("krish@x.com", "krish", "krish@x.com")]
     [InlineData(null, "krish", @".\krish")]
     [InlineData("", "krish", @".\krish")]
     public void Username_for_microsoft_account(string? upn, string user, string expected)
