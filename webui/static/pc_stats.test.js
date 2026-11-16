@@ -137,6 +137,19 @@ test('estimated readings carry the badge; "PC (est.)" is not badged twice', () =
   assert.equal(C.showEst('power.total', 'Whole PC', [], CATALOG), true);
 });
 
+test('a load hero takes its temperature beside the % and out of the meta row', () => {
+  const gpu = { kind: 'hero', readings: ['gpu.load'], style: { meta: ['gpu.clock', 'gpu.temp', 'gpu.power'] } };
+  assert.deepEqual(C.heroTemp(gpu), { temp: 'gpu.temp', meta: ['gpu.clock', 'gpu.power'] });
+  // the same part's temperature wins over another one
+  const both = { readings: ['cpu.load'], style: { meta: ['temp.vrm', 'cpu.temp'] } };
+  assert.equal(C.heroTemp(both).temp, 'cpu.temp');
+  // any temperature will do when the part's own isn't there
+  assert.equal(C.heroTemp({ readings: ['gpu.load'], style: { meta: ['temp.vrm'] } }).temp, 'temp.vrm');
+  // not a load, or no temperature: unchanged
+  assert.deepEqual(C.heroTemp({ readings: ['fps'], style: { meta: ['gpu.temp'] } }), { temp: null, meta: ['gpu.temp'] });
+  assert.deepEqual(C.heroTemp({ readings: ['cpu.load'], style: {} }), { temp: null, meta: [] });
+});
+
 test('thresholds tint amber then red', () => {
   const style = { warn: 85, crit: 95 };
   assert.equal(C.level(70, style), '');
@@ -181,6 +194,15 @@ test('charts break where the PC was off and clamp to the box', () => {
   assert.ok(!/NaN/.test(p.line + p.area));
   assert.ok(p.line.includes(',0'));          // 200 clamps to the top (y = 0)
   assert.equal(C.paths([], 0, 1, 0, 1, 10, 10, 5).line, '');
+});
+
+test('a gap is judged against the series’ own spacing', () => {
+  assert.equal(C.medianStep([[0, 1], [10, 1], [20, 1], [500, 1]]), 10);
+  assert.equal(C.medianStep([[0, 1]]), 0);
+  // hourly points with a 3-hour gap threshold stay one line when the step is 4 h
+  const pts = [[0, 1], [14400, 2], [28800, 3]];
+  const gap = Math.max(3 * 3600, 3 * C.medianStep(pts));
+  assert.equal((C.paths(pts, 0, 28800, 0, 5, 100, 10, gap).line.match(/M/g) || []).length, 1);
 });
 
 test('chart scale: % is 0–100, others start at 0 with headroom', () => {

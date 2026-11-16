@@ -191,6 +191,21 @@
       return { ok: true, value: v, num: f.num, unit: f.unit, label: info.label, reason: '' };
     },
 
+    /**
+     * A load hero shows its temperature at the same size beside the % ("96% · 67°C"): the
+     * temperature from its meta (same part first: gpu.load → gpu.temp), dropped from the meta
+     * row; the widget's warn/crit then apply to that temperature. {temp, meta} — temp null if not.
+     */
+    heroTemp: function (w) {
+      var key = (w && w.readings && w.readings[0]) || '';
+      var meta = ((w && w.style && w.style.meta) || []).slice();
+      if (!/\.load$/.test(key)) return { temp: null, meta: meta };
+      var isTemp = function (k) { return /\.temp$/.test(k) || /^temp\./.test(k); };
+      var same = key.replace(/\.load$/, '.temp');
+      var temp = meta.indexOf(same) >= 0 ? same : (meta.filter(isTemp)[0] || null);
+      return { temp: temp, meta: temp ? meta.filter(function (k) { return k !== temp; }) : meta };
+    },
+
     /** Estimated by the PC (this sample's list) or by nature (the catalog). */
     isEstimated: function (key, estimated, catalog) {
       if ((estimated || []).indexOf(key) >= 0) return true;
@@ -317,6 +332,15 @@
         area += (area ? ' ' : '') + d + ' L' + s[s.length - 1][0] + ',' + h + ' L' + s[0][0] + ',' + h + ' Z';
       });
       return { line: line, area: area };
+    },
+
+    /** Typical spacing of a series (median step) — a gap is only a gap when well beyond it. */
+    medianStep: function (pts) {
+      var d = [];
+      for (var i = 1; i < (pts || []).length; i++) d.push(pts[i][0] - pts[i - 1][0]);
+      if (!d.length) return 0;
+      d.sort(function (a, b) { return a - b; });
+      return d[Math.floor(d.length / 2)];
     },
 
     /** The point nearest time t (for the hover readout). */
