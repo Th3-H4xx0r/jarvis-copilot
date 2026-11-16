@@ -103,6 +103,12 @@ class RdpSessions:
             return None
         return dict(got[1])
 
+    def statuses(self) -> list[dict]:
+        """Every PC's fresh status (no secrets are ever in it), for Jarvis's status tool and the UIs."""
+        with self._lock:
+            ids = list(self._status)
+        return [st for st in (self.status(d) for d in ids) if st]
+
     def _name(self, device_id: str) -> str:
         try:
             return self._device_name(device_id) or "Your PC"

@@ -29,6 +29,8 @@ def route(req) -> bool:
             return req.reply(400, {"ok": False, "error": "device_id required"})
         s.put_status(did, body)
         return req.reply(200, {"ok": True, "settings": s.settings()})
+    if parts == ["status"] and req.method == "GET":   # read-only: readiness for the UIs and Jarvis
+        return req.reply(200, {"devices": s.statuses()})
     if parts == ["sessions"] and req.method == "POST":
         did = str(body.get("device_id") or "")
         if not did:

@@ -86,6 +86,8 @@ _HERMES_CORE_TOOLS = [
     "holo_drop",
     # PC Stats (a Power integration): the gaming PC's stats history and dashboards.
     "pc_stats_query", "pc_dashboard",
+    # Remote Desktop (a Power integration): is the PC ready for RDP, who's connected (read-only).
+    "remote_desktop_status",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
