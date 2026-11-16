@@ -311,9 +311,27 @@
       if (!live || !live.at) return 'Waiting for the PC’s first reading';
       if (live.online) {
         var g = live.sample && live.sample.game;
-        return g ? 'Online · Playing ' + g : 'Online';
+        return g ? 'Playing ' + C.gameName(g, null, live.game_name) : 'Online';
       }
       return 'PC offline · last seen ' + C.ago(nowSec - live.at);
+    },
+
+    /**
+     * A game's name as he'd say it: the PC's name for it (GET /games), else the server's
+     * game_name, else the exe without ".exe" — never "cod.exe".
+     */
+    gameName: function (exe, games, fallback) {
+      var g = games && exe && games[exe];
+      if (g && g.name) return String(g.name);
+      if (fallback && !/\.exe$/i.test(String(fallback))) return String(fallback);
+      return String(exe || fallback || '').replace(/\.exe$/i, '');
+    },
+
+    /** The game's icon as an image URL (only an inline PNG/JPEG/WebP/ICO data URL), or null. */
+    gameIcon: function (exe, games) {
+      var g = games && exe && games[exe];
+      var icon = g && g.icon;
+      return typeof icon === 'string' && /^data:image\/(png|jpeg|webp|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+\/=]+$/.test(icon) ? icon : null;
     },
 
     /** The card's numbers from GET /summary: CPU and GPU usage each with its temperature beside it

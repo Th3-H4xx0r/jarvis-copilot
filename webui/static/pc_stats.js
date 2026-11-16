@@ -4,7 +4,7 @@
 // the hottest temperature and the PC's estimated watts from GET /api/pc-stats/summary, read
 // every 5 s while the card is on screen, plus View stats. Offline → "PC offline · last seen …".
 //
-// Page: a full-screen sheet over the app — header (orb, PC name, online/last seen, Live / 1 h /
+// Page: a full-screen sheet over the app — header (PC name, the running game with its icon or online/last seen, Live / 1 h /
 // 24 h, dashboard switcher, Edit), the active dashboard on the 12-column grid (one column on a
 // narrow window), then history: game sessions (tap → that session's graphs), energy and cost,
 // marked moments and the 90-day health trend. GET /live every second only while the page is
@@ -34,9 +34,10 @@
     open: false, el: null, deviceId: '', live: null, liveErr: '', catalog: null, settings: {},
     dashboards: [], active: '', range: 'live', series: {}, moments: [], sessions: [],
     energyPeriod: 'day', energy: null, health: null, healthLoading: false, edit: null,
-    hover: null, timers: {}, charts: {}, menu: false, seq: 0,
+    hover: null, timers: {}, charts: {}, menu: false, seq: 0, games: {},
   };
   var card = { cache: {}, timer: 0 };
+  var games = { map: {}, asked: {}, inflight: null };   // exe -> {name, icon} from GET /games (shared by card + page)
 
   // ── small helpers ──────────────────────────────────────────────────────────
   function esc(s) {
@@ -88,7 +89,7 @@
         (c.unit ? '<small>' + esc(c.unit) + '</small>' : '') +
         (c.temp ? '<i class="pcs-card-dot"> · </i>' + esc(c.temp) + '<small class="is-deg">' + esc(c.tempUnit === '°C' ? '°' : c.tempUnit) + '</small>' : '') +
         '</b><span>' + esc(c.label) + '</span></div>';
-    }).join('') + '</div><div class="pcs-card-foot"><span></span>' + btn + '</div>';
+    }).join('') + '</div><div class="pcs-card-foot">' + (s.game ? gameHtml(s.game, s.game_name, 'Playing ') : '<span></span>') + btn + '</div>';
   }
 
   function cardTick() {
@@ -101,6 +102,7 @@
       var id = el.getAttribute('data-pcs-card');
       return root.api(API + '/summary?' + qs({ device_id: id })).then(function (s) {
         card.cache[id] = s;
+        if (s && s.game) wantGame(s.game, function () { if (el.isConnected) el.innerHTML = cardInner(id); });
       }).catch(function (e) {
         card.cache[id] = isOff(e) ? null : { error: 'Stats unavailable right now' };
         if (isOff(e) && root.JCPower) root.JCPower.refresh();
@@ -115,6 +117,29 @@
     if (!card.timer) card.timer = setTimeout(cardTick, card.cache[m.device_id] ? CARD_MS : 50);
     return '<div class="agents-sleep-row pcs-card" data-power="pc-stats" data-pcs-card="' + esc(m.device_id) + '">' +
       cardInner(m.device_id) + '</div>';
+  }
+
+  // ── games: the PC's name and icon for an exe ───────────────────────────────
+  function loadGames() {
+    if (games.inflight) return games.inflight;
+    games.inflight = root.api(API + '/games').then(function (b) {
+      games.map = (b && b.games) || {};
+    }).catch(function () { /* names fall back to the exe */ }).then(function () { games.inflight = null; });
+    return games.inflight;
+  }
+  /** Fetch the games map again once per exe the map doesn't know yet; `then` redraws. */
+  function wantGame(exe, then) {
+    if (!exe || games.map[exe] || games.asked[exe]) return;
+    games.asked[exe] = true;
+    loadGames().then(function () { if (games.map[exe] && then) then(); });
+  }
+  /** The game's icon (20 px, radius 5) + its name ("Call of Duty", never "cod.exe"). */
+  function gameHtml(exe, fallback, prefix) {
+    var name = C.gameName(exe, games.map, fallback);
+    if (!name) return '';
+    var icon = C.gameIcon(exe, games.map);
+    return '<span class="pcs-game">' + (icon ? '<img class="pcs-game-ico" src="' + esc(icon) + '" alt="">' : '') +
+      '<span class="pcs-game-n">' + esc((prefix || '') + name) + '</span></span>';
   }
 
   // ── data ───────────────────────────────────────────────────────────────────
@@ -162,6 +187,7 @@
       S.liveErr = '';
       if (!S.deviceId && l.device_id) S.deviceId = l.device_id;
       if (refetch) { S.series = {}; loadSeries(); } else if (l.at && l.at !== prevAt) appendLive(l);
+      if (l.sample && l.sample.game) wantGame(l.sample.game, function () { renderHeader(); renderWidgets(); renderHistoryPart('sessions'); });
       renderHeader();
       renderWidgets();
     }).catch(function (e) {
@@ -668,13 +694,13 @@
     session: function (w) {
       var game = S.live && S.live.online && S.live.sample && S.live.sample.game;
       if (game) {
-        return headHtml(w, 'Now') + '<div class="pcs-mid pcs-ellip">' + esc(game) + '</div>' +
+        return headHtml(w, 'Now') + '<div class="pcs-mid pcs-ellip pcs-game-big">' + gameHtml(game, S.live.game_name) + '</div>' +
           metaHtml(['fps', 'fps.low1', 'gpu.temp', 'power.total']);
       }
       var s = S.sessions[0];
       if (!s) return headHtml(w, '') + '<div class="pcs-empty-small">No game sessions yet. They appear here when a game runs on the PC.</div>';
       return '<button type="button" class="pcs-session-open" data-pcs="session" data-sid="' + esc(s.id) + '">' +
-        headHtml(w, esc(when(s.start))) + '<div class="pcs-mid pcs-ellip">' + esc(s.title || s.exe || 'Game') + '</div>' +
+        headHtml(w, esc(when(s.start))) + '<div class="pcs-mid pcs-ellip pcs-game-big">' + gameHtml(s.exe, s.title) + '</div>' +
         '<div class="pcs-meta">' + sessionMeta(s) + '</div></button>';
     },
     moments: function (w) {
@@ -754,9 +780,10 @@
     var d = dash();
     var html =
       '<button type="button" class="pcs-back" data-pcs="close" aria-label="Close PC Stats">‹</button>' +
-      '<div class="pcs-orb' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></div>' +
       '<div class="pcs-id"><h1 class="pcs-name">' + esc(name) + '</h1><div class="pcs-status' +
-        (l && !l.online ? ' is-off' : '') + '">' + '<i class="pcs-live-dot' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></i>' + esc(status) + '</div></div>';
+        (l && !l.online ? ' is-off' : '') + '">' + (!S.liveErr && l && l.online && l.sample && l.sample.game
+          ? gameHtml(l.sample.game, l.game_name, 'Playing ')
+          : '<i class="pcs-live-dot' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></i>' + esc(status)) + '</div></div>';
     if (!S.edit) {
       html += '<div class="pcs-pills" role="group" aria-label="Range">' + ['live', '1h', '24h'].map(function (r) {
         return '<button type="button" class="pcs-pill' + (S.range === r ? ' is-on' : '') + '" data-pcs="range" data-range="' + r +
@@ -824,7 +851,7 @@
       box.innerHTML = !S.sessions.length ? '<div class="pcs-h-empty">No game sessions yet. Each game you play on the PC is recorded here with its frame rate, temperatures and energy.</div>'
         : '<div class="pcs-list">' + S.sessions.map(function (s) {
           return '<button type="button" class="pcs-row" data-pcs="session" data-sid="' + esc(s.id) + '"><div class="pcs-row-main">' +
-            '<span class="pcs-row-title">' + esc(s.title || s.exe || 'Game') + '</span><span class="pcs-row-sub">' + esc(when(s.start)) + '</span></div>' +
+            '<span class="pcs-row-title">' + gameHtml(s.exe, s.title) + '</span><span class="pcs-row-sub">' + esc(when(s.start)) + '</span></div>' +
             '<div class="pcs-meta">' + sessionMeta(s) + '</div><span class="pcs-row-chev" aria-hidden="true">›</span></button>';
         }).join('') + '</div>';
     } else if (part === 'energy') {
@@ -907,7 +934,7 @@
     if (!s) return;
     var t0 = s.start, t1 = s.end || nowSec();
     var keys = [['fps', 'Frame rate'], ['gpu.temp', 'GPU temperature'], ['cpu.temp', 'CPU temperature'], ['power.total', 'PC (est.)']];
-    var sheet = openSheet(esc(s.title || s.exe || 'Game session'),
+    var sheet = openSheet(gameHtml(s.exe, s.title) || 'Game session',
       '<div class="pcs-row-sub">' + esc(when(t0)) + ' – ' + esc(clock(t1)) + ' · ' + esc(C.duration(t1 - t0)) + '</div>' +
       '<div class="pcs-meta pcs-sess-meta">' + sessionMeta(s) +
         (typeof s.watts_avg === 'number' ? '<span><b class="num">' + Math.round(s.watts_avg) + ' W</b> avg <span class="pcs-est">est.</span></span>' : '') +
@@ -1047,7 +1074,7 @@
       loadSeries();
     }).catch(function (e) { if (isOff(e)) close(); });
     pollLive();
-    loadMoments(); loadSessions(); loadEnergy();
+    loadMoments(); loadSessions(); loadEnergy(); loadGames();
     var hist = S.el.querySelector('#pcsHealth');
     if (typeof IntersectionObserver === 'function') {
       var io = new IntersectionObserver(function (ents) {

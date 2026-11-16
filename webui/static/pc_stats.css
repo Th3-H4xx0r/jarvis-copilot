@@ -68,8 +68,14 @@ html.pcs-lock, html.pcs-lock body { overflow: hidden; }
   cursor: pointer; display: grid; place-items: center; padding: 0 2px 2px 0; font-size: 20px !important; line-height: 1; color: var(--pcs-label) !important;
 }
 .pcs-back:hover { background: var(--pcs-sel); }
-.pcs-orb { flex: none; width: 34px; height: 34px; border-radius: 50%; background: url('jarvis-orb.png') center/cover no-repeat; opacity: .55; filter: grayscale(1); transition: opacity .3s ease, filter .3s ease; }
-.pcs-orb.is-on { opacity: 1; filter: none; }
+/* the running game: the PC's own icon for it (20 px, radius 5) + its name */
+.pcs-game { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; vertical-align: middle; }
+.pcs-game-ico { flex: none; width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
+.pcs-game-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcs-game-big .pcs-game { gap: 10px; }
+.pcs-game-big .pcs-game-ico { width: 28px; height: 28px; border-radius: 7px; }
+.pcs-card-foot .pcs-game { font-size: 12px; color: var(--jc-muted, var(--muted)); }
+.pcs-card-foot .pcs-game-ico { width: 18px; height: 18px; border-radius: 5px; }
 .pcs-id { min-width: 0; margin-right: auto; }
 .pcs-name { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcs-status { font-size: 13px; color: var(--pcs-label-2); display: flex; align-items: center; gap: 7px; }

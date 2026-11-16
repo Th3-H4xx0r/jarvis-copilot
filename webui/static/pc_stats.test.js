@@ -185,7 +185,9 @@ test('offline says when it was last seen; never reported says it is waiting', ()
   const now = 1_800_000_000;
   assert.equal(C.statusLine({ online: false, at: now - 300 }, now), 'PC offline · last seen 5 min ago');
   assert.equal(C.statusLine({ online: false, at: now - 7200 }, now), 'PC offline · last seen 2 h ago');
-  assert.equal(C.statusLine({ online: true, at: now, sample: { game: 'Minecraft' } }, now), 'Online · Playing Minecraft');
+  assert.equal(C.statusLine({ online: true, at: now, sample: { game: 'Minecraft.exe' }, game_name: 'Minecraft' }, now), 'Playing Minecraft');
+  assert.equal(C.statusLine({ online: true, at: now, sample: { game: 'cod.exe' } }, now), 'Playing cod');
+  assert.equal(C.statusLine({ online: true, at: now, sample: { game: null } }, now), 'Online');
   assert.equal(C.statusLine({ online: false, at: null }, now), 'Waiting for the PC’s first reading');
 });
 
@@ -366,4 +368,26 @@ test('the metric palette is defined once, in jarvis.css', () => {
   for (const g of ['gpu', 'cpu', 'frames', 'power', 'temps', 'memory', 'network', 'cooling']) {
     assert.match(css, new RegExp('--jc-metric-' + g + ':#[0-9A-Fa-f]{6}'));
   }
+});
+
+// ── games: the PC's name and icon for the running game ─────────────────────
+test('a game reads by its name, never its exe', () => {
+  const games = { 'cod.exe': { name: 'Call of Duty', icon: null } };
+  assert.equal(C.gameName('cod.exe', games, 'cod'), 'Call of Duty');
+  assert.equal(C.gameName('javaw.exe', games, 'Minecraft'), 'Minecraft');      // the server's game_name
+  assert.equal(C.gameName('javaw.exe', games, 'javaw.exe'), 'javaw');          // a fallback that is an exe
+  assert.equal(C.gameName('Cyberpunk2077.EXE', {}, ''), 'Cyberpunk2077');      // no map, no fallback
+  assert.equal(C.gameName('', null, ''), '');
+  assert.ok(!/\.exe$/i.test(C.gameName('cod.exe', null, null)));
+});
+
+test('a game without an icon (or with anything but an inline image) shows none', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.equal(C.gameIcon('cod.exe', { 'cod.exe': { name: 'Call of Duty', icon: png } }), png);
+  assert.equal(C.gameIcon('cod.exe', { 'cod.exe': { name: 'Call of Duty', icon: null } }), null);
+  assert.equal(C.gameIcon('cod.exe', {}), null);
+  assert.equal(C.gameIcon('cod.exe', null), null);
+  assert.equal(C.gameIcon('x.exe', { 'x.exe': { icon: 'javascript:alert(1)' } }), null);
+  assert.equal(C.gameIcon('x.exe', { 'x.exe': { icon: 'data:image/svg+xml;base64,PHN2Zz4=' } }), null);
+  assert.equal(C.gameIcon('x.exe', { 'x.exe': { icon: 'data:image/png;base64,AAA" onerror="x' } }), null);
 });
