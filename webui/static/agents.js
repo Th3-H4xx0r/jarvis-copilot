@@ -610,16 +610,16 @@
     return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(m.name || (pc ? 'PC' : 'Mac')) + '">' +
       '<div class="agents-sleep-head"><b>' + esc(m.name || (pc ? 'Your PC' : 'Your Mac')) + '</b>' +
       (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
-      '<div class="agents-sleep-row"><div class="agents-sleep-main">' +
+      '<div class="agents-sleep-row agents-mac-actions"><div class="agents-sleep-main">' +
       '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span>' +
       (cantWake ? '<span class="agents-sleep-sub">' + esc(m.wake_reason || 'This PC can’t be woken remotely') + '</span>' : '') +
-      '</div>' +
+      '</div><div class="agents-mac-btns">' +
       (m.state === 'awake' && window.MacScreen ? btn('mac-share', 'Share screen') : '') +
       (m.state === 'awake' && pc ? btn('mac-lock', 'Lock') : '') +
       // Remote Desktop (rdp.js): shown while the integration is on, asleep too ("… is asleep" + Wake)
       (pc && window.JCRdp && (!window.JCPower || window.JCPower.isOn('remote-desktop')) ? btn('rdp-open', 'Remote Desktop') : '') +
       (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', pc ? 'Wake PC' : 'Wake Mac', cantWake)) +
-      '</div>' +
+      '</div></div>' +
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
       (pc ? '' : macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep')) + '</div>' +

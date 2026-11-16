@@ -2721,6 +2721,10 @@ main.main.showing-security > #mainSecurity{display:flex;flex-direction:column;}
 .agents-pill-btn:disabled{opacity:.6;cursor:default;}
 .agents-pill-btn.is-all{display:block;width:calc(100% - 28px);margin:4px 14px 12px;padding:8px;text-align:center;}
 /* the MacBook power card: the asleep card's shape, with two switches */
+/* status on the left; the buttons wrap onto their own lines instead of running out of the card */
+.agents-mac-actions{flex-wrap:wrap;row-gap:8px;}
+.agents-mac-actions .agents-sleep-main{flex:1 1 140px;}
+.agents-mac-btns{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;max-width:100%;}
 .agents-mac-switches{flex-wrap:wrap;gap:6px 16px;}
 .agents-switch{display:inline-flex;align-items:center;gap:8px;padding:2px 0;border:0;background:none;font:inherit;font-size:.8rem;color:var(--text);cursor:pointer;}
 .agents-switch:disabled{opacity:.6;cursor:default;}
