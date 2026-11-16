@@ -202,8 +202,14 @@ internal static class Service
             try
             {
                 var line = ReadLine(pipe);
-                var password = JsonNode.Parse(line)?["password"]?.GetValue<string>() ?? "";
-                reply = password.Length == 0 ? Error("No password was sent.") : TypeOnLockScreen(password);
+                var node = JsonNode.Parse(line);
+                if (node?["rdp"]?.GetValue<string>() is { } rdp)
+                    reply = rdp is "on" or "off" ? SwitchRemoteDesktop(rdp == "on") : Error("Bad request.");
+                else
+                {
+                    var password = node?["password"]?.GetValue<string>() ?? "";
+                    reply = password.Length == 0 ? Error("No password was sent.") : TypeOnLockScreen(password);
+                }
             }
             catch (Exception e) when (e is JsonException or InvalidOperationException or IOException)
             {
@@ -226,6 +232,22 @@ internal static class Service
         var one = new byte[1];
         while (buf.Count < 8192 && s.Read(one, 0, 1) == 1 && one[0] != (byte)'\n') buf.Add(one[0]);
         return Encoding.UTF8.GetString(buf.ToArray());
+    }
+
+    /// The remote-desktop integration switched on/off: re-applies Jarvis's Tailscale-only Remote Desktop
+    /// setup, or switches RDP off and removes its rule (the only two things this command can do).
+    private static string SwitchRemoteDesktop(bool on)
+    {
+        var script = on ? Jarvis.Core.Remote.RdpSetup.SetupScript() : Jarvis.Core.Remote.RdpSetup.OffScript();
+        var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+            "-NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script)))
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p == null) return Error("Couldn't start PowerShell.");
+        var err = p.StandardError.ReadToEnd();
+        if (!p.WaitForExit(60_000)) { try { p.Kill(); } catch (InvalidOperationException) { } return Error("Timed out."); }
+        Log.Write($"remote desktop {(on ? "on" : "off")}: exit {p.ExitCode}");
+        return p.ExitCode == 0 ? new JsonObject { ["ok"] = true }.ToJsonString() : Error(err.Trim().Split('\n')[0]);
     }
 
     private static string Error(string why) => new JsonObject { ["ok"] = false, ["error"] = why }.ToJsonString();

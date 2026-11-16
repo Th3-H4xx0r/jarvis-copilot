@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Jarvis.Core.Admin;
 using Jarvis.Core.Http;
+using Jarvis.Core.Link;
 using Jarvis.Core.Remote;
 using Jarvis.Core.State;
 using Jarvis.Platform;
@@ -20,26 +21,38 @@ public sealed class RemoteDesktop : IDisposable
 {
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jarvis");
     internal static readonly string SecretPath = Path.Combine(Dir, "rdp.dat");
+    /// Present once Set up succeeded: only then may switching the integration back on turn RDP on.
+    private static readonly string SetupMarker = Path.Combine(Dir, "rdp.setup");
 
     private readonly ApiClient _api;
     private readonly AppState _state;
     private readonly AdminRunner _admin;
+    private readonly IJcLink _link;
+    private readonly Func<string?> _pinnedKey;
+    private readonly RdpRelease _release = new();
     private readonly Action<string> _log = FileLog.For("rdp");
     private readonly Timer _timer;
-    private bool _locked, _off;
+    private bool _locked, _remote;
+    private bool? _off;
     private string? _upn, _tailscaleIp;
     private (DateTime At, bool Scoped) _firewall;
 
-    public RemoteDesktop(ApiClient api, AppState state, AdminRunner admin)
+    public RemoteDesktop(ApiClient api, AppState state, AdminRunner admin, IJcLink link, Func<string?> pinnedKey)
     {
         _api = api;
         _state = state;
         _admin = admin;
+        _link = link;
+        _pinnedKey = pinnedKey;
+        _link.Message += m => { if (J.S(m["type"]) == "password_release" && J.S(m["kind"]) == "rdp") _ = ReleaseAsync(m); };
         SystemEvents.SessionSwitch += OnSessionSwitch;
         _timer = new Timer(_ => _ = PostAsync(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
     }
 
     public event Action? Changed;
+
+    /// True while this Windows session is shown over RDP (the island, PC Stats window and live share step aside).
+    public event Action<bool>? RemoteSessionChanged;
 
     public static bool IsPro => !Edition.Equals("Core", StringComparison.OrdinalIgnoreCase) && !Edition.StartsWith("Core", StringComparison.OrdinalIgnoreCase);
 
@@ -103,6 +116,7 @@ public sealed class RemoteDesktop : IDisposable
     {
         var r = await _admin.RunAsync(RdpSetup.PowerShellCommand(RdpSetup.SetupScript(idleMinutes: idleMinutes)),
             "Turn on Remote Desktop for Tailscale only");
+        if (r.Ok) { Directory.CreateDirectory(Dir); File.WriteAllText(SetupMarker, DateTimeOffset.UtcNow.ToString("O")); }
         _firewall = default;
         _ = Task.Delay(TimeSpan.FromSeconds(6)).ContinueWith(_ => { _firewall = default; Changed?.Invoke(); _ = PostAsync(); });
         return r;
@@ -132,21 +146,71 @@ public sealed class RemoteDesktop : IDisposable
 
     private async Task PostAsync()
     {
+        CheckRemote();
         if (_state.ApiOrigin == null || _state.DeviceId == null) return;
         try
         {
             await _api.PostAsync("/api/rdp/status", Status(), TimeSpan.FromSeconds(10));
+            if (_off == true && File.Exists(SetupMarker)) await HelperAsync("on");   // switched back on
             _off = false;
         }
-        catch (ApiException e) when (e.Status == 409) { if (!_off) _log("remote-desktop is switched off"); _off = true; }
+        catch (ApiException e) when (e.Status == 409)
+        {
+            // The integration is off: Windows' Remote Desktop goes off too (the helper, no UAC).
+            if (_off != true && File.Exists(SetupMarker)) { _log("remote-desktop is switched off"); await HelperAsync("off"); }
+            _off = true;
+        }
         catch (Exception e) when (e is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { _log("status: " + e.Message); }
+    }
+
+    /// The server relayed his signed Face ID yes for one session: answer it (never logs the password).
+    private async Task ReleaseAsync(JsonObject m)
+    {
+        JsonObject reply;
+        try { reply = await Task.Run(() => _release.Handle(m, _pinnedKey() ?? "", ReadPassword, DateTimeOffset.UtcNow)); }
+        catch (Exception e) when (e is IOException or System.Security.Cryptography.CryptographicException or UnauthorizedAccessException)
+        {
+            reply = new JsonObject { ["type"] = "rdp_credential", ["ok"] = false, ["error"] = "Couldn't read the saved password." };
+        }
+        _log($"release {J.S(reply["session_id"])}: {((bool?)reply["ok"] == true ? "sent" : J.S(reply["error"]))}");
+        try { await _link.RequestAsync(reply, TimeSpan.FromSeconds(10)); }
+        catch (Exception e) when (e is TimeoutException or InvalidOperationException or IOException) { _log("release reply: " + e.Message); }
+    }
+
+    /// Asks the LocalSystem helper (the Unlock service) to switch Windows' Remote Desktop on or off.
+    private async Task HelperAsync(string onOff)
+    {
+        try
+        {
+            await Task.Run(() =>
+            {
+                using var pipe = new System.IO.Pipes.NamedPipeClientStream(".", "JarvisUnlock", System.IO.Pipes.PipeDirection.InOut);
+                pipe.Connect(3000);
+                var req = Encoding.UTF8.GetBytes(new JsonObject { ["rdp"] = onOff }.ToJsonString() + "\n");
+                pipe.Write(req, 0, req.Length);
+                pipe.Flush();
+                using var reader = new StreamReader(pipe, Encoding.UTF8);
+                _log($"helper rdp {onOff}: {reader.ReadLine()}");
+            });
+        }
+        catch (Exception e) when (e is IOException or TimeoutException or UnauthorizedAccessException) { _log($"helper rdp {onOff}: {e.Message}"); }
+        Changed?.Invoke();
+    }
+
+    private void CheckRemote()
+    {
+        var remote = System.Windows.SystemParameters.IsRemoteSession;
+        if (remote == _remote) return;
+        _remote = remote;
+        RemoteSessionChanged?.Invoke(remote);
     }
 
     private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
         if (e.Reason is SessionSwitchReason.SessionLock) _locked = true;
         else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon) _locked = false;
-        else return;
+        else if (e.Reason is not (SessionSwitchReason.RemoteConnect or SessionSwitchReason.RemoteDisconnect
+                 or SessionSwitchReason.ConsoleConnect or SessionSwitchReason.ConsoleDisconnect)) return;
         _ = PostAsync();
     }
 

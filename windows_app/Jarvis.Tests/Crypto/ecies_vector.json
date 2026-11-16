@@ -1,0 +1,10 @@
+{
+  "scheme": "ECDH P-256 -> HKDF-SHA256(salt empty, info 'jarvis-rdp-v1', 32 bytes) -> AES-256-GCM (12-byte nonce, 16-byte tag appended)",
+  "recipient_private_d": "1f2e3d4c5b6a79880102030405060708090a0b0c0d0e0f101112131415161718",
+  "recipient_public_x963": "04945bafbfe49bbffe5c33d49cd083da75ce805aaf1f2a82cfb010e0968163582a40f7f692a325069e22cc0fe04c0e68322f4459e45106d54325ee23b8c66bd184",
+  "ephemeral_private_d": "0a1b2c3d4e5f60718293a4b5c6d7e8f90102030405060708090a0b0c0d0e0f10",
+  "ephemeral_public_x963": "0488ea5b29cad2e3b3056cd723975ad3c1fc97752a79d9246521ca82a67dd4a28e016175cec242b5778c918c25e8de8d8a152d08ea5c2a22ee33bcc22e59a0f03e",
+  "nonce": "000102030405060708090a0b",
+  "plaintext_utf8": "correct horse battery staple ✓",
+  "ciphertext_with_tag": "a5dc8a1a8d7e18f52f3fa9df224d72abf6c415cb04341395582081b9cdd662a48d6b9bacab860c819f2da74e382386bc"
+}

@@ -178,7 +178,22 @@ public sealed class AppHost : IAsyncDisposable
         Stats = new Stats.StatsService(Api, State);
         Stats.SettingsChanged += () => Dispatcher.BeginInvoke(SyncStatsWindow);
         PcPowerPane.Extras.Add(StatsSettingsSection);
-        Remote = new global::Jarvis.Remote.RemoteDesktop(Api, State, Admin);
+        Remote = new global::Jarvis.Remote.RemoteDesktop(Api, State, Admin, Link, () => Unlock.PinnedKey);
+        // During a Remote Desktop session the island, the PC Stats window and any live share step aside.
+        Remote.RemoteSessionChanged += remote => Dispatcher.BeginInvoke(() =>
+        {
+            if (remote)
+            {
+                IslandWindow.Hide();
+                _statsWindow?.Close();
+                ScreenShare?.StopAll("Remote Desktop is in use");
+            }
+            else
+            {
+                IslandWindow.Show();
+                SyncStatsWindow();
+            }
+        });
         PcPowerPane.Extras.Add(() => global::Jarvis.Remote.RemoteDesktopSection.Build(Remote));
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);

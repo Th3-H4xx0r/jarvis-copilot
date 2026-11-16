@@ -16,6 +16,9 @@
     <Using Include="System.Text.Json.Nodes" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Crypto\ecies_vector.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Jarvis.Core\Jarvis.Core.csproj" />
   </ItemGroup>
 </Project>

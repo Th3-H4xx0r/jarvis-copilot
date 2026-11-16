@@ -9,4 +9,8 @@
     <AssemblyName>JarvisUnlock</AssemblyName>
     <RootNamespace>JarvisUnlock</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The same Remote Desktop on/off script the app's Set up runs (no other Core code). -->
+    <Compile Include="..\Jarvis.Core\Remote\RdpSetup.cs" Link="RdpSetup.cs" />
+  </ItemGroup>
 </Project>
