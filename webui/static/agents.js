@@ -621,6 +621,8 @@
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
       (pc ? '' : macSwitch('mac-timer', m, m.timer_on !== false, 'Check for wake requests while asleep')) + '</div>' +
+      // PC Stats (pc_stats.js): four live numbers + View stats, only while the integration is on
+      (pc && window.JCPcStats ? window.JCPcStats.cardHtml(m) : '') +
       flashHtml('mac:' + m.device_id) + '</div>';
   }
   // Read-only here: Allow needs Face ID on the iPhone or Touch ID on the Mac.
@@ -1835,6 +1837,7 @@
       case 'mac-wake': macPower('wake', t.dataset.device); break;
       case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device); break;
       case 'mac-lock': macPower('lock', t.dataset.device); break;
+      case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); break;
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
       case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
       case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;
