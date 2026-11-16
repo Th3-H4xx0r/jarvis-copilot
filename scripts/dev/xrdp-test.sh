@@ -17,6 +17,10 @@ set -euo pipefail
 XRDP_IMAGE="scottyhardy/docker-remote-desktop@sha256:78a58de9e24853a10e080e2789f93dc324234d5459220945eedf41680defafe9"
 GUACD_IMAGE="guacamole/guacd@sha256:38232cae271361ef53db46faf5c49fe64049a1320a05b82c597425b69d6ce77e"   # 1.5.5
 NET="jc-rdp"
+# Per-session drive folders: the gateway creates <root>/<session> on this Mac and guacd opens the same
+# path, so it's mounted into the guacd container at the identical path. Run the gateway with
+# drive_root=$DRIVE_ROOT (the harness does).
+DRIVE_ROOT="${JC_RDP_DRIVE_ROOT:-/tmp/jc-rdp-drive}"
 
 stop() {
   docker rm -f jc-xrdp jc-guacd >/dev/null 2>&1 || true
@@ -33,7 +37,9 @@ command -v docker >/dev/null || { echo "Docker isn't installed" >&2; exit 1; }
 docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
 docker rm -f jc-xrdp jc-guacd >/dev/null 2>&1 || true
 docker run -d --name jc-xrdp --network "$NET" --shm-size=1g -p 127.0.0.1:3390:3389 "$XRDP_IMAGE" >/dev/null
-docker run -d --name jc-guacd --network "$NET" --platform linux/amd64 -p 127.0.0.1:4822:4822 "$GUACD_IMAGE" >/dev/null
+mkdir -p "$DRIVE_ROOT" && chmod 777 "$DRIVE_ROOT"
+docker run -d --name jc-guacd --network "$NET" --platform linux/amd64 -p 127.0.0.1:4822:4822 \
+  -v "$DRIVE_ROOT:$DRIVE_ROOT" "$GUACD_IMAGE" >/dev/null
 
 # wait for both ports
 for port in 3390 4822; do
@@ -45,6 +51,6 @@ for port in 3390 4822; do
 done
 cat <<EOF
 xrdp   127.0.0.1:3390  (from guacd: jc-xrdp:3389)   user ubuntu / password ubuntu
-guacd  127.0.0.1:4822
+guacd  127.0.0.1:4822  (drive folders under $DRIVE_ROOT)
 Run the gateway with JC_RDP_GUAC_SECURITY=any. Stop with: scripts/dev/xrdp-test.sh stop
 EOF

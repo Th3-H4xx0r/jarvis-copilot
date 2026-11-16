@@ -1,0 +1,139 @@
+/* Remote Desktop on the web (rdp.js) — the Jarvis look from the app's own tokens (jarvis.css --jc-*):
+   black page, hairline surface cards, grey controls, white fill only for the one main action. */
+html.rdpv-lock, html.rdpv-lock body { overflow: hidden; }
+.rdpv {
+  --rd-bg: var(--jc-bg, var(--bg, #000));
+  --rd-card: var(--jc-surface, var(--surface, rgba(255, 255, 255, .06)));
+  --rd-fill: var(--jc-surface-2, rgba(255, 255, 255, .08));
+  --rd-sel: rgba(255, 255, 255, .13);
+  --rd-hair: var(--jc-hair, rgba(255, 255, 255, .08));
+  --rd-hair-2: var(--jc-hair-strong, rgba(255, 255, 255, .12));
+  --rd-text: var(--jc-text, var(--text, #fff));
+  --rd-muted: var(--jc-muted, var(--muted, rgba(255, 255, 255, .55)));
+  --rd-faint: rgba(255, 255, 255, .3);
+  --rd-danger: var(--jc-danger, var(--danger, var(--error)));
+  --rd-accent: var(--jc-accent, var(--accent, #fff));
+  --rd-r-card: var(--jc-r-card, 16px);
+  --rd-r-ctl: var(--jc-r-control, 10px);
+  position: fixed; inset: 0; z-index: 10045; display: flex; flex-direction: column;
+  background: var(--rd-bg); color: var(--rd-text); color-scheme: dark;
+  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, system-ui, sans-serif); font-size: 14px;
+}
+.rdpv button { font: inherit; color: inherit; }
+.rdpv :focus-visible { outline: 2px solid color-mix(in srgb, var(--rd-accent) 55%, transparent); outline-offset: 2px; }
+
+/* top bar */
+.rdpv-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rd-hair); flex: none; }
+.rdpv-back {
+  flex: none; width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--rd-hair); background: var(--rd-fill);
+  font-size: 19px !important; line-height: 1; padding: 0 2px 2px 0; cursor: pointer;
+}
+.rdpv-back:hover { background: var(--rd-sel); }
+.rdpv-id { min-width: 0; margin-right: auto; }
+.rdpv-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rdpv-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rd-muted); }
+.rdpv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rd-faint); flex: none; }
+.rdpv-dot.is-on { background: var(--rd-text); }
+.rdpv-tools { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.rdpv-tools::-webkit-scrollbar { display: none; }
+.rdpv-tool {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px;
+  border-radius: var(--rd-r-ctl); border: 1px solid var(--rd-hair); background: var(--rd-fill);
+  font-size: 12.5px !important; color: var(--rd-text) !important; cursor: pointer; white-space: nowrap;
+}
+.rdpv-tool:hover { background: var(--rd-sel); }
+.rdpv-tool svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.rdpv:not([data-phase="connected"]) .rdpv-tool { opacity: .4; pointer-events: none; }
+.rdpv.is-mac .rdpv-tools { display: none; }
+
+/* buttons */
+.rdpv-btn {
+  height: 34px; padding: 0 15px; border-radius: var(--rd-r-ctl); border: 1px solid var(--rd-hair); background: var(--rd-fill);
+  font-size: 13.5px !important; font-weight: 500; color: var(--rd-text) !important; cursor: pointer; white-space: nowrap;
+}
+.rdpv-btn:hover { background: var(--rd-sel); }
+.rdpv-btn.is-primary { background: #fff; border-color: #fff; color: #000 !important; font-weight: 600; }
+.rdpv-btn.is-primary:hover { background: rgba(255, 255, 255, .86); }
+.rdpv-btn.is-danger { color: var(--rd-danger) !important; flex: none; }
+.rdpv-link { background: none; border: 0; padding: 4px 0; font-size: 13px !important; color: var(--rd-muted) !important; text-decoration: none; cursor: pointer; text-align: center; }
+.rdpv-link:hover { color: var(--rd-text) !important; }
+
+/* the stage: the PC's screen, centred and scaled to fit */
+.rdpv-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; outline: none; background: var(--rd-bg); }
+.rdpv .rdpv-stage:focus, .rdpv .rdpv-stage:focus-visible { outline: none; }   /* it holds the keyboard; no ring */
+.rdpv-display { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.rdpv-display > div { box-shadow: 0 0 0 1px var(--rd-hair); }
+.rdpv-display canvas { image-rendering: auto; }
+
+/* status cards over the stage */
+.rdpv-card {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px));
+  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 22px 20px; text-align: center;
+  background: var(--rd-card); border: 1px solid var(--rd-hair); border-radius: var(--rd-r-card);
+}
+.rdpv-card:empty { display: none; }
+.rdpv.is-mac .rdpv-card { align-items: stretch; text-align: left; gap: 12px; }
+.rdpv-title { font-size: 17px; font-weight: 600; }
+.rdpv-msg { font-size: 13.5px; line-height: 1.5; color: var(--rd-muted); }
+.rdpv-muted { font-size: 13px; color: var(--rd-muted); line-height: 1.45; }
+.rdpv-actions { display: flex; justify-content: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.rdpv-actions.is-col { flex-direction: column; align-items: stretch; gap: 8px; }
+.rdpv-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; color: var(--rd-muted); }
+.rdpv-kv b { color: var(--rd-text); font-weight: 500; word-break: break-all; }
+.rdpv-spinner { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--rd-hair-2); border-top-color: var(--rd-text); animation: rdpv-spin .9s linear infinite; margin-bottom: 4px; }
+@keyframes rdpv-spin { to { transform: rotate(360deg); } }
+.rdpv-faceid {
+  width: 42px; height: 42px; margin-bottom: 4px; border-radius: 12px; border: 2px solid var(--rd-text); position: relative; opacity: .9;
+  background:
+    radial-gradient(circle at 34% 40%, var(--rd-text) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 66% 40%, var(--rd-text) 0 2px, transparent 2.5px);
+}
+.rdpv-faceid::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: 26%; height: 6px; border-bottom: 2px solid var(--rd-text); border-radius: 0 0 8px 8px; }
+
+/* drop target */
+.rdpv-drop { position: absolute; inset: 12px; display: none; align-items: center; justify-content: center; border: 2px dashed var(--rd-hair-2); border-radius: var(--rd-r-card); background: rgba(0, 0, 0, .55); font-size: 15px; color: var(--rd-text); pointer-events: none; }
+.rdpv.is-dropping .rdpv-drop { display: flex; }
+
+/* side panels: clipboard, files */
+.rdpv-panel {
+  position: absolute; right: 12px; top: 64px; width: min(360px, calc(100% - 24px)); max-height: calc(100% - 88px); overflow: auto;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--rd-card); border: 1px solid var(--rd-hair-2); border-radius: var(--rd-r-card); box-shadow: 0 16px 48px rgba(0, 0, 0, .6);
+}
+.rdpv-panel[hidden] { display: none; }
+.rdpv-panel-h { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--rd-muted); }
+.rdpv-x { width: 26px; height: 26px; border-radius: 999px; border: 1px solid var(--rd-hair); background: var(--rd-fill); color: var(--rd-muted) !important; font-size: 11px !important; cursor: pointer; }
+.rdpv-panel textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 90px; padding: 9px 11px; font: inherit; font-size: 13px;
+  color: var(--rd-text); background: var(--rd-fill); border: 1px solid var(--rd-hair); border-radius: var(--rd-r-ctl);
+}
+.rdpv-panel textarea:focus { outline: none; border-color: color-mix(in srgb, var(--rd-accent) 55%, transparent); }
+.rdpv-panel .rdpv-actions { justify-content: flex-end; margin-top: 0; }
+.rdpv-files-list { display: flex; flex-direction: column; border: 1px solid var(--rd-hair); border-radius: var(--rd-r-ctl); overflow: hidden; }
+.rdpv-files-list .rdpv-muted { padding: 12px; }
+.rdpv-file { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 0; border-top: 1px solid var(--rd-hair); background: none; text-align: left; font-size: 13px; cursor: pointer; }
+.rdpv-file:first-child { border-top: 0; }
+.rdpv-file:hover { background: var(--rd-fill); }
+.rdpv-file span { color: var(--rd-muted); font-size: 12px; flex: none; }
+
+.rdpv-toast {
+  position: absolute; left: 50%; bottom: 24px; transform: translate(-50%, 12px); opacity: 0; pointer-events: none; z-index: 5;
+  padding: 10px 16px; border-radius: var(--rd-r-ctl); font-size: 13px; background: var(--rd-fill); border: 1px solid var(--rd-hair);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); transition: opacity .2s ease, transform .2s ease; max-width: calc(100% - 32px);
+}
+.rdpv-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+/* phone width: icon-only tools, the name above them */
+@media (max-width: 759px) {
+  .rdpv-bar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; }
+  .rdpv-id { flex: 1 1 calc(100% - 50px); }
+  .rdpv-tools { order: 3; width: 100%; }
+  .rdpv-tool { padding: 0 10px; }
+  .rdpv-tool span { display: none; }
+  .rdpv-tools .rdpv-btn.is-danger { margin-left: auto; }
+  .rdpv-panel { top: auto; bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rdpv-spinner { animation: none; }
+  .rdpv-toast { transition: none; }
+}

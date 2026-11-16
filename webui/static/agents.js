@@ -616,6 +616,8 @@
       '</div>' +
       (m.state === 'awake' && window.MacScreen ? btn('mac-share', 'Share screen') : '') +
       (m.state === 'awake' && pc ? btn('mac-lock', 'Lock') : '') +
+      // Remote Desktop (rdp.js): shown while the integration is on, asleep too ("… is asleep" + Wake)
+      (pc && window.JCRdp && (!window.JCPower || window.JCPower.isOn('remote-desktop')) ? btn('rdp-open', 'Remote Desktop') : '') +
       (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', pc ? 'Wake PC' : 'Wake Mac', cantWake)) +
       '</div>' +
       '<div class="agents-sleep-row agents-mac-switches">' +
@@ -1838,6 +1840,11 @@
       case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device); break;
       case 'mac-lock': macPower('lock', t.dataset.device); break;
       case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); break;
+      case 'rdp-open': {
+        const row = ((st.list && st.list.mac) || []).find((x) => x.device_id === t.dataset.device);
+        if (window.JCRdp) window.JCRdp.open(t.dataset.device, (row && row.name) || 'Your PC');
+        break;
+      }
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
       case 'mac-keep': macPower('keep-awake', t.dataset.device, !t.dataset.on); break;
       case 'mac-timer': macPower('timer', t.dataset.device, !t.dataset.on); break;
