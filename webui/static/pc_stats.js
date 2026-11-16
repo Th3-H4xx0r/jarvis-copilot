@@ -23,7 +23,7 @@
   var LIVE_MS = 1000, CARD_MS = 5000, HIST_REFRESH_MS = 60000;
   var RANGES = { live: 0, '1h': 3600, '24h': 86400 };
   var DEFAULT_WINDOW = 300;
-  var SERIES = ['#8fdcff', '#eef2f7', '#5f86a8', '#b6ecd2', '#ffd38a', '#c9b8ff'];
+  var SERIES = ['#30D158', '#0A84FF', '#FF9F0A', '#5AC8FA', '#BF5AF2', '#FFD60A'];
   var KIND_NAMES = {
     hero: 'Hero number', number: 'Number', chart: 'Chart', bars: 'Bars', ring: 'Ring',
     sparkline: 'Sparkline', text: 'Text', session: 'Game session', moments: 'Marked moments',
@@ -85,8 +85,8 @@
     return '<div class="pcs-card-cells">' + C.summaryCells(s).map(function (c) {
       return '<div class="pcs-card-cell' + (c.ok ? '' : ' is-na') + '"><b>' + esc(c.num) +
         (c.unit ? '<small>' + esc(c.unit) + '</small>' : '') +
-        (c.temp ? '<i class="pcs-card-dot"> · </i>' + esc(c.temp) + '<small>' + esc(c.tempUnit) + '</small>' : '') +
-        '</b><span>' + esc(c.label) + '</span></div>';
+        (c.temp ? '<i class="pcs-card-dot"> · </i>' + esc(c.temp) + '<small class="is-deg">' + esc(c.tempUnit === '°C' ? '°' : c.tempUnit) + '</small>' : '') +
+        '</b><span style="color:' + ({ CPU: C.TINTS.cpu, GPU: C.TINTS.gpu }[c.label] || C.TINTS.power) + '">' + esc(c.label) + '</span></div>';
     }).join('') + '</div><div class="pcs-card-foot"><span></span>' + btn + '</div>';
   }
 
@@ -282,46 +282,96 @@
     });
   }
 
+  // ── icons (16 px line glyphs in the category tint) ─────────────────────────
+  var ICONS = {
+    gpu: '<rect x="1.5" y="4" width="13" height="8" rx="1.8"/><circle cx="6" cy="8" r="1.9"/><path d="M10.2 6.6h2.4M10.2 9.4h2.4M4 12v1.6M7 12v1.6"/>',
+    cpu: '<rect x="4" y="4" width="8" height="8" rx="1.6"/><rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".6"/><path d="M6.2 1.8V4M9.8 1.8V4M6.2 12v2.2M9.8 12v2.2M1.8 6.2H4M1.8 9.8H4M12 6.2h2.2M12 9.8h2.2"/>',
+    frames: '<path d="M2.3 11.8a6 6 0 1 1 11.4 0"/><path d="M8 10.2l2.8-3.4"/><circle cx="8" cy="10.2" r=".8"/>',
+    power: '<path d="M9.2 1.6L3.6 9.1h4.1L6.8 14.4l5.6-7.5H8.3z"/>',
+    memory: '<rect x="1.5" y="4.6" width="13" height="6.4" rx="1.2"/><path d="M4.6 7v1.6M7 7v1.6M9.4 7v1.6M11.8 7v1.6M3.6 11v1.8M12.4 11v1.8"/>',
+    network: '<path d="M5 2.6v10.6M5 13.2L2.6 10.8M5 13.2l2.4-2.4M11 13.4V2.8M11 2.8L8.6 5.2M11 2.8l2.4 2.4"/>',
+    cooling: '<circle cx="8" cy="8" r="1.2"/><path d="M8 6.8C7.3 4.6 7.7 2.1 9.3 2.1s1.4 2.6-.5 4.8M9.2 8c2.2-.7 4.7-.3 4.7 1.3s-2.6 1.4-4.8-.5M8 9.2c.7 2.2.3 4.7-1.3 4.7S5.3 11.3 7.2 9.1M6.8 8C4.6 8.7 2.1 8.3 2.1 6.7S4.7 5.3 6.9 7.2"/>',
+    temps: '<path d="M6.4 9.4V3.2a1.6 1.6 0 0 1 3.2 0v6.2a3.1 3.1 0 1 1-3.2 0z"/><path d="M8 6.4v4.4"/>',
+    session: '<rect x="1.6" y="5" width="12.8" height="7" rx="3.5"/><path d="M4.4 8.5h2.4M5.6 7.3v2.4"/><circle cx="10.4" cy="7.8" r=".6"/><circle cx="11.8" cy="9.2" r=".6"/>',
+    moments: '<path d="M3.5 14V2.5M3.5 3h8l-1.6 2.6L11.5 8.2h-8"/>',
+    other: '<circle cx="8" cy="8" r="5.6"/>',
+  };
+  function icon(fam) { return '<svg class="pcs-ico" viewBox="0 0 16 16" aria-hidden="true">' + (ICONS[fam] || ICONS.other) + '</svg>'; }
+  function windowLabel(span) {
+    if (span < 3600) return Math.round(span / 60) + ' min';
+    if (span < 86400) return Math.round(span / 3600) + ' h';
+    return Math.round(span / 86400) === 1 ? '24 h' : Math.round(span / 86400) + ' days';
+  }
+
   // ── charts ─────────────────────────────────────────────────────────────────
   /**
-   * An SVG chart in a box that stretches (viewBox 400×100, non-scaling strokes). series:
-   * [{key, pts, color, unit, label}], mode 'area'|'line'. Markers: moments in range.
+   * A chart: the centred moving average of each series (never raw spikes) on a 0–100 (%) or
+   * 0–p98×1.15 scale, faint gridlines with their values at the right edge, moment markers, and
+   * (opts.stats) "Min · Avg · Max" of the window underneath. series: [{key, pts, color, unit,
+   * label}], mode 'area'|'line'. The plot stretches (viewBox 400×100, non-scaling strokes).
    */
   function chartHtml(id, series, t0, t1, mode, opts) {
     opts = opts || {};
     var W = 400, H = 100;
     var units = {};
-    series.forEach(function (s) { (units[s.unit] = units[s.unit] || []).push(s.pts); });
+    series.forEach(function (s) {
+      s.raw = (s.pts || []).filter(function (p) { return p[0] >= t0 && p[0] <= t1; });
+      (units[s.unit] = units[s.unit] || []).push(s.raw);
+    });
     var doms = {};
     Object.keys(units).forEach(function (u) { doms[u] = C.domain(units[u], u); });
-    var defs = '', body = '';
+    var defs = '', body = '', labels = '';
+    var first = series[0];
+    if (first && opts.grid !== false) {
+      var dm0 = doms[first.unit];
+      C.gridLines(dm0[0], dm0[1]).forEach(function (v) {
+        var y = (H - (v - dm0[0]) / (dm0[1] - dm0[0]) * H).toFixed(2);
+        body += '<line class="pcs-grid-l" x1="0" x2="' + W + '" y1="' + y + '" y2="' + y + '" vector-effect="non-scaling-stroke"/>';
+        labels += '<span class="pcs-gl" style="top:' + (y / H * 100).toFixed(2) + '%">' + esc(C.format(v, first.unit === '%' ? '%' : first.unit, v % 1 ? 1 : 0).num) + '</span>';
+      });
+    }
+    var drawn = false;
     series.forEach(function (s, i) {
       var dm = doms[s.unit];
-      var p = C.paths(s.pts, t0, t1, dm[0], dm[1], W, H, Math.max(opts.gap || 0, 3 * C.medianStep(s.pts)));
+      var gap = Math.max(opts.gap || 0, 3 * C.medianStep(s.raw));
+      var sm = C.smooth(s.raw, C.smoothWindow(s.raw.length), gap);
+      var p = C.paths(sm, t0, t1, dm[0], dm[1], W, H, gap);
       if (!p.line) return;
+      drawn = true;
       if (mode === 'area' && i === 0) {
         var gid = 'pcsg-' + id.replace(/[^a-z0-9_-]/gi, '') + '-' + i;
         defs += '<linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + s.color +
-          '" stop-opacity=".34"/><stop offset="1" stop-color="' + s.color + '" stop-opacity="0"/></linearGradient>';
+          '" stop-opacity=".35"/><stop offset="1" stop-color="' + s.color + '" stop-opacity="0"/></linearGradient>';
         body += '<path d="' + p.area + '" fill="url(#' + gid + ')"/>';
       }
       body += '<path class="pcs-line" d="' + p.line + '" fill="none" stroke="' + s.color + '" stroke-width="' +
-        (opts.thin ? 1.4 : 2) + '" vector-effect="non-scaling-stroke"/>';
+        (opts.thin ? 1.8 : 2.5) + '" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
     });
     (opts.markers || []).forEach(function (m) {
       if (m.t < t0 || m.t > t1) return;
       var x = ((m.t - t0) / (t1 - t0) * W).toFixed(1);
       body += '<line class="pcs-mark" x1="' + x + '" x2="' + x + '" y1="0" y2="' + H + '" vector-effect="non-scaling-stroke"/>';
     });
-    S.charts[id] = { series: series, t0: t0, t1: t1 };
+    S.charts[id] = { series: series.map(function (s) { return { pts: s.raw, color: s.color, unit: s.unit, label: s.label, decimals: s.decimals }; }), t0: t0, t1: t1 };
     var marks = (opts.markers || []).filter(function (m) { return m.t >= t0 && m.t <= t1; }).map(function (m) {
       return '<span class="pcs-mark-dot" style="left:' + ((m.t - t0) / (t1 - t0) * 100).toFixed(2) + '%" title="' +
         esc(momentText(m)) + '"></span>';
     }).join('');
-    var empty = !body.replace(/<line[^>]*>/g, '') ? '<span class="pcs-chart-empty">' + esc(opts.emptyText || 'No history yet') + '</span>' : '';
-    return '<div class="pcs-chart-wrap ' + (opts.cls || '') + '" data-chart="' + esc(id) + '">' +
-      '<svg class="pcs-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
-      (defs ? '<defs>' + defs + '</defs>' : '') + body + '</svg>' + marks + empty + '</div>';
+    var empty = drawn ? '' : '<span class="pcs-chart-empty">' + esc(opts.emptyText || 'No history yet') + '</span>';
+    var stats = '';
+    if (opts.stats && first) {
+      var st = C.stats(first.raw);
+      var f = function (v) { return esc(C.format(v, first.unit, first.decimals).num); };
+      var unit = C.format(1, first.unit).unit;
+      stats = '<div class="pcs-stats num">' + (st
+        ? (series.length > 1 ? esc(first.label) + ' · ' : '') + 'Min <b>' + f(st.min) + '</b> · Avg <b>' + f(st.avg) + '</b> · Max <b>' + f(st.max) + '</b>' +
+          (unit ? ' <span>' + esc(unit) + '</span>' : '')
+        : '&nbsp;') + '</div>';
+    }
+    return '<div class="pcs-chart-wrap ' + (opts.cls || '') + (labels ? ' has-labels' : '') + '">' +
+      '<div class="pcs-plot" data-chart="' + esc(id) + '"><svg class="pcs-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      (defs ? '<defs>' + defs + '</defs>' : '') + body + '</svg>' + marks + empty + '</div>' +
+      (labels ? '<div class="pcs-gls" aria-hidden="true">' + labels + '</div>' : '') + '</div>' + stats;
   }
 
   function markersFor(keys) {
@@ -379,16 +429,45 @@
     if (w.kind === 'moments') return 'Marked moments';
     return w.readings[0] ? infoOf(w.readings[0]).label : KIND_NAMES[w.kind];
   }
+  /** The widget's tint: its own colour, else its first reading's category (Apple system colours). */
+  function tintOf(w) {
+    var st = w.style || {};
+    if (st.color) return st.color;
+    if (w.kind === 'session') return C.TINTS.frames;
+    if (w.kind === 'moments') return C.TINTS.temps;
+    if (w.kind === 'text' && !w.readings.length) return '#FFFFFF';
+    return C.tint(w.readings[0]);
+  }
+  function famOf(w) {
+    if (w.kind === 'session' || w.kind === 'moments') return w.kind;
+    return C.family(w.readings[0]);
+  }
   function estHtml(key, label) {
     return C.showEst(key, label, S.live && S.live.estimated, S.catalog) ? '<span class="pcs-est" title="Estimated">est.</span>' : '';
   }
-  function valueHtml(key, w, cls) {
+  /** Tinted icon + label on the left, secondary context on the right ("Now", "5 min"). */
+  function headHtml(w, right, estKey) {
+    var label = labelOf(w);
+    return '<div class="pcs-head"><span class="pcs-head-l" style="color:' + esc(tintOf(w)) + '">' + icon(famOf(w)) +
+      '<span class="pcs-head-t">' + esc(label) + '</span></span>' + (estKey ? estHtml(estKey, label) : '') +
+      '<span class="pcs-head-r">' + (right || '') + '</span></div>';
+  }
+  function plainHead(key, label, right) {
+    return '<div class="pcs-head"><span class="pcs-head-l" style="color:' + esc(C.tint(key)) + '">' + icon(C.family(key)) +
+      '<span class="pcs-head-t">' + esc(label) + '</span></span>' + estHtml(key, label) + '<span class="pcs-head-r">' + (right || '') + '</span></div>';
+  }
+  function contextOf(w) { return hasChart(w) ? esc(windowLabel(chartWindow(w).span)) : 'Now'; }
+
+  /** A big value: rounded numerals, small grey unit; °C reads as ° (Apple's way). */
+  function valueHtml(key, w, cls, lvl) {
     var st = w.style || {};
     var v = C.read(key, readCtx(st));
     if (!v.ok) {
       return '<div class="' + cls + ' pcs-na" title="' + esc(v.reason) + '">unavailable<small>' + esc(v.reason) + '</small></div>';
     }
-    return '<div class="' + cls + ' num">' + esc(v.num) + (v.unit ? '<small>' + esc(v.unit) + '</small>' : '') + '</div>';
+    var unit = v.unit === '°C' ? '°' : v.unit;
+    return '<div class="' + cls + ' num' + (lvl ? ' is-' + lvl : '') + '">' + esc(v.num) +
+      (unit ? '<small' + (unit === '°' ? ' class="is-deg"' : '') + '>' + esc(unit) + '</small>' : '') + '</div>';
   }
   function metaHtml(keys, cls) {
     if (!keys || !keys.length) return '';
@@ -397,17 +476,22 @@
       var short = C.shortLabel(k, S.catalog);
       var est = C.showEst(k, short, S.live && S.live.estimated, S.catalog) ? ' <span class="pcs-est">est.</span>' : '';
       if (!v.ok) return '<span class="is-na" title="' + esc(infoOf(k).label + ': ' + v.reason) + '">' + esc(short) + ' unavailable</span>';
-      // "1% low 118 fps" · "312 W" · "2.72 GHz" · "67 °C temp"
+      // "1% low 118 fps" · "312 W" · "2.72 GHz" · "67° temp"
       var lead = short === '1% low';
+      var unit = v.unit === '°C' ? '°' : v.unit;
       var trail = !lead && short && ['W', 'MHz', 'GHz'].indexOf(v.unit) < 0 ? ' ' + esc(short) : '';
       return '<span title="' + esc(infoOf(k).label) + '">' + (lead ? esc(short) + ' ' : '') + '<b class="num">' + esc(v.num) +
-        (v.unit ? ' ' + esc(v.unit) : '') + '</b>' + trail + est + '</span>';
+        (unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</b>' + trail + est + '</span>';
     }).join('') + '</div>';
   }
+  var EXTRA = ['#FFFFFF', '#8E8E93', '#FF375F', '#AC8E68'];
   function colorOf(w, i) {
-    var st = w.style || {};
-    if (i === 0 && st.color) return st.color;
-    return SERIES[i % SERIES.length];
+    if (i === 0) return tintOf(w);
+    var used = [tintOf(w)];
+    for (var j = 1; j < i; j++) used.push(colorOf(w, j));
+    var c = C.tint(w.readings[i]);
+    if (used.indexOf(c) < 0) return c;
+    return EXTRA.filter(function (x) { return used.indexOf(x) < 0; })[0] || EXTRA[i % EXTRA.length];
   }
 
   function widgetChart(w, mode, keys, opts) {
@@ -424,79 +508,92 @@
 
   var RENDER = {
     hero: function (w) {
-      var key = w.readings[0], st = w.style || {}, label = labelOf(w);
+      var key = w.readings[0], st = w.style || {};
       var ht = C.heroTemp(w);
-      var big = valueHtml(key, w, 'pcs-hero');
+      var lvl = ht.temp ? '' : C.level(C.read(key, readCtx(st)).value, st);
+      var big = valueHtml(key, w, 'pcs-hero', lvl);
       if (ht.temp) {
-        // "96% · 67°C": the temperature at the hero size; warn/crit tint it, not the load
-        var tv = C.read(ht.temp, readCtx({ decimals: st.decimals }));
-        var lvl = C.level(tv.value, st);
-        big = '<div class="pcs-hero-row">' + big + '<span class="pcs-hero-sep" aria-hidden="true">·</span>' +
-          (tv.ok ? '<div class="pcs-hero pcs-hero-t num' + (lvl ? ' is-' + lvl : '') + '" title="' + esc(tv.label) + '">' + esc(tv.num) +
-            '<small>' + esc(tv.unit) + '</small></div>'
-            : '<div class="pcs-hero pcs-hero-t pcs-na" title="' + esc(tv.label + ': ' + tv.reason) + '">temp<small>unavailable</small></div>') + '</div>';
+        // "96% · 67°": the temperature at the same size; warn/crit tint it, not the load
+        var tl = C.level(C.read(ht.temp, readCtx()).value, st);
+        big += '<span class="pcs-hero-sep" aria-hidden="true">·</span>' + valueHtml(ht.temp, { style: { decimals: st.decimals } }, 'pcs-hero pcs-hero-t', tl);
       }
-      return '<div class="pcs-lab">' + esc(label) + estHtml(key, label) + '</div>' +
-        big + metaHtml(ht.meta) +
-        (st.chart !== 'none' ? widgetChart(w, st.chart === 'line' ? 'line' : 'area', [key], { cls: 'pcs-area' }) : '');
+      return headHtml(w, contextOf(w), key) + '<div class="pcs-hero-row">' + big + '</div>' + metaHtml(ht.meta) +
+        (st.chart !== 'none' ? widgetChart(w, st.chart === 'line' ? 'line' : 'area', [key], { cls: 'pcs-c-hero', stats: true }) : '');
     },
     number: function (w) {
-      var key = w.readings[0], st = w.style || {}, label = labelOf(w);
-      return '<div class="pcs-lab">' + esc(label) + estHtml(key, label) + '</div>' + valueHtml(key, w, 'pcs-mid') +
-        metaHtml(st.meta) + (hasChart(w) ? widgetChart(w, st.chart, [key], { cls: 'pcs-area is-low' }) : '');
+      var key = w.readings[0], st = w.style || {};
+      var lvl = C.level(C.read(key, readCtx(st)).value, st);
+      if (!hasChart(w)) {   // no chart: the number sits at the bottom, like an Apple widget
+        return headHtml(w, contextOf(w), key) + '<div class="pcs-num-foot">' + valueHtml(key, w, 'pcs-mid pcs-mid-xl', lvl) + metaHtml(st.meta) + '</div>';
+      }
+      return headHtml(w, contextOf(w), key) + valueHtml(key, w, 'pcs-mid', lvl) + metaHtml(st.meta) +
+        widgetChart(w, st.chart, [key], { cls: 'pcs-c-low', grid: false });
     },
     chart: function (w) {
       var st = w.style || {};
       var legend = w.readings.map(function (k, i) {
         var v = C.read(k, readCtx(st));
         var info = infoOf(k);
-        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(info.label) +
-          estHtml(k, info.label) + ' <b class="num' + (v.ok ? '' : ' pcs-na') + '">' + esc(v.num) + (v.ok && v.unit ? ' ' + esc(v.unit) : '') + '</b></span>';
+        var unit = v.unit === '°C' ? '°' : v.unit;
+        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(w.readings.length > 1 ? C.shortLabel(k, S.catalog) || info.label : info.label) +
+          estHtml(k, info.label) + ' <b class="num' + (v.ok ? '' : ' pcs-na') + '">' + esc(v.num) + (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</b></span>';
       }).join('');
-      return '<div class="pcs-lab">' + esc(labelOf(w)) + '</div><div class="pcs-legend">' + legend + '</div>' +
-        widgetChart(w, st.chart === 'area' ? 'area' : 'line', w.readings, { cls: 'pcs-fill' });
+      return headHtml(w, contextOf(w)) + '<div class="pcs-legend">' + legend + '</div>' +
+        widgetChart(w, st.chart === 'area' ? 'area' : 'line', w.readings, { cls: 'pcs-c-fill', grid: w.h >= 3,
+          stats: w.readings.length === 1 && w.h >= 3 });
     },
     bars: function (w) {
       var st = w.style || {};
       var r = (S.live && S.live.sample && S.live.sample.r) || {};
       var meta = st.meta || [];
-      var head = meta.length ? valueHtml(meta[0], { style: { decimals: st.decimals } }, 'pcs-mid') : '';
+      var headline = '';
+      if (meta.length) {
+        var hv = C.read(meta[0], readCtx({ decimals: st.decimals }));
+        headline = hv.ok ? '<b class="num">' + esc(hv.num) + '</b> ' + esc(hv.unit === '°C' ? '°' : hv.unit) : '';
+      }
       var sib = w.readings.map(function (k) { return r[k]; });
       var rows = w.readings.map(function (k) {
         var info = infoOf(k);
         var v = C.read(k, readCtx(st));
         var lvl = C.level(v.value, st);
         var frac = C.fraction(k, v.value, r, sib, info.unit);
-        return '<div class="pcs-barrow' + (lvl ? ' is-' + lvl : '') + '"><span class="pcs-barname" title="' + esc(info.label) + '">' +
+        var unit = v.unit === '°C' ? '°' : v.unit;
+        return '<div class="pcs-brow' + (lvl ? ' is-' + lvl : '') + '"><div class="pcs-brow-top"><span class="pcs-bname" title="' + esc(info.label) + '">' +
           esc(barName(k, info)) + estHtml(k, info.label) + '</span>' +
-          '<div class="pcs-track"><div class="pcs-fill-bar" style="width:' + (frac * 100).toFixed(1) + '%"></div></div>' +
-          '<span class="pcs-barval num' + (v.ok ? '' : ' pcs-na') + '" title="' + esc(v.reason) + '">' + esc(v.num) +
-          (v.ok && v.unit ? ' ' + esc(v.unit) : '') + '</span></div>';
+          '<span class="pcs-bval num' + (v.ok ? '' : ' pcs-na') + '" title="' + esc(v.reason) + '">' + esc(v.num) +
+          (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</span></div>' +
+          '<div class="pcs-btrack"><div class="pcs-bfill" style="width:' + (frac * 100).toFixed(1) + '%"></div></div></div>';
       }).join('');
-      return '<div class="pcs-lab">' + esc(labelOf(w)) + (meta[0] ? estHtml(meta[0], labelOf(w)) : '') + '</div>' + head +
-        '<div class="pcs-bars">' + rows + '</div>' + metaHtml(meta.slice(1), 'is-foot');
+      return headHtml(w, headline, meta[0]) + '<div class="pcs-bars">' + rows + '</div>' + metaHtml(meta.slice(1), 'is-foot');
     },
     ring: function (w) {
       var key = w.readings[0], st = w.style || {}, label = labelOf(w);
       var info = infoOf(key);
       var v = C.read(key, readCtx(st));
+      var lvl = C.level(v.value, st);
       var r = (S.live && S.live.sample && S.live.sample.r) || {};
       var frac = C.fraction(key, v.value, r, [v.value], info.unit);
-      var R = 42, L = 2 * Math.PI * R;
-      return '<div class="pcs-lab">' + esc(label) + estHtml(key, label) + '</div><div class="pcs-ring">' +
-        '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="' + R + '" class="pcs-ring-track"/>' +
-        '<circle cx="50" cy="50" r="' + R + '" class="pcs-ring-fill" stroke-dasharray="' + (L * frac).toFixed(1) + ' ' + L.toFixed(1) +
-        '" transform="rotate(-90 50 50)"/></svg>' +
-        '<div class="pcs-ring-v">' + (v.ok ? '<b class="num">' + esc(v.num) + '</b><small>' + esc(v.unit) + '</small>'
-          : '<span class="pcs-na" title="' + esc(v.reason) + '">unavailable</span>') + '</div></div>';
+      // Activity ring: stroke 13% of the diameter, round caps, track = the tint at 20%
+      var SW = 13, R = 50 - SW / 2, L = 2 * Math.PI * R, tint = tintOf(w);
+      var gid = 'pcsr-' + w.id.replace(/[^a-z0-9_-]/gi, '');
+      var unit = v.unit === '°C' ? '°' : v.unit;
+      return '<div class="pcs-ring">' +
+        '<svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0" style="stop-color:color-mix(in srgb, ' + esc(tint) + ' 70%, #fff)"/><stop offset="1" stop-color="' + esc(tint) + '"/></linearGradient></defs>' +
+        '<circle cx="50" cy="50" r="' + R + '" fill="none" stroke="' + esc(tint) + '" stroke-opacity=".2" stroke-width="' + SW + '"/>' +
+        (frac > 0 ? '<circle cx="50" cy="50" r="' + R + '" class="pcs-ring-arc" fill="none" stroke="url(#' + gid + ')" stroke-width="' + SW +
+          '" stroke-linecap="round" stroke-dasharray="' + Math.max(0.01, L * frac).toFixed(2) + ' ' + L.toFixed(2) + '" transform="rotate(-90 50 50)"/>' : '') +
+        '</svg><div class="pcs-ring-v">' + (v.ok ? '<b class="num' + (lvl ? ' is-' + lvl : '') + '">' + esc(v.num) + '<small>' + esc(unit) + '</small></b>'
+          : '<b class="pcs-na" title="' + esc(v.reason) + '">—</b>') +
+        '<span>' + esc(label) + estHtml(key, label) + '</span>' + (v.ok ? '' : '<span class="pcs-ring-na">unavailable</span>') + '</div></div>' +
+        // wide cards: ring on the left, the header and value beside it (Fitness-widget style)
+        '<div class="pcs-ring-side">' + headHtml(w, '', key) + valueHtml(key, w, 'pcs-mid pcs-mid-xl', lvl) + '</div>';
     },
     sparkline: function (w) {
-      var key = w.readings[0], st = w.style || {}, label = labelOf(w);
-      var v = C.read(key, readCtx(st));
-      return '<div class="pcs-spark-head"><div class="pcs-lab">' + esc(label) + estHtml(key, label) + '</div>' +
-        '<div class="pcs-small num' + (v.ok ? '' : ' pcs-na') + '" title="' + esc(v.reason) + '">' + esc(v.num) +
-        (v.ok && v.unit ? '<small>' + esc(v.unit) + '</small>' : '') + '</div></div>' +
-        widgetChart(w, 'line', [key], { cls: 'pcs-fill', thin: true });
+      var key = w.readings[0], st = w.style || {};
+      var lvl = C.level(C.read(key, readCtx(st)).value, st);
+      return headHtml(w, contextOf(w), key) + valueHtml(key, w, 'pcs-small', lvl) +
+        widgetChart(w, 'line', [key], { cls: 'pcs-c-fill', thin: true, grid: false });
     },
     text: function (w) {
       var st = w.style || {};
@@ -511,18 +608,18 @@
     session: function (w) {
       var game = S.live && S.live.online && S.live.sample && S.live.sample.game;
       if (game) {
-        return '<div class="pcs-lab">' + esc(labelOf(w)) + ' · now</div><div class="pcs-mid pcs-ellip">' + esc(game) + '</div>' +
+        return headHtml(w, 'Now') + '<div class="pcs-mid pcs-ellip">' + esc(game) + '</div>' +
           metaHtml(['fps', 'fps.low1', 'gpu.temp', 'power.total']);
       }
       var s = S.sessions[0];
-      if (!s) return '<div class="pcs-lab">' + esc(labelOf(w)) + '</div><div class="pcs-empty-small">No game sessions yet. They appear here when a game runs on the PC.</div>';
+      if (!s) return headHtml(w, '') + '<div class="pcs-empty-small">No game sessions yet. They appear here when a game runs on the PC.</div>';
       return '<button type="button" class="pcs-session-open" data-pcs="session" data-sid="' + esc(s.id) + '">' +
-        '<div class="pcs-lab">' + esc(labelOf(w)) + ' · last</div><div class="pcs-mid pcs-ellip">' + esc(s.title || s.exe || 'Game') + '</div>' +
+        headHtml(w, esc(when(s.start))) + '<div class="pcs-mid pcs-ellip">' + esc(s.title || s.exe || 'Game') + '</div>' +
         '<div class="pcs-meta">' + sessionMeta(s) + '</div></button>';
     },
     moments: function (w) {
       var list = S.moments.slice(-12).reverse();
-      return '<div class="pcs-lab">' + esc(labelOf(w)) + '</div>' + (list.length ? '<div class="pcs-chips">' + list.map(function (m) {
+      return headHtml(w, 'Last 7 days') + (list.length ? '<div class="pcs-chips">' + list.map(function (m) {
         return '<span class="pcs-chip" title="' + esc(momentText(m)) + '"><i></i>' + esc(when(m.t)) + ' · ' +
           esc(m.label || infoOf(m.key).label) + '</span>';
       }).join('') + '</div>' : '<div class="pcs-empty-small">Nothing marked in the last 7 days.</div>');
@@ -538,33 +635,23 @@
     if (s.start && s.end) parts.push('<span><b class="num">' + esc(C.duration(s.end - s.start)) + '</b></span>');
     if (typeof s.fps_avg === 'number') parts.push('<span><b class="num">' + Math.round(s.fps_avg) + '</b> fps avg</span>');
     if (typeof s.fps_low1 === 'number') parts.push('<span>1% low <b class="num">' + Math.round(s.fps_low1) + '</b></span>');
-    if (typeof s.gpu_temp_max === 'number') parts.push('<span>GPU peak <b class="num">' + Math.round(s.gpu_temp_max) + ' °C</b></span>');
+    if (typeof s.gpu_temp_max === 'number') parts.push('<span>GPU peak <b class="num">' + Math.round(s.gpu_temp_max) + '°</b></span>');
     if (typeof s.energy_wh === 'number') parts.push('<span><b class="num">' + (s.energy_wh >= 1000 ? (s.energy_wh / 1000).toFixed(2) + ' kWh' : Math.round(s.energy_wh) + ' Wh') + '</b> <span class="pcs-est">est.</span></span>');
     return parts.join('');
   }
 
   function widgetBody(w) {
     var fn = RENDER[w.kind];
-    if (!fn) return '<div class="pcs-lab">' + esc(w.kind) + '</div><div class="pcs-empty-small">This widget kind isn’t known here yet.</div>';
-    try { return fn(w); } catch (e) { return '<div class="pcs-lab">' + esc(labelOf(w)) + '</div><div class="pcs-empty-small">Couldn’t draw this widget.</div>'; }
-  }
-  function widgetLevel(w) {
-    if (['hero', 'number', 'ring', 'sparkline'].indexOf(w.kind) < 0 || !w.readings[0]) return '';
-    var ht = w.kind === 'hero' ? C.heroTemp(w) : null;
-    if (ht && ht.temp) {
-      var tl = C.level(C.read(ht.temp, readCtx()).value, w.style);
-      return tl ? 'temp-' + tl : '';
-    }
-    return C.level(C.read(w.readings[0], readCtx(w.style)).value, w.style);
+    if (!fn) return headHtml(w, '') + '<div class="pcs-empty-small">This widget kind isn’t known here yet.</div>';
+    try { return fn(w); } catch (e) { return headHtml(w, '') + '<div class="pcs-empty-small">Couldn’t draw this widget.</div>'; }
   }
   function widgetFrame(w, idx) {
     var st = w.style || {};
-    var lvl = widgetLevel(w);
     var styles = 'grid-column:' + (w.x + 1) + ' / span ' + w.w + ';grid-row:' + (w.y + 1) + ' / span ' + w.h +
-      ';--h:' + w.h + ';order:' + idx + ';' + (st.color ? '--pcs-c:' + st.color + ';' : '');
+      ';--h:' + w.h + ';order:' + idx + ';--tint:' + tintOf(w) + ';';
     var editing = !!S.edit;
-    return '<div class="pcs-w pcs-k-' + esc(w.kind) + (lvl ? ' is-' + lvl : '') + (st.color ? ' has-color' : '') + (editing && S.edit.selected === w.id ? ' is-selected' : '') +
-      '" data-wid="' + esc(w.id) + '" style="' + styles + '"' + (editing ? ' tabindex="0" role="button" aria-label="' +
+    return '<div class="pcs-w pcs-k-' + esc(w.kind) + (st.color ? ' has-color' : '') + (editing && S.edit.selected === w.id ? ' is-selected' : '') +
+      '" data-wid="' + esc(w.id) + '" style="' + esc(styles) + '"' + (editing ? ' tabindex="0" role="button" aria-label="' +
       esc(labelOf(w)) + ' — drag to move, Enter for settings"' : '') + '><div class="pcs-wb">' + widgetBody(w) + '</div>' +
       (editing ? '<span class="pcs-handle" data-handle="1" aria-hidden="true"></span>' : '') + '</div>';
   }
@@ -606,9 +693,8 @@
     var d = dash();
     var html =
       '<button type="button" class="pcs-back" data-pcs="close" aria-label="Close PC Stats">‹</button>' +
-      '<div class="pcs-orb' + (l && l.online ? ' is-on' : '') + '" aria-hidden="true"></div>' +
-      '<div class="pcs-id"><div class="pcs-name">' + esc(name) + '</div><div class="pcs-status' +
-        (l && !l.online ? ' is-off' : '') + '">' + esc(status) + '</div></div>';
+      '<div class="pcs-id"><h1 class="pcs-name">' + esc(name) + '</h1><div class="pcs-status' +
+        (l && !l.online ? ' is-off' : '') + '">' + (l && l.online ? '<i class="pcs-live-dot" aria-hidden="true"></i>' : '') + esc(status) + '</div></div>';
     if (!S.edit) {
       html += '<div class="pcs-pills" role="group" aria-label="Range">' + ['live', '1h', '24h'].map(function (r) {
         return '<button type="button" class="pcs-pill' + (S.range === r ? ' is-on' : '') + '" data-pcs="range" data-range="' + r +
@@ -689,26 +775,26 @@
           return '<div class="pcs-row is-static"><span class="pcs-mdot" aria-hidden="true"></span><div class="pcs-row-main">' +
             '<span class="pcs-row-title">' + esc(m.label || info.label) + '</span><span class="pcs-row-sub">' + esc(when(m.t)) +
             (m.duration_s ? ' · ' + esc(C.duration(m.duration_s)) : '') + '</span></div><div class="pcs-meta">' +
-            (f.num ? '<span><b class="num">' + esc(f.num) + ' ' + esc(f.unit) + '</b></span>' : '') +
-            (th.num ? '<span>mark at ' + esc(th.num) + ' ' + esc(th.unit) + '</span>' : '') + '</div></div>';
+            (f.num ? '<span><b class="num">' + esc(f.num) + (f.unit === '°C' ? '°' : ' ' + esc(f.unit)) + '</b></span>' : '') +
+            (th.num ? '<span>mark at ' + esc(th.num) + (th.unit === '°C' ? '°' : ' ' + esc(th.unit)) + '</span>' : '') + '</div></div>';
         }).join('') + '</div>';
     } else if (part === 'health') {
       var hb = S.el.querySelector('#pcsHealth');
       if (!S.health) { hb.innerHTML = '<div class="pcs-h-empty">' + (S.healthLoading ? 'Reading 90 days of history…' : '') + '</div>'; return; }
       var h = S.health;
       var temps = [['gpu.temp', 'GPU'], ['cpu.temp', 'CPU']].map(function (x, i) {
-        return { key: x[0], pts: h.series[x[0]] || [], color: SERIES[i], unit: '°C', label: x[1] + ' temperature' };
+        return { key: x[0], pts: h.series[x[0]] || [], color: C.TINTS[i ? 'cpu' : 'gpu'], unit: '°C', label: x[1] };
       });
       var fans = h.fans.map(function (k, i) {
-        return { key: k, pts: h.series[k] || [], color: SERIES[i % SERIES.length], unit: 'rpm', label: infoOf(k).label };
+        return { key: k, pts: h.series[k] || [], color: [C.TINTS.cooling, '#FFFFFF', '#8E8E93', C.TINTS.cpu, C.TINTS.gpu][i % 5], unit: 'rpm', label: infoOf(k).label };
       });
       var gap = 3 * 3600;
       hb.innerHTML = '<div class="pcs-h-grid">' +
-        '<div class="pcs-panel"><div class="pcs-lab">Temperatures · daily trend</div>' + legend(temps) +
+        '<div class="pcs-panel">' + plainHead('gpu.temp', 'Temperatures', '90 days') + legend(temps) +
           chartHtml('health-t', temps, h.t0, h.t1, 'line', { gap: gap, cls: 'pcs-h-chart', thin: true, markers: markersFor(['gpu.temp', 'cpu.temp']),
-            emptyText: 'No temperature history yet' }) + '</div>' +
-        '<div class="pcs-panel"><div class="pcs-lab">Fans</div>' + legend(fans) +
-          chartHtml('health-f', fans, h.t0, h.t1, 'line', { gap: gap, cls: 'pcs-h-chart', thin: true, emptyText: 'No fan history yet' }) + '</div></div>';
+            emptyText: 'No temperature history yet', stats: true }) + '</div>' +
+        '<div class="pcs-panel">' + plainHead('gpu.fan', 'Fans', '90 days') + legend(fans) +
+          chartHtml('health-f', fans, h.t0, h.t1, 'line', { gap: gap, cls: 'pcs-h-chart', thin: true, emptyText: 'No fan history yet', stats: true }) + '</div></div>';
     }
   }
   function legend(series) {
@@ -762,10 +848,10 @@
       '<div class="pcs-meta pcs-sess-meta">' + sessionMeta(s) +
         (typeof s.watts_avg === 'number' ? '<span><b class="num">' + Math.round(s.watts_avg) + ' W</b> avg <span class="pcs-est">est.</span></span>' : '') +
         (typeof s.watts_max === 'number' ? '<span><b class="num">' + Math.round(s.watts_max) + ' W</b> peak</span>' : '') +
-        (typeof s.cpu_temp_max === 'number' ? '<span>CPU peak <b class="num">' + Math.round(s.cpu_temp_max) + ' °C</b></span>' : '') +
+        (typeof s.cpu_temp_max === 'number' ? '<span>CPU peak <b class="num">' + Math.round(s.cpu_temp_max) + '°</b></span>' : '') +
         (s.throttle_s ? '<span><b class="num">' + esc(C.duration(s.throttle_s)) + '</b> throttling</span>' : '') + '</div>' +
       '<div class="pcs-sess-grid">' + keys.map(function (k) {
-        return '<div class="pcs-panel" data-skey="' + k[0] + '"><div class="pcs-lab">' + esc(k[1]) + '</div><div class="pcs-h-empty">Loading…</div></div>';
+        return '<div class="pcs-panel" data-skey="' + k[0] + '">' + plainHead(k[0], k[1]) + '<div class="pcs-h-empty">Loading…</div></div>';
       }).join('') + '</div>', 'is-wide');
     var span = Math.max(60, t1 - t0);
     var momentsIn = S.moments.filter(function (m) { return m.t >= t0 && m.t <= t1; });
@@ -775,21 +861,13 @@
         var info = infoOf(k[0]);
         var panel = sheet.querySelector('[data-skey="' + k[0] + '"]');
         if (!panel) return;
-        var stats = '';
-        if (pts.length) {
-          var vals = pts.map(function (p) { return p[1]; });
-          var avg = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
-          var fa = C.format(avg, info.unit), fm = C.format(Math.max.apply(null, vals), info.unit);
-          stats = '<div class="pcs-meta"><span>avg <b class="num">' + esc(fa.num) + ' ' + esc(fa.unit) + '</b></span><span>peak <b class="num">' +
-            esc(fm.num) + ' ' + esc(fm.unit) + '</b></span></div>';
-        }
-        panel.innerHTML = '<div class="pcs-lab">' + esc(k[1]) + estHtml(k[0], k[1]) + '</div>' + stats +
-          chartHtml('sess-' + k[0], [{ key: k[0], pts: pts, color: SERIES[0], unit: info.unit, label: info.label }], t0, t1,
+        panel.innerHTML = plainHead(k[0], k[1]) +
+          chartHtml('sess-' + k[0], [{ key: k[0], pts: pts, color: C.tint(k[0]), unit: info.unit, label: info.label }], t0, t1,
             i === 0 ? 'area' : 'line', { gap: Math.max(35, 3 * span / 300), cls: 'pcs-h-chart', markers: momentsIn.filter(function (m) { return m.key === k[0]; }),
-              emptyText: 'Not recorded for this session' });
+              emptyText: 'Not recorded for this session', stats: true });
       }).catch(function () {
         var panel = sheet.querySelector('[data-skey="' + k[0] + '"]');
-        if (panel) panel.innerHTML = '<div class="pcs-lab">' + esc(k[1]) + '</div><div class="pcs-h-empty">Couldn’t load this graph.</div>';
+        if (panel) panel.innerHTML = plainHead(k[0], k[1]) + '<div class="pcs-h-empty">Couldn’t load this graph.</div>';
       });
     });
   }

@@ -28,7 +28,8 @@
   var WINDOWED = { hero: 1, number: 1, chart: 1, sparkline: 1 };
   var META = { hero: 1, number: 1, bars: 1 };
   var WINDOWS = [[60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h'], [21600, '6 h'], [86400, '24 h']];
-  var SWATCHES = ['#8fdcff', '#5cc8ff', '#9fe7ff', '#b6ecd2', '#ffd38a', '#ff9f80', '#c9b8ff', '#eef2f7'];
+  // Apple system colours (dark): green, blue, purple, yellow, teal, indigo, cyan, orange, pink, white
+  var SWATCHES = ['#30d158', '#0a84ff', '#bf5af2', '#ffd60a', '#64d2ff', '#5e5ce6', '#5ac8fa', '#ff9f0a', '#ff375f', '#ffffff'];
   var GROUPS = { cpu: 'CPU', gpu: 'GPU', frames: 'Frames', memory: 'Memory', disk: 'Disk', network: 'Network',
     power: 'Power', cooling: 'Fans', temps: 'Temperatures' };
 
@@ -336,11 +337,11 @@
     }
     if (w.kind !== 'session' && w.kind !== 'moments' && w.kind !== 'text') {
       f.push('<div class="pcs-field"><span>Colour</span><div class="pcs-swatches">' +
-        '<button type="button" class="pcs-swatch is-default' + (!st.color ? ' is-on' : '') + '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="" title="Default">A</button>' +
+        '<button type="button" class="pcs-swatch is-default' + (!st.color ? ' is-on' : '') + '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="" title="Category colour">A</button>' +
         SWATCHES.map(function (c) {
           return '<button type="button" class="pcs-swatch' + (st.color && st.color.toLowerCase() === c ? ' is-on' : '') + '" style="--sw:' + c +
             '" data-pcs="w-color" data-wid="' + esc(id) + '" data-color="' + c + '" aria-label="Colour ' + c + '"></button>';
-        }).join('') + '<input type="color" class="pcs-color" data-f="color" value="' + esc(st.color || '#8fdcff') + '" aria-label="Custom colour"></div></div>');
+        }).join('') + '<input type="color" class="pcs-color" data-f="color" value="' + esc(st.color || '#0a84ff') + '" aria-label="Custom colour"></div></div>');
     }
     if (THRESHOLDS[w.kind]) {
       f.push('<div class="pcs-field-row"><label class="pcs-field"><span>Amber at</span><input class="pcs-input" type="number" step="any" data-f="warn" value="' +
