@@ -61,26 +61,17 @@
     <GradientStop Color="#FF121212" Offset="1" />
   </LinearGradientBrush>
 
-  <!-- PC Stats dashboard, the Apple look (docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md):
-       black page, #1C1C1E cards, Apple dark label colours, one system colour per category. -->
+  <!-- PC Stats dashboard, the Jarvis look (docs/superpowers/specs/2026-11-15-pc-stats-jarvis-look.md):
+       the app's own tokens only — black page, grey cards like the island's, white accent, amber/red for warnings. -->
   <SolidColorBrush x:Key="JcStatsBg" Color="#FF000000" />
-  <SolidColorBrush x:Key="JcStatsCard" Color="#FF1C1C1E" />
-  <SolidColorBrush x:Key="JcStatsElevated" Color="#FF2C2C2E" />
-  <SolidColorBrush x:Key="JcStatsSecondary" Color="#99EBEBF5" />
-  <SolidColorBrush x:Key="JcStatsTertiary" Color="#4DEBEBF5" />
-  <SolidColorBrush x:Key="JcStatsSeparator" Color="#66545458" />
-  <SolidColorBrush x:Key="JcStatsGrid" Color="#40545458" />
-  <SolidColorBrush x:Key="JcStatsWarn" Color="#FFFF9F0A" />
-  <SolidColorBrush x:Key="JcStatsCrit" Color="#FFFF453A" />
-  <Color x:Key="JcStatsTint.gpu">#FF30D158</Color>
-  <Color x:Key="JcStatsTint.cpu">#FF0A84FF</Color>
-  <Color x:Key="JcStatsTint.frames">#FFBF5AF2</Color>
-  <Color x:Key="JcStatsTint.power">#FFFFD60A</Color>
-  <Color x:Key="JcStatsTint.memory">#FF64D2FF</Color>
-  <Color x:Key="JcStatsTint.network">#FF5E5CE6</Color>
-  <Color x:Key="JcStatsTint.cooling">#FF5AC8FA</Color>
-  <Color x:Key="JcStatsTint.temps">#FFFF9F0A</Color>
-  <Color x:Key="JcStatsTint.other">#FF8E8E93</Color>
+  <SolidColorBrush x:Key="JcStatsCard" Color="{StaticResource JcButtonColor}" />
+  <SolidColorBrush x:Key="JcStatsElevated" Color="{StaticResource JcButtonSelectedColor}" />
+  <SolidColorBrush x:Key="JcStatsSecondary" Color="{StaticResource JcTextDimColor}" />
+  <SolidColorBrush x:Key="JcStatsTertiary" Color="{StaticResource JcTextFaintColor}" />
+  <SolidColorBrush x:Key="JcStatsHairline" Color="{StaticResource JcHairlineColor}" />
+  <SolidColorBrush x:Key="JcStatsGrid" Color="#12FFFFFF" />
+  <SolidColorBrush x:Key="JcStatsWarn" Color="{StaticResource JcAmberColor}" />
+  <SolidColorBrush x:Key="JcStatsCrit" Color="{StaticResource JcRedColor}" />
 
   <!-- SF Pro on the Mac; Segoe UI Variable here (Segoe UI where it's missing). SF Mono → Cascadia. -->
   <FontFamily x:Key="JcFont">Segoe UI Variable Text, Segoe UI</FontFamily>

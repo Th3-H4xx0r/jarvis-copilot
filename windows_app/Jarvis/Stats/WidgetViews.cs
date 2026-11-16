@@ -56,8 +56,18 @@ public static class StatsLook
         _ => "other",
     };
 
-    public static Color Tint(string key) =>
-        Application.Current.TryFindResource("JcStatsTint." + Group(key)) is Color c ? c : Colors.Gray;
+    /// The app's one accent (white today): every chart, ring and bar is drawn in shades of it.
+    public static Color Accent => Application.Current.TryFindResource("JcAccentColor") is Color c ? c : Colors.White;
+
+    public static Color Tint(string key) => Accent;
+
+    /// Series 1 = the accent, 2 = 55%, 3 = 30%.
+    public static Color Shade(int index) => Fade(Accent, index switch { 0 => 1, 1 => 0.55, _ => 0.3 });
+
+    public static Color Fade(Color c, double opacity) => Color.FromArgb((byte)(c.A * opacity), c.R, c.G, c.B);
+
+    public static Color Warn => Application.Current.TryFindResource("JcAmberColor") is Color c ? c : Colors.Orange;
+    public static Color Crit => Application.Current.TryFindResource("JcRedColor") is Color c ? c : Colors.Red;
 
     /// Segoe Fluent Icons glyph for the group.
     public static string Icon(string key) => Group(key) switch
@@ -65,10 +75,6 @@ public static class StatsLook
         "gpu" => "", "cpu" => "", "frames" => "", "power" => "", "memory" => "",
         "network" => "", "cooling" => "", "temps" => "", _ => "",
     };
-
-    /// The colour of the part a reading belongs to (gpu.temp → GPU green, cpu.temp → CPU blue).
-    public static Color PartTint(string key) => key.StartsWith("gpu.") ? Tint("gpu.load") : key.StartsWith("cpu.") ? Tint("cpu.load")
-        : key.StartsWith("power.") ? Tint(key) : key == "net.up" || key == "disk.write" ? Colors.White : Tint(key);
 
     public static SolidColorBrush Brush(Color c, double opacity = 1) => new(Color.FromArgb((byte)(c.A * opacity), c.R, c.G, c.B));
 
@@ -90,13 +96,15 @@ public abstract class WidgetView : Border
         var key = w.Readings.FirstOrDefault() ?? "";
         Tint = w.Style.Color is { } c && TryColor(c) is { } custom ? custom : StatsLook.Tint(key);
         Background = Th.B("JcStatsCard");
-        CornerRadius = new CornerRadius(22);
+        BorderBrush = Th.B("JcStatsHairline");
+        BorderThickness = new Thickness(1);
+        CornerRadius = new CornerRadius(16);
         Padding = new Thickness(20, 16, 20, 16);
         Margin = new Thickness(6);
         ClipToBounds = true;
-        Icon = new TextBlock { Text = StatsLook.Icon(key), FontFamily = StatsLook.Icons, FontSize = 15, Foreground = StatsLook.Brush(Tint), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 7, 0) };
-        Label = Text("", 15, StatsLook.Brush(Tint), FontWeights.SemiBold);
-        Context = Text("", 13, Th.B("JcStatsSecondary"));
+        Icon = new TextBlock { Text = StatsLook.Icon(key), FontFamily = StatsLook.Icons, FontSize = 13, Foreground = Th.B("JcStatsSecondary"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 8, 0) };
+        Label = Caps(Th.B("JcStatsSecondary"));
+        Context = Caps(Th.B("JcStatsTertiary"));
         Context.HorizontalAlignment = HorizontalAlignment.Right;
     }
 
@@ -130,6 +138,13 @@ public abstract class WidgetView : Border
         row.Children.Add(left);
         return row;
     }
+
+    /// The app's section-label style: small, semibold, muted, upper case (set through the Text property).
+    protected static TextBlock Caps(Brush brush) => new UpperText
+    {
+        FontSize = 13, Foreground = brush, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
+        FontFamily = (FontFamily)Application.Current.FindResource("JcFont"), TextTrimming = TextTrimming.CharacterEllipsis,
+    };
 
     protected static TextBlock Text(string s, double size, Brush brush, FontWeight? weight = null) => new()
     {
@@ -286,10 +301,10 @@ public sealed class Chart : Grid
                     g.PolyLineTo(pts.Select(p => new Point(X(p.T), Y(p.V))).Append(new Point(X(pts[^1].T), h)).ToList(), false, true);
                 }
                 area.Freeze();
-                var grad = new LinearGradientBrush(Color.FromArgb(90, color.R, color.G, color.B), Color.FromArgb(0, color.R, color.G, color.B), 90);
+                var grad = new LinearGradientBrush(StatsLook.Fade(color, 0.16), StatsLook.Fade(color, 0), 90);
                 _canvas.Children.Add(new Path { Data = area, Fill = grad });
             }
-            _canvas.Children.Add(new Path { Data = line, Stroke = StatsLook.Brush(color, s == 0 ? 1 : 0.75), StrokeThickness = s == 0 ? 2.5 : 1.8, StrokeLineJoin = PenLineJoin.Round });
+            _canvas.Children.Add(new Path { Data = line, Stroke = new SolidColorBrush(color), StrokeThickness = s == 0 ? 2 : 1.6, StrokeLineJoin = PenLineJoin.Round });
         }
     }
 }
@@ -437,9 +452,7 @@ public sealed class ChartView : WidgetView
         var window = W.Style.Window ?? 600;
         Context.Text = window >= 3600 ? $"{window / 3600} h" : $"{window / 60} min";
         var keys = W.Readings.Take(3).ToList();
-        // Lines of the same kind (GPU vs CPU temperature) take their part's colour so they can be told apart.
-        var tints = keys.Select(StatsLook.Tint).ToList();
-        var colors = keys.Select((k, i) => tints.Count(t => t == tints[i]) > 1 ? StatsLook.PartTint(k) : i == 0 ? Tint : tints[i]).ToList();
+        var colors = keys.Select((_, i) => StatsLook.Shade(i)).ToList();
         var series = keys.Select(k => f.Series.Window(k, window, f.Sample.T)).ToList();
         var unit = keys.Count > 0 ? RawUnit(f, keys[0]) : "";
         _chart.Draw(series, colors, ChartMath.Range(keys.FirstOrDefault() ?? "", unit, series.SelectMany(s => s.Select(p => p.V))), f.Sample.T - window, f.Sample.T, W.Style.Chart != "line", unit);
@@ -498,14 +511,16 @@ public sealed class BarsView : WidgetView
             var max = Max(k, f.Sample.R, total);
             var name = Text(Short(LabelOf(f, k)), compact ? 13 : 14, Th.B("JcStatsSecondary"));
             var val = Text(have ? $"{Value(f, k)} {(Unit(f, k) == "°" ? "°" : RawUnit(f, k))}".Replace(" °", "°") : "—", compact ? 13 : 14, Th.B("JcText"), FontWeights.SemiBold);
+            if (have && (k.EndsWith(".temp") || k.StartsWith("temp.") || k == "gpu.hotspot") && v >= 85) val.Foreground = new SolidColorBrush(v >= 95 ? StatsLook.Crit : StatsLook.Warn);
             val.FontFamily = StatsLook.Rounded;
             var line = new DockPanel();
             DockPanel.SetDock(val, Dock.Right);
             line.Children.Add(val);
             line.Children.Add(name);
             var track = new Grid { Height = compact ? 6 : 8, Margin = new Thickness(0, compact ? 3 : 5, 0, 0) };
-            track.Children.Add(new Border { Background = Th.B("JcStatsElevated"), CornerRadius = new CornerRadius(4) });
-            var fill = new Border { Background = StatsLook.Brush(StatsLook.Tint(k)), CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left };
+            track.Children.Add(new Border { Background = StatsLook.Brush(StatsLook.Accent, 0.1), CornerRadius = new CornerRadius(4) });
+            var hot = k.EndsWith(".temp") || k.StartsWith("temp.") || k == "gpu.hotspot" ? (v >= 95 ? StatsLook.Crit : v >= 85 ? StatsLook.Warn : (Color?)null) : null;
+            var fill = new Border { Background = hot is { } h ? new SolidColorBrush(h) : StatsLook.Brush(StatsLook.Accent, 0.85), CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left };
             track.Children.Add(fill);
             track.SizeChanged += (_, e) => fill.Width = have && max > 0 ? Math.Clamp(v / max, 0.02, 1) * e.NewSize.Width : 0;
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, Math.Max(4, rowH - (compact ? 26 : 30))) };
@@ -563,8 +578,9 @@ public sealed class RingView : WidgetView
         var stroke = Math.Max(6, side * 0.13);
         _track.Width = _track.Height = side;
         _track.StrokeThickness = _arc.StrokeThickness = stroke;
-        _track.Stroke = StatsLook.Brush(Tint, 0.2);
-        _arc.Stroke = StatsLook.Brush(Tint);
+        _track.Stroke = StatsLook.Brush(StatsLook.Accent, 0.12);
+        var level = WidgetText.Level(f.Sample.R.TryGetValue(key, out var lv) ? lv : null, W.Style);
+        _arc.Stroke = new SolidColorBrush(level == "crit" ? StatsLook.Crit : level == "warn" ? StatsLook.Warn : StatsLook.Accent);
         _value.FontSize = Math.Clamp(side / 4, 16, 64);
         var have = Has(f, key);
         _value.Text = have ? Value(f, key) + Unit(f, key) : "—";
@@ -646,7 +662,7 @@ public sealed class StatsView : WidgetView
             var u = have ? Unit(f, k) : "";
             if (u == "°") { value.Text += "°"; u = ""; }
             unit.Text = u;
-            var tint = StatsLook.Tint(k);
+            var tint = StatsLook.Fade(StatsLook.Accent, 0.7);
             var pts = f.Series.Window(k, 300, f.Sample.T);
             spark.Height = Math.Max(18, Math.Floor(cellH - value.FontSize * 1.35 - 44));
             spark.Visibility = cellH > 70 ? Visibility.Visible : Visibility.Collapsed;
@@ -758,4 +774,11 @@ public sealed class ListView : WidgetView
         if (lines.Count == 0) lines.Add(W.Kind == "session" ? "No game running" : "Nothing marked yet");
         foreach (var l in lines.Take(6)) _rows.Children.Add(Text(l, 14, Th.B("JcStatsSecondary")));
     }
+}
+
+/// A TextBlock that shows its text in capitals (the app's small section labels).
+public sealed class UpperText : TextBlock
+{
+    static UpperText() => TextProperty.OverrideMetadata(typeof(UpperText),
+        new FrameworkPropertyMetadata("", null, (_, v) => (v as string)?.ToUpperInvariant() ?? ""));
 }
