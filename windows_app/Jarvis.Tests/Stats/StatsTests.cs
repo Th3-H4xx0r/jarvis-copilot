@@ -148,3 +148,45 @@ public class StatsTests
         Assert.Equal("temp.dimm_3", ReadingKeys.Slug("temp", "DIMM #3"));
     }
 }
+
+public class CollectorTests
+{
+    private static Dictionary<string, double> Raw => new() { ["cpu.load"] = 30, ["cpu.power"] = 70, ["gpu.load"] = 95, ["gpu.power"] = 185 };
+
+    [Fact]
+    public void Collector_StopsWhenIntegrationOff()
+    {
+        var c = new CollectorLogic(new PowerSettings(), new Thresholds()) { On = true };
+        Assert.NotNull(c.Tick(100, Raw, null, null));
+        c.On = false;
+        Assert.Null(c.Tick(101, Raw, null, null));
+        Assert.Null(c.DueUpload(200));   // nothing kept from before
+    }
+
+    [Fact]
+    public void Collector_BatchesAs10sAverages_LiveSendsEverySecond()
+    {
+        var c = new CollectorLogic(new PowerSettings(), new Thresholds()) { On = true };
+        for (var t = 100; t < 120; t++) c.Tick(t, Raw, (144, 120, 6.9), "cod.exe");
+        var batch = c.DueUpload(120)!;
+        Assert.Equal(2, batch.Samples.Count);                           // two 10-second points
+        Assert.Equal(144, batch.Samples[0].R["fps"]);
+        Assert.True(batch.Samples[0].R.ContainsKey("power.total"));
+        Assert.Contains("power.total", batch.Estimated);
+        Assert.Null(c.DueUpload(125));                                  // 10 s between batches
+        c.Uploaded(live: true);
+        c.Tick(126, Raw, null, null);
+        Assert.Single(c.DueUpload(126)!.Samples);                       // live: each second as-is
+    }
+
+    [Fact]
+    public void Collector_SessionEndsAndRidesTheNextUpload()
+    {
+        var c = new CollectorLogic(new PowerSettings(), new Thresholds()) { On = true };
+        for (var t = 0; t < 30; t++) c.Tick(t, Raw, (120, 100, 8), "cod.exe");
+        c.Tick(30, Raw, null, null);
+        var batch = c.DueUpload(31)!;
+        Assert.Single(batch.Sessions);
+        Assert.Equal("cod.exe", batch.Sessions[0].Exe);
+    }
+}

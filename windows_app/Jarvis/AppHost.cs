@@ -68,6 +68,7 @@ public sealed class AppHost : IAsyncDisposable
     public TrayIcon Tray { get; }
     public PcPowerClient PcPower { get; }
     public Unlock.PcUnlock Unlock { get; }
+    public Stats.StatsService Stats { get; }
     public PowerRelay PowerRelay { get; }
     public PowerBroadcastWatcher PowerWatcher { get; }
     public AdminRunner Admin { get; }
@@ -173,6 +174,7 @@ public sealed class AppHost : IAsyncDisposable
         // ── Task 8: Power integrations and the phone-Face-ID admin flow (C6) ──
         Admin = new AdminRunner(Link);
         Unlock = new Unlock.PcUnlock(Link, Api, Admin);
+        Stats = new Stats.StatsService(Api, State);
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);
         SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
