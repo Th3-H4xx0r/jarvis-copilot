@@ -230,3 +230,66 @@ test('money falls back when the currency code is unknown', () => {
   assert.match(C.money(0.31, 'USD'), /0\.31/);
   assert.match(C.money(1.5, 'NOTACODE'), /1\.50 NOTACODE/);
 });
+
+// ── Apple look: smoothing, p98 range, gridlines, stats, tints ──────────────
+test('charts plot a centred moving average, never the raw spike', () => {
+  const pts = [[0, 10], [1, 10], [2, 10], [3, 110], [4, 10], [5, 10], [6, 10]];
+  const s = C.smooth(pts, 5);
+  assert.equal(s.length, pts.length);
+  assert.deepEqual(s.map((p) => p[0]), pts.map((p) => p[0]));   // times kept
+  assert.equal(s[3][1], 30);                                      // (10+10+110+10+10)/5
+  assert.ok(Math.max(...s.map((p) => p[1])) < 110);
+  assert.equal(s[0][1], 10);                                      // edge window: samples 0–2
+  assert.equal(s[1][1], 35);                                      // samples 0–3: (10+10+10+110)/4
+});
+
+test('smoothing never averages across a gap where the PC was off', () => {
+  const pts = [[0, 10], [1, 10], [2, 10], [500, 90], [501, 90], [502, 90]];
+  const s = C.smooth(pts, 5, 30);
+  assert.deepEqual(s.map((p) => p[1]), [10, 10, 10, 90, 90, 90]);
+});
+
+test('the smoothing window is ≈5 at 1 Hz and widens for long series, odd and capped', () => {
+  assert.equal(C.smoothWindow(60), 5);
+  assert.equal(C.smoothWindow(300), 9);
+  assert.equal(C.smoothWindow(2000), 31);
+  for (const n of [0, 10, 240, 400, 999]) assert.equal(C.smoothWindow(n) % 2, 1);
+});
+
+test('the y range tops out at p98 × 1.15 so one spike cannot flatten the line', () => {
+  const pts = [];
+  for (let i = 0; i < 100; i++) pts.push([i, 100 + (i % 10)]);   // 100–109
+  pts.push([100, 2000]);                                         // one spike
+  const [lo, hi] = C.domain([pts], 'W');
+  assert.equal(lo, 0);
+  assert.ok(hi < 200, `hi ${hi} should ignore the spike`);
+  assert.ok(hi >= 109 * 1.15 - 1e-9);
+  assert.deepEqual(C.domain([pts], '%'), [0, 100]);
+  assert.equal(C.percentile([5, 1, 3], 50), 3);
+  assert.equal(C.percentile([], 98), null);
+});
+
+test('gridlines are up to three round values inside the range', () => {
+  assert.deepEqual(C.gridLines(0, 100), [25, 50, 75]);
+  assert.deepEqual(C.gridLines(0, 230), [100, 200]);
+  assert.ok(C.gridLines(0, 1).every((v) => v > 0 && v < 1));
+  assert.deepEqual(C.gridLines(5, 5), []);
+});
+
+test('the stat row reads min, avg and max of the window', () => {
+  assert.deepEqual(C.stats([[0, 58], [1, 72], [2, 68]]), { min: 58, avg: 66, max: 72 });
+  assert.equal(C.stats([]), null);
+});
+
+test('readings take their category tint', () => {
+  assert.equal(C.tint('gpu.load'), '#30D158');
+  assert.equal(C.tint('cpu.load'), '#0A84FF');
+  assert.equal(C.tint('gpu.temp'), '#FF9F0A');
+  assert.equal(C.tint('temp.vrm'), '#FF9F0A');
+  assert.equal(C.tint('gpu.vram_used'), '#64D2FF');
+  assert.equal(C.tint('gpu.fan'), '#5AC8FA');
+  assert.equal(C.tint('fps.low1'), '#BF5AF2');
+  assert.equal(C.tint('power.total'), '#FFD60A');
+  assert.equal(C.tint('net.down'), '#5E5CE6');
+  assert.equal(C.family('cpu.clock'), 'cpu');
+});

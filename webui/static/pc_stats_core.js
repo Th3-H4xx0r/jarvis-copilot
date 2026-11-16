@@ -27,11 +27,18 @@
   // A bar's "full": its pair, else a sensible top for the unit.
   var PAIRS = { 'ram.used': 'ram.total', 'ram.commit': 'ram.total', 'gpu.vram_used': 'gpu.vram_total' };
 
+  // Apple system colours (dark appearance) per category; warn = orange, crit = red.
+  var TINTS = {
+    gpu: '#30D158', cpu: '#0A84FF', frames: '#BF5AF2', power: '#FFD60A', memory: '#64D2FF',
+    network: '#5E5CE6', cooling: '#5AC8FA', temps: '#FF9F0A', other: '#FFFFFF',
+  };
+
   function num(v) { return typeof v === 'number' && isFinite(v); }
   function rect(w) { return { x: w.x | 0, y: w.y | 0, w: Math.max(1, w.w | 0), h: Math.max(1, w.h | 0) }; }
 
   var C = {
     COLS: COLS,
+    TINTS: TINTS,
 
     // ── grid ────────────────────────────────────────────────────────────────
     overlaps: function (a, b) {
@@ -292,17 +299,102 @@
     },
 
     // ── charts ──────────────────────────────────────────────────────────────
-    /** [lo, hi] for a set of series: 0–100 for %, else 0 to a little over the top. */
+    /** The p-th percentile (0–100) of a list of numbers (nearest rank; null when empty). */
+    percentile: function (values, p) {
+      var v = (values || []).filter(num).sort(function (a, b) { return a - b; });
+      if (!v.length) return null;
+      var i = Math.min(v.length - 1, Math.max(0, Math.ceil(p / 100 * v.length) - 1));
+      return v[i];
+    },
+
+    /**
+     * [lo, hi] for a set of series: 0–100 for %, else 0 (or below, for negatives) to the 98th
+     * percentile × 1.15 — one spike can't flatten the line (it's clipped at the top instead).
+     */
     domain: function (seriesList, unit) {
       if (unit === '%') return [0, 100];
-      var hi = -Infinity, lo = Infinity;
-      seriesList.forEach(function (pts) {
-        pts.forEach(function (p) { if (num(p[1])) { hi = Math.max(hi, p[1]); lo = Math.min(lo, p[1]); } });
+      var all = [];
+      seriesList.forEach(function (pts) { (pts || []).forEach(function (p) { if (num(p[1])) all.push(p[1]); }); });
+      if (!all.length) return [0, 1];
+      var lo = Math.min(0, Math.min.apply(null, all));
+      var top = C.percentile(all, 98);
+      var hi = top * 1.15;
+      if (!(hi > lo)) hi = lo + (Math.abs(top) || 1);
+      return [lo, hi];
+    },
+
+    /** Samples a centred moving average uses: ≈ 5 at 1 Hz, wider for long series (odd, ≤ 31). */
+    smoothWindow: function (n) {
+      var k = Math.max(5, Math.round((n || 0) / 40));
+      if (k % 2 === 0) k++;
+      return Math.min(31, k);
+    },
+
+    /**
+     * A centred moving average of [[t, v], …] (k samples, odd). The window never reaches across
+     * a gap longer than gapSec, so a line doesn't smear over the time the PC was off.
+     */
+    smooth: function (pts, k, gapSec) {
+      pts = (pts || []).filter(function (p) { return num(p[0]) && num(p[1]); });
+      k = k || C.smoothWindow(pts.length);
+      var half = Math.floor(k / 2);
+      if (half < 1 || pts.length < 3) return pts.map(function (p) { return [p[0], p[1]]; });
+      // segment ids: points on either side of a gap never average together
+      var seg = [], id = 0;
+      pts.forEach(function (p, i) {
+        if (i && gapSec && p[0] - pts[i - 1][0] > gapSec) id++;
+        seg.push(id);
       });
-      if (!isFinite(hi)) return [0, 1];
-      lo = Math.min(0, lo);
-      if (hi <= lo) hi = lo + 1;
-      return [lo, hi + (hi - lo) * 0.15];
+      return pts.map(function (p, i) {
+        var sum = 0, n = 0;
+        for (var j = Math.max(0, i - half); j <= Math.min(pts.length - 1, i + half); j++) {
+          if (seg[j] !== seg[i]) continue;
+          sum += pts[j][1]; n++;
+        }
+        return [p[0], +(sum / n).toFixed(3)];
+      });
+    },
+
+    /** Min · Avg · Max of a series' raw values (null when it has none). */
+    stats: function (pts) {
+      var v = (pts || []).map(function (p) { return p[1]; }).filter(num);
+      if (!v.length) return null;
+      var sum = v.reduce(function (a, b) { return a + b; }, 0);
+      return { min: Math.min.apply(null, v), avg: sum / v.length, max: Math.max.apply(null, v) };
+    },
+
+    /** Up to 3 round gridline values strictly inside (lo, hi): 25/50/75 for %, else a 1-2-5 step. */
+    gridLines: function (lo, hi) {
+      if (!(hi > lo)) return [];
+      var raw = (hi - lo) / 4;
+      var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; }).filter(function (s) { return s >= raw; })[0];
+      var out = [];
+      for (var v = Math.ceil((lo + 1e-9) / step) * step; v < hi - 1e-9 && out.length < 3; v += step) {
+        if (v > lo) out.push(+v.toFixed(6));
+      }
+      return out;
+    },
+
+    /** The category tint (Apple system colours, dark) a reading is drawn in. */
+    tint: function (key) {
+      key = String(key || '');
+      if (/\.temp$|^temp\.|^gpu\.hotspot$/.test(key)) return TINTS.temps;
+      if (/^fan\.|^gpu\.fan$/.test(key)) return TINTS.cooling;
+      if (/^gpu\.vram|^ram\.|^disk\./.test(key)) return TINTS.memory;
+      if (/^power\./.test(key)) return TINTS.power;
+      if (/^fps|^frametime$/.test(key)) return TINTS.frames;
+      if (/^net\./.test(key)) return TINTS.network;
+      if (/^gpu\./.test(key)) return TINTS.gpu;
+      if (/^cpu\./.test(key)) return TINTS.cpu;
+      return TINTS.other;
+    },
+
+    /** The icon family for a reading (pc_stats.js draws the glyph). */
+    family: function (key) {
+      var t = C.tint(key);
+      for (var k in TINTS) if (TINTS[k] === t) return k;
+      return 'other';
     },
 
     /**
