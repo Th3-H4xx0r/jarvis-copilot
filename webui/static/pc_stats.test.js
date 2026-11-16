@@ -171,11 +171,14 @@ test('bar fills: % of 100, a pair of its total, watts of the PC total', () => {
 });
 
 // ── the Agents card ─────────────────────────────────────────────────────────
-test('the card shows four numbers; a missing one says unavailable', () => {
-  const cells = C.summaryCells({ online: true, cpu: 38.2, gpu: 0, hottest: 72.4, watts: null });
-  assert.deepEqual(cells.map((c) => c.label), ['CPU', 'GPU', 'Hottest', 'PC (est.)']);
-  assert.deepEqual(cells.map((c) => c.num), ['38', '0', '72', 'unavailable']);
-  assert.deepEqual(cells.map((c) => c.unit), ['%', '%', '°C', '']);
+test('the card shows usage with its temperature beside it; a missing one says unavailable', () => {
+  const cells = C.summaryCells({ online: true, cpu: 38.2, gpu: 0, cpu_temp: 72.4, gpu_temp: null, hottest: 72.4, watts: null });
+  assert.deepEqual(cells.map((c) => c.label), ['CPU', 'GPU', 'PC (est.)']);
+  assert.deepEqual(cells.map((c) => c.num), ['38', '0', 'unavailable']);
+  assert.deepEqual(cells.map((c) => c.unit), ['%', '%', '']);
+  assert.equal(cells[0].temp, '72');
+  assert.equal(cells[0].tempUnit, '°C');
+  assert.equal(cells[1].temp, undefined);
 });
 
 test('offline says when it was last seen; never reported says it is waiting', () => {

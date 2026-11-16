@@ -5,7 +5,8 @@
 
 /* ── the Agents card ─────────────────────────────────────────────────────── */
 .agents-sleep-row.pcs-card { flex-direction: column; align-items: stretch; gap: 8px; }
-.pcs-card-cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.pcs-card-cells { display: grid; grid-template-columns: 1.3fr 1.3fr 1fr; gap: 8px; }
+.pcs-card-dot { font-style: normal; color: var(--muted); font-weight: 400; }
 .pcs-card-cell { display: flex; flex-direction: column; min-width: 0; }
 .pcs-card-cell b { font-size: 1.05rem; font-weight: 600; color: var(--text); letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pcs-card-cell b small { font-size: .72rem; font-weight: 500; color: var(--muted); margin-left: 2px; }

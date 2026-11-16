@@ -278,16 +278,17 @@
       return 'PC offline · last seen ' + C.ago(nowSec - live.at);
     },
 
-    /** The card's four numbers from GET /summary; a missing one says unavailable (never 0). */
+    /** The card's numbers from GET /summary: CPU and GPU usage each with its temperature beside it
+     *  at the same size (his ask), then watts; a missing one says unavailable (never 0). */
     summaryCells: function (s) {
       s = s || {};
-      function cell(label, v, unit, dec) {
-        if (!num(v)) return { label: label, num: 'unavailable', unit: '', ok: false };
-        var f = C.format(v, unit, dec);
-        return { label: label, num: f.num, unit: f.unit, ok: true };
+      function cell(label, v, unit, temp) {
+        var c = num(v) ? (function () { var f = C.format(v, unit); return { label: label, num: f.num, unit: f.unit, ok: true }; })()
+          : { label: label, num: 'unavailable', unit: '', ok: false };
+        if (num(temp)) { c.temp = C.format(temp, '°C').num; c.tempUnit = '°C'; }
+        return c;
       }
-      return [cell('CPU', s.cpu, '%'), cell('GPU', s.gpu, '%'), cell('Hottest', s.hottest, '°C'),
-        cell('PC (est.)', s.watts, 'W')];
+      return [cell('CPU', s.cpu, '%', s.cpu_temp), cell('GPU', s.gpu, '%', s.gpu_temp), cell('PC (est.)', s.watts, 'W')];
     },
 
     // ── charts ──────────────────────────────────────────────────────────────

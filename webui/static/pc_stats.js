@@ -84,7 +84,9 @@
     }
     return '<div class="pcs-card-cells">' + C.summaryCells(s).map(function (c) {
       return '<div class="pcs-card-cell' + (c.ok ? '' : ' is-na') + '"><b>' + esc(c.num) +
-        (c.unit ? '<small>' + esc(c.unit) + '</small>' : '') + '</b><span>' + esc(c.label) + '</span></div>';
+        (c.unit ? '<small>' + esc(c.unit) + '</small>' : '') +
+        (c.temp ? '<i class="pcs-card-dot"> · </i>' + esc(c.temp) + '<small>' + esc(c.tempUnit) + '</small>' : '') +
+        '</b><span>' + esc(c.label) + '</span></div>';
     }).join('') + '</div><div class="pcs-card-foot"><span></span>' + btn + '</div>';
   }
 
