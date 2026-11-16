@@ -20,12 +20,13 @@
     hero: 'Big number, details and a glowing chart', number: 'One reading, large', chart: 'Readings over time',
     bars: 'A breakdown, like power by part', ring: 'A gauge', sparkline: 'A number with a trend line',
     text: 'A heading or note', session: 'The game running now, or the last one', moments: 'Recent marked moments',
+    stats: 'Many numbers, each with a tiny trend',
   };
   var NO_READING = { text: 1, session: 1, moments: 1 };
-  var MULTI = { chart: 1, bars: 1, text: 1 };
+  var MULTI = { chart: 1, bars: 1, text: 1, stats: 1 };
   var CHARTED = { hero: 1, number: 1, chart: 1 };
   var THRESHOLDS = { hero: 1, number: 1, ring: 1, sparkline: 1, bars: 1 };
-  var WINDOWED = { hero: 1, number: 1, chart: 1, sparkline: 1 };
+  var WINDOWED = { hero: 1, number: 1, chart: 1, sparkline: 1, stats: 1 };
   var META = { hero: 1, number: 1, bars: 1 };
   var WINDOWS = [[60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h'], [21600, '6 h'], [86400, '24 h']];
   // Apple system colours (dark): green, blue, purple, yellow, teal, indigo, cyan, orange, pink, white
@@ -215,6 +216,7 @@
       sparkline: '<text x="2" y="11" font-size="9" font-weight="700" fill="currentColor">38%</text><path d="M2 26 L9 21 L15 24 L22 16 L29 19 L38 13" fill="none" stroke="currentColor" stroke-width="1.4"/>',
       text: '<rect x="2" y="10" width="30" height="4" rx="2" fill="currentColor"/><rect x="2" y="18" width="20" height="3" rx="1.5" fill="currentColor" opacity=".5"/>',
       session: '<rect x="3" y="8" width="34" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="17" r="2.2" fill="currentColor"/><path d="M25 15 h6 M28 12 v6" stroke="currentColor" stroke-width="1.6"/>',
+      stats: '<text x="2" y="10" font-size="8" font-weight="700" fill="currentColor">72°</text><text x="22" y="10" font-size="8" font-weight="700" fill="currentColor">96%</text><path d="M2 16 L6 14 L10 15 L16 12" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M22 16 L26 13 L30 15 L36 11" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="2" y="28" font-size="8" font-weight="700" fill="currentColor" opacity=".6">5.4</text><text x="22" y="28" font-size="8" font-weight="700" fill="currentColor" opacity=".6">312</text>',
       moments: '<path d="M2 24 C10 18 16 22 22 14 S32 16 38 10" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".6"/><circle cx="22" cy="14" r="3" fill="#f5b14a"/><path d="M22 4 V30" stroke="#f5b14a" stroke-width="1" stroke-dasharray="2 2"/>',
     };
     return '<svg viewBox="0 0 40 32" aria-hidden="true">' + (paths[kind] || '') + '</svg>';
@@ -232,14 +234,14 @@
     var body = P.openSheet('<button type="button" class="pcs-x is-back" data-pcs="lib-back" aria-label="Back">‹</button>' +
       esc(P.KIND_NAMES[kind] || kind) + ' · choose a reading',
       '<input class="pcs-input pcs-search" type="search" placeholder="Search readings" aria-label="Search readings">' +
-      '<div class="pcs-lib-readings">' + grouped(P.catalogKeys()).map(function (g) {
+      '<div class="pcs-lib-readings">' + grouped(P.catalogKeys().filter(function (k) { return MULTI[kind] || !/\*$/.test(k); })).map(function (g) {
         return '<div class="pcs-lib-group"><div class="pcs-lib-gname">' + esc(g[0]) + '</div>' + g[1].map(function (k) {
           var info = P.infoOf(k);
           var v = C.read(k, { sample: S.live && S.live.sample, catalog: S.catalog, sensorDriver: S.settings.sensor_driver });
           return '<button type="button" class="pcs-lib-reading" data-pcs="lib-add" data-kind="' + esc(kind) + '" data-key="' + esc(k) +
             '" data-search="' + esc((info.label + ' ' + k + ' ' + g[0]).toLowerCase()) + '"><span>' + esc(info.label) +
             (info.estimated ? ' <span class="pcs-est">est.</span>' : '') + '</span><small class="' + (k in r ? '' : 'pcs-na') + '">' +
-            esc(v.ok ? v.num + (v.unit ? ' ' + v.unit : '') : (S.live && S.live.at ? 'not reported' : info.unit)) + '</small></button>';
+            esc(/\*$/.test(k) ? C.expand([k], S.live && S.live.sample).length + ' now' : v.ok ? v.num + (v.unit ? ' ' + v.unit : '') : (S.live && S.live.at ? 'not reported' : info.unit)) + '</small></button>';
         }).join('') + '</div>';
       }).join('') + '</div>', 'is-wide');
     var search = body.querySelector('.pcs-search');
@@ -293,6 +295,7 @@
     if (key === 'window' || key === 'chart') P.loadSeries();
   }
   function readingOptions(selected, keys) {
+    keys = keys.filter(function (k) { return !/\*$/.test(k); });
     return grouped(keys).map(function (g) {
       return '<optgroup label="' + esc(g[0]) + '">' + g[1].map(function (k) {
         return '<option value="' + esc(k) + '"' + (k === selected ? ' selected' : '') + '>' + esc(P.infoOf(k).label) + '</option>';

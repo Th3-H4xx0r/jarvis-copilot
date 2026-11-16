@@ -26,7 +26,7 @@
   var SERIES = ['#30D158', '#0A84FF', '#FF9F0A', '#5AC8FA', '#BF5AF2', '#FFD60A'];
   var KIND_NAMES = {
     hero: 'Hero number', number: 'Number', chart: 'Chart', bars: 'Bars', ring: 'Ring',
-    sparkline: 'Sparkline', text: 'Text', session: 'Game session', moments: 'Marked moments',
+    sparkline: 'Sparkline', text: 'Text', session: 'Game session', moments: 'Marked moments', stats: 'Details',
   };
 
   var S = {
@@ -129,7 +129,7 @@
     var keys = Object.keys((S.catalog && S.catalog.readings) || {});
     var r = (S.live && S.live.sample && S.live.sample.r) || {};
     Object.keys(r).forEach(function (k) { if (keys.indexOf(k) < 0 && C.info(k, S.catalog)) keys.push(k); });
-    return keys;
+    return keys.concat(['temp.*', 'fan.*']);   // "every temperature / fan" for bars, stats and charts
   }
   function readCtx(style) {
     style = style || {};
@@ -182,7 +182,22 @@
     var st = w.style || {};
     if (w.kind === 'hero') return st.chart !== 'none';
     if (w.kind === 'number') return st.chart === 'area' || st.chart === 'line';
-    return w.kind === 'chart' || w.kind === 'sparkline';
+    return w.kind === 'chart' || w.kind === 'sparkline' || w.kind === 'stats';
+  }
+  /** The widget's readings with temp.* / fan.* expanded from the live sample. */
+  function keysOf(w) { return C.expand(w.readings, S.live && S.live.sample); }
+  /**
+   * The card's inner height in px on the desktop grid (null on a phone, where cards grow to
+   * fit): what bars and stats tiles use to show only the rows that fit.
+   */
+  function innerHeight(w) {
+    var m = S.grid;
+    if (!m || !m.rowPx) return null;
+    return w.h * m.rowPx + (w.h - 1) * m.gap - 32;
+  }
+  function cardWidth(w) {
+    var m = S.grid;
+    return m && m.width ? (m.width - 11 * m.gap) / 12 * w.w + (w.w - 1) * m.gap : 0;
   }
   function seriesKey(key, span) { return key + '|' + span + '|' + S.range; }
 
@@ -194,7 +209,7 @@
     d.widgets.forEach(function (w) {
       if (!hasChart(w)) return;
       var win = chartWindow(w);
-      (w.kind === 'chart' ? w.readings : w.readings.slice(0, 1)).forEach(function (k) {
+      (w.kind === 'chart' || w.kind === 'stats' ? keysOf(w) : w.readings.slice(0, 1)).forEach(function (k) {
         wanted[seriesKey(k, win.span)] = { key: k, win: win };
       });
     });
@@ -489,7 +504,7 @@
     if (i === 0) return tintOf(w);
     var used = [tintOf(w)];
     for (var j = 1; j < i; j++) used.push(colorOf(w, j));
-    var c = C.tint(w.readings[i]);
+    var c = C.tint(keysOf(w)[i]);
     if (used.indexOf(c) < 0) return c;
     return EXTRA.filter(function (x) { return used.indexOf(x) < 0; })[0] || EXTRA[i % EXTRA.length];
   }
@@ -531,16 +546,17 @@
     },
     chart: function (w) {
       var st = w.style || {};
-      var legend = w.readings.map(function (k, i) {
+      var ckeys = keysOf(w);
+      var legend = ckeys.map(function (k, i) {
         var v = C.read(k, readCtx(st));
         var info = infoOf(k);
         var unit = v.unit === '°C' ? '°' : v.unit;
-        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(w.readings.length > 1 ? C.shortLabel(k, S.catalog) || info.label : info.label) +
+        return '<span class="pcs-legend-i"><i style="background:' + colorOf(w, i) + '"></i>' + esc(ckeys.length > 1 ? C.shortLabel(k, S.catalog) || info.label : info.label) +
           estHtml(k, info.label) + ' <b class="num' + (v.ok ? '' : ' pcs-na') + '">' + esc(v.num) + (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</b></span>';
       }).join('');
       return headHtml(w, contextOf(w)) + '<div class="pcs-legend">' + legend + '</div>' +
-        widgetChart(w, st.chart === 'area' ? 'area' : 'line', w.readings, { cls: 'pcs-c-fill', grid: w.h >= 3,
-          stats: w.readings.length === 1 && w.h >= 3 });
+        widgetChart(w, st.chart === 'area' ? 'area' : 'line', ckeys, { cls: 'pcs-c-fill', grid: w.h >= 3,
+          stats: ckeys.length === 1 && w.h >= 3 });
     },
     bars: function (w) {
       var st = w.style || {};
@@ -551,8 +567,15 @@
         var hv = C.read(meta[0], readCtx({ decimals: st.decimals }));
         headline = hv.ok ? '<b class="num">' + esc(hv.num) + '</b> ' + esc(hv.unit === '°C' ? '°' : hv.unit) : '';
       }
-      var sib = w.readings.map(function (k) { return r[k]; });
-      var rows = w.readings.map(function (k) {
+      var keys = keysOf(w);
+      var sib = keys.map(function (k) { return r[k]; });
+      // only the rows that fit the card: 31 px each (label line + 8 px bar), ≥ 4 px apart
+      var room = innerHeight(w), more = 0;
+      if (room) {
+        var cap = C.fit(room - 28 - (meta.length > 1 ? 30 : 0), 31, 4);
+        if (keys.length > cap) { more = keys.length - (cap - 1); keys = keys.slice(0, Math.max(1, cap - 1)); }
+      }
+      var rows = keys.map(function (k) {
         var info = infoOf(k);
         var v = C.read(k, readCtx(st));
         var lvl = C.level(v.value, st);
@@ -564,7 +587,36 @@
           (v.ok && unit ? (unit === '°' ? '' : ' ') + esc(unit) : '') + '</span></div>' +
           '<div class="pcs-btrack"><div class="pcs-bfill" style="width:' + (frac * 100).toFixed(1) + '%"></div></div></div>';
       }).join('');
-      return headHtml(w, headline, meta[0]) + '<div class="pcs-bars">' + rows + '</div>' + metaHtml(meta.slice(1), 'is-foot');
+      if (!rows) rows = '<div class="pcs-empty-small">' + (S.live && S.live.at ? 'Nothing reported yet.' : 'Waiting for the PC.') + '</div>';
+      return headHtml(w, headline, meta[0]) + '<div class="pcs-bars">' + rows +
+        (more ? '<div class="pcs-bmore">+' + more + ' more — make the card taller to see them</div>' : '') + '</div>' +
+        metaHtml(meta.slice(1), 'is-foot');
+    },
+    // a detail tile: labelled numbers in 2 columns (3 when wide), each with a tiny sparkline
+    stats: function (w) {
+      var st = w.style || {};
+      var keys = keysOf(w);
+      var cols = narrow() ? 2 : (cardWidth(w) >= 520 ? 3 : 2);
+      var room = innerHeight(w), more = 0;
+      if (room) {
+        var cap = C.fit(room - 32, 75, 12) * cols;   // header + 12 px; a cell is 75 px (label, value, sparkline)
+        if (keys.length > cap) { more = keys.length - cap; keys = keys.slice(0, cap); }
+      }
+      var cells = keys.map(function (k) {
+        var info = infoOf(k);
+        var v = C.read(k, readCtx(st));
+        var lvl = C.level(v.value, st);
+        var s = seriesFor(k, w);
+        var spark = chartHtml('w-' + w.id + '-' + k, [{ key: k, pts: s.pts, color: C.tint(k), unit: info.unit, label: info.label,
+          decimals: st.decimals }], s.win.t0, s.win.t1, 'line', { gap: s.win.gap, grid: false, thin: true, cls: 'pcs-c-spark', emptyText: ' ' });
+        var unit = v.unit === '°C' ? '°' : v.unit;
+        return '<div class="pcs-sc"><span class="pcs-sc-l" title="' + esc(info.label) + '">' + esc(barName(k, info)) + estHtml(k, info.label) + '</span>' +
+          (v.ok ? '<div class="pcs-sc-v num' + (lvl ? ' is-' + lvl : '') + '">' + esc(v.num) +
+            (unit ? '<small' + (unit === '°' ? ' class="is-deg"' : '') + '>' + esc(unit) + '</small>' : '') + '</div>'
+            : '<div class="pcs-sc-v pcs-na" title="' + esc(v.reason) + '">unavailable</div>') + spark + '</div>';
+      }).join('');
+      return headHtml(w, more ? '+' + more + ' more' : contextOf(w)) +
+        '<div class="pcs-scs" style="--cols:' + cols + '">' + (cells || '<div class="pcs-empty-small">No readings chosen.</div>') + '</div>';
     },
     ring: function (w) {
       var key = w.readings[0], st = w.style || {}, label = labelOf(w);
@@ -729,6 +781,8 @@
     var rows = C.rows(d.widgets);
     grid.style.setProperty('--rows', String(Math.max(rows, 1) + (S.edit ? 2 : 0)));
     grid.classList.toggle('is-editing', !!S.edit);
+    var gcs = root.getComputedStyle(grid);
+    S.grid = narrow() ? null : { rowPx: parseFloat(gcs.gridAutoRows) || 0, gap: parseFloat(gcs.rowGap) || 12, width: grid.clientWidth };
     grid.classList.toggle('is-stale', !!(S.live && S.live.at && !S.live.online));
     var guides = S.edit && !narrow() ? '<div class="pcs-guides" aria-hidden="true">' + new Array(C.COLS + 1).join('<span></span>') + '</div>' : '';
     var waiting = !S.live || !S.live.at ? '<div class="pcs-wait">Waiting for the PC’s first reading. Open the Jarvis app on the PC with PC Stats on; history starts the moment it reports.</div>' : '';

@@ -14,7 +14,7 @@
   var FRAME_KEYS = { fps: 1, 'fps.low1': 1, frametime: 1 };
   var SIZES = {
     hero: [6, 4], number: [3, 2], chart: [6, 4], bars: [4, 4], ring: [3, 2],
-    sparkline: [3, 2], text: [4, 1], session: [4, 3], moments: [12, 2],
+    sparkline: [3, 2], text: [4, 1], session: [4, 3], moments: [12, 2], stats: [6, 3],
   };
   var DECIMALS = { '%': 0, '°C': 0, MHz: 0, W: 0, rpm: 0, fps: 0, GB: 1, 'MB/s': 1, ms: 1 };
   // Short words for meta rows ("67 °C temp", "1% low 118").
@@ -143,13 +143,51 @@
     info: function (key, catalog) {
       var readings = (catalog && catalog.readings) || catalog || {};
       if (readings[key]) return readings[key];
+      if (key === 'temp.*') return { label: 'All temperatures', unit: '°C', group: 'temps', estimated: false };
+      if (key === 'fan.*') return { label: 'All fans', unit: 'rpm', group: 'cooling', estimated: false };
       if (DYNAMIC.test(String(key))) {
         var parts = String(key).split('.');
-        var name = parts[1].replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-        return { label: name, unit: parts[0] === 'fan' ? 'rpm' : '°C', group: parts[0] === 'fan' ? 'cooling' : 'temps',
-          estimated: false };
+        return { label: C.dynamicLabel(parts[0], parts[1]), unit: parts[0] === 'fan' ? 'rpm' : '°C',
+          group: parts[0] === 'fan' ? 'cooling' : 'temps', estimated: false };
       }
       return null;
+    },
+
+    /** "fan_1" → "Fan 1", "cpu_fan" → "CPU fan", "vrm_mos" → "VRM MOS": never the raw key. */
+    dynamicLabel: function (kind, slug) {
+      var ACR = { cpu: 'CPU', gpu: 'GPU', vrm: 'VRM', pch: 'PCH', ssd: 'SSD', nvme: 'NVMe', hdd: 'HDD', mos: 'MOS',
+        soc: 'SoC', aio: 'AIO', ram: 'RAM', dimm: 'DIMM', m2: 'M.2', sys: 'System', opt: 'Optional', chipset: 'Chipset' };
+      var words = String(slug || '').split('_').filter(Boolean).map(function (w) { return ACR[w] || w; });
+      if (!words.length) return kind === 'fan' ? 'Fan' : 'Temperature';
+      if (/^\d+$/.test(words[0])) words.unshift(kind === 'fan' ? 'fan' : 'sensor');
+      var first = words[0];
+      words[0] = ACR[first.toLowerCase()] ? first : first.charAt(0).toUpperCase() + first.slice(1);
+      return words.join(' ');
+    },
+
+    /**
+     * Readings with the wildcards "temp.*" / "fan.*" replaced by every temp.<slug> / fan.<slug>
+     * key in the live sample (sorted, numbers in order, none listed twice).
+     */
+    expand: function (readings, sample) {
+      var r = (sample && sample.r) || {};
+      var out = [], seen = {};
+      var add = function (k) { if (!seen[k]) { seen[k] = 1; out.push(k); } };
+      var explicit = {};
+      (readings || []).forEach(function (k) { if (!/\.\*$/.test(k)) explicit[k] = 1; });
+      (readings || []).forEach(function (k) {
+        var m = /^(temp|fan)\.\*$/.exec(k);
+        if (!m) { add(k); return; }
+        Object.keys(r).filter(function (x) { return x.indexOf(m[1] + '.') === 0 && DYNAMIC.test(x) && !explicit[x]; })
+          .sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); }).forEach(add);
+      });
+      return out;
+    },
+
+    /** How many items of `item` px (with `gap` px between) fit in `space` px (at least 1). */
+    fit: function (space, item, gap) {
+      if (!(space > 0) || !(item > 0)) return 1;
+      return Math.max(1, Math.floor((space + (gap || 0)) / (item + (gap || 0))));
     },
 
     shortLabel: function (key, catalog) {

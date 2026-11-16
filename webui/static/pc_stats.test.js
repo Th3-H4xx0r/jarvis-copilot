@@ -123,7 +123,7 @@ test('values use the widget decimals, else the unit default; big clocks read in 
 });
 
 test('fan and temperature names the PC reports get a label and unit', () => {
-  assert.deepEqual(C.info('fan.cpu_fan', CATALOG), { label: 'Cpu Fan', unit: 'rpm', group: 'cooling', estimated: false });
+  assert.deepEqual(C.info('fan.cpu_fan', CATALOG), { label: 'CPU fan', unit: 'rpm', group: 'cooling', estimated: false });
   assert.equal(C.info('temp.vrm', CATALOG).unit, '°C');
   assert.equal(C.info('bogus', CATALOG), null);
 });
@@ -292,4 +292,33 @@ test('readings take their category tint', () => {
   assert.equal(C.tint('power.total'), '#FFD60A');
   assert.equal(C.tint('net.down'), '#5E5CE6');
   assert.equal(C.family('cpu.clock'), 'cpu');
+});
+
+// ── dense dashboards: wildcards, dynamic labels, fitting ──────────────────
+test('temp.* and fan.* expand to every matching key in the sample, sorted, without repeats', () => {
+  const sample = { r: { 'cpu.temp': 70, 'temp.vrm': 60, 'temp.chipset': 50, 'fan.fan_10': 900, 'fan.fan_2': 800,
+    'fan.cpu_fan': 1200, 'gpu.fan': 1600 } };
+  assert.deepEqual(C.expand(['cpu.temp', 'gpu.temp', 'temp.*'], sample), ['cpu.temp', 'gpu.temp', 'temp.chipset', 'temp.vrm']);
+  assert.deepEqual(C.expand(['gpu.fan', 'fan.*'], sample), ['gpu.fan', 'fan.cpu_fan', 'fan.fan_2', 'fan.fan_10']);
+  // a key listed explicitly isn't repeated by the wildcard
+  assert.deepEqual(C.expand(['fan.fan_2', 'fan.*'], sample), ['fan.fan_2', 'fan.cpu_fan', 'fan.fan_10']);
+  // no sample: the wildcard is simply empty
+  assert.deepEqual(C.expand(['gpu.fan', 'fan.*'], null), ['gpu.fan']);
+  assert.deepEqual(C.expand(['cpu.load'], sample), ['cpu.load']);
+});
+
+test('dynamic fans and temperatures read as names, never raw keys', () => {
+  assert.equal(C.info('fan.fan_1', {}).label, 'Fan 1');
+  assert.equal(C.info('fan.cpu_fan', {}).label, 'CPU fan');
+  assert.equal(C.info('temp.vrm_mos', {}).label, 'VRM MOS');
+  assert.equal(C.info('temp.2', {}).label, 'Sensor 2');
+  assert.equal(C.info('temp.*', {}).unit, '°C');
+  assert.equal(C.tint('fan.*'), C.TINTS.cooling);
+  for (const k of ['fan.fan_1', 'temp.vrm_mos']) assert.ok(!C.info(k, {}).label.includes('_'));
+});
+
+test('a card shows only the rows that fit', () => {
+  assert.equal(C.fit(181, 31, 6), 5);
+  assert.equal(C.fit(30, 31, 6), 1);
+  assert.equal(C.fit(0, 31, 6), 1);
 });

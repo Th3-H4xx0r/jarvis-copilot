@@ -34,7 +34,8 @@ html.pcs-lock, html.pcs-lock body { overflow: hidden; }
   --pcs-warn: #FF9F0A;
   --pcs-crit: #FF453A;
   --pcs-round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --pcs-row: clamp(56px, 7vh, 88px);
+  /* ten rows fill the window under the header on a desktop (the defaults use 10), never under 70 px */
+  --pcs-row: max(70px, calc((100vh - 150px - 9 * var(--pcs-gap)) / 10));
   --pcs-gap: 12px;
   position: fixed; inset: 0; z-index: 10040;
   color-scheme: dark;
@@ -217,6 +218,20 @@ html.pcs-lock, html.pcs-lock body { overflow: hidden; }
 .pcs-brow.is-crit .pcs-bfill { background: var(--pcs-crit); }
 .pcs-brow.is-crit .pcs-bval { color: var(--pcs-crit); }
 
+/* "+N more" when a card is too short for every row */
+.pcs-bmore { font-size: 12px; color: var(--pcs-label-3); line-height: 16px; }
+
+/* stats tile: labelled numbers, 2 or 3 columns, a tiny sparkline under each */
+.pcs-scs { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); align-content: start; gap: 12px 18px; margin-top: 12px; overflow: hidden; }
+.pcs-sc { min-width: 0; display: flex; flex-direction: column; }
+.pcs-sc-l { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--pcs-label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
+.pcs-sc-v { font-family: var(--pcs-round); font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; margin-top: 2px; white-space: nowrap; }
+.pcs-sc-v small { font-size: .46em; color: var(--pcs-label-2); margin-left: .12em; letter-spacing: 0; }
+.pcs-sc-v small.is-deg { font-size: .55em; vertical-align: .55em; margin-left: .02em; }
+.pcs-sc-v.pcs-na { font-size: 14px; line-height: 31px; }
+.pcs-c-spark { height: 22px; margin-top: 4px; flex: none; }
+.pcs-c-spark .pcs-chart-empty { display: none; }
+
 /* Activity ring */
 .pcs-ring { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; }
 .pcs-ring svg { height: 100cqmin; width: 100cqmin; max-height: 240px; max-width: 240px; display: block; }
@@ -382,7 +397,7 @@ html.pcs-lock, html.pcs-lock body { overflow: hidden; }
   .pcs-hero-row { font-size: 50px; }
   .pcs-mid { font-size: 42px; }
   .pcs-mid-xl { font-size: 52px; }
-  .pcs-w.pcs-k-bars { height: auto; }
+  .pcs-w.pcs-k-bars, .pcs-w.pcs-k-stats { height: auto; }
   .pcs-k-bars .pcs-bars { gap: 14px; margin-top: 14px; }
   .pcs-w.pcs-k-ring { height: 200px; }
   .pcs-guides { display: none; }
