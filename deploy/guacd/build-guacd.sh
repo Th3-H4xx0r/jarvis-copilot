@@ -20,7 +20,8 @@ expected=$(curl -fsSL "$SHA256_URL" | awk '{print $1}')
 echo "$expected  src.tar.gz" | sha256sum -c -
 tar xzf src.tar.gz
 cd "guacamole-server-${VERSION}"
-./configure --prefix=/usr/local --with-freerdp --without-vnc --without-ssh --without-telnet \
+# FreeRDP 3.15 deprecates codecs_free; 1.6.0 still calls it and builds with -Werror.
+CFLAGS="-O2 -Wno-error=deprecated-declarations" ./configure --prefix=/usr/local --with-freerdp --without-vnc --without-ssh --without-telnet \
   --without-kubernetes --without-pulse --disable-guacenc --disable-guaclog --with-systemd-dir=no
 make -j"$(nproc)"
 make install
