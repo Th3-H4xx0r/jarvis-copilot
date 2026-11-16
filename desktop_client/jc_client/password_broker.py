@@ -10,6 +10,10 @@ on this Mac; the server and the phone never see it.
 
 Never retried: one fill per request, and a sudo that asks again (its sign that
 the password was wrong) is refused without asking him again.
+
+Remote Desktop on the PC (kind "rdp"): the same Face ID path, but his yes asks the Jarvis app to
+release the saved Windows password for the one session in the signed context (encrypted to the
+iPhone's key, or for the web gateway); the result comes back as ``{"ok", "credential"}``.
 """
 from __future__ import annotations
 
@@ -80,8 +84,11 @@ class PasswordBroker:
         if answer.get("decision") != "allow":
             return self._finish(rid, False, "Not allowed")
         try:
-            # context too: the app checks his signature covers exactly this text
-            result = self._ask_app({"type": "password_fill", "id": rid, "kind": kind,
+            # context too: the app checks his signature covers exactly this text. Remote Desktop
+            # (kind "rdp") asks the app to *release* the saved password for the one session named in
+            # the signed context instead of typing it (plan 2026-11-15-remote-desktop, Task 2).
+            msg_type = "password_release" if kind == "rdp" else "password_fill"
+            result = self._ask_app({"type": msg_type, "id": rid, "kind": kind,
                                     "nonce": req.public["nonce"], "context": req.public["context"],
                                     "proof": answer["proof"]},
                                    _FILL_TIMEOUT) or {}
@@ -92,6 +99,8 @@ class PasswordBroker:
         self._finish(rid, ok, error)
         if not ok:
             return {"ok": False, "error": error}
+        if kind == "rdp":
+            return {"ok": True, "credential": result.get("credential")}
         if kind == "sudo":
             if ppid:
                 with self._lock:

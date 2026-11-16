@@ -6,7 +6,9 @@ second protocol:
   change and every STATUS_EVERY s, with ``os: "windows"``, the Wi-Fi MAC and whether its
   adapter can wake the PC (the server's Wake PC sends a magic packet from another computer);
 * down: ``mac_power_set`` with ``keep_awake`` / ``let_sleep`` / ``lock``;
-* app link: ``mac_power_state`` / ``mac_power_set`` (UI_REQUESTS), like the Mac app's.
+* app link: ``mac_power_state`` / ``mac_power_set`` (UI_REQUESTS), like the Mac app's;
+* Remote Desktop: ``rdp_credential_request`` down → Face ID through the broker → the app's
+  ``rdp_credential`` (link request) → ``{"type": "event", "name": "rdp_credential"}`` up.
 
 Keep awake is ``SetThreadExecutionState`` (no admin). There is no dark wake on Windows, so
 no timer; Unlock is impossible (Windows never lets anything type into its lock screen).
@@ -171,14 +173,15 @@ def _battery() -> tuple:
 
 
 class PcPower:
-    UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set", "password_fill_result"})
+    UI_REQUESTS = frozenset({"mac_power_state", "mac_power_set", "password_fill_result", "rdp_credential"})
     power = None   # the Mac's MacPower hold logic has no Windows twin (AgentsLink takes None)
 
     def __init__(self, send_up: Callable[[dict], object], *, set_state: Callable[[int], int] = _win_set_state,
                  lock: Callable[[], None] = _win_lock, suspend: Callable[[], None] = _win_suspend,
                  probe: Callable[[], tuple] = probe, battery: Callable[[], tuple] = _battery,
                  lan_ip: Callable[[], str] = lan_ip, ui_broadcast: Callable[[dict], None] = lambda m: None,
-                 is_app: Optional[Callable[[int], bool]] = None) -> None:
+                 is_app: Optional[Callable[[int], bool]] = None,
+                 spawn: Optional[Callable[..., None]] = None) -> None:
         self._send_up = send_up
         self._lan_ip = lan_ip
         # Unlock PC (the Mac's "Unlock Mac" flow): his iPhone's Face ID yes comes back through the
@@ -187,6 +190,9 @@ class PcPower:
         self._ui = ui_broadcast
         self._is_app = is_app or _installed_app
         self._fills: dict = {}    # request id -> (Event, reply holder)
+        self._rdp_sessions: dict = {}   # broker request id -> Remote Desktop session id
+        self._spawn = spawn or (lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True,
+                                                                  name="jc-pc-rdp").start())
         self._fill_lock = threading.Lock()
         self.passwords = PasswordBroker(lambda m: self._send_up(m), ui_broadcast, self._ask_app)
         self._set_state = set_state
@@ -267,21 +273,56 @@ class PcPower:
             if not any(p["kind"] == "unlock" for p in self.passwords.pending()):
                 threading.Thread(target=self.passwords.request, args=("unlock", "Unlock PC"), daemon=True,
                                  name="jc-pc-unlock").start()
+        elif t == "rdp_credential_request":
+            self._spawn(self._rdp_release, dict(frame))
         elif t == "mac_password_answer":
             self.passwords.on_answer(str(frame.get("id") or ""), str(frame.get("decision") or ""),
                                      frame.get("ts"), frame.get("signature"))
+
+    def _rdp_release(self, frame: dict) -> None:
+        """Remote Desktop (plan Task 2): Face ID on his iPhone for exactly this session's context, then
+        the Jarvis app releases the password for it; the answer goes up as ``rdp_credential``. The
+        credential passes through here once and is never logged."""
+        sid = str(frame.get("session_id") or "")
+        context = str(frame.get("context") or "")
+        try:
+            signed = json.loads(context)
+        except ValueError:
+            signed = {}
+        if not sid or not isinstance(signed, dict) or signed.get("session") != sid \
+                or signed.get("client") != frame.get("client"):
+            result = {"ok": False, "error": "The request didn't match its session"}
+        else:
+            result = self.passwords.request("rdp", context)
+        data = {"session_id": sid, "ok": bool(result.get("ok"))}
+        if data["ok"] and isinstance(result.get("credential"), dict):
+            data["credential"] = result["credential"]
+        elif not data["ok"]:
+            data["error"] = str(result.get("error") or "Not released")
+        elif data["ok"]:
+            data = {"session_id": sid, "ok": False, "error": "The Jarvis app sent no credential"}
+        log.info("remote desktop credential for %s: %s", sid, "released" if data["ok"] else data.get("error"))
+        try:
+            self._send_up({"type": "event", "name": "rdp_credential", "data": data})
+        except Exception:  # noqa: BLE001
+            log.warning("remote desktop credential not sent up")
 
     def _ask_app(self, msg: dict, timeout: float) -> dict:
         """password_fill to the Jarvis app (broadcast); it answers with password_fill_result."""
         rid = str(msg.get("id") or "")
         event, holder = threading.Event(), {}
+        if msg.get("type") == "password_release":
+            try:
+                holder["_context"] = json.loads(str(msg.get("context") or "{}"))
+            except ValueError:
+                holder["_context"] = {}
         with self._fill_lock:
             self._fills[rid] = (event, holder)
         try:
             self._ui(msg)
             if not event.wait(timeout):
                 return {"ok": False, "error": "The Jarvis app on the PC didn't answer"}
-            return holder
+            return {k: v for k, v in holder.items() if not k.startswith("_")}
         finally:
             with self._fill_lock:
                 self._fills.pop(rid, None)
@@ -304,7 +345,7 @@ class PcPower:
         if kind == "mac_power_set":
             self._apply(req)
             return {"ok": True, **self.status()}
-        if kind == "password_fill_result":
+        if kind in ("password_fill_result", "rdp_credential"):
             # Only the installed Jarvis app may hand in a result (any process of his can reach the link).
             if not self._is_app(int(req.get("_peer_pid") or 0)):
                 return {"ok": False, "error": "not the Jarvis app"}
@@ -313,7 +354,15 @@ class PcPower:
             if waiter is None:
                 return {"ok": False}
             event, holder = waiter
-            holder.update({k: req[k] for k in ("ok", "error") if k in req})
+            # a Remote Desktop release also carries the credential (its session must be the one asked)
+            keys = ("ok", "error", "credential") if kind == "rdp_credential" else ("ok", "error")
+            if kind == "rdp_credential":
+                ctx = holder.get("_context") or {}
+                if str(req.get("session_id") or "") != str(ctx.get("session") or ""):
+                    holder.update({"ok": False, "error": "The Jarvis app answered for another session"})
+                    event.set()
+                    return {"ok": False}
+            holder.update({k: req[k] for k in keys if k in req})
             event.set()
             return {"ok": True}
         return {"ok": False, "error": "unknown power request"}

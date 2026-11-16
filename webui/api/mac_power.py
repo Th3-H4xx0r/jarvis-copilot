@@ -31,7 +31,8 @@ MAC_TOPIC = "com.jarviscopilot.mac"
 # How a request can end without him needing a push about it.
 _QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
 _KIND_TITLE = {"sudo": "sudo needs your Mac password", "admin": "Admin password requested",
-               "keychain": "Keychain wants your Mac password", "unlock": "Unlock your Mac"}
+               "keychain": "Keychain wants your Mac password", "unlock": "Unlock your Mac",
+               "rdp": "Remote Desktop"}
 
 
 def _default_path() -> Path:
@@ -269,7 +270,7 @@ class MacPowerStore:
         self._changed()
         try:
             title = "Unlock your PC" if kind == "unlock" and self._is_pc(did) else _KIND_TITLE.get(kind, "Mac password requested")
-            self._alert(title, req["context"] or "Tap to review",
+            self._alert(title, _rdp_text(req["context"]) if kind == "rdp" else (req["context"] or "Tap to review"),
                         {"kind": "mac_password", "id": rid, "device_id": did})
         except Exception:  # noqa: BLE001
             log.warning("Mac password push failed", exc_info=True)
@@ -314,6 +315,17 @@ class MacPowerStore:
                              "wake_capable": (status.get("wake") or {}).get("capable"),
                              "wake_reason": (status.get("wake") or {}).get("reason")})
         return {"mac": macs, "password_requests": requests}
+
+
+def _rdp_text(context: str) -> str:
+    """A Remote Desktop request's signed context (canonical JSON) in his words."""
+    try:
+        ctx = json.loads(context or "{}")
+    except ValueError:
+        ctx = {}
+    device = str(ctx.get("device") or "your PC")
+    where = "from the web" if ctx.get("client") == "web" else "from your iPhone"
+    return f"Connect to {device} {where}"
 
 
 _STORE: Optional[MacPowerStore] = None

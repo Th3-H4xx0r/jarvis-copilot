@@ -133,3 +133,75 @@ def test_idle_session_ends(env):
     env.clock.t += 30 * 60 + 1
     env.s.sweep()
     assert env.s.get(sid).state == "ended" and env.s.get(sid).credential is None
+
+
+# ── Task 2 ─────────────────────────────────────────────────────────────────
+def test_create_sends_the_signed_context_to_the_pc(env):
+    _status(env)
+    sid = env.s.create("pc-1", "ios", True, "BASE64KEY")["session"]["id"]
+    did, frame = env.sent[-1]
+    assert did == "pc-1" and frame["type"] == "rdp_credential_request"
+    assert frame["session_id"] == sid and frame["client"] == "ios"
+    import json
+    ctx = json.loads(frame["context"])
+    assert ctx == {"session": sid, "client": "ios", "enc_pub": "BASE64KEY", "device": "pranav-computer"}
+    # canonical: sorted keys, no spaces — byte-for-byte what his signature covers
+    assert frame["context"] == json.dumps(ctx, sort_keys=True, separators=(",", ":"))
+    assert len(frame["context"]) <= 2400
+
+
+def test_denied_or_expired_approval_releases_nothing(env):
+    _status(env)
+    denied = env.s.create("pc-1", "web", True, None)["session"]["id"]
+    env.s.on_credential("pc-1", {"session_id": denied, "ok": False, "error": "Not allowed"})
+    assert env.s.get(denied).state == "cancelled" and env.s.public(denied)["error"] == "Not allowed"
+    slow = env.s.create("pc-1", "web", True, None)["session"]["id"]
+    env.clock.t += 61
+    assert env.s.get(slow).state == "cancelled"
+    assert env.s.public(slow)["error"] == "No answer on your iPhone in 60 seconds"
+    # a late credential for a cancelled session is dropped
+    env.s.on_credential("pc-1", {"session_id": slow, "ok": True, "credential": {"password": "late"}})
+    assert env.s.get(slow).state == "cancelled" and env.s.get(slow).credential is None
+
+
+def test_credential_only_for_matching_session(env):
+    _status(env)
+    sid = env.s.create("pc-1", "web", True, None)["session"]["id"]
+    env.s.on_credential("pc-2", {"session_id": sid, "ok": True, "credential": {"password": "x"}})   # another device
+    assert env.s.get(sid).state == "approving"
+    env.s.on_credential("pc-1", {"session_id": "nope", "ok": True, "credential": {"password": "x"}})
+    # the web gets a password, the iPhone only ciphertext: the wrong shape is refused
+    env.s.on_credential("pc-1", {"session_id": sid, "ok": True,
+                                 "credential": {"ciphertext": "a", "ephemeral_pub": "b", "nonce": "c"}})
+    assert env.s.get(sid).state == "approving"
+    env.s.on_credential("pc-1", {"session_id": sid, "ok": True, "credential": {"password": "right"}})
+    assert env.s.get(sid).state == "approved" and env.s.get(sid).credential == {"password": "right"}
+    # one release per session
+    env.s.on_credential("pc-1", {"session_id": sid, "ok": True, "credential": {"password": "again"}})
+    assert env.s.get(sid).credential == {"password": "right"}
+
+
+def test_web_password_never_logged(env, caplog):
+    caplog.set_level(logging.DEBUG)
+    _status(env)
+    sid = env.s.create("pc-1", "web", True, None)["session"]["id"]
+    env.s.on_credential("pc-1", {"session_id": sid, "ok": True, "credential": {"password": "S3cret-Pass"}})
+    env.s.end(sid, "user")
+    assert "S3cret-Pass" not in caplog.text
+    assert env.s.get(sid).credential is None          # gone from memory once the session ends
+    assert "S3cret-Pass" not in (env.s._audit_path.read_text() if env.s._audit_path.exists() else "")
+
+
+def test_face_id_push_reads_in_his_words():
+    from api.mac_power import _rdp_text
+    ctx = RdpSessions.context(SimpleNamespace(id="s", client="web", enc_pub=None), "pranav-computer")
+    assert _rdp_text(ctx) == "Connect to pranav-computer from the web"
+    ctx = RdpSessions.context(SimpleNamespace(id="s", client="ios", enc_pub="K"), "pranav-computer")
+    assert _rdp_text(ctx) == "Connect to pranav-computer from your iPhone"
+
+
+def test_unreachable_pc_cancels_at_once(tmp_path):
+    s = RdpSessions(send_frame=lambda d, f: False, settings=lambda: {}, device_name=lambda d: "pranav-computer")
+    s.put_status("pc-1", dict(READY))
+    sid = s.create("pc-1", "web", True, None)["session"]["id"]
+    assert s.get(sid).state == "cancelled" and s.public(sid)["error"] == "pranav-computer didn't answer"

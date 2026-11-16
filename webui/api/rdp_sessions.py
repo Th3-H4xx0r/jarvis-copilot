@@ -161,8 +161,24 @@ class RdpSessions:
         self._request_credential(sess)
         return {"session": {"id": sess.id, "state": sess.state, "expires_at": sess.expires_at}}
 
+    @staticmethod
+    def context(sess: Session, device: str) -> str:
+        """The text his Face ID signature covers: canonical JSON, byte for byte the same on the server,
+        jc-client, the iPhone and the PC app (≤ 2400 chars, the broker's limit)."""
+        return json.dumps({"session": sess.id, "client": sess.client, "enc_pub": sess.enc_pub,
+                           "device": device}, sort_keys=True, separators=(",", ":"))[:2400]
+
     def _request_credential(self, sess: Session) -> None:
-        """Task 2: ask the PC (its jc-client) to get his Face ID and release the password."""
+        """Ask the PC (its jc-client) to get his Face ID and release the password for this session."""
+        frame = {"type": "rdp_credential_request", "session_id": sess.id, "client": sess.client,
+                 "context": self.context(sess, self._name(sess.device_id))}
+        try:
+            delivered = bool(self._send(sess.device_id, frame))
+        except Exception:  # noqa: BLE001
+            delivered = False
+        if not delivered:
+            with self._lock:
+                self._close(sess, "cancelled", "pc unreachable", f"{self._name(sess.device_id)} didn't answer")
 
     def get(self, sid: str) -> Optional[Session]:
         self.sweep()
@@ -376,6 +392,11 @@ def store() -> RdpSessions:
             _STORE = RdpSessions(send_frame=_send_frame, sleeping=_sleeping, game_name=_game_name,
                                  settings=_settings, device_name=_device_name,
                                  audit_path=get_hermes_home() / "rdp" / "audit.json")
+            try:   # the PC's answer: {"type": "event", "name": "rdp_credential", "data": {...}}
+                from api import device_bridge
+                device_bridge.on_device_event("rdp_credential", _STORE.on_credential)
+            except Exception:  # noqa: BLE001
+                log.warning("rdp_credential event not registered", exc_info=True)
         return _STORE
 
 

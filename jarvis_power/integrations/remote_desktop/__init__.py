@@ -37,6 +37,11 @@ class RemoteDesktop(PowerIntegration):
     _stop: threading.Event | None = None
 
     def start(self, process: str) -> None:
+        try:   # builds the store, which registers the PC's rdp_credential answers
+            from api import rdp_sessions
+            rdp_sessions.store()
+        except Exception:  # noqa: BLE001
+            pass
         stop = threading.Event()
         type(self)._stop = stop
 
