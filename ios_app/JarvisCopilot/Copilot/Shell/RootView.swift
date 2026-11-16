@@ -20,6 +20,7 @@ struct RootView: View {
             if bridge.isPaired {
                 NavShell()
                     .macScreenPresenter()   // a Mac/PC "Screen" button opens the live view from anywhere
+                    .rdpPresenter()         // Remote Desktop from the PC card, its Tools or a button
             } else {
                 NavigationStack { PairPage() }
             }

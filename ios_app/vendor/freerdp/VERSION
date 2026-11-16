@@ -1,0 +1,7 @@
+# FreeRDP for the iPhone Remote Desktop (Task 8, docs/superpowers/plans/2026-11-15-remote-desktop.md).
+# build-xcframework.sh clones these exact commits and refuses anything else.
+FREERDP_TAG=3.33.1
+FREERDP_SHA=65bcca1913a28cbdd7eb913599f692bd2b707991
+OPENSSL_TAG=openssl-3.6.5
+OPENSSL_SHA=c8bd5a57108599ac650bbae77fcabe3109dab2e8
+DEPLOYMENT_TARGET=17.0

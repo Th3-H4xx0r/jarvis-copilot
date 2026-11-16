@@ -245,6 +245,19 @@ begin
     cfg.build_settings['ENABLE_TESTABILITY'] = 'YES' if cfg.name == 'Debug'
   end
 
+  # FreeRDP for Remote Desktop: the slices of the cached xcframework that
+  # vendor/freerdp/build-xcframework.sh links in (git-ignored). Without it `canImport(FreeRDP)` is
+  # false and nothing is linked; with it, the module map autolinks libFreeRDP.a.
+  freerdp = '$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework'
+  [app, test].each do |t|
+    t.build_configurations.each do |cfg|
+      cfg.build_settings['SWIFT_INCLUDE_PATHS[sdk=iphoneos*]'] = "$(inherited) #{freerdp}/ios-arm64/Headers"
+      cfg.build_settings['SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]'] = "$(inherited) #{freerdp}/ios-arm64-simulator/Headers"
+      cfg.build_settings['LIBRARY_SEARCH_PATHS[sdk=iphoneos*]'] = "$(inherited) #{freerdp}/ios-arm64"
+      cfg.build_settings['LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]'] = "$(inherited) #{freerdp}/ios-arm64-simulator"
+    end
+  end
+
   project.save
 
   # Shared scheme with build + test actions.

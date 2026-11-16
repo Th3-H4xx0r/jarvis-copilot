@@ -31,6 +31,12 @@ struct MacPasswordSheet: View {
                     .foregroundStyle(JcTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
+                if let from = MacPasswordSheetCopy.subtitle(for: request) {
+                    Text("Asked \(from)")
+                        .font(JcText.body)
+                        .foregroundStyle(JcTheme.muted)
+                        .padding(.top, 4)
+                }
                 meta(now: context.date)
                     .padding(.top, 4)
 
@@ -136,7 +142,26 @@ private struct MacPasswordSheetHeight: PreferenceKey {
 enum MacPasswordSheetCopy {
     /// The bold title for a request: the PC's unlock (its jc-client asks "Unlock PC") says PC.
     static func title(for request: MacPasswordRequest) -> String {
-        request.kind == "unlock" && request.context.hasPrefix("Unlock PC") ? "Unlock your PC" : title(kind: request.kind)
+        if request.kind == "rdp" { return "Remote Desktop to \(rdp(request.context).device ?? "your PC")" }
+        return request.kind == "unlock" && request.context.hasPrefix("Unlock PC") ? "Unlock your PC" : title(kind: request.kind)
+    }
+
+    /// A Remote Desktop request's signed context: {"session","client":"ios"|"web","enc_pub","device"}.
+    static func rdp(_ context: String) -> (device: String?, client: String?) {
+        let obj = (try? JSONSerialization.jsonObject(with: Data(context.utf8))) as? [String: Any] ?? [:]
+        let device = (obj["device"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        return (device, obj["client"] as? String)
+    }
+
+    /// Where a request was asked from, for an rdp request ("from this iPhone" / "from the web");
+    /// nil for the others.
+    static func subtitle(for request: MacPasswordRequest) -> String? {
+        guard request.kind == "rdp" else { return nil }
+        switch rdp(request.context).client {
+        case "web": return "from the web"
+        case "ios": return "from this iPhone"
+        default: return nil
+        }
     }
 
     /// The bold title, by what asked.
@@ -146,6 +171,7 @@ enum MacPasswordSheetCopy {
         case "admin": return "Admin access on your Mac"
         case "keychain": return "Keychain access"
         case "unlock": return "Unlock your Mac"
+        case "rdp": return "Remote Desktop to your PC"
         default: return "Your Mac wants its password"
         }
     }
@@ -155,6 +181,7 @@ enum MacPasswordSheetCopy {
         switch kind {
         case "keychain": return "key.fill"
         case "sudo": return "apple.terminal.fill"
+        case "rdp": return "display"
         default: return "lock.laptopcomputer"
         }
     }
@@ -162,7 +189,8 @@ enum MacPasswordSheetCopy {
     /// The request box, unless it would only repeat the title ("Unlock Mac").
     static func showsRequest(kind: String, context: String) -> Bool {
         let text = context.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !text.isEmpty && !(kind == "unlock" && text == "Unlock Mac")
+        // An rdp context is the signed JSON: the title and subtitle say it in words.
+        return !text.isEmpty && kind != "rdp" && !(kind == "unlock" && text == "Unlock Mac")
     }
 }
 

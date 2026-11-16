@@ -1,0 +1,15 @@
+// Swift imports `FreeRDP` and sees only jarvis_rdp.h. Linking the module links the
+// xcframework's merged static library plus the system frameworks FreeRDP needs.
+module FreeRDP {
+    header "jarvis_rdp.h"
+    export *
+    link "FreeRDP"
+    link framework "AudioToolbox"
+    link framework "AVFoundation"
+    link framework "CoreFoundation"
+    link framework "CFNetwork"
+    link framework "Security"
+    link framework "SystemConfiguration"
+    link "c++"
+    link "z"
+}

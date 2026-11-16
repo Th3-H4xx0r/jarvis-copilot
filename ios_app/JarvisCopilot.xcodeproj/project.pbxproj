@@ -114,6 +114,7 @@
 		14F08A4DA07CBE5A3781CEF5 /* Camry.bin in Resources */ = {isa = PBXBuildFile; fileRef = 93CB621EE710CFD7DC67D0CC /* Camry.bin */; };
 		150BBFE9E62CC758680F56FD /* PhotonSetupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */; };
 		152A3A07778C28F44A44D224 /* GlassesSpeakerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84FBEF1FD2B8552D6B89A8A /* GlassesSpeakerTest.swift */; };
+		1544D271DF43DDAB65BA3828 /* RdpCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADEB984E8CBB6FD7A2089AA8 /* RdpCredentials.swift */; };
 		157F14FAA13E84F156A92D94 /* VoiceLocalLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8280FD20DD3AC63BC1A90061 /* VoiceLocalLaneTests.swift */; };
 		15B5E43D2E52DB81A1CBD7D3 /* CarPlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE024C2472D4AF658ADB3DAE /* CarPlayCoordinator.swift */; };
 		15D0D226451FACAD6C60EAF1 /* CarLightsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39CEA86AF2CC9F1F56F90DA8 /* CarLightsPreview.swift */; };
@@ -286,6 +287,7 @@
 		32DD9E0142F0B65DF996936A /* VaultFolderScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07523086BEBE4D45BCC107F0 /* VaultFolderScreen.swift */; };
 		32F6A1E6E4969180EA4540C7 /* MoreTone+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18882C61E749AD15922B366C /* MoreTone+Color.swift */; };
 		32F7C73B7BF5090D17F70643 /* WearableControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8FF4E306DA24C8DC8DA2112 /* WearableControlTests.swift */; };
+		330FD9E2993A575D6338E765 /* RdpKeyboardBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B823B82650F226575F0B179C /* RdpKeyboardBar.swift */; };
 		33561C8F640C9921A46CA0A3 /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41861373A7C8A84FC03D47B /* AgentActivityAttributes.swift */; };
 		3380E51BFB8791987ED40488 /* InmoGo3View.swift in Sources */ = {isa = PBXBuildFile; fileRef = C64A5B0161F52695201E17FF /* InmoGo3View.swift */; };
 		33AFC2CA477EA089060C6606 /* X5SyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03C49121F383AAB1F2DF96BC /* X5SyncTests.swift */; };
@@ -443,6 +445,7 @@
 		4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */; };
 		4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */; };
 		4F71A57D06CB33D69B353C3B /* InmoMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56DAA1370D35DE181600EB3D /* InmoMediaTests.swift */; };
+		4FB90086BF0AA14ED4BDA883 /* RdpSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D1C99D2E8FAD41BA1965F5 /* RdpSessionModel.swift */; };
 		4FC85DF70EF781C307BA2465 /* GlassesMusicRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C588014B913F915E053E47 /* GlassesMusicRoute.swift */; };
 		4FDBA39736699B854A29207B /* CostsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEAF18B42FBDA8394DFE880 /* CostsStore.swift */; };
 		4FDD75F5F15B6B2745FF1974 /* IslandDesignsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */; };
@@ -564,6 +567,7 @@
 		65716FC8DCD4D9459D7D888B /* DashcamRTSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2D039B4CE9EE9BEE35FC71 /* DashcamRTSPTests.swift */; };
 		65AC0638ECEF261E63B95BAC /* CostsChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F14E14E5E058701C5DE7E82 /* CostsChartData.swift */; };
 		65C88B6370E43CAE0B680A3A /* DashcamLiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7F0222181A05F2E6928AB8 /* DashcamLiveView.swift */; };
+		65D04508227DA22BEA7C8321 /* RemoteDesktopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6B642522A481B412813525 /* RemoteDesktopTests.swift */; };
 		66030E94DA4D417CCD2C8334 /* ServerLogsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148FC917440AA35E2ED13B4E /* ServerLogsAPI.swift */; };
 		6635F1921473E87C6B4F8854 /* ServerLogsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24078FA5F9BEBEB758697D2A /* ServerLogsPage.swift */; };
 		663FE54FA63E24D73E9969DB /* ShortcutRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF4CBC5DA334CC6E8F34BC4 /* ShortcutRunner.swift */; };
@@ -832,6 +836,7 @@
 		96DFA0B7716FA0163774A5C9 /* ButtonKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F417A42373CEB73AA107565D /* ButtonKey.swift */; };
 		97185970CC553DB32101F05B /* AgentsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BADD0BE1FA4DC851252596 /* AgentsPage.swift */; };
 		9746AA294513AD0ABCAEEB37 /* WidgetDesigns.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */; };
+		9792ECB07DBEF1116A5DF677 /* RdpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E8F5991D4BD202A8734F02 /* RdpClient.swift */; };
 		97AFA2787887BBEBC9EF319B /* ButtonActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFFD878BAB7E6691A8B033AF /* ButtonActivityAttributes.swift */; };
 		97C1643BC284A5F681557F19 /* LocalActionSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF45795CD64AE7780F56157F /* LocalActionSafety.swift */; };
 		97E357CA635A4344E63DE347 /* CronDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D40CD36F5BCA868C3EA8015 /* CronDetailView.swift */; };
@@ -1032,6 +1037,7 @@
 		BDA78C33C068ED12B1011782 /* Camry-LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 6588D51E1EBC7DFC6F10CB63 /* Camry-LICENSE.md */; };
 		BDC3283A9813E58CEFFAF305 /* RouteCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9266826902B749A17D36225 /* RouteCharts.swift */; };
 		BDEFDDB02CFAFD78AE00B6C0 /* StopwatchCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */; };
+		BDF868B88C2058B43C4BFC69 /* RdpLoopbackBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 398D38FD7ACE2BDFD70F4886 /* RdpLoopbackBridge.swift */; };
 		BE07A9154B4BC0F8ADCF0F8E /* InmoDeviceTrial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFB425DCB961B89CFCB9900 /* InmoDeviceTrial.swift */; };
 		BE19AC30D2DD0BCB962F6681 /* SecurityAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644686C5D3F4DD7BB1CEBA72 /* SecurityAPI.swift */; };
 		BE1FD2938DB1BCD2F2DE0627 /* LivePollPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B47214339343236651A11BA9 /* LivePollPolicyTests.swift */; };
@@ -1062,6 +1068,7 @@
 		C354F4DA7C9F27EF404CA206 /* DevicesUnifiedRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA3BCB6CFF29EA12C987E4D /* DevicesUnifiedRenderTests.swift */; };
 		C39318E8E50E6F9059B2191B /* RingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA44E462ADEBC5FBDDD2FF7 /* RingSession.swift */; };
 		C3B0E6CE7655F7A4CFA72490 /* BandCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E2FF61DCB927F9601EEA71 /* BandCodec.swift */; };
+		C3D4183B70277F95B2578EA4 /* RdpTransfers.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD8C871015EFAE3160ECF442 /* RdpTransfers.swift */; };
 		C486B6A4B100DBD7DE646E91 /* LiveTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */; };
 		C48CDD4863876D3DFEAFF0A4 /* AgentActivitySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E4EAAFA74C23ECB4FD3C5CB /* AgentActivitySettingsSection.swift */; };
 		C490EACE90CECE6908B1FB84 /* WearableNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A09704706BFBB7BB071598 /* WearableNotificationTests.swift */; };
@@ -1121,6 +1128,7 @@
 		CE1CDD573F7EABFCC06DAB36 /* IslandAutoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3048AE0F95563C1E6BD0B85 /* IslandAutoTests.swift */; };
 		CE37E3EBC8C5194F836F4A2F /* MediaSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = D423EA754D6A22D606D52198 /* MediaSkills.swift */; };
 		CE60E048A610E09601A897AA /* WidgetDesigns.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1C549B7CA16A17E29DE99C /* WidgetDesigns.swift */; };
+		CEEC6F54BC8AD3816822FD69 /* RdpSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D591E254B4FFB6316C26EBDC /* RdpSessionView.swift */; };
 		CF07011509A8A37640D08B6B /* CostsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE750F4A818448D9A305B050 /* CostsModels.swift */; };
 		CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED899060A8E9519B6538191B /* PhotoLibrary.swift */; };
 		CF74C845A1C47E59AE30F91D /* X5ProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 742A0DCF5CEC674A2CFBF1D8 /* X5ProtocolTests.swift */; };
@@ -1518,6 +1526,7 @@
 		0B04B8197409587853F6EC6A /* CronsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronsModels.swift; sourceTree = "<group>"; };
 		0B41F649D854309CB84F046F /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		0B5A7079298755592C4A14CE /* SkillArgsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillArgsTests.swift; sourceTree = "<group>"; };
+		0B6B642522A481B412813525 /* RemoteDesktopTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemoteDesktopTests.swift; sourceTree = "<group>"; };
 		0B913DD3AA1ED97722F7EEDD /* ChatImageGallery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatImageGallery.swift; sourceTree = "<group>"; };
 		0BA6255BEA379704AED580E9 /* ProfilesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesAPI.swift; sourceTree = "<group>"; };
 		0BBF48D441761023DA829478 /* BandMeasureMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureMode.swift; sourceTree = "<group>"; };
@@ -1749,6 +1758,7 @@
 		38288B2F981AB571C6252036 /* AgentsPresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsPresentation.swift; sourceTree = "<group>"; };
 		394B878D6FC958BE371D916E /* PowerApprovals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PowerApprovals.swift; sourceTree = "<group>"; };
 		3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanStore.swift; sourceTree = "<group>"; };
+		398D38FD7ACE2BDFD70F4886 /* RdpLoopbackBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpLoopbackBridge.swift; sourceTree = "<group>"; };
 		39B90E3148926A3EF84DA78D /* RingBandNewSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingBandNewSkillsTests.swift; sourceTree = "<group>"; };
 		39CEA86AF2CC9F1F56F90DA8 /* CarLightsPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsPreview.swift; sourceTree = "<group>"; };
 		39D675E0FFE07AB3C4A95C95 /* VoiceBackendFixTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceBackendFixTests.swift; sourceTree = "<group>"; };
@@ -1884,6 +1894,7 @@
 		5469D3F79C2FF7A400276AAD /* VaultModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultModels.swift; sourceTree = "<group>"; };
 		54A612AF6DD69E53B2352951 /* GlassesPlacesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesPlacesView.swift; sourceTree = "<group>"; };
 		54B0C5EF740105D7D85955A7 /* InmoBatteryHistory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoBatteryHistory.swift; sourceTree = "<group>"; };
+		54D1C99D2E8FAD41BA1965F5 /* RdpSessionModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpSessionModel.swift; sourceTree = "<group>"; };
 		54D76A517B3307E494EEF348 /* WidgetSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		550948BFF04A6252D0AC447F /* VoicePage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePage.swift; sourceTree = "<group>"; };
 		5512C8ECFDB41A863B1AED9C /* IslandOfflineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOfflineTests.swift; sourceTree = "<group>"; };
@@ -2345,6 +2356,7 @@
 		ADABABC9B5966F2E5A792870 /* ActionPickerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionPickerView.swift; sourceTree = "<group>"; };
 		ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceModelSelection.swift; sourceTree = "<group>"; };
 		ADEAD6E293A4C38DF5DBE558 /* IslandLiveProbeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandLiveProbeTests.swift; sourceTree = "<group>"; };
+		ADEB984E8CBB6FD7A2089AA8 /* RdpCredentials.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpCredentials.swift; sourceTree = "<group>"; };
 		AE024C2472D4AF658ADB3DAE /* CarPlayCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayCoordinator.swift; sourceTree = "<group>"; };
 		AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPrompt.swift; sourceTree = "<group>"; };
 		AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -2389,6 +2401,7 @@
 		B7C126520B40896C15CF540F /* AppleFoundationModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleFoundationModelTests.swift; sourceTree = "<group>"; };
 		B7C79D619437D959419E9EE3 /* PcStatsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcStatsTests.swift; sourceTree = "<group>"; };
 		B7FFEFB7BF04D5089068227C /* WatchMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchMenu.swift; sourceTree = "<group>"; };
+		B823B82650F226575F0B179C /* RdpKeyboardBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpKeyboardBar.swift; sourceTree = "<group>"; };
 		B827C9E380C386F53FA9F65D /* SpeechEngineAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechEngineAPITests.swift; sourceTree = "<group>"; };
 		B84FBEF1FD2B8552D6B89A8A /* GlassesSpeakerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesSpeakerTest.swift; sourceTree = "<group>"; };
 		B8BDFA74346DDB54F51D6C1E /* DashcamUIModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamUIModels.swift; sourceTree = "<group>"; };
@@ -2555,6 +2568,7 @@
 		D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGoogleSignIn.swift; sourceTree = "<group>"; };
 		D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachineTests.swift; sourceTree = "<group>"; };
 		D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteWireTests.swift; sourceTree = "<group>"; };
+		D591E254B4FFB6316C26EBDC /* RdpSessionView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpSessionView.swift; sourceTree = "<group>"; };
 		D594DA9788C935CF5024AA90 /* JcLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcLoader.swift; sourceTree = "<group>"; };
 		D5A0E386FACED19A19EF79EA /* RouteDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteDetailView.swift; sourceTree = "<group>"; };
 		D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureList.swift; sourceTree = "<group>"; };
@@ -2591,6 +2605,7 @@
 		DD4AD08296D0BB6CACA7C8ED /* GlassesPlaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesPlaces.swift; sourceTree = "<group>"; };
 		DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoderTests.swift; sourceTree = "<group>"; };
 		DD80089930D4CB5A47021151 /* JarvisHoloShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisHoloShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD8C871015EFAE3160ECF442 /* RdpTransfers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpTransfers.swift; sourceTree = "<group>"; };
 		DD987B13C265B1A25D7AEC69 /* WorkoutLiveIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutLiveIntents.swift; sourceTree = "<group>"; };
 		DE15106A360CC72986B8C768 /* ButtonStates.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonStates.swift; sourceTree = "<group>"; };
 		DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
@@ -2703,6 +2718,7 @@
 		F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LensCaptionSurface.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		F3BDE9ADEF6B1D97AC450859 /* ContextSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContextSnapshot.swift; sourceTree = "<group>"; };
+		F3E8F5991D4BD202A8734F02 /* RdpClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RdpClient.swift; sourceTree = "<group>"; };
 		F417A42373CEB73AA107565D /* ButtonKey.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonKey.swift; sourceTree = "<group>"; };
 		F452DF6F9A5DAE3E84BF74A1 /* BridgeReconnect.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeReconnect.swift; sourceTree = "<group>"; };
 		F457BDB67BB9C8C7C9B457A9 /* CarLightsManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsManager.swift; sourceTree = "<group>"; };
@@ -3867,6 +3883,7 @@
 				A091F32072BF937AC420B199 /* PcAdminApprovals.swift */,
 				4D5D84832A87356FCBD83F52 /* PcStats */,
 				5014343196DD14882EA868A3 /* ComputerTools.swift */,
+				D7AF84F7279BC41764E347FA /* RemoteDesktop */,
 			);
 			name = Agents;
 			path = Agents;
@@ -4282,6 +4299,7 @@
 				ED57657C7CEB91AAC98D7647 /* PcStatsFixtures.swift */,
 				2AC131B1B9F378B9070838B3 /* PcStatsLayoutTests.swift */,
 				370B4AA481C344AEA123F577 /* ComputerToolsTests.swift */,
+				0B6B642522A481B412813525 /* RemoteDesktopTests.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -4708,6 +4726,21 @@
 				DB87422657BB46F190B79AA6 /* MacScreenZoom.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		D7AF84F7279BC41764E347FA /* RemoteDesktop */ = {
+			isa = PBXGroup;
+			children = (
+				F3E8F5991D4BD202A8734F02 /* RdpClient.swift */,
+				ADEB984E8CBB6FD7A2089AA8 /* RdpCredentials.swift */,
+				B823B82650F226575F0B179C /* RdpKeyboardBar.swift */,
+				398D38FD7ACE2BDFD70F4886 /* RdpLoopbackBridge.swift */,
+				54D1C99D2E8FAD41BA1965F5 /* RdpSessionModel.swift */,
+				D591E254B4FFB6316C26EBDC /* RdpSessionView.swift */,
+				DD8C871015EFAE3160ECF442 /* RdpTransfers.swift */,
+			);
+			name = RemoteDesktop;
+			path = RemoteDesktop;
 			sourceTree = "<group>";
 		};
 		D97BC80A2BCAA15ADD25BB09 /* Vault */ = {
@@ -5957,6 +5990,7 @@
 				66842E4742F95029B1C5EBD3 /* PcStatsFixtures.swift in Sources */,
 				50F448802C770CE57FBFDB13 /* PcStatsLayoutTests.swift in Sources */,
 				32BD5592A9DE39035CA8A842 /* ComputerToolsTests.swift in Sources */,
+				65D04508227DA22BEA7C8321 /* RemoteDesktopTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6886,6 +6920,13 @@
 				7EC6DFE7D8F4B56DDA874F90 /* PcStatsPage.swift in Sources */,
 				1306361C7D70D218BC5A01B9 /* PcStatsWidgets.swift in Sources */,
 				C97A096405CCF18426F23F1D /* ComputerTools.swift in Sources */,
+				9792ECB07DBEF1116A5DF677 /* RdpClient.swift in Sources */,
+				1544D271DF43DDAB65BA3828 /* RdpCredentials.swift in Sources */,
+				330FD9E2993A575D6338E765 /* RdpKeyboardBar.swift in Sources */,
+				BDF868B88C2058B43C4BFC69 /* RdpLoopbackBridge.swift in Sources */,
+				4FB90086BF0AA14ED4BDA883 /* RdpSessionModel.swift in Sources */,
+				CEEC6F54BC8AD3816822FD69 /* RdpSessionView.swift in Sources */,
+				C3D4183B70277F95B2578EA4 /* RdpTransfers.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6939,11 +6980,21 @@
 				DEVELOPMENT_TEAM = VY5CNF8734;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS.Tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator/Headers";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JarvisCopilot.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JarvisCopilot";
@@ -7284,11 +7335,21 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator/Headers";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -7338,11 +7399,21 @@
 				DEVELOPMENT_TEAM = VY5CNF8734;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS.Tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator/Headers";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JarvisCopilot.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JarvisCopilot";
@@ -7432,11 +7503,21 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64/Headers";
+				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/vendor/freerdp/FreeRDP.xcframework/ios-arm64-simulator/Headers";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;

@@ -36,6 +36,13 @@ struct AgentsMacPowerCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Lists the tools you can map to buttons")
+                if mac.isPC && PowerState.shared.isOn("remote-desktop") {
+                    // The full RDP session (Screen stays the watch-and-steer view).
+                    JcRow(symbol: "display", title: "Remote Desktop",
+                          subtitle: mac.isAwake ? "The full desktop · Face ID" : "Asleep · it offers Wake first",
+                          action: { RdpPresenter.shared.open(deviceId: mac.deviceId, name: name) })
+                        .accessibilityHint("Opens a Remote Desktop session after Face ID")
+                }
                 JcRow(symbol: "cup.and.saucer", title: "Keep awake",
                       subtitle: AgentsMacPowerCopy.keepAwakeSubtitle(on: mac.keepAwake), last: true) {
                     Toggle("Keep awake", isOn: Binding(
@@ -283,7 +290,8 @@ struct AgentsMacPasswordRow: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             JcRow(symbol: MacPasswordSheetCopy.symbol(kind: request.kind),
                   title: MacPasswordSheetCopy.title(for: request),
-                  subtitle: "\(macName) · \(MacPasswordApproval.countdown(request.expires, now: context.date))",
+                  subtitle: [MacPasswordSheetCopy.subtitle(for: request) ?? macName,
+                             MacPasswordApproval.countdown(request.expires, now: context.date)].joined(separator: " · "),
                   subtitleLines: 1, last: last, action: open)
                 .accessibilityHint("Opens the request to allow or deny it")
         }

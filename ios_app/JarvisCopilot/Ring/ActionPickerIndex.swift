@@ -170,7 +170,7 @@ enum ActionPickerIndex {
     /// through the server's wake path) unless the PC's adapter can't be woken.
     static func computerSection(_ board: ServerDevice, _ computer: ServerComputer) -> ActionPickerSection {
         let asleep = "\(board.name) is asleep — wake it first"
-        let power = ComputerPowerAction.allCases.map { action in
+        let power = ComputerPowerAction.actions(for: computer).map { action in
             ActionPickerRow(id: "computer.\(board.id).\(action.rawValue)", title: action.title(isPC: computer.isPC),
                             detail: action.detail(isPC: computer.isPC),
                             kind: .pick(.serverDevice(deviceID: board.id, skill: action.skill, arguments: [:])),

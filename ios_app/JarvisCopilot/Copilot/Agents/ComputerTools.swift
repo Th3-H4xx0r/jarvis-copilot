@@ -12,6 +12,8 @@ import Observation
 
 enum ComputerPowerAction: String, CaseIterable, Identifiable {
     case wake, sleep, lock, unlock, screen
+    /// The full RDP session (Windows PCs, with the remote-desktop integration on).
+    case remoteDesktop = "remote_desktop"
 
     var id: String { rawValue }
 
@@ -32,7 +34,13 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
         case .lock: return "Lock"
         case .unlock: return "Unlock"
         case .screen: return "Screen"
+        case .remoteDesktop: return "Remote Desktop"
         }
+    }
+
+    /// The actions a computer answers to: Remote Desktop only on a Windows PC with it switched on.
+    static func actions(for c: ServerComputer, remoteDesktopOn: Bool = PowerShared.isOn("remote-desktop")) -> [ComputerPowerAction] {
+        allCases.filter { $0 != .remoteDesktop || (c.isPC && remoteDesktopOn) }
     }
 
     func detail(isPC: Bool) -> String {
@@ -43,6 +51,7 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
         case .lock: return "Locks \(it)'s screen"
         case .unlock: return "Unlocks \(it)'s screen after Face ID"
         case .screen: return "Opens \(it)'s screen live to watch and control"
+        case .remoteDesktop: return "Work on \(it) with real Remote Desktop (Face ID)"
         }
     }
 
@@ -53,6 +62,7 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
         case .lock: return "lock.fill"
         case .unlock: return "lock.open.fill"
         case .screen: return "rectangle.on.rectangle"
+        case .remoteDesktop: return "display"
         }
     }
 
@@ -63,7 +73,7 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
         case .sleep: return .letSleep
         case .lock: return .lock
         case .unlock: return .unlock
-        case .screen: return nil
+        case .screen, .remoteDesktop: return nil
         }
     }
 
@@ -74,6 +84,8 @@ enum ComputerPowerAction: String, CaseIterable, Identifiable {
         case .wake:
             if c.isPC, c.wakeCapable == false { return c.wakeReason ?? "This PC's Wi-Fi adapter can't be woken remotely" }
             return nil
+        case .remoteDesktop:
+            return nil   // asleep → the session offers Wake
         default:
             return c.awake ? nil : "\(name) is asleep — wake it first"
         }
@@ -126,6 +138,11 @@ enum ComputerPowerRunner {
     static var api: AgentsAPI = AgentsAPI()
 
     static func run(_ action: ComputerPowerAction, deviceID: String) async -> String {
+        if action == .remoteDesktop {
+            let name = (await ComputerDirectory.load())[deviceID]?.name ?? "your PC"
+            RdpPresenter.shared.open(deviceId: deviceID, name: name)
+            return "remote desktop: opening"
+        }
         guard let call = action.macPower else {
             MacScreenPresenter.shared.open(deviceID)
             return "screen: opening the live view"
@@ -203,6 +220,10 @@ struct ComputerToolsPage: View {
             MacScreenPresenter.shared.open(deviceId)
             return
         }
+        if action == .remoteDesktop {
+            RdpPresenter.shared.open(deviceId: deviceId, name: name)
+            return
+        }
         guard let call = action.macPower else { return }
         running = action
         message = nil
@@ -272,8 +293,8 @@ struct ComputerToolsList: View {
 enum ComputerToolsCopy {
     /// The power actions in card order. A Mac has no Wake while it's awake (nothing to do), the
     /// others stay listed (greyed while asleep) so a button can be mapped to them any time.
-    static func powerActions(_ c: ServerComputer) -> [ComputerPowerAction] {
-        c.awake ? [.sleep, .lock, .unlock, .screen] : [.wake, .sleep, .lock, .unlock, .screen]
+    static func powerActions(_ c: ServerComputer, remoteDesktopOn: Bool = PowerShared.isOn("remote-desktop")) -> [ComputerPowerAction] {
+        ComputerPowerAction.actions(for: c, remoteDesktopOn: remoteDesktopOn).filter { !(c.awake && $0 == .wake) }
     }
 
     static func sorted(_ tools: [DeviceCapability]) -> [DeviceCapability] {
