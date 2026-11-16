@@ -112,6 +112,31 @@ enum JcMetric {
     static let rhythmHex: UInt32 = 0x7CB7FF
     static let rhythm = rgb(rhythmHex)
 
+    // PC Stats data colours (2026-11-15, "some things should have color"): one per metric group,
+    // used only inside the data — chart lines and fills, rings, bars, sparklines, legend dots and
+    // the small card-header icon. The chrome stays black and white.
+    /// GPU: the activity teal.
+    static let pcGpu = activity
+    /// CPU: the rhythm light blue.
+    static let pcCpu = rhythm
+    /// Frames (fps, 1% low, frame time): violet.
+    static let pcFramesHex: UInt32 = 0xA78BFA
+    static let pcFrames = rgb(pcFramesHex)
+    /// Power: the app's amber.
+    static let pcPowerHex: UInt32 = 0xFABF24
+    static let pcPower = rgb(pcPowerHex)
+    /// Temperatures: the heart coral.
+    static let pcTemps = heart
+    /// Memory and disks: mint.
+    static let pcMemoryHex: UInt32 = 0x6EE7B7
+    static let pcMemory = rgb(pcMemoryHex)
+    /// Network: pink.
+    static let pcNetworkHex: UInt32 = 0xF472B6
+    static let pcNetwork = rgb(pcNetworkHex)
+    /// Fans and pumps: sky.
+    static let pcCoolingHex: UInt32 = 0x67E8F9
+    static let pcCooling = rgb(pcCoolingHex)
+
     private static func rgb(_ hex: UInt32) -> Color { mix(hex, toward: 0, 0) }
 
     /// `hex` moved `amount` of the way toward white (1) or black (0).

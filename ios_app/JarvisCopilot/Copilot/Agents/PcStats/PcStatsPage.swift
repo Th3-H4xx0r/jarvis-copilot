@@ -25,7 +25,7 @@ struct PcStatsPage: View {
 
     var body: some View {
         ScrollView { content }
-        .background(Color.black.ignoresSafeArea())
+        .background(JcTheme.bg.ignoresSafeArea())
         .refreshable { await model.refresh() }
         .overlay(alignment: .top) { bannerView }
         .jcPageChrome(isOn ? model.name : "PC Stats") {
@@ -81,12 +81,16 @@ struct PcStatsPage: View {
                 : "Connecting…"
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 12) {
+                    PcOrb(online: model.live.online)
                     statusLine(status).fixedSize()
                     Spacer(minLength: 8)
                     switcher
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    statusLine(status)
+                    HStack(spacing: 12) {
+                        PcOrb(online: model.live.online)
+                        statusLine(status)
+                    }
                     switcher
                 }
             }
@@ -96,7 +100,7 @@ struct PcStatsPage: View {
     private func statusLine(_ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Circle()
-                .fill(model.live.online ? Color(jcHex: 0x30D158) : PcLook.tertiary)
+                .fill(model.live.online ? PcLook.accent : PcLook.tertiary)
                 .frame(width: 8, height: 8)
             Text(text).lineLimit(2)
         }
@@ -125,10 +129,10 @@ struct PcStatsPage: View {
                     .font(.system(size: 10, weight: .bold))
             }
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(PcLook.primary)
+            .foregroundStyle(JcButton.label)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(PcLook.elevated, in: Capsule())
+            .background(PcLook.control, in: Capsule())
         }
         .accessibilityLabel("Dashboard: \(model.active?.name ?? "none")")
         .accessibilityHint("Switch dashboards, make a new one or edit this one")
@@ -303,14 +307,9 @@ struct PcStatsCardSection: View {
         }
     }
 
-    /// The label's category tint (Apple look): CPU blue, GPU green, watts yellow, temps orange.
+    /// The label's colour.
     static func tint(_ label: String) -> Color {
-        switch label {
-        case "CPU": return PcLook.tint(.cpu)
-        case "GPU": return PcLook.tint(.gpu)
-        case "Hottest": return PcLook.tint(.temps)
-        default: return PcLook.tint(.power)
-        }
+        JcTheme.muted   // the Jarvis look: labels muted, values white
     }
 
     /// A usage with its temperature beside it at the same size ("38% · 72°C").

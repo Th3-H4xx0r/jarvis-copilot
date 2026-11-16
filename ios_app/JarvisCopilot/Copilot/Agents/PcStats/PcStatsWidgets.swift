@@ -1,68 +1,78 @@
 import SwiftUI
 
-// The Apple look (docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md; it replaced look B,
-// which he found not professional enough): pure black, #1C1C1E borderless cards with a
-// continuous 22 radius, a tinted SF Symbol + label per category (Apple system colours), large
-// rounded tabular numerals with small secondary units, smoothed charts with three faint
-// gridlines and a Min · Avg · Max row, Activity-style rings, 8 pt bars. Health / Fitness feel.
+// The Jarvis look (docs/superpowers/specs/2026-11-15-pc-stats-jarvis-look.md; his ask: "more
+// jarvis themed and match it with the app UI we have right now"). Every colour is an app token:
+// the accent (`JcAccent.color`, the one variable) in shades for data, `JcTheme` text / muted,
+// `JcButton` greys for controls, the app's amber / red only past warn / crit. Cards are the
+// app's `JcCard`; card headers are the small muted uppercase section-label style.
 
 // MARK: - Look
 
 enum PcLook {
-    static let card = Color(jcHex: 0x1C1C1E)
-    static let elevated = Color(jcHex: 0x2C2C2E)
-    static let radius: CGFloat = 22
+    static let accent = JcAccent.color
+    static let radius: CGFloat = JcUnified.cardRadius
     /// Between cards.
     static let gap: CGFloat = 12
-    static let primary = Color.white
-    static let secondary = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.6)
-    static let tertiary = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.3)
-    static let separator = Color(.sRGB, red: 84 / 255, green: 84 / 255, blue: 88 / 255, opacity: 0.6)
-    static let warn = Color(jcHex: 0xFF9F0A)
-    static let crit = Color(jcHex: 0xFF453A)
+    static let primary = JcTheme.text
+    static let secondary = JcTheme.muted
+    static let tertiary = JcTheme.muted.opacity(0.6)
+    /// Gridlines and hairlines.
+    static let separator = JcAccent.color.opacity(0.07)
+    /// A bar's empty track.
+    static let track = JcAccent.color.opacity(0.08)
+    /// Grey control surface (switcher pill).
+    static let control = JcButton.fill
+    static let warn = JcTheme.amber
+    static let crit = JcTheme.danger
 
-    /// The colours the settings offer (`style.color`, #RRGGBB): the category tints and a few more.
-    static let palette: [String] = ["#30D158", "#0A84FF", "#BF5AF2", "#FFD60A", "#64D2FF",
-                                    "#5E5CE6", "#5AC8FA", "#FF9F0A", "#FF375F", "#FFFFFF"]
+    /// The accent at a strength (0…1).
+    static func accent(_ opacity: Double) -> Color { JcAccent.color.opacity(opacity) }
 
-    static func color(_ hex: String?) -> Color? {
-        guard let hex, hex.count == 7, hex.hasPrefix("#"), let v = UInt32(hex.dropFirst(), radix: 16) else { return nil }
-        return Color(jcHex: v)
+    /// A metric group's data colour (`JcMetric.pc*`, defined once in Shared/JcAccent.swift).
+    static func metric(_ category: PcCategory) -> Color {
+        switch category {
+        case .gpu: return JcMetric.pcGpu
+        case .cpu: return JcMetric.pcCpu
+        case .frames: return JcMetric.pcFrames
+        case .power: return JcMetric.pcPower
+        case .temps: return JcMetric.pcTemps
+        case .memory: return JcMetric.pcMemory
+        case .network: return JcMetric.pcNetwork
+        case .cooling: return JcMetric.pcCooling
+        case .other: return JcTheme.muted
+        }
     }
 
-    static func tint(_ category: PcCategory) -> Color { Color(jcHex: category.tintHex) }
-
-    /// A reading's tint: its category's colour.
-    static func tint(key: String?) -> Color { tint(PcCategory.of(key)) }
-
-    /// A widget's tint: its own colour, else its first reading's category.
+    /// Data colour (lines, fills, rings, bars, sparklines, legend dots, header icon). Chrome
+    /// (cards, labels, values, controls) never uses it.
+    static func tint(_ category: PcCategory) -> Color { metric(category) }
+    static func tint(key: String?) -> Color { metric(PcCategory.of(key)) }
     static func tint(_ widget: PcWidget) -> Color {
-        if let c = color(widget.style.color) { return c }
         switch widget.kind {
-        case .session: return tint(.frames)
-        case .moments: return tint(.temps)
-        default: return tint(key: widget.primary)
+        case .session: return metric(.frames)
+        case .moments: return metric(.temps)
+        case .hero: return metric(widget.primary.map(PcCategory.part) ?? .other)
+        default: return metric(PcCategory.of(widget.primary))
         }
     }
 
     static func symbol(_ widget: PcWidget) -> String {
         switch widget.kind {
-        case .session: return "gamecontroller.fill"
-        case .moments: return "exclamationmark.triangle.fill"
+        case .session: return "gamecontroller"
+        case .moments: return "exclamationmark.triangle"
         case .text: return "text.alignleft"
         default: return PcCategory.of(widget.primary).symbol
         }
     }
 
-    /// The i-th series in a multi-reading chart: the widget's colour first, then distinct tints.
-    static func seriesColor(_ i: Int, key: String, style: PcWidgetStyle, keys: [String]? = nil) -> Color {
-        if i == 0, let c = color(style.color) { return c }
-        let all = keys ?? [key]
-        let hexes = PcCategory.seriesColors(all)
-        return i < hexes.count && all.count > 1 ? Color(jcHex: hexes[i]) : tint(key: key)
+    /// The i-th line of a chart: its own group's colour (a repeat from the same group at 55 % / 30 %).
+    static func seriesColor(_ i: Int, key: String = "", style: PcWidgetStyle = PcWidgetStyle(), keys: [String]? = nil) -> Color {
+        let shades = PcCategory.seriesShades(keys ?? [key])
+        guard i < shades.count else { return tint(key: key) }
+        return metric(shades[i].category).opacity(shades[i].opacity)
     }
 
-    /// Warn and crit colour the value text only.
+    /// Warn and crit colour the value text (and that bar or ring) only.
     static func toneColor(_ tone: PcFormat.Tone) -> Color {
         switch tone {
         case .normal: return primary
@@ -70,39 +80,63 @@ enum PcLook {
         case .crit: return crit
         }
     }
-}
 
-/// A card: #1C1C1E, no border, continuous radius 22.
-struct PcPanel<Content: View>: View {
-    var padding: CGFloat = 18
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) { content }
-            .padding(padding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(PcLook.card, in: RoundedRectangle(cornerRadius: PcLook.radius, style: .continuous))
+    /// A bar or ring's fill: the accent, or amber / red past the widget's thresholds.
+    static func fill(_ tone: PcFormat.Tone, normal: Color = JcAccent.color) -> Color {
+        tone == .normal ? normal : toneColor(tone)
     }
 }
 
-/// The small "est." mark beside an estimated reading.
+/// The Jarvis orb in the page header, in shades of the accent (dim while the PC is offline).
+struct PcOrb: View {
+    var size: CGFloat = 26
+    var online = true
+
+    var body: some View {
+        Circle()
+            .fill(RadialGradient(colors: [PcLook.accent(online ? 0.95 : 0.4), PcLook.accent(online ? 0.35 : 0.12),
+                                          PcLook.accent(0.04)],
+                                 center: UnitPoint(x: 0.38, y: 0.32), startRadius: 0, endRadius: size * 0.6))
+            .overlay(Circle().strokeBorder(PcLook.accent(0.18), lineWidth: 1))
+            .frame(width: size, height: size)
+            .shadow(color: PcLook.accent(online ? 0.25 : 0), radius: 8)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A card: the app's `JcCard` (surface, hairline, radius 20), filling the height it's given so
+/// two tiles side by side match.
+struct PcPanel<Content: View>: View {
+    var padding: CGFloat = JcUnified.cardPadding
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        JcCard(padding: padding) {
+            VStack(alignment: .leading, spacing: 0) { content }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+/// "EST." beside an estimated reading, in the header's small muted caps.
 struct PcEstimatedBadge: View {
     var body: some View {
-        Text("est.")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(PcLook.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(PcLook.elevated, in: Capsule())
+        Text("EST.")
+            .font(.system(size: 11, weight: .medium))
+            .tracking(0.8)
+            .foregroundStyle(PcLook.tertiary)
             .accessibilityLabel("estimated")
     }
 }
 
-/// A card's header: the tinted symbol and label on the left, secondary context on the right.
+/// A card's header in the app's section-label style: a small muted icon, the label in small
+/// muted UPPERCASE with letter-spacing, and the context ("NOW", "10 MIN") on the right.
 struct PcCardHeader: View {
     let title: String
     var symbol: String?
-    var tint: Color = PcLook.secondary
+    /// The icon's data colour; the label and context stay muted.
+    var tint: Color = JcTheme.muted
     var estimated = false
     var context: String?
 
@@ -110,20 +144,22 @@ struct PcCardHeader: View {
         HStack(spacing: 6) {
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(tint)
                     .accessibilityHidden(true)
             }
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(tint)
+            Text(title.uppercased())
+                .font(.system(size: 12, weight: .medium))
+                .tracking(0.8)
+                .foregroundStyle(PcLook.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
             if estimated { PcEstimatedBadge() }
             Spacer(minLength: 6)
             if let context {
-                Text(context)
-                    .font(.system(size: 13))
+                Text(context.uppercased())
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(0.8)
                     .foregroundStyle(PcLook.secondary)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -139,11 +175,12 @@ struct PcWidgetLabel: View {
     var trailing: String?
 
     var body: some View {
-        PcCardHeader(title: text, tint: PcLook.secondary, estimated: estimated, context: trailing)
+        PcCardHeader(title: text, estimated: estimated, context: trailing)
     }
 }
 
-/// A large rounded number with its unit small and secondary after it, or "Unavailable" with why.
+/// A big bold white number with its unit small and muted after it ("65°" inline), or
+/// "Unavailable" with why.
 struct PcBigValue: View {
     let value: PcValue
     var size: CGFloat = 52
@@ -153,18 +190,17 @@ struct PcBigValue: View {
     var body: some View {
         switch value {
         case .value(let raw, let rawUnit):
-            // A temperature's ° sits inline at full size ("65°"); other units are small and secondary.
             let n = rawUnit == "°" ? raw + "°" : raw
             let unit = rawUnit == "°" ? "" : rawUnit
             HStack(alignment: .firstTextBaseline, spacing: unit == "%" ? 1 : 3) {
                 Text(n)
-                    .font(.system(size: size, weight: .semibold, design: .rounded))
+                    .font(.system(size: size, weight: .bold))
                     .tracking(-size * 0.02)
                     .foregroundStyle(PcLook.toneColor(tone))
                     .contentTransition(.numericText())
                 if !unit.isEmpty {
                     Text(unit)
-                        .font(.system(size: max(12, size * 0.35), weight: .semibold, design: .rounded))
+                        .font(.system(size: max(12, size * 0.35), weight: .semibold))
                         .foregroundStyle(PcLook.secondary)
                 }
             }
@@ -175,7 +211,7 @@ struct PcBigValue: View {
         case .unavailable(let why):
             VStack(alignment: .leading, spacing: 2) {
                 Text("Unavailable")
-                    .font(.system(size: max(17, size * 0.4), weight: .semibold, design: .rounded))
+                    .font(.system(size: max(17, size * 0.4), weight: .semibold))
                     .foregroundStyle(PcLook.secondary)
                 Text(why)
                     .font(.system(size: 13))
@@ -344,11 +380,15 @@ struct PcLineChart: View {
     let span: PcTimeSpan
     let yRange: ClosedRange<Double>
     var area = true
-    var lineWidth: CGFloat = 2.5
+    var lineWidth: CGFloat = 2
     var band = false
     var markers: [Double] = []
     var gridlines = false
     var unit = ""
+    /// The area fill's top opacity (of the series colour), fading to 0.
+    var areaOpacity: Double = 0.22
+    /// Faint dashed lines at the widget's warn / crit.
+    var thresholds: [(value: Double, color: Color)] = []
 
     private let labelGutter: CGFloat = 34
 
@@ -366,6 +406,13 @@ struct PcLineChart: View {
                         ctx.stroke(p, with: .color(PcLook.separator), lineWidth: 1)
                     }
                 }
+                for th in thresholds where yRange.contains(th.value) {
+                    var p = Path()
+                    let y = yPos(th.value, plot)
+                    p.move(to: CGPoint(x: 0, y: y))
+                    p.addLine(to: CGPoint(x: plot.width, y: y))
+                    ctx.stroke(p, with: .color(th.color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                }
                 for m in markers {
                     let x = xPos(m, plot)
                     var p = Path()
@@ -381,7 +428,7 @@ struct PcLineChart: View {
                             for p in seg.dropFirst() { b.addLine(to: CGPoint(x: xPos(p.t, plot), y: yPos(p.max, plot))) }
                             for p in seg.reversed() { b.addLine(to: CGPoint(x: xPos(p.t, plot), y: yPos(p.min, plot))) }
                             b.closeSubpath()
-                            ctx.fill(b, with: .color(s.color.opacity(0.15)))
+                            ctx.fill(b, with: .color(s.color.opacity(0.12)))
                         }
                         let smooth = PcChartMath.smooth(seg)
                         let pts = smooth.map { CGPoint(x: xPos($0.t, plot), y: yPos($0.avg, plot)) }
@@ -392,7 +439,7 @@ struct PcLineChart: View {
                             fill.addLine(to: CGPoint(x: first.x, y: plot.height))
                             fill.closeSubpath()
                             ctx.fill(fill, with: .linearGradient(
-                                Gradient(colors: [s.color.opacity(0.35), s.color.opacity(0)]),
+                                Gradient(colors: [s.color.opacity(areaOpacity), s.color.opacity(0)]),
                                 startPoint: .zero, endPoint: CGPoint(x: 0, y: plot.height)))
                         }
                         if pts.count == 1, let p = pts.first {
@@ -468,15 +515,15 @@ struct PcStatRow: View {
     }
 }
 
-/// An 8 pt bar on a #2C2C2E track.
+/// An 8 pt bar: the fill (the reading's colour, or amber / red past a threshold) on a white track at 8 %.
 struct PcBar: View {
     let fraction: Double
-    var tint: Color
+    var tint: Color = JcAccent.color
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(PcLook.elevated)
+                RoundedRectangle(cornerRadius: 4, style: .continuous).fill(PcLook.track)
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(tint)
                     .frame(width: fraction > 0 ? max(8, geo.size.width * min(1, fraction)) : 0)
@@ -488,41 +535,27 @@ struct PcBar: View {
     }
 }
 
-/// An Activity-style ring: stroke 13% of the diameter, the tint's track at 20%.
+/// A ring: the arc (the reading's colour, or amber / red past a threshold) with round caps on a
+/// track of the reading's colour at 18 %; stroke 13 % of the diameter.
 struct PcRing: View {
     let fraction: Double
-    var tint: Color
+    var tint: Color = JcAccent.color
+    var track: Color?
     var diameter: CGFloat = 92
 
     var body: some View {
         let stroke = diameter * 0.13
         ZStack {
-            Circle().stroke(tint.opacity(0.2), lineWidth: stroke)
+            Circle().stroke((track ?? tint).opacity(0.18), lineWidth: stroke)
             Circle()
                 .trim(from: 0, to: max(0.001, min(1, fraction)))
-                .stroke(AngularGradient(colors: [tint, tint.mix(with: .white, by: 0.25)], center: .center,
-                                        startAngle: .degrees(0), endAngle: .degrees(360 * max(0.05, min(1, fraction)))),
-                        style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: diameter, height: diameter)
         .padding(stroke / 2)
         .animation(.easeOut(duration: 0.4), value: fraction)
         .accessibilityHidden(true)
-    }
-}
-
-private extension Color {
-    /// `Color.mix` is iOS 18; this blends in sRGB on iOS 17 too.
-    func mix(with other: Color, by amount: Double) -> Color {
-        let a = UIColor(self), b = UIColor(other)
-        var (r1, g1, b1, a1): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
-        var (r2, g2, b2, a2): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
-        a.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
-        b.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-        let t = CGFloat(amount)
-        return Color(.sRGB, red: Double(r1 + (r2 - r1) * t), green: Double(g1 + (g2 - g1) * t),
-                     blue: Double(b1 + (b2 - b1) * t), opacity: Double(a1 + (a2 - a1) * t))
     }
 }
 
@@ -573,6 +606,14 @@ extension PcWidget {
         if let k = primary, let r = catalog.info(k) { return r.label }
         return kind.title
     }
+}
+
+/// The widget's warn / crit as faint dashed chart lines.
+private func thresholdLines(_ style: PcWidgetStyle) -> [(value: Double, color: Color)] {
+    var out: [(value: Double, color: Color)] = []
+    if let w = style.warn { out.append((w, PcLook.warn)) }
+    if let c = style.crit { out.append((c, PcLook.crit)) }
+    return out
 }
 
 private func unit(_ key: String?, _ ctx: PcWidgetContext, _ style: PcWidgetStyle) -> String {
@@ -662,7 +703,8 @@ struct PcHeroWidget: View {
                 PcLineChart(series: [.init(id: key, points: pts, color: PcLook.tint(widget))],
                             span: PcTimeSpan.last(ctx.range.window(for: widget), now: ctx.now),
                             yRange: PcChartScale.range(pts.map(\.avg), unit: u),
-                            area: chart == .area, gridlines: true, unit: u)
+                            area: chart == .area, gridlines: true, unit: u,
+                            thresholds: PcFormat.heroTemperature(widget) == nil ? thresholdLines(widget.style) : [])
                     .frame(height: 132)
                     .padding(.top, 16)
                     .opacity(ctx.stale ? 0.5 : 1)
@@ -722,7 +764,7 @@ struct PcNumberWidget: View {
                 PcLineChart(series: [.init(id: key, points: pts, color: PcLook.tint(widget))],
                             span: PcTimeSpan.last(ctx.range.window(for: widget), now: ctx.now),
                             yRange: PcChartScale.range(pts.map(\.avg), unit: u),
-                            area: chart == .area, lineWidth: 2)
+                            area: chart == .area, lineWidth: 2, thresholds: thresholdLines(widget.style))
                     .frame(height: 44)
                     .opacity(ctx.stale ? 0.5 : 1)
             }
@@ -744,7 +786,8 @@ struct PcRingWidget: View {
         PcPanel(padding: 16) {
             header(widget, ctx)
             ZStack {
-                PcRing(fraction: v == nil ? 0 : fraction, tint: PcLook.tint(widget), diameter: 88)
+                PcRing(fraction: v == nil ? 0 : fraction, tint: PcLook.fill(tone, normal: PcLook.tint(widget)),
+                       track: PcLook.tint(widget), diameter: 88)
                     .opacity(ctx.stale ? 0.55 : 1)
                 PcBigValue(value: PcFormat.value(key, live: ctx.live, catalog: ctx.catalog, style: widget.style), size: 24,
                            tone: tone, dimmed: ctx.stale)
@@ -778,7 +821,7 @@ struct PcSparklineWidget: View {
                 PcLineChart(series: [.init(id: key, points: pts, color: PcLook.tint(widget))],
                             span: PcTimeSpan.last(ctx.range.window(for: widget), now: ctx.now),
                             yRange: PcChartScale.range(pts.map(\.avg), unit: unit(key, ctx, widget.style)),
-                            area: (widget.style.chart ?? .line) == .area, lineWidth: 2)
+                            area: (widget.style.chart ?? .line) == .area, lineWidth: 2, areaOpacity: 0.14)
                     .frame(height: 30)
                     .opacity(ctx.stale ? 0.5 : 1)
             }
@@ -819,7 +862,8 @@ struct PcChartWidget: View {
                 PcLineChart(series: series, span: PcTimeSpan.last(window, now: ctx.now),
                             yRange: PcChartScale.range(all, unit: u),
                             area: (widget.style.chart ?? .line) == .area && series.count == 1,
-                            gridlines: true, unit: u)
+                            gridlines: true, unit: u,
+                            thresholds: series.count == 1 ? thresholdLines(widget.style) : [])
                     .frame(height: 132)
                     .padding(.top, 14)
                     .opacity(ctx.stale ? 0.6 : 1)
@@ -883,7 +927,7 @@ struct PcBarsWidget: View {
         let tone = PcFormat.tone(values[key], style: widget.style)
         let label = PcFormat.shortLabel(key, catalog: ctx.catalog)
         let text = available ? PcFormat.barValue(key, values: values, catalog: ctx.catalog, style: widget.style) : "Unavailable"
-        let tint = peers.count > 1 && widget.style.color == nil ? PcLook.tint(key: key) : PcLook.tint(widget)
+        let tint = PcLook.fill(tone, normal: PcLook.tint(key: key))
         return VStack(spacing: 6) {
             HStack {
                 Text(label).font(.system(size: 14)).foregroundStyle(PcLook.secondary).lineLimit(1)
@@ -932,7 +976,7 @@ struct PcStatsTileWidget: View {
         let c = PcFormat.statsCell(key, live: ctx.live, catalog: ctx.catalog, style: widget.style)
         let pts = ctx.points(key, widget)
         let tone = PcFormat.tone(ctx.live.values[key], style: widget.style)
-        let tint = widget.style.color == nil ? PcLook.tint(key: key) : PcLook.tint(widget)
+        let tint = PcLook.tint(key: key)
         return VStack(alignment: .leading, spacing: 3) {
             Text(c.label)
                 .font(.system(size: 13))
@@ -956,7 +1000,7 @@ struct PcStatsTileWidget: View {
             PcLineChart(series: [.init(id: key, points: pts, color: tint)],
                         span: PcTimeSpan.last(ctx.range.window(for: widget), now: ctx.now),
                         yRange: PcChartScale.range(pts.map(\.avg), unit: unit(key, ctx, widget.style)),
-                        area: false, lineWidth: 1.5)
+                        area: true, lineWidth: 1.5, areaOpacity: 0.14)
                 .frame(height: 20)
                 .opacity(pts.isEmpty ? 0 : (ctx.stale ? 0.5 : 1))
         }
@@ -1039,7 +1083,7 @@ struct PcMomentsWidget: View {
             // The day as a strip, each marked moment a tick.
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous).fill(PcLook.elevated).frame(height: 8)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous).fill(PcLook.track).frame(height: 8)
                     ForEach(recent) { m in
                         let f = m.t.timeIntervalSince(dayAgo) / 86_400
                         Capsule()

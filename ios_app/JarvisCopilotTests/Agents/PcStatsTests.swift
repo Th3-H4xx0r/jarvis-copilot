@@ -417,11 +417,16 @@ final class PcStatsTests: XCTestCase {
         XCTAssertEqual(PcCategory.of("net.down"), .network)
         XCTAssertEqual(PcCategory.of("fan.pump"), .cooling)
         XCTAssertEqual(PcCategory.of(nil), .other)
-        XCTAssertEqual(PcCategory.seriesColors(["power.total", "power.gpu", "power.cpu"]), [0xFFD60A, 0x30D158, 0x0A84FF],
-                       "each line its own colour")
-        XCTAssertEqual(Set(PcCategory.seriesColors(["cpu.load", "cpu.clock", "cpu.power"])).count, 3, "repeats move on")
-        XCTAssertEqual(PcCategory.gpu.tintHex, 0x30D158)
-        XCTAssertEqual(PcCategory.cpu.tintHex, 0x0A84FF)
+        // Colour inside the data: each line its group; a part's temperature takes the part's colour
+        // among several lines; a same-group second line at 55 %.
+        let temps = PcCategory.seriesShades(["gpu.temp", "cpu.temp"])
+        XCTAssertEqual(temps.map(\.category), [.gpu, .cpu])
+        XCTAssertEqual(PcCategory.seriesShades(["gpu.temp"]).map(\.category), [.temps], "a single temperature is a temperature")
+        let net = PcCategory.seriesShades(["net.down", "net.up"])
+        XCTAssertEqual(net.map(\.category), [.network, .network])
+        XCTAssertEqual(net.map(\.opacity), [1, 0.55])
+        XCTAssertEqual(PcCategory.seriesShades(["power.total", "power.gpu", "power.cpu"]).map(\.opacity), [1, 0.55, 0.30])
+        XCTAssertEqual(PcCategory.gpu.symbol, "display")
     }
 
     // MARK: Denser dashboards: wildcards and stats tiles

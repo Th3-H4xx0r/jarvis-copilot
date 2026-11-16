@@ -303,7 +303,7 @@ struct PcSessionDetail: View {
                 }
             }
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(JcTheme.bg.ignoresSafeArea())
         .jcPageChrome(session.name, header: .inline)
         .task {
             let keys = ["fps", "fps.low1", "gpu.temp", "cpu.temp", "power.total", "power.gpu", "power.cpu"]

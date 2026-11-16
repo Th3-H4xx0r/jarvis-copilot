@@ -39,6 +39,27 @@ final class PcStatsLayoutTests: XCTestCase {
         }
     }
 
+    /// The Jarvis look takes every colour from the app's tokens (JcAccent / JcTheme / JcButton):
+    /// no PC Stats file spells out a hue.
+    func testNoHardCodedHuesInPcStats() throws {
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()   // JarvisCopilotTests/Agents
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("JarvisCopilot/Copilot/Agents/PcStats")
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThanOrEqual(files.count, 6, "found the PC Stats sources at \(dir.path)")
+        let banned = try NSRegularExpression(pattern:
+            ##"Color\(jcHex|Color\(red:|Color\(\.sRGB|UIColor\(|0x[0-9A-Fa-f]{6}\b|"#[0-9A-Fa-f]{6}"|Color\.(black|white|red|green|blue|orange|yellow|purple|pink|teal|cyan|indigo|mint|gray)\b|\.foregroundStyle\(\.(red|green|blue|orange|yellow|purple|pink|teal|cyan|indigo|mint)\)"##)
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for (n, line) in text.components(separatedBy: "\n").enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                XCTAssertNil(banned.firstMatch(in: line, range: range),
+                             "\(file.lastPathComponent):\(n + 1) hard-codes a colour: \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+    }
+
     func testPairsOnlyWhenEachFitsHalf() {
         XCTAssertTrue(PcPairLayout.sideBySide(idealWidths: [150, 160], width: 343, spacing: 12))
         XCTAssertFalse(PcPairLayout.sideBySide(idealWidths: [179, 120], width: 343, spacing: 12),

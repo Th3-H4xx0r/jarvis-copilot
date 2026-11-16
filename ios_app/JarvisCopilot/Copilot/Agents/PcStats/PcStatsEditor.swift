@@ -373,13 +373,6 @@ struct PcWidgetSettings: View {
                 .listRowBackground(JcTheme.surface)
             }
 
-            if widget.kind != .text {
-                Section("Colour") {
-                    colourGrid
-                }
-                .listRowBackground(JcTheme.surface)
-            }
-
             if widget.kind.takesReadings {
                 Section {
                     thresholdField("Amber at", text: $warnText) { widget.style.warn = $0 }
@@ -435,37 +428,6 @@ struct PcWidgetSettings: View {
             Spacer()
             Text(catalog.info(key)?.unit ?? "").foregroundStyle(JcTheme.muted)
         }
-    }
-
-    private var colourGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 12) {
-            swatch(nil)
-            ForEach(PcLook.palette, id: \.self) { swatch($0) }
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func swatch(_ hex: String?) -> some View {
-        let chosen = widget.style.color?.uppercased() == hex?.uppercased()
-        return Button { widget.style.color = hex } label: {
-            ZStack {
-                if let c = PcLook.color(hex) {
-                    Circle().fill(c)
-                } else {
-                    // "Automatic": the reading's category colour.
-                    Circle().fill(AngularGradient(colors: [PcCategory.gpu, .cpu, .frames, .power, .memory, .gpu]
-                        .map { PcLook.tint($0) }, center: .center))
-                }
-                if chosen {
-                    Circle().strokeBorder(JcTheme.bg, lineWidth: 2.5).padding(2.5)
-                    Circle().strokeBorder(JcTheme.text, lineWidth: 2)
-                }
-            }
-            .frame(width: 34, height: 34)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(hex == nil ? "Automatic colour" : "Colour \(hex!)")
-        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private func thresholdField(_ title: String, text: Binding<String>, set: @escaping (Double?) -> Void) -> some View {

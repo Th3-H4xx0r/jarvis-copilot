@@ -969,7 +969,7 @@ enum PcStatsCopy {
 // docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md (owner, 2026-11-15: "very
 // professional, Apple feel" — Health / Fitness style).
 
-/// What a reading is about: its tint (Apple system colours, dark) and SF Symbol.
+/// What a reading is about: its SF Symbol and (via `PcLook.metric`) its data colour.
 enum PcCategory: String, Equatable {
     case gpu, cpu, frames, power, memory, network, cooling, temps, other
 
@@ -984,20 +984,6 @@ enum PcCategory: String, Equatable {
         if key.hasPrefix("power.") { return .power }
         if key.hasPrefix("net.") { return .network }
         return .other
-    }
-
-    var tintHex: UInt32 {
-        switch self {
-        case .gpu: return 0x30D158
-        case .cpu: return 0x0A84FF
-        case .frames: return 0xBF5AF2
-        case .power: return 0xFFD60A
-        case .memory: return 0x64D2FF
-        case .network: return 0x5E5CE6
-        case .cooling: return 0x5AC8FA
-        case .temps: return 0xFF9F0A
-        case .other: return 0x8E8E93
-        }
     }
 
     var symbol: String {
@@ -1016,27 +1002,25 @@ enum PcCategory: String, Equatable {
 }
 
 extension PcCategory {
-    /// A chart series' colour group: a part's power takes the part's colour (power.gpu → GPU).
-    static func series(_ key: String) -> PcCategory {
+    /// In a chart with several lines, a part's temperature takes the part's colour (GPU temp vs
+    /// CPU temp → GPU vs CPU), so the lines tell apart.
+    static func part(_ key: String) -> PcCategory {
         switch key {
-        case "power.gpu": return .gpu
-        case "power.cpu": return .cpu
-        case "power.ram", "power.disk": return .memory
-        case "power.net": return .network
+        case "gpu.temp", "gpu.hotspot": return .gpu
+        case "cpu.temp": return .cpu
         default: return of(key)
         }
     }
 
-    /// Distinct colours for the series of one chart, in order: the first keeps its own, later
-    /// ones take their part's colour, and a repeat moves on to the next unused tint.
-    static func seriesColors(_ keys: [String]) -> [UInt32] {
-        let fallback: [PcCategory] = [.gpu, .cpu, .frames, .temps, .memory, .network, .power, .cooling]
-        var used = Set<UInt32>()
-        return keys.enumerated().map { i, key in
-            var hex = (i == 0 ? of(key) : series(key)).tintHex
-            if used.contains(hex) { hex = fallback.map(\.tintHex).first { !used.contains($0) } ?? hex }
-            used.insert(hex)
-            return hex
+    /// Each line's group and strength: its own group's colour, and a second / third line from the
+    /// same group at 55 % / 30 %.
+    static func seriesShades(_ keys: [String]) -> [(category: PcCategory, opacity: Double)] {
+        var seen: [PcCategory: Int] = [:]
+        return keys.map { key in
+            let c = keys.count > 1 ? part(key) : of(key)
+            let n = seen[c, default: 0]
+            seen[c] = n + 1
+            return (c, [1, 0.55, 0.30][min(n, 2)])
         }
     }
 }
