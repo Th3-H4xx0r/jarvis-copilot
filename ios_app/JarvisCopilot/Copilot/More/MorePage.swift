@@ -85,6 +85,8 @@ struct MorePage: View {
             SecurityPage()
         case .islandDesigns:
             IslandDesignsPage()
+        case .widgets:
+            WidgetCreatorPage()
         case .harnesses:
             HarnessesPage()
         case .photon:

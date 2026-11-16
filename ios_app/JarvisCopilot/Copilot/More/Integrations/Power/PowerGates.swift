@@ -23,6 +23,7 @@ extension MoreDestination {
         case .security: return "security-advisor"
         case .islandDesigns: return "island-designs"
         case .photon: return "photon"
+        case .widgets: return "widgets"
         default: return nil
         }
     }

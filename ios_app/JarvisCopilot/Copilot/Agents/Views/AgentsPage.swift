@@ -8,6 +8,8 @@ enum AgentsRoute: Hashable {
     case settings
     /// A PC's stats page (PC Stats, 2026-11-15).
     case pcStats(deviceId: String, name: String)
+    /// A Mac's or PC's tools and power actions, listed like a wearable's.
+    case computerTools(deviceId: String, name: String)
 }
 
 /// The Agents tab: every coding-agent conversation on the Mac and the server,
@@ -71,6 +73,8 @@ struct AgentsPage: View {
                     CodeMasterSettingsPage()
                 case .pcStats(let deviceId, let name):
                     PcStatsPage(deviceId: deviceId, name: name)
+                case .computerTools(let deviceId, let name):
+                    ComputerToolsPage(deviceId: deviceId, name: name, store: store)
                 }
             }
         }

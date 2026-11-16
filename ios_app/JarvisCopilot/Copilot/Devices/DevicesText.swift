@@ -20,6 +20,7 @@ enum DevicesSkillText {
         "api": "API", "ai": "AI", "gps": "GPS", "ip": "IP", "qr": "QR",
         "healthkit": "HealthKit", "wifi": "Wi-Fi", "http": "HTTP",
         "https": "HTTPS", "json": "JSON", "pdf": "PDF", "ocr": "OCR",
+        "vscode": "VS Code", "wol": "Wake-on-LAN",
     ]
 
     /// The catalogue's own title when it has one, otherwise a title derived from

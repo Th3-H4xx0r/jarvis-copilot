@@ -249,15 +249,6 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
-                    WidgetCreatorPage()
-                } label: {
-                    GlassRow(symbol: "square.grid.2x2.fill", title: "Widget creator",
-                             subtitle: "Home Screen, Lock Screen and Control Center")
-                }
-                .buttonStyle(.plain)
-                .powerGated("widgets")
-
-                NavigationLink {
                     CarPlaySettingsScreen()
                 } label: {
                     GlassRow(symbol: "car.fill", title: "CarPlay",

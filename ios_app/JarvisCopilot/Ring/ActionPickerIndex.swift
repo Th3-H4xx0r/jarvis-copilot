@@ -121,6 +121,10 @@ enum ActionPickerIndex {
             if !rows.isEmpty { out.append(ActionPickerSection(id: "ring", title: "Ring", symbol: "circle.circle", rows: rows)) }
         }
         for board in serverDevices {
+            if let computer = board.computer {
+                out.append(computerSection(board, computer))
+                continue
+            }
             let rows = board.capabilities.filter { !hiddenSkills.contains($0.name) }
                 .sorted { $0.name < $1.name }
                 .map { capability in
@@ -160,6 +164,33 @@ enum ActionPickerIndex {
     }
 
     // MARK: rows
+
+    /// A Mac or PC: its power actions (one tap) first, then every tool its jc-client offers. Tools
+    /// and Sleep / Lock / Unlock / Screen are greyed while it's asleep; Wake never is (it goes
+    /// through the server's wake path) unless the PC's adapter can't be woken.
+    static func computerSection(_ board: ServerDevice, _ computer: ServerComputer) -> ActionPickerSection {
+        let asleep = "\(board.name) is asleep — wake it first"
+        let power = ComputerPowerAction.allCases.map { action in
+            ActionPickerRow(id: "computer.\(board.id).\(action.rawValue)", title: action.title(isPC: computer.isPC),
+                            detail: action.detail(isPC: computer.isPC),
+                            kind: .pick(.serverDevice(deviceID: board.id, skill: action.skill, arguments: [:])),
+                            unavailable: action.unavailable(computer, name: board.name),
+                            searchText: "\(action.skill) power \(board.name) \(computer.isPC ? "pc windows" : "mac")")
+        }
+        let tools = board.capabilities.filter { !hiddenSkills.contains($0.name) }
+            .sorted { DevicesSkillText.title(forIdentifier: $0.name)
+                .localizedCaseInsensitiveCompare(DevicesSkillText.title(forIdentifier: $1.name)) == .orderedAscending }
+            .map { capability in
+                ActionPickerRow(id: "server.\(board.id).\(capability.name)",
+                                title: DevicesSkillText.title(forIdentifier: capability.name),
+                                detail: firstSentence(capability.description),
+                                kind: .form(.serverDevice(deviceID: board.id, name: board.name, capability: capability)),
+                                unavailable: computer.awake ? nil : asleep,
+                                searchText: "\(capability.name) \(board.name)")
+            }
+        return ActionPickerSection(id: "server.\(board.id)", title: board.name,
+                                   symbol: computer.isPC ? "desktopcomputer" : "laptopcomputer", rows: power + tools)
+    }
 
     static func doorRows() -> [ActionPickerRow] {
         DoorButtonCommand.allCases.map { command in

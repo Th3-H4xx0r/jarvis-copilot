@@ -62,7 +62,13 @@ struct RingActionPicker: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search actions")
         .jcPageChrome(title)
         .onAppear(perform: load)
-        .task { boards = await ServerDevices.load() }
+        .task {
+            boards = await ServerDevices.load()
+            // A saved server-device (Pod, board, Mac, PC) action opens its section once they're in.
+            if let holding = sections.first(where: { $0.rows.contains { $0.matches(current) } }) {
+                expanded.insert(holding.id)
+            }
+        }
     }
 
     // MARK: Ask Jarvis

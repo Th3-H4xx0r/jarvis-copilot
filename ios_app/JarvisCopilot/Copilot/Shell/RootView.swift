@@ -19,6 +19,7 @@ struct RootView: View {
         Group {
             if bridge.isPaired {
                 NavShell()
+                    .macScreenPresenter()   // a Mac/PC "Screen" button opens the live view from anywhere
             } else {
                 NavigationStack { PairPage() }
             }

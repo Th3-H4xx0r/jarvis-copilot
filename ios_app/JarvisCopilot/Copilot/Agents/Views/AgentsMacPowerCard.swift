@@ -29,6 +29,13 @@ struct AgentsMacPowerCard: View {
                     PcStatsCardSection(deviceId: mac.deviceId, name: name)
                     JcRowSeparator()
                 }
+                NavigationLink(value: AgentsRoute.computerTools(deviceId: mac.deviceId, name: name)) {
+                    JcRow(symbol: "wrench.and.screwdriver", title: "Tools",
+                          subtitle: mac.isAwake ? "Power actions and Jarvis tools, for buttons"
+                                                : "Power actions now · tools once it's awake")
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Lists the tools you can map to buttons")
                 JcRow(symbol: "cup.and.saucer", title: "Keep awake",
                       subtitle: AgentsMacPowerCopy.keepAwakeSubtitle(on: mac.keepAwake), last: true) {
                     Toggle("Keep awake", isOn: Binding(

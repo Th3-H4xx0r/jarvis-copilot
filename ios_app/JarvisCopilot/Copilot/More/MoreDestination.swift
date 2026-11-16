@@ -18,6 +18,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case serverLogs
     case security
     case islandDesigns
+    case widgets
     case harnesses
     case photon
     case appleWatch
@@ -42,6 +43,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .serverLogs:      return "Server logs"
         case .security:        return "Security"
         case .islandDesigns:   return "Dynamic Island"
+        case .widgets:         return "Widget creator"
         case .harnesses:       return "Harnesses"
         case .photon:          return "Photon"
         case .appleWatch:      return "Apple Watch"
@@ -66,6 +68,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .serverLogs:      return "doc.text"
         case .security:        return "lock.shield"
         case .islandDesigns:   return "rectangle.on.rectangle"
+        case .widgets:         return "square.grid.2x2.fill"
         case .harnesses:       return "flowchart"
         case .photon:          return "bubble.left.and.bubble.right"
         case .appleWatch:      return "applewatch"

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Widget creator: Control Center buttons and switches, and the designs the
+/// More → Widget creator: Control Center buttons and switches, and the designs the
 /// "Jarvis widget" shows on the Home Screen and Lock Screen.
 struct WidgetCreatorPage: View {
     @ObservedObject private var store = WidgetDesignStore.shared

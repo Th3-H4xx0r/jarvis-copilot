@@ -128,7 +128,7 @@ struct WidgetDesignQuery: EntityQuery {
 /// Which design a "Jarvis widget" shows, chosen when it is added (or by editing the widget).
 struct ChooseWidgetDesignIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Choose a design"
-    static let description = IntentDescription("A design from Jarvis → Settings → Widget creator.")
+    static let description = IntentDescription("A design from Jarvis → More → Widget creator.")
 
     @Parameter(title: "Design")
     var design: WidgetDesignEntity?
