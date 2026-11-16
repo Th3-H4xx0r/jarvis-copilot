@@ -350,6 +350,70 @@ final class PcStatsTests: XCTestCase {
         XCTAssertEqual(PcChartScale.range([10, 50], unit: "%"), 0...100)
     }
 
+    // MARK: Apple look: chart maths and categories
+
+    func testCentredMovingAverageSmoothsSpikes() {
+        let raw = [10, 10, 10, 60, 10, 10, 10].enumerated().map { PcPoint(t: Double($0.offset), avg: Double($0.element)) }
+        let s = PcChartMath.smooth(raw, radius: 2)
+        XCTAssertEqual(s.count, raw.count)
+        XCTAssertEqual(s[3].avg, 20, accuracy: 1e-9, "the spike is spread over 5 samples")
+        XCTAssertEqual(s[0].avg, 10, accuracy: 1e-9, "edges average what's there")
+        XCTAssertEqual(s[1].avg, 90.0 / 4, accuracy: 1e-9, "samples 0…3")
+        XCTAssertEqual(s.map(\.t), raw.map(\.t), "times untouched")
+        XCTAssertEqual(s[3].max, 60, "min/max stay raw")
+        XCTAssertEqual(PcChartMath.smooth(Array(raw.prefix(2))), Array(raw.prefix(2)), "too short to smooth")
+        XCTAssertEqual(PcChartMath.smooth(raw, radius: 0), raw)
+    }
+
+    func testSmoothingWidensForLongSeries() {
+        XCTAssertEqual(PcChartMath.smoothingRadius(count: 60), 2, "≈ 5 samples at 1 Hz")
+        XCTAssertGreaterThan(PcChartMath.smoothingRadius(count: 1200), 2)
+        XCTAssertLessThanOrEqual(PcChartMath.smoothingRadius(count: 100_000), 24)
+    }
+
+    func testYRangeIgnoresASingleSpike() {
+        XCTAssertEqual(PcChartMath.yRange([3, 99], unit: "%"), 0...100)
+        var watts = Array(repeating: 200.0, count: 99)
+        watts.append(2000)
+        let r = PcChartMath.yRange(watts, unit: "W")
+        XCTAssertEqual(r.lowerBound, 0)
+        XCTAssertEqual(r.upperBound, 230, accuracy: 1e-9, "p98 × 1.15, not the spike")
+        let temps = PcChartMath.yRange([62, 66, 71], unit: "°C")
+        XCTAssertEqual(temps.lowerBound, 50, "a floor in tens under the lowest")
+        XCTAssertEqual(temps.upperBound, 71 * 1.15, accuracy: 1e-9)
+        XCTAssertEqual(PcChartMath.yRange([], unit: "W"), 0...1)
+        XCTAssertEqual(PcChartMath.yRange([0, 0], unit: "MB/s"), 0...1, "never a zero-height range")
+        XCTAssertEqual(PcChartMath.percentile([1, 2, 3, 4, 5], 0.5), 3)
+        XCTAssertEqual(PcChartMath.gridlines(0...100), [0, 50, 100])
+    }
+
+    func testStatLine() {
+        let pts = [58.0, 66, 74].enumerated().map { PcPoint(t: Double($0.offset), avg: $0.element) }
+        XCTAssertEqual(PcChartMath.statLine(pts, unit: "°C"), "Min 58 · Avg 66 · Max 74")
+        XCTAssertNil(PcChartMath.statLine([], unit: "°C"))
+    }
+
+    func testCategoryTints() {
+        XCTAssertEqual(PcCategory.of("gpu.load"), .gpu)
+        XCTAssertEqual(PcCategory.of("gpu.vram_used"), .memory)
+        XCTAssertEqual(PcCategory.of("gpu.fan"), .cooling)
+        XCTAssertEqual(PcCategory.of("gpu.temp"), .temps)
+        XCTAssertEqual(PcCategory.of("temp.vrm"), .temps)
+        XCTAssertEqual(PcCategory.of("cpu.clock"), .cpu)
+        XCTAssertEqual(PcCategory.of("fps.low1"), .frames)
+        XCTAssertEqual(PcCategory.of("frametime"), .frames)
+        XCTAssertEqual(PcCategory.of("power.total"), .power)
+        XCTAssertEqual(PcCategory.of("ram.used"), .memory)
+        XCTAssertEqual(PcCategory.of("net.down"), .network)
+        XCTAssertEqual(PcCategory.of("fan.pump"), .cooling)
+        XCTAssertEqual(PcCategory.of(nil), .other)
+        XCTAssertEqual(PcCategory.seriesColors(["power.total", "power.gpu", "power.cpu"]), [0xFFD60A, 0x30D158, 0x0A84FF],
+                       "each line its own colour")
+        XCTAssertEqual(Set(PcCategory.seriesColors(["cpu.load", "cpu.clock", "cpu.power"])).count, 3, "repeats move on")
+        XCTAssertEqual(PcCategory.gpu.tintHex, 0x30D158)
+        XCTAssertEqual(PcCategory.cpu.tintHex, 0x0A84FF)
+    }
+
     private func assertNoOverlap(_ widgets: [PcWidget], file: StaticString = #filePath, line: UInt = #line) {
         var cells = Set<Int>()
         for wd in widgets {

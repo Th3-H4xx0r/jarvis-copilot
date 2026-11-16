@@ -359,7 +359,7 @@ struct PcWidgetSettings: View {
             if widget.kind.hasChart {
                 Section("Chart") {
                     Picker("Chart", selection: Binding(
-                        get: { widget.style.chart ?? (widget.kind == .hero ? .area : .line) },
+                        get: { widget.style.chart ?? ([.hero, .number].contains(widget.kind) ? .area : .line) },
                         set: { widget.style.chart = $0 })) {
                         ForEach(PcChartType.allCases) { Text($0.title).tag($0) }
                     }
@@ -452,7 +452,9 @@ struct PcWidgetSettings: View {
                 if let c = PcLook.color(hex) {
                     Circle().fill(c)
                 } else {
-                    Circle().fill(LinearGradient(colors: [PcLook.barLo, PcLook.barHi], startPoint: .bottomLeading, endPoint: .topTrailing))
+                    // "Automatic": the reading's category colour.
+                    Circle().fill(AngularGradient(colors: [PcCategory.gpu, .cpu, .frames, .power, .memory, .gpu]
+                        .map { PcLook.tint($0) }, center: .center))
                 }
                 if chosen {
                     Circle().strokeBorder(JcTheme.bg, lineWidth: 2.5).padding(2.5)
@@ -462,7 +464,7 @@ struct PcWidgetSettings: View {
             .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(hex == nil ? "Default colour" : "Colour \(hex!)")
+        .accessibilityLabel(hex == nil ? "Automatic colour" : "Colour \(hex!)")
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 

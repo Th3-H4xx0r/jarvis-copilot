@@ -29,7 +29,7 @@ struct PcStatsPage: View {
                 if !isOn {
                     offCard
                 } else {
-                    header.padding(.top, 8)
+                    header
                     JcSegmentedPicker(PcRange.allCases.map { ($0, $0.title) }, selection: $model.range)
                         .padding(.top, 14)
                     dashboard.padding(.top, 14)
@@ -37,10 +37,10 @@ struct PcStatsPage: View {
                 }
             }
         }
-        .background(PcLook.backdrop.ignoresSafeArea())
+        .background(Color.black.ignoresSafeArea())
         .refreshable { await model.refresh() }
         .overlay(alignment: .top) { bannerView }
-        .jcPageChrome("PC Stats") {
+        .jcPageChrome(isOn ? model.name : "PC Stats") {
             if isOn, let board = model.active {
                 JcPageButton("slider.horizontal.3", label: "Edit dashboard") { editing = board }
             }
@@ -69,34 +69,26 @@ struct PcStatsPage: View {
 
     // MARK: Header
 
+    /// Under the PC's name (the page title): online / playing / last seen, and the switcher.
     private var header: some View {
-        PcPanel(padding: 16) {
-            HStack(spacing: 14) {
-                PcOrb(size: 36, online: model.live.online)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.name)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(JcTheme.text)
+        HStack(alignment: .center, spacing: 12) {
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(model.live.online ? Color(jcHex: 0x30D158) : PcLook.tertiary)
+                        .frame(width: 8, height: 8)
+                    Text(model.liveLoaded
+                         ? PcStatsCopy.status(online: model.live.online, at: model.live.at,
+                                              game: model.live.game, now: context.date)
+                         : "Connecting…")
                         .lineLimit(1)
-                    TimelineView(.periodic(from: .now, by: 15)) { context in
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(model.live.online ? JcTheme.success : JcTheme.muted)
-                                .frame(width: 6, height: 6)
-                            Text(model.liveLoaded
-                                 ? PcStatsCopy.status(online: model.live.online, at: model.live.at,
-                                                      game: model.live.game, now: context.date)
-                                 : "Connecting…")
-                                .lineLimit(1)
-                        }
-                        .font(.system(size: 13))
-                        .foregroundStyle(PcLook.label)
-                    }
                 }
-                .accessibilityElement(children: .combine)
-                Spacer(minLength: 8)
-                switcher
+                .font(.system(size: 15))
+                .foregroundStyle(PcLook.secondary)
             }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 8)
+            switcher
         }
     }
 
@@ -119,11 +111,11 @@ struct PcStatsPage: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .bold))
             }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(JcButton.label)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(Color.white.opacity(0.06), in: Capsule())
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(PcLook.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(PcLook.elevated, in: Capsule())
         }
         .accessibilityLabel("Dashboard: \(model.active?.name ?? "none")")
         .accessibilityHint("Switch dashboards, make a new one or edit this one")
@@ -150,7 +142,7 @@ struct PcStatsPage: View {
                 PcPanel {
                     Text("No widgets yet").font(.headline).foregroundStyle(JcTheme.text)
                     Text("Add numbers, charts and bars from the library.")
-                        .font(.subheadline).foregroundStyle(PcLook.label).padding(.top, 4)
+                        .font(.system(size: 15)).foregroundStyle(PcLook.secondary).padding(.top, 4)
                     JcSmallAction("Add widgets", symbol: "plus") { editing = board }.padding(.top, 12)
                 }
             } else {
@@ -163,6 +155,7 @@ struct PcStatsPage: View {
                         HStack(alignment: .top, spacing: 12) {
                             ForEach(row) { w in PcWidgetView(widget: w, ctx: ctx) }
                         }
+                        .fixedSize(horizontal: false, vertical: true)   // two tiles side by side match heights
                     }
                 }
                 .animation(.easeOut(duration: 0.25), value: board.widgets.map(\.id))
@@ -284,6 +277,16 @@ struct PcStatsCardSection: View {
         }
     }
 
+    /// The label's category tint (Apple look): CPU blue, GPU green, watts yellow, temps orange.
+    static func tint(_ label: String) -> Color {
+        switch label {
+        case "CPU": return PcLook.tint(.cpu)
+        case "GPU": return PcLook.tint(.gpu)
+        case "Hottest": return PcLook.tint(.temps)
+        default: return PcLook.tint(.power)
+        }
+    }
+
     /// A usage with its temperature beside it at the same size ("38% · 72°C").
     private func metric(_ m: PcSummary.Metric) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -294,15 +297,15 @@ struct PcStatsCardSection: View {
                     Text(t)
                 }
             }
-            .font(.system(size: 20, weight: .semibold))
+            .font(.system(size: 22, weight: .semibold, design: .rounded))
             .foregroundStyle(JcTheme.text)
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .contentTransition(.numericText())
             Text(m.label)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(JcTheme.muted)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PcStatsCardSection.tint(m.label))
                 .lineLimit(1)
         }
         .frame(maxWidth: m.temp == nil ? nil : .infinity, alignment: .leading)

@@ -35,7 +35,7 @@ struct PcStatsHistorySections: View {
                                           : "Loading…")
         } else {
             let list = showAllSessions ? model.sessions : Array(model.sessions.prefix(5))
-            JcCard(padding: 0) {
+            PcPanel(padding: 0) {
                 ForEach(Array(list.enumerated()), id: \.element.id) { i, s in
                     JcRow(symbol: "gamecontroller", title: s.name, subtitle: PcHistoryCopy.sessionLine(s),
                           subtitleLines: 1, last: i == list.count - 1, action: { openSession = s })
@@ -62,7 +62,7 @@ struct PcStatsHistorySections: View {
             } else {
                 Text(model.historyLoaded ? "No energy recorded yet" : "Loading…")
                     .font(.footnote)
-                    .foregroundStyle(PcLook.label)
+                    .foregroundStyle(PcLook.secondary)
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
         }
@@ -74,21 +74,21 @@ struct PcStatsHistorySections: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(PcFormat.kwh(chosen.kwh))
-                    .font(.system(size: 34, weight: .semibold))
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .tracking(-0.7)
                     .monospacedDigit()
                     .foregroundStyle(JcTheme.text)
                     .contentTransition(.numericText())
-                Text("kWh").font(.system(size: 15, weight: .medium)).foregroundStyle(PcLook.label)
+                Text("kWh").font(.system(size: 15, weight: .medium)).foregroundStyle(PcLook.secondary)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(e.price > 0 ? PcFormat.money(chosen.cost, currency: e.currency) : "Set a price in PC Stats settings")
                         .font(.system(size: e.price > 0 ? 15 : 11, weight: .semibold))
-                        .foregroundStyle(e.price > 0 ? JcTheme.text : PcLook.label)
+                        .foregroundStyle(e.price > 0 ? JcTheme.text : PcLook.secondary)
                         .monospacedDigit()
                     Text(PcHistoryCopy.bucketTitle(chosen.start, period: model.energyPeriod))
                         .font(.system(size: 12))
-                        .foregroundStyle(PcLook.label)
+                        .foregroundStyle(PcLook.secondary)
                 }
             }
             HStack(alignment: .bottom, spacing: 5) {
@@ -97,8 +97,7 @@ struct PcStatsHistorySections: View {
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(on ? AnyShapeStyle(LinearGradient(colors: [PcLook.barHi, PcLook.barLo], startPoint: .top, endPoint: .bottom))
-                                     : AnyShapeStyle(PcLook.fill.opacity(0.32)))
+                            .fill(PcLook.tint(.power).opacity(on ? 1 : 0.35))
                             .frame(height: max(3, 96 * b.kwh / peak))
                     }
                     .frame(maxWidth: .infinity)
@@ -116,7 +115,7 @@ struct PcStatsHistorySections: View {
                 Text(model.energyPeriod == .day ? "Today" : model.energyPeriod == .week ? "This week" : "This month")
             }
             .font(.system(size: 10.5))
-            .foregroundStyle(PcLook.label)
+            .foregroundStyle(PcLook.secondary)
         }
         .sensoryFeedback(.selection, trigger: selectedBucket)
     }
@@ -130,7 +129,7 @@ struct PcStatsHistorySections: View {
             emptyCard(model.historyLoaded ? "Nothing marked in the last 7 days." : "Loading…")
         } else {
             let list = Array(model.moments.prefix(12))
-            JcCard(padding: 0) {
+            PcPanel(padding: 0) {
                 ForEach(Array(list.enumerated()), id: \.element.id) { i, m in
                     HStack(alignment: .top, spacing: 12) {
                         JcIconSquare(symbol: PcHistoryCopy.momentSymbol(m), tint: PcMomentRow.color(m))
@@ -173,18 +172,19 @@ struct PcStatsHistorySections: View {
     private func healthChart(_ title: String, keys: [String]) -> some View {
         let span = PcTimeSpan.last(90 * 86_400)
         let series = keys.enumerated().map { i, k in
-            PcLineChart.Series(id: k, points: model.health[k] ?? [], color: PcLook.seriesColor(i, style: PcWidgetStyle()))
+            PcLineChart.Series(id: k, points: model.health[k] ?? [], color: PcLook.seriesColor(i, key: k, style: PcWidgetStyle(), keys: keys))
         }
         let all = series.flatMap { $0.points.flatMap { [$0.min, $0.max] } }
         let unit = model.catalog.info(keys[0])?.unit ?? ""
         return PcPanel(padding: 16) {
-            PcWidgetLabel(text: title)
+            PcCardHeader(title: title, symbol: title == "Fans" ? PcCategory.cooling.symbol : PcCategory.temps.symbol,
+                         tint: PcLook.tint(title == "Fans" ? .cooling : .temps), context: "90 days")
             HStack(spacing: 14) {
                 ForEach(series) { s in
                     let peak = s.points.map(\.max).max()
                     HStack(spacing: 6) {
                         Circle().fill(s.color).frame(width: 6, height: 6)
-                        Text(PcFormat.shortLabel(s.id, catalog: model.catalog)).foregroundStyle(PcLook.metaText)
+                        Text(PcFormat.shortLabel(s.id, catalog: model.catalog)).foregroundStyle(PcLook.secondary)
                         Text(peak.map { "peak \(PcFormat.compact($0, unit: unit))" } ?? "—")
                             .fontWeight(.semibold).foregroundStyle(JcTheme.text).monospacedDigit()
                     }
@@ -194,19 +194,19 @@ struct PcStatsHistorySections: View {
             }
             .padding(.top, 8)
             PcLineChart(series: series, span: span, yRange: PcChartScale.range(all, unit: unit), area: false,
-                        lineWidth: 1.6, band: true)
+                        lineWidth: 2, band: true, gridlines: true, unit: unit)
                 .frame(height: 110)
                 .padding(.top, 12)
             HStack { Text("90 days ago"); Spacer(); Text("today") }
                 .font(.system(size: 10.5))
-                .foregroundStyle(PcLook.label)
+                .foregroundStyle(PcLook.secondary)
                 .padding(.top, 4)
         }
     }
 
     private func emptyCard(_ text: String) -> some View {
-        JcCard {
-            Text(text).font(.subheadline).foregroundStyle(JcTheme.muted)
+        PcPanel {
+            Text(text).font(.system(size: 15)).foregroundStyle(PcLook.secondary)
         }
     }
 }
@@ -271,7 +271,7 @@ struct PcSessionDetail: View {
                         .foregroundStyle(JcTheme.text)
                         .padding(.top, 6)
                     Text(PcFormat.duration(session.duration()) + (session.end == nil ? " · playing now" : ""))
-                        .font(.system(size: 13)).foregroundStyle(PcLook.label).padding(.top, 2)
+                        .font(.system(size: 13)).foregroundStyle(PcLook.secondary).padding(.top, 2)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4),
                               alignment: .leading, spacing: 14) {
                         stat(session.fpsAvg.map { PcFormat.number($0, unit: "fps") }, "avg fps")
@@ -293,7 +293,7 @@ struct PcSessionDetail: View {
 
                 if !moments.isEmpty {
                     JcSectionLabel("Marked in this session")
-                    JcCard(padding: 0) {
+                    PcPanel(padding: 0) {
                         ForEach(Array(moments.enumerated()), id: \.element.id) { i, m in
                             JcRow(symbol: PcHistoryCopy.momentSymbol(m), title: PcMomentRow.title(m, catalog: model.catalog),
                                   subtitle: "\(m.t.formatted(.dateTime.hour().minute())) · \(PcMomentRow.detail(m, catalog: model.catalog))",
@@ -303,7 +303,7 @@ struct PcSessionDetail: View {
                 }
             }
         }
-        .background(PcLook.backdrop.ignoresSafeArea())
+        .background(Color.black.ignoresSafeArea())
         .jcPageChrome(session.name, header: .inline)
         .task {
             let keys = ["fps", "fps.low1", "gpu.temp", "cpu.temp", "power.total", "power.gpu", "power.cpu"]
@@ -318,7 +318,7 @@ struct PcSessionDetail: View {
     private func chart(_ title: String, keys: [String]) -> some View {
         let lines = keys.enumerated().compactMap { i, k -> PcLineChart.Series? in
             guard let pts = series[k], !pts.isEmpty else { return nil }
-            return PcLineChart.Series(id: k, points: pts, color: PcLook.seriesColor(i, style: PcWidgetStyle()))
+            return PcLineChart.Series(id: k, points: pts, color: PcLook.seriesColor(i, key: k, style: PcWidgetStyle(), keys: keys))
         }
         let unit = model.catalog.info(keys[0])?.unit ?? ""
         let all = lines.flatMap { $0.points.map(\.avg) }
@@ -328,7 +328,7 @@ struct PcSessionDetail: View {
                 if lines.isEmpty {
                     Group {
                         if loaded {
-                            Text("Not recorded for this session").font(.footnote).foregroundStyle(PcLook.label)
+                            Text("Not recorded for this session").font(.footnote).foregroundStyle(PcLook.secondary)
                         } else {
                             JcLoader(size: 20)
                         }
@@ -339,7 +339,7 @@ struct PcSessionDetail: View {
                         ForEach(lines) { s in
                             HStack(spacing: 6) {
                                 Circle().fill(s.color).frame(width: 6, height: 6)
-                                Text(PcFormat.shortLabel(s.id, catalog: model.catalog)).foregroundStyle(PcLook.metaText)
+                                Text(PcFormat.shortLabel(s.id, catalog: model.catalog)).foregroundStyle(PcLook.secondary)
                                 Text(PcFormat.compact(s.points.map(\.avg).reduce(0, +) / Double(s.points.count),
                                                       unit: model.catalog.info(s.id)?.unit ?? unit) + " avg")
                                     .fontWeight(.semibold).foregroundStyle(JcTheme.text).monospacedDigit()
@@ -349,7 +349,8 @@ struct PcSessionDetail: View {
                         }
                     }
                     PcLineChart(series: lines, span: span, yRange: PcChartScale.range(all, unit: unit),
-                                area: lines.count == 1, markers: moments.map { $0.t.timeIntervalSince1970 })
+                                area: lines.count == 1, markers: moments.map { $0.t.timeIntervalSince1970 },
+                                gridlines: true, unit: unit)
                         .frame(height: 140)
                         .padding(.top, 12)
                     HStack {
@@ -358,7 +359,7 @@ struct PcSessionDetail: View {
                         Text(session.end ?? Date(), format: .dateTime.hour().minute())
                     }
                     .font(.system(size: 10.5))
-                    .foregroundStyle(PcLook.label)
+                    .foregroundStyle(PcLook.secondary)
                     .padding(.top, 4)
                 }
             }
@@ -369,7 +370,7 @@ struct PcSessionDetail: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value ?? "—").font(.system(size: 16, weight: .semibold)).foregroundStyle(JcTheme.text)
                 .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.system(size: 11.5)).foregroundStyle(PcLook.label).lineLimit(1)
+            Text(label).font(.system(size: 11.5)).foregroundStyle(PcLook.secondary).lineLimit(1)
         }
     }
 }

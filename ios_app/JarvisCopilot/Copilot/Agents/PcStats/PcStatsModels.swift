@@ -276,7 +276,7 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
     /// Whether the widget is bound to readings (text, session and moments aren't).
     var takesReadings: Bool { ![.text, .session, .moments].contains(self) }
     /// Whether it draws a time series.
-    var hasChart: Bool { [.hero, .chart, .sparkline].contains(self) }
+    var hasChart: Bool { [.hero, .chart, .sparkline, .number].contains(self) }
     /// Whether it shows a meta row.
     var hasMeta: Bool { [.hero, .bars].contains(self) }
     /// Whether it uses more than its first reading.
@@ -899,4 +899,138 @@ enum PcStatsCopy {
     static let windows = [60, 300, 900, 3600, 21_600, 86_400]
 
     static let conflict = "Changed elsewhere — reloaded"
+}
+
+// MARK: - Apple look: categories and chart maths
+// docs/superpowers/specs/2026-11-15-pc-stats-apple-look.md (owner, 2026-11-15: "very
+// professional, Apple feel" — Health / Fitness style).
+
+/// What a reading is about: its tint (Apple system colours, dark) and SF Symbol.
+enum PcCategory: String, Equatable {
+    case gpu, cpu, frames, power, memory, network, cooling, temps, other
+
+    static func of(_ key: String?) -> PcCategory {
+        guard let key else { return .other }
+        if key.hasPrefix("gpu.vram") || key.hasPrefix("ram.") || key.hasPrefix("disk.") { return .memory }
+        if key.hasPrefix("fan.") || key == "gpu.fan" { return .cooling }
+        if key.hasSuffix(".temp") || key.hasPrefix("temp.") || key == "gpu.hotspot" { return .temps }
+        if key.hasPrefix("gpu.") { return .gpu }
+        if key.hasPrefix("cpu.") { return .cpu }
+        if key == "fps" || key.hasPrefix("fps.") || key == "frametime" { return .frames }
+        if key.hasPrefix("power.") { return .power }
+        if key.hasPrefix("net.") { return .network }
+        return .other
+    }
+
+    var tintHex: UInt32 {
+        switch self {
+        case .gpu: return 0x30D158
+        case .cpu: return 0x0A84FF
+        case .frames: return 0xBF5AF2
+        case .power: return 0xFFD60A
+        case .memory: return 0x64D2FF
+        case .network: return 0x5E5CE6
+        case .cooling: return 0x5AC8FA
+        case .temps: return 0xFF9F0A
+        case .other: return 0x8E8E93
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .gpu: return "display"
+        case .cpu: return "cpu"
+        case .frames: return "speedometer"
+        case .power: return "bolt.fill"
+        case .memory: return "memorychip"
+        case .network: return "arrow.up.arrow.down"
+        case .cooling: return "fan"
+        case .temps: return "thermometer.medium"
+        case .other: return "chart.xyaxis.line"
+        }
+    }
+}
+
+extension PcCategory {
+    /// A chart series' colour group: a part's power takes the part's colour (power.gpu → GPU).
+    static func series(_ key: String) -> PcCategory {
+        switch key {
+        case "power.gpu": return .gpu
+        case "power.cpu": return .cpu
+        case "power.ram", "power.disk": return .memory
+        case "power.net": return .network
+        default: return of(key)
+        }
+    }
+
+    /// Distinct colours for the series of one chart, in order: the first keeps its own, later
+    /// ones take their part's colour, and a repeat moves on to the next unused tint.
+    static func seriesColors(_ keys: [String]) -> [UInt32] {
+        let fallback: [PcCategory] = [.gpu, .cpu, .frames, .temps, .memory, .network, .power, .cooling]
+        var used = Set<UInt32>()
+        return keys.enumerated().map { i, key in
+            var hex = (i == 0 ? of(key) : series(key)).tintHex
+            if used.contains(hex) { hex = fallback.map(\.tintHex).first { !used.contains($0) } ?? hex }
+            used.insert(hex)
+            return hex
+        }
+    }
+}
+
+enum PcChartMath {
+    /// Half-width of the moving average: 5 samples (±2) for a minute-scale series, wider as
+    /// the series gets longer so a day or a session reads as a trend, never raw spikes.
+    static func smoothingRadius(count: Int) -> Int {
+        count <= 150 ? 2 : min(24, max(2, count / 60))
+    }
+
+    /// A centred moving average (the edges average what's there). Min/max are kept raw.
+    static func smooth(_ pts: [PcPoint], radius: Int? = nil) -> [PcPoint] {
+        let r = radius ?? smoothingRadius(count: pts.count)
+        guard r > 0, pts.count > 2 else { return pts }
+        var prefix = [0.0]
+        prefix.reserveCapacity(pts.count + 1)
+        for p in pts { prefix.append(prefix[prefix.count - 1] + p.avg) }
+        return pts.indices.map { i in
+            let lo = max(0, i - r), hi = min(pts.count - 1, i + r)
+            let avg = (prefix[hi + 1] - prefix[lo]) / Double(hi - lo + 1)
+            return PcPoint(t: pts[i].t, avg: avg, min: pts[i].min, max: pts[i].max)
+        }
+    }
+
+    /// The p-th percentile (0…1), nearest rank.
+    static func percentile(_ values: [Double], _ p: Double) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let i = Int((Double(sorted.count - 1) * min(1, max(0, p))).rounded())
+        return sorted[i]
+    }
+
+    /// 0–100 for percentages; else 0 (temperatures: a floor 10° under the lowest, in tens) up to
+    /// the 98th percentile × 1.15, so one spike can't flatten the line.
+    static func yRange(_ values: [Double], unit: String) -> ClosedRange<Double> {
+        if unit == "%" { return 0...100 }
+        guard let p98 = percentile(values, 0.98), let lo = values.min() else { return 0...1 }
+        let floor = unit == "°C" ? max(0, ((lo - 10) / 10).rounded(.down) * 10) : 0
+        let top = p98 * 1.15
+        return floor...max(top, floor + 1)
+    }
+
+    /// The three gridlines: bottom, middle, top.
+    static func gridlines(_ range: ClosedRange<Double>) -> [Double] {
+        [range.lowerBound, (range.lowerBound + range.upperBound) / 2, range.upperBound]
+    }
+
+    /// "Min 58 · Avg 66 · Max 72" over the window, from the raw averages.
+    static func stats(_ pts: [PcPoint]) -> (min: Double, avg: Double, max: Double)? {
+        guard !pts.isEmpty else { return nil }
+        let v = pts.map(\.avg)
+        return (v.min()!, v.reduce(0, +) / Double(v.count), v.max()!)
+    }
+
+    static func statLine(_ pts: [PcPoint], unit: String) -> String? {
+        guard let s = stats(pts) else { return nil }
+        func n(_ x: Double) -> String { PcFormat.number(x, unit: unit) }
+        return "Min \(n(s.min)) · Avg \(n(s.avg)) · Max \(n(s.max))"
+    }
 }
