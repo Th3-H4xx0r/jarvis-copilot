@@ -207,7 +207,7 @@ struct PcWidgetLibrary: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(catalog.kinds) { kind in
+                    ForEach(catalog.kinds + (catalog.kinds.contains(.stats) ? [] : [.stats])) { kind in
                         if kind.takesReadings {
                             NavigationLink(value: kind) { kindRow(kind) }
                         } else {

@@ -72,6 +72,8 @@ struct PcCatalog: Equatable {
     /// resolved the way `reading_info` does on the server.
     func info(_ key: String) -> PcReading? {
         if let r = readings[key] { return r }
+        if key == "temp.*" { return PcReading(key: key, label: "All temperatures", unit: "°C", group: "temps", estimated: false) }
+        if key == "fan.*" { return PcReading(key: key, label: "All fans", unit: "rpm", group: "cooling", estimated: false) }
         guard let dot = key.firstIndex(of: "."), key.range(of: #"^(fan|temp)\.[a-z0-9_]{1,40}$"#,
                                                            options: .regularExpression) != nil else { return nil }
         let kind = String(key[..<dot])
@@ -102,7 +104,7 @@ struct PcCatalog: Equatable {
     /// temperatures from its latest sample, grouped and in order.
     func grouped(extraKeys: [String] = []) -> [PcReadingGroup] {
         var all = Array(readings.values)
-        for key in extraKeys where readings[key] == nil {
+        for key in ["temp.*", "fan.*"] + extraKeys where readings[key] == nil {
             if let r = info(key) { all.append(r) }
         }
         let byGroup = Dictionary(grouping: all, by: \.group)
@@ -228,7 +230,7 @@ struct PcSummary: Equatable {
 // MARK: - Dashboards
 
 enum PcWidgetKind: String, CaseIterable, Identifiable {
-    case hero, number, chart, bars, ring, sparkline, text, session, moments
+    case hero, number, chart, bars, ring, sparkline, stats, text, session, moments
     var id: String { rawValue }
 
     var title: String {
@@ -239,6 +241,7 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
         case .bars: return "Bars"
         case .ring: return "Ring"
         case .sparkline: return "Sparkline"
+        case .stats: return "Stats"
         case .text: return "Text"
         case .session: return "Game session"
         case .moments: return "Marked moments"
@@ -253,6 +256,7 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
         case .bars: return "A breakdown, like power by part"
         case .ring: return "A reading as a gauge"
         case .sparkline: return "A reading with a small trend line"
+        case .stats: return "A grid of numbers, each with a tiny trend"
         case .text: return "A heading or note"
         case .session: return "The latest game session"
         case .moments: return "Problems marked in the last day"
@@ -267,6 +271,7 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
         case .bars: return "chart.bar.doc.horizontal"
         case .ring: return "gauge.with.dots.needle.67percent"
         case .sparkline: return "waveform.path.ecg"
+        case .stats: return "square.grid.2x2"
         case .text: return "text.alignleft"
         case .session: return "gamecontroller"
         case .moments: return "exclamationmark.triangle"
@@ -276,11 +281,11 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
     /// Whether the widget is bound to readings (text, session and moments aren't).
     var takesReadings: Bool { ![.text, .session, .moments].contains(self) }
     /// Whether it draws a time series.
-    var hasChart: Bool { [.hero, .chart, .sparkline, .number].contains(self) }
+    var hasChart: Bool { [.hero, .chart, .sparkline, .number, .stats].contains(self) }
     /// Whether it shows a meta row.
     var hasMeta: Bool { [.hero, .bars].contains(self) }
     /// Whether it uses more than its first reading.
-    var multiReading: Bool { [.chart, .bars].contains(self) }
+    var multiReading: Bool { [.chart, .bars, .stats].contains(self) }
 
     /// The grid size a new widget of this kind gets (12 columns).
     var defaultSize: (w: Int, h: Int) {
@@ -291,6 +296,7 @@ enum PcWidgetKind: String, CaseIterable, Identifiable {
         case .bars: return (4, 4)
         case .ring: return (3, 2)
         case .sparkline: return (3, 2)
+        case .stats: return (6, 4)
         case .text: return (4, 1)
         case .session: return (6, 3)
         case .moments: return (12, 2)
@@ -819,6 +825,41 @@ enum PcFormat {
     static func heroTemperatureValue(_ key: String, live: PcLive, decimals: Int? = nil) -> PcValue {
         guard let v = live.values[key] else { return .unavailable(unavailableReason(key, live: live)) }
         return .value(number(v, unit: "°C", decimals: decimals), unit: "°C")
+    }
+
+    /// Readings with the wildcards "temp.*" / "fan.*" replaced by every temp.<slug> / fan.<slug>
+    /// in the live sample, sorted; a key named twice appears once.
+    static func expand(_ readings: [String], live: PcLive) -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        func add(_ k: String) { if seen.insert(k).inserted { out.append(k) } }
+        let explicit = Set(readings.filter { !$0.hasSuffix(".*") })
+        for r in readings {
+            if r == "temp.*" || r == "fan.*" {
+                let prefix = String(r.dropLast())   // "temp." / "fan."
+                for k in live.values.keys.sorted() where k.hasPrefix(prefix) && !explicit.contains(k) { add(k) }
+            } else {
+                add(r)
+            }
+        }
+        return out
+    }
+
+    /// One cell of a stats tile: its label, the value ("72°" for a temperature, the unit inline),
+    /// and the small unit after it ("MHz"); "—" when the PC didn't report it, never 0.
+    struct StatsCell: Equatable {
+        let label: String
+        let value: String
+        let unit: String
+    }
+
+    static func statsCell(_ key: String, live: PcLive, catalog: PcCatalog, style: PcWidgetStyle = PcWidgetStyle()) -> StatsCell {
+        let label = catalog.info(key)?.label ?? shortLabel(key, catalog: catalog)
+        guard let v = live.values[key] else { return StatsCell(label: label, value: "—", unit: "") }
+        let unit = style.unit ?? catalog.info(key)?.unit ?? ""
+        let n = number(v, unit: unit, decimals: style.decimals)
+        if unit == "°C" { return StatsCell(label: label, value: n + "°", unit: "") }
+        return StatsCell(label: label, value: n, unit: unit)
     }
 
     /// A row's name in a bar list: short words for the fixed readings, the catalog label else.

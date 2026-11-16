@@ -437,6 +437,7 @@ struct PcWidgetView: View {
             case .bars: PcBarsWidget(widget: widget, ctx: ctx)
             case .ring: PcRingWidget(widget: widget, ctx: ctx)
             case .sparkline: PcSparklineWidget(widget: widget, ctx: ctx)
+            case .stats: PcStatsTileWidget(widget: widget, ctx: ctx)
             case .text: PcTextWidget(widget: widget)
             case .session: PcSessionWidget(widget: widget, ctx: ctx)
             case .moments: PcMomentsWidget(widget: widget, ctx: ctx)
@@ -658,10 +659,11 @@ struct PcChartWidget: View {
 
     var body: some View {
         let window = ctx.range.window(for: widget)
-        let series = widget.readings.enumerated().map { i, key in
-            PcLineChart.Series(id: key, points: ctx.points(key, widget), color: PcLook.seriesColor(i, key: key, style: widget.style, keys: widget.readings))
+        let keys = PcFormat.expand(widget.readings, live: ctx.live)
+        let series = keys.enumerated().map { i, key in
+            PcLineChart.Series(id: key, points: ctx.points(key, widget), color: PcLook.seriesColor(i, key: key, style: widget.style, keys: keys))
         }
-        let units = Set(widget.readings.map { unit($0, ctx, widget.style) })
+        let units = Set(keys.map { unit($0, ctx, widget.style) })
         let u = units.count == 1 ? units.first ?? "" : ""
         let all = series.flatMap { $0.points.map(\.avg) }
         PcPanel(padding: 18) {
@@ -723,10 +725,11 @@ struct PcBarsWidget: View {
     var body: some View {
         let values = ctx.live.values
         let headline = widget.style.meta.first
+        let keys = PcFormat.expand(widget.readings, live: ctx.live)
         PcPanel(padding: 18) {
             header(widget, ctx,
                    estimated: (headline.map { PcFormat.isEstimated($0, live: ctx.live, catalog: ctx.catalog) } ?? false)
-                       || widget.readings.contains { PcFormat.isEstimated($0, live: ctx.live, catalog: ctx.catalog) })
+                       || keys.contains { PcFormat.isEstimated($0, live: ctx.live, catalog: ctx.catalog) })
             if let headline {
                 PcBigValue(value: PcFormat.value(headline, live: ctx.live, catalog: ctx.catalog,
                                                  style: PcWidgetStyle(decimals: widget.style.decimals)),
@@ -734,7 +737,7 @@ struct PcBarsWidget: View {
                     .padding(.top, 8)
             }
             VStack(spacing: 14) {
-                ForEach(widget.readings, id: \.self) { key in row(key, values: values) }
+                ForEach(keys, id: \.self) { key in row(key, values: values, peers: keys) }
             }
             .padding(.top, 14)
             .opacity(ctx.stale ? 0.6 : 1)
@@ -744,12 +747,12 @@ struct PcBarsWidget: View {
         }
     }
 
-    private func row(_ key: String, values: [String: Double]) -> some View {
+    private func row(_ key: String, values: [String: Double], peers: [String]) -> some View {
         let available = values[key] != nil
         let tone = PcFormat.tone(values[key], style: widget.style)
         let label = PcFormat.shortLabel(key, catalog: ctx.catalog)
         let text = available ? PcFormat.barValue(key, values: values, catalog: ctx.catalog, style: widget.style) : "Unavailable"
-        let tint = widget.readings.count > 1 && widget.style.color == nil ? PcLook.tint(key: key) : PcLook.tint(widget)
+        let tint = peers.count > 1 && widget.style.color == nil ? PcLook.tint(key: key) : PcLook.tint(widget)
         return VStack(spacing: 6) {
             HStack {
                 Text(label).font(.system(size: 14)).foregroundStyle(PcLook.secondary).lineLimit(1)
@@ -760,12 +763,74 @@ struct PcBarsWidget: View {
                     .monospacedDigit()
                     .lineLimit(1)
             }
-            PcBar(fraction: PcFormat.barFraction(key, values: values, peers: widget.readings, catalog: ctx.catalog,
+            PcBar(fraction: PcFormat.barFraction(key, values: values, peers: peers, catalog: ctx.catalog,
                                                  style: widget.style),
                   tint: tint)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label) \(text)")
+    }
+}
+
+/// A detail tile: labelled numbers two to a row, each with a tiny sparkline under it.
+struct PcStatsTileWidget: View {
+    let widget: PcWidget
+    let ctx: PcWidgetContext
+
+    var body: some View {
+        let keys = PcFormat.expand(widget.readings, live: ctx.live)
+        PcPanel(padding: 18) {
+            header(widget, ctx, estimated: keys.contains { PcFormat.isEstimated($0, live: ctx.live, catalog: ctx.catalog) })
+            if keys.isEmpty {
+                Text(ctx.live.hasSample ? "None reported by this PC" : "No data yet")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PcLook.secondary)
+                    .padding(.top, 10)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16, alignment: .topLeading),
+                                    GridItem(.flexible(), spacing: 16, alignment: .topLeading)],
+                          alignment: .leading, spacing: 16) {
+                    ForEach(keys, id: \.self) { key in cell(key) }
+                }
+                .padding(.top, 14)
+            }
+        }
+    }
+
+    private func cell(_ key: String) -> some View {
+        let c = PcFormat.statsCell(key, live: ctx.live, catalog: ctx.catalog, style: widget.style)
+        let pts = ctx.points(key, widget)
+        let tone = PcFormat.tone(ctx.live.values[key], style: widget.style)
+        let tint = widget.style.color == nil ? PcLook.tint(key: key) : PcLook.tint(widget)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(c.label)
+                .font(.system(size: 13))
+                .foregroundStyle(PcLook.secondary)
+                .lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(c.value)
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
+                    .foregroundStyle(c.value == "—" ? PcLook.tertiary : PcLook.toneColor(tone))
+                    .contentTransition(.numericText())
+                if !c.unit.isEmpty {
+                    Text(c.unit)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(PcLook.secondary)
+                }
+            }
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .opacity(ctx.stale ? 0.55 : 1)
+            PcLineChart(series: [.init(id: key, points: pts, color: tint)],
+                        span: PcTimeSpan.last(ctx.range.window(for: widget), now: ctx.now),
+                        yRange: PcChartScale.range(pts.map(\.avg), unit: unit(key, ctx, widget.style)),
+                        area: false, lineWidth: 1.5)
+                .frame(height: 20)
+                .opacity(pts.isEmpty ? 0 : (ctx.stale ? 0.5 : 1))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(c.label) \(c.value == "—" ? "unavailable" : c.value + " " + c.unit)")
     }
 }
 

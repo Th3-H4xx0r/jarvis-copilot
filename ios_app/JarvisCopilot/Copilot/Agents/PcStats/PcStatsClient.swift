@@ -253,7 +253,8 @@ final class PcStatsModel {
         var wanted = Set<PcSeriesKey>()
         for w in board.widgets where w.kind.hasChart || w.kind == .session {
             let window = range.window(for: w)
-            let keys = w.kind == .chart ? w.readings : Array(w.readings.prefix(1))
+            let keys = w.kind == .chart || w.kind == .stats ? PcFormat.expand(w.readings, live: live)
+                                                            : Array(w.readings.prefix(1))
             for k in keys { wanted.insert(PcSeriesKey(key: k, window: window)) }
         }
         var fresh: [PcSeriesKey: [PcPoint]] = [:]

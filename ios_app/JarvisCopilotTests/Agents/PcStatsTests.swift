@@ -28,7 +28,7 @@ final class PcStatsTests: XCTestCase {
             "power.total": ["label": "PC (est.)", "unit": "W", "group": "power", "estimated": true],
             "fps": ["label": "Frame rate", "unit": "fps", "group": "frames", "estimated": false],
         ],
-        "widget_kinds": ["hero", "number", "chart", "bars", "ring", "sparkline", "text", "session", "moments"],
+        "widget_kinds": ["hero", "number", "chart", "bars", "ring", "sparkline", "stats", "text", "session", "moments"],
         "columns": 12,
     ])
 
@@ -412,6 +412,39 @@ final class PcStatsTests: XCTestCase {
         XCTAssertEqual(Set(PcCategory.seriesColors(["cpu.load", "cpu.clock", "cpu.power"])).count, 3, "repeats move on")
         XCTAssertEqual(PcCategory.gpu.tintHex, 0x30D158)
         XCTAssertEqual(PcCategory.cpu.tintHex, 0x0A84FF)
+    }
+
+    // MARK: Denser dashboards: wildcards and stats tiles
+
+    func testWildcardsExpandToThePCsOwnKeysSorted() {
+        let live = PcLive(json: json(#"{"online":true,"at":1,"sample":{"r":{"cpu.temp":70,"temp.vrm":55,"temp.chipset":48,"fan.fan_2":900,"fan.fan_1":1200,"gpu.fan":1600}},"estimated":[]}"#))
+        XCTAssertEqual(PcFormat.expand(["cpu.temp", "gpu.temp", "gpu.hotspot", "temp.*"], live: live),
+                       ["cpu.temp", "gpu.temp", "gpu.hotspot", "temp.chipset", "temp.vrm"])
+        XCTAssertEqual(PcFormat.expand(["gpu.fan", "fan.*"], live: live), ["gpu.fan", "fan.fan_1", "fan.fan_2"])
+        XCTAssertEqual(PcFormat.expand(["temp.vrm", "temp.*"], live: live), ["temp.vrm", "temp.chipset"],
+                       "a key named outright isn't repeated")
+        XCTAssertEqual(PcFormat.expand(["fan.*"], live: .none), [], "nothing reported yet")
+        XCTAssertEqual(catalog.info("fan.fan_1")?.label, "Fan 1", "dynamic keys read as words")
+        XCTAssertEqual(PcFormat.shortLabel("temp.chipset", catalog: catalog), "Chipset")
+        XCTAssertEqual(catalog.info("temp.*")?.label, "All temperatures")
+        XCTAssertTrue(catalog.grouped().contains { g in g.readings.contains { $0.key == "fan.*" } }, "offered in the library")
+    }
+
+    func testStatsCellFormatting() {
+        let live = PcLive(json: json(#"{"online":true,"at":1,"sample":{"r":{"cpu.temp":71.6,"cpu.clock":5400,"ram.used":21.43,"fan.fan_1":1180}},"estimated":[]}"#))
+        XCTAssertEqual(PcFormat.statsCell("cpu.temp", live: live, catalog: catalog),
+                       .init(label: "CPU temperature", value: "72°", unit: ""), "temps carry ° inline")
+        XCTAssertEqual(PcFormat.statsCell("ram.used", live: live, catalog: catalog),
+                       .init(label: "RAM used", value: "21.4", unit: "GB"))
+        XCTAssertEqual(PcFormat.statsCell("fan.fan_1", live: live, catalog: catalog),
+                       .init(label: "Fan 1", value: "1180", unit: "rpm"))
+        XCTAssertEqual(PcFormat.statsCell("gpu.load", live: live, catalog: catalog),
+                       .init(label: "GPU load", value: "—", unit: ""), "missing is a dash, never 0")
+        XCTAssertEqual(PcFormat.statsCell("cpu.temp", live: live, catalog: catalog, style: PcWidgetStyle(decimals: 1)).value, "71.6°")
+        XCTAssertTrue(PcWidgetKind.stats.multiReading)
+        XCTAssertTrue(PcWidgetKind.stats.hasChart)
+        XCTAssertEqual(PcLayout.rows([PcWidget(id: "s", kind: .stats, w: 3, h: 2), w("a", 3, 0, 3, 2)]).map { $0.map(\.id) },
+                       [["s"], ["a"]], "a stats tile is full width")
     }
 
     private func assertNoOverlap(_ widgets: [PcWidget], file: StaticString = #filePath, line: UInt = #line) {
