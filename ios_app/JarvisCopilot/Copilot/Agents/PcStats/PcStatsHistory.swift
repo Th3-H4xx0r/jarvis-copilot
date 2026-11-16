@@ -179,7 +179,7 @@ struct PcStatsHistorySections: View {
         return PcPanel(padding: 16) {
             PcCardHeader(title: title, symbol: title == "Fans" ? PcCategory.cooling.symbol : PcCategory.temps.symbol,
                          tint: PcLook.tint(title == "Fans" ? .cooling : .temps), context: "90 days")
-            HStack(spacing: 14) {
+            PcFlow(spacing: 14) {
                 ForEach(series) { s in
                     let peak = s.points.map(\.max).max()
                     HStack(spacing: 6) {
@@ -188,8 +188,8 @@ struct PcStatsHistorySections: View {
                         Text(peak.map { "peak \(PcFormat.compact($0, unit: unit))" } ?? "—")
                             .fontWeight(.semibold).foregroundStyle(JcTheme.text).monospacedDigit()
                     }
-                    .font(.system(size: 12.5))
-                    .fixedSize()
+                    .font(.system(size: 13))
+                    .lineLimit(1)
                 }
             }
             .padding(.top, 8)
@@ -335,7 +335,7 @@ struct PcSessionDetail: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
-                    HStack(spacing: 14) {
+                    PcFlow(spacing: 14) {
                         ForEach(lines) { s in
                             HStack(spacing: 6) {
                                 Circle().fill(s.color).frame(width: 6, height: 6)
@@ -344,8 +344,8 @@ struct PcSessionDetail: View {
                                                       unit: model.catalog.info(s.id)?.unit ?? unit) + " avg")
                                     .fontWeight(.semibold).foregroundStyle(JcTheme.text).monospacedDigit()
                             }
-                            .font(.system(size: 12.5))
-                            .fixedSize()
+                            .font(.system(size: 13))
+                            .lineLimit(1)
                         }
                     }
                     PcLineChart(series: lines, span: span, yRange: PcChartScale.range(all, unit: unit),

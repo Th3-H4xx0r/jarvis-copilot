@@ -15,28 +15,16 @@ struct PcStatsPage: View {
     @State private var actionError: String?
     @Environment(\.scenePhase) private var scenePhase
 
-    init(deviceId: String, name: String) {
+    init(deviceId: String, name: String, model: PcStatsModel? = nil) {
         self.deviceId = deviceId
         self.name = name
-        _model = State(initialValue: PcStatsModel(deviceId: deviceId, name: name))
+        _model = State(initialValue: model ?? PcStatsModel(deviceId: deviceId, name: name))
     }
 
     private var isOn: Bool { PowerState.shared.isOn("pc-stats") }
 
     var body: some View {
-        ScrollView {
-            JcPageColumn {
-                if !isOn {
-                    offCard
-                } else {
-                    header
-                    JcSegmentedPicker(PcRange.allCases.map { ($0, $0.title) }, selection: $model.range)
-                        .padding(.top, 14)
-                    dashboard.padding(.top, 14)
-                    PcStatsHistorySections(model: model)
-                }
-            }
-        }
+        ScrollView { content }
         .background(Color.black.ignoresSafeArea())
         .refreshable { await model.refresh() }
         .overlay(alignment: .top) { bannerView }
@@ -67,29 +55,54 @@ struct PcStatsPage: View {
         }
     }
 
+    /// Everything under the title, in the page column (also what the layout tests measure).
+    var content: some View {
+        JcPageColumn {
+            if !isOn {
+                offCard
+            } else {
+                header
+                JcSegmentedPicker(PcRange.allCases.map { ($0, $0.title) }, selection: $model.range)
+                    .padding(.top, 14)
+                dashboard.padding(.top, 14)
+                PcStatsHistorySections(model: model)
+            }
+        }
+    }
+
     // MARK: Header
 
-    /// Under the PC's name (the page title): online / playing / last seen, and the switcher.
+    /// Under the PC's name (the page title): online / playing / last seen, and the switcher —
+    /// side by side when both fit whole, else the switcher goes under the status.
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            TimelineView(.periodic(from: .now, by: 15)) { context in
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(model.live.online ? Color(jcHex: 0x30D158) : PcLook.tertiary)
-                        .frame(width: 8, height: 8)
-                    Text(model.liveLoaded
-                         ? PcStatsCopy.status(online: model.live.online, at: model.live.at,
-                                              game: model.live.game, now: context.date)
-                         : "Connecting…")
-                        .lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            let status = model.liveLoaded
+                ? PcStatsCopy.status(online: model.live.online, at: model.live.at, game: model.live.game, now: context.date)
+                : "Connecting…"
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    statusLine(status).fixedSize()
+                    Spacer(minLength: 8)
+                    switcher
                 }
-                .font(.system(size: 15))
-                .foregroundStyle(PcLook.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    statusLine(status)
+                    switcher
+                }
             }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
-            switcher
         }
+    }
+
+    private func statusLine(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(model.live.online ? Color(jcHex: 0x30D158) : PcLook.tertiary)
+                .frame(width: 8, height: 8)
+            Text(text).lineLimit(2)
+        }
+        .font(.system(size: 15))
+        .foregroundStyle(PcLook.secondary)
+        .accessibilityElement(children: .combine)
     }
 
     private var switcher: some View {
@@ -146,19 +159,8 @@ struct PcStatsPage: View {
                     JcSmallAction("Add widgets", symbol: "plus") { editing = board }.padding(.top, 12)
                 }
             } else {
-                let ctx = PcWidgetContext(live: model.live, catalog: model.catalog, range: model.range,
-                                          points: { model.points($0, widget: $1) },
-                                          latestSession: model.latestSession, moments: model.moments,
-                                          now: model.chartEnd)
-                VStack(spacing: 12) {
-                    ForEach(PcLayout.rows(PcLayout.reflow(board.widgets)), id: \.first!.id) { row in
-                        HStack(alignment: .top, spacing: 12) {
-                            ForEach(row) { w in PcWidgetView(widget: w, ctx: ctx) }
-                        }
-                        .fixedSize(horizontal: false, vertical: true)   // two tiles side by side match heights
-                    }
-                }
-                .animation(.easeOut(duration: 0.25), value: board.widgets.map(\.id))
+                PcDashboardColumn(widgets: board.widgets, ctx: model.widgetContext)
+                    .animation(.easeOut(duration: 0.25), value: board.widgets.map(\.id))
             }
         } else {
             PcPanel {
@@ -212,6 +214,30 @@ struct PcStatsPage: View {
             case .conflict: break
             }
         }
+    }
+}
+
+// MARK: - The one-column dashboard
+
+/// The dashboard in one column: full-width cards, and two small tiles side by side only when
+/// both fit at half width (otherwise stacked). Nothing in it is ever wider than the column.
+struct PcDashboardColumn: View {
+    let widgets: [PcWidget]
+    let ctx: PcWidgetContext
+
+    var body: some View {
+        VStack(spacing: PcLook.gap) {
+            ForEach(PcLayout.rows(PcLayout.reflow(widgets)), id: \.first!.id) { row in
+                if row.count == 2 {
+                    PcPairLayout(spacing: PcLook.gap) {
+                        ForEach(row) { w in PcWidgetView(widget: w, ctx: ctx) }
+                    }
+                } else {
+                    ForEach(row) { w in PcWidgetView(widget: w, ctx: ctx) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

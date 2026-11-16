@@ -160,6 +160,30 @@ final class PcStatsModel {
 
     var active: PcDashboard? { PcStatsPrefs.resolve(activeId, in: dashboards) }
 
+    var widgetContext: PcWidgetContext {
+        PcWidgetContext(live: live, catalog: catalog, range: range, points: { [weak self] in self?.points($0, widget: $1) ?? [] },
+                        latestSession: latestSession, moments: moments, now: chartEnd)
+    }
+
+    /// Fills the model without the network (layout tests and rendered previews).
+    func seed(live: PcLive, catalog: PcCatalog, dashboards: [PcDashboard], activeId: String? = nil,
+              series: [PcSeriesKey: [PcPoint]] = [:], sessions: [PcSession] = [], moments: [PcMoment] = [],
+              energy: PcEnergy? = nil, health: [String: [PcPoint]] = [:]) {
+        self.live = live
+        liveLoaded = true
+        self.catalog = catalog
+        self.dashboards = dashboards
+        dashboardsLoaded = true
+        self.activeId = activeId ?? dashboards.first?.id
+        self.series = series
+        self.sessions = sessions
+        latestSession = sessions.first
+        self.moments = moments
+        self.energy = energy
+        self.health = health
+        historyLoaded = true
+    }
+
     /// Where the charts end: now, or — Live, with the PC offline — its last sample, so the
     /// last minutes it reported stay on screen.
     var chartEnd: Date {

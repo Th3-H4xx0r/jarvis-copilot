@@ -12,6 +12,8 @@ enum PcLook {
     static let card = Color(jcHex: 0x1C1C1E)
     static let elevated = Color(jcHex: 0x2C2C2E)
     static let radius: CGFloat = 22
+    /// Between cards.
+    static let gap: CGFloat = 12
     static let primary = Color.white
     static let secondary = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.6)
     static let tertiary = Color(.sRGB, red: 235 / 255, green: 235 / 255, blue: 245 / 255, opacity: 0.3)
@@ -116,6 +118,7 @@ struct PcCardHeader: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
             if estimated { PcEstimatedBadge() }
             Spacer(minLength: 6)
             if let context {
@@ -149,8 +152,11 @@ struct PcBigValue: View {
 
     var body: some View {
         switch value {
-        case .value(let n, let unit):
-            HStack(alignment: .firstTextBaseline, spacing: unit.hasPrefix("°") || unit == "%" ? 1 : 3) {
+        case .value(let raw, let rawUnit):
+            // A temperature's ° sits inline at full size ("65°"); other units are small and secondary.
+            let n = rawUnit == "°" ? raw + "°" : raw
+            let unit = rawUnit == "°" ? "" : rawUnit
+            HStack(alignment: .firstTextBaseline, spacing: unit == "%" ? 1 : 3) {
                 Text(n)
                     .font(.system(size: size, weight: .semibold, design: .rounded))
                     .tracking(-size * 0.02)
@@ -176,6 +182,119 @@ struct PcBigValue: View {
                     .foregroundStyle(PcLook.tertiary)
             }
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+// MARK: - Wrapping row
+
+/// Items left to right, wrapping onto the next line instead of ever running past the width it's
+/// given; an item wider than a whole line is proposed the line's width (its text truncates).
+struct PcFlow: Layout {
+    var spacing: CGFloat = 14
+    var lineSpacing: CGFloat = 6
+
+    private func sizes(_ subviews: Subviews, maxWidth: CGFloat) -> [CGSize] {
+        subviews.map { v in
+            let ideal = v.sizeThatFits(.unspecified)
+            guard ideal.width > maxWidth else { return ideal }
+            let fitted = v.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+            return CGSize(width: min(maxWidth, fitted.width), height: fitted.height)
+        }
+    }
+
+    private func lines(_ sizes: [CGSize], maxWidth: CGFloat) -> [[Int]] {
+        var out: [[Int]] = [[]]
+        var x: CGFloat = 0
+        for (i, s) in sizes.enumerated() {
+            if !out[out.count - 1].isEmpty, x + spacing + s.width > maxWidth {
+                out.append([])
+                x = 0
+            }
+            x += (out[out.count - 1].isEmpty ? 0 : spacing) + s.width
+            out[out.count - 1].append(i)
+        }
+        return out
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let s = sizes(subviews, maxWidth: maxWidth)
+        let ls = lines(s, maxWidth: maxWidth)
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        for (n, line) in ls.enumerated() {
+            var w: CGFloat = 0
+            var h: CGFloat = 0
+            for (k, i) in line.enumerated() {
+                w += s[i].width + (k == 0 ? 0 : spacing)
+                h = max(h, s[i].height)
+            }
+            width = max(width, w)
+            height += h + (n == 0 ? 0 : lineSpacing)
+        }
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let s = sizes(subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for l in lines(s, maxWidth: bounds.width) {
+            var x = bounds.minX
+            let h = l.map { s[$0].height }.max() ?? 0
+            for i in l {
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s[i]))
+                x += s[i].width + spacing
+            }
+            y += h + lineSpacing
+        }
+    }
+}
+
+/// Two tiles side by side at equal width and height only when EACH fits whole in half the
+/// width; otherwise one above the other at full width.
+struct PcPairLayout: Layout {
+    var spacing: CGFloat = 12
+
+    static func sideBySide(idealWidths: [CGFloat], width: CGFloat, spacing: CGFloat) -> Bool {
+        guard idealWidths.count == 2, width.isFinite else { return false }
+        let half = (width - spacing) / 2
+        return idealWidths.allSatisfy { $0 <= half }
+    }
+
+    private func split(_ width: CGFloat, _ subviews: Subviews) -> Bool {
+        Self.sideBySide(idealWidths: subviews.map { $0.sizeThatFits(.unspecified).width }, width: width, spacing: spacing)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let width = proposal.width, width.isFinite else {
+            let ideal = subviews.map { $0.sizeThatFits(.unspecified) }
+            return CGSize(width: ideal.map(\.width).reduce(0, +) + spacing * CGFloat(max(0, ideal.count - 1)),
+                          height: ideal.map(\.height).max() ?? 0)
+        }
+        if split(width, subviews) {
+            let half = (width - spacing) / 2
+            let h = subviews.map { $0.sizeThatFits(ProposedViewSize(width: half, height: nil)).height }.max() ?? 0
+            return CGSize(width: width, height: h)
+        }
+        let hs = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }
+        return CGSize(width: width, height: hs.reduce(0, +) + spacing * CGFloat(max(0, hs.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        if split(bounds.width, subviews) {
+            let half = (bounds.width - spacing) / 2
+            for (i, v) in subviews.enumerated() {
+                v.place(at: CGPoint(x: bounds.minX + CGFloat(i) * (half + spacing), y: bounds.minY),
+                        proposal: ProposedViewSize(width: half, height: bounds.height))
+            }
+        } else {
+            var y = bounds.minY
+            for v in subviews {
+                let h = v.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+                v.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(width: bounds.width, height: h))
+                y += h + spacing
+            }
         }
     }
 }
@@ -478,23 +597,27 @@ struct PcMetaRow: View {
             let v = ctx.live.values[key].map { PcFormat.compact($0, unit: r?.unit ?? "") } ?? "—"
             return (v, Self.word(key, ctx.catalog))
         }
+        // One tidy line with as many as fit; the last option wraps, so it always fits.
         ViewThatFits(in: .horizontal) {
             row(items, gap: 16)
-            row(Array(items.prefix(3)), gap: 12)
-            row(Array(items.prefix(2)), gap: 12)
+            row(Array(items.prefix(3)), gap: 14)
+            PcFlow(spacing: 14) { cells(items) }
         }
         .font(.system(size: 13))
     }
 
     private func row(_ items: [(String, String)], gap: CGFloat) -> some View {
-        HStack(spacing: gap) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(spacing: 4) {
-                    Text(item.0).fontWeight(.semibold).foregroundStyle(PcLook.primary).monospacedDigit()
-                    if !item.1.isEmpty { Text(item.1).foregroundStyle(PcLook.secondary) }
-                }
-                .fixedSize()
+        HStack(spacing: gap) { cells(items) }
+    }
+
+    @ViewBuilder
+    private func cells(_ items: [(String, String)]) -> some View {
+        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            HStack(spacing: 4) {
+                Text(item.0).fontWeight(.semibold).foregroundStyle(PcLook.primary).monospacedDigit()
+                if !item.1.isEmpty { Text(item.1).foregroundStyle(PcLook.secondary) }
             }
+            .lineLimit(1)
         }
     }
 
@@ -508,6 +631,7 @@ struct PcMetaRow: View {
         case "frametime": return ""
         case "power.total": return "PC (est.)"
         case "ram.used": return "RAM"
+        case "power.gpu", "power.cpu", "power.ram", "power.disk", "power.net": return PcFormat.shortLabel(key, catalog: catalog)
         default:
             let unit = catalog.info(key)?.unit ?? ""
             return ["W", "MHz", "%", "°C", "ms", "fps"].contains(unit) ? "" : PcFormat.shortLabel(key, catalog: catalog)
@@ -547,21 +671,31 @@ struct PcHeroWidget: View {
         }
     }
 
-    /// The usage, and for a load its temperature beside it at the same size ("96% · 67°C");
+    private func loadAndTemp(_ value: PcValue, _ temp: PcValue, tone: PcFormat.Tone, size: CGFloat) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: size * 0.18) {
+            PcBigValue(value: value, size: size, dimmed: ctx.stale).layoutPriority(1)
+            Text("·")
+                .font(.system(size: size * 0.7, weight: .semibold, design: .rounded))
+                .foregroundStyle(PcLook.tertiary)
+            PcBigValue(value: temp, size: size, tone: tone, dimmed: ctx.stale).layoutPriority(1)
+        }
+        .lineLimit(1)
+    }
+
+    /// The usage, and for a load its temperature beside it at the same size ("96% · 67°");
     /// warn/crit tint the temperature there, the value otherwise.
     @ViewBuilder
     private func valueRow(key: String?, value: PcValue) -> some View {
         if let temp = PcFormat.heroTemperature(widget) {
             let tempStyle = PcFormat.heroTemperatureStyle(widget, key: temp)
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                PcBigValue(value: value, size: 52, dimmed: ctx.stale)
-                Text("·")
-                    .font(.system(size: 36, weight: .semibold, design: .rounded))
-                    .foregroundStyle(PcLook.tertiary)
-                PcBigValue(value: PcFormat.heroTemperatureValue(temp, live: ctx.live, decimals: widget.style.decimals),
-                           size: 52, tone: PcFormat.tone(ctx.live.values[temp], style: tempStyle), dimmed: ctx.stale)
+            let tempValue = PcFormat.heroTemperatureValue(temp, live: ctx.live, decimals: widget.style.decimals)
+            let tone = PcFormat.tone(ctx.live.values[temp], style: tempStyle)
+            // The biggest size at which "98% · 65°" fits on one line; the last one shrinks to fit.
+            ViewThatFits(in: .horizontal) {
+                ForEach([52, 44, 36] as [CGFloat], id: \.self) { size in
+                    loadAndTemp(value, tempValue, tone: tone, size: size)
+                }
             }
-            .lineLimit(1)
         } else {
             PcBigValue(value: value, size: 52, tone: PcFormat.tone(key.flatMap { ctx.live.values[$0] }, style: widget.style),
                        dimmed: ctx.stale)
@@ -695,10 +829,7 @@ struct PcChartWidget: View {
     }
 
     private func legend(_ series: [PcLineChart.Series]) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) { legendItems(series) }
-            VStack(alignment: .leading, spacing: 6) { legendItems(series) }
-        }
+        PcFlow(spacing: 16) { legendItems(series) }
     }
 
     @ViewBuilder
@@ -713,7 +844,7 @@ struct PcChartWidget: View {
                     .monospacedDigit()
             }
             .font(.system(size: 13))
-            .fixedSize()
+            .lineLimit(1)
         }
     }
 }
@@ -856,7 +987,7 @@ struct PcSessionWidget: View {
             if let game = ctx.live.game, ctx.live.online {
                 PcCardHeader(title: widget.style.label ?? "Playing now", symbol: PcLook.symbol(widget), tint: PcLook.tint(widget))
                 Text(game).font(.system(size: 22, weight: .semibold)).foregroundStyle(PcLook.primary).lineLimit(1).padding(.top, 8)
-                HStack(spacing: 22) {
+                PcFlow(spacing: 22, lineSpacing: 12) {
                     stat(ctx.live.values["fps"].map { PcFormat.number($0, unit: "fps") }, "fps")
                     stat(ctx.live.values["fps.low1"].map { PcFormat.number($0, unit: "fps") }, "1% low")
                     stat(ctx.live.values["power.total"].map { PcFormat.compact($0, unit: "W") }, "PC (est.)")
@@ -866,7 +997,7 @@ struct PcSessionWidget: View {
                 PcCardHeader(title: widget.style.label ?? "Last session", symbol: PcLook.symbol(widget), tint: PcLook.tint(widget),
                              context: s.start.formatted(.relative(presentation: .named)))
                 Text(s.name).font(.system(size: 22, weight: .semibold)).foregroundStyle(PcLook.primary).lineLimit(1).padding(.top, 8)
-                HStack(spacing: 22) {
+                PcFlow(spacing: 22, lineSpacing: 12) {
                     stat(PcFormat.duration(s.duration(now: ctx.now)), "played")
                     stat(s.fpsAvg.map { PcFormat.number($0, unit: "fps") }, "avg fps")
                     stat(s.fpsLow1.map { PcFormat.number($0, unit: "fps") }, "1% low")
@@ -891,7 +1022,7 @@ struct PcSessionWidget: View {
                 .monospacedDigit()
             Text(label).font(.system(size: 13)).foregroundStyle(PcLook.secondary)
         }
-        .fixedSize()
+        .lineLimit(1)
     }
 }
 

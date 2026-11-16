@@ -75,8 +75,8 @@ final class PcStatsTests: XCTestCase {
         let s = PcSummary(json: json(#"{"online":true,"at":1,"cpu":38,"gpu":96.4,"cpu_temp":71.6,"gpu_temp":67,"hottest":72,"watts":462}"#))
         XCTAssertEqual(s.cpuTemp, 71.6)
         XCTAssertEqual(s.gpuTemp, 67)
-        XCTAssertEqual(s.cardMetrics, [.init(label: "CPU", value: "38%", temp: "72°C"),
-                                       .init(label: "GPU", value: "96%", temp: "67°C"),
+        XCTAssertEqual(s.cardMetrics, [.init(label: "CPU", value: "38%", temp: "72°"),
+                                       .init(label: "GPU", value: "96%", temp: "67°"),
                                        .init(label: "PC (est.)", value: "462 W", temp: nil)])
         // A missing temperature is left out, not drawn as 0.
         let noCpuTemp = PcSummary(json: json(#"{"online":true,"cpu":5,"gpu":10,"cpu_temp":null,"gpu_temp":40,"watts":null}"#))
@@ -217,6 +217,16 @@ final class PcStatsTests: XCTestCase {
         XCTAssertEqual(rows.map { $0.map(\.id) }, [["hero"], ["a", "b"], ["c"], ["bars"]])
     }
 
+    func testStackedSmallTilesPairOnThePhone() {
+        // Gaming: two rings stacked in one grid column, a stats tile beside them.
+        let order = PcLayout.reflow([w("fps", 0, 0, 6, 4, kind: .hero), w("gpu", 6, 0, 2, 2, kind: .ring),
+                                     w("perf", 8, 0, 4, 4, kind: .stats), w("cpu", 6, 2, 2, 2, kind: .ring)])
+        XCTAssertEqual(PcLayout.rows(order).map { $0.map(\.id) }, [["fps"], ["gpu", "cpu"], ["perf"]])
+        XCTAssertEqual(PcCatalog.words("nvme_ssd_samsung_990_pro"), "NVMe SSD Samsung 990 Pro")
+        XCTAssertEqual(PcCatalog.words("vrm_mos"), "VRM MOS")
+        XCTAssertEqual(PcCatalog.words("system_fan_1"), "System Fan 1")
+    }
+
     func testNewIDs() {
         XCTAssertEqual(PcLayout.newWidgetID(kind: .number, reading: "gpu.temp", taken: ["gpu-temp"]), "gpu-temp-2")
         XCTAssertEqual(PcLayout.newWidgetID(kind: .text, reading: nil, taken: []), "text")
@@ -298,7 +308,7 @@ final class PcStatsTests: XCTestCase {
         XCTAssertEqual(PcFormat.tone(96, style: style), .crit)
 
         let live = PcLive(json: json(#"{"online":true,"at":1,"sample":{"r":{"gpu.temp":66.7}},"estimated":[]}"#))
-        XCTAssertEqual(PcFormat.heroTemperatureValue("gpu.temp", live: live), .value("67", unit: "°C"))
+        XCTAssertEqual(PcFormat.heroTemperatureValue("gpu.temp", live: live), .value("67", unit: "°"), "inline °")
         XCTAssertEqual(PcFormat.heroTemperatureValue("cpu.temp", live: live), .unavailable("Needs the sensor driver"))
 
         let cpu = PcWidget(id: "cpu", kind: .hero, w: 3, h: 4, readings: ["cpu.load"],
@@ -314,7 +324,7 @@ final class PcStatsTests: XCTestCase {
     }
 
     func testDynamicReadingsResolveLikeTheServer() {
-        XCTAssertEqual(catalog.info("fan.cpu_fan")?.label, "Cpu Fan")
+        XCTAssertEqual(catalog.info("fan.cpu_fan")?.label, "CPU Fan", "acronyms stay in capitals")
         XCTAssertEqual(catalog.info("fan.cpu_fan")?.unit, "rpm")
         XCTAssertEqual(catalog.info("temp.vrm")?.unit, "°C")
         XCTAssertNil(catalog.info("fan.Bad-Name"))

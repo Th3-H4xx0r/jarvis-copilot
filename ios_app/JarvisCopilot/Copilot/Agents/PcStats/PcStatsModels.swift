@@ -77,9 +77,18 @@ struct PcCatalog: Equatable {
         guard let dot = key.firstIndex(of: "."), key.range(of: #"^(fan|temp)\.[a-z0-9_]{1,40}$"#,
                                                            options: .regularExpression) != nil else { return nil }
         let kind = String(key[..<dot])
-        let slug = key[key.index(after: dot)...].replacingOccurrences(of: "_", with: " ").capitalized
+        let slug = Self.words(String(key[key.index(after: dot)...]))
         return PcReading(key: key, label: slug, unit: kind == "fan" ? "rpm" : "°C",
                          group: kind == "fan" ? "cooling" : "temps", estimated: false)
+    }
+
+    /// A sensor slug in words, the server's rule (underscores → spaces, Title Case) with hardware
+    /// acronyms kept in capitals: "cpu_fan" → "CPU Fan", "nvme_ssd" → "NVMe SSD", "vrm_mos" → "VRM MOS".
+    static func words(_ slug: String) -> String {
+        let special: [String: String] = ["cpu": "CPU", "gpu": "GPU", "vrm": "VRM", "mos": "MOS", "ssd": "SSD", "hdd": "HDD",
+                                         "nvme": "NVMe", "pch": "PCH", "ram": "RAM", "dimm": "DIMM", "aio": "AIO",
+                                         "soc": "SoC", "m2": "M.2", "usb": "USB", "pcie": "PCIe", "ddr5": "DDR5", "ddr4": "DDR4"]
+        return slug.split(separator: "_").map { w in special[w.lowercased()] ?? w.capitalized }.joined(separator: " ")
     }
 
     /// Groups in the order the library lists them.
@@ -216,7 +225,7 @@ struct PcSummary: Equatable {
     /// "GPU 96% · 67°C", then the watts. An older server without per-part temperatures
     /// gets the hottest one as its own number.
     var cardMetrics: [Metric] {
-        func temp(_ v: Double?) -> String? { v.map { PcFormat.number($0, unit: "°C") + "°C" } }
+        func temp(_ v: Double?) -> String? { v.map { PcFormat.number($0, unit: "°C") + "°" } }
         var out = [Metric(label: "CPU", value: PcFormat.compact(cpu, unit: "%"), temp: temp(cpuTemp)),
                    Metric(label: "GPU", value: PcFormat.compact(gpu, unit: "%"), temp: temp(gpuTemp))]
         if cpuTemp == nil, gpuTemp == nil, let h = hottest {
@@ -704,6 +713,20 @@ enum PcLayout {
         var rows: [[PcWidget]] = []
         var pending: PcWidget?
         func small(_ w: PcWidget) -> Bool { [.number, .ring, .sparkline].contains(w.kind) && w.w <= 4 }
+        // A small tile stacked right under another on the grid (same column, touching) is its
+        // partner on the phone even when a bigger widget comes between them in reading order.
+        var ordered = ordered
+        var i = 0
+        while i < ordered.count {
+            let a = ordered[i]
+            if small(a), i + 1 < ordered.count, !small(ordered[i + 1]),
+               let j = ordered.indices.first(where: { $0 > i + 1 && small(ordered[$0]) && ordered[$0].x == a.x
+                                                       && ordered[$0].y == a.y + a.h }) {
+                let b = ordered.remove(at: j)
+                ordered.insert(b, at: i + 1)
+            }
+            i += 1
+        }
         for w in ordered {
             if small(w) {
                 if let p = pending { rows.append([p, w]); pending = nil } else { pending = w }
@@ -824,7 +847,7 @@ enum PcFormat {
     /// The temperature as the hero writes it: the number, "°C" small after it.
     static func heroTemperatureValue(_ key: String, live: PcLive, decimals: Int? = nil) -> PcValue {
         guard let v = live.values[key] else { return .unavailable(unavailableReason(key, live: live)) }
-        return .value(number(v, unit: "°C", decimals: decimals), unit: "°C")
+        return .value(number(v, unit: "°C", decimals: decimals), unit: "°")
     }
 
     /// Readings with the wildcards "temp.*" / "fan.*" replaced by every temp.<slug> / fan.<slug>
