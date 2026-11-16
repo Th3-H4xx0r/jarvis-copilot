@@ -123,8 +123,10 @@
 
     /** Microsoft's Remote Desktop URI: rdp://full%20address=s:<ip>&username=s:<user>&… */
     rdpUri: function (st) {
+      // ":" after the type letter must be %3A: a bare "s:" reads as a port and macOS rejects the whole URL
+      // (open/browsers then do nothing). Windows App decodes it (checked on his Mac 2026-11-16).
       return 'rdp://' + R.rdpLines(st).map(function (l) {
-        return encodeURIComponent(l[0]) + '=' + l[1] + ':' + encodeURIComponent(String(l[2]));
+        return encodeURIComponent(l[0]) + '=' + l[1] + '%3A' + encodeURIComponent(String(l[2]));
       }).join('&');
     },
 

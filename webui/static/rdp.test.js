@@ -114,14 +114,17 @@ test('Mac: the .rdp file has every line', () => {
   ]);
 });
 
-test('Mac: the rdp:// URI encodes spaces and the username', () => {
+test('Mac: the rdp:// URI encodes spaces, the username and the type colon', () => {
   const uri = R.rdpUri(STATUS);
-  assert.ok(uri.startsWith('rdp://full%20address=s:100.119.223.124&'));
+  assert.ok(uri.startsWith('rdp://full%20address=s%3A100.119.223.124&'));
   assert.ok(!uri.includes(' '));
-  assert.ok(uri.includes('&username=s:MicrosoftAccount%5Ckrish%40example.com'));
-  assert.ok(uri.includes('&prompt%20for%20credentials=i:0'));
-  assert.ok(uri.includes('&screen%20mode%20id=i:2'));
+  assert.ok(uri.includes('&username=s%3AMicrosoftAccount%5Ckrish%40example.com'));
+  assert.ok(uri.includes('&prompt%20for%20credentials=i%3A0'));
+  assert.ok(uri.includes('&screen%20mode%20id=i%3A2'));
   assert.equal(uri.split('&').length, 9);
+  // a parseable URL: no bare "host:port"-looking colon after the scheme (macOS rejected that form)
+  assert.ok(!/^rdp:\/\/[^&]*=s:/.test(uri));
+  assert.doesNotThrow(() => new URL(uri));
 });
 
 test('Mac: not ready reads like the iPhone; warnings before opening Windows App', () => {

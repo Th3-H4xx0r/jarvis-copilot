@@ -437,7 +437,15 @@
         try { if (document.fullscreenElement) document.exitFullscreen(); else S.el.requestFullscreen(); } catch (x) { /* not allowed */ }
         break;
       case 'mac-confirm': renderMac({ status: S.macStatus, warn: 'x', confirmed: true }); break;
-      case 'mac-open': root.location.href = R.rdpUri(S.macStatus); break;
+      case 'mac-open': {   // a real link click (user gesture) — browsers ignore some location.href scheme jumps
+        const a = document.createElement('a');
+        a.href = R.rdpUri(S.macStatus);
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        break;
+      }
       case 'mac-file': macFile(); break;
       case 'browser': {
         var dev = S.deviceId, nm = S.state.name;

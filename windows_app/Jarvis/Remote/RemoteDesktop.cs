@@ -98,7 +98,8 @@ public sealed class RemoteDesktop : IDisposable
             {
                 dynamic policy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2")!)!;
                 foreach (dynamic rule in policy.Rules)
-                    if ((string)rule.Name == RdpSetup.RuleName && (string)rule.RemoteAddresses == RdpSetup.TailscaleCidr) scoped = true;
+                    // the firewall reports the range in mask form: 100.64.0.0/255.192.0.0
+                    if ((string)rule.Name == RdpSetup.RuleName && (string)rule.RemoteAddresses is RdpSetup.TailscaleCidr or "100.64.0.0/255.192.0.0") scoped = true;
             }
             catch (COMException) { }
             _firewall = (DateTime.UtcNow, scoped);
