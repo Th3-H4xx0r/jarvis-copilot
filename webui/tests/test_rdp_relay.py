@@ -58,9 +58,23 @@ def echo():
     srv.close()
 
 
+class Clock:
+    def __init__(self):
+        self.t = 1_800_000_000.0
+
+    def __call__(self):
+        return self.t
+
+
 @pytest.fixture()
-def store():
-    s = RdpSessions(send_frame=lambda d, f: True, settings=lambda: {}, device_name=lambda d: "pranav-computer")
+def clock():
+    return Clock()
+
+
+@pytest.fixture()
+def store(clock):
+    s = RdpSessions(clock=clock, send_frame=lambda d, f: True, settings=lambda: {},
+                    device_name=lambda d: "pranav-computer")
     s.put_status("pc-1", dict(READY))
     return s
 
@@ -126,7 +140,7 @@ def test_relay_pumps_bytes_both_ways(store, echo):
     phone.close()
     t.join(timeout=2)
     assert not t.is_alive()
-    assert store.get(sid).state == "ended"
+    assert store.get(sid).state == "reconnectable"      # a drop, not an end: the phone may come back
 
 
 def test_off_closes_live_relays(store, echo):
@@ -156,3 +170,67 @@ def test_path_parsing():
     assert rdp_relay.session_id_of("/api/rdp/relay/") is None
     assert rdp_relay.session_id_of("/api/rdp/relay/../etc") is None
     assert rdp_relay.session_id_of("/api/other") is None
+
+
+# ── reconnect after a brief drop (Review Focus 4) ───────────────────────────
+def _drop(phone, t):
+    phone.close()
+    t.join(timeout=2)
+    assert not t.is_alive()
+
+
+def test_reopen_within_60s_is_accepted(store, echo, clock):
+    sid = _approved(store)
+    phone, t = _start(store, sid, _connector(echo, []))
+    _drop(phone, t)
+    clock.t += 59
+    phone2, t2 = _start(store, sid, _connector(echo, []))      # same session, no new Face ID
+    phone2.sendall(b"again")
+    assert _read(phone2, 5) == b"again"
+    assert store.get(sid).state == "connected"
+    assert store.public(sid)["credential"]["ciphertext"] == IOS_CRED["ciphertext"]
+    _drop(phone2, t2)
+
+
+def test_reopen_after_60s_is_refused(store, echo, clock):
+    sid = _approved(store)
+    phone, t = _start(store, sid, _connector(echo, []))
+    _drop(phone, t)
+    clock.t += 61
+    sess, err = rdp_relay.admit(sid, store)
+    assert sess is None and err
+    assert store.get(sid).state == "ended" and store.get(sid).reason == "dropped"
+    assert store.get(sid).credential is None
+
+
+def test_two_concurrent_relays_are_refused(store, echo, clock):
+    sid = _approved(store)
+    phone, t = _start(store, sid, _connector(echo, []))
+    assert rdp_relay.admit(sid, store)[0] is None              # one live relay at a time
+    _drop(phone, t)
+    phone2, t2 = _start(store, sid, _connector(echo, []))
+    assert rdp_relay.admit(sid, store)[0] is None
+    _drop(phone2, t2)
+
+
+def test_delete_then_reopen_is_refused(store, echo, clock):
+    sid = _approved(store)
+    phone, t = _start(store, sid, _connector(echo, []))
+    store.end(sid, "disconnected")                             # DELETE /api/rdp/sessions/<id>
+    t.join(timeout=2)
+    assert store.get(sid).state == "ended"
+    assert rdp_relay.admit(sid, store)[0] is None
+    # and after a drop, Disconnect still ends it at once
+    sid2 = _approved(store)
+    p2, t2 = _start(store, sid2, _connector(echo, []))
+    _drop(p2, t2)
+    store.end(sid2, "disconnected")
+    assert store.get(sid2).state == "ended" and rdp_relay.admit(sid2, store)[0] is None
+
+
+def test_off_ends_a_reconnectable_session(store, echo, clock):
+    sid = _approved(store)
+    phone, t = _start(store, sid, _connector(echo, []))
+    _drop(phone, t)
+    store.on_off()
+    assert store.get(sid).state == "cancelled" and rdp_relay.admit(sid, store)[0] is None

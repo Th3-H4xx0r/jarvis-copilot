@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 APPROVAL_TTL = 60.0      # his Face ID must answer within this
 OFFLINE_AFTER = 90.0     # no status for longer → offline
 IN_USE_IDLE = 120.0      # keyboard/mouse input more recently than this, unlocked → someone's there
+RECONNECT_WINDOW = 60.0  # an iPhone relay that dropped (lock, network switch) may reopen within this
 RDP_PORT = 3389
 MAX_AUDIT = 200
 CLIENTS = ("ios", "web")
@@ -36,7 +37,9 @@ DEFAULT_SETTINGS = {"idle_minutes": 30, "warn_game": True, "allow_web": True, "t
 _STATUS_KEYS = ("device_id", "edition", "rdp_enabled", "firewall_scoped", "username", "tailscale_ip", "idle_s",
                 "locked", "game", "remote_session", "has_password",
                 "pro", "hello_only_off", "at")   # the Windows app also sends these (every 30 s)
-_LIVE = ("approving", "approved", "connected")
+# "reconnectable": the iPhone's relay dropped by itself; the same session may reopen it for
+# RECONNECT_WINDOW seconds (the phone keeps the password in memory, no new Face ID), then "dropped".
+_LIVE = ("approving", "approved", "connected", "reconnectable")
 
 
 @dataclass
@@ -56,6 +59,7 @@ class Session:
     error: str = ""
     reason: str = ""
     ended_at: Optional[float] = None
+    reconnect_until: Optional[float] = None
     closers: list = field(default_factory=list)   # live relay/tunnel connections (Tasks 3–4)
 
     def __repr__(self) -> str:   # never let a credential reach a log line through repr()
@@ -201,7 +205,7 @@ class RdpSessions:
                "expires_at": sess.expires_at, "username": sess.username}
         if sess.error:
             out["error"] = sess.error
-        if sess.client == "ios" and sess.state in ("approved", "connected") and sess.credential:
+        if sess.client == "ios" and sess.state in ("approved", "connected", "reconnectable") and sess.credential:
             c = sess.credential
             out["credential"] = {k: c.get(k) for k in ("ciphertext", "ephemeral_pub", "nonce")}
         return out
@@ -240,15 +244,35 @@ class RdpSessions:
         self._record(sess)
 
     def mark_connected(self, sid: str) -> Optional[Session]:
-        """The relay/tunnel opened: approved → connected (one connection per session)."""
+        """The relay/tunnel opened: approved (or an iPhone relay reopening within its window) →
+        connected. Never while another connection for the session is live."""
         with self._lock:
             sess = self._sessions.get(str(sid or ""))
-            if sess is None or sess.state != "approved":
+            if sess is None:
+                return None
+            reopen = sess.state == "reconnectable" and self._clock() <= (sess.reconnect_until or 0)
+            if sess.state != "approved" and not reopen:
                 return None
             sess.state = "connected"
+            sess.reconnect_until = None
             sess.last_activity = self._clock()
+        if reopen:
+            log.info("rdp session %s reconnected", sess.id)
         self._record(sess)
         return sess
+
+    def relay_closed(self, sid: str) -> None:
+        """The iPhone's relay closed by itself (not Disconnect / off / idle, which end the session
+        first): keep the session reopenable for RECONNECT_WINDOW seconds."""
+        with self._lock:
+            sess = self._sessions.get(str(sid or ""))
+            if sess is None or sess.state != "connected":
+                return                         # already ended / cancelled
+            sess.state = "reconnectable"
+            sess.reconnect_until = self._clock() + RECONNECT_WINDOW
+            sess.closers = []
+        log.info("rdp session %s dropped; may reconnect for %ds", sess.id, int(RECONNECT_WINDOW))
+        self._record(sess)
 
     def touch(self, sid: str) -> None:
         with self._lock:
@@ -291,6 +315,8 @@ class RdpSessions:
             for sess in list(self._sessions.values()):
                 if sess.state == "approving" and now > sess.expires_at:
                     closers += self._close(sess, "cancelled", "approval expired", "No answer on your iPhone in 60 seconds")
+                elif sess.state == "reconnectable" and now > (sess.reconnect_until or 0):
+                    closers += self._close(sess, "ended", "dropped")
                 elif sess.state in ("approved", "connected") and now - sess.last_activity > idle_s:
                     closers += self._close(sess, "ended", "idle")
             # forget finished sessions after an hour (the audit keeps the record)

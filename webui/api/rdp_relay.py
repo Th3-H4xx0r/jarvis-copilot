@@ -4,8 +4,9 @@
 Tailscale address, port 3389. RDP's own TLS (and NLA) run end to end between the phone's FreeRDP
 and Windows: the server never parses or decrypts anything.
 
-Rules: only a session with ``client == "ios"`` in state ``approved`` opens it, and only once (it
-becomes ``connected``); the target is the session's PC on 3389 — the client can't choose — and must
+Rules: only a session with ``client == "ios"`` in state ``approved`` opens it (it becomes
+``connected``), one live relay at a time; if the relay drops by itself the session stays
+``reconnectable`` for 60 s and the phone may reopen it (no new Face ID), then it ends ("dropped"); the target is the session's PC on 3389 — the client can't choose — and must
 be a Tailscale address (100.64.0.0/10); the relay registers with the session so Disconnect, the idle
 sweep and switching the integration off close it at once.
 
@@ -53,7 +54,7 @@ def admit(sid: str, store) -> tuple:
         return None, "No such Remote Desktop session"
     if sess.client != "ios":
         return None, "This session isn't for the iPhone"
-    if sess.state != "approved":
+    if sess.state not in ("approved", "reconnectable"):
         return None, {"approving": "Waiting for Face ID", "connected": "This session is already connected"}.get(
             sess.state, "This session has ended")
     if not _tailscale(sess.host):
@@ -62,7 +63,9 @@ def admit(sid: str, store) -> tuple:
         return None, "The PC's address isn't a Tailscale address"
     got = store.mark_connected(sid)
     if got is None:
-        return None, "This session is already connected"
+        current = store.get(sid)
+        return None, ("This session is already connected" if current is not None and current.state == "connected"
+                      else "This session has ended")
     return got, ""
 
 
@@ -121,7 +124,9 @@ def run(sess, client: Channel, store, connect: Callable = socket.create_connecti
         relay_pump(_Touching(client, lambda: store.touch(sid)), _Touching(pc, lambda: store.touch(sid)),
                    labels=("phone2pc", "pc2phone"))
     finally:
-        store.end(sid, "disconnected")
+        # A relay that just dropped (phone locked, network switch) keeps the session reopenable for
+        # 60 s; Disconnect / off / idle already ended it, so this changes nothing then.
+        store.relay_closed(sid)
         log.info("rdp relay %s closed", sid)
 
 
