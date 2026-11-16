@@ -33,7 +33,9 @@ public sealed class DashboardWindow : Window
     private readonly Grid _grid = new();
     private readonly Canvas _overlay = new() { IsHitTestVisible = false };
     private readonly TextBlock _name = new(), _status = new();
-    private readonly ComboBox _switcher = new() { MinWidth = 170 };
+    // An Apple segmented control: one segment per dashboard.
+    private readonly StackPanel _segments = new() { Orientation = Orientation.Horizontal };
+    private readonly Border _switcher = new() { CornerRadius = new CornerRadius(10), Padding = new Thickness(2), Margin = new Thickness(8, 0, 0, 0) };
     private readonly StackPanel _editBar = new() { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed };
     private readonly Border _panelHost = new() { Width = 320, Visibility = Visibility.Collapsed };
     private readonly Button _editButton;
@@ -76,19 +78,17 @@ public sealed class DashboardWindow : Window
         Resources["JcButtonStyle"] = Th.S("JcSetButtonStyle");
         Resources["JcPrimaryButtonStyle"] = Th.S("JcSetPrimaryButtonStyle");
 
-        _name.FontSize = 16; _name.FontWeight = FontWeights.SemiBold;
-        _status.FontSize = 13; _status.Foreground = Th.B("JcStatsLabel");
+        _name.FontSize = 28; _name.FontWeight = FontWeights.Bold; _name.FontFamily = StatsLook.Rounded;
+        _status.FontSize = 15; _status.Foreground = Th.B("JcStatsSecondary");
         _editButton = Pill("Edit", () => SetEditing(!_editing));
-        _switcher.SelectionChanged += (_, _) =>
-        {
-            if (_switcher.SelectedItem is ComboBoxItem { Tag: string id } && id != _board?.Id) { _autoFrom = null; Select(id, remember: true); }
-        };
+        _switcher.Background = Th.B("JcStatsCard");
+        _switcher.Child = _segments;
         _editBar.Children.Add(Pill("+ Widget", AddWidget));
         _editBar.Children.Add(Pill("New dashboard", NewBoard));
         _editBar.Children.Add(Pill("Delete dashboard", DeleteBoard));
 
-        var header = new DockPanel { Margin = new Thickness(26, 22, 26, 10) };
-        var orb = new JarvisOrb(30) { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+        var header = new DockPanel { Margin = new Thickness(30, 26, 30, 14) };
+        var orb = new JarvisOrb(40) { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(_name);
         titles.Children.Add(_status);
@@ -104,7 +104,7 @@ public sealed class DashboardWindow : Window
         header.Children.Add(titles);
         header.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 1 && !_editing) try { DragMove(); } catch (InvalidOperationException) { } };
 
-        var body = new Grid { Margin = new Thickness(19, 0, 19, 19) };
+        var body = new Grid { Margin = new Thickness(24, 0, 24, 24) };
         body.Children.Add(_grid);
         body.Children.Add(_overlay);
         var main = new DockPanel();
@@ -166,13 +166,12 @@ public sealed class DashboardWindow : Window
             return;
         }
         Select(_state.GameMode.On ? (_boards.FirstOrDefault(b => b.Auto == "game")?.Id ?? _prefs.Get(ActivePref)) : _prefs.Get(ActivePref), remember: false);
-        await SeedHistoryAsync();
     }
 
     private async Task SeedHistoryAsync()
     {
         if (_board == null || _state.DeviceId is not { } device) return;
-        var keys = _board.Widgets.Where(w => w.Kind is "hero" or "chart" or "sparkline").SelectMany(w => w.Readings).Distinct();
+        var keys = _board.Widgets.Where(w => w.Kind is not ("text" or "session" or "moments" or "bars")).SelectMany(w => w.Readings).Where(k => !k.EndsWith(".*")).Distinct().ToList();
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         foreach (var k in keys)
         {
@@ -190,7 +189,8 @@ public sealed class DashboardWindow : Window
         Dispatcher.BeginInvoke(() =>
         {
             _series.Add(s);
-            _lastFrame = new WidgetFrame(s, estimated, driverOff && !_stats.DriverOn, _series, _labels, _units);
+            _lastFrame = new WidgetFrame(s, estimated, driverOff && !_stats.DriverOn, _series, _labels, _units,
+                _stats.CurrentSession, _stats.LastSession, _stats.Price, _stats.Currency);
             _name.Text = Environment.MachineName.ToLowerInvariant();
             _status.Text = (s.Game is { } g ? $"Gaming · {System.IO.Path.GetFileNameWithoutExtension(g)}" : "Live") +
                            (_stats.HelperConnected ? "" : " · sensor helper not running (Settings → PC power)");
@@ -207,14 +207,31 @@ public sealed class DashboardWindow : Window
         else if (!_state.GameMode.On && _autoFrom != null) { var back = _autoFrom; _autoFrom = null; Select(back, remember: false); }
     }
 
+    /// Diagnostics: show a dashboard without remembering it.
+    public void ShowBoard(string id) => Select(id, remember: false);
+
     private void Select(string id, bool remember)
     {
         _board = _boards.FirstOrDefault(b => b.Id == id) ?? _boards.FirstOrDefault();
         if (_board == null) return;
         if (remember) _prefs.Set(ActivePref, _board.Id);
-        _switcher.Items.Clear();
-        foreach (var b in _boards) _switcher.Items.Add(new ComboBoxItem { Content = b.Name, Tag = b.Id, IsSelected = b.Id == _board.Id });
+        _segments.Children.Clear();
+        foreach (var b in _boards)
+        {
+            var on = b.Id == _board.Id;
+            var seg = new Border
+            {
+                CornerRadius = new CornerRadius(8), Padding = new Thickness(16, 6, 16, 7), Cursor = Cursors.Hand,
+                Background = on ? Th.B("JcStatsElevated") : Brushes.Transparent,
+                Child = new TextBlock { Text = b.Name, FontSize = 13, FontWeight = on ? FontWeights.SemiBold : FontWeights.Medium, Foreground = on ? Th.B("JcText") : Th.B("JcStatsSecondary") },
+            };
+            var segId = b.Id;
+            seg.MouseLeftButtonDown += (_, e) => e.Handled = true;   // not a header drag
+            seg.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (segId != _board?.Id) { _autoFrom = null; Select(segId, remember: true); } };
+            _segments.Children.Add(seg);
+        }
         Build();
+        _ = SeedHistoryAsync();
     }
 
     // ── layout ──────────────────────────────────────────────────────────
@@ -449,7 +466,7 @@ public sealed class DashboardWindow : Window
         _panelHost.Visibility = Visibility.Visible;
     }
 
-    private static TextBlock Label(string s) => new() { Text = s, Foreground = Th.B("JcStatsMeta"), FontSize = 12.5, TextWrapping = TextWrapping.Wrap };
+    private static TextBlock Label(string s) => new() { Text = s, Foreground = Th.B("JcStatsSecondary"), FontSize = 13, TextWrapping = TextWrapping.Wrap };
 
     private static FrameworkElement Field(string label, UIElement control)
     {
@@ -472,8 +489,8 @@ public sealed class DashboardWindow : Window
         }
         return new Border
         {
-            Background = Th.B("JcStatsGlass"), BorderBrush = Th.B("JcStatsHairline"), BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(18), Margin = new Thickness(0, 0, 19, 19),
+            Background = Th.B("JcStatsCard"),
+            CornerRadius = new CornerRadius(22), Margin = new Thickness(0, 6, 24, 30),
             Child = new ScrollViewer { Content = col, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
         };
     }

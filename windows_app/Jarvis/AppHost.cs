@@ -673,6 +673,7 @@ public sealed class AppHost : IAsyncDisposable
             case "settings": ShowSettings(rest.Length > 1 ? rest[1] : null); break;
             case "settings-shot": Settings.SettingsWindow.Snapshot(State, Arg(1), Arg(2)); break;
             case "encode-bench": _ = Task.Run(() => Screen.EncodeBench.Run(Arg(1))); break;
+            case "stats-board": _statsWindow?.ShowBoard(Arg(1)); break;   // switches without a click (no focus taken)
             case "orbit-shot":
                 Ui.Snap.Save((FrameworkElement)new HoloOrbitWindow(Holo, HoloSender, null, Holo.Devices).Content, 400, 572, Arg(1));
                 break;

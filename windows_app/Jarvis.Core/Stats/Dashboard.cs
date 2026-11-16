@@ -14,7 +14,7 @@ public sealed record Widget(string Id, string Kind, int X, int Y, int W, int H, 
 public sealed record Dashboard(string Id, string Name, string? Auto, IReadOnlyList<Widget> Widgets, int? Rev)
 {
     public const int Columns = 12;
-    public static readonly IReadOnlyList<string> Kinds = new[] { "hero", "number", "chart", "bars", "ring", "sparkline", "text", "session", "moments" };
+    public static readonly IReadOnlyList<string> Kinds = new[] { "hero", "number", "chart", "bars", "ring", "sparkline", "stats", "text", "session", "moments" };
 
     public static Dashboard Parse(JsonObject o)
     {

@@ -190,3 +190,60 @@ public class CollectorTests
         Assert.Equal("cod.exe", batch.Sessions[0].Exe);
     }
 }
+
+public class ChartMathTests
+{
+    [Fact]
+    public void Smooth_takes_a_centred_average_and_keeps_times()
+    {
+        var pts = new List<(double, double)> { (0, 0), (1, 0), (2, 100), (3, 0), (4, 0) };
+        var s = Jarvis.Core.Stats.ChartMath.Smooth(pts);
+        Assert.Equal(5, s.Count);
+        Assert.Equal(new[] { 0.0, 1, 2, 3, 4 }, s.Select(p => p.T));
+        Assert.Equal(20, s[2].V, 3);              // the spike is spread over 5 points
+        Assert.True(s.Max(p => p.V) < 100);
+    }
+
+    [Fact]
+    public void Range_is_0_to_100_for_percent()
+    {
+        Assert.Equal((0.0, 100.0), Jarvis.Core.Stats.ChartMath.Range("gpu.load", "%", new[] { 3.0, 99 }));
+    }
+
+    [Fact]
+    public void Range_ignores_one_spike()
+    {
+        var values = Enumerable.Repeat(100.0, 99).Append(1000).ToList();   // fps ~100 with one 1000 spike
+        var (min, max) = Jarvis.Core.Stats.ChartMath.Range("fps", "fps", values);
+        Assert.Equal(0, min);
+        Assert.InRange(max, 114, 116);
+    }
+
+    [Fact]
+    public void Range_for_temperatures_starts_near_the_lowest()
+    {
+        var (min, max) = Jarvis.Core.Stats.ChartMath.Range("gpu.temp", "°C", new[] { 60.0, 65, 70 });
+        Assert.Equal(50, min);
+        Assert.True(max > 70);
+    }
+}
+
+
+public class SessionSnapshotTests
+{
+    [Fact]
+    public void Current_follows_the_game_and_Last_keeps_the_finished_one()
+    {
+        var t = new SessionTracker();
+        var r = new Dictionary<string, double> { [ReadingKeys.Fps] = 100, [ReadingKeys.PowerTotal] = 360 };
+        Assert.Null(t.Current);
+        t.Update(new StatsSample(1000, r, "cod.exe"), "cod.exe");
+        t.Update(new StatsSample(1010, r, "cod.exe"), "cod.exe");
+        Assert.Equal("cod.exe", t.Current!.Exe);
+        Assert.Equal(10, t.Current.End - t.Current.Start);
+        Assert.Equal(1, t.Current.EnergyWh, 3);           // 360 W for 10 s
+        t.Update(new StatsSample(1011, r, null), null);
+        Assert.Null(t.Current);
+        Assert.Equal("cod.exe", t.Last!.Exe);
+    }
+}

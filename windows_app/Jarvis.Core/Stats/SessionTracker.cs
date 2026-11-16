@@ -24,6 +24,12 @@ public sealed class SessionTracker
 
     public bool Active => _exe != null;
 
+    /// The running session so far (a fresh snapshot each sample; safe to read from another thread).
+    public GameSession? Current { get; private set; }
+
+    /// The last session that finished.
+    public GameSession? Last { get; private set; }
+
     /// Returns the finished session when the game ends (or switches to another game).
     public GameSession? Update(StatsSample s, string? gameExe, bool throttling = false)
     {
@@ -39,15 +45,23 @@ public sealed class SessionTracker
         if (s.R.TryGetValue(ReadingKeys.CpuTemp, out var ct)) _cpuMax = Math.Max(_cpuMax, ct);
         if (s.R.TryGetValue(ReadingKeys.GpuTemp, out var gt)) _gpuMax = Math.Max(_gpuMax, gt);
         if (throttling) _throttle += dt;
+        Current = Snapshot();
         return done;
+    }
+
+    private GameSession Snapshot()
+    {
+        var sorted = _fps.OrderBy(v => v).ToList();
+        var low1 = sorted.Count == 0 ? 0 : sorted[(int)Math.Floor((sorted.Count - 1) * 0.01)];
+        return new GameSession($"{(long)_start}-{_exe}", _exe!, _start, _last, sorted.Count == 0 ? 0 : sorted.Average(), low1,
+            _cpuMax, _gpuMax, _wh, _n == 0 ? 0 : _wattsSum / _n, _wattsMax, _throttle);
     }
 
     private GameSession Finish()
     {
-        var sorted = _fps.OrderBy(v => v).ToList();
-        var low1 = sorted.Count == 0 ? 0 : sorted[(int)Math.Floor((sorted.Count - 1) * 0.01)];
-        var s = new GameSession($"{(long)_start}-{_exe}", _exe!, _start, _last, sorted.Count == 0 ? 0 : sorted.Average(), low1,
-            _cpuMax, _gpuMax, _wh, _n == 0 ? 0 : _wattsSum / _n, _wattsMax, _throttle);
+        var s = Snapshot();
+        Last = s;
+        Current = null;
         _exe = null;
         _fps.Clear();
         _wh = _wattsSum = _wattsMax = _cpuMax = _gpuMax = _throttle = 0;

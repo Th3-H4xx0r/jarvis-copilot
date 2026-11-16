@@ -37,6 +37,11 @@ public sealed class StatsService : IDisposable
 
     public bool On => _logic.On;
     public bool HelperConnected => _pipe.Connected;
+    public GameSession? CurrentSession => _logic.CurrentSession;
+    public GameSession? LastSession => _logic.LastSession;
+    /// Electricity price per kWh (0 = not set) and its currency, from the integration's settings.
+    public double Price => Settings["price"] is JsonValue v && v.TryGetValue<double>(out var d) ? d : 0;
+    public string Currency => J.S(Settings["currency"]) is { Length: > 0 } c ? c : "USD";
     public JsonObject Settings { get; private set; } = new();
     public string Monitor => J.S(Settings["monitor"]);
     public bool DriverOn => Settings["sensor_driver"] is not JsonValue v || !v.TryGetValue<bool>(out var b) || b;

@@ -32,6 +32,10 @@ public sealed class CollectorLogic
     public Thresholds Thresholds { get; private set; }
     public bool Live { get; private set; }
 
+    /// The game being played so far, and the last one that ended (for the dashboard's session tile).
+    public GameSession? CurrentSession => _tracker.Current;
+    public GameSession? LastSession => _tracker.Last;
+
     public bool On
     {
         get => _on;
