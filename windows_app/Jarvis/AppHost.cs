@@ -68,6 +68,7 @@ public sealed class AppHost : IAsyncDisposable
     public TrayIcon Tray { get; }
     public PcPowerClient PcPower { get; }
     public Unlock.PcUnlock Unlock { get; }
+    public global::Jarvis.Remote.RemoteDesktop Remote { get; }
     public Stats.StatsService Stats { get; }
     public PowerRelay PowerRelay { get; }
     public PowerBroadcastWatcher PowerWatcher { get; }
@@ -177,6 +178,8 @@ public sealed class AppHost : IAsyncDisposable
         Stats = new Stats.StatsService(Api, State);
         Stats.SettingsChanged += () => Dispatcher.BeginInvoke(SyncStatsWindow);
         PcPowerPane.Extras.Add(StatsSettingsSection);
+        Remote = new global::Jarvis.Remote.RemoteDesktop(Api, State, Admin);
+        PcPowerPane.Extras.Add(() => global::Jarvis.Remote.RemoteDesktopSection.Build(Remote));
         AdminCard = new AdminCard(Admin, Gate);
         PowerApi = new PowerApi(Api);
         SettingsWindow.RegisterNative("power", () => PowerPane.Build(PowerApi));
