@@ -149,7 +149,7 @@ def _w(wid, kind, x, y, w, h, readings, **style) -> dict:
     return {"id": wid, "kind": kind, "x": x, "y": y, "w": w, "h": h, "readings": list(readings), "style": style}
 
 
-DEFAULTS_VERSION = 3   # bump when the defaults change: dashboards nobody edited are re-seeded
+DEFAULTS_VERSION = 4   # bump when the defaults change: dashboards nobody edited are re-seeded
 
 
 def default_dashboards() -> list[dict]:
@@ -165,7 +165,8 @@ def default_dashboards() -> list[dict]:
         _w("frames", "number", 0, 4, 3, 3, ["fps"], label="Frame rate", chart="area"),
         _w("frametime", "number", 3, 4, 3, 3, ["frametime"], label="Frame time", chart="line"),
         _w("watts", "number", 6, 4, 3, 3, ["power.total"], label="Power", chart="area"),
-        _w("memory", "bars", 9, 4, 3, 3, ["ram.used", "gpu.vram_used", "disk.used"], label="Memory"),
+        _w("memory", "bars", 9, 4, 3, 3, ["ram.used", "ram.commit", "gpu.vram_used", "disk.used"], label="Memory",
+           meta=["ram.used"]),
         _w("temps", "bars", 0, 7, 3, 3, ["cpu.temp", "gpu.temp", "gpu.hotspot", "temp.*"], label="Temperatures"),
         _w("cooling", "bars", 3, 7, 3, 3, ["gpu.fan", "fan.*"], label="Cooling"),
         _w("network", "chart", 6, 7, 3, 3, ["net.down", "net.up"], label="Network", chart="line", window=600),
