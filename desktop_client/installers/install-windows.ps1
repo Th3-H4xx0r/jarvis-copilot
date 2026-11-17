@@ -87,6 +87,10 @@ $JcExeEarly = Join-Path $VenvDir 'Scripts\jc-client.exe'
 try { & $JcExeEarly install-mutagen } catch {
     Warn "Mutagen not installed (no network?) - run 'jc-client install-mutagen' later; coding-session sync needs it."
 }
+Info "Installing agent-desktop (the accessibility engine for computer control) ..."
+try { & $JcExeEarly install-agent-desktop } catch {
+    Warn "agent-desktop not installed (no network?) - computer control keeps its built-in engine; run 'jc-client install-agent-desktop' later."
+}
 
 # --- PATH shim --------------------------------------------------------------
 $JcExe   = Join-Path $VenvDir 'Scripts\jc-client.exe'

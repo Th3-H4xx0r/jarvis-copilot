@@ -87,6 +87,10 @@ info "Installing Mutagen sync engine (for coding-session file sync) ..."
 if ! "$VENV_DIR/bin/jc-client" install-mutagen; then
     warn "Mutagen not installed (no network?) — run 'jc-client install-mutagen' later; coding-session sync needs it."
 fi
+info "Installing agent-desktop (the accessibility engine for computer control) ..."
+if ! "$VENV_DIR/bin/jc-client" install-agent-desktop; then
+    warn "agent-desktop not installed (no network?) — computer control keeps its built-in engine; run 'jc-client install-agent-desktop' later."
+fi
 
 # --- LaunchAgent ------------------------------------------------------------
 # Runs the service in the foreground so it's directly supervised.

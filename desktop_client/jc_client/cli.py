@@ -986,6 +986,9 @@ def cmd_update(args) -> int:
     # Ensure the Mutagen sync engine is installed/refreshed for coding-session
     # file sync (best-effort — a failure here must not fail the client update).
     _ensure_mutagen_quiet()
+    # agent-desktop: the accessibility engine behind computer control (best-effort, like Mutagen:
+    # without it ui_look/ui_do keep today's engine).
+    _ensure_agent_desktop_quiet()
     # The VS Code extension that lets Jarvis type into VS Code's terminals
     # (best-effort, like Mutagen: no VS Code just means no bridge).
     _install_vscode_bridge_quiet()
@@ -1042,6 +1045,16 @@ def _ensure_mutagen_quiet() -> None:
         print(f"(mutagen sync engine not installed: {exc} — sync will be "
               f"unavailable until `jc-client install-mutagen` succeeds)",
               file=sys.stderr)
+
+
+def _ensure_agent_desktop_quiet() -> None:
+    try:
+        from jc_client import agent_desktop_install
+        from jc_client.logger import state_dir
+        agent_desktop_install.ensure_agent_desktop(str(state_dir()), log_fn=print)
+    except Exception as exc:  # noqa: BLE001
+        print(f"(agent-desktop not installed: {exc} — computer control keeps its built-in engine "
+              f"until `jc-client install-agent-desktop` succeeds)", file=sys.stderr)
 
 
 def _install_vscode_bridge_quiet() -> None:
@@ -1186,6 +1199,22 @@ def cmd_agents(args) -> int:
     return 0
 
 
+def cmd_install_agent_desktop(args) -> int:
+    """Download + install the pinned agent-desktop binary used by computer control."""
+    from jc_client import agent_desktop_install
+    from jc_client.logger import state_dir
+    try:
+        path = agent_desktop_install.ensure_agent_desktop(str(state_dir()), log_fn=print)
+    except Exception as exc:  # noqa: BLE001
+        print(f"install-agent-desktop failed: {exc}", file=sys.stderr)
+        return 1
+    if not path:
+        print("install-agent-desktop: no pinned build for this platform", file=sys.stderr)
+        return 1
+    print(f"OK: {path}")
+    return 0
+
+
 def cmd_install_mutagen(args) -> int:
     """Download + install the pinned Mutagen binary used by coding-session sync."""
     from jc_client.mutagen_install import ensure_mutagen
@@ -1268,6 +1297,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
     sub.add_parser("tcp-relay", help="SSH ProxyCommand: bridge stdio to the server sync relay").set_defaults(func=cmd_tcp_relay)
     sub.add_parser("install-mutagen", help="Download/refresh the Mutagen sync engine").set_defaults(func=cmd_install_mutagen)
+    sub.add_parser("install-agent-desktop",
+                   help="Download the pinned agent-desktop computer-control engine").set_defaults(func=cmd_install_agent_desktop)
     ag = sub.add_parser("agents", help="List the coding-agent sessions the service sees")
     ag.add_argument("--json", action="store_true")
     ag.set_defaults(func=cmd_agents)
