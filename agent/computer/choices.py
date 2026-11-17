@@ -101,22 +101,27 @@ def match_step(step: dict, look: dict) -> int | None:
 # A step that is one move ("click the first result", "press Return"): done once that move works.
 ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
 
-# Steps about a surface rather than a window (jc-client reads them with agent-desktop).
-_MENU_BAR_ITEM = re.compile(r"\b(?:menu[- ]bar\s+(?:icon|item|extra)s?|wi-?fi|bluetooth|battery|control\s+cent(?:er|re))\b",
+# Steps about a surface rather than a window (jc-client reads them with agent-desktop). Only when the
+# step names the surface: System Settings has panes called Wi-Fi, Battery, Notifications, Desktop & Dock.
+_MENU_BAR = re.compile(r"\bmenu[- ]?bar\b", re.I)
+_MENU_BAR_ITEM = re.compile(r"\b(?:icon|extra|status|wi-?fi|bluetooth|battery|volume|sound|clock|control\s+cent(?:er|re))",
                             re.I)
-_APP_MENU = re.compile(r"(?:›|\s>\s|\bmenu\s*bar\b|\b(?:file|edit|view|window|help|format|go|history|bookmarks)"
-                       r"\s+menu\b|\bthe\s+\w+\s+menu\b)", re.I)
-_DOCK = re.compile(r"\bDock\b")
-_NOTIFICATION = re.compile(r"\bnotifications?\b|\bnotification\s+cent(?:er|re)\b", re.I)
+_APP_MENU = re.compile(r"›|\b(?:file|edit|view|window|help|format|go|history|bookmarks|insert|tools)\s+menu\b", re.I)
+_DOCK = re.compile(r"\b(?:the|in|from|on)\s+(?:the\s+)?Dock\b")
+_NOTIFICATION = re.compile(r"\bnotification\s+cent(?:er|re)\b|\b(?:latest|recent|last|new|unread|my)\s+notifications?\b",
+                           re.I)
+_NO_SURFACES = frozenset({"system settings", "system preferences"})
 
 
-def surface_for(step: dict) -> str | None:
+def surface_for(step: dict, anchor: str | None = None) -> str | None:
     """The surface a step is about — "menubar", "menu-bar-extras", "dock", "notifications" — or None."""
+    if str(anchor or "").strip().lower() in _NO_SURFACES:
+        return None
     do = str((step or {}).get("do") or "")
+    if _MENU_BAR.search(do):
+        return "menu-bar-extras" if _MENU_BAR_ITEM.search(do) else "menubar"
     if _NOTIFICATION.search(do):
         return "notifications"
-    if _MENU_BAR_ITEM.search(do):
-        return "menu-bar-extras"
     if _DOCK.search(do):
         return "dock"
     if _APP_MENU.search(do):

@@ -634,3 +634,75 @@ def test_supports_reads_the_devices_schema(monkeypatch):
     assert M.supports("new", "ui_look", "surface") and M.supports("new", "ui_do", "clicks")
     assert not M.supports("old", "ui_look", "surface") and not M.supports("old", "ui_do", "clicks")
     assert not M.supports("gone", "ui_look", "surface")
+
+
+# ── review fixes ──────────────────────────────────────────────────────────────
+
+def test_partial_batch_failure_resumes_after_the_pressed_steps(monkeypatch):
+    """A batch that pressed 3 of 5 and then failed must not press those 3 again (23×4 ≠ 23×23×4)."""
+    from agent.computer import mac as M
+
+    class Bridge:
+        def __init__(self):
+            self.calls = []
+
+        def invoke_skill(self, device, skill, args, timeout=None):
+            self.calls.append((skill, dict(args)))
+            if skill == "ui_do" and args.get("action") == "clicks":
+                return {"ok": True, "result": {"ok": False, "error": "That screen changed; look again.",
+                                               "did": "clicks", "done": 3}}
+            if skill == "ui_do":
+                return {"ok": True, "result": {"ok": True, "did": "click", "via": "ax", "landed": "yes",
+                                               "look": _look(90, els=CALC)}}
+            return {"ok": True, "result": _look(91, els=CALC)}
+
+        def all_device_skills(self):
+            return [{"device_id": "m", "name": "ui_do", "input_schema": {"properties": {
+                "action": {"enum": ["click", "clicks"]}}}}]
+
+    bridge = Bridge()
+    monkeypatch.setattr(M, "_bridge", lambda: bridge)
+    steps = [{"do": f"press {k}"} for k in ("2", "3", "×", "4", "=")]
+    r = L.run("23 times 4", steps, _cfg(), device="m", decide=_never, fallback=_never)
+    presses = [a.get("elements") or a.get("element") for s, a in bridge.calls if s == "ui_do"]
+    assert presses == [[1, 2, 3, 4, 5], 4, 5] and r.status == "done"
+
+
+def test_failed_unlanded_move_then_done_needs_fallback():
+    """The real client says a refused move as ok False + landed "no"; a "done" right after must be checked."""
+    refused = {"ok": False, "error": "agent-desktop: not settable", "landed": "no"}
+    mac = FakeMac([refused])
+    used = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        used.append(step.get("do"))
+        return Move({"action": "done"}, None, "fallback", 5)
+
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 5),
+                      Move({"action": "done"}, 0.95, "decision", 5))
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
+    assert used == ["get the result"] and r.status == "done"
+
+
+def test_invoke_keeps_done_and_landed_on_failure(monkeypatch):
+    from agent.computer import mac as M
+
+    class Bridge:
+        def invoke_skill(self, device, skill, args, timeout=None):
+            return {"ok": True, "result": {"ok": False, "error": "nope", "done": 2, "landed": "no"}}
+
+    monkeypatch.setattr(M, "_bridge", lambda: Bridge())
+    out = M.act("m", {"action": "clicks", "elements": [1, 2, 3]}, "L1")
+    assert out == {"ok": False, "error": "nope", "done": 2, "landed": "no"}
+
+
+def test_timing_counts_every_model_call():
+    mac = FakeMac()
+
+    def fallback(ref, look, goal, step, history, **kw):
+        return Move({"action": "click", "element": 2}, None, "fallback", 300)
+
+    decide = _decider(Move({"action": "click", "element": 1}, 0.2, "decision", 100),   # unsure → fallback
+                      Move({"action": "done"}, 0.95, "decision", 50))
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
+    assert r.timing["decide_ms"] == 100 + 300 + 50

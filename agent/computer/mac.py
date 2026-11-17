@@ -120,7 +120,9 @@ def _invoke(device_id: str, skill: str, args: dict) -> dict:
     if not isinstance(inner, dict):
         return {"ok": False, "error": "the Mac sent an unexpected reply"}
     if inner.get("ok") is False:
-        return {"ok": False, "error": str(inner.get("error") or "failed")}
+        # A batch that stopped part way says how many it pressed; a refused move says it didn't land.
+        return {"ok": False, "error": str(inner.get("error") or "failed"),
+                **{k: inner[k] for k in ("done", "landed") if k in inner}}
     return {"ok": True, **inner}
 
 

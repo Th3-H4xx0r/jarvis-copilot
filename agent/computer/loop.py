@@ -120,6 +120,29 @@ def _look_soon(mac, device, app, tries=4, wait=0.5) -> dict:
     return look
 
 
+class _Timed:
+    """The computer, with the time spent looking and moving on it added to ``timing["hands_ms"]``."""
+
+    def __init__(self, inner, timing: dict):
+        self._inner, self._timing = inner, timing
+
+    def _timed(self, fn, *a, **kw):
+        t = time.monotonic()
+        try:
+            return fn(*a, **kw)
+        finally:
+            self._timing["hands_ms"] += int((time.monotonic() - t) * 1000)
+
+    def look(self, *a, **kw):
+        return self._timed(self._inner.look, *a, **kw)
+
+    def act(self, *a, **kw):
+        return self._timed(self._inner.act, *a, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 def _with_values(step: dict, values: dict) -> dict:
     """A step whose text uses ``{name}`` gets the value a read step found."""
     text = step.get("text")
@@ -138,6 +161,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     started = time.monotonic()
     out = Result("done", device_name=device_name)
     out.timing = {"plan_ms": 0, "decide_ms": 0, "hands_ms": 0, "total_ms": 0}
+    mac = _Timed(mac, out.timing)  # every look and move on the computer counts as hands
 
     def can(skill: str, feature: str) -> bool:
         # Old jc-clients reject arguments they don't know: only what this device advertises.
@@ -190,8 +214,6 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                  "conf": move.confidence if move else None, "ms": ms,
                  "decide_ms": move.ms if move else 0}
         out.actions.append(entry)
-        out.timing["decide_ms"] += entry["decide_ms"] or 0
-        out.timing["hands_ms"] += max(0, ms - (entry["decide_ms"] or 0))
         history.append(did)
         logger.info("Computer step: %s via=%s by=%s conf=%s decide=%sms total=%sms", did, entry["via"],
                     entry["by"], entry["conf"], entry["decide_ms"], ms)
@@ -284,7 +306,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
         last_unlanded = False
         # A step about the menu bar, a menu-bar item, the Dock or notifications looks at that surface.
-        step_surface = surface_for(step) if can_surface else None
+        step_surface = surface_for(step, anchor) if can_surface else None
         if step_surface and kinds and step_surface not in kinds:
             step_surface = None  # this computer can't read that one (the PC has no menu bar)
 
@@ -349,6 +371,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             t = time.monotonic()
             move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions,
                           plan=steps, at=at) if cfg.decision_ref else None
+            out.timing["decide_ms"] += (move.ms or 0) if move else 0
             # "done" before any move on this step is often wrong (a pressed ×
             # leaves no trace): only the fallback can confirm it.
             early_done = (move is not None and move.action.get("action") == "done"
@@ -358,6 +381,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 first = move
                 move = fallback(cfg.fallback_ref, look, goal, step, history, instructions=cfg.instructions,
                                 plan=steps, at=at) if cfg.fallback_ref else first
+                if cfg.fallback_ref and move is not None and move is not first:
+                    out.timing["decide_ms"] += move.ms or 0
                 if move is None or move.action.get("action") == "stuck":
                     strikes += 1
                     why = (move.why if move else "") or (first.why if first else "") or "no way forward"
@@ -415,7 +440,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                         "typing into it.")
                     break
                 continue
-            last_unlanded = bool(res.get("ok") and res.get("landed") == "no")
+            last_unlanded = res.get("landed") == "no"  # (the client sends it with ok False on a refusal)
             if last_unlanded:
                 history.append("the move didn't land")
             if action.get("action") == "open_app":

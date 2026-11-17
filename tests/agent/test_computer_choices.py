@@ -117,7 +117,8 @@ def test_surface_for_names_menus_and_system_surfaces():
     assert surface_for({"do": "click File › New Folder"}) == "menubar"
     assert surface_for({"do": "open the View menu and pick Show Sidebar"}) == "menubar"
     assert surface_for({"do": "read the Wi-Fi network from the menu bar icon"}) == "menu-bar-extras"
-    assert surface_for({"do": "check the battery level"}) == "menu-bar-extras"
+    assert surface_for({"do": "check the battery level"}) is None  # could be the Settings pane
+    assert surface_for({"do": "click the Save menu item in the menu bar"}) == "menubar"
     assert surface_for({"do": "click Safari in the Dock"}) == "dock"
     assert surface_for({"do": "read the latest notification"}) == "notifications"
     assert surface_for({"do": "click the Send button"}) is None
@@ -132,3 +133,23 @@ def test_batch_run_collects_consecutive_named_clicks():
     assert batch_run(steps, 1, look) == [(1, 1), (2, 2), (3, 3)]
     assert batch_run(steps, 0, look) == []          # starts on an app step
     assert batch_run(steps, 5, look) == []          # a single click is not a batch
+
+
+def test_surface_for_leaves_settings_panes_and_plain_words_alone():
+    from agent.computer.choices import surface_for
+    for do in ("click Wi-Fi", "click Bluetooth in the sidebar", "click Battery", "click Control Center",
+               "click Notifications", "turn off notifications for Slack", "click Desktop & Dock",
+               "go to General > About", "open the context menu", "open the dinner menu",
+               "go to the menu page"):
+        assert surface_for({"do": do}) is None, do
+    assert surface_for({"do": "click the Wi-Fi icon in the menu bar"}) == "menu-bar-extras"
+    assert surface_for({"do": "open the File menu"}) == "menubar"
+    assert surface_for({"do": "choose New Folder from the menu bar"}) == "menubar"
+    assert surface_for({"do": "click Safari in the Dock"}) == "dock"
+    assert surface_for({"do": "open Notification Center"}) == "notifications"
+    assert surface_for({"do": "read my latest notifications"}) == "notifications"
+
+
+def test_surface_for_skips_system_settings():
+    from agent.computer.choices import surface_for
+    assert surface_for({"do": "open the View menu"}, anchor="System Settings") is None
