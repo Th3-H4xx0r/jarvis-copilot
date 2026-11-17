@@ -98,6 +98,47 @@ def match_step(step: dict, look: dict) -> int | None:
     return hits[0] if len(hits) == 1 else None
 
 
+# A step that is one move ("click the first result", "press Return"): done once that move works.
+ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
+
+# Steps about a surface rather than a window (jc-client reads them with agent-desktop).
+_MENU_BAR_ITEM = re.compile(r"\b(?:menu[- ]bar\s+(?:icon|item|extra)s?|wi-?fi|bluetooth|battery|control\s+cent(?:er|re))\b",
+                            re.I)
+_APP_MENU = re.compile(r"(?:›|\s>\s|\bmenu\s*bar\b|\b(?:file|edit|view|window|help|format|go|history|bookmarks)"
+                       r"\s+menu\b|\bthe\s+\w+\s+menu\b)", re.I)
+_DOCK = re.compile(r"\bDock\b")
+_NOTIFICATION = re.compile(r"\bnotifications?\b|\bnotification\s+cent(?:er|re)\b", re.I)
+
+
+def surface_for(step: dict) -> str | None:
+    """The surface a step is about — "menubar", "menu-bar-extras", "dock", "notifications" — or None."""
+    do = str((step or {}).get("do") or "")
+    if _NOTIFICATION.search(do):
+        return "notifications"
+    if _MENU_BAR_ITEM.search(do):
+        return "menu-bar-extras"
+    if _DOCK.search(do):
+        return "dock"
+    if _APP_MENU.search(do):
+        return "menubar"
+    return None
+
+
+def batch_run(steps: list, at: int, look: dict) -> list:
+    """From step ``at``, the run of one-move named clicks all findable in this look (2, 3, ×, 4, =):
+    ``[(step_index, element)]`` pressed in one trip — empty for fewer than two."""
+    run = []
+    for i in range(at, len(steps)):
+        step = steps[i] or {}
+        if any(step.get(k) for k in ("app", "url", "text", "read")) or not ONE_MOVE.match(str(step.get("do") or "")):
+            break
+        element = match_step(step, look)
+        if element is None:
+            break
+        run.append((i, element))
+    return run if len(run) >= 2 else []
+
+
 def _named_in_passing(do: str, look: dict) -> int | None:
     """"create a new note" → the one "New Note" button; "open the Downloads folder" →
     the one "Downloads" row. Only labels of 5+ letters, as whole words, one hit."""

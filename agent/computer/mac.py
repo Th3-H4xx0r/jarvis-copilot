@@ -124,8 +124,33 @@ def _invoke(device_id: str, skill: str, args: dict) -> dict:
     return {"ok": True, **inner}
 
 
-def look(device_id: str, app: str | None = None) -> dict:
+def supports(device_id: str, skill: str, feature: str) -> bool:
+    """Whether this device's jc-client takes a newer look/move argument (old clients reject unknown
+    args): "surface" on ui_look, "clicks" on ui_do."""
+    try:
+        row = next((r for r in _skills() if r.get("device_id") == device_id and r.get("name") == skill), None)
+    except Exception:
+        return False
+    props = ((row or {}).get("input_schema") or {}).get("properties") or {}
+    if feature == "clicks":
+        return "clicks" in ((props.get("action") or {}).get("enum") or [])
+    return feature in props
+
+
+def surface_kinds(device_id: str) -> list:
+    """The surfaces this device's ui_look can read (empty for an old client)."""
+    try:
+        row = next((r for r in _skills() if r.get("device_id") == device_id and r.get("name") == LOOK_SKILL), None)
+    except Exception:
+        return []
+    return list(((((row or {}).get("input_schema") or {}).get("properties") or {}).get("surface") or {}).get("enum")
+                or [])
+
+
+def look(device_id: str, app: str | None = None, surface: str | None = None) -> dict:
     args = {"app": app} if app else {}
+    if surface:
+        args["surface"] = surface
     return _invoke(device_id, LOOK_SKILL, args)
 
 

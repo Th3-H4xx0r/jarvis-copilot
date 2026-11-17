@@ -17,14 +17,13 @@ from dataclasses import dataclass, field
 
 from agent.computer import decide as _decide_mod
 from agent.computer import mac as _mac_mod
-from agent.computer.choices import TEXT_ROLES, element_line, match_step
+from agent.computer.choices import ONE_MOVE, TEXT_ROLES, batch_run, element_line, match_step, surface_for
 
 logger = logging.getLogger(__name__)
 _OPEN_VERB = re.compile(r"^\s*(?:open|launch|start|switch\s+to|go\s+to|bring\s+up|activate)\s+(?:the\s+)?(.*?)"
                         r"(?:\s+app(?:lication)?)?\s*\.?\s*$", re.I)
-# A step that is one move ("click the first result", "press Return"): done once that move works.
-_ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
-_REFUSED = ("isn't in front", "using the Mac")
+_ONE_MOVE = ONE_MOVE  # a step that is one move: done once that move works
+_REFUSED = ("isn't in front", "using the Mac", "using the PC")
 _PAGE_TEXT_MIN = 400  # chars of window text before a just-opened page counts as loaded
 # "tell the user the date": not a move on the Mac — the reply is written afterwards.
 _TELL = re.compile(r"^\s*(?:tell|say|report|answer|inform|reply|let\s+(?:the\s+user|him|her|them|me)\s+know)\b", re.I)
@@ -57,6 +56,7 @@ class Result:
     device_name: str = ""
     values: dict = field(default_factory=dict)  # read off the screen by "read" steps
     share: str = ""  # the Mac screen share that showed (and recorded) this task
+    timing: dict = field(default_factory=dict)  # plan_ms / decide_ms / hands_ms / total_ms
 
     def summary(self) -> str:
         head = {"done": "Done on the Mac.", "stuck": "Stopped on the Mac (stuck).",
@@ -137,11 +137,29 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     mac = mac or _mac_mod
     started = time.monotonic()
     out = Result("done", device_name=device_name)
+    out.timing = {"plan_ms": 0, "decide_ms": 0, "hands_ms": 0, "total_ms": 0}
+
+    def can(skill: str, feature: str) -> bool:
+        # Old jc-clients reject arguments they don't know: only what this device advertises.
+        try:
+            return bool(getattr(mac, "supports", None) and mac.supports(device, skill, feature))
+        except Exception:
+            return False
+
+    can_surface, can_clicks = can("ui_look", "surface"), can("ui_do", "clicks")
+    kinds = []
+    if can_surface and hasattr(mac, "surface_kinds"):
+        try:
+            kinds = list(mac.surface_kinds(device) or [])
+        except Exception:
+            kinds = []
 
     # Plan from his words first (no screenshot: faster), and skip the first look
     # when the first step opens an app or a page anyway.
     if steps is None:
+        t_plan = time.monotonic()
         planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions)
+        out.timing["plan_ms"] = int((time.monotonic() - t_plan) * 1000)
         steps, out.say = planned["steps"], planned.get("say") or ""
     steps = list(steps)  # read steps may add a navigation step and a second read
     first = steps[0] if steps else {}
@@ -156,6 +174,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             look = opened.get("look") if opened.get("ok") and isinstance(opened.get("look"), dict) else look
         if not look.get("ok"):
             out.status, out.reason = "error", look.get("error") or "could not see the screen"
+            out.timing["total_ms"] = int((time.monotonic() - started) * 1000)
             return out
     # The task stays on its app: if he switches to another app mid-task, the
     # looks keep reading this one (presses work in the background).
@@ -171,6 +190,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                  "conf": move.confidence if move else None, "ms": ms,
                  "decide_ms": move.ms if move else 0}
         out.actions.append(entry)
+        out.timing["decide_ms"] += entry["decide_ms"] or 0
+        out.timing["hands_ms"] += max(0, ms - (entry["decide_ms"] or 0))
         history.append(did)
         logger.info("Computer step: %s via=%s by=%s conf=%s decide=%sms total=%sms", did, entry["via"],
                     entry["by"], entry["conf"], entry["decide_ms"], ms)
@@ -180,7 +201,10 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             except Exception:
                 pass
 
+    skip_until = 0
     for at, step in enumerate(steps):
+        if at < skip_until:
+            continue  # pressed in a batch with the step before
         step = _with_values(step, out.values)
         if not step.get("url") and re.match(r"^https?://\S+$", str(step.get("text") or "").strip()):
             # "type the URL into the address bar": open it (typing it never loaded the page).
@@ -258,6 +282,43 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
+        last_unlanded = False
+        # A step about the menu bar, a menu-bar item, the Dock or notifications looks at that surface.
+        step_surface = surface_for(step) if can_surface else None
+        if step_surface and kinds and step_surface not in kinds:
+            step_surface = None  # this computer can't read that one (the PC has no menu bar)
+
+        def relook():
+            if step_surface:
+                return mac.look(device, app=anchor if step_surface == "menubar" else None, surface=step_surface)
+            return mac.look(device, app=anchor)
+
+        if step_surface or look.get("surface"):
+            fresh = relook()
+            if fresh.get("ok"):
+                look = fresh
+        # Named buttons in a row (2, 3, ×, 4, =): pressed in one trip, one look at the end.
+        run_ = batch_run(steps, at, look) if can_clicks and not step_surface else []
+        if run_ and not (should_stop and should_stop()):
+            t = time.monotonic()
+            action = {"action": "clicks", "elements": [e for _, e in run_]}
+            res = mac.act(device, action, look.get("look_id"))
+            done = len(run_) if res.get("ok") else int(res.get("done") or 0)
+            each = int((time.monotonic() - t) * 1000) // max(done, 1)
+            for i, element in run_[:done]:
+                record({"action": "click", "element": element}, {"ok": True, "via": res.get("via") or "batch"},
+                       _decide_mod.Move({"action": "click", "element": element}, None, "match", 0), each)
+                history.append(f"step done: {steps[i].get('do')}")
+            if not res.get("ok"):
+                can_clicks = False  # this computer won't batch: one at a time from here
+                if res.get("device"):
+                    out.status, out.reason = "error", res.get("error") or "the Mac stopped answering"
+                    break
+            if done:
+                nxt = res.get("look") if isinstance(res.get("look"), dict) else None
+                look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=anchor)
+                skip_until = at + done
+                continue
         # "click the Send button" with exactly one Send on screen: click it, no decision.
         idx = match_step(step, look)
         if idx is not None and not (should_stop and should_stop()):
@@ -291,7 +352,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             # "done" before any move on this step is often wrong (a pressed ×
             # leaves no trace): only the fallback can confirm it.
             early_done = (move is not None and move.action.get("action") == "done"
-                          and len(out.actions) == moves_before)
+                          and (len(out.actions) == moves_before or last_unlanded))
             if (move is None or early_done or move.action.get("action") == "stuck"
                     or (move.confidence or 0) < cfg.min_conf):
                 first = move
@@ -305,7 +366,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                         break
                     history.append(f"unsure ({why}); looking again")
                     time.sleep(0.4)
-                    fresh = mac.look(device, app=anchor)
+                    fresh = relook()
                     if fresh.get("ok"):
                         look = fresh
                     continue
@@ -334,7 +395,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             ms = int((time.monotonic() - t) * 1000)
             if not res.get("ok") and "look again" in str(res.get("error") or "") and not relooked:
                 relooked = True
-                fresh = mac.look(device, app=anchor)
+                fresh = relook()
                 if fresh.get("ok"):
                     look = fresh
                 continue
@@ -346,18 +407,22 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if not res.get("ok") and any(r in str(res.get("error") or "") for r in _REFUSED):
                 refusals += 1
                 if refusals >= 2:
+                    busy = next((w for w in ("using the Mac", "using the PC") if w in str(res.get("error"))), None)
                     out.status, out.reason = "stuck", (
-                        "You're using the Mac right now, so I stopped instead of typing into it."
-                        if "using the Mac" in str(res.get("error")) else
+                        f"You're {busy} right now, so I stopped instead of typing into it."
+                        if busy else
                         f"{anchor or 'The app'} isn't in front (another app is in use), so I stopped instead of "
                         "typing into it.")
                     break
                 continue
+            last_unlanded = bool(res.get("ok") and res.get("landed") == "no")
+            if last_unlanded:
+                history.append("the move didn't land")
             if action.get("action") == "open_app":
                 anchor = action.get("app") or anchor
             new_look = res.get("look") if isinstance(res.get("look"), dict) else None
             if new_look is None or not new_look.get("ok", True):
-                new_look = mac.look(device, app=anchor)
+                new_look = relook()
             key = json.dumps(action, sort_keys=True)
             unchanged = new_look.get("sig") == look.get("sig")
             repeats = repeats + 1 if (key == last_key and unchanged) else 0
@@ -372,7 +437,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "stuck", ("Going in circles between the same screens on step "
                                                    f"“{step.get('do')}”; stopped (the screen shows where it got to).")
                 break
-            if res.get("ok") and ((field is not None and not step.get("text"))
+            if res.get("ok") and not last_unlanded and ((field is not None and not step.get("text"))
                                   or (_ONE_MOVE.match(str(step.get("do") or ""))
                                       and action.get("action") not in ("scroll", "wait"))):
                 # A field click, or a one-move step whose move just worked: no "is it done?" call.
@@ -384,4 +449,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
         if out.status != "done":
             break
     out.look = look
+    out.timing["total_ms"] = int((time.monotonic() - started) * 1000)
+    logger.info("Computer task: total=%sms plan=%sms decide=%sms hands=%sms moves=%s", out.timing["total_ms"],
+                out.timing["plan_ms"], out.timing["decide_ms"], out.timing["hands_ms"], len(out.actions))
     return out

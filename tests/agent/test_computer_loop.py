@@ -517,3 +517,120 @@ def test_a_step_that_types_a_web_address_opens_it_instead():
     assert mac.acts[0][0] == {"action": "open_url", "url": "https://www.macrumors.com/guide/airpods-deals/",
                               "app": "Google Chrome"}
     assert r.status == "done" and len(mac.acts) == 1
+
+
+# ── surface hint, proved moves, batched clicks, PC refusals, timing ───────────
+
+class NewMac(FakeMac):
+    """A jc-client that advertises the new look/move features."""
+
+    def __init__(self, act_results=None, features=("surface", "clicks"), els=None):
+        super().__init__(act_results)
+        self.features, self.looks, self.els = set(features), [], els
+
+    def supports(self, device, skill, feature):
+        return feature in self.features
+
+    def look(self, device, app=None, surface=None):
+        self.looks.append({"app": app, "surface": surface})
+        self.n += 1
+        return _look(self.n, els=self.els)
+
+    def act(self, device, action, look_id):
+        res = super().act(device, action, look_id)
+        if isinstance(res.get("look"), dict):
+            res["look"] = _look(self.n, els=self.els)
+        return res
+
+
+CALC = [{"i": n, "role": "AXButton", "label": label}
+        for n, label in enumerate(["2", "3", "Multiply", "4", "Equals"], 1)]
+
+
+def test_pc_busy_refusal_counts():
+    busy = {"ok": False, "error": "You're using the PC right now, so I won't type or move the cursor; "
+                                  "only buttons can be pressed in the background."}
+    mac = FakeMac([busy, busy])
+    decide = _decider(Move({"action": "key", "keys": "return"}, 0.9, "decision", 5),
+                      Move({"action": "key", "keys": "return"}, 0.9, "decision", 5))
+    r = L.run("g", [{"do": "submit the form"}], _cfg(), device="pc", decide=decide, fallback=_never, mac=mac)
+    assert r.status == "stuck" and "using the PC" in r.reason
+
+
+def test_menubar_step_looks_with_surface():
+    mac = NewMac()
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 5))
+    L.run("g", [{"do": "click File › New Folder in the menu bar"}], _cfg(), device="m", decide=decide,
+          fallback=_never, mac=mac, app="Finder")
+    assert {"app": "Calc", "surface": "menubar"} in mac.looks  # the anchored app (the fake's looks say Calc)
+
+
+def test_old_client_gets_no_new_args():
+    mac = FakeMac()  # no supports(), and look() takes no surface
+    mac_look = mac.look
+    mac.look = lambda device, app=None: mac_look(device, app=app)
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 5))
+    steps = [{"do": "click File › New Folder in the menu bar"}, {"do": "press 7"}, {"do": "press ="}]
+    r = L.run("g", steps, _cfg(), device="m", decide=decide, fallback=lambda *a, **k: None, mac=mac, app="Calc")
+    assert r.status in ("done", "stuck")
+    assert all(a[0].get("action") != "clicks" for a in mac.acts)
+
+
+def test_batched_named_clicks_one_trip():
+    mac = NewMac(els=CALC)
+    steps = [{"do": f"press {k}"} for k in ("2", "3", "×", "4", "=")]
+    r = L.run("23 times 4", steps, _cfg(), device="m", decide=_never, fallback=_never, mac=mac)
+    assert [a[0] for a in mac.acts] == [{"action": "clicks", "elements": [1, 2, 3, 4, 5]}]
+    assert r.status == "done" and len(r.actions) == 5
+
+
+def test_batch_unknown_action_falls_back():
+    mac = NewMac([{"ok": False, "error": "unknown action 'clicks'", "done": 0}], els=CALC)
+    steps = [{"do": f"press {k}"} for k in ("2", "3", "×", "4", "=")]
+    r = L.run("23 times 4", steps, _cfg(), device="m", decide=_never, fallback=_never, mac=mac)
+    assert [a[0]["action"] for a in mac.acts] == ["clicks", "click", "click", "click", "click", "click"]
+    assert r.status == "done"
+
+
+def test_unlanded_one_move_step_is_not_done():
+    unlanded = {"ok": True, "did": "click", "via": "agent-desktop", "landed": "no", "look": _look(50)}
+    mac = FakeMac([unlanded])
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 5),
+                      Move({"action": "click", "element": 1}, 0.9, "decision", 5))
+    r = L.run("g", [{"do": "click it"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert len(decide.calls) == 2 and r.status == "done"
+
+
+def test_done_after_unlanded_move_needs_fallback():
+    unlanded = {"ok": True, "did": "click", "via": "agent-desktop", "landed": "no", "look": _look(60)}
+    mac = FakeMac([unlanded])
+    used = []
+
+    def fallback(ref, look, goal, step, history, **kw):
+        used.append(step.get("do"))
+        return Move({"action": "done"}, None, "fallback", 5)
+
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 5),
+                      Move({"action": "done"}, 0.95, "decision", 5))
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
+    assert used == ["get the result"] and r.status == "done"
+
+
+def test_timing_logged():
+    mac = FakeMac()
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 40))
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert set(r.timing) == {"plan_ms", "decide_ms", "hands_ms", "total_ms"}
+    assert r.timing["decide_ms"] >= 40 and r.timing["total_ms"] >= 0  # the fake's 40 ms never elapsed
+
+
+def test_supports_reads_the_devices_schema(monkeypatch):
+    from agent.computer import mac as M
+    rows = [{"device_id": "new", "name": "ui_look", "input_schema": {"properties": {"surface": {}}}},
+            {"device_id": "new", "name": "ui_do", "input_schema": {"properties": {"action": {"enum": ["click", "clicks"]}}}},
+            {"device_id": "old", "name": "ui_look", "input_schema": {"properties": {"app": {}}}},
+            {"device_id": "old", "name": "ui_do", "input_schema": {"properties": {"action": {"enum": ["click"]}}}}]
+    monkeypatch.setattr(M, "_skills", lambda: rows)
+    assert M.supports("new", "ui_look", "surface") and M.supports("new", "ui_do", "clicks")
+    assert not M.supports("old", "ui_look", "surface") and not M.supports("old", "ui_do", "clicks")
+    assert not M.supports("gone", "ui_look", "surface")

@@ -110,3 +110,25 @@ def test_browser_tabs_are_moves_only_for_tab_steps():
     look = {"elements": [{"i": 1, "role": "AXRadioButton", "kind": "tab", "label": "AirPods Pro 3 - Best Buy"}]}
     assert "click 1" not in dict(build_choices(look, {"do": "open the first result"}))
     assert "click 1" in dict(build_choices(look, {"do": "switch to the Best Buy tab"}))
+
+
+def test_surface_for_names_menus_and_system_surfaces():
+    from agent.computer.choices import surface_for
+    assert surface_for({"do": "click File › New Folder"}) == "menubar"
+    assert surface_for({"do": "open the View menu and pick Show Sidebar"}) == "menubar"
+    assert surface_for({"do": "read the Wi-Fi network from the menu bar icon"}) == "menu-bar-extras"
+    assert surface_for({"do": "check the battery level"}) == "menu-bar-extras"
+    assert surface_for({"do": "click Safari in the Dock"}) == "dock"
+    assert surface_for({"do": "read the latest notification"}) == "notifications"
+    assert surface_for({"do": "click the Send button"}) is None
+    assert surface_for({"do": "open the dock door settings page", "app": "Home"}) is None  # only "the Dock"
+
+
+def test_batch_run_collects_consecutive_named_clicks():
+    from agent.computer.choices import batch_run
+    look = {"elements": [{"i": n, "label": label} for n, label in enumerate(["2", "3", "Multiply", "4"], 1)]}
+    steps = [{"do": "open Calculator", "app": "Calculator"}, {"do": "press 2"}, {"do": "press 3"},
+             {"do": "press ×"}, {"do": "type 4", "text": "4"}, {"do": "press 4"}]
+    assert batch_run(steps, 1, look) == [(1, 1), (2, 2), (3, 3)]
+    assert batch_run(steps, 0, look) == []          # starts on an app step
+    assert batch_run(steps, 5, look) == []          # a single click is not a batch
