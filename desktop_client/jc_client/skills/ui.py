@@ -13,6 +13,8 @@ import base64
 import hashlib
 import io
 import logging
+import os
+import re
 import subprocess
 import threading
 import time
@@ -20,7 +22,7 @@ import uuid
 from collections import OrderedDict
 from typing import Any
 
-from jc_client.skills import skill
+from jc_client.skills import skill, ui_ad
 
 log = logging.getLogger("jc_client.skills.ui")
 
@@ -262,6 +264,11 @@ def _label(a: dict) -> str:
     return ""
 
 
+def _stable(a: dict) -> str:
+    """An element's stable identity text: its title/description, never its value (that changes as he types)."""
+    return " ".join(str(a.get("AXTitle") or a.get("AXDescription") or "").split())[:80]
+
+
 def _subrole_label(a: dict) -> str:
     sub = str(a.get("AXSubrole") or "")
     if sub.startswith("AX") and sub not in ("AXStandardWindow", "AXUnknown"):
@@ -297,7 +304,7 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             if x1 - x0 > 2 and y1 - y0 > 2:
                 label = _label(a) or _inner_text(ax, el) or _subrole_label(a)
                 out.append({"role": role, "label": label, "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el,
-                            "kind": str(a.get("AXRoleDescription") or "")[:30]})
+                            "kind": str(a.get("AXRoleDescription") or "")[:30], "stable": _stable(a)})
                 if texts is not None and role == "AXLink" and label:
                     texts.append(label)  # a page's titles and results are links
         elif texts is not None and role in ("AXStaticText", "AXHeading"):
@@ -424,18 +431,97 @@ def _draw(img, elements):
         font = ImageFont.load_default()
     for e in elements:
         x, y, w, h = e["box"]
+        if w <= 0 or h <= 0:
+            continue  # a closed menu's item: listed, nothing to outline
         d.rectangle([x, y, x + w, y + h], outline=(255, 0, 170), width=2)
         tag = str(e["i"])
         d.rectangle([x, y, x + 8 * len(tag) + 6, y + 16], fill=(255, 0, 170))
         d.text((x + 3, y + 1), tag, fill=(255, 255, 255), font=font)
 
 
+# ── engines ─────────────────────────────────────────────────────────────────
+# Ours (accessibility walk + screenshot) is the Mac's main engine: fast, and it reads windows on
+# other Spaces. agent-desktop takes Electron/Chromium apps (deeper web trees) and surfaces — menus,
+# sheets, popovers, the menu bar and menu-bar items, the Dock, Notification Center.
+_SYSTEM_SURFACES = frozenset({"menu-bar-extras", "dock", "notifications"})
+_APP_SURFACES = frozenset({"menubar"})                          # an app's menus: no window needed
+_OVERLAY_SURFACES = frozenset({"menu", "sheet", "popover", "alert"})  # on the current Space only
+SURFACES = sorted(_APP_SURFACES | _SYSTEM_SURFACES | _OVERLAY_SURFACES)
+_WEB_FRAMEWORK = re.compile(r"^(Electron|Chromium Embedded|Google Chrome|Brave Browser|Microsoft Edge) "
+                            r"Framework\.framework$")
+
+
+def _ad_client():
+    try:
+        from jc_client.agent_desktop_client import get
+        return get()
+    except Exception:
+        log.debug("agent-desktop unavailable", exc_info=True)
+        return None
+
+
+def _bundle_path(pid: int) -> str:
+    try:
+        from AppKit import NSRunningApplication
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        url = app.bundleURL() if app is not None else None
+        return str(url.path()) if url is not None else ""
+    except Exception:
+        return ""
+
+
+_web_cache: dict = {}
+
+
+def is_web_app(bundle_path: str) -> bool:
+    """An Electron / Chromium app (its page is a web tree agent-desktop reads far deeper)."""
+    if not bundle_path:
+        return False
+    if bundle_path not in _web_cache:
+        try:
+            names = os.listdir(os.path.join(bundle_path, "Contents", "Frameworks"))
+        except OSError:
+            names = []
+        _web_cache[bundle_path] = any(_WEB_FRAMEWORK.match(n) for n in names)
+    return _web_cache[bundle_path]
+
+
+def on_current_space(pid: int) -> bool:
+    """``pid`` has a window on the Space he is looking at (agent-desktop only sees those)."""
+    try:
+        return any(int(w.get("kCGWindowOwnerPID", -1)) == pid and int(w.get("kCGWindowLayer", 1)) == 0
+                   for w in _window_list(True))
+    except Exception:
+        return False
+
+
+def pick_engine(surface: str | None, *, ad_available: bool, web_app: bool, on_space: bool) -> str:
+    """"agent-desktop" or "ax" (ours) for one look."""
+    if not ad_available:
+        return "ax"
+    if surface in _SYSTEM_SURFACES or surface in _APP_SURFACES:
+        return "agent-desktop"
+    if surface in _OVERLAY_SURFACES:
+        return "agent-desktop" if on_space else "ax"
+    return "agent-desktop" if web_app and on_space else "ax"
+
+
 def read_window(app: str | None = None, max_elements: int = 250, width: int = 1024, ax=None,
-                capture=None, pid: int | None = None) -> dict:
-    """Read ``app`` (or the app with ``pid``, or the frontmost app)."""
+                capture=None, pid: int | None = None, surface: str | None = None) -> dict:
+    """Read ``app`` (or the app with ``pid``, or the frontmost app) — or one of its surfaces (menu
+    bar, sheet…) or a system one (menu-bar items, Dock, notifications) — with ours or agent-desktop."""
     ax = ax or _ax()
     capture = capture or _capture
     started = time.monotonic()
+    ad = _ad_client()
+    if surface in _SYSTEM_SURFACES:
+        # The menu-bar items, the Dock, Notification Center: no app window (nothing of ours reads them).
+        if ad is None:
+            return {"ok": False, "error": "That needs agent-desktop (run `jc-client install-agent-desktop`)."}
+        if not ax.trusted():
+            return {"ok": False, "error": _NOT_TRUSTED}
+        got = _read_ad(ad, None, None, surface, max_elements, width, capture, started)
+        return got if got.get("ok") else {"ok": False, "error": got.get("error") or "agent-desktop failed"}
     # Right after push to talk: the screen he held it on (its name, its bounds).
     screen, on = None, None
     if not ax.trusted():
@@ -459,6 +545,15 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
         elif not talk:
             pid, name = ax.frontmost()
     max_elements = max(1, min(int(max_elements or 250), 400))
+    note = None
+    if ad is not None and pid:
+        engine = pick_engine(surface, ad_available=True, web_app=is_web_app(_bundle_path(pid)),
+                             on_space=on_current_space(pid))
+        if engine == "agent-desktop":
+            got = _read_ad(ad, pid, name, surface, max_elements, width, capture, started)
+            if got.get("ok"):
+                return got
+            note = got.get("error") or "agent-desktop failed"
     texts: list = []
     if on and not pid:
         # Nothing open on that screen: the screen itself, its text read.
@@ -481,6 +576,35 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
         found = _ocr(cg, frame) if cg is not None else []
         if found:
             elements, source = (elements + found)[:max_elements], "ocr"
+    out = _finish(img, frame, elements, texts, title, name, pid, sig, width, started,
+                  {"source": source, "engine": "ax", **({"screen": screen} if screen else {})})
+    if note:
+        out["engine_note"] = note
+    return out
+
+
+def _read_ad(ad, pid, name, surface, max_elements, width, capture, started) -> dict:
+    """One look through agent-desktop, in today's shape; ``{"ok": False, "error"}`` to fall back."""
+    headed_ok = surface == "notifications" and _user_idle_s() >= USER_WAIT_S  # opening it moves focus briefly
+    app = name if pid and surface not in _SYSTEM_SURFACES else None
+    got = ui_ad.read(ad, app=app, surface=surface, max_elements=max_elements, headed_ok=headed_ok)
+    if not got.get("ok"):
+        return got
+    elements, texts, frame = got["elements"], got["texts"], got["frame"]
+    title = str(got.get("title") or "")
+    sig = _sig(title, elements, texts)
+    if frame is None:  # notifications: words only
+        from PIL import Image
+        frame, img = (0, 0, 640, 120), Image.new("RGB", (640, 120), (24, 24, 24))
+    else:
+        img, _cg = capture(frame, pid if pid and not surface else None)  # a surface: that screen area
+    return _finish(img, frame, elements, texts, title, got.get("app") or name or surface, pid, sig, width,
+                   started, {"source": "agent-desktop", "engine": "agent-desktop",
+                             **({"surface": surface} if surface else {})})
+
+
+def _finish(img, frame, elements, texts, title, name, pid, sig, width, started, extra: dict) -> dict:
+    """Scale, number and draw the elements, cache the look, and build the reply."""
     scale = img.width / frame[2] if frame[2] else 1.0
     if width and img.width > width:
         r = width / img.width
@@ -496,7 +620,7 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
     look_id = uuid.uuid4().hex[:10]
     with _looks_lock:
         _looks[look_id] = {"pid": pid, "app": name, "frame": frame, "scale": scale, "elements": elements,
-                           "sig": sig}
+                           "sig": sig, "engine": extra.get("engine", "ax"), "surface": extra.get("surface")}
         while len(_looks) > _KEEP_LOOKS:
             _looks.popitem(last=False)
     return {"ok": True, "look_id": look_id, "app": name, "window": title[:120], "width": img.width,
@@ -504,8 +628,7 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
             "base64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime": "image/jpeg",
             "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"],
                           **({"kind": e["kind"]} if e.get("kind") else {})} for e in elements],
-            "source": source, "sig": sig, "ms": int((time.monotonic() - started) * 1000),
-            **({"screen": screen} if screen else {}),
+            "sig": sig, "ms": int((time.monotonic() - started) * 1000), **extra,
             # The window's text from accessibility: readable even under a banner or popup.
             "text": "\n".join(t for t in texts if t.strip())[:TEXT_CAP]}
 
@@ -659,6 +782,12 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
         if el is None:
             return {"ok": False, "error": f"There is no element {element} on that screen; look again."}
 
+    if seen is not None and seen.get("engine") == "agent-desktop" and el is not None \
+            and action in ("click", "fill", "scroll"):
+        return _do_ad(ax, pid, el, action, text, direction)
+    if el is not None and el.get("ref") is not None and action in ("click", "fill") and not _same(ax, el):
+        return {"ok": False, "error": _STALE}
+
     if action == "click":
         if el is not None:
             if el.get("ref") is not None and "AXPress" in ax.actions(el["ref"]) and ax.press(el["ref"]):
@@ -735,6 +864,36 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
     return {"ok": False, "error": f"unknown action {action!r}"}
 
 
+_STALE = "That screen changed; look again."
+
+
+def _same(ax, el) -> bool:
+    """The cached element is still the one he was shown (same role and title): else a press could
+    land on whatever took its place."""
+    try:
+        a = ax.attrs(el["ref"], ["AXRole", "AXTitle", "AXDescription"])
+    except Exception:
+        return False
+    return a.get("AXRole") == el["role"] and _stable(a) == el.get("stable", _stable(a))
+
+
+def _do_ad(ax, pid, el, action, text, direction) -> dict:
+    """A move on an agent-desktop look. A value it can't set is typed through our own guarded path
+    (the app in front, he isn't typing)."""
+    ad = _ad_client()
+    if ad is None:
+        return {"ok": False, "error": "That screen is gone; look again."}
+    if action == "fill" and not text:
+        return {"ok": False, "error": "fill needs an element and text"}
+    res = ui_ad.act(ad, el["adref"], action, text=text, direction=direction, role=el["role"])
+    if res.get("ok") or action != "fill" or res.get("landed") != "no" or not pid:
+        return res
+    _cursor_click(ax, pid, *_center(el["pt"]))
+    _keys(ax, pid, "cmd+a")
+    _type(ax, pid, text)
+    return {"ok": True, "did": "fill", "via": "keys", "landed": "unknown"}
+
+
 _act_lock = threading.Lock()  # one move on the Mac at a time, whoever asks
 
 
@@ -745,17 +904,35 @@ def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> d
         return _do_and_look(action, look_after=look_after, reader=reader, **kw)
 
 
+def _clicks(elements, **kw) -> dict:
+    """Press several numbered elements of one look in order (named buttons decided without a
+    model, e.g. 2 3 × 4 =); stop at the first one that fails."""
+    done, landed = 0, "unknown"
+    for element in elements or []:
+        res = do_action("click", element=element, **kw)
+        if not res.get("ok"):
+            return {**res, "did": "clicks", "done": done}
+        done += 1
+        landed = "no" if res.get("landed") == "no" else landed
+    if not done:
+        return {"ok": False, "error": "clicks needs elements", "did": "clicks", "done": 0}
+    return {"ok": True, "did": "clicks", "via": "batch", "done": done, "landed": landed}
+
+
 def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
     reader = reader or read_window
     started = time.monotonic()
     with _looks_lock:
         lid = kw.get("look_id")
         before = _looks.get(lid) if lid else (next(reversed(_looks.values())) if _looks else None)
+    elements = kw.pop("elements", None)
     try:
-        res = do_action(action, **kw)
+        res = _clicks(elements, **kw) if action == "clicks" else do_action(action, **kw)
     except Exception as exc:
         log.warning("ui_do %s failed", action, exc_info=True)
         res = {"ok": False, "error": str(exc)[:200] or type(exc).__name__}
+    # Did it land? agent-desktop says so for its own moves; an accessibility fill reads back.
+    landed = res.get("landed") or ("yes" if res.get("via") == "ax" and action == "fill" else "unknown")
     if res.get("ok") and look_after:
         # Keep looking at the app the move was made in (it may sit behind other
         # windows: accessibility presses don't bring it forward); a new app → frontmost.
@@ -769,7 +946,13 @@ def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
                 log.debug("ui_do: settle failed", exc_info=True)
         else:
             target = {}
+        if before and before.get("surface"):
+            target["surface"] = before["surface"]
         res["look"] = reader(**target)
+        new_sig = (res["look"] or {}).get("sig") if isinstance(res["look"], dict) else None
+        if landed == "unknown" and before and new_sig and new_sig != before.get("sig"):
+            landed = "yes"  # the screen changed after the move
+    res["landed"] = landed
     res["ms"] = int((time.monotonic() - started) * 1000)
     return res
 
@@ -783,10 +966,13 @@ def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
     {"type": "object", "properties": {
         "app": {"type": "string", "description": "App name or bundle id; default the frontmost app."},
         "max_elements": {"type": "integer", "default": 250},
+        "surface": {"type": "string", "enum": SURFACES,
+                    "description": "Read one surface instead of the window: the app's menu bar, an open "
+                                   "menu/sheet/popover/alert, the menu-bar items, the Dock or notifications."},
     }},
 )
-def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
-    return read_window(app=app, max_elements=max_elements)
+def ui_look(app: str | None = None, max_elements: int = 250, surface: str | None = None) -> dict:
+    return read_window(app=app, max_elements=max_elements, surface=surface)
 
 
 @skill(
@@ -795,7 +981,10 @@ def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
     "keys (e.g. 'return', 'cmd+f'), scroll up/down, open_app, or wait. Accessibility first; the real cursor "
     "only when needed (and put back).",
     {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "open_url", "wait"]},
+        "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "open_url", "wait",
+                                              "clicks"]},
+        "elements": {"type": "array", "items": {"type": "integer"},
+                     "description": "clicks: numbered elements of one look, pressed in order."},
         "url": {"type": "string", "description": "open_url: the page to open (default browser Safari)."},
         "look_id": {"type": "string"},
         "element": {"type": "integer"},
@@ -811,6 +1000,8 @@ def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
 )
 def ui_do(action: str, look_id: str | None = None, element: int | None = None, text: str | None = None,
           keys: str | None = None, direction: str | None = None, x: float | None = None, y: float | None = None,
-          app: str | None = None, look: bool = True, url: str | None = None) -> dict:
+          app: str | None = None, look: bool = True, url: str | None = None, elements: list | None = None) -> dict:
+    if action == "clicks":
+        return do_and_look(action, look_after=look, look_id=look_id, elements=elements)
     return do_and_look(action, look_after=look, look_id=look_id, element=element, text=text, keys=keys,
                        direction=direction, x=x, y=y, app=app, url=url)

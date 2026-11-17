@@ -90,6 +90,7 @@ def _capture(frame, pid=None):
 def _clean(monkeypatch):
     ui._looks.clear()
     monkeypatch.setattr(ui, "_ocr", lambda cg, frame: [])
+    monkeypatch.setattr(ui, "_ad_client", lambda: None)  # agent-desktop absent unless a test says so
     yield
     ui._looks.clear()
 
@@ -460,3 +461,208 @@ def test_a_screen_with_nothing_open_is_read_whole(_no_talk_screen, monkeypatch):
     for action, kw in (("key", {"keys": "return"}), ("fill", {"text": "hi"})):
         res = ui.do_action(action, look_id=r["look_id"], ax=TwoScreenAX(_window()), **kw)
         assert not res["ok"] and "Nothing is open" in res["error"], "never types into the app in front elsewhere"
+
+
+# ── agent-desktop engine, proved moves, batched clicks ────────────────────────
+
+def _bounds(x, y, w=20, h=20):
+    return {"x": x, "y": y, "width": w, "height": h}
+
+
+AD_WINDOW = {"ok": True, "data": {
+    "app": "Calc", "complete": True, "ref_count": 2, "snapshot_id": "s9",
+    "window": {"id": "w-1", "title": "Calc", "bounds": _bounds(100, 50, 200, 100)},
+    "tree": {"role": "window", "children": [
+        {"role": "button", "name": "7", "ref_id": "@s9:e1", "bounds": _bounds(110, 60)},
+        {"role": "textfield", "name": "Search", "ref_id": "@s9:e2", "bounds": _bounds(110, 100, 80, 20)},
+        {"role": "statictext", "name": "42"},
+    ]}}}
+OK_VERIFIED = {"ok": True, "data": {"disposition": {"delivery": "delivered_verified"}}}
+
+
+class FakeAD:
+    def __init__(self, *replies):
+        self.replies, self.calls = list(replies), []
+
+    def call(self, tool, args, timeout=8.0):
+        self.calls.append((tool, args))
+        return self.replies.pop(0) if self.replies else OK_VERIFIED
+
+    def cli(self, args, timeout=8.0):
+        self.calls.append(("cli", args))
+        return {"ok": True, "data": []}
+
+
+def _web_app(monkeypatch, ad, *, web=True, on_space=True):
+    monkeypatch.setattr(ui, "_ad_client", lambda: ad)
+    monkeypatch.setattr(ui, "_bundle_path", lambda pid: "/Applications/Calc.app")
+    monkeypatch.setattr(ui, "is_web_app", lambda path: web)
+    monkeypatch.setattr(ui, "on_current_space", lambda pid: on_space)
+
+
+def test_pick_engine_rules():
+    pick = ui.pick_engine
+    assert pick(None, ad_available=False, web_app=True, on_space=True) == "ax"
+    assert pick("menubar", ad_available=True, web_app=False, on_space=False) == "agent-desktop"
+    assert pick("dock", ad_available=True, web_app=False, on_space=False) == "agent-desktop"
+    assert pick("sheet", ad_available=True, web_app=False, on_space=True) == "agent-desktop"
+    assert pick("sheet", ad_available=True, web_app=False, on_space=False) == "ax"
+    assert pick(None, ad_available=True, web_app=True, on_space=True) == "agent-desktop"
+    assert pick(None, ad_available=True, web_app=True, on_space=False) == "ax"
+    assert pick(None, ad_available=True, web_app=False, on_space=True) == "ax"
+
+
+def test_is_web_app_reads_the_frameworks(tmp_path):
+    electron = tmp_path / "Slack.app" / "Contents" / "Frameworks" / "Electron Framework.framework"
+    electron.mkdir(parents=True)
+    native = tmp_path / "Calculator.app" / "Contents" / "Frameworks"
+    native.mkdir(parents=True)
+    assert ui.is_web_app(str(tmp_path / "Slack.app")) is True
+    assert ui.is_web_app(str(tmp_path / "Calculator.app")) is False
+    assert ui.is_web_app("") is False
+
+
+def test_web_app_on_space_uses_agent_desktop(monkeypatch):
+    ad = FakeAD(AD_WINDOW)
+    _web_app(monkeypatch, ad)
+    r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture)
+    assert r["ok"] and r["engine"] == "agent-desktop"
+    assert [(e["i"], e["role"], e["label"]) for e in r["elements"]] == [(1, "AXButton", "7"), (2, "AXTextField", "Search")]
+    assert r["elements"][0]["box"] == [20, 20, 40, 40]  # same scaling as ours
+    assert "42" in r["text"] and ad.calls[0][0] == "desktop_snapshot"
+
+
+def test_web_app_off_space_uses_ours(monkeypatch):
+    ad = FakeAD(AD_WINDOW)
+    _web_app(monkeypatch, ad, on_space=False)
+    r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture)
+    assert r["ok"] and r["engine"] == "ax" and ad.calls == [] and "engine_note" not in r
+
+
+def test_menubar_surface_uses_agent_desktop_off_space(monkeypatch):
+    menubar = {"ok": True, "data": {"app": "Calc", "snapshot_id": "s3", "tree": {
+        "role": "menu", "bounds": _bounds(0, 0, 1512, 30), "children": [
+            {"role": "menuitem", "name": "File", "ref_id": "@s3:e1", "bounds": _bounds(60, 0, 40, 30)}]}}}
+    ad = FakeAD(menubar)
+    _web_app(monkeypatch, ad, web=False, on_space=False)
+    r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture, surface="menubar")
+    assert r["engine"] == "agent-desktop" and r["elements"][0]["label"] == "File"
+    assert ad.calls[0][1]["surface"] == "menubar" and ad.calls[0][1]["app"] == "Calc"
+
+
+def test_system_surface_needs_no_app(monkeypatch):
+    extras = {"ok": True, "data": {"snapshot_id": "s4", "tree": {
+        "role": "menu", "bounds": _bounds(900, 0, 600, 30), "children": [
+            {"role": "menuitem", "name": "Wi-Fi", "ref_id": "@s4:e1", "bounds": _bounds(1300, 0, 30, 30)}]}}}
+    ad = FakeAD(extras)
+    _web_app(monkeypatch, ad, web=False, on_space=False)
+    r = ui.read_window(ax=FakeAX(_window(), front=(99, "Other")), capture=_capture, surface="menu-bar-extras")
+    assert r["ok"] and r["engine"] == "agent-desktop" and r["elements"][0]["label"] == "Wi-Fi"
+    assert "app" not in ad.calls[0][1]
+
+
+def test_system_surface_failure_is_an_error_not_another_window(monkeypatch):
+    ad = FakeAD({"ok": False, "error": {"code": "PERM_DENIED", "message": "no access"}})
+    _web_app(monkeypatch, ad)
+    r = ui.read_window(ax=FakeAX(_window()), capture=_capture, surface="dock")
+    assert r["ok"] is False and "no access" in r["error"]
+
+
+def test_ad_failure_falls_back_with_note(monkeypatch):
+    ad = FakeAD({"ok": False, "error": {"code": "CLIENT_TIMEOUT", "message": "agent-desktop didn't answer"}})
+    _web_app(monkeypatch, ad)
+    r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture)
+    assert r["ok"] and r["engine"] == "ax" and r["engine_note"] == "agent-desktop: agent-desktop didn't answer"
+
+
+def test_ad_look_click_goes_through_agent_desktop(monkeypatch):
+    ad = FakeAD(AD_WINDOW, OK_VERIFIED)
+    _web_app(monkeypatch, ad)
+    ax = FakeAX(_window())
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_cursor_click", lambda *a, **k: pytest.fail("cursor must not move"))
+    out = ui.do_action("click", look_id=r["look_id"], element=1, ax=ax)
+    assert out == {"ok": True, "did": "click", "via": "agent-desktop", "landed": "yes"}
+    assert ad.calls[-1] == ("desktop_click", {"ref_id": "@s9:e1"}) and ax.pressed == []
+
+
+def test_ad_fill_fallback_respects_his_input(monkeypatch):
+    refused = {"ok": False, "error": {"code": "ACTION_FAILED", "message": "not settable",
+                                      "disposition": {"delivery": "not_delivered"}}}
+    ad = FakeAD(AD_WINDOW, refused)
+    _web_app(monkeypatch, ad)
+    ax = FakeAX(_window())
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_user_idle_s", lambda: 0.2)
+    monkeypatch.setattr(ui, "_last_own", [0.0])
+    monkeypatch.setattr(ui, "USER_WAIT_S", 0.0)
+    monkeypatch.setattr(ui, "_type", lambda *a: pytest.fail("must not type while he is typing"))
+    out = ui.do_action("fill", look_id=r["look_id"], element=2, text="hello", ax=ax)
+    assert out["ok"] is False and "using the Mac" in out["error"]
+
+
+def test_stale_element_is_refused():
+    ax = FakeAX(_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    ax.win["children"][0]["children"][0]["attrs"]["AXTitle"] = "8"  # the 7 button became something else
+    out = ui.do_action("click", look_id=r["look_id"], element=1, ax=ax)
+    assert out == {"ok": False, "error": "That screen changed; look again."} and ax.pressed == []
+
+
+def test_landed_yes_when_screen_changes(monkeypatch):
+    ax = FakeAX(_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    out = ui.do_and_look("click", reader=lambda **kw: {"ok": True, "sig": "new"}, look_id=r["look_id"], element=1)
+    assert out["landed"] == "yes"
+
+
+def test_landed_unknown_when_nothing_changes(monkeypatch):
+    ax = FakeAX(_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    monkeypatch.setattr(ui.time, "sleep", lambda s: None)
+    out = ui.do_and_look("click", reader=lambda **kw: {"ok": True, "sig": r["sig"]}, look_id=r["look_id"], element=1)
+    assert out["landed"] == "unknown"
+
+
+def _calc_window():
+    return _el("AXWindow", "Calc", pos=(100, 50), size=(200, 100), actions=(), children=[
+        _el("AXButton", d, pos=(110 + 22 * n, 60), size=(20, 20)) for n, d in enumerate("234")])
+
+
+def test_clicks_presses_in_order_and_looks_once(monkeypatch):
+    ax = FakeAX(_calc_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    looks = []
+    out = ui.do_and_look("clicks", reader=lambda **kw: looks.append(kw) or {"ok": True, "sig": "after"},
+                         look_id=r["look_id"], elements=[1, 3, 2])
+    assert ax.pressed == ["2", "4", "3"] and len(looks) == 1
+    assert out["ok"] and out["did"] == "clicks" and out["done"] == 3 and out["landed"] == "yes"
+
+
+def test_clicks_stops_at_first_failure(monkeypatch):
+    ax = FakeAX(_calc_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    out = ui.do_and_look("clicks", reader=lambda **kw: {"ok": True, "sig": "after"},
+                         look_id=r["look_id"], elements=[1, 9, 2])
+    assert ax.pressed == ["2"] and out["ok"] is False and out["done"] == 1 and "no element 9" in out["error"]
+
+
+def test_skill_schemas_advertise_the_new_moves():
+    from jc_client.skills import _REGISTRY
+    look = _REGISTRY["ui_look"]["input_schema"]["properties"]
+    do = _REGISTRY["ui_do"]["input_schema"]["properties"]
+    assert "menubar" in look["surface"]["enum"] and "clicks" in do["action"]["enum"]
+    assert do["elements"]["items"]["type"] == "integer"
+
+
+def test_surfaces_read_up_to_400_items(monkeypatch):
+    # Finder's menu bar has 262 items: the window default of 250 would cut its last menus.
+    seen = {}
+    monkeypatch.setattr(ui.ui_ad, "read", lambda ad, **kw: seen.update(kw) or {"ok": False, "error": "x"})
+    _web_app(monkeypatch, FakeAD(), web=False, on_space=False)
+    ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture, surface="menubar")
+    assert seen["max_elements"] == 400
