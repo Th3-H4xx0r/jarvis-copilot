@@ -107,7 +107,7 @@ enum MacAppSwitcherContent: Equatable {
     static let patience: Duration = .seconds(6)
 
     static func resolve(live: Bool, apps: [MacApp], appsLoaded: Bool, controlsLoaded: Bool,
-                        error: String?, waitedOut: Bool) -> MacAppSwitcherContent {
+                        error: String?, waitedOut: Bool, computer: String = "Mac") -> MacAppSwitcherContent {
         if !apps.isEmpty { return .apps(apps) }
         if appsLoaded { return .empty }
         guard live else { return .connecting }
@@ -115,16 +115,19 @@ enum MacAppSwitcherContent: Equatable {
         guard waitedOut else { return .loading }
         // The Mac answered with its switches but not its apps, or not at all: the second
         // is the Jarvis Mac app from before the Command Center, which ignores these requests.
-        return controlsLoaded ? .failed("Your Mac didn't send its open apps. Try again.") : .macTooOld
+        return controlsLoaded ? .failed("Your \(computer) didn't send its open apps. Try again.") : .macTooOld
     }
 
-    var message: String? {
+    var message: String? { message(computer: "Mac") }
+
+    /// The words, naming the computer ("PC" for the Windows PC).
+    func message(computer: String) -> String? {
         switch self {
-        case .connecting: return "Connecting to your Mac…"
-        case .loading: return "Asking your Mac for its open apps…"
-        case .macTooOld: return "Your Mac isn't answering. Quit Jarvis on the Mac and open it again (or update it), then try again."
+        case .connecting: return "Connecting to your \(computer)…"
+        case .loading: return "Asking your \(computer) for its open apps…"
+        case .macTooOld: return "Your \(computer) isn't answering. Quit Jarvis on the \(computer) and open it again (or update it), then try again."
         case .failed(let why): return why
-        case .empty: return "No apps are open on your Mac."
+        case .empty: return "No apps are open on your \(computer)."
         case .apps: return nil
         }
     }
@@ -199,7 +202,7 @@ struct MacCommandCenterSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if !session.controlsLoaded {
-                        notice("Waiting for your Mac… If this stays, update Jarvis on the Mac.")
+                        notice("Waiting for your \(session.computer)… If this stays, update Jarvis on the \(session.computer).")
                     }
                     if let why = session.controlError ?? actions.powerError {
                         notice(why, danger: true)
@@ -210,7 +213,7 @@ struct MacCommandCenterSheet: View {
                     MacNowPlayingCard(actions: actions, face: actions.face(.nowPlaying)).padding(.top, 10)
                     sliders.padding(.top, 10)
                     if c.displays.count > 1 { displays }
-                    JcSectionLabel("Mac")
+                    JcSectionLabel(session.computer)
                     power
                     JcSectionLabel("Shortcuts")
                     shortcuts
@@ -557,7 +560,8 @@ struct MacAppSwitcher: View {
 
     private var content: MacAppSwitcherContent {
         .resolve(live: live, apps: session.apps, appsLoaded: session.appsLoaded,
-                 controlsLoaded: session.controlsLoaded, error: session.controlError, waitedOut: waitedOut)
+                 controlsLoaded: session.controlsLoaded, error: session.controlError, waitedOut: waitedOut,
+                 computer: session.computer)
     }
 
     var body: some View {
@@ -600,7 +604,7 @@ struct MacAppSwitcher: View {
                     Image(systemName: content == .empty ? "macwindow" : "exclamationmark.triangle")
                         .foregroundStyle(JcTheme.muted)
                 }
-                Text(content.message ?? "")
+                Text(content.message(computer: session.computer) ?? "")
                     .font(.footnote)
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)

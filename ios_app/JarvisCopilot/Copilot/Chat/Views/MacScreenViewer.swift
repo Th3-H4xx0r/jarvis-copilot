@@ -78,6 +78,9 @@ final class MacScreenSession: NSObject {
     /// share naming it), or read from a task share Jarvis started.
     private(set) var deviceId: String?
 
+    /// "PC" when this share is the Windows PC's, else "Mac" — for the words on screen.
+    var computer: String { AgentsMacPowerCopy.noun(isPC: AgentsMacPowerCopy.isPC(deviceId)) }
+
     /// The anytime share request's body.
     static func shareRequest(deviceId: String?) -> [String: Any] {
         var body: [String: Any] = ["reason": "anytime"]
@@ -277,7 +280,7 @@ final class MacScreenSession: NSObject {
                 for candidate in pendingCandidates { try? await pc.add(candidate) }
                 pendingCandidates = []
             } catch {
-                phase = .failed("The Mac's answer didn't fit")
+                phase = .failed("The \(computer)'s answer didn't fit")
             }
         case "candidate":
             guard let c = message["candidate"] as? [String: Any],
@@ -414,7 +417,7 @@ final class MacScreenSession: NSObject {
         case .failed:
             // A Mac app relaunch, a network change, sleep: try a fresh connection a few times.
             guard retries < 3 else {
-                phase = .failed("Couldn't reach the Mac")
+                phase = .failed("Couldn't reach the \(computer)")
                 return
             }
             retries += 1
@@ -549,7 +552,7 @@ struct MacScreenCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     JcIconSquare(symbol: "desktopcomputer")
-                    Text("Your Mac").font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
+                    Text("Your \(session.computer)").font(.system(size: 15, weight: .medium)).foregroundStyle(JcTheme.text)
                     Spacer()
                     StatusPill(session.phase.label,
                                color: session.phase == .live ? JcTheme.accent : JcTheme.muted,
@@ -632,7 +635,7 @@ private struct MacScreenPreview: View {
             case .idle, .connecting:
                 VStack(spacing: 8) {
                     JcLoader()
-                    Text(session.macOnline ? "Connecting to your Mac…" : "Open Jarvis on your Mac to share its screen")
+                    Text(session.macOnline ? "Connecting to your \(session.computer)…" : "Open Jarvis on your \(session.computer) to share its screen")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                 }
             case .failed(let why):
@@ -696,7 +699,7 @@ struct MacScreenControlView: View {
                         }
                     }
                     .background(Color.black.ignoresSafeArea())
-                    .jcScreen("Your Mac", header: .inline)
+                    .jcScreen("Your \(session.computer)", header: .inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Done") { close() }

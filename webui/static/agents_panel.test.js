@@ -265,3 +265,63 @@ test('The PC gets the same card: Wake PC, Lock, Sleep, never Unlock or the wake 
   assert.match(html(), /data-act="mac-wake"[^>]*disabled/, 'Wake PC is off when the adapter can’t wake it');
   assert.match(html(), /can’t be woken remotely/);
 });
+
+test('A PC is called a PC: its card, its sleep card, its rows, its session and its prompts never say Mac', async () => {
+  const h = harness();
+  h.els.agentsBody = { dataset: { view: 'list' } };
+  h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
+  h.els.agentsSessHead = { innerHTML: '' };
+  h.els.agentsSend = { disabled: false };
+  h.els.agentsBlocked = { innerHTML: '', hidden: true };
+  const now = Date.now() / 1000;
+  // Offline, the server only had its stand-in name ("Mac") for the PC.
+  const pc = { device_id: 'pc-1', name: 'Mac', state: 'sleeping', held: false, reason: '', keep_awake: false,
+    timer_on: true, battery: null, on_ac: null, lid: null, seen_at: now - 300, wake_requested_at: null,
+    os: 'windows', wake_capable: true };
+  const s = conv({ owner: 'pc-1', owner_name: 'Mac', status: 'asleep', state: 'asleep', can_send: false,
+    cwd: 'C:\\code\\app' });
+  h.state.list = Object.assign(listWith(s), {
+    mac: [pc],
+    card: { device_id: 'pc-1', device_name: 'Mac', kind: 'offline', since: now - 60,
+      sessions: [{ ckey: 'claude|s1', title: 'Fix the router', project: 'app', was: 'working', agent: 'claude' }] },
+    password_requests: [{ id: 'pw-1', device_id: 'pc-1', kind: 'rdp', context: '', nonce: 'n1', expires: now + 100 }],
+  });
+  await h.window.loadAgents();
+  const html = h.els.agentsListInner.innerHTML;
+  assert.match(html, /<b>Your PC<\/b>/, 'the card title');
+  assert.match(html, /aria-label="PC"/);
+  assert.match(html, /Wake PC/);
+  assert.match(html, /Your PC went offline/, 'the sleep card');
+  assert.match(html, /Claude · PC \(asleep\)/, 'the row says where it runs');
+  assert.match(html, /title="PC asleep"/, 'the row mark');
+  assert.match(html, /Remote Desktop/);
+  assert.match(html, /Approve on your iPhone</, 'a PC request is approved on the iPhone only');
+  assert.doesNotMatch(html, /\bMac\b/);
+
+  await h.click({ act: 'open', ckey: 'claude|s1' });
+  assert.match(h.els.agentsSessHead.innerHTML, /PC asleep/, 'the session status');
+  assert.match(h.els.agentsBlocked.innerHTML, /This PC is asleep\./);
+  assert.doesNotMatch(h.els.agentsSessHead.innerHTML + h.els.agentsBlocked.innerHTML, /\bMac\b/);
+
+  // A PC with its own name keeps it.
+  h.state.list.mac[0] = Object.assign({}, pc, { name: 'Pranav-Desktop' });
+  await h.window.loadAgents();
+  assert.match(h.els.agentsListInner.innerHTML, /<b>Pranav-Desktop<\/b>/);
+});
+
+test('A Mac is still a Mac', async () => {
+  const h = harness();
+  h.els.agentsBody = { dataset: { view: 'list' } };
+  h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
+  const mac = { device_id: 'mac-1', name: 'Mac', state: 'sleeping', keep_awake: false, timer_on: true,
+    seen_at: Date.now() / 1000, os: 'macos' };
+  h.state.list = Object.assign(listWith(conv({ status: 'asleep', state: 'asleep', can_send: false })),
+    { mac: [mac], password_requests: [] });
+  await h.window.loadAgents();
+  const html = h.els.agentsListInner.innerHTML;
+  assert.match(html, /<b>Mac<\/b>/);
+  assert.match(html, /Wake Mac/);
+  assert.match(html, /title="Mac asleep"/);
+  assert.match(html, /MacBook \(asleep\)/);
+  assert.doesNotMatch(html, /\bPC\b/);
+});

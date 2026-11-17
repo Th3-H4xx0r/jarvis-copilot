@@ -238,13 +238,33 @@
   }
   function titleOf(c) { return c.title || c.project || basename(c.cwd) || 'Session'; }
   function onServer(c) { return c.owner === 'server'; }
-  function macName(c) { return (!c.owner_name || onServer(c)) ? (c.moved_from_name || 'Mac') : c.owner_name; }
+  // The PC (Windows client) reports through the Mac's card and rows, so its words say "PC".
+  // Takes an os ("windows" | "macos") or a device row from the list's `mac`.
+  function deviceNoun(osOrDevice) {
+    const os = osOrDevice && typeof osOrDevice === 'object' ? osOrDevice.os : osOrDevice;
+    return os === 'windows' ? 'PC' : 'Mac';
+  }
+  function macRow(deviceId) { return ((st.list && st.list.mac) || []).find((x) => x.device_id === deviceId) || null; }
+  // The computer a session runs on (or came from, once it's on the server).
+  function deviceOf(c) {
+    if (!c) return null;
+    // Not in the power list (no status yet): the row's own owner_os from the server.
+    return macRow(onServer(c) ? c.moved_from : c.owner) || (c.owner_os ? { os: c.owner_os } : null);
+  }
+  // A device's own name; '' for none, and for the server's stand-in "Mac" / "Your Mac" on a PC.
+  function ownName(name, osOrDevice) {
+    const n = String(name || '');
+    return deviceNoun(osOrDevice) === 'PC' && /^(your )?(mac|pc)$/i.test(n.trim()) ? '' : n;
+  }
+  function macName(c) {
+    return ownName((!c.owner_name || onServer(c)) ? c.moved_from_name : c.owner_name, deviceOf(c)) || deviceNoun(deviceOf(c));
+  }
   function waitsOnYou(c) {
     return c.status === 'live' && (!!livePending(c) || c.state === 'approval' || c.state === 'question');
   }
   function whereLabel(c) {
     if (onServer(c)) return 'Server';
-    const name = c.owner_name || 'Mac';
+    const name = ownName(c.owner_name, deviceOf(c)) || deviceNoun(deviceOf(c));
     if (c.status === 'asleep') return name + ' (asleep)';
     if (c.status === 'offline') return name + ' (offline)';
     return name;
@@ -296,8 +316,8 @@
   }
   function statusLabel(c, req) {
     switch (c.status) {
-      case 'asleep': return 'Mac asleep';
-      case 'offline': return 'Mac offline';
+      case 'asleep': return deviceNoun(deviceOf(c)) + ' asleep';
+      case 'offline': return deviceNoun(deviceOf(c)) + ' offline';
       case 'moving': return 'Moving';
       case 'ended': return 'Ended';
       default: break;
@@ -312,7 +332,7 @@
   function rowDetail(c, req) {
     switch (c.status) {
       case 'asleep': case 'offline': return null;
-      case 'moving': return { text: onServer(c) ? 'Moving to the Mac…' : 'Moving to the server…', tone: 'quiet' };
+      case 'moving': return { text: onServer(c) ? 'Moving to the ' + deviceNoun(deviceOf(c)) + '…' : 'Moving to the server…', tone: 'quiet' };
       case 'ended': return { text: 'Ended', tone: 'quiet' };
       default: break;
     }
@@ -354,11 +374,12 @@
         ? 'Answer the question above first.' : 'Allow or deny the request above first.';
     }
     if (c.can_send) return null;
-    const name = (!c.owner_name || onServer(c)) ? 'This Mac' : c.owner_name;
+    const noun = deviceNoun(deviceOf(c));
+    const name = (!ownName(c.owner_name, deviceOf(c)) || onServer(c)) ? 'This ' + noun : c.owner_name;
     switch (c.status) {
       case 'asleep': return name + ' is asleep.';
       case 'offline': return name + ' is offline.';
-      case 'moving': return onServer(c) ? 'It’s moving to the Mac…' : 'It’s moving to the server…';
+      case 'moving': return onServer(c) ? 'It’s moving to the ' + noun + '…' : 'It’s moving to the server…';
       case 'ended': return 'This session has ended.';
       default: break;
     }
@@ -366,9 +387,9 @@
     return 'Can’t send here: it’s idle in ' + (app || 'a terminal Jarvis can’t type into') +
       '. Reply there, or wait until it’s working.';
   }
-  function sendFailure(reason) {
+  function sendFailure(reason, c) {
     switch (reason || '') {
-      case 'owner_offline': return 'The Mac running it is asleep or offline.';
+      case 'owner_offline': return 'The ' + deviceNoun(deviceOf(c)) + ' running it is asleep or offline.';
       case 'no_runtime': return 'Nothing is running it on the server.';
       case 'ended': return 'This session has ended.';
       case 'moving': return 'It’s moving between machines. Try again in a moment.';
@@ -377,11 +398,11 @@
       default: return reason;
     }
   }
-  function continueFailure(r) {
+  function continueFailure(r, c) {
     if (r && r.error) return r.error;
     switch ((r && r.reason) || '') {
       case 'not_synced': return 'Its project folder isn’t synced, so it can’t move to the server yet.';
-      case 'mac_offline': case 'owner_offline': return 'The Mac is asleep or offline.';
+      case 'mac_offline': case 'owner_offline': return 'The ' + deviceNoun(deviceOf(c)) + ' is asleep or offline.';
       default: return 'It couldn’t move.';
     }
   }
@@ -482,7 +503,7 @@
     }
     if (!card && !needs.length && !orph.length && !pw.length && !groups.length) {
       parts.push('<div class="agents-empty"><div class="agents-empty-title">No sessions right now</div>' +
-        'Run <code>claude</code> or <code>codex</code> in any terminal on a paired Mac and it shows up ' +
+        'Run <code>claude</code> or <code>codex</code> in any terminal on a paired Mac or PC and it shows up ' +
         'here, or start one with <b>+ New session</b>.</div>');
     }
     return parts.join('');
@@ -531,7 +552,8 @@
     const c = st.confirm;
     if (!c || c.scope !== scope) return '';
     const busy = st.busy['continue:' + c.ckeys.join(',')];
-    return '<div class="agents-confirm" role="alert"><div>' + esc(offlineWarning(c.name || 'Your Mac', c.ckeys.length)) +
+    return '<div class="agents-confirm" role="alert"><div>' +
+      esc(offlineWarning(c.name || 'Your ' + deviceNoun(deviceOf(conv(c.ckeys[0]))), c.ckeys.length)) +
       '</div><div class="agents-confirm-actions">' +
       '<button type="button" class="agents-btn" data-act="confirm-cancel">Cancel</button>' +
       '<button type="button" class="agents-btn is-warn" data-act="confirm-continue"' + (busy ? ' disabled' : '') + '>' +
@@ -541,7 +563,8 @@
   function cardHtml(card) {
     const sessions = (card && card.sessions) || [];
     if (!card || !sessions.length) return '';
-    const name = card.device_name || 'Your Mac';
+    const dev = macRow(card.device_id);
+    const name = ownName(card.device_name, dev) || 'Your ' + deviceNoun(dev);
     const sleep = card.kind !== 'offline';
     const title = sleep ? name + ' went to sleep' : name + ' went offline';
     const rows = sessions.map((s) => {
@@ -576,7 +599,7 @@
     remote: 'Woken from your phone', password: 'Waiting on a password',
   };
   const PW_TITLES = {
-    sudo: 'sudo in Claude session', admin: 'Admin password', keychain: 'Keychain access', unlock: 'Unlock Mac',
+    sudo: 'sudo in Claude session', admin: 'Admin password', keychain: 'Keychain access', rdp: 'Remote Desktop',
   };
   // "Awake · Claude working", "Asleep · last seen 5 min ago", "Waking…" (the deep-sleep
   // line after 60 s; the server drops a wake intent after 20 min).
@@ -607,8 +630,8 @@
     const btn = (act, label, off) => '<button type="button" class="agents-pill-btn" data-act="' + act + '" data-device="' +
       esc(m.device_id) + '"' + (busy || off ? ' disabled' : '') + '>' + label + '</button>';
     const cantWake = pc && m.state !== 'awake' && m.wake_capable === false;
-    return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(m.name || (pc ? 'PC' : 'Mac')) + '">' +
-      '<div class="agents-sleep-head"><b>' + esc(m.name || (pc ? 'Your PC' : 'Your Mac')) + '</b>' +
+    return '<div class="agents-sleep agents-mac" role="region" aria-label="' + esc(ownName(m.name, m) || deviceNoun(m)) + '">' +
+      '<div class="agents-sleep-head"><b>' + esc(ownName(m.name, m) || 'Your ' + deviceNoun(m)) + '</b>' +
       (battery ? '<small>' + esc(battery) + '</small>' : '') + '</div>' +
       '<div class="agents-sleep-row agents-mac-actions"><div class="agents-sleep-main">' +
       '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span>' +
@@ -618,7 +641,7 @@
       (m.state === 'awake' && pc ? btn('mac-lock', 'Lock') : '') +
       // Remote Desktop (rdp.js): shown while the integration is on, asleep too ("… is asleep" + Wake)
       (pc && window.JCRdp && (!window.JCPower || window.JCPower.isOn('remote-desktop')) ? btn('rdp-open', 'Remote Desktop') : '') +
-      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', pc ? 'Wake PC' : 'Wake Mac', cantWake)) +
+      (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake ' + deviceNoun(m), cantWake)) +
       '</div></div>' +
       '<div class="agents-sleep-row agents-mac-switches">' +
       macSwitch('mac-keep', m, !!m.keep_awake, 'Keep awake') +
@@ -627,18 +650,20 @@
       (pc && window.JCPcStats ? window.JCPcStats.cardHtml(m) : '') +
       flashHtml('mac:' + m.device_id) + '</div>';
   }
-  // Read-only here: Allow needs Face ID on the iPhone or Touch ID on the Mac.
+  // Read-only here: Allow needs Face ID on the iPhone or Touch ID on the Mac (a PC's: the iPhone).
   function passwordHtml(r, macs) {
     const mac = macs.find((m) => m.device_id === r.device_id);
+    const noun = deviceNoun(mac);
     const left = Math.ceil((toMs(r.expires) - Date.now()) / 1000);
     const time = left > 0 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ' left' : 'Expired';
     return '<div class="agents-row-wrap"><div class="agents-row is-static">' + markHtml('waiting') +
       '<span class="agents-row-main"><span class="agents-row-top">' +
-      '<span class="agents-row-title">' + esc(PW_TITLES[r.kind] || 'Mac password') + '</span>' +
+      '<span class="agents-row-title">' + esc(r.kind === 'unlock' ? 'Unlock ' + noun : PW_TITLES[r.kind] || noun + ' password') + '</span>' +
       '<span class="agents-row-time">' + esc(time) + '</span></span>' +
-      '<span class="agents-row-sub">' + esc((mac && mac.name) || 'Your Mac') +
+      '<span class="agents-row-sub">' + esc((mac && ownName(mac.name, mac)) || 'Your ' + noun) +
       (r.context ? ' · ' + esc(r.context) : '') + '</span>' +
-      '<span class="agents-row-detail tone-waiting">Approve on your iPhone or Mac</span></span></div></div>';
+      '<span class="agents-row-detail tone-waiting">' + (noun === 'PC' ? 'Approve on your iPhone' : 'Approve on your iPhone or Mac') +
+      '</span></span></div></div>';
   }
   async function macPower(action, deviceId, on) {
     const key = 'mac:' + deviceId;
@@ -654,7 +679,7 @@
     const body = { device_id: deviceId };
     if (on !== undefined) body.on = on;
     try { await post('/agents/mac/' + action, body); }
-    catch (e) { setFlash(key, errText(e, 'Couldn’t reach the Mac.'), 'error'); }
+    catch (e) { setFlash(key, errText(e, 'Couldn’t reach the ' + deviceNoun(m) + '.'), 'error'); }
     finally {
       delete st.busy[key];
       renderAll();
@@ -673,10 +698,11 @@
     ended: ['<span class="agents-hollow is-ended"></span>', 'Ended'],
     idle: ['<span class="agents-dot is-open"></span>', 'Open, idle'],
   };
-  function markHtml(status) {
+  function markHtml(status, label) {
     const m = MARKS[status] || MARKS.idle;
-    return '<span class="agents-mark" title="' + esc(m[1]) + '">' + m[0] +
-      '<span class="agents-sr">' + esc(m[1]) + '</span></span>';
+    const l = label || m[1];
+    return '<span class="agents-mark" title="' + esc(l) + '">' + m[0] +
+      '<span class="agents-sr">' + esc(l) + '</span></span>';
   }
 
   function rowHtml(c, opts) {
@@ -686,7 +712,8 @@
     const sel = st.pane === 'session' && st.selected === c.ckey;
     let html = '<div class="agents-row-wrap">' +
       '<button type="button" class="agents-row' + (sel ? ' is-selected' : '') + '" data-act="open" data-ckey="' +
-      esc(c.ckey) + '"' + (sel ? ' aria-current="true"' : '') + '>' + markHtml(status) +
+      esc(c.ckey) + '"' + (sel ? ' aria-current="true"' : '') + '>' +
+      markHtml(status, status === 'paused' ? deviceNoun(deviceOf(c)) + ' asleep' : '') +
       '<span class="agents-row-main"><span class="agents-row-top">' +
       '<span class="agents-row-title">' + esc(titleOf(c)) + '</span>' +
       '<span class="agents-row-time">' + esc(ago(c.last_event_at)) + '</span></span>' +
@@ -1038,7 +1065,7 @@
     const parts = [];
     if (c.gone) parts.push('<div class="agents-note-row">It’s no longer in the list (it ended over 12 hours ago, or it’s gone).</div>');
     if (st.stopConfirm) {
-      const where = onServer(c) ? 'the server' : (c.owner_name || 'the Mac');
+      const where = onServer(c) ? 'the server' : (ownName(c.owner_name, deviceOf(c)) || 'the ' + deviceNoun(deviceOf(c)));
       parts.push('<div class="agents-note-row is-danger" role="alert"><span>Stop this session? This ends the ' +
         esc(agentName(c.agent)) + ' process on ' + esc(where) + '.</span><span class="agents-note-actions">' +
         '<button type="button" class="agents-btn" data-act="stop-cancel">Cancel</button>' +
@@ -1147,7 +1174,8 @@
       el._agentsDom = null;
     } else if (!ch.messages.length && ch.syncing) {
       const pct = Math.round(100 * Math.min(1, (Number(ch.syncing.have) || 0) / (Number(ch.syncing.of) || 1)));
-      setHtml(el, '<div class="agents-note">Copying this chat from ' + esc((c && c.owner_name) || 'the Mac') +
+      setHtml(el, '<div class="agents-note">Copying this chat from ' +
+        esc((c && ownName(c.owner_name, deviceOf(c))) || 'the ' + deviceNoun(deviceOf(c))) +
         '… ' + pct + '%</div>');
       el._agentsDom = null;
     } else if (!ch.messages.length) {
@@ -1216,7 +1244,7 @@
       case 'sent': return ['Sent', ''];
       case 'queued': return ['Queued · it goes in when this turn ends', ''];
       case 'delivered': return ['Delivered', ''];
-      default: return ['Not sent · ' + sendFailure(o.reason), 'failed'];
+      default: return ['Not sent · ' + sendFailure(o.reason, c), 'failed'];
     }
   }
   function renderOutgoing(ckey) {
@@ -1454,13 +1482,13 @@
         const r = results[k] || {};
         if (r.ok) return;
         if (r.reason === 'confirm_offline' && !o.confirmOffline) confirm.push(k);
-        else errors.push(continueFailure(r));
+        else errors.push(continueFailure(r, conv(k)));
       });
       st.confirm = confirm.length ? { ckeys: confirm, to, scope: o.scope || 'session', name: o.name } : null;
       if (errors.length) setFlash(o.scope || 'session', errors[0], 'error');
       else if (!confirm.length) {
         setFlash(o.scope === 'card' ? 'list' : (o.scope || 'session'),
-          to === 'server' ? 'Continuing on the server…' : 'Moving it back to the Mac…', 'ok');
+          to === 'server' ? 'Continuing on the server…' : 'Moving it back to the ' + deviceNoun(deviceOf(conv(keys[0]))) + '…', 'ok');
       }
     } catch (e) {
       setFlash(o.scope || 'session', errText(e, 'It couldn’t move.'), 'error');
@@ -1495,7 +1523,8 @@
     renderAll();
     try {
       const res = await post('/agents/stop', { ckey: c.ckey });
-      setFlash('session', res && res.pending ? 'Asked ' + (c.owner_name || 'the Mac') + ' to stop it.' : 'Stopped.', 'ok');
+      setFlash('session', res && res.pending
+        ? 'Asked ' + (ownName(c.owner_name, deviceOf(c)) || 'the ' + deviceNoun(deviceOf(c))) + ' to stop it.' : 'Stopped.', 'ok');
       if (st.termCkey === c.ckey) closeTerminal();
     } catch (e) {
       setFlash('session', errText(e, 'It couldn’t be stopped.'), 'error');
@@ -1589,7 +1618,8 @@
       if (!res || !res.terminal_id) throw new Error('The server didn’t open a terminal for this session.');
       const el = $('agentsTermHost');
       if (el) {
-        window.AgentsTerminal.mount(el, res.terminal_id, { onClosed: () => { /* the note is written in the terminal */ } });
+        window.AgentsTerminal.mount(el, res.terminal_id, { machine: 'the ' + deviceNoun(deviceOf(c)),
+          onClosed: () => { /* the note is written in the terminal */ } });
         window.AgentsTerminal.focus();
       }
     } catch (e) {
@@ -1649,7 +1679,7 @@
   function whereOptionsHtml() {
     return '<option value="server">Server</option>' + desktopDevices().map((d) => {
       const id = String(d.id != null ? d.id : (d.device_id || ''));
-      const name = d.name || d.device_name || 'Mac';
+      const name = d.name || d.device_name || deviceNoun(macRow(id));
       return '<option value="' + esc(id) + '"' + (d.online === false ? ' disabled' : '') + '>' + esc(name) +
         (d.online === false ? ' (offline)' : '') + '</option>';
     }).join('');
@@ -1837,12 +1867,12 @@
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
       case 'mac-wake': macPower('wake', t.dataset.device); break;
-      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device); break;
+      case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device, (macRow(t.dataset.device) || {}).os); break;
       case 'mac-lock': macPower('lock', t.dataset.device); break;
       case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); break;
       case 'rdp-open': {
         const row = ((st.list && st.list.mac) || []).find((x) => x.device_id === t.dataset.device);
-        if (window.JCRdp) window.JCRdp.open(t.dataset.device, (row && row.name) || 'Your PC');
+        if (window.JCRdp) window.JCRdp.open(t.dataset.device, ownName(row && row.name, 'windows') || 'Your PC');
         break;
       }
       case 'mac-sleep': macPower('let-sleep', t.dataset.device); break;
@@ -1867,7 +1897,7 @@
       case 'terminal': if (st.termOpen) closeTerminal(); else openTerminal(); break;
       case 'term-close': closeTerminal(); break;
       case 'continue-server':
-        if (c) doContinue([c.ckey], 'server', { scope: 'session', name: c.owner_name || 'Your Mac' });
+        if (c) doContinue([c.ckey], 'server', { scope: 'session', name: ownName(c.owner_name, deviceOf(c)) || 'Your ' + deviceNoun(deviceOf(c)) });
         break;
       case 'continue-mac': if (c) doContinue([c.ckey], 'mac', { scope: 'session' }); break;
       case 'resume-server': resume(c, 'server'); break;

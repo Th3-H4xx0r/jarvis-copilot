@@ -191,7 +191,7 @@ enum AgentSendFailure: Equatable {
 
     var message: String {
         switch self {
-        case .macOffline: return "The Mac running it is asleep or offline."
+        case .macOffline: return "The computer running it is asleep or offline."
         case .noRuntime: return "Nothing is running it on the server."
         case .ended: return "This session has ended."
         case .moving: return "It’s moving between machines. Try again in a moment."

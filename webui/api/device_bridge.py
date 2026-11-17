@@ -439,10 +439,17 @@ def on_device_disconnect(callback) -> None:
 
 
 def device_name(device_id: str) -> str:
-    """The paired name of a connected device ("" when it isn't connected)."""
+    """The paired name of a device — live when connected, else the one saved at pairing ("" if none)."""
     with _REG_LOCK:
         c = _REG.get(device_id)
     name = (c.name if c else "") or ""
+    if not name:
+        # Offline (the PC asleep): its saved name, or the card falls back to a generic "Mac".
+        try:
+            from api.pairing import list_devices
+            name = next((str(d.get("name") or "") for d in list_devices() if d.get("id") == device_id), "")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("could not read the paired name of %s: %s", device_id, exc)
     return "" if name == "device" else name
 
 

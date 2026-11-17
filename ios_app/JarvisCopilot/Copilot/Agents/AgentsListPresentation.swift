@@ -12,7 +12,7 @@ enum AgentsListLayout {
     /// Where it runs: "Server", "MacBook", "MacBook (asleep)", "MacBook (offline)".
     static func whereLabel(_ c: AgentConv) -> String {
         if c.onServer { return "Server" }
-        let name = c.ownerName.isEmpty ? "Mac" : c.ownerName
+        let name = c.ownerName.isEmpty ? c.computer : c.ownerName
         switch c.status {
         case .asleep: return "\(name) (asleep)"
         case .offline: return "\(name) (offline)"
@@ -40,7 +40,7 @@ enum AgentsListLayout {
         case .asleep, .offline:
             return nil
         case .moving:
-            return AgentRowDetail(text: c.onServer ? "Moving to the Mac…" : "Moving to the server…", tone: .quiet)
+            return AgentRowDetail(text: c.onServer ? "Moving to the \(c.computer)…" : "Moving to the server…", tone: .quiet)
         case .ended:
             return AgentRowDetail(text: "Ended", tone: .quiet)
         case .live:
@@ -88,8 +88,8 @@ enum AgentsListLayout {
     /// The pill in a session's top bar.
     static func statusLabel(_ c: AgentConv, request: AgentRequest?) -> String {
         switch c.status {
-        case .asleep: return "Mac asleep"
-        case .offline: return "Mac offline"
+        case .asleep: return "\(c.computer) asleep"
+        case .offline: return "\(c.computer) offline"
         case .moving: return "Moving"
         case .ended: return "Ended"
         case .live:
@@ -251,11 +251,11 @@ enum AgentsListLayout {
             return question ? "Answer the question above first." : "Allow or deny the request above first."
         }
         guard !c.canSend else { return nil }
-        let name = c.ownerName.isEmpty || c.onServer ? "This Mac" : c.ownerName
+        let name = c.ownerName.isEmpty || c.onServer ? "This \(c.computer)" : c.ownerName
         switch c.status {
         case .asleep: return "\(name) is asleep."
         case .offline: return "\(name) is offline."
-        case .moving: return c.onServer ? "It’s moving to the Mac…" : "It’s moving to the server…"
+        case .moving: return c.onServer ? "It’s moving to the \(c.computer)…" : "It’s moving to the server…"
         case .ended: return "This session has ended."
         case .live:
             let app = AgentNames.hostApp(bundleId: "", termProgram: c.terminalApp)

@@ -7,7 +7,8 @@
  * the Agents panel's terminal drawer (agents.js) and, full screen, by
  * agents_terminal.html inside the iPhone's WKWebView.
  *
- *   AgentsTerminal.mount(el, terminalId, {fontSize, onClosed}) -> bool
+ *   AgentsTerminal.mount(el, terminalId, {fontSize, onClosed, machine}) -> bool
+ *                       (machine: "the PC" / "the Mac" for the close note; the Mac by default)
  *   AgentsTerminal.close({keepalive})   detaches the PTY (the session keeps running)
  *   AgentsTerminal.refit()              refit to the host and tell the PTY
  *   AgentsTerminal.focus()
@@ -58,9 +59,9 @@
     } catch (_) { /* nothing to copy into */ }
   }
 
-  function _closedNote(reason) {
+  function _closedNote(reason, machine) {
     if (reason === 'ended') return '[the session ended]';
-    if (reason === 'disconnected') return '[disconnected: the Mac dropped its connection; reopen when it’s back]';
+    if (reason === 'disconnected') return '[disconnected: ' + (machine || 'the Mac') + ' dropped its connection; reopen when it’s back]';
     return '[detached: reopen the terminal to resume]';
   }
 
@@ -165,7 +166,7 @@
       try { reason = (JSON.parse(ev.data) || {}).reason || ''; } catch (_) { /* no reason */ }
       try { es.close(); } catch (_) { /* closed */ }
       if (_es === es) _es = null;
-      if (_term === term) term.write('\r\n\x1b[90m' + _closedNote(reason) + '\x1b[0m\r\n');
+      if (_term === term) term.write('\r\n\x1b[90m' + _closedNote(reason, o.machine) + '\x1b[0m\r\n');
       if (typeof o.onClosed === 'function') {
         try { o.onClosed(reason || 'detached'); } catch (_) { /* caller's problem */ }
       }

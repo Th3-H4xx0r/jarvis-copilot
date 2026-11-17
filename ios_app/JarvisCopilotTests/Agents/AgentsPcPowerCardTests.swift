@@ -36,6 +36,25 @@ final class AgentsPcPowerCardTests: XCTestCase {
         XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "windows", "state": "sleeping"])), [.wake])
     }
 
+    func testThePcIsCalledAPcNotAMac() {
+        // An offline PC used to arrive named "Mac" (the server's generic fallback).
+        XCTAssertEqual(AgentsMacPowerCopy.cardName("Mac", os: "windows"), "Your PC")
+        XCTAssertEqual(AgentsMacPowerCopy.noun(isPC: true), "PC")
+        XCTAssertEqual(AgentsMacPowerCopy.noun(isPC: false), "Mac")
+        let pc = AgentConv(json: ["ckey": "claude|p", "agent": "claude", "owner": "pc-1", "owner_os": "windows",
+                                  "status": "asleep"])
+        XCTAssertEqual(AgentsListLayout.statusLabel(pc, request: nil), "PC asleep")
+        XCTAssertEqual(AgentsListLayout.whereLabel(pc), "PC (asleep)")
+        let mac = AgentConv(json: ["ckey": "claude|m", "agent": "claude", "owner": "mac-1", "status": "offline"])
+        XCTAssertEqual(AgentsListLayout.statusLabel(mac, request: nil), "Mac offline")
+        XCTAssertEqual(MacAppSwitcherContent.connecting.message(computer: "PC"), "Connecting to your PC…")
+        XCTAssertEqual(MacAppSwitcherContent.connecting.message, "Connecting to your Mac…")
+        let unlock = MacPasswordRequest(json: ["id": "r", "device_id": "pc", "kind": "unlock", "context": "Unlock PC",
+                                               "nonce": "n", "expires": 0])
+        XCTAssertTrue(MacPasswordSheetCopy.isPC(unlock))
+        XCTAssertFalse(MacPasswordSheetCopy.showsRequest(kind: "unlock", context: "Unlock PC"))
+    }
+
     func testPcNameKeptAsWindowsHasIt() {
         XCTAssertEqual(AgentsMacPowerCopy.cardName("Pranav-Desktop", os: "windows"), "Pranav-Desktop")
         XCTAssertEqual(AgentsMacPowerCopy.cardName("", os: "windows"), "Your PC")

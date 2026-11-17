@@ -524,7 +524,7 @@ class AgentsCore:
             "type": "agent_stop_local", "ckey": ckey, "agent": row.get("agent"),
             "session_id": row.get("session_id"), "run": row.get("run") or {}})
         if not sent:
-            return {"ok": False, "reason": "owner_offline", "error": "The Mac is asleep or offline."}
+            return {"ok": False, "reason": "owner_offline", "error": self._offline(row["owner"])}
         return {"ok": True, "pending": True}
 
     def resume(self, ckey: str, where: str) -> dict:
@@ -541,13 +541,13 @@ class AgentsCore:
         device = row.get("owner") if row.get("owner") != "server" else (
             row.get("moved_from") or row.get("origin_device_id"))
         if not device or self.presence.state(device) != "online":
-            return {"ok": False, "reason": "mac_offline", "error": "The Mac is asleep or offline."}
+            return {"ok": False, "reason": "mac_offline", "error": self._offline(device)}
         sent = self._send_frame(device, {
             "type": "agent_resume_local", "ckey": ckey, "agent": row.get("agent"),
             "session_id": row.get("session_id"), "cwd": row.get("origin_cwd") or row.get("cwd"),
             "terminal": (row.get("run") or {}).get("terminal") or {}})
         return {"ok": bool(sent)} if sent else {"ok": False, "reason": "mac_offline",
-                                                 "error": "The Mac is asleep or offline."}
+                                                 "error": self._offline(device)}
 
     def launch(self, body: dict) -> dict:
         where = str(body.get("where") or "server")
@@ -576,13 +576,13 @@ class AgentsCore:
             self._changed()
             return {"ok": True}
         if self.presence.state(where) != "online":
-            return {"ok": False, "reason": "mac_offline", "error": "The Mac is asleep or offline."}
+            return {"ok": False, "reason": "mac_offline", "error": self._offline(where)}
         sent = self._send_frame(where, {
             "type": "agent_launch", "cwd": cwd, "agent": agent, "model": body.get("model"),
             "permission_mode": body.get("permission_mode"), "prompt": body.get("prompt"),
             "remote_control": rc})
         return {"ok": True} if sent else {"ok": False, "reason": "mac_offline",
-                                          "error": "The Mac is asleep or offline."}
+                                          "error": self._offline(where)}
 
     def dismiss(self, device_id: str, ckeys=None) -> None:
         self.presence.dismiss(device_id, ckeys)
@@ -695,6 +695,9 @@ class AgentsCore:
             "can_terminal": owner == "server" and run.get("kind") == "background" and status == "live",
             "moved_from": row.get("moved_from"),
             "moved_from_name": self._name(row["moved_from"]) if row.get("moved_from") else "",
+            # Its computer (the owner, or where it came from when on the server): the apps say PC or Mac.
+            "owner_os": "windows" if self._noun(row.get("moved_from") if owner == "server" else owner) == "PC"
+            else "macos",
             "deliveries": (self._recent_deliveries(row["ckey"]) if recent is None else
                            [{"id": d["id"], "state": d["state"], "reason": d.get("reason")}
                             for d in recent.get(row["ckey"], [])]),
@@ -764,16 +767,26 @@ class AgentsCore:
             p = None
         return bool(p and p.get("sync_enabled"))
 
-    def _name(self, device_id) -> str:
+    def _noun(self, device_id) -> str:
+        """"PC" for the Windows PC, else "Mac" (what errors and pushes call the computer)."""
         try:
-            return self._device_name(device_id) or "Mac"
+            return self.mac_power.noun(device_id) if self.mac_power is not None and device_id else "Mac"
         except Exception:  # noqa: BLE001
             return "Mac"
+
+    def _offline(self, device_id) -> str:
+        return f"The {self._noun(device_id)} is asleep or offline."
+
+    def _name(self, device_id) -> str:
+        try:
+            return self._device_name(device_id) or self._noun(device_id)
+        except Exception:  # noqa: BLE001
+            return self._noun(device_id)
 
     def _push_paused(self, p: dict) -> None:
         if self._alert is None:
             return
-        n, name = int(p.get("count") or 0), p.get("device_name") or "Your Mac"
+        n, name = int(p.get("count") or 0), p.get("device_name") or f"Your {self._noun(p.get('device_id'))}"
         sleep = p.get("kind") == "sleep"
         title = f"{name} went to sleep" if sleep else f"{name} went offline"
         body = f"{n} session{'s' if n != 1 else ''} paused"

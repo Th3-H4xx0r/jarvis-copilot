@@ -27,6 +27,14 @@
   const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // The PC (Windows client) shares its screen the same way, so its words say "PC". Takes an os
+  // ("windows" | "macos") or a share record: its `os`, else the one startAnytime was handed for it.
+  const osByShare = new Map();   // share id → os of the computer the MacBook card asked to share
+  function deviceNoun(x) {
+    const os = x && typeof x === 'object' ? (x.os || osByShare.get(x.id)) : x;
+    return os === 'windows' ? 'PC' : 'Mac';
+  }
+
   // ── one WebRTC connection per share on this page ─────────────────────────
   // A Viewer outlives its peer connections: when ICE fails (or stays
   // disconnected) it says bye for the old one and offers again under a fresh
@@ -147,7 +155,7 @@
       this.signal({ type: 'bye' }, oldId);
       this.tries += 1;
       if (this.tries >= FAILED_AFTER) {
-        this.error = 'Couldn’t connect to your Mac — retrying.';
+        this.error = 'Couldn’t connect to your ' + deviceNoun(this.share || { id: this.id }) + ' — retrying.';
         this.setState('failed');
       } else {
         this.setState('connecting');
@@ -287,20 +295,18 @@
     if (!share) return ['Connecting', ''];
     if (share.status === 'ended') return ['Ended', 'is-off'];
     if (v && v.state === 'live') return ['Live', 'is-live'];
-    if (!share.mac_online) return ['Mac offline', 'is-off'];
+    if (!share.mac_online) return [deviceNoun(share) + ' offline', 'is-off'];
     if (v && v.state === 'failed') return ['Can’t connect', 'is-off'];
-    return [share.status === 'live' ? 'Connecting' : 'Waiting for the Mac', ''];
+    return [share.status === 'live' ? 'Connecting' : 'Waiting for the ' + deviceNoun(share), ''];
   }
-
-  const MAC_OFFLINE = 'Open Jarvis on your Mac to share its screen.';
 
   /** The note over a not-yet-live picture (null when the picture is live). */
   function liveNote(share, v) {
     if (v && v.state === 'live') return null;
     if (v && v.state === 'ended') return 'The share has ended.';
-    if (share && share.mac_online === false) return MAC_OFFLINE;
+    if (share && share.mac_online === false) return 'Open Jarvis on your ' + deviceNoun(share) + ' to share its screen.';
     if (v && v.error) return v.error;
-    return 'Connecting to your Mac…';
+    return 'Connecting to your ' + deviceNoun(share) + '…';
   }
 
   // A task share's replay is uploaded by the Mac after the share ends; a long one
@@ -317,7 +323,7 @@
     const card = el || document.createElement('div');
     card.className = 'mac-screen-card';
     card.dataset.share = shareId;
-    card.innerHTML = '<div class="mac-screen-head"><b>Mac screen</b><span class="mac-screen-pill"></span>' +
+    card.innerHTML = '<div class="mac-screen-head"><b>' + deviceNoun({ id: shareId }) + ' screen</b><span class="mac-screen-pill"></span>' +
       '<span class="mac-screen-gap"></span></div><div class="mac-screen-stage"><video muted playsinline autoplay></video>' +
       '<div class="mac-screen-note"></div></div>';
     cards.set(shareId, card);
@@ -336,6 +342,7 @@
     const share = st.share;
     const v = st.viewer;
     const [label, cls] = statusText(share, v);
+    card.querySelector('.mac-screen-head b').textContent = deviceNoun(share || { id: card.dataset.share }) + ' screen';
     const pill = card.querySelector('.mac-screen-pill');
     pill.textContent = label;
     pill.className = 'mac-screen-pill ' + cls;
@@ -354,7 +361,7 @@
         video.src = share.replay_url.replace(/^\//, '');
       }
       note.textContent = share.replay_url ? '' :
-        replayMayCome(share) ? 'The Mac is uploading the replay…' : (share.error || 'No replay for this one.');
+        replayMayCome(share) ? 'The ' + deviceNoun(share) + ' is uploading the replay…' : (share.error || 'No replay for this one.');
       return;
     }
     if (v && v.stream && video.srcObject !== v.stream) video.srcObject = v.stream;
@@ -501,7 +508,7 @@
     const ownsShare = !!(opts && opts.owns);
     const el = document.createElement('div');
     el.className = 'mac-screen-overlay';
-    el.innerHTML = '<div class="mac-screen-bar"><b>Your Mac</b><small class="mac-screen-state"></small>' +
+    el.innerHTML = '<div class="mac-screen-bar"><b class="mac-screen-title"></b><small class="mac-screen-state"></small>' +
       '<span class="mac-screen-gap"></span>' +
       '<button type="button" class="mac-screen-btn is-stop" data-act="stop">Stop sharing</button>' +
       '<button type="button" class="mac-screen-btn" data-act="close">' + (ownsShare ? 'Close' : 'Exit full screen') +
@@ -512,12 +519,15 @@
     const surface = el.querySelector('.mac-screen-full');
     const note = el.querySelector('.mac-screen-note');
     const stateEl = el.querySelector('.mac-screen-state');
+    const titleEl = el.querySelector('.mac-screen-title');
     const paint = () => {
       if (v.stream && video.srcObject !== v.stream) video.srcObject = v.stream;
       const share = v.share || share0;
-      stateEl.textContent = v.state === 'live' ? 'Live · your mouse and keys go to the Mac' :
+      const noun = deviceNoun(share || { id: shareId });
+      titleEl.textContent = 'Your ' + noun;
+      stateEl.textContent = v.state === 'live' ? 'Live · your mouse and keys go to the ' + noun :
         v.state === 'ended' ? 'Ended' : v.state === 'failed' ? 'Can’t connect' :
-        share && share.mac_online === false ? 'Mac offline' : 'Connecting…';
+        share && share.mac_online === false ? noun + ' offline' : 'Connecting…';
       const n = liveNote(share, v);
       note.textContent = n == null ? (v.error || '') : n;
     };
@@ -675,7 +685,8 @@
 
   /** "Share Mac screen": an anytime share, straight to full screen. */
   // ``deviceId``: the computer to share (the Mac or the PC); none = whichever Mac, as before.
-  async function startAnytime(deviceId) {
+  // ``os``: that computer's ("windows" → the viewer says "PC").
+  async function startAnytime(deviceId, os) {
     let share;
     try {
       share = await postJSON('/api/screen/shares', deviceId ? { reason: 'anytime', device_id: deviceId } : { reason: 'anytime' });
@@ -684,11 +695,12 @@
       return null;
     }
     if (!share || !share.id) return null;
+    if (os) osByShare.set(share.id, os);
     openFull(share.id, share, { owns: true });
     return share.id;
   }
 
   root.MacScreen = { toolRow, cardFor, openFull, startAnytime, shareIn, keyMessage, isPasteKey,
-    replayMayCome, liveNote, backoff, _viewers: viewers, _Viewer: Viewer };
+    replayMayCome, liveNote, statusText, deviceNoun, backoff, _viewers: viewers, _Viewer: Viewer };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.MacScreen;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -73,3 +73,49 @@ test('the Mac\'s candidates wait for its answer', async () => {
   assert.deepEqual(added, ['c1', 'c2']);
   v.end();
 });
+
+test('a PC share says PC: the card title, offline status, notes and the viewer title', async () => {
+  assert.equal(M.deviceNoun('windows'), 'PC');
+  assert.equal(M.deviceNoun('macos'), 'Mac');
+  assert.equal(M.deviceNoun(undefined), 'Mac');
+  assert.equal(M.deviceNoun({ os: 'windows' }), 'PC');
+  const pc = { id: 'scr_00000000000000aa', os: 'windows', status: 'waiting', mac_online: false };
+  assert.deepEqual(M.statusText(pc, { state: 'connecting' }), ['PC offline', 'is-off']);
+  assert.deepEqual(M.statusText(Object.assign({}, pc, { mac_online: true }), { state: 'connecting' }), ['Waiting for the PC', '']);
+  assert.match(M.liveNote(pc, { state: 'connecting' }), /Open Jarvis on your PC to share its screen/);
+  assert.equal(M.liveNote(Object.assign({}, pc, { mac_online: true }), { state: 'connecting' }), 'Connecting to your PC…');
+  assert.deepEqual(M.statusText({ id: 'scr_00000000000000ab', status: 'waiting', mac_online: false }, null), ['Mac offline', 'is-off']);
+
+  // "Share screen" on the PC's card: the share record has no os, the card's os names it.
+  const id = 'scr_00000000000000ac';
+  const els = [];
+  const el = () => {
+    const kids = {};
+    return { className: '', innerHTML: '', textContent: '', dataset: {}, style: {}, addEventListener() {},
+      remove() {}, focus() {}, querySelector: (sel) => kids[sel] || (kids[sel] = el()) };
+  };
+  globalThis.document = { getElementById: () => ({}), head: { appendChild() {} }, body: { appendChild() {} },
+    createElement: () => { const e = el(); els.push(e); return e; } };
+  globalThis.api = async (p, opts) => (opts && opts.method === 'POST'
+    ? { id, reason: 'anytime', status: 'waiting', mac_online: true } : { id, status: 'ended' });
+  const fake = { closed: false, state: 'connecting', share: null, stream: null, error: '', on: () => () => {},
+    setShare(s) { this.share = s; }, end() { this.closed = true; }, leave() { this.closed = true; }, send() {} };
+  M._viewers.set(id, fake);
+  try {
+    assert.equal(await M.startAnytime('pc-1', 'windows'), id);
+    const overlay = els.find((e) => e.className === 'mac-screen-overlay');
+    assert.equal(overlay.querySelector('.mac-screen-title').textContent, 'Your PC');
+    assert.equal(M.deviceNoun({ id }), 'PC', 'later reads of the share keep the os');
+
+    // A task share on the PC (the server's record names its os): the chat card's title.
+    const task = 'scr_00000000000000ad';
+    globalThis.api = async () => ({ id: task, reason: 'task', os: 'windows', status: 'ended', mac_online: false });
+    const card = M.cardFor(task);
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    assert.equal(card.querySelector('.mac-screen-head b').textContent, 'PC screen');
+  } finally {
+    fake.closed = true;
+    delete globalThis.api;
+    delete globalThis.document;
+  }
+});

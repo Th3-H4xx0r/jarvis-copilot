@@ -55,7 +55,7 @@ enum MacPasswordApproval {
                       signer: any CarSigner = SecureEnclaveCarSigner.shared) async throws {
         let auth = try await signer.authenticate(reason: request.kind == "rdp"
                                                  ? MacPasswordSheetCopy.title(for: request)
-                                                 : "Type your Mac password")
+                                                 : "Type your \(MacPasswordSheetCopy.isPC(request) ? "PC" : "Mac") password")
         let ts = Int(Date().timeIntervalSince1970)
         let signature = try await signer.sign(MacPasswordWire.message(kind: request.kind, nonce: request.nonce, ts: ts,
                                                       context: request.context), auth: auth)

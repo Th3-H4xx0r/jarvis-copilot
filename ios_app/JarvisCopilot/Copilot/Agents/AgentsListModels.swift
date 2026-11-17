@@ -60,6 +60,11 @@ struct AgentConv: Identifiable, Equatable {
     let owner: String
     /// "Server", or the Mac's name ("MacBook").
     let ownerName: String
+    /// Its computer's OS ("windows" for the PC; "macos" when the server doesn't say).
+    let ownerOS: String
+    var isPC: Bool { ownerOS == "windows" }
+    /// "PC" or "Mac", for the words about where it runs.
+    var computer: String { isPC ? "PC" : "Mac" }
     let status: AgentConvStatus
     /// What its hooks say while it is live; `.idle` otherwise.
     let state: AgentState
@@ -103,7 +108,8 @@ struct AgentConv: Identifiable, Equatable {
         title = t.isEmpty ? (project.isEmpty ? "Session" : project) : t
         projectId = CodingJSON.str(json["project_id"])
         owner = CodingJSON.str(json["owner"]) ?? "server"
-        ownerName = CodingJSON.str(json["owner_name"]) ?? (owner == "server" ? "Server" : "Mac")
+        ownerOS = CodingJSON.text(json["owner_os"], "macos")
+        ownerName = CodingJSON.str(json["owner_name"]) ?? (owner == "server" ? "Server" : ownerOS == "windows" ? "PC" : "Mac")
         status = AgentConvStatus.from(CodingJSON.text(json["status"], "live"))
         state = status == .live ? (AgentState(rawValue: CodingJSON.text(json["state"])) ?? .idle) : .idle
         step = CodingJSON.text(json["step"])

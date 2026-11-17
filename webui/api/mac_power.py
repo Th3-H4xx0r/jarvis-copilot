@@ -104,6 +104,10 @@ class MacPowerStore:
         status = (self._devices.get(did) or {}).get("status") or {}
         return (status.get("os") or self._os_of(did)) == "windows"
 
+    def noun(self, did: str) -> str:
+        """"PC" for the Windows PC, "Mac" otherwise — what his messages call it."""
+        return "PC" if self._is_pc(did) else "Mac"
+
     def _wake_pc(self, did: str) -> dict:
         """Wake-on-wireless-LAN: a magic packet from another computer on the home network."""
         status = (self._devices.get(did) or {}).get("status") or {}
@@ -210,7 +214,7 @@ class MacPowerStore:
         frame = {"type": "mac_password_answer", "id": rid, "decision": decision, "ts": ts,
                  "signature": signature}
         if not self._send(did, frame):
-            return {"ok": False, "error": "The Mac isn't connected."}
+            return {"ok": False, "error": f"The {self.noun(did)} isn't connected."}
         with self._lock:
             req["answered"] = True     # off the list now: a reload mustn't bring the card back
         self._changed()
@@ -269,7 +273,8 @@ class MacPowerStore:
             self._requests[rid] = req
         self._changed()
         try:
-            title = "Unlock your PC" if kind == "unlock" and self._is_pc(did) else _KIND_TITLE.get(kind, "Mac password requested")
+            title = "Unlock your PC" if kind == "unlock" and self._is_pc(did) else _KIND_TITLE.get(
+                kind, f"{self.noun(did)} password requested")
             self._alert(title, _rdp_text(req["context"]) if kind == "rdp" else (req["context"] or "Tap to review"),
                         {"kind": "mac_password", "id": rid, "device_id": did})
         except Exception:  # noqa: BLE001
@@ -284,7 +289,7 @@ class MacPowerStore:
         # dialog gone…): say why, or it looks like Allow did nothing.
         if req is not None and not data.get("ok") and error and error not in _QUIET_ENDINGS:
             try:
-                self._alert("Mac password not filled", error, {"kind": "mac_password_failed",
+                self._alert(f"{self.noun(did)} password not filled", error, {"kind": "mac_password_failed",
                                                                "id": req["id"], "device_id": did})
             except Exception:  # noqa: BLE001
                 log.warning("Mac password failure push failed", exc_info=True)
@@ -303,7 +308,7 @@ class MacPowerStore:
                 if not status and not (d.get("push") or {}).get("token"):
                     continue
                 awake = did in connected and d.get("sleeping_at") is None
-                macs.append({"device_id": did, "name": name_of(did) or "Mac",
+                macs.append({"device_id": did, "name": name_of(did) or self.noun(did),
                              "state": "awake" if awake else "sleeping",
                              "held": bool(status.get("held")) if awake else False,
                              "reason": (status.get("reason") or "") if awake else "",

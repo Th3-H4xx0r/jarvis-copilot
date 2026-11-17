@@ -368,7 +368,7 @@ final class MacControlActions {
                 try? await Task.sleep(for: .seconds(1))
                 await store.refresh()
             }
-            powerError = "The Mac didn't ask to unlock. Is Jarvis running on it?"
+            powerError = "The \(AgentsMacPowerCopy.noun(isPC: mac.isPC)) didn't ask to unlock. Is Jarvis running on it?"
         }
     }
 

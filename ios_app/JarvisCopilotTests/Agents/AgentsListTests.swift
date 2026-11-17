@@ -291,7 +291,7 @@ final class AgentsListTests: XCTestCase {
         XCTAssertEqual(AgentOutgoing.caption(.delivered), "Delivered")
         XCTAssertEqual(AgentOutgoing.caption(.queued), "Queued — will send when the turn ends")
         XCTAssertEqual(AgentOutgoing.caption(.failed(.from(reason: "owner_offline"))),
-                       "Failed: The Mac running it is asleep or offline.")
+                       "Failed: The computer running it is asleep or offline.")
         XCTAssertEqual(AgentOutgoing.caption(.failed(.from(reason: "Nobody's home."))), "Failed: Nobody's home.")
     }
 

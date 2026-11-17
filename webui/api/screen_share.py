@@ -354,6 +354,8 @@ class Registry:
             "task": s.task or None, "session_id": s.session_id or None,
             "created_at": _iso(s.created_at),
             "device_id": s.device_id or None,
+            # The apps word it "PC" or "Mac" (a task share on the PC said "Your Mac").
+            "os": _os_of(s.device_id) if s.device_id else "macos",
         }
 
     # lifecycle

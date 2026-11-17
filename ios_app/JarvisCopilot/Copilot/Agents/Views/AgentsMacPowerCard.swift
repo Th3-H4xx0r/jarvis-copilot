@@ -394,7 +394,17 @@ enum AgentsMacPowerCopy {
     static func cardName(_ raw: String, os: String) -> String {
         guard os == "windows" else { return friendlyName(raw) }
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty || name == "Your Mac" ? "Your PC" : name
+        // An offline PC used to come back as the server's generic "Mac".
+        return name.isEmpty || name == "Your Mac" || name == "Mac" ? "Your PC" : name
+    }
+
+    /// "PC" for the Windows PC, else "Mac" — what status lines and popups call the computer.
+    static func noun(isPC: Bool) -> String { isPC ? "PC" : "Mac" }
+
+    /// Whether the computer with this id is the Windows PC (false when unknown — the Mac, as before).
+    @MainActor static func isPC(_ deviceId: String?) -> Bool {
+        guard let deviceId, !deviceId.isEmpty else { return false }
+        return AgentsStore.shared.macs.first { $0.deviceId == deviceId }?.isPC ?? false
     }
 
     /// The Mac's name as macOS would show it: "Pranavs-MacBook-Pro.local" →

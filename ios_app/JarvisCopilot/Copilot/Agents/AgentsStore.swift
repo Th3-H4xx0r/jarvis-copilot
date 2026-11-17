@@ -246,9 +246,10 @@ final class AgentsStore {
     /// Bring a session that moved to the server back to its Mac.
     @discardableResult
     func continueOnMac(_ ckey: String) async -> String? {
-        await act(ckey) {
+        let computer = conv(ckey)?.computer ?? "Mac"
+        return await act(ckey) {
             let r = try await self.api.continueSessions([ckey], to: "mac")[ckey]
-            if let r, !r.ok { throw CodingServerError(message: r.error ?? "It couldn’t move to the Mac.") }
+            if let r, !r.ok { throw CodingServerError(message: r.error ?? "It couldn’t move to the \(computer).") }
         }
     }
 

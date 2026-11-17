@@ -75,7 +75,7 @@ struct AgentSessionScreen: View {
                         AgentConversationSkeleton()
                     case .copying(let progress):
                         AgentConversationCopying(progress: progress,
-                                                 from: conv.map { $0.ownerName.isEmpty ? "the Mac" : $0.ownerName } ?? "the Mac")
+                                                 from: conv.map { $0.ownerName.isEmpty ? "the \($0.computer)" : $0.ownerName } ?? "the Mac")
                     case .empty:
                         if outgoing.isEmpty && request == nil && !working {
                             AgentConversationEmpty(agentName: agentName, error: model.error)
@@ -208,11 +208,11 @@ struct AgentSessionScreen: View {
         } message: {
             Text(conv?.onServer == true
                  ? "It ends on the server. You can resume it later."
-                 : "Jarvis interrupts \(agentName) on \(conv?.ownerName ?? "the Mac"), then ends it if it doesn’t stop.")
+                 : "Jarvis interrupts \(agentName) on \(conv?.ownerName ?? "the \(conv?.computer ?? "Mac")"), then ends it if it doesn’t stop.")
         }
         .alert("Resume where?", isPresented: $askResume) {
             Button("On the server") { Task { await store.resume(ckey, onServer: true) } }
-            Button("On the Mac") { Task { await store.resume(ckey, onServer: false) } }
+            Button("On the \(conv?.computer ?? "Mac")") { Task { await store.resume(ckey, onServer: false) } }
             Button("Cancel", role: .cancel) {}
         }
         .alert("Continue on the server?", isPresented: $confirmOffline) {
@@ -278,7 +278,7 @@ struct AgentSessionScreen: View {
             }
             if conv?.canContinueMac == true {
                 Button { Task { await store.continueOnMac(ckey) } } label: {
-                    Label("Continue on \(conv?.movedFromName.isEmpty == false ? conv!.movedFromName : "Mac")",
+                    Label("Continue on \(conv?.movedFromName.isEmpty == false ? conv!.movedFromName : conv?.computer ?? "Mac")",
                           jcIcon: "laptopcomputer")
                 }
             }

@@ -59,7 +59,7 @@ struct MacPasswordSheet: View {
                                 action: over || answering != nil ? nil : { reply(allow: false) })
                     GradientButton("Allow", symbol: "faceid", busy: answering == true, full: true,
                                    action: over || answering != nil ? nil : { reply(allow: true) })
-                        .accessibilityHint("Confirms with Face ID, then your Mac types its password")
+                        .accessibilityHint("Confirms with Face ID, then your \(MacPasswordSheetCopy.isPC(request) ? "PC" : "Mac") types its password")
                 }
                 .padding(.top, 20)
             }
@@ -186,11 +186,16 @@ enum MacPasswordSheetCopy {
         }
     }
 
-    /// The request box, unless it would only repeat the title ("Unlock Mac").
+    /// The request box, unless it would only repeat the title ("Unlock Mac" / "Unlock PC").
     static func showsRequest(kind: String, context: String) -> Bool {
         let text = context.trimmingCharacters(in: .whitespacesAndNewlines)
         // An rdp context is the signed JSON: the title and subtitle say it in words.
-        return !text.isEmpty && kind != "rdp" && !(kind == "unlock" && text == "Unlock Mac")
+        return !text.isEmpty && kind != "rdp" && !(kind == "unlock" && (text == "Unlock Mac" || text == "Unlock PC"))
+    }
+
+    /// The PC asks only for its unlock (its jc-client says "Unlock PC") and Remote Desktop.
+    static func isPC(_ request: MacPasswordRequest) -> Bool {
+        request.kind == "rdp" || (request.kind == "unlock" && request.context.hasPrefix("Unlock PC"))
     }
 }
 
