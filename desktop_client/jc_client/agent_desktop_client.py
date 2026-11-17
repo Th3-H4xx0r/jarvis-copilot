@@ -134,6 +134,26 @@ class AgentDesktop:
                 return dict(_BAD)
             return envelope if isinstance(envelope, dict) else dict(_BAD)
 
+    def cli(self, args: list, timeout: float = 8.0) -> dict:
+        """One CLI command in its own process (for flags the long-lived child can't take per call,
+        e.g. ``--headed`` to open Notification Center); its envelope or an error."""
+        base = self.argv[:-1] if self.argv and self.argv[-1] == "mcp" else self.argv
+        env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_DESKTOP")}
+        env["AGENT_DESKTOP_HOME"] = self.home
+        os.makedirs(self.home, exist_ok=True)
+        if sys.platform != "win32":
+            os.chmod(self.home, 0o700)
+        extra = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+        try:
+            done = subprocess.run([*base, *args], capture_output=True, text=True, encoding="utf-8",
+                                  timeout=timeout, env=env, **extra)
+            envelope = json.loads(done.stdout or "")
+        except subprocess.TimeoutExpired:
+            return dict(_TIMEOUT)
+        except (OSError, ValueError):
+            return dict(_BAD)
+        return envelope if isinstance(envelope, dict) else dict(_BAD)
+
     def close(self) -> None:
         with self._lock:
             self._kill()

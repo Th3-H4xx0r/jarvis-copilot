@@ -106,6 +106,24 @@ def test_home_is_private(tmp_path):
     assert stat.S_IMODE(os.stat(tmp_path / "home").st_mode) == 0o700
 
 
+def test_cli_runs_one_shot_command(tmp_path):
+    script = tmp_path / "fake_cli.py"
+    script.write_text("import json, os, sys\n"
+                      "print(json.dumps({'ok': True, 'data': {'argv': sys.argv[1:], "
+                      "'home': os.environ.get('AGENT_DESKTOP_HOME')}}))\n")
+    client = adc.AgentDesktop([sys.executable, str(script), "mcp"], str(tmp_path / "home"))
+    out = client.cli(["--headed", "list-notifications", "--limit", "10"])
+    assert out == {"ok": True, "data": {"argv": ["--headed", "list-notifications", "--limit", "10"],
+                                        "home": str(tmp_path / "home")}}
+
+
+def test_cli_bad_output_is_an_error(tmp_path):
+    script = tmp_path / "fake_cli.py"
+    script.write_text("print('not json')\n")
+    client = adc.AgentDesktop([sys.executable, str(script), "mcp"], str(tmp_path / "home"))
+    assert client.cli(["version"])["ok"] is False
+
+
 def test_get_none_when_not_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(adc, "_client", None)
     monkeypatch.setattr(adc, "state_dir", lambda: tmp_path)
