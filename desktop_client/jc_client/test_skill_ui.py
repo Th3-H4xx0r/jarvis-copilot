@@ -666,3 +666,71 @@ def test_surfaces_read_up_to_400_items(monkeypatch):
     _web_app(monkeypatch, FakeAD(), web=False, on_space=False)
     ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture, surface="menubar")
     assert seen["max_elements"] == 400
+
+
+# ── review fixes ──────────────────────────────────────────────────────────────
+
+def _ad_error(code, message="x"):
+    return {"ok": False, "error": {"code": code, "message": message, "disposition": {"delivery": "not_delivered"}}}
+
+
+def test_stale_ad_fill_never_types(monkeypatch):
+    for code in ("STALE_REF", "AMBIGUOUS_TARGET"):
+        ad = FakeAD(AD_WINDOW, _ad_error(code))
+        _web_app(monkeypatch, ad)
+        ax = FakeAX(_window())
+        r = ui.read_window(app="calc", ax=ax, capture=_capture)
+        monkeypatch.setattr(ui, "_user_idle_s", lambda: 5.0)
+        monkeypatch.setattr(ui, "_type", lambda *a: pytest.fail(f"{code}: must not type over a changed screen"))
+        monkeypatch.setattr(ui, "_cursor_click", lambda *a, **k: pytest.fail(f"{code}: must not click"))
+        out = ui.do_action("fill", look_id=r["look_id"], element=2, text="secret", ax=ax)
+        assert out["ok"] is False, code
+
+
+def test_ad_click_without_a_semantic_path_uses_the_guarded_cursor(monkeypatch):
+    ad = FakeAD(AD_WINDOW, _ad_error("ACTION_NOT_SUPPORTED"))
+    _web_app(monkeypatch, ad)
+    ax = FakeAX(_window())
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    clicks = []
+    monkeypatch.setattr(ui, "_cursor_click", lambda ax_, pid, x, y, count=1: clicks.append((pid, x, y)))
+    out = ui.do_action("click", look_id=r["look_id"], element=1, ax=ax)
+    assert out["ok"] and out["via"] == "cursor" and clicks == [(10, 120, 70)]
+
+
+def test_landed_not_claimed_across_engines(monkeypatch):
+    ad = FakeAD(AD_WINDOW, {"ok": True, "data": {"disposition": {"delivery": "delivered_unverified"}}})
+    _web_app(monkeypatch, ad)
+    ax = FakeAX(_window())
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    out = ui.do_and_look("click", reader=lambda **kw: {"ok": True, "sig": "other", "engine": "ax"},
+                         look_id=r["look_id"], element=1)
+    assert out["landed"] == "unknown"   # a look from the other engine always "differs"
+
+
+def test_open_menu_is_read_through_agent_desktop(monkeypatch):
+    menu = {"ok": True, "data": {"app": "Calc", "snapshot_id": "s5", "tree": {
+        "role": "menu", "bounds": _bounds(120, 70, 160, 200), "children": [
+            {"role": "menuitem", "name": "Copy", "ref_id": "@s5:e1", "bounds": _bounds(120, 80, 160, 20)}]}}}
+    ad = FakeAD(menu)
+    _web_app(monkeypatch, ad, web=False)
+
+    class MenuAX(FakeAX):
+        def app_element(self, pid):
+            return _el("AXApplication", actions=(), children=[_el("AXMenu", actions=())])
+
+    r = ui.read_window(app="calc", ax=MenuAX(_window()), capture=_capture)
+    assert r["engine"] == "agent-desktop" and r["elements"][0]["label"] == "Copy"
+    assert ad.calls[0][1]["surface"] == "menu"
+
+
+def test_ad_read_exception_falls_back(monkeypatch):
+    _web_app(monkeypatch, FakeAD())
+
+    def boom(*a, **k):
+        raise RuntimeError("bad tree")
+
+    monkeypatch.setattr(ui.ui_ad, "read", boom)
+    r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture)
+    assert r["ok"] and r["engine"] == "ax" and "bad tree" in r["engine_note"]

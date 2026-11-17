@@ -206,3 +206,45 @@ def test_pc_skill_schemas_advertise_the_new_moves(monkeypatch):
     ui_win._register()
     assert "taskbar" in registered["ui_look"]["properties"]["surface"]["enum"]
     assert "clicks" in registered["ui_do"]["properties"]["action"]["enum"]
+
+
+# ── review fixes ──────────────────────────────────────────────────────────────
+
+def test_pc_stale_ad_fill_never_types(be, monkeypatch):
+    stale = {"ok": False, "error": {"code": "STALE_REF", "message": "gone", "disposition": {"delivery": "not_delivered"}}}
+    ad = FakeAD(PC_SNAPSHOT, stale)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    look = ui_win.read_window(app="notepad")
+    out = ui_win.do_action("fill", look_id=look["look_id"], element=1, text="secret")
+    assert out["ok"] is False and not any(c[0] in ("type", "keys", "click") for c in be.calls)
+
+
+def test_pc_look_without_a_window_refuses_keys(be, monkeypatch):
+    shot = dict(PC_SNAPSHOT, data=dict(PC_SNAPSHOT["data"], app="explorer"))
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: FakeAD(shot))
+    monkeypatch.setattr(be, "find_window", lambda app: None)   # File Explorer: titles are folder names
+    look = ui_win.read_window(app="explorer")
+    out = ui_win.do_action("key", look_id=look["look_id"], keys="ctrl+a")
+    assert out["ok"] is False and not any(c[0] == "keys" for c in be.calls)
+
+
+def test_pc_shell_surface_look_has_no_app_window(be, monkeypatch):
+    taskbar = {"ok": True, "data": {"snapshot_id": "t1", "tree": {
+        "role": "toolbar", "bounds": _bx(0, 1040, 1920, 40), "children": [
+            {"role": "button", "name": "Start", "ref_id": "@t1:e1", "bounds": _bx(0, 1040, 40, 40)}]}}}
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: FakeAD(taskbar))
+    look = ui_win.read_window(surface="taskbar")
+    seen = ui_win._looks[look["look_id"]]
+    assert seen["hwnd"] is None and seen["app"] is None and seen["surface"] == "taskbar"
+    assert ui_win.do_action("key", look_id=look["look_id"], keys="return")["ok"] is False
+
+
+def test_pc_ad_read_exception_falls_back(be, monkeypatch):
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: FakeAD())
+
+    def boom(*a, **k):
+        raise RuntimeError("bad tree")
+
+    monkeypatch.setattr(ui_win.ui_ad, "read", boom)
+    out = ui_win.read_window(app="notepad")
+    assert out["ok"] and out["engine"] == "uia" and "bad tree" in out["engine_note"]

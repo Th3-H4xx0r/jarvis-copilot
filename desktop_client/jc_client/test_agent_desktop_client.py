@@ -140,3 +140,52 @@ def test_get_reuses_one_client(tmp_path, monkeypatch):
     assert first is not None and adc.get() is first
     assert first.argv == [str(binary), "mcp"]
     assert json.dumps(first.home).endswith('agent-desktop-home"')
+
+
+def test_a_child_that_dies_mid_call_is_not_retried(tmp_path):
+    """It may have pressed already: a retry could press twice."""
+    die = tmp_path / "die.py"
+    die.write_text(
+        "import json, sys\n"
+        "log = sys.argv[2]\n"
+        "calls = 0\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    open(log, 'a').write(msg.get('method', '') + '\\n')\n"
+        "    if 'id' not in msg:\n"
+        "        continue\n"
+        "    if msg['method'] == 'tools/call':\n"
+        "        calls += 1\n"
+        "        if calls == 2:\n"
+        "            sys.exit(0)\n"
+        "    out = {'content': [{'type': 'text', 'text': json.dumps({'ok': True, 'data': {}})}]}\n"
+        "    sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': out}) + '\\n')\n"
+        "    sys.stdout.flush()\n")
+    log = tmp_path / "die.log"
+    client = adc.AgentDesktop([sys.executable, str(die), "x", str(log)], str(tmp_path / "home"))
+    try:
+        assert client.call("desktop_click", {"ref_id": "@a:e1"})["ok"]
+        second = client.call("desktop_click", {"ref_id": "@a:e2"})
+    finally:
+        client.close()
+    assert second["ok"] is False and second["error"]["code"] == "CLIENT_DIED"
+    assert log.read_text().split().count("tools/call") == 2   # no third, retried press
+
+
+def test_non_dict_result_is_a_bad_reply(tmp_path):
+    script = tmp_path / "fake_odd.py"
+    script.write_text(
+        "import json, sys\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    if 'id' not in msg:\n"
+        "        continue\n"
+        "    result = {} if msg['method'] == 'initialize' else ['odd']\n"
+        "    sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': result}) + '\\n')\n"
+        "    sys.stdout.flush()\n")
+    client = adc.AgentDesktop([sys.executable, str(script)], str(tmp_path / "home"))
+    try:
+        out = client.call("desktop_snapshot", {})
+    finally:
+        client.close()
+    assert out["ok"] is False and out["error"]["code"] == "BAD_REPLY"

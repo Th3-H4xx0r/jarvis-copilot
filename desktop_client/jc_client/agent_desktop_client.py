@@ -42,6 +42,7 @@ class AgentDesktop:
         self._lines: Optional[queue.Queue] = None
         self._id = 0
         self._lock = threading.Lock()
+        self._delivered = False  # the current tools/call reached the child (never retried then)
 
     # ── the child ──────────────────────────────────────────────────────────
     def _start(self, deadline: float) -> None:
@@ -86,6 +87,7 @@ class AgentDesktop:
         self._id += 1
         want = self._id
         self._send({"jsonrpc": "2.0", "id": want, "method": method, "params": params})
+        self._delivered = True
         while True:
             left = deadline - time.monotonic()
             if left <= 0:
@@ -114,6 +116,7 @@ class AgentDesktop:
                     if fresh:
                         self._kill()
                         self._start(deadline)
+                    self._delivered = False
                     msg = self._request("tools/call", {"name": tool, "arguments": args}, deadline)
                     break
                 except _Timeout:
@@ -121,16 +124,19 @@ class AgentDesktop:
                     return dict(_TIMEOUT)
                 except (_Died, OSError):
                     self._kill()
-                    if fresh or attempt == 2:
-                        return dict(_DIED)
-                    # It died between calls: one fresh child for this call.
+                    if fresh or attempt == 2 or self._delivered:
+                        return dict(_DIED)  # it may have pressed already: never press twice
+                    # It died between calls (the request never went out): one fresh child.
             if "error" in msg:
                 return {"ok": False, "error": {"code": "MCP_ERROR",
                                                "message": str((msg.get("error") or {}).get("message") or "")}}
-            content = (msg.get("result") or {}).get("content") or [{}]
+            result = msg.get("result")
+            content = result.get("content") if isinstance(result, dict) else None
+            if not isinstance(content, list) or not content or not isinstance(content[0], dict):
+                return dict(_BAD)
             try:
                 envelope = json.loads(content[0].get("text") or "")
-            except (ValueError, AttributeError):
+            except (ValueError, TypeError):
                 return dict(_BAD)
             return envelope if isinstance(envelope, dict) else dict(_BAD)
 

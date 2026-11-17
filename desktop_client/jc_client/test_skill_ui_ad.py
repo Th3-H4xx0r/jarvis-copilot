@@ -148,3 +148,9 @@ def test_act_scroll():
     out = ui_ad.act(client, "@s1:e1", "scroll", direction="down")
     assert client.calls == [("desktop_scroll", {"ref_id": "@s1:e1", "direction": "down", "amount": 3})]
     assert out["landed"] == "unknown"
+
+
+def test_act_error_carries_the_code():
+    out = ui_ad.act(Client({"ok": False, "error": {"code": "ACTION_NOT_SUPPORTED", "message": "no press"}}),
+                    "@s1:e1", "click")
+    assert out["ok"] is False and out["code"] == "ACTION_NOT_SUPPORTED"

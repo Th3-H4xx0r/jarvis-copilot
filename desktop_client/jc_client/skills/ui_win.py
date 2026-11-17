@@ -85,6 +85,8 @@ def _draw(img, elements) -> None:
 # agent-desktop is the PC's main engine (UI Automation done properly: ref identity, waits, delivery
 # evidence); this module's own UIA walk is the fallback for any look it can't take.
 SURFACES = ["taskbar", "system-tray", "start-menu", "action-center", "menu", "sheet"]
+# agent-desktop has no UIA way to do it: the guarded cursor/keys path may (not after STALE_REF etc.).
+_NO_SEMANTIC_PATH = frozenset({"POLICY_DENIED", "ACTION_NOT_SUPPORTED", "ACTION_FAILED"})
 
 
 def _ad_client():
@@ -104,7 +106,11 @@ def read_window(app: Optional[str] = None, max_elements: int = 250, width: int =
     note = None
     ad = _ad_client()
     if ad is not None:
-        got = _read_ad(be, ad, app, surface, max_elements, width, started)
+        try:
+            got = _read_ad(be, ad, app, surface, max_elements, width, started)
+        except Exception as exc:  # a bad tree or capture: our UIA walk takes the look
+            log.debug("agent-desktop look failed", exc_info=True)
+            got = {"ok": False, "error": f"agent-desktop: {exc}"[:200]}
         if got.get("ok"):
             return got
         note = got.get("error") or "agent-desktop failed"
@@ -143,8 +149,10 @@ def _read_ad(be, ad, app, surface, max_elements, width, started) -> dict:
     frame = got["frame"]
     if not frame or frame[2] <= 0 or frame[3] <= 0:
         return {"ok": False, "error": "agent-desktop: nothing to show"}
-    found = be.find_window(app) if app else be.frontmost()
-    hwnd, name = found if found and found[0] else (None, got.get("app") or app)
+    # A shell surface (taskbar, Start…) belongs to no app window; an app agent-desktop found but our
+    # window search didn't (File Explorer) has no window either — keys are refused on such looks.
+    found = None if surface else (be.find_window(app) if app else be.frontmost())
+    hwnd, name = found if found and found[0] else (None, None if surface else (got.get("app") or app))
     img = be.capture(hwnd, frame)
     return _finish(img, frame, got["elements"], got["texts"], str(got.get("title") or ""), name, hwnd, width,
                    started, {"source": "agent-desktop", "engine": "agent-desktop",
@@ -238,6 +246,8 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
     if seen is None and (action in ("fill", "key", "scroll")
                          or (action == "click" and (element is not None or x is not None))):
         return {"ok": False, "error": "That screen is gone; look again."}
+    if seen is not None and seen.get("hwnd") is None and action in ("fill", "key"):
+        return {"ok": False, "error": "Nothing is open on that screen to type into; open an app first."}
     hwnd = seen["hwnd"] if seen else be.frontmost()[0]
     el = None
     if element is not None and seen is not None:
@@ -258,8 +268,16 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         if action == "fill" and not text:
             return {"ok": False, "error": "fill needs an element and text"}
         res = ui_ad.act(ad, el["adref"], action, text=text, direction=direction, role=el["role"])
-        if res.get("ok") or action != "fill" or res.get("landed") != "no" or not hwnd:
-            return res
+        if res.get("ok") or res.get("code") not in _NO_SEMANTIC_PATH or not hwnd or not any(el["pt"][2:]):
+            return res  # never after STALE_REF / AMBIGUOUS_TARGET: the screen changed under it
+        if action == "click":
+            cursor_click(*_center(el["pt"]))
+            return {"ok": True, "did": "click", "via": "cursor", "landed": "unknown"}
+        if action == "scroll":
+            _front(be, hwnd)
+            be.scroll_at(*_center(el["pt"]), direction)
+            _last_own[0] = time.monotonic()
+            return {"ok": True, "did": "scroll", "via": "cursor", "landed": "unknown"}
         # It couldn't set the value: type it through the guarded path (window in front, he isn't typing).
         cursor_click(*_center(el["pt"]))
         _front(be, hwnd)
@@ -362,8 +380,10 @@ def do_and_look(action: str, *, look_after: bool = True, **kw) -> dict:
                     time.sleep(0.25)   # let the window repaint (agent-desktop waits for its own moves)
                 res["look"] = read_window(app=before["app"] if before else None,
                                           surface=(before or {}).get("surface"))
-            new_sig = res["look"].get("sig") if isinstance(res.get("look"), dict) else None
-            if landed == "unknown" and before and new_sig and new_sig != before.get("sig"):
+            nxt = res["look"] if isinstance(res.get("look"), dict) else {}
+            same_view = before and nxt.get("engine") == before.get("engine") \
+                and nxt.get("surface") == before.get("surface")  # two engines' signatures never match
+            if landed == "unknown" and same_view and nxt.get("sig") and nxt.get("sig") != before.get("sig"):
                 landed = "yes"
         res["landed"] = landed
         res["ms"] = int((time.monotonic() - started) * 1000)

@@ -158,4 +158,4 @@ def act(client, adref: str, action: str, *, text=None, direction=None, role: str
         message = f"agent-desktop: {err.get('message') or err.get('code') or 'failed'}"
         if text:
             message = message.replace(text, "…")
-    return {"ok": False, "error": message, "landed": landed(envelope)}
+    return {"ok": False, "error": message, "landed": landed(envelope), "code": str(err.get("code") or "")}

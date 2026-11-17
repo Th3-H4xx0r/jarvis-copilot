@@ -520,7 +520,7 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
             return {"ok": False, "error": "That needs agent-desktop (run `jc-client install-agent-desktop`)."}
         if not ax.trusted():
             return {"ok": False, "error": _NOT_TRUSTED}
-        got = _read_ad(ad, None, None, surface, max_elements, width, capture, started)
+        got = _safe_read_ad(ad, None, None, surface, max_elements, width, capture, started)
         return got if got.get("ok") else {"ok": False, "error": got.get("error") or "agent-desktop failed"}
     # Right after push to talk: the screen he held it on (its name, its bounds).
     screen, on = None, None
@@ -547,10 +547,13 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
     max_elements = max(1, min(int(max_elements or 250), 400))
     note = None
     if ad is not None and pid:
+        on_space = on_current_space(pid)
+        # An open context or pop-up menu (our window walk never sees it): read that menu.
+        surface = surface or (_open_menu(ax, pid) if on_space else None)
         engine = pick_engine(surface, ad_available=True, web_app=is_web_app(_bundle_path(pid)),
-                             on_space=on_current_space(pid))
+                             on_space=on_space)
         if engine == "agent-desktop":
-            got = _read_ad(ad, pid, name, surface, max_elements, width, capture, started)
+            got = _safe_read_ad(ad, pid, name, surface, max_elements, width, capture, started)
             if got.get("ok"):
                 return got
             note = got.get("error") or "agent-desktop failed"
@@ -581,6 +584,23 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
     if note:
         out["engine_note"] = note
     return out
+
+
+def _open_menu(ax, pid) -> str | None:
+    """"menu" while the app has a context / pop-up menu open (a child of the app, not its window)."""
+    try:
+        kids = ax.attrs(ax.app_element(pid), ["AXChildren"]).get("AXChildren") or []
+        return "menu" if any(ax.attrs(k, ["AXRole"]).get("AXRole") == "AXMenu" for k in kids[:12]) else None
+    except Exception:
+        return None
+
+
+def _safe_read_ad(*args) -> dict:
+    try:
+        return _read_ad(*args)
+    except Exception as exc:  # a bad tree or capture: today's engine takes the look
+        log.debug("agent-desktop look failed", exc_info=True)
+        return {"ok": False, "error": f"agent-desktop: {exc}"[:200]}
 
 
 def _read_ad(ad, pid, name, surface, max_elements, width, capture, started) -> dict:
@@ -879,8 +899,13 @@ def _same(ax, el) -> bool:
     return a.get("AXRole") == el["role"] and _stable(a) == el.get("stable", _stable(a))
 
 
+# agent-desktop found the element but has no accessibility way to do this to it: our own guarded
+# cursor/keys path may (never after STALE_REF / AMBIGUOUS_TARGET — the screen changed under it).
+_NO_SEMANTIC_PATH = frozenset({"POLICY_DENIED", "ACTION_NOT_SUPPORTED", "ACTION_FAILED"})
+
+
 def _do_ad(ax, pid, el, action, text, direction) -> dict:
-    """A move on an agent-desktop look. A value it can't set is typed through our own guarded path
+    """A move on an agent-desktop look; what it can't do semantically goes through our guarded path
     (the app in front, he isn't typing)."""
     ad = _ad_client()
     if ad is None:
@@ -888,8 +913,14 @@ def _do_ad(ax, pid, el, action, text, direction) -> dict:
     if action == "fill" and not text:
         return {"ok": False, "error": "fill needs an element and text"}
     res = ui_ad.act(ad, el["adref"], action, text=text, direction=direction, role=el["role"])
-    if res.get("ok") or action != "fill" or res.get("landed") != "no" or not pid:
+    if res.get("ok") or res.get("code") not in _NO_SEMANTIC_PATH or not pid or not any(el["pt"][2:]):
         return res
+    if action == "click":
+        _cursor_click(ax, pid, *_center(el["pt"]))
+        return {"ok": True, "did": "click", "via": "cursor", "landed": "unknown"}
+    if action == "scroll":
+        _scroll(ax, pid, *_center(el["pt"]), direction)
+        return {"ok": True, "did": "scroll", "via": "cursor", "landed": "unknown"}
     _cursor_click(ax, pid, *_center(el["pt"]))
     _keys(ax, pid, "cmd+a")
     _type(ax, pid, text)
@@ -951,8 +982,10 @@ def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
         if before and before.get("surface"):
             target["surface"] = before["surface"]
         res["look"] = reader(**target)
-        new_sig = (res["look"] or {}).get("sig") if isinstance(res["look"], dict) else None
-        if landed == "unknown" and before and new_sig and new_sig != before.get("sig"):
+        nxt = res["look"] if isinstance(res["look"], dict) else {}
+        same_view = before and (nxt.get("engine") or "ax") == (before.get("engine") or "ax") \
+            and nxt.get("surface") == before.get("surface")  # two engines' signatures never match
+        if landed == "unknown" and same_view and nxt.get("sig") and nxt.get("sig") != before.get("sig"):
             landed = "yes"  # the screen changed after the move
     res["landed"] = landed
     res["ms"] = int((time.monotonic() - started) * 1000)
