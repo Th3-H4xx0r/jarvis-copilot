@@ -7,3 +7,4 @@ His asks
 
 Found while mapping the current system
 - [ ] 1. PC busy refusal never counts: `ui_win.py:175` says "You're using the PC…" but `agent/computer/loop.py:27` `_REFUSED` only matches "isn't in front" / "using the Mac", so the loop keeps going on the PC until another guard stops it.
+- [ ] 3. PC game mode false positive: an idle PC reported "in a game (fullscreen textinputhost.exe)" (Windows' touch-keyboard/IME host) and refused every look — system hosts excluded in game_mode.py (2026-11-17).

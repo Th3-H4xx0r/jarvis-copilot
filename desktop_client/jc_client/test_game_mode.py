@@ -26,6 +26,16 @@ def test_desktop_shell_fullscreen_is_not_game():
     assert evaluate(fg("explorer.exe", shell=True), set(), GAMES) == OFF
 
 
+def test_windows_own_fullscreen_hosts_are_not_games():
+    # Live 2026-11-17: an idle PC reported "in a game (fullscreen textinputhost.exe)" and refused
+    # every look — that's the touch-keyboard / IME host, not a game.
+    for exe in ("TextInputHost.exe", "LockApp.exe", "SearchHost.exe", "StartMenuExperienceHost.exe",
+                "ShellExperienceHost.exe", "LogonUI.exe"):
+        assert evaluate(fg(exe), set(), GAMES) == OFF, exe
+    # A real anti-cheat game still counts even if one of those is in front.
+    assert evaluate(fg("TextInputHost.exe"), {"valorant-win64-shipping.exe"}, GAMES).on
+
+
 def test_windowed_app_is_not_game():
     assert evaluate(fg(rect=(100, 100, 1200, 900)), set(), GAMES) == OFF
 

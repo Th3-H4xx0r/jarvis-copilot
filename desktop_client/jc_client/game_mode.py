@@ -54,12 +54,17 @@ GUARDED = frozenset({
 })
 
 _SHELL_CLASSES = frozenset({"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"})
+# Windows' own fullscreen hosts (touch keyboard / IME, lock and sign-in screens, Start, search):
+# fullscreen, but never a game (an idle PC read as "in a game (fullscreen textinputhost.exe)").
+_SYSTEM_HOSTS = frozenset({"textinputhost.exe", "lockapp.exe", "logonui.exe", "searchhost.exe", "searchapp.exe",
+                           "startmenuexperiencehost.exe", "shellexperiencehost.exe"})
 
 
 def evaluate(fg: Optional[ForegroundInfo], procs: Iterable[str], anticheat_games: Iterable[str]) -> GameState:
     games = {g.lower() for g in anticheat_games}
     running = sorted(p for p in (x.lower() for x in procs) if p in games)
-    full = fg is not None and not fg.is_shell and tuple(fg.rect) == tuple(fg.monitor)
+    full = (fg is not None and not fg.is_shell and fg.exe.lower() not in _SYSTEM_HOSTS
+            and tuple(fg.rect) == tuple(fg.monitor))
     if full:
         exe = fg.exe.lower()
         return GameState(True, f"fullscreen {exe}", bool(running) or exe in games)
