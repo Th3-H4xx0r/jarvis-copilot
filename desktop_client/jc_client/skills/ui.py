@@ -587,6 +587,8 @@ def _read_ad(ad, pid, name, surface, max_elements, width, capture, started) -> d
     """One look through agent-desktop, in today's shape; ``{"ok": False, "error"}`` to fall back."""
     headed_ok = surface == "notifications" and _user_idle_s() >= USER_WAIT_S  # opening it moves focus briefly
     app = name if pid and surface not in _SYSTEM_SURFACES else None
+    if surface:
+        max_elements = 400  # a menu bar lists every menu's items (Finder: 262)
     got = ui_ad.read(ad, app=app, surface=surface, max_elements=max_elements, headed_ok=headed_ok)
     if not got.get("ok"):
         return got
