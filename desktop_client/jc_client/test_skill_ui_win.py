@@ -42,6 +42,7 @@ class FakeBackend:
 def be(monkeypatch):
     b = FakeBackend()
     monkeypatch.setattr(ui_win, "_backend", lambda: b)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: None)  # agent-desktop absent unless a test says so
     ui_win._looks.clear()
     ui_win._last_own[0] = 0.0   # no move of ours just happened
     return b
@@ -127,3 +128,81 @@ def test_role_mapping():
     assert ui_win.ax_role("ButtonControl") == "AXButton"
     assert ui_win.ax_role("EditControl") == "AXTextField"
     assert ui_win.ax_role("PaneControl") is None
+
+
+# ── agent-desktop first on the PC, proved moves, batched clicks ───────────────
+
+def _bx(x, y, w=40, h=20):
+    return {"x": x, "y": y, "width": w, "height": h}
+
+
+PC_SNAPSHOT = {"ok": True, "data": {
+    "app": "Notepad", "complete": True, "ref_count": 2, "snapshot_id": "p1",
+    "window": {"id": "w-7", "title": "Untitled - Notepad", "bounds": _bx(100, 100, 800, 600)},
+    "tree": {"role": "window", "children": [
+        {"role": "textfield", "name": "Text editor", "ref_id": "@p1:e1", "bounds": _bx(110, 160, 400, 300)},
+        {"role": "button", "name": "Close", "ref_id": "@p1:e2", "bounds": _bx(480, 110, 30, 20)},
+        {"role": "statictext", "name": "Ln 1, Col 1"},
+    ]}}}
+VERIFIED = {"ok": True, "data": {"disposition": {"delivery": "delivered_verified"}}}
+
+
+class FakeAD:
+    def __init__(self, *replies):
+        self.replies, self.calls = list(replies), []
+
+    def call(self, tool, args, timeout=8.0):
+        self.calls.append((tool, args))
+        return self.replies.pop(0) if self.replies else VERIFIED
+
+
+def test_pc_look_uses_agent_desktop_first(be, monkeypatch):
+    ad = FakeAD(PC_SNAPSHOT)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    out = ui_win.read_window(app="notepad")
+    assert out["ok"] and out["engine"] == "agent-desktop" and out["source"] == "agent-desktop"
+    assert [(e["i"], e["role"], e["label"]) for e in out["elements"]] == [(1, "AXTextField", "Text editor"),
+                                                                       (2, "AXButton", "Close")]
+    assert out["elements"][0]["box"] == [10, 60, 400, 300] and "Ln 1, Col 1" in out["text"]
+    assert ad.calls[0][1]["app"] == "notepad"
+
+
+def test_pc_look_falls_back_to_uia_with_note(be, monkeypatch):
+    ad = FakeAD({"ok": False, "error": {"code": "WINDOW_NOT_FOUND", "message": "no window"}})
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    out = ui_win.read_window(app="notepad")
+    assert out["ok"] and out["engine"] == "uia" and out["engine_note"] == "agent-desktop: no window"
+
+
+def test_pc_ad_click_and_landed(be, monkeypatch):
+    ad = FakeAD(PC_SNAPSHOT, VERIFIED)
+    monkeypatch.setattr(ui_win, "_ad_client", lambda: ad)
+    look = ui_win.read_window(app="notepad")
+    out = ui_win.do_action("click", look_id=look["look_id"], element=2)
+    assert out == {"ok": True, "did": "click", "via": "agent-desktop", "landed": "yes"}
+    assert ad.calls[-1] == ("desktop_click", {"ref_id": "@p1:e2"}) and not be.calls
+
+
+def test_pc_clicks_batch(be, monkeypatch):
+    monkeypatch.setattr(ui_win.time, "sleep", lambda s: None)
+    look = ui_win.read_window()
+    be.invokable = {"edit", "close"}
+    out = ui_win.do_and_look("clicks", look_id=look["look_id"], elements=[2, 1])
+    assert [c for c in be.calls if c[0] == "invoke"] == [("invoke", "close"), ("invoke", "edit")]
+    assert out["ok"] and out["did"] == "clicks" and out["done"] == 2 and "look" in out
+
+
+def test_pc_landed_unknown_without_change(be, monkeypatch):
+    monkeypatch.setattr(ui_win.time, "sleep", lambda s: None)
+    look = ui_win.read_window()
+    out = ui_win.do_and_look("click", look_id=look["look_id"], element=2)
+    assert out["ok"] and out["landed"] == "unknown"   # the same screen came back
+
+
+def test_pc_skill_schemas_advertise_the_new_moves(monkeypatch):
+    registered = {}
+    monkeypatch.setattr("jc_client.skills.skill",
+                        lambda name, desc, schema=None, **kw: (lambda fn: registered.setdefault(name, schema) and fn))
+    ui_win._register()
+    assert "taskbar" in registered["ui_look"]["properties"]["surface"]["enum"]
+    assert "clicks" in registered["ui_do"]["properties"]["action"]["enum"]

@@ -20,6 +20,8 @@ import uuid
 from collections import OrderedDict
 from typing import Optional
 
+from jc_client.skills import ui_ad
+
 log = logging.getLogger("jc_client.skills.ui_win")
 
 MAX_NODES = 4000
@@ -80,9 +82,36 @@ def _draw(img, elements) -> None:
 
 # ── looking ──────────────────────────────────────────────────────────────────
 
-def read_window(app: Optional[str] = None, max_elements: int = 250, width: int = 1024) -> dict:
+# agent-desktop is the PC's main engine (UI Automation done properly: ref identity, waits, delivery
+# evidence); this module's own UIA walk is the fallback for any look it can't take.
+SURFACES = ["taskbar", "system-tray", "start-menu", "action-center", "menu", "sheet"]
+
+
+def _ad_client():
+    try:
+        from jc_client.agent_desktop_client import get
+        return get()
+    except Exception:
+        log.debug("agent-desktop unavailable", exc_info=True)
+        return None
+
+
+def read_window(app: Optional[str] = None, max_elements: int = 250, width: int = 1024,
+                surface: Optional[str] = None) -> dict:
     be = _backend()
     started = time.monotonic()
+    max_elements = max(1, min(int(max_elements or 250), 400))
+    note = None
+    ad = _ad_client()
+    if ad is not None:
+        got = _read_ad(be, ad, app, surface, max_elements, width, started)
+        if got.get("ok"):
+            return got
+        note = got.get("error") or "agent-desktop failed"
+        if surface:  # the taskbar, the tray…: nothing of ours reads those
+            return {"ok": False, "error": note}
+    elif surface:
+        return {"ok": False, "error": "That needs agent-desktop (run `jc-client install-agent-desktop`)."}
     if app:
         found = be.find_window(app)
         if not found:
@@ -95,12 +124,36 @@ def read_window(app: Optional[str] = None, max_elements: int = 250, width: int =
     frame = tuple(be.window_rect(hwnd))
     if not frame or frame[2] <= 0 or frame[3] <= 0:
         return {"ok": False, "error": f"Could not read {name}'s window."}
-    max_elements = max(1, min(int(max_elements or 250), 400))
     texts: list = []
     elements = be.walk(hwnd, frame, max_elements, texts)
     title = str(be.title(hwnd) or "")
-    sig = _sig(title, elements, texts)
     img = be.capture(hwnd, frame)
+    out = _finish(img, frame, elements, texts, title, name, hwnd, width, started,
+                  {"source": "uia", "engine": "uia"})
+    if note:
+        out["engine_note"] = note
+    return out
+
+
+def _read_ad(be, ad, app, surface, max_elements, width, started) -> dict:
+    """One look through agent-desktop, in the same shape; ``{"ok": False, "error"}`` to fall back."""
+    got = ui_ad.read(ad, app=app, surface=surface, max_elements=400 if surface else max_elements)
+    if not got.get("ok"):
+        return got
+    frame = got["frame"]
+    if not frame or frame[2] <= 0 or frame[3] <= 0:
+        return {"ok": False, "error": "agent-desktop: nothing to show"}
+    found = be.find_window(app) if app else be.frontmost()
+    hwnd, name = found if found and found[0] else (None, got.get("app") or app)
+    img = be.capture(hwnd, frame)
+    return _finish(img, frame, got["elements"], got["texts"], str(got.get("title") or ""), name, hwnd, width,
+                   started, {"source": "agent-desktop", "engine": "agent-desktop",
+                             **({"surface": surface} if surface else {})})
+
+
+def _finish(img, frame, elements, texts, title, name, hwnd, width, started, extra: dict) -> dict:
+    """Scale, number and draw the elements, cache the look, and build the reply."""
+    sig = _sig(title, elements, texts)
     scale = img.width / frame[2] if frame[2] else 1.0
     if width and img.width > width:
         r = width / img.width
@@ -116,7 +169,7 @@ def read_window(app: Optional[str] = None, max_elements: int = 250, width: int =
     look_id = uuid.uuid4().hex[:10]
     with _looks_lock:
         _looks[look_id] = {"hwnd": hwnd, "app": name, "frame": frame, "scale": scale, "elements": elements,
-                           "sig": sig}
+                           "sig": sig, "engine": extra.get("engine", "uia"), "surface": extra.get("surface")}
         while len(_looks) > _KEEP_LOOKS:
             _looks.popitem(last=False)
     return {"ok": True, "look_id": look_id, "app": name, "window": title[:120], "width": img.width,
@@ -124,7 +177,7 @@ def read_window(app: Optional[str] = None, max_elements: int = 250, width: int =
             "base64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime": "image/jpeg",
             "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"],
                           **({"kind": e["kind"]} if e.get("kind") else {})} for e in elements],
-            "source": "uia", "sig": sig, "ms": int((time.monotonic() - started) * 1000),
+            "sig": sig, "ms": int((time.monotonic() - started) * 1000), **extra,
             "text": "\n".join(t for t in texts if t.strip())[:TEXT_CAP]}
 
 
@@ -197,6 +250,24 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
         be.click(px, py)
         _last_own[0] = time.monotonic()
 
+    if seen is not None and seen.get("engine") == "agent-desktop" and el is not None \
+            and action in ("click", "fill", "scroll"):
+        ad = _ad_client()
+        if ad is None:
+            return {"ok": False, "error": "That screen is gone; look again."}
+        if action == "fill" and not text:
+            return {"ok": False, "error": "fill needs an element and text"}
+        res = ui_ad.act(ad, el["adref"], action, text=text, direction=direction, role=el["role"])
+        if res.get("ok") or action != "fill" or res.get("landed") != "no" or not hwnd:
+            return res
+        # It couldn't set the value: type it through the guarded path (window in front, he isn't typing).
+        cursor_click(*_center(el["pt"]))
+        _front(be, hwnd)
+        be.keys(["ctrl", "a"])
+        be.type_text(text)
+        _last_own[0] = time.monotonic()
+        return {"ok": True, "did": "fill", "via": "keys", "landed": "unknown"}
+
     if action == "click":
         if el is not None:
             if el.get("ref") is not None and be.invoke(el["ref"]):
@@ -256,23 +327,45 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
     return {"ok": False, "error": f"unknown action {action!r}"}
 
 
+def _clicks(elements, **kw) -> dict:
+    """Press several numbered elements of one look in order; stop at the first that fails."""
+    done, landed = 0, "unknown"
+    for element in elements or []:
+        res = do_action("click", element=element, **kw)
+        if not res.get("ok"):
+            return {**res, "did": "clicks", "done": done}
+        done += 1
+        landed = "no" if res.get("landed") == "no" else landed
+    if not done:
+        return {"ok": False, "error": "clicks needs elements", "did": "clicks", "done": 0}
+    return {"ok": True, "did": "clicks", "via": "batch", "done": done, "landed": landed}
+
+
 def do_and_look(action: str, *, look_after: bool = True, **kw) -> dict:
     with _act_lock:
         started = time.monotonic()
         with _looks_lock:
             lid = kw.get("look_id")
             before = _looks.get(lid) if lid else (next(reversed(_looks.values())) if _looks else None)
+        elements = kw.pop("elements", None)
         try:
-            res = do_action(action, **kw)
+            res = _clicks(elements, **kw) if action == "clicks" else do_action(action, **kw)
         except Exception as exc:  # noqa: BLE001
             log.warning("ui_do %s failed", action, exc_info=True)
             res = {"ok": False, "error": str(exc)[:200] or type(exc).__name__}
+        landed = res.get("landed") or "unknown"
         if res.get("ok") and look_after:
             if action == "open_app":
                 res["look"] = read_window(app=kw.get("app"))
             else:
-                time.sleep(0.25)   # let the window repaint
-                res["look"] = read_window(app=before["app"] if before else None)
+                if not (before and before.get("engine") == "agent-desktop"):
+                    time.sleep(0.25)   # let the window repaint (agent-desktop waits for its own moves)
+                res["look"] = read_window(app=before["app"] if before else None,
+                                          surface=(before or {}).get("surface"))
+            new_sig = res["look"].get("sig") if isinstance(res.get("look"), dict) else None
+            if landed == "unknown" and before and new_sig and new_sig != before.get("sig"):
+                landed = "yes"
+        res["landed"] = landed
         res["ms"] = int((time.monotonic() - started) * 1000)
         return res
 
@@ -480,10 +573,13 @@ def _register() -> None:
         {"type": "object", "properties": {
             "app": {"type": "string", "description": "App or process name; default the frontmost app."},
             "max_elements": {"type": "integer", "default": 250},
+            "surface": {"type": "string", "enum": SURFACES,
+                        "description": "Read one surface instead of the window: the taskbar, tray, Start menu, "
+                                       "Action Center, or an open menu / dialog sheet."},
         }},
     )
-    def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
-        return _on_uia_thread(read_window, app=app, max_elements=max_elements)
+    def ui_look(app: str | None = None, max_elements: int = 250, surface: str | None = None) -> dict:
+        return _on_uia_thread(read_window, app=app, max_elements=max_elements, surface=surface)
 
     @skill(
         "ui_do",
@@ -491,7 +587,10 @@ def _register() -> None:
         "keys (e.g. 'return', 'ctrl+f'), scroll up/down, open_app, or wait. UI Automation first; the real "
         "cursor only when needed (and put back).",
         {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "open_url", "wait"]},
+            "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "open_url", "wait",
+                                                  "clicks"]},
+            "elements": {"type": "array", "items": {"type": "integer"},
+                         "description": "clicks: numbered elements of one look, pressed in order."},
             "url": {"type": "string", "description": "open_url: the page to open (default browser)."},
             "look_id": {"type": "string"},
             "element": {"type": "integer"},
@@ -507,7 +606,10 @@ def _register() -> None:
     )
     def ui_do(action: str, look_id: str | None = None, element: int | None = None, text: str | None = None,
               keys: str | None = None, direction: str | None = None, x: float | None = None, y: float | None = None,
-              app: str | None = None, look: bool = True, url: str | None = None) -> dict:
+              app: str | None = None, look: bool = True, url: str | None = None,
+              elements: list | None = None) -> dict:
+        if action == "clicks":
+            return _on_uia_thread(do_and_look, action, look_after=look, look_id=look_id, elements=elements)
         return _on_uia_thread(do_and_look, action, look_after=look, look_id=look_id, element=element, text=text,
                               keys=keys, direction=direction, x=x, y=y, app=app, url=url)
 
