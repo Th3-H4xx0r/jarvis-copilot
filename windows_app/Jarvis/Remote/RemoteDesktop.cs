@@ -157,7 +157,8 @@ public sealed class RemoteDesktop : IDisposable
             ["username"] = Username,
             ["tailscale_ip"] = _tailscaleIp ??= Run("tailscale", "ip -4")?.Split('\n')[0].Trim(),
             ["idle_s"] = IdleSeconds(),
-            ["locked"] = _locked,
+            // After an RDP session ends his session sits off the console, which shows the sign-in screen.
+            ["locked"] = LockState.Locked(_locked, ConsoleState.OnConsole, ConsoleState.ShownOverRemoteDesktop),
             ["game"] = game,
             ["remote_session"] = System.Windows.SystemParameters.IsRemoteSession,
             ["has_password"] = HasPassword,
@@ -228,11 +229,19 @@ public sealed class RemoteDesktop : IDisposable
 
     private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
-        if (e.Reason is SessionSwitchReason.SessionLock) _locked = true;
-        else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon) _locked = false;
-        else if (e.Reason is not (SessionSwitchReason.RemoteConnect or SessionSwitchReason.RemoteDisconnect
-                 or SessionSwitchReason.ConsoleConnect or SessionSwitchReason.ConsoleDisconnect)) return;
-        _ = PostAsync();
+        var change = e.Reason switch
+        {
+            SessionSwitchReason.SessionLock => SessionChange.Lock,
+            SessionSwitchReason.SessionUnlock => SessionChange.Unlock,
+            SessionSwitchReason.SessionLogon => SessionChange.Logon,
+            SessionSwitchReason.ConsoleConnect => SessionChange.ConsoleConnect,
+            SessionSwitchReason.ConsoleDisconnect => SessionChange.ConsoleDisconnect,
+            SessionSwitchReason.RemoteConnect => SessionChange.RemoteConnect,
+            SessionSwitchReason.RemoteDisconnect => SessionChange.RemoteDisconnect,
+            _ => SessionChange.Other,
+        };
+        _locked = LockState.After(_locked, change);
+        if (LockState.Reports(change)) _ = PostAsync();
     }
 
     private static double IdleSeconds()
