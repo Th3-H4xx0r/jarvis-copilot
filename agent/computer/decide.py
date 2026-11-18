@@ -213,13 +213,14 @@ def fallback_step(ref, look, goal, step, history, *, instructions="", call=None,
 
 def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
     """``{"steps": [{do, app?, url?, text?}], "say"}`` from his words alone (no screenshot:
-    faster); the goal as one step on failure."""
+    faster); the goal as one step when the reply can't be read; ``{"steps": [], "error"}`` when the
+    planning model itself failed (never guess then: the goal alone names no app to stay on)."""
     notes = f"Notes: {instructions}\n" if instructions else ""
     try:
         raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today()), look or {}, 300))
-    except Exception:
-        logger.debug("computer: plan failed", exc_info=True)
-        raw = None
+    except Exception as exc:
+        logger.warning("computer: plan failed: %s", exc)
+        return {"steps": [], "say": "", "error": str(exc)[:200] or type(exc).__name__}
     steps = []
     for s in (raw.get("steps") or []) if isinstance(raw, dict) else []:
         if isinstance(s, dict) and str(s.get("do") or "").strip():

@@ -706,3 +706,31 @@ def test_timing_counts_every_model_call():
                       Move({"action": "done"}, 0.95, "decision", 50))
     r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
     assert r.timing["decide_ms"] == 100 + 300 + 50
+
+
+# ── live-run safety fixes (2026-11-17) ────────────────────────────────────────
+
+def test_a_failed_plan_stops_instead_of_acting_on_the_front_app():
+    """Live: with the planning model down (credit balance), the goal became one step with no app and the
+    loop clicked around in whatever app was in front (his VS Code)."""
+    mac = FakeMac()
+    plan = lambda ref, goal, look, **kw: {"steps": [], "say": "", "error": "Your credit balance is too low"}
+    r = L.run("Open Calculator and work out 23 times 4", None, _cfg(), device="m", decide=_never,
+              fallback=_never, mac=mac, plan=plan)
+    assert r.status == "error" and "plan" in r.reason.lower() and "credit balance" in r.reason
+    assert mac.acts == [] and mac.n == 0      # nothing looked at, nothing pressed
+
+
+def test_a_failed_surface_look_never_decides_on_the_old_window():
+    """Live: the notifications look failed and the decider clicked VS Code's Notifications button."""
+    class FailingSurface(NewMac):
+        def look(self, device, app=None, surface=None):
+            if surface:
+                self.looks.append({"app": app, "surface": surface})
+                return {"ok": False, "error": "agent-desktop: Notification Center is closed"}
+            return super().look(device, app=app)
+
+    mac = FailingSurface()
+    r = L.run("g", [{"do": "read my latest notifications"}], _cfg(), device="m", decide=_never,
+              fallback=_never, mac=mac)
+    assert r.status == "stuck" and "Notification Center is closed" in r.reason and mac.acts == []

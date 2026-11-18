@@ -158,3 +158,13 @@ def test_reads_use_the_window_text_too():
     look = {**LOOK, "text": "Alan Turing\nBorn 23 June 1912 Maida Vale, London"}
     assert D.read_value("@x:y", look, "g", {"do": "read his birth date", "read": "born"}, call=call) == "23 June 1912"
     assert "Born 23 June 1912" in seen["prompt"]
+
+
+def test_plan_steps_reports_a_failed_call():
+    from agent.computer.decide import plan_steps
+
+    def broken(*a, **k):
+        raise RuntimeError("Error code: 400 - Your credit balance is too low")
+
+    out = plan_steps("@f:m", "Open Calculator", call=broken)
+    assert out["steps"] == [] and "credit balance" in out["error"]

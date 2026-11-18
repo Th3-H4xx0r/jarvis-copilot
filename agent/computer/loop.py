@@ -185,6 +185,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
         planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions)
         out.timing["plan_ms"] = int((time.monotonic() - t_plan) * 1000)
         steps, out.say = planned["steps"], planned.get("say") or ""
+        if not steps and planned.get("error"):
+            # Live: with the planning model down, acting on "the goal as one step" clicked around in
+            # whatever app was in front. Stop and say why.
+            out.status, out.reason = "error", f"Couldn't plan the steps (the planning model failed: {planned['error']})."
+            out.timing["total_ms"] = int((time.monotonic() - started) * 1000)
+            return out
     steps = list(steps)  # read steps may add a navigation step and a second read
     first = steps[0] if steps else {}
     if not app and (first.get("app") or first.get("url")):
@@ -319,6 +325,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             fresh = relook()
             if fresh.get("ok"):
                 look = fresh
+            elif step_surface:  # never decide this step on a look of some other window
+                out.status, out.reason = "stuck", f"Couldn't read the {step_surface}: {fresh.get('error') or 'no answer'}"
+                break
         # Named buttons in a row (2, 3, ×, 4, =): pressed in one trip, one look at the end.
         run_ = batch_run(steps, at, look) if can_clicks and not step_surface else []
         if run_ and not (should_stop and should_stop()):
