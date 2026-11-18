@@ -188,7 +188,7 @@ def tool_activity(name):
 def job_card(job):
     """The card fields of an ``agent.escalation`` job."""
     parent = job.get("parent") or {}
-    return {"id": job.get("job_id") or "", "node": parent.get("node_id") or "",
+    card = {"id": job.get("job_id") or "", "node": parent.get("node_id") or "",
             "label": parent.get("node_label") or "Background", "model": job.get("model") or "",
             "status": job.get("status") or "running", "started_at": job.get("started_at"),
             "completed_at": job.get("completed_at"), "steps": int(job.get("steps") or 0),
@@ -196,6 +196,9 @@ def job_card(job):
             "worker_session": job.get("worker_session") or "",
             "images": job.get("images") or [],
             "approval": job.get("approval") if job.get("status", "running") == "running" else None}
+    if job.get("it"):
+        card["it"] = job["it"]   # an IT agent run: phase, step, checks passed, brief (it_jobs.py)
+    return card
 
 
 def _approval_card(data):

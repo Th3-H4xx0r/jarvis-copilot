@@ -750,6 +750,15 @@ DEFAULT_CONFIG = {
         "turn_port": 3478,
         "turn_secret": "",
     },
+    # The IT agent (agent/it_agent/): research → phases with checks → verify → report, on the PC.
+    # supervisor_model "" = the Default harness's Background node model (never the fast lane or the
+    # Claude Code CLI).
+    "it_agent": {
+        "supervisor_model": "",
+        "max_rethinks": 3,
+        "reboot_wait_minutes": 60,
+        "offline_wait_minutes": 30,
+    },
     # Opt in via ``jarviscopilot chat --checkpoints`` or set enabled=True here.
     "checkpoints": {
         "enabled": False,

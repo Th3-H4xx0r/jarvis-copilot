@@ -144,7 +144,7 @@ class Run:
         return bool(self.phases) and all(p.status == "passed" for p in self.phases)
 
     def add_log(self, kind: str, text: str) -> None:
-        self.log.append({"kind": kind, "text": str(text)})
+        self.log.append({"kind": kind, "text": str(text), "at": time.time()})
         del self.log[:-200]
 
 
