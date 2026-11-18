@@ -110,6 +110,9 @@ _HERMES_CORE_TOOLS = [
     # Fast computer control of the user's Mac through jc-client (agent/computer/),
     # listed once a paired device offers ui_look
     "computer_do",
+    # The IT agent (agent/it_agent/): multi-step PC jobs as Background runs,
+    # listed once a paired PC offers pc_shell
+    "it_task",
     # Lazy tool-loading meta-tool — only surfaces when agent.lazy_tools is on
     # (gated via check_fn in tools/lazy_tools.py); lets the model load deferred
     # tool schemas on demand.
@@ -211,6 +214,15 @@ TOOLSETS = {
             "model clicks and types from screenshots (agent/computer/)."
         ),
         "tools": ["computer_do"],
+        "includes": []
+    },
+
+    "it_task": {
+        "description": (
+            "Hand multi-step jobs on the user's Windows PC (installs, setup, fixes) or deep "
+            "research to the IT agent, which runs them in the background (agent/it_agent/)."
+        ),
+        "tools": ["it_task"],
         "includes": []
     },
 

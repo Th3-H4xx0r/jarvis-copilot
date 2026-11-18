@@ -168,7 +168,7 @@ _TOOL_ACTIVITY = {
     "image_generate": "Making an image", "text_to_speech": "Making audio",
     "send_message": "Sending a message", "cronjob": "Scheduling a job", "todo": "Updating the plan",
     "skill_view": "Using a skill", "skills_list": "Using a skill", "skill_manage": "Using a skill",
-    "tool_search": "Finding a tool", "clarify": "Asking you",
+    "tool_search": "Finding a tool", "clarify": "Asking you", "it_task": "Starting an IT task",
 }
 _BROWSER_PREFIXES = ("browser_", "chrome_")
 

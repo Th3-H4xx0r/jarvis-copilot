@@ -49,12 +49,20 @@ COMPUTER_DO_SCHEMA = {
 
 def handle_computer_do(args: dict, task_id=None, **_kw):
     from agent.computer import turns
+    from agent.it_agent import handover
     goal = str((args or {}).get("goal") or "").strip()
     if not goal:
         return json.dumps({"ok": False, "error": "goal is required"})
+    handed = handover.maybe_hand_over(goal, task_id)   # installs/setup on the PC → the IT agent
+    if handed:
+        return handed
     result, err = turns.run_task(goal, (args or {}).get("steps"), task_id, app=(args or {}).get("app"))
     if err:
         return json.dumps({"ok": False, "error": err})
+    if result.status == "stuck":
+        hint = handover.limit_hint(result, handover.device_os(task_id))
+        if hint:
+            result.reason = f"{result.reason or ''}{hint}"
     return turns.tool_result(result)
 
 

@@ -2953,6 +2953,10 @@ def _ensure_canonical_tools(agent) -> None:
             # Fast Mac control (agent/computer/); listed once a paired Mac offers ui_look.
             importlib.import_module("tools.computer_do_tool")
             tools += list(registry.get_definitions({"computer_do"}) or [])
+        if "it_task" not in names:
+            # The IT agent (agent/it_agent/); listed once a paired PC offers pc_shell.
+            importlib.import_module("tools.it_task_tool")
+            tools += list(registry.get_definitions({"it_task"}) or [])
         agent.tools = canonical_tools(tools)
         agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {
             (t.get("function") or {}).get("name") for t in agent.tools if isinstance(t, dict)}

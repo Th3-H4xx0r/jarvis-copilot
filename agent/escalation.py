@@ -257,7 +257,7 @@ AUTO_HANDOFF_AFTER = 3
 
 # The bridge and the search are how a tool is reached, not work in themselves:
 # a bridged call is counted once, under the real tool's name.
-_UNCOUNTED = {"tool_call", "tool_search", "handoff", ESCALATION_TOOL_NAME}
+_UNCOUNTED = {"tool_call", "tool_search", "handoff", "it_task", ESCALATION_TOOL_NAME}
 
 _AUTO_HANDED_OFF = (
     "Not run: this needs more steps than a quick answer, so it has been handed to "
