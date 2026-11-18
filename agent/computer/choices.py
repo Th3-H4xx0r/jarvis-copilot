@@ -48,11 +48,19 @@ def _other_tab(el: dict, step: dict) -> bool:
     return kind == "tab" and "tab" not in str((step or {}).get("do") or "").lower()
 
 
+# Window controls close / zoom / minimise / full-screen whatever is in front (live: a fallback model
+# clicked all of them on a notifications step): a move only when the step asks for it.
+_WINDOW_CONTROL = re.compile(r"^\s*(?:close|zoom|minimi[sz]e|full\s*screen)\s+button\b", re.I)
+
+
 def _permission(el: dict, step: dict) -> bool:
+    """Not a move for this step: an Allow/Accept prompt, or a window control, it didn't ask for."""
     label = str(el.get("label") or "")
+    words = str((step or {}).get("do") or "").lower()
+    if _WINDOW_CONTROL.match(label):
+        return not any(w in words for w in ("close", "zoom", "minimi", "full screen", "fullscreen", "maximi"))
     if not _PERMISSION.match(label):
         return False
-    words = str((step or {}).get("do") or "").lower()
     return not any(w in words for w in ("allow", "accept", "agree"))
 
 

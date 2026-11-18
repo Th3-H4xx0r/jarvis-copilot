@@ -182,7 +182,13 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     # when the first step opens an app or a page anyway.
     if steps is None:
         t_plan = time.monotonic()
-        planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions)
+        try:
+            on_pc = getattr(mac, "os_of", None) is not None and mac.os_of(device) == "windows"
+        except Exception:
+            on_pc = False
+        # Live: on the PC the plan opened "System Settings" and "Finder" — it must know the computer.
+        extra = {"computer": "Windows PC"} if on_pc else {}
+        planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions, **extra)
         out.timing["plan_ms"] = int((time.monotonic() - t_plan) * 1000)
         steps, out.say = planned["steps"], planned.get("say") or ""
         if not steps and planned.get("error"):

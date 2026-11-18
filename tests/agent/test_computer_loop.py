@@ -734,3 +734,18 @@ def test_a_failed_surface_look_never_decides_on_the_old_window():
     r = L.run("g", [{"do": "read my latest notifications"}], _cfg(), device="m", decide=_never,
               fallback=_never, mac=mac)
     assert r.status == "stuck" and "Notification Center is closed" in r.reason and mac.acts == []
+
+
+def test_the_plan_is_told_which_computer():
+    class PcMac(FakeMac):
+        def os_of(self, device):
+            return "windows"
+
+    seen = {}
+
+    def plan(ref, goal, look, **kw):
+        seen.update(kw)
+        return {"steps": [{"do": "open Settings", "app": "Settings"}], "say": ""}
+
+    L.run("Open Settings", None, _cfg(), device="pc", decide=_never, fallback=_never, mac=PcMac(), plan=plan)
+    assert seen.get("computer") == "Windows PC"

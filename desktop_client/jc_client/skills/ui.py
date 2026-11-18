@@ -125,7 +125,7 @@ class _MacAX:
         return 0, ""
 
     def find_app(self, name: str):
-        want = name.strip().lower()
+        want = _APP_ALIASES.get(name.strip().lower(), name.strip().lower())
         for w in _window_list(False):
             owner = str(w.get("kCGWindowOwnerName") or "")
             if owner.lower() == want and int(w.get("kCGWindowLayer", 1)) == 0:
@@ -227,6 +227,9 @@ def _window_list(on_screen: bool) -> list:
         else kCGWindowListOptionAll
     return list(CGWindowListCopyWindowInfo(opt, kCGNullWindowID) or [])
 
+
+# Names people use for an app whose window owner is called something else.
+_APP_ALIASES = {"visual studio code": "code", "vs code": "code", "vscode": "code"}
 
 _ax_impl: Any = None
 

@@ -753,3 +753,12 @@ def test_a_menu_opened_by_a_click_is_the_next_look(monkeypatch):
                          look_id=r["look_id"], element=1)
     assert out["look"]["surface"] == "menu" and out["look"]["elements"][0]["label"] == "New Folder"
     assert out["landed"] == "yes" and ad.calls[-1][1]["surface"] == "menu"
+
+
+def test_visual_studio_code_is_found_as_code(monkeypatch):
+    """Live: "Visual Studio Code isn't running" — its window owner is "Code"."""
+    wins = [{"kCGWindowOwnerPID": 77, "kCGWindowOwnerName": "Code", "kCGWindowLayer": 0}]
+    monkeypatch.setattr(ui, "_window_list", lambda on_screen: wins)
+    ax = ui._MacAX.__new__(ui._MacAX)
+    for name in ("Visual Studio Code", "VS Code", "vscode", "code"):
+        assert ax.find_app(name) == (77, "Code"), name

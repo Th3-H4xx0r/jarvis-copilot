@@ -153,3 +153,18 @@ def test_surface_for_leaves_settings_panes_and_plain_words_alone():
 def test_surface_for_skips_system_settings():
     from agent.computer.choices import surface_for
     assert surface_for({"do": "open the View menu"}, anchor="System Settings") is None
+
+
+def test_window_controls_are_never_a_move_unless_asked():
+    """Live: the fallback model clicked close / zoom / full-screen buttons on a notifications step."""
+    from agent.computer.choices import build_choices, parse_choice
+    look = {"elements": [{"i": 1, "role": "AXButton", "label": "close button"},
+                         {"i": 2, "role": "AXButton", "label": "zoom button"},
+                         {"i": 3, "role": "AXButton", "label": "full screen button"},
+                         {"i": 4, "role": "AXButton", "label": "minimize button"},
+                         {"i": 5, "role": "AXButton", "label": "Send"}]}
+    step = {"do": "read my latest notifications"}
+    values = [v for v, _ in build_choices(look, step)]
+    assert "click 5" in values and not any(v in values for v in ("click 1", "click 2", "click 3", "click 4"))
+    assert parse_choice("click 1", look, step) == {"action": "stuck"}
+    assert parse_choice("click 1", look, {"do": "close the window"}) == {"action": "click", "element": 1}

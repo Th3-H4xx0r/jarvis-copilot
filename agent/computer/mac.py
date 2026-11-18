@@ -139,6 +139,15 @@ def supports(device_id: str, skill: str, feature: str) -> bool:
     return feature in props
 
 
+def os_of(device_id: str) -> str:
+    """"windows" or "macos" for a computer (from its advertised skills; "macos" when unknown)."""
+    try:
+        row = next((r for r in _skills() if r.get("device_id") == device_id), None)
+    except Exception:
+        return "macos"
+    return _os_of(row or {})
+
+
 def surface_kinds(device_id: str) -> list:
     """The surfaces this device's ui_look can read (empty for an old client)."""
     try:

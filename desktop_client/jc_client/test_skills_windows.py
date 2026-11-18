@@ -78,3 +78,18 @@ def test_system_commands_cover_the_macs_list():
 def test_spotify_uri_same_as_mac():
     assert h.SPOTIFY_URI.fullmatch("spotify:track:0VjIjW4GlUZAMYd2vXMi3b")
     assert not h.SPOTIFY_URI.fullmatch("https://open.spotify.com/track/x")
+
+
+def test_open_app_resolves_windows_app_names(monkeypatch):
+    """Live: Start-Process -FilePath "Calculator" → "cannot find the file specified"."""
+    from jc_client.skills import windows as w
+    assert w.app_command("Calculator") == "calc.exe"
+    assert w.app_command("settings") == w.app_command("System Settings") == "ms-settings:"
+    assert w.app_command("File Explorer") == w.app_command("Finder") == "explorer.exe"
+    assert w.app_command("notepad") == "notepad.exe"
+    assert w.app_command("Spotify") == "Spotify"            # unknown names pass through
+    seen = []
+    monkeypatch.setattr(w, "_ps", lambda script, **kw: seen.append((script, kw.get("env"))) or "")
+    w.open_app("Calculator")
+    script, env = seen[0]
+    assert env == {"JC_APP": "calc.exe"} and "Get-StartApps" in script   # Start-menu apps as a fallback

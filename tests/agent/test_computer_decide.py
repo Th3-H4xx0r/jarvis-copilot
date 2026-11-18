@@ -168,3 +168,15 @@ def test_plan_steps_reports_a_failed_call():
 
     out = plan_steps("@f:m", "Open Calculator", call=broken)
     assert out["steps"] == [] and "credit balance" in out["error"]
+
+
+def test_plan_names_the_computer_it_drives():
+    from agent.computer.decide import plan_steps
+    prompts = []
+
+    def call(**kw):
+        prompts.append(str(kw))
+        return {"choices": [{"message": {"content": '{"steps": [{"do": "open Settings", "app": "Settings"}]}'}}]}
+
+    plan_steps("@f:m", "Open Settings and go to Display", call=call, computer="Windows PC")
+    assert "Windows PC" in prompts[0] and "their Mac" not in prompts[0]

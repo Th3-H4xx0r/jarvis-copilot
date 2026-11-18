@@ -42,7 +42,7 @@ Reply with ONLY one JSON object:
 - done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
 not the app this task is about."""
 
-_PLAN_PROMPT = """The user asked for something to be done on their Mac. Split it into as few UI steps as possible.
+_PLAN_PROMPT = """The user asked for something to be done on their {computer}. Split it into as few UI steps as possible.
 
 Request: {goal}
 Today: {today}
@@ -54,7 +54,7 @@ Rules (fewer steps = faster):
 - Websites: open the exact page in ONE step with "url" — search results directly (https://www.amazon.com/s?k=…, \
 https://www.google.com/search?q=…, https://www.youtube.com/results?search_query=…) — and "app" = the browser \
 the user named, else "Safari". Never type a web address or a search into a page.
-- Apps: the first step opens the app ("app"). Then one move per step: "click the <label> button" (its visible \
+- Apps: the first step opens the app ("app"){app_names}. Then one move per step: "click the <label> button" (its visible \
 label, one press per step), "type … into the … field" with "text" word for word (no separate step to click \
 the field first), or "press <key>".
 - Something you can only know by looking (a price, a name, a number, a date): add a step \
@@ -211,13 +211,19 @@ def fallback_step(ref, look, goal, step, history, *, instructions="", call=None,
     return Move(_valid(raw, look, step), None, "fallback", int((time.monotonic() - started) * 1000), why=why)
 
 
-def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
+_WINDOWS_APP_NAMES = (" by its Windows name (Settings, File Explorer, Calculator, Notepad, Microsoft Edge, Task "
+                      "Manager — never a Mac app like Finder or System Settings)")
+
+
+def plan_steps(ref, goal, look=None, *, instructions="", call=None, computer="Mac") -> dict:
     """``{"steps": [{do, app?, url?, text?}], "say"}`` from his words alone (no screenshot:
     faster); the goal as one step when the reply can't be read; ``{"steps": [], "error"}`` when the
     planning model itself failed (never guess then: the goal alone names no app to stay on)."""
     notes = f"Notes: {instructions}\n" if instructions else ""
     try:
-        raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today()), look or {}, 300))
+        prompt = _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today(), computer=computer,
+                                     app_names=_WINDOWS_APP_NAMES if "windows" in computer.lower() else "")
+        raw = _json(_call(call, ref, prompt, look or {}, 300))
     except Exception as exc:
         logger.warning("computer: plan failed: %s", exc)
         return {"steps": [], "say": "", "error": str(exc)[:200] or type(exc).__name__}

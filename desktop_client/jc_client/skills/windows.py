@@ -52,6 +52,32 @@ def _com_init() -> None:
 # ── App control ────────────────────────────────────────────────────────────
 
 
+# What to start for an app's everyday name (live: Start-Process "Calculator" → "file not found"); Mac
+# names a plan may still use map to the Windows app that does the same job.
+_APP_COMMANDS = {
+    "calculator": "calc.exe", "calc": "calc.exe",
+    "settings": "ms-settings:", "system settings": "ms-settings:", "windows settings": "ms-settings:",
+    "system preferences": "ms-settings:",
+    "file explorer": "explorer.exe", "explorer": "explorer.exe", "finder": "explorer.exe",
+    "notepad": "notepad.exe", "textedit": "notepad.exe",
+    "task manager": "taskmgr.exe", "activity monitor": "taskmgr.exe",
+    "paint": "mspaint.exe", "snipping tool": "snippingtool.exe", "control panel": "control.exe",
+    "command prompt": "cmd.exe", "powershell": "powershell.exe", "terminal": "wt.exe",
+    "windows terminal": "wt.exe", "edge": "msedge.exe", "microsoft edge": "msedge.exe",
+}
+# Start it; failing that, the Start menu's own app list (Store apps have no .exe on PATH).
+_OPEN_SCRIPT = (
+    "try { Start-Process -FilePath $env:JC_APP -ErrorAction Stop } catch { "
+    "$a = Get-StartApps | Where-Object { $_.Name -like ('*' + $env:JC_APP + '*') } | Select-Object -First 1; "
+    "if ($a) { Start-Process ('shell:AppsFolder\\' + $a.AppID) } else { throw } }"
+)
+
+
+def app_command(name: str) -> str:
+    """The command that starts ``name`` (its everyday name mapped, anything else as given)."""
+    return _APP_COMMANDS.get(str(name or "").strip().lower(), str(name or "").strip())
+
+
 @skill(
     "open_app",
     "Launch an application on the PC by name or path. Common names work via the App Paths "
@@ -62,7 +88,7 @@ def _com_init() -> None:
 def open_app(name: str) -> dict:
     if not name:
         raise ValueError("name required")
-    _ps("Start-Process -FilePath $env:JC_APP", env={"JC_APP": name})
+    _ps(_OPEN_SCRIPT, env={"JC_APP": app_command(name)})
     return {"ok": True, "name": name}
 
 
