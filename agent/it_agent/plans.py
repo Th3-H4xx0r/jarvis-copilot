@@ -7,7 +7,7 @@ import re
 import unicodedata
 from typing import Callable
 
-from agent.it_agent.classify import classify
+from agent.it_agent.classify import POWER_ACTION, classify
 from agent.it_agent.model import (ADMIN_MAX_CHARS, CHECK_KINDS, MAX_PHASES, MAX_STEPS, SHELL_MAX_CHARS, STEP_KINDS,
                                   Brief, Check, Phase, PlanError, Step)
 
@@ -137,6 +137,9 @@ def _step(i: int, j: int, raw) -> Step:
             raise PlanError(f"phase {i} step {j}: command too long (max {cap} characters)")
         if _RESTART.search(command):
             raise PlanError(f"phase {i} step {j}: restart commands aren't steps; set restart_after")
+        if POWER_ACTION.search(command):
+            raise PlanError(f"phase {i} step {j}: sleeping or locking the PC isn't an IT step (power actions are "
+                            "the Agents card's); leave it out")
         if _hidden(command):
             raise PlanError(f"phase {i} step {j}: the command has hidden characters (bidi, zero-width or control)")
     codes = raw.get("ok_exit_codes") or [0]

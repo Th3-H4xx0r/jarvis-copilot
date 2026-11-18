@@ -18,6 +18,8 @@ class Verdict:
 
 # A command word starts the segment or follows a separator — quotes and commas included, so
 # `cmd /c "del …"` and `-ArgumentList '/c','del …'` are read like `del …`.
+# Sleeping or locking the PC (the Agents card's buttons and computer_power do these, never IT steps).
+POWER_ACTION = re.compile(r"\bsetsuspendstate\b|\blockworkstation\b|\bsuspend-computer\b", re.I)
 _W = r"(?:^|(?<=[\s(;{|&\"'`,]))"
 _RULES = [
     ("deletes files", re.compile(
@@ -52,6 +54,8 @@ _RULES = [
         r"\[scriptblock\]::create|\binvokecommand\.(?:invokescript|newscriptblock)|\.invokescript\(", re.I)),
     ("restarts or shuts down the PC", re.compile(
         r"\bshutdown(?:\.exe)?\b|\brestart-computer\b|\bstop-computer\b|\blogoff(?:\.exe)?\b", re.I)),
+    # Live 2026-11-18: an IT run slept the PC through SetSuspendState with no Face ID — twice.
+    ("puts the PC to sleep or locks it", re.compile(POWER_ACTION.pattern, re.I)),
 ]
 # The last net: it says it removes something (a word, not "removed" in a message).
 _GENERIC = ("removes or disables something", re.compile(

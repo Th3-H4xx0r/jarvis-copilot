@@ -24,6 +24,8 @@ Found while mapping the current system
 - [ ] 17. Live 2026-11-18: the in-app Windows update left Jarvis stuck (OnExit deadlocked: no notch/tray, process alive, launches did nothing; updater couldn't swap) — fixed in build 263220418 (bounded exit + hard-exit guard, stuck-instance takeover, updater recovery); installed directly. Tick after his next OTA update applies cleanly.
 - [ ] 18. The PC card says when the Jarvis app isn't running (jc-client up, app down) instead of "offline" for Screen / Remote Desktop / PC Stats — web + iPhone + server. Tick once seen live.
 - [ ] 19. IT agent: his PC has a pending Windows restart — the next Docker run should restart first (reboot_pending fact), then enable WSL. Live run after that.
+- [ ] 20. PC Stats says "PC offline · last seen just now" while the PC is awake (his ask 2026-11-18) — the online flag disagrees with fresh stats.
+- [ ] 21. Waking the PC while it sleeps is unreliable (his ask 2026-11-18) — investigate the wake path (who sends the magic packet) and add a sender that's always there.
 Live series (Terra fallback, Anthropic credits empty): Finder Downloads 4.6 s (Oct 5.6), Settings Wi-Fi 3.5 s (Oct 6.1, no surface misfire), Calendar 8.9 s (Oct 7.1), Calculator 18.9 s (planner wrote one '23*4' step: no batch), Notes false done (clicked Close), File › New Folder via agent-desktop menu path ✓, Wi-Fi name read ✓, VS Code not found, notifications wandered; PC: all three failed at open_app.
 
 Deployed 2026-11-17 (not yet confirmed by him): server + Mac/PC jc-client with every fix above; iPhone builds 263212314 (PC naming) and 263220033 (PC waking/Screen retry); Windows app 263220046 (unlock checks Windows unlocked, Screen says why after RDP, game grace, lock state) + unlock helper refreshed.

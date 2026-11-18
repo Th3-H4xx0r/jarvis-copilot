@@ -113,6 +113,8 @@ _HERMES_CORE_TOOLS = [
     # The IT agent (agent/it_agent/): multi-step PC jobs as Background runs,
     # listed once a paired PC offers pc_shell
     "it_task",
+    # Sleep / wake / lock / unlock / keep-awake for his Mac or PC — the Agents card's buttons
+    "computer_power",
     # Lazy tool-loading meta-tool — only surfaces when agent.lazy_tools is on
     # (gated via check_fn in tools/lazy_tools.py); lets the model load deferred
     # tool schemas on demand.
@@ -214,6 +216,12 @@ TOOLSETS = {
             "model clicks and types from screenshots (agent/computer/)."
         ),
         "tools": ["computer_do"],
+        "includes": []
+    },
+
+    "computer_power": {
+        "description": "Sleep, wake, lock or unlock the user's Mac or PC, or switch keep-awake (the Agents card's buttons).",
+        "tools": ["computer_power"],
         "includes": []
     },
 

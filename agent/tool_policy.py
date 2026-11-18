@@ -94,6 +94,6 @@ def block_message(agent, name, args):
     allowed = getattr(agent, "allowed_tool_names", None)
     if allowed is None or real == "tool_search" or real in allowed:
         return None
-    if real == "it_task" and allowed:
-        return None  # any node with tools may hand a PC job to the IT agent (not a "none" node)
+    if real in ("it_task", "computer_power") and allowed:
+        return None  # any node with tools may hand a PC job to the IT agent or sleep/wake a computer
     return json.loads(refusal(real))["error"]

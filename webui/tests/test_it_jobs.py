@@ -206,3 +206,11 @@ def test_start_passes_whether_he_asked(monkeypatch):
     monkeypatch.setattr(it_jobs, "make_runner", lambda *a, **k: seen.update(kw=k) or (lambda job: ""))
     it_jobs.start_it_job("s1", "install Docker Desktop")
     assert seen["kw"]["pc_allowed"] is True
+
+
+def test_one_it_run_per_pc_at_a_time(monkeypatch):
+    # Live 2026-11-18: two sleep runs on one PC; the second slept it again the moment it woke.
+    _setup_start(monkeypatch)
+    _job("j-running", it={"state": "working"}, device_id="pc")
+    out = it_jobs.start_it_job("s1", "install Docker Desktop")
+    assert out["ok"] is False and "already running" in out["error"]

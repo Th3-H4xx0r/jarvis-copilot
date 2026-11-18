@@ -2957,6 +2957,10 @@ def _ensure_canonical_tools(agent) -> None:
             # The IT agent (agent/it_agent/); listed once a paired PC offers pc_shell.
             importlib.import_module("tools.it_task_tool")
             tools += list(registry.get_definitions({"it_task"}) or [])
+        if "computer_power" not in names:
+            # Sleep / wake / lock his Mac or PC (the Agents card's buttons), never an IT job.
+            importlib.import_module("tools.computer_power_tool")
+            tools += list(registry.get_definitions({"computer_power"}) or [])
         agent.tools = canonical_tools(tools)
         agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {
             (t.get("function") or {}).get("name") for t in agent.tools if isinstance(t, dict)}

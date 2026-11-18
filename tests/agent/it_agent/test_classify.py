@@ -87,3 +87,13 @@ def test_install_route_commands_run_without_asking(cmd):
 def test_every_named_process_must_be_asked_for():
     assert classify("Stop-Process -Name chrome, explorer", "close chrome").reason == "stops explorer, which you didn't name"
     assert not classify("Get-Process chrome | ForEach-Object { $_.Kill() }", "close chrome").destructive
+
+
+@pytest.mark.parametrize("cmd", [
+    "Add-Type -TypeDefinition 'public static class S { [DllImport(\"powrprof.dll\")] public static extern bool SetSuspendState(bool h, bool f, bool d); }'; [S]::SetSuspendState($false,$false,$false)",
+    "rundll32.exe powrprof.dll,SetSuspendState 0,1,0", "shutdown /h", "rundll32 user32.dll,LockWorkStation",
+    "[System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)"])
+def test_sleeping_or_locking_the_pc_needs_face_id(cmd):
+    # Live 2026-11-18: an IT run slept the PC through SetSuspendState with no Face ID — twice.
+    v = classify(cmd, "install docker desktop on my pc")
+    assert v.destructive and v.reason in ("puts the PC to sleep or locks it", "restarts or shuts down the PC")

@@ -191,6 +191,17 @@ def _attach_to_parent_reply(session_id: str, job_id: str) -> None:
         logger.warning("IT job card not attached", exc_info=True)
 
 
+def _running_on(device_id: str) -> str:
+    """The summary of an IT job still running on this PC, or ''."""
+    from agent import escalation
+    with escalation._lock:
+        for job in escalation._jobs.values():
+            if (job.get("reason") == "it_task" and job.get("status") == "running"
+                    and job.get("device_id") == device_id):
+                return str(job.get("summary") or "a job")[:80]
+    return ""
+
+
 def start_it_job(task_id: str, goal: str) -> dict:
     from agent import escalation, mac_browser_gate
     sid = str(task_id or "").split("~", 1)[0]
@@ -205,11 +216,17 @@ def start_it_job(task_id: str, goal: str) -> dict:
     device_id, device_name, error = pc.find_pc(f"{goal} {request_text}")
     if not device_id:
         return {"ok": False, "error": error}
+    busy = _running_on(device_id)
+    if busy:
+        # Live 2026-11-18: two runs on one PC — the second acted the moment the PC woke.
+        return {"ok": False, "error": f"An IT job is already running on {device_name} ({busy}). It has a Stop "
+                                      "button on its card; start this one after it finishes."}
     job_id = escalation.start_escalation(
         session_id=sid, reason="it_task", summary=goal, model=ref,
         runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name,
                            pc_allowed=asked_for_pc(request_text, screen_allowed)),
         parent={**IT_PARENT, "question": request_text or goal}, origin=hr.job_origin(sid, "chat"))
+    escalation.update_job(job_id, device_id=device_id)
     if "~" in str(task_id):
         _attach_to_parent_reply(sid, job_id)
     return {"ok": True, "job_id": job_id, "device_name": device_name}

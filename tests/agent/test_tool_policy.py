@@ -110,3 +110,9 @@ def test_claude_code_engine_dispatch_honours_the_node_filter():
     agent = _Agent(allowed=frozenset())
     out = json.loads(invoke_tool(agent, "terminal", {"command": "ls"}, "task"))
     assert "terminal" in out["error"]
+
+
+def test_any_node_with_tools_may_sleep_or_wake_a_computer():
+    from agent.tool_policy import block_message
+    assert block_message(_Agent(allowed=frozenset({"web_search"})), "computer_power", {}) is None
+    assert "computer_power" in block_message(_Agent(allowed=frozenset()), "computer_power", {})

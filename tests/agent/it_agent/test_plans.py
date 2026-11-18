@@ -131,3 +131,9 @@ def test_research_only_needs_a_real_true():
 def test_hidden_characters_in_commands_are_rejected():
     with pytest.raises(PlanError, match="hidden characters"):
         parse_plan(_plan(steps=[{"kind": "admin", "command": "echo safe\u202e;del C:\\x", "why": "x"}]))
+
+
+def test_power_actions_are_not_it_steps():
+    for cmd in ("rundll32.exe powrprof.dll,SetSuspendState 0,1,0", "rundll32 user32.dll,LockWorkStation"):
+        with pytest.raises(PlanError, match="power actions"):
+            parse_plan(_plan(steps=[{"kind": "shell", "command": cmd}]))

@@ -272,3 +272,8 @@ def test_an_explicit_platform_list_still_gets_the_registry():
 
     enabled = _get_platform_tools({"platform_toolsets": {"cli": ["web", "skills", "cronjob"]}}, "cli")
     assert "registry" in enabled
+
+
+def test_computer_power_is_a_core_tool_with_its_own_toolset():
+    from toolsets import TOOLSETS, _HERMES_CORE_TOOLS
+    assert "computer_power" in _HERMES_CORE_TOOLS and TOOLSETS["computer_power"]["tools"] == ["computer_power"]
