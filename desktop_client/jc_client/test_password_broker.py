@@ -122,3 +122,42 @@ def test_pending_counts_for_hold():
     rig.broker.request("admin", "Installer")
     assert len(seen["pending"]) == 1
     assert rig.broker.pending() == []
+
+
+NOT_TAKEN = "Windows didn't take the PIN: the PC is still at the sign-in screen."
+
+
+def test_pc_unlock_windows_didnt_take_it_is_a_failure_not_filled(caplog):
+    # The PC app typed, but Windows stayed at the sign-in screen: it answers ok:false and that must
+    # reach the server as a failure (its phone alert), never as "filled".
+    rig = Rig(app_reply={"ok": False, "error": NOT_TAKEN}, on_request=answers())
+    with caplog.at_level("INFO", logger="jc_client.password_broker"):
+        out = rig.broker.request("unlock", "Unlock PC")
+    assert out == {"ok": False, "error": NOT_TAKEN}
+    assert rig.done()["ok"] is False and rig.done()["error"] == NOT_TAKEN
+    assert rig.ui[-1] == {"type": "password_done", "id": rig.done()["id"], "ok": False, "error": NOT_TAKEN}
+    assert "not filled" in caplog.text and ": filled" not in caplog.text
+    assert len(rig.asked) == 1   # never retried
+
+
+def test_app_reply_without_a_real_true_ok_is_a_failure():
+    for reply in ({}, {"ok": "true"}, {"ok": 1}, {"ok": None}, {"error": "x"}):
+        rig = Rig(app_reply=reply, on_request=answers())
+        assert rig.broker.request("unlock", "Unlock PC")["ok"] is False, reply
+        assert rig.done()["ok"] is False and rig.done()["error"]
+
+
+def test_app_that_never_answers_is_a_failure():
+    def boom(msg, timeout):
+        raise TimeoutError("no reply")
+    rig = Rig(on_request=answers())
+    rig.broker._ask_app = boom
+    out = rig.broker.request("unlock", "Unlock PC")
+    assert out["ok"] is False and "didn't answer" in out["error"]
+
+
+def test_fill_timeout_covers_the_pc_unlock_check():
+    # The PC helper: up to 8 s to reach the sign-in screen, ~3 s to settle/clear/type, 8 s watching
+    # for the unlock, then up to 4 s asking Windows: the app must get longer than that to answer.
+    from jc_client import password_broker
+    assert password_broker._FILL_TIMEOUT >= 30.0

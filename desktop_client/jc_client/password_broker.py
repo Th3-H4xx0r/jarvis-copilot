@@ -27,9 +27,13 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 120.0
 MAX_CONTEXT = 2400   # the whole request text: his signature covers it
-# The app's lock-screen fill wakes the screen, waits for it to settle, clears
-# the field, types and then watches up to 8 s for the unlock: ~15 s at worst.
-_FILL_TIMEOUT = 30.0
+# How long the app gets to answer a fill. The PC's lock-screen fill (JarvisUnlock)
+# takes up to 8 s to reach the sign-in screen, ~3 s to lift the picture, clear the
+# box and type, watches up to 8 s for Windows to unlock, then asks Windows for up
+# to 4 s whose session is on the console: ~23 s at worst. It answers ok only when
+# Windows really unlocked; anything else (ok:false, no answer, a reply without a
+# real true "ok") is a failure, so the server's "password not filled" alert fires.
+_FILL_TIMEOUT = 40.0
 _SUDO_REMEMBER = 300.0
 
 
@@ -94,7 +98,7 @@ class PasswordBroker:
                                    _FILL_TIMEOUT) or {}
         except Exception as exc:  # noqa: BLE001
             result = {"ok": False, "error": f"The Mac app didn't answer ({exc})"}
-        ok = bool(result.get("ok"))
+        ok = result.get("ok") is True   # a JSON true, never a truthy string or number
         error = None if ok else str(result.get("error") or "The password wasn't filled")
         self._finish(rid, ok, error)
         if not ok:
