@@ -106,6 +106,16 @@ def _ad_client():
 _ad_client_real = _ad_client
 
 
+def _ad_expected_path() -> str:
+    try:
+        import os
+        from jc_client.agent_desktop_install import PINNED_VERSION
+        from jc_client.logger import state_dir
+        return os.path.join(str(state_dir()), "bin", f"agent-desktop-{PINNED_VERSION}", "agent-desktop.exe")
+    except Exception as exc:  # noqa: BLE001
+        return f"(unknown: {exc})"
+
+
 def read_window(app: Optional[str] = None, max_elements: int = 250, width: int = 1024,
                 surface: Optional[str] = None) -> dict:
     be = _backend()
@@ -125,7 +135,8 @@ def read_window(app: Optional[str] = None, max_elements: int = 250, width: int =
         if surface:  # the taskbar, the tray…: nothing of ours reads those
             return {"ok": False, "error": note}
     elif surface:
-        return {"ok": False, "error": "That needs agent-desktop (run `jc-client install-agent-desktop`)."}
+        return {"ok": False, "error": f"That needs agent-desktop (not found at {_ad_expected_path()}; "
+                                      "run `jc-client install-agent-desktop`)."}
     if app:
         found = be.find_window(app)
         if not found:

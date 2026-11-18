@@ -265,3 +265,9 @@ def test_ad_client_failure_is_logged_once(monkeypatch, caplog):
         assert ui_win._ad_client() is None
     hits = [r for r in caplog.records if "agent-desktop" in r.getMessage()]
     assert len(hits) == 1 and "no access to the state dir" in hits[0].getMessage()
+
+
+def test_missing_agent_desktop_says_where_it_looked(be, monkeypatch, tmp_path):
+    monkeypatch.setattr(ui_win, "_ad_expected_path", lambda: str(tmp_path / "agent-desktop.exe"))
+    out = ui_win.read_window(surface="taskbar")
+    assert out["ok"] is False and str(tmp_path / "agent-desktop.exe") in out["error"]
