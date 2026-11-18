@@ -126,6 +126,7 @@ class Run:
     state: str = "researching"
     status: str = "running"
     end_reason: str = ""
+    end_detail: str = ""         # what the report's outcome line names (the command, the reason, the minutes)
     brief: Optional[Brief] = None
     phases: list = field(default_factory=list)
     phase_index: int = 0
