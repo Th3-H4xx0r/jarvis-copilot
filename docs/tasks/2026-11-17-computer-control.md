@@ -20,3 +20,6 @@ Live series (Terra fallback, Anthropic credits empty): Finder Downloads 4.6 s (O
 
 Deployed 2026-11-17 (not yet confirmed by him): server + Mac/PC jc-client with every fix above; iPhone builds 263212314 (PC naming) and 263220033 (PC waking/Screen retry); Windows app 263220046 (unlock checks Windows unlocked, Screen says why after RDP, game grace, lock state) + unlock helper refreshed.
 Still to try live: a real locked-screen unlock (normal lock and after Remote Desktop); Screen after Remote Desktop; the ≥30% speed target once his Anthropic API credits are topped up.
+
+IT-agent (his ask 2026-11-18): "it needs to do deep research … very structured … like a human IT support agent (e.g. install Docker Desktop completely)". Brainstorming in progress. His pick: PC access = Terminal + Face ID admin (PowerShell/winget; admin steps ask Face ID on the phone, run elevated via the PC helper; no UAC clicking). Next: approach pick (A skill+tools on the long-running node / B coded supervisor / C hybrid — recommended C), then spec → plan.
+Speed fix shipped 2026-11-18: his 'Chrome Google search → Notepad' task 2m+ → 19 s (PC click crash fixed, URL in named browser, computer.planner_model=@celeris:celeris-1 on the server, list reads, plan repair).
