@@ -35,12 +35,22 @@ MAX_CONTEXT = 2400   # the whole request text: his signature covers it
 # real true "ok") is a failure, so the server's "password not filled" alert fires.
 _FILL_TIMEOUT = 40.0
 _SUDO_REMEMBER = 300.0
+# The IT agent's commands (W3): his signed yes runs the exact command — elevated through the PC helper
+# (admin-run) or unelevated by jc-client (pc-run). The context is the whole command, never cut.
+COMMAND_KINDS = frozenset({"admin-run", "pc-run"})
+
+
+def _not_run(status: str, error: str) -> dict:
+    return {"ok": False, "status": status, "exit_code": None, "output": "", "truncated": False, "timed_out": False,
+            "duration_ms": 0, "error": error}
 
 
 class _Request:
-    def __init__(self, rid: str, kind: str, context: str, nonce: str, now: float) -> None:
+    def __init__(self, rid: str, kind: str, context: str, nonce: str, now: float, why: str = "") -> None:
         self.public = {"id": rid, "kind": kind, "context": context, "nonce": nonce,
                        "created": now, "expires": now + TIMEOUT}
+        if kind in COMMAND_KINDS:
+            self.public["why"] = (why or "")[:300]
         self.event = threading.Event()
         self.answer: Optional[dict] = None
 
@@ -64,8 +74,9 @@ class PasswordBroker:
             return [dict(r.public) for r in self._reqs.values()
                     if r.answer is None and r.public["expires"] > now]
 
-    def request(self, kind: str, context: str, *, ppid: Optional[int] = None) -> dict:
-        """Ask, wait up to TIMEOUT for his answer, then fill. Blocks the caller."""
+    def request(self, kind: str, context: str, *, ppid: Optional[int] = None, why: str = "",
+                run_timeout: Optional[int] = None) -> dict:
+        """Ask, wait up to TIMEOUT for his answer, then fill (or, for an IT command, run it). Blocks."""
         now = self._clock()
         if kind == "sudo" and ppid:
             with self._lock:
@@ -73,7 +84,8 @@ class PasswordBroker:
                 again = ppid in self._sudo_given
             if again:
                 return {"ok": False, "error": "The Mac password didn't work (sudo asked again)"}
-        req = _Request(secrets.token_hex(8), kind, (context or "")[:MAX_CONTEXT], secrets.token_hex(16), now)
+        text = (context or "") if kind in COMMAND_KINDS else (context or "")[:MAX_CONTEXT]
+        req = _Request(secrets.token_hex(8), kind, text, secrets.token_hex(16), now, why=why)
         rid = req.public["id"]
         with self._lock:
             self._reqs[rid] = req
@@ -83,6 +95,8 @@ class PasswordBroker:
             if not answered:
                 req.answer = {"decision": "timeout"}
             answer = req.answer
+        if kind in COMMAND_KINDS:
+            return self._run_command(rid, req, answer, int(run_timeout or 600))
         if answer.get("decision") == "timeout":
             return self._finish(rid, False, "No answer in 2 minutes")
         if answer.get("decision") != "allow":
@@ -112,12 +126,43 @@ class PasswordBroker:
             return {"ok": True, "password": result.get("password") or ""}
         return {"ok": True}
 
+    def _run_command(self, rid: str, req: _Request, answer: dict, run_timeout: int) -> dict:
+        if answer.get("decision") == "timeout":
+            self._finish(rid, False, "No answer in 2 minutes")
+            return _not_run("approval_timeout", "No answer in 2 minutes")
+        if answer.get("decision") != "allow":
+            self._finish(rid, False, "Not allowed")
+            return _not_run("denied", "Not allowed")
+        msg = {"type": "admin_run" if req.public["kind"] == "admin-run" else "pc_run", "id": rid,
+               "command": req.public["context"], "nonce": req.public["nonce"], "proof": answer["proof"],
+               "timeout_s": run_timeout}
+        try:
+            result = self._ask_app(msg, run_timeout + 15) or {}
+        except Exception as exc:  # noqa: BLE001
+            result = {"ok": False, "error": f"The command didn't run ({exc})"}
+        if result.get("ok") is not True:   # a JSON true, never a truthy string or number
+            out = _not_run("failed", str(result.get("error") or "The command didn't run"))
+            self._finish(rid, False, out["error"])
+            return out
+        output = result.get("output")
+        if output is None:   # pc-run: jc-client's own runner answers with stdout/stderr
+            output = "\n".join(p for p in (str(result.get("stdout") or ""), str(result.get("stderr") or "")) if p)
+        self._finish(rid, True, None)
+        return {"ok": True, "status": "ran", "exit_code": result.get("exit_code"), "output": str(output)[-16000:],
+                "truncated": bool(result.get("truncated")), "timed_out": bool(result.get("timed_out")),
+                "duration_ms": int(result.get("duration_ms") or 0), "error": ""}
+
     def on_answer(self, rid: str, decision: str, ts, signature) -> bool:
         """His iPhone answer (relayed by the server). The first answer wins."""
         return self._answer(rid, {"decision": decision, "proof": {"ts": ts, "signature": signature}})
 
     def on_local_answer(self, rid: str, decision: str) -> bool:
-        """His answer in the Mac menu bar (the app checked Touch ID itself)."""
+        """His answer in the Mac menu bar (the app checked Touch ID itself). Never for an IT command: only
+        his signed iPhone approval of the exact command counts."""
+        with self._lock:
+            req = self._reqs.get(str(rid or ""))
+            if req is not None and req.public["kind"] in COMMAND_KINDS:
+                return False
         return self._answer(rid, {"decision": decision, "proof": {"local": True}})
 
     def _answer(self, rid: str, answer: dict) -> bool:

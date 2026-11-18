@@ -570,6 +570,8 @@ class Service:
                     from jc_client.pc_power import PcPower
                     self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast)   # the PC in the phone's Agents card
                     self._power.start()
+                    from jc_client.skills import pc_it
+                    pc_it.set_power(self._power)   # admin_run asks his Face ID through its broker
                 except Exception as exc:  # noqa: BLE001 — never fatal
                     log.warning("pc power unavailable: %s", exc)
                     self._power = None
@@ -1127,7 +1129,7 @@ class Service:
         )
         t.start()
         t0 = time.monotonic()
-        if not done.wait(timeout=_SKILL_TIMEOUT_S):
+        if not done.wait(timeout=skills.watchdog_s(name, args)):
             elapsed = time.monotonic() - t0
             log.warning(
                 "skill %s call_id=%s exceeded %.0fs — abandoning (thread leaks)",

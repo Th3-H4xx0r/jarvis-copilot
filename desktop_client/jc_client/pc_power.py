@@ -310,7 +310,17 @@ class PcPower:
             log.warning("remote desktop credential not sent up")
 
     def _ask_app(self, msg: dict, timeout: float) -> dict:
-        """password_fill to the Jarvis app (broadcast); it answers with password_fill_result."""
+        """password_fill to the Jarvis app (broadcast); it answers with password_fill_result.
+        An approved IT command skips the app: admin_run goes to the elevated helper (which checks his
+        signature itself), pc_run runs here, unelevated."""
+        if msg.get("type") == "admin_run":
+            from jc_client import helper_pipe
+            proof = msg.get("proof") or {}
+            return helper_pipe.admin_run(str(msg.get("command") or ""), str(msg.get("nonce") or ""), proof.get("ts"),
+                                         str(proof.get("signature") or ""), int(msg.get("timeout_s") or 600))
+        if msg.get("type") == "pc_run":
+            from jc_client.skills import pc_it
+            return pc_it.run_powershell(str(msg.get("command") or ""), int(msg.get("timeout_s") or 600))
         rid = str(msg.get("id") or "")
         event, holder = threading.Event(), {}
         if msg.get("type") == "password_release":

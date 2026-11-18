@@ -32,6 +32,7 @@ def skill(
     input_schema: dict | None = None,
     *,
     destructive: bool = False,
+    watchdog: Callable[[dict], float] | None = None,
 ):
     """Decorator: register a function as a remotely-callable skill.
 
@@ -45,6 +46,9 @@ def skill(
             doesn't gate these client-side (per the no-confirmation
             choice) but the marker is sent in the manifest so the
             agent / server-side ACL can treat them differently.
+        watchdog: ``args -> seconds`` the service waits for this skill before
+            giving up (default 20 s); long skills (the IT agent's pc_shell)
+            set it from their own timeout.
     """
     schema = input_schema or {"type": "object"}
 
@@ -56,6 +60,7 @@ def skill(
                 "input_schema": schema,
                 "fn": fn,
                 "destructive": destructive,
+                "watchdog": watchdog,
             }
         return fn
 
@@ -118,6 +123,22 @@ def invoke(name: str, args: dict | None = None) -> Any:
     return fn(**args)
 
 
+DEFAULT_WATCHDOG_S = 20.0
+
+
+def watchdog_s(name: str, args: dict | None = None) -> float:
+    """How long the service waits for one call of ``name`` before answering with a timeout."""
+    with _REGISTRY_LOCK:
+        entry = _REGISTRY.get(name)
+    fn = (entry or {}).get("watchdog")
+    if fn is None:
+        return DEFAULT_WATCHDOG_S
+    try:
+        return float(fn(args or {}))
+    except Exception:  # noqa: BLE001
+        return DEFAULT_WATCHDOG_S
+
+
 def has_skill(name: str) -> bool:
     with _REGISTRY_LOCK:
         return name in _REGISTRY
@@ -165,6 +186,14 @@ def load_all(allow_shell: bool = False) -> None:
             import jc_client.skills.ui  # noqa: F401 (registers via decorator)
         except Exception as exc:
             log.warning("Failed to load ui skills: %s", exc)
+
+    # The IT agent's terminal and Face ID admin relay on the PC (server-only skills).
+    if sys.platform == "win32":
+        try:
+            from jc_client.skills import pc_it
+            pc_it.register()
+        except Exception as exc:
+            log.warning("Failed to load IT agent skills: %s", exc)
 
     # Fast computer control on the PC (ui_look / ui_do over UI Automation).
     if sys.platform == "win32":
