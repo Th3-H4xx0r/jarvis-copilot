@@ -342,11 +342,22 @@ class Registry:
             logger.warning("screen shares: could not save state: %s", exc)
 
     # views
+    def _online(self, s: _Share, now: float) -> bool:
+        """The Mac polls the share list every 1–2 s; the PC every 60 s, so for it "online" is its
+        live connection (live: five PC shares read as offline and were never picked up)."""
+        if s.device_id and _os_of(s.device_id) == "windows":
+            try:
+                from api import device_bridge
+                return s.device_id in set(device_bridge.connected_device_ids())
+            except Exception:  # noqa: BLE001
+                pass
+        return (now - max(self._mac_seen, s.mac_seen)) <= MAC_FRESH
+
     def view(self, s: _Share, now: Optional[float] = None) -> dict:
         now = now if now is not None else _now()
         return {
             "id": s.id, "reason": s.reason, "status": s.status,
-            "mac_online": (now - max(self._mac_seen, s.mac_seen)) <= MAC_FRESH,
+            "mac_online": self._online(s, now),
             "viewers": sum(1 for t in s.viewers.values() if now - t <= VIEWER_FRESH),
             "started_at": _iso(s.started_at), "ended_at": _iso(s.ended_at),
             "replay_url": f"/api/screen/replays/{s.id}.mp4" if s.replay else None,

@@ -307,6 +307,8 @@ enum AgentsMacPowerCopy {
     static let slowWakeAfter: TimeInterval = 60
     /// The server stops honouring a wake intent this old.
     static let wakeExpiresAfter: TimeInterval = 1200
+    /// A PC wakes in seconds or not at all (no deep-sleep timer like the Mac's): stop "Waking…" sooner.
+    static let pcWakeExpiresAfter: TimeInterval = 120
     /// "Keep awake" turns itself off after this (`mac_power.py` KEEP_AWAKE_MAX).
     static let keepAwakeHours = 12
 
@@ -325,9 +327,10 @@ enum AgentsMacPowerCopy {
         }
         if let asked = mac.wakeRequestedAt {
             let waited = now.timeIntervalSince(asked)
-            if waited < wakeExpiresAfter {
-                return Status(tone: .waking, label: "Waking…",
-                              detail: waited > slowWakeAfter ? "up to 15 min from deep sleep" : nil)
+            if waited < (mac.isPC ? pcWakeExpiresAfter : wakeExpiresAfter) {
+                // Jarvis on the PC only starts after he signs in: a woken PC can sit at the sign-in screen.
+                let slow = mac.isPC ? "It may be at the sign-in screen" : "up to 15 min from deep sleep"
+                return Status(tone: .waking, label: "Waking…", detail: waited > slowWakeAfter ? slow : nil)
             }
         }
         let asleep = mac.state == .sleeping

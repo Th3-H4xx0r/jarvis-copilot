@@ -230,6 +230,7 @@ class AgentsCore:
 
     def on_disconnect(self, device_id) -> None:
         self.presence.on_disconnect(device_id, self._name(device_id))
+        self._changed()  # the phone only updates on pushes: show the computer gone now
 
     def on_chunk(self, device_id, data) -> None:
         ckey = str(data.get("ckey") or "")

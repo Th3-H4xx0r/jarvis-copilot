@@ -99,3 +99,8 @@ def test_invoke_allows_unguarded_skill_in_game(in_game):
 def test_current_is_off_without_a_game_mode():
     game_mode.set_current(None)
     assert game_mode.current() == OFF
+
+
+def test_full_screen_explorer_and_snipping_tool_are_not_games():
+    for exe in ("explorer.exe", "SnippingTool.exe"):
+        assert evaluate(fg(exe), set(), GAMES) == OFF, exe

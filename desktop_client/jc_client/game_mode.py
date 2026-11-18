@@ -57,7 +57,8 @@ _SHELL_CLASSES = frozenset({"Progman", "WorkerW", "Shell_TrayWnd", "Shell_Second
 # Windows' own fullscreen hosts (touch keyboard / IME, lock and sign-in screens, Start, search):
 # fullscreen, but never a game (an idle PC read as "in a game (fullscreen textinputhost.exe)").
 _SYSTEM_HOSTS = frozenset({"textinputhost.exe", "lockapp.exe", "logonui.exe", "searchhost.exe", "searchapp.exe",
-                           "startmenuexperiencehost.exe", "shellexperiencehost.exe"})
+                           "startmenuexperiencehost.exe", "shellexperiencehost.exe", "explorer.exe",
+                           "snippingtool.exe"})
 
 
 def evaluate(fg: Optional[ForegroundInfo], procs: Iterable[str], anticheat_games: Iterable[str]) -> GameState:

@@ -96,7 +96,7 @@ def test_lock_sends_set_frame(tmp_path):
     rig = Rig(tmp_path)
     rig.store.on_status(PC, PC_STATUS)
     assert rig.store.lock(PC) == {"ok": True, "delivered": True}
-    assert rig.frames[-1] == (PC, {"type": "mac_power_set", "lock": True})
+    assert rig.frames[-1] == (PC, {"type": "mac_power_set", "ts": rig.t, "lock": True})
 
 
 def test_unlock_pc_asks_the_pc(tmp_path):
@@ -160,6 +160,7 @@ def test_pc_shows_asleep_once_it_says_so_even_with_the_socket_open(tmp_path):
     assert _row(rig, PC)["state"] == "awake"
     rig.store.on_sleeping(PC)                     # device_sleeping; the socket still looks open
     assert PC in rig.connected and _row(rig, PC)["state"] == "sleeping"
+    rig.t += 30                                   # (a report seconds after the mark is its last one going down)
     rig.store.on_status(PC, PC_STATUS)            # reports in after waking
     assert _row(rig, PC)["state"] == "awake"
 

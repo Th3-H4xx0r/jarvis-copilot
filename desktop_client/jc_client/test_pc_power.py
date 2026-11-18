@@ -237,3 +237,24 @@ def test_service_routes_every_power_frame_the_module_handles():
     handled = set(re.findall(r't == "([a-z_]+)"', inspect.getsource(pc_power.PcPower.handle_frame)))
     assert "rdp_credential_request" in POWER_FRAMES
     assert handled <= set(POWER_FRAMES), handled - set(POWER_FRAMES)
+
+
+# ── live 2026-11-17: Sleep flipped back to Awake; a Sleep pressed while asleep ran on the next wake ──
+
+def test_let_sleep_sends_no_awake_report_on_its_way_down():
+    rig = Rig()
+    rig.power.handle_frame({"type": "mac_power_set", "let_sleep": True})
+    assert rig.suspends == [1]
+    assert not [f for f in rig.sent if isinstance(f, dict) and f.get("name") == "mac_power_status"]
+
+
+def test_old_sleep_and_lock_commands_are_dropped():
+    import time
+    rig = Rig()
+    stale = time.time() - 60          # queued while the PC slept, delivered when it woke
+    rig.power.handle_frame({"type": "mac_power_set", "let_sleep": True, "ts": stale})
+    rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": stale})
+    assert rig.suspends == [] and rig.locks == []
+    rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": time.time()})
+    rig.power.handle_frame({"type": "mac_power_set", "lock": True})      # an older server sends no ts
+    assert rig.locks == [1, 1]

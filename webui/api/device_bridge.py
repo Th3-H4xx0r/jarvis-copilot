@@ -68,6 +68,8 @@ class _DeviceConn:
         self.connected_at = time.time()
         self.last_seen = time.time()
         self.closed = False
+        # It sends the 20 s text ping (jc-client): silence then means the link is dead.
+        self.pings = False
         # session_id -> {"on_frame": callable(str), "on_event": callable(str, dict)}
         # Used by the MCP-relay channel (Phase 2): tunnels MCP JSON-RPC frames
         # to a Playwright MCP running on the device. Separate from `pending`
@@ -453,9 +455,27 @@ def device_name(device_id: str) -> str:
     return "" if name == "device" else name
 
 
+def _stale_after() -> float:
+    try:
+        return max(30.0, float(os.environ.get("JC_BRIDGE_STALE_S") or 70))
+    except ValueError:
+        return 70.0
+
+
+_STALE_S = _stale_after()
+
+
+def _stale(conn, now: float) -> bool:
+    """A computer that pings every 20 s but has sent nothing for _STALE_S: asleep or gone. Through the
+    Cloudflare tunnel the server's socket never fails (live: a sleeping PC stayed "connected" 23 min)."""
+    return (bool(getattr(conn, "pings", False)) and getattr(conn, "os", "") in ("windows", "macos")
+            and now - float(getattr(conn, "last_seen", now)) > _STALE_S)
+
+
 def connected_device_ids() -> list[str]:
+    now = time.time()
     with _REG_LOCK:
-        return [d for d, c in _REG.items() if not c.closed]
+        return [d for d, c in _REG.items() if not c.closed and not _stale(c, now)]
 
 
 def _push_reachable(device: dict) -> bool:
@@ -1457,6 +1477,10 @@ def _pump(conn: _DeviceConn) -> None:
                 last_ping = now
             except Exception:
                 return
+        if _stale(conn, now):
+            logger.info("device bridge: %s (%s) silent for %.0fs — dropping the dead link",
+                        conn.name, conn.device_id[:8], now - conn.last_seen)
+            return
 
 
 # Per-device skill cap, so a misbehaving device can't bloat the registry. It was
@@ -1634,6 +1658,7 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         _set_topics(conn, msg.get("topics"))
         return
     if t == "ping":
+        conn.pings = True
         try:
             _ws_send_text(conn, json.dumps({"type": "pong"}))
         except Exception:

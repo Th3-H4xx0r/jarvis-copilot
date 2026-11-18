@@ -26,6 +26,8 @@ log = logging.getLogger(__name__)
 
 INTENT_MAX = 1200.0       # a wake request older than this is forgotten
 KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
+PC_STATUS_FRESH = 150.0        # the PC reports every 60 s: three missed reports = not awake
+SLEEP_QUIET = 10.0             # an "awake" report this soon after a sleep mark is its last one going down
 REQUEST_TTL = 120.0
 MAC_TOPIC = "com.jarviscopilot.mac"
 # How a request can end without him needing a push about it.
@@ -121,7 +123,6 @@ class MacPowerStore:
         senders.sort(key=lambda d: self._os_of(d) != "macos")      # the Mac first
         if not senders:
             return {"ok": False, "error": "No other computer is online to wake the PC."}
-        self._update(did, wake_requested_at=self._clock())
         via = self._name_of(senders[0]) or "your other computer"
         args = {"mac": mac}
         if status.get("wifi_ip"):
@@ -131,6 +132,7 @@ class MacPowerStore:
         if not res.get("ok") or inner.get("ok") is False:
             return {"ok": False, "error": f"{via} couldn't send the wake signal: "
                                           f"{inner.get('error') or res.get('error') or 'no answer'}"}
+        self._update(did, wake_requested_at=self._clock())  # only once the signal went (else "Waking…" stuck)
         return {"ok": True, "sent": True, "via": via}
 
     def wake(self, did: str) -> dict:
@@ -160,7 +162,7 @@ class MacPowerStore:
             if did not in self._devices:
                 return
             d = self.device(did)
-            frame = {"type": "mac_power_set", "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
+            frame = {"type": "mac_power_set", "ts": self._clock(), "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
             if d.get("sleeping_at") is not None:
                 d["sleeping_at"] = None   # it connected: awake again
                 self._save()
@@ -168,15 +170,15 @@ class MacPowerStore:
 
     def keep_awake(self, did: str, on: bool) -> dict:
         self._update(did, keep_awake=bool(on), keep_awake_at=self._clock())
-        return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "keep_awake": bool(on)})}
+        return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "ts": self._clock(), "keep_awake": bool(on)})}
 
     def timer(self, did: str, on: bool) -> dict:
         self._update(did, timer_on=bool(on))
-        return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "timer_on": bool(on)})}
+        return {"ok": True, "delivered": self._send(did, {"type": "mac_power_set", "ts": self._clock(), "timer_on": bool(on)})}
 
     def let_sleep(self, did: str) -> dict:
         self._update(did, keep_awake=False, wake_requested_at=None)
-        delivered = self._send(did, {"type": "mac_power_set", "let_sleep": True})
+        delivered = self._send(did, {"type": "mac_power_set", "ts": self._clock(), "let_sleep": True})
         if delivered and self._is_pc(did):
             self.on_sleeping(did)   # the PC suspends at once (the Mac may decline: it says when it sleeps)
         return {"ok": True, "delivered": delivered}
@@ -194,7 +196,7 @@ class MacPowerStore:
             return (self._devices.get(did) or {}).get("sleeping_at") is not None
 
     def lock(self, did: str) -> dict:
-        return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "lock": True}))}
+        return {"ok": True, "delivered": bool(self._send(did, {"type": "mac_power_set", "ts": self._clock(), "lock": True}))}
 
     def unlock(self, did: str) -> dict:
         # The PC unlocks like the Mac: its jc-client asks his iPhone for Face ID, the Jarvis app
@@ -238,7 +240,9 @@ class MacPowerStore:
         keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid",
                 "os", "wifi_mac", "wifi_ip", "wake")
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
-        if data.get("state") == "awake":
+        slept = (self._devices.get(did) or {}).get("sleeping_at")
+        going_down = slept is not None and self._clock() - float(slept) < SLEEP_QUIET and self._is_pc(did)
+        if data.get("state") == "awake" and not going_down:
             fields["wake_requested_at"] = None
             fields["sleeping_at"] = None
         self._update(did, **fields)
@@ -308,6 +312,8 @@ class MacPowerStore:
                 if not status and not (d.get("push") or {}).get("token"):
                     continue
                 awake = did in connected and d.get("sleeping_at") is None
+                if awake and self._is_pc(did) and now - float(d.get("seen_at") or 0) > PC_STATUS_FRESH:
+                    awake = False  # it stopped reporting: asleep (its socket can look open for minutes)
                 macs.append({"device_id": did, "name": name_of(did) or self.noun(did),
                              "state": "awake" if awake else "sleeping",
                              "held": bool(status.get("held")) if awake else False,

@@ -36,6 +36,18 @@ final class AgentsPcPowerCardTests: XCTestCase {
         XCTAssertEqual(AgentsMacPowerCopy.actions(for: row(["os": "windows", "state": "sleeping"])), [.wake])
     }
 
+    func testAPcWakeWaitsTwoMinutesAndMentionsTheSignInScreen() {
+        // Live: a failed / slow PC wake showed "Waking… up to 15 min from deep sleep" for 20 minutes.
+        let asked = Date(timeIntervalSince1970: 1_000)
+        let pc = row(["os": "windows", "state": "sleeping", "wake_requested_at": 1_000])
+        XCTAssertEqual(AgentsMacPowerCopy.status(pc, now: asked.addingTimeInterval(30)).label, "Waking…")
+        XCTAssertEqual(AgentsMacPowerCopy.status(pc, now: asked.addingTimeInterval(90)).detail,
+                       "It may be at the sign-in screen")
+        XCTAssertNotEqual(AgentsMacPowerCopy.status(pc, now: asked.addingTimeInterval(150)).label, "Waking…")
+        let mac = row(["os": "macos", "state": "sleeping", "wake_requested_at": 1_000])
+        XCTAssertEqual(AgentsMacPowerCopy.status(mac, now: asked.addingTimeInterval(150)).label, "Waking…")
+    }
+
     func testThePcIsCalledAPcNotAMac() {
         // An offline PC used to arrive named "Mac" (the server's generic fallback).
         XCTAssertEqual(AgentsMacPowerCopy.cardName("Mac", os: "windows"), "Your PC")

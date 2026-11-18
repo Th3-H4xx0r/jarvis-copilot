@@ -21,8 +21,10 @@ import re
 import socket
 import subprocess
 import threading
+import time
 from typing import Callable, Optional
 
+STALE_COMMAND_S = 20.0   # a Sleep/Lock older than this was queued while the PC slept
 log = logging.getLogger(__name__)
 
 ES_CONTINUOUS = 0x80000000
@@ -331,11 +333,13 @@ class PcPower:
         if "keep_awake" in change:
             self.keep_awake(bool(change["keep_awake"]))
             self._report()
-        if change.get("let_sleep"):
+        # A Sleep/Lock pressed while the PC slept sits in the link and arrives when it wakes — and
+        # would put it straight back to sleep (live). Drop ones sent long ago (no "ts": older server).
+        stale = isinstance(change.get("ts"), (int, float)) and time.time() - float(change["ts"]) > STALE_COMMAND_S
+        if change.get("let_sleep") and not stale:
             self.keep_awake(False)
-            self._report()
-            self._suspend()
-        if change.get("lock"):
+            self._suspend()   # no status report first: its "awake" undid the server's sleep mark (live)
+        if change.get("lock") and not stale:
             self._lock()
 
     def ui_request(self, req: dict) -> dict:

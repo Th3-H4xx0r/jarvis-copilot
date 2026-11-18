@@ -177,7 +177,9 @@ final class MacScreenSession: NSObject {
         }
     }
 
-    func stop() async {
+    /// `endShare: false` for a retry: the share stays up for the fresh connection (live: a retry
+    /// stopped its own share, so the reconnect found nothing to join).
+    func stop(endShare: Bool = true) async {
         // Tear down first, so a start() racing this sees .ended, not a stale .live.
         pollTask?.cancel()
         pollTask = nil
@@ -191,7 +193,7 @@ final class MacScreenSession: NSObject {
         if let shareID, hadConnection {
             _ = try? await api.post("/api/screen/shares/\(shareID)/signal",
                                     json: ["from": "viewer", "type": "bye", "viewer": viewerID])
-            if ownsShare { _ = try? await api.post("/api/screen/shares/\(shareID)/stop") }
+            if ownsShare && endShare { _ = try? await api.post("/api/screen/shares/\(shareID)/stop") }
         }
     }
 
@@ -423,7 +425,7 @@ final class MacScreenSession: NSObject {
             retries += 1
             let wait = Double(retries) * 2
             Task {
-                await self.stop()
+                await self.stop(endShare: false)
                 try? await Task.sleep(for: .seconds(wait))
                 await self.start()
             }
