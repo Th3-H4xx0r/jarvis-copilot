@@ -83,7 +83,11 @@ public sealed class PcUnlock
         var exe = Path.Combine(AppContext.BaseDirectory, "JarvisUnlock.exe");
         if (!File.Exists(exe)) return new AdminResult(false, "failed", "The unlock helper is missing from this build.");
         var sid = WindowsIdentity.GetCurrent().User!.Value;
-        var result = await _admin.RunAsync($"\"{exe}\" --install {sid}", "Install the helper that unlocks this PC from your iPhone");
+        // The approval key goes to Program Files with it: the helper checks admin steps against that copy,
+        // never this per-user one (anything running as him could rewrite it).
+        var key = PinnedKey is { } k && AdminRun.ValidKey(k) ? " " + k : "";
+        var result = await _admin.RunAsync($"\"{exe}\" --install {sid}{key}",
+            "Install the helper that unlocks this PC and runs the admin steps you approve from your iPhone");
         // The elevated install finishes after UAC; look again shortly.
         _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ => Changed?.Invoke());
         return result;

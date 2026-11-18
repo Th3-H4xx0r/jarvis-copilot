@@ -14,5 +14,8 @@
          decisions (both tested in Jarvis.Tests; no other Core code). -->
     <Compile Include="..\Jarvis.Core\Remote\RdpSetup.cs" Link="RdpSetup.cs" />
     <Compile Include="..\Jarvis.Core\Unlock\LockScreenTypist.cs" Link="LockScreenTypist.cs" />
+    <!-- The IT agent's admin_run: his Face ID signature check and the pure request logic (tested in Jarvis.Tests). -->
+    <Compile Include="..\Jarvis.Core\Unlock\UnlockApproval.cs" Link="UnlockApproval.cs" />
+    <Compile Include="..\Jarvis.Core\Admin\AdminRun.cs" Link="AdminRun.cs" />
   </ItemGroup>
 </Project>
