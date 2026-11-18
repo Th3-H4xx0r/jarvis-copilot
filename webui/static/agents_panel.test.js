@@ -240,7 +240,7 @@ test('The MacBook card wakes and switches the Mac; password prompts are read-onl
   assert.match(html(), /data-act="mac-sleep"/);
 });
 
-test('The PC gets the same card: Wake PC, Lock, Sleep, never Unlock or the wake timer', async () => {
+test('The PC gets the same card: Wake PC, Lock, Unlock (Face ID on the iPhone), Sleep, no wake timer', async () => {
   const h = harness();
   h.els.agentsBody = { dataset: { view: 'list' } };
   h.els.agentsListInner = { innerHTML: '', contains: () => false, querySelector: () => null };
@@ -254,10 +254,16 @@ test('The PC gets the same card: Wake PC, Lock, Sleep, never Unlock or the wake 
   assert.match(html(), /Pranav-Desktop/);
   assert.match(html(), /data-act="mac-lock"/);
   assert.match(html(), /data-act="mac-sleep"/);
-  assert.doesNotMatch(html(), /Unlock/);
+  assert.match(html(), /data-act="mac-unlock"/, 'Unlock, approved on the iPhone like the phone card');
   assert.doesNotMatch(html(), /Check for wake requests/, 'no dark-wake timer on Windows');
   await h.click({ act: 'mac-lock', device: 'pc-1' });
-  assert.deepStrictEqual(h.macPosts, [['lock', { device_id: 'pc-1' }]]);
+  await h.click({ act: 'mac-unlock', device: 'pc-1' });
+  assert.deepStrictEqual(h.macPosts, [['lock', { device_id: 'pc-1' }], ['unlock', { device_id: 'pc-1' }]]);
+
+  // jc-client is up but the Jarvis app is gone: say so (live 2026-11-18 it read as "offline").
+  h.state.list.mac[0] = Object.assign({}, pc, { app_running: false });
+  await h.window.loadAgents();
+  assert.match(html(), /Jarvis app isn’t running on this PC/);
 
   h.state.list.mac[0] = Object.assign({}, pc, { state: 'sleeping' });
   await h.window.loadAgents();

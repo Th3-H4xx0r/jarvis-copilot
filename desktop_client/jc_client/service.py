@@ -568,7 +568,8 @@ class Service:
             elif sys.platform == "win32":
                 try:
                     from jc_client.pc_power import PcPower
-                    self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast)   # the PC in the phone's Agents card
+                    self._power = PcPower(self._send_up_ok, ui_broadcast=self._ui_broadcast,   # the PC in the phone's Agents card
+                                          app_linked=lambda: (self._ui.client_count() > 0) if getattr(self, "_ui", None) else None)
                     self._power.start()
                     from jc_client.skills import pc_it
                     pc_it.set_power(self._power)   # admin_run asks his Face ID through its broker
@@ -593,7 +594,8 @@ class Service:
             self._claude_poller = ClaudeUsagePoller(_server_get, self._claude_server_usage)
             self._claude_poller.start()
             from jc_client.ui_server import UiServer
-            ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
+            ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request,
+                          on_clients=self._ui_clients_changed)
             ui.start()
             self._ui = ui
             self._start_game_mode()
@@ -1101,6 +1103,12 @@ class Service:
             return
 
         log.warning("unknown frame type: %r", msg_type)
+
+    def _ui_clients_changed(self, count: int) -> None:
+        """The Jarvis app linked or went away: the PC's card hears it now, not in a minute."""
+        power = getattr(self, "_power", None)
+        if power is not None and hasattr(power, "report_now"):
+            power.report_now()
 
     def _run_invoke(
         self, ws: WsConnection, call_id: str, name: str, args: dict

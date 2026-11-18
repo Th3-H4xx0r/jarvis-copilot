@@ -2716,6 +2716,7 @@ main.main.showing-security > #mainSecurity{display:flex;flex-direction:column;}
 .agents-sleep-main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .agents-sleep-title{font-size:.88rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .agents-sleep-sub{font-size:.78rem;color:var(--muted);}
+.agents-sleep-sub.is-warn{color:var(--ag-amber);}
 .agents-pill-btn{font:inherit;font-size:.76rem;font-weight:600;padding:5px 12px;border-radius:999px;border:1px solid var(--accent-bg-strong);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;white-space:nowrap;}
 .agents-pill-btn:hover{background:var(--accent-bg-strong);}
 .agents-pill-btn:disabled{opacity:.6;cursor:default;}

@@ -258,3 +258,14 @@ def test_old_sleep_and_lock_commands_are_dropped():
     rig.power.handle_frame({"type": "mac_power_set", "lock": True, "ts": time.time()})
     rig.power.handle_frame({"type": "mac_power_set", "lock": True})      # an older server sends no ts
     assert rig.locks == [1, 1]
+
+
+def test_status_says_whether_the_jarvis_app_is_linked():
+    linked = {"v": False}
+    p = PcPower(lambda f: True, set_state=lambda f: 1, lock=lambda: None, suspend=lambda: None,
+                probe=lambda: pc_power.probe(lambda: DEVQUERY, lambda: WIFI), battery=lambda: (None, None),
+                lan_ip=lambda: "", app_linked=lambda: linked["v"])
+    assert p.status()["app"] is False
+    linked["v"] = True
+    assert p.status()["app"] is True
+    assert "app" not in Rig().power.status()    # nothing to say: no key (the server keeps today's view)

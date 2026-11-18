@@ -254,11 +254,14 @@ struct PcDashboardColumn: View {
 struct PcStatsCardSection: View {
     let deviceId: String
     let name: String
+    /// The PC is up but its Jarvis app (which sends the stats) isn't.
+    var appDown = false
     @State private var model: PcStatsSummaryModel
 
-    init(deviceId: String, name: String) {
+    init(deviceId: String, name: String, appDown: Bool = false) {
         self.deviceId = deviceId
         self.name = name
+        self.appDown = appDown
         _model = State(initialValue: PcStatsSummaryModel(deviceId: deviceId))
     }
 
@@ -312,7 +315,7 @@ struct PcStatsCardSection: View {
                 Image(systemName: "gauge.with.dots.needle.33percent")
                     .font(.subheadline)
                     .foregroundStyle(JcTheme.muted)
-                Text(s == nil ? "Loading stats…" : PcStatsCopy.status(online: false, at: s?.at, now: now))
+                Text(s == nil ? "Loading stats…" : PcStatsCopy.status(online: false, at: s?.at, appDown: appDown, now: now))
                     .font(.subheadline)
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)

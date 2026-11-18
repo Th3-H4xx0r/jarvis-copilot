@@ -179,3 +179,13 @@ def test_mac_sleep_mark_is_left_to_its_connection(tmp_path):
     rig.store.on_status(MAC, {"state": "awake", "held": False, "reason": "", "battery": 80, "on_ac": True, "lid": "open"})
     rig.store.on_sleeping(MAC)
     assert _row(rig, MAC)["state"] == "awake"
+
+
+def test_row_says_when_the_jarvis_app_isnt_running(tmp_path):
+    rig = Rig(tmp_path)
+    rig.store.on_status(PC, {**PC_STATUS, "app": False})
+    assert _row(rig, PC)["app_running"] is False and rig.store.app_down(PC) is True
+    rig.store.on_status(PC, {**PC_STATUS, "app": True})
+    assert _row(rig, PC)["app_running"] is True and rig.store.app_down(PC) is False
+    rig.store.on_status(MAC, {"state": "awake", "held": False})
+    assert _row(rig, MAC)["app_running"] is None and rig.store.app_down(MAC) is False

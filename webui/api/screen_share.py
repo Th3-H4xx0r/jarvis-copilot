@@ -348,7 +348,8 @@ class Registry:
         if s.device_id and _os_of(s.device_id) == "windows":
             try:
                 from api import device_bridge
-                return s.device_id in set(device_bridge.connected_device_ids())
+                # The Jarvis app captures the screen: with it gone the PC can't share ("Open Jarvis on your PC").
+                return s.device_id in set(device_bridge.connected_device_ids()) and not _app_down(s.device_id)
             except Exception:  # noqa: BLE001
                 pass
         return (now - max(self._mac_seen, s.mac_seen)) <= MAC_FRESH
@@ -674,6 +675,14 @@ def reset_for_tests(root: Optional[Path] = None) -> Registry:
 
 def start_task_share(task: str, session_id: str = "", device_id: str = "") -> dict:
     return registry().create("task", task, session_id, device_id=device_id)
+
+
+def _app_down(device_id: str) -> bool:
+    try:
+        from api import mac_power
+        return mac_power.store().app_down(device_id)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _os_of(device_id: str) -> str:

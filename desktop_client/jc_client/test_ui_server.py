@@ -187,3 +187,25 @@ def test_concurrent_broadcasts_arrive_as_whole_lines(sockdir):
         c.close()
     finally:
         srv.close()
+
+
+def test_app_link_changes_are_reported(sockdir):
+    # The PC's card says when the Jarvis app is gone (live 2026-11-18: a stuck app read as "offline").
+    seen = []
+    srv = UiServer(os.path.join(sockdir, "ui.sock"), hello=lambda: {}, on_request=lambda req: {"ok": True},
+                   on_clients=seen.append)
+    srv.start()
+    try:
+        c = Client(srv.path)
+        c.recv()
+        end = time.time() + 2
+        while 1 not in seen and time.time() < end:
+            time.sleep(0.01)
+        c.close()
+        srv.broadcast({"type": "x"})
+        srv.broadcast({"type": "x"})
+        while seen[-1:] != [0] and time.time() < end + 2:
+            time.sleep(0.01)
+        assert 1 in seen and seen[-1] == 0
+    finally:
+        srv.close()

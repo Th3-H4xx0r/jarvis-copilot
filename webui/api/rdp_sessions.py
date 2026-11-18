@@ -73,8 +73,10 @@ class RdpSessions:
                  game_name: Callable[[str], str] = lambda exe: exe,
                  settings: Callable[[], dict] = lambda: {},
                  device_name: Callable[[str], str] = lambda d: "",
+                 app_down: Callable[[str], bool] = lambda d: False,
                  audit_path: Optional[Path] = None) -> None:
         self._clock = clock
+        self._app_down = app_down
         self._send = send_frame
         self._sleeping = sleeping
         self._game_name = game_name
@@ -134,6 +136,13 @@ class RdpSessions:
             return {"error": f"{name} is asleep", "code": "asleep"}
         st = self.status(device_id)
         if st is None:
+            try:
+                app_down = bool(self._app_down(device_id))
+            except Exception:  # noqa: BLE001
+                app_down = False
+            if app_down:   # the PC is up; the Jarvis app that answers Remote Desktop isn't
+                return {"error": f"The Jarvis app isn't running on {name}. Open Jarvis on the PC, then try again.",
+                        "code": "app_down"}
             return {"error": f"{name} is offline", "code": "offline"}
         if "home" in str(st.get("edition") or "").lower():
             return {"error": f"{name} runs Windows 11 Home, which can't host Remote Desktop. "
@@ -397,6 +406,11 @@ def _settings() -> dict:
         return {}
 
 
+def _app_down(device_id: str) -> bool:
+    from api import mac_power
+    return mac_power.store().app_down(device_id)
+
+
 def _sleeping(device_id: str) -> bool:
     from api import mac_power
     return mac_power.store().sleeping(device_id)
@@ -423,7 +437,7 @@ def store() -> RdpSessions:
         if _STORE is None:
             from jarviscopilot_constants import get_hermes_home
             _STORE = RdpSessions(send_frame=_send_frame, sleeping=_sleeping, game_name=_game_name,
-                                 settings=_settings, device_name=_device_name,
+                                 settings=_settings, device_name=_device_name, app_down=_app_down,
                                  audit_path=get_hermes_home() / "rdp" / "audit.json")
             try:   # the PC's answer: {"type": "event", "name": "rdp_credential", "data": {...}}
                 from api import device_bridge

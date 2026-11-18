@@ -1008,10 +1008,12 @@ enum PcFormat {
 enum PcStatsCopy {
     /// "Online", "Playing Call of Duty", "PC offline · last seen 5 min ago", or
     /// "No stats from this PC yet".
-    static func status(online: Bool, at: Date?, game: String? = nil, now: Date = Date()) -> String {
+    static func status(online: Bool, at: Date?, game: String? = nil, appDown: Bool = false, now: Date = Date()) -> String {
         if online { return game.map { "Playing \($0)" } ?? "Online" }
-        guard let at else { return "No stats from this PC yet" }
-        return "PC offline · last seen \(AgentsMacPowerCopy.ago(at, now: now))"
+        // The PC is up, its Jarvis app (which sends the stats) isn't: never "PC offline" (live 2026-11-18).
+        let what = appDown ? "Jarvis app not running" : "PC offline"
+        guard let at else { return appDown ? what : "No stats from this PC yet" }
+        return "\(what) · last seen \(AgentsMacPowerCopy.ago(at, now: now))"
     }
 
     /// A window in words: "5 min", "1 h", "24 h".

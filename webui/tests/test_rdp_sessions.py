@@ -212,3 +212,12 @@ def test_status_keeps_the_windows_apps_extra_keys(env):
     st = env.s.status("pc-1")
     assert st["pro"] is True and st["hello_only_off"] is True and st["at"] == 1_800_000_000.0
     assert "secret" not in st
+
+
+def test_stale_status_with_the_pc_online_says_open_jarvis(tmp_path):
+    clock = Clock()
+    s = RdpSessions(clock=clock, send_frame=lambda d, f: True, device_name=lambda d: "pranav-computer",
+                    app_down=lambda d: d == "pc-1", audit_path=tmp_path / "audit.json")
+    out = s.create("pc-1", "web", False, None)
+    assert out["code"] == "app_down" and "Jarvis app" in out["error"] and "pranav-computer" in out["error"]
+    assert s.create("pc-2", "web", False, None)["code"] == "offline"

@@ -67,10 +67,13 @@ class UiServer(UnixSocketServer):
     thread_name = "ui"
 
     def __init__(self, path: str, hello: Callable[[], dict],
-                 on_request: Callable[[dict], dict]) -> None:
+                 on_request: Callable[[dict], dict],
+                 on_clients: Optional[Callable[[int], None]] = None) -> None:
         super().__init__(path)
         self._hello = hello
         self._on_request = on_request
+        # How many apps are linked, whenever that changes (the PC's card says when the Jarvis app is gone).
+        self._on_clients = on_clients
         self._clients: list[_Client] = []
         self._lock = threading.Lock()
 
@@ -105,6 +108,7 @@ class UiServer(UnixSocketServer):
         self._enqueue(client, (json.dumps(hello, default=str) + "\n").encode())
         with self._lock:
             self._clients.append(client)
+        self._clients_changed()
         threading.Thread(target=self._write_loop, args=(client,), daemon=True, name="ui-writer").start()
         buf = b""
         try:
@@ -170,13 +174,26 @@ class UiServer(UnixSocketServer):
             reply = {"type": "reply", "id": rid, "ok": False, "error": str(exc)}
         self._enqueue(client, (json.dumps(reply, default=str) + "\n").encode())
 
+    def _clients_changed(self) -> None:
+        if self._on_clients is None:
+            return
+        try:
+            self._on_clients(self.client_count())
+        except Exception:  # noqa: BLE001 — a report, never the link's problem
+            log.debug("ui client-count callback failed", exc_info=True)
+
     def _drop(self, client: _Client) -> None:
         with self._lock:
-            if client in self._clients:
+            removed = client in self._clients
+            if removed:
                 self._clients.remove(client)
             if client.closed:
+                if removed:
+                    threading.Thread(target=self._clients_changed, daemon=True).start()
                 return
             client.closed = True
+        if removed:
+            self._clients_changed()
         try:
             client.queue.put_nowait(None)   # wake the writer so it exits
         except queue.Full:

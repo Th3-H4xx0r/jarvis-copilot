@@ -331,3 +331,18 @@ def test_task_share_names_its_computer(tmp_path):
     ss.reset_for_tests(tmp_path)
     share = ss.start_task_share("open notepad", "sess-1", device_id="pc-1")
     assert share["device_id"] == "pc-1" and share["reason"] == "task"
+
+
+def test_pc_share_waits_for_its_jarvis_app(tmp_path, monkeypatch):
+    # jc-client up but the Jarvis app (which captures the screen) gone: "Open Jarvis on your PC", not live.
+    from api import device_bridge
+    from api import screen_share as ss
+    reg = ss.reset_for_tests(tmp_path)
+    monkeypatch.setattr(ss, "_os_of", lambda did: "windows")
+    monkeypatch.setattr(device_bridge, "connected_device_ids", lambda: ["pc-1"])
+    down = {"v": True}
+    monkeypatch.setattr(ss, "_app_down", lambda did: down["v"])
+    sid = reg.create("anytime", device_id="pc-1")["id"]
+    assert reg.get(sid)["mac_online"] is False
+    down["v"] = False
+    assert reg.get(sid)["mac_online"] is True

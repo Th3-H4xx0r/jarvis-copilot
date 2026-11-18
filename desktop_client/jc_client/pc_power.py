@@ -183,8 +183,12 @@ class PcPower:
                  probe: Callable[[], tuple] = probe, battery: Callable[[], tuple] = _battery,
                  lan_ip: Callable[[], str] = lan_ip, ui_broadcast: Callable[[dict], None] = lambda m: None,
                  is_app: Optional[Callable[[int], bool]] = None,
-                 spawn: Optional[Callable[..., None]] = None) -> None:
+                 spawn: Optional[Callable[..., None]] = None,
+                 app_linked: Callable[[], Optional[bool]] = lambda: None) -> None:
         self._send_up = send_up
+        # Whether the Jarvis app is linked to jc-client (it captures Screen, answers Remote Desktop and
+        # sends PC Stats): the card says so instead of "offline" when it isn't.
+        self._app_linked = app_linked
         self._lan_ip = lan_ip
         # Unlock PC (the Mac's "Unlock Mac" flow): his iPhone's Face ID yes comes back through the
         # broker; the Jarvis app checks it against its pinned key and types through its helper.
@@ -255,7 +259,18 @@ class PcPower:
             keep = self._keep
         return {"os": "windows", "state": "awake", "held": keep, "reason": "manual" if keep else "",
                 "keep_awake": keep, "timer_on": False, "battery": battery, "on_ac": on_ac, "lid": None,
-                "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake)}
+                "wifi_mac": mac, "wifi_ip": self._lan_ip(), "wake": dict(wake), **self._app()}
+
+    def _app(self) -> dict:
+        try:
+            linked = self._app_linked()
+        except Exception:  # noqa: BLE001
+            linked = None
+        return {} if linked is None else {"app": bool(linked)}
+
+    def report_now(self) -> None:
+        """Report at once (the app linked or went away) instead of at the next minute."""
+        self._report()
 
     def status_event(self) -> dict:
         return {"type": "event", "name": "mac_power_status", "data": self.status()}

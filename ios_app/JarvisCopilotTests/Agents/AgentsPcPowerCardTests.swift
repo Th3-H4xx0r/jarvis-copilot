@@ -102,4 +102,14 @@ final class AgentsPcPowerCardTests: XCTestCase {
         XCTAssertEqual(PcAdminCopy.title(source: "Pranav-Desktop"), "Run as admin on Pranav-Desktop")
         XCTAssertEqual(PcAdminCopy.title(source: ""), "Run as admin on your PC")
     }
+
+    // jc-client up, the Jarvis app gone (live 2026-11-18: the card said Awake, Screen and Remote Desktop said offline).
+    func testAppDownIsSaidPlainly() {
+        XCTAssertEqual(row(["os": "windows", "app_running": false]).appRunning, false)
+        XCTAssertNil(row(["os": "windows"]).appRunning)
+        XCTAssertEqual(AgentsMacPowerCopy.appDownLine, "The Jarvis app isn't running on this PC · open it there")
+        let seen = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(PcStatsCopy.status(online: false, at: seen, appDown: true, now: seen.addingTimeInterval(44 * 60)),
+                       "Jarvis app not running · last seen 44 min ago")
+    }
 }

@@ -242,7 +242,7 @@ class MacPowerStore:
 
     def on_status(self, did: str, data: dict) -> None:
         keep = ("state", "held", "reason", "keep_awake", "timer_on", "battery", "on_ac", "lid",
-                "os", "wifi_mac", "wifi_ip", "wake")
+                "os", "wifi_mac", "wifi_ip", "wake", "app")
         fields = {"status": {k: data.get(k) for k in keep}, "seen_at": self._clock()}
         slept = (self._devices.get(did) or {}).get("sleeping_at")
         going_down = slept is not None and self._clock() - float(slept) < SLEEP_QUIET and self._is_pc(did)
@@ -310,6 +310,15 @@ class MacPowerStore:
             except Exception:  # noqa: BLE001
                 log.warning("Mac password failure push failed", exc_info=True)
 
+    def app_down(self, did: str) -> bool:
+        """The PC's jc-client is connected but says the Jarvis app isn't linked (Screen, Remote Desktop and
+        PC Stats all go through the app)."""
+        if did not in set(self._connected()):
+            return False
+        with self._lock:
+            status = (self._devices.get(did) or {}).get("status") or {}
+        return status.get("app") is False
+
     # ── for the Agents list ──────────────────────────────────────────────
     def list_payload(self, name_of: Callable[[str], str]) -> dict:
         now = self._clock()
@@ -336,6 +345,8 @@ class MacPowerStore:
                              "wake_requested_at": d.get("wake_requested_at"),
                              "os": status.get("os") or self._os_of(did) or "macos",
                              "wake_capable": (status.get("wake") or {}).get("capable"),
+                             # The PC: jc-client up but the Jarvis app gone (None = not reported, a Mac).
+                             "app_running": status.get("app") if awake and "app" in status else None,
                              "wake_reason": (status.get("wake") or {}).get("reason")})
         return {"mac": macs, "password_requests": requests}
 

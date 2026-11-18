@@ -636,9 +636,14 @@
       '<div class="agents-sleep-row agents-mac-actions"><div class="agents-sleep-main">' +
       '<span class="agents-sleep-sub">' + esc(macLine(m, Date.now())) + '</span>' +
       (cantWake ? '<span class="agents-sleep-sub">' + esc(m.wake_reason || 'This PC can’t be woken remotely') + '</span>' : '') +
+      // jc-client is up but the Jarvis app (Screen, Remote Desktop, PC Stats) isn't: say so, never "offline".
+      (pc && m.state === 'awake' && m.app_running === false
+        ? '<span class="agents-sleep-sub is-warn">The Jarvis app isn’t running on this PC · open it there</span>' : '') +
       '</div><div class="agents-mac-btns">' +
       (m.state === 'awake' && window.MacScreen ? btn('mac-share', 'Share screen') : '') +
       (m.state === 'awake' && pc ? btn('mac-lock', 'Lock') : '') +
+      // Unlock: Face ID on the iPhone types the password on the lock screen (as on the phone's card).
+      (m.state === 'awake' && pc ? btn('mac-unlock', 'Unlock') : '') +
       // Remote Desktop (rdp.js): shown while the integration is on, asleep too ("… is asleep" + Wake)
       (pc && window.JCRdp && (!window.JCPower || window.JCPower.isOn('remote-desktop')) ? btn('rdp-open', 'Remote Desktop') : '') +
       (m.state === 'awake' ? btn('mac-sleep', 'Let it sleep') : btn('mac-wake', 'Wake ' + deviceNoun(m), cantWake)) +
@@ -1867,6 +1872,7 @@
       }
       case 'dismiss': dismissCard(t.dataset.device); break;
       case 'mac-wake': macPower('wake', t.dataset.device); break;
+      case 'mac-unlock': macPower('unlock', t.dataset.device); break;
       case 'mac-share': if (window.MacScreen) window.MacScreen.startAnytime(t.dataset.device, (macRow(t.dataset.device) || {}).os); break;
       case 'mac-lock': macPower('lock', t.dataset.device); break;
       case 'pc-stats': if (window.JCPcStats) window.JCPcStats.open(t.dataset.device); break;

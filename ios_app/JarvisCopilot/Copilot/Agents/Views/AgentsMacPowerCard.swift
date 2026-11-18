@@ -26,7 +26,7 @@ struct AgentsMacPowerCard: View {
                 JcRowSeparator()
                 if mac.isPC && PowerState.shared.isOn("pc-stats") {
                     // PC Stats: four live numbers and View stats.
-                    PcStatsCardSection(deviceId: mac.deviceId, name: name)
+                    PcStatsCardSection(deviceId: mac.deviceId, name: name, appDown: mac.isAwake && mac.appRunning == false)
                     JcRowSeparator()
                 }
                 NavigationLink(value: AgentsRoute.computerTools(deviceId: mac.deviceId, name: name)) {
@@ -101,6 +101,12 @@ struct AgentsMacPowerCard: View {
                 .font(.subheadline)
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(2)
+                if mac.isAwake && mac.appRunning == false {
+                    Text(AgentsMacPowerCopy.appDownLine)
+                        .font(.footnote)
+                        .foregroundStyle(JcTheme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .accessibilityElement(children: .combine)
             menu
@@ -375,6 +381,9 @@ enum AgentsMacPowerCopy {
 
     /// "Wake Mac" / "Wake PC".
     static func wakeTitle(os: String) -> String { os == "windows" ? "Wake PC" : "Wake Mac" }
+
+    /// jc-client up, the Jarvis app gone: Screen, Remote Desktop and PC Stats need it.
+    static let appDownLine = "The Jarvis app isn't running on this PC · open it there"
 
     /// What the card offers right now, in order (pure, for the tests): an awake PC sleeps, locks
     /// and unlocks; an awake Mac sleeps and unlocks; asleep, either wakes.
