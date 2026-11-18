@@ -6,6 +6,7 @@ import json
 import re
 from typing import Callable
 
+from agent.it_agent.classify import classify
 from agent.it_agent.model import (ADMIN_MAX_CHARS, CHECK_KINDS, MAX_PHASES, MAX_STEPS, SHELL_MAX_CHARS, STEP_KINDS,
                                   Brief, Check, Phase, PlanError, Step)
 
@@ -84,6 +85,10 @@ def _check(i: int, raw) -> Check:
     command = str(raw.get("command") or "").strip()
     if kind == "shell" and not command:
         raise PlanError(f"phase {i} check needs a command")
+    if command:
+        verdict = classify(command)
+        if verdict.destructive or verdict.refuse:
+            raise PlanError(f"phase {i} check must not change anything: {verdict.reason}")
     contains, regex = str(expect.get("contains") or ""), str(expect.get("regex") or "")
     if kind == "screen" and not (contains or regex):
         raise PlanError(f"phase {i} screen check needs expect.contains or expect.regex")

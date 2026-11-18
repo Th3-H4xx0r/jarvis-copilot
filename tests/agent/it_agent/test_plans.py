@@ -98,3 +98,8 @@ def test_activity_line_copy():
     assert activity_line(run) == "Phase 2/4 · Enable WSL2 — wsl --status"
     card = card_it(run)
     assert card["phase_no"] == 2 and card["phases"] == 4 and card["state"] == "working"
+
+
+def test_destructive_check_rejected():
+    with pytest.raises(PlanError, match="phase 1 check must not change anything: deletes files"):
+        parse_plan(_plan(check={"kind": "shell", "command": "Remove-Item C:\\x", "expect": {"exit_code": 0}}))
