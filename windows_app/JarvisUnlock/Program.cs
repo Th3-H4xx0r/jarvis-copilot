@@ -559,8 +559,10 @@ internal static class Elevated
     public static Result Run(string encoded, int timeoutS, string sid)
     {
         var clock = Stopwatch.StartNew();
-        var session = WTSGetActiveConsoleSessionId();
-        if (session == 0xFFFFFFFF || !WTSQueryUserToken(session, out var user)) return Fail("No one is signed in at the PC.");
+        // His session wherever it is — the console, or Remote Desktop (live: the console had no one on it).
+        if (HisSession(sid, out var someoneElse) is not { } session)
+            return Fail(someoneElse ? "Someone else is signed in at the PC." : "No one is signed in at the PC.");
+        if (!WTSQueryUserToken(session, out var user)) return Fail("No one is signed in at the PC.");
         IntPtr linked = IntPtr.Zero, primary = IntPtr.Zero, env = IntPtr.Zero, job = IntPtr.Zero;
         var pi = default(PROCESS_INFORMATION);
         try
@@ -656,6 +658,42 @@ internal static class Elevated
             CloseHandle(user);
         }
     }
+
+    private static uint? HisSession(string sid, out bool someoneElse)
+    {
+        var sessions = new List<(uint, int, string?)>();
+        if (WTSEnumerateSessionsW(IntPtr.Zero, 0, 1, out var buf, out var count))
+        {
+            try
+            {
+                var size = Marshal.SizeOf<WTS_SESSION_INFO>();
+                for (var i = 0; i < count; i++)
+                {
+                    var info = Marshal.PtrToStructure<WTS_SESSION_INFO>(buf + i * size);
+                    string? owner = null;
+                    if (WTSQueryUserToken((uint)info.SessionId, out var token))
+                    {
+                        try { owner = new WindowsIdentity(token).User?.Value; }
+                        catch (Exception e) when (e is ArgumentException or SecurityException or UnauthorizedAccessException) { }
+                        finally { CloseHandle(token); }
+                    }
+                    sessions.Add(((uint)info.SessionId, info.State, owner));
+                }
+            }
+            finally { WTSFreeMemory(buf); }
+        }
+        someoneElse = sessions.Any(s => s.Item3 != null && !string.Equals(s.Item3, sid, StringComparison.OrdinalIgnoreCase));
+        return AdminRun.PickSession(sessions, WTSGetActiveConsoleSessionId(), sid);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WTS_SESSION_INFO { public int SessionId; public IntPtr pWinStationName; public int State; }
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSEnumerateSessionsW(IntPtr server, int reserved, int version, out IntPtr sessions, out int count);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
 
     private static Task Pump(Stream s, Tail into) => Task.Run(() =>
     {

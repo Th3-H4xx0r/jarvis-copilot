@@ -170,6 +170,22 @@ public class AdminRunTests
     }
 
     [Fact]
+    public void PickSession_FindsHisSessionEvenOverRemoteDesktop()
+    {
+        // Live 2026-11-18: he was signed in over Remote Desktop (session 2); the console (4) had no one.
+        const string Him = "S-1-5-21-1-2-3-1001";
+        const int Active = 0, Connected = 1, Disconnected = 4;
+        var rdp = new (uint, int, string?)[] { (0u, Disconnected, null), (2u, Active, Him), (4u, Connected, null) };
+        Assert.Equal(2u, AdminRun.PickSession(rdp, console: 4, Him));
+        var atDesk = new (uint, int, string?)[] { (2u, Disconnected, Him), (5u, Active, Him) };
+        Assert.Equal(5u, AdminRun.PickSession(atDesk, console: 5, Him));          // the console when it's his
+        var stale = new (uint, int, string?)[] { (2u, Disconnected, Him) };
+        Assert.Equal(2u, AdminRun.PickSession(stale, console: 4, Him));            // his, even disconnected
+        var someoneElse = new (uint, int, string?)[] { (3u, Active, "S-1-5-21-9-9-9-1002") };
+        Assert.Null(AdminRun.PickSession(someoneElse, console: 3, Him));          // never anyone else's
+    }
+
+    [Fact]
     public void ValidKey_AcceptsOnlyUncompressedP256Points()
     {
         var (pub, _) = Phone();

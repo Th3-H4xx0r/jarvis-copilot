@@ -110,6 +110,17 @@ public static class AdminRun
         return head.Trim().Length > 0 ? head + "\n" + text : text;
     }
 
+    /// Which session an admin command runs in: his, never anyone else's — the console when it's his, else his
+    /// active session (signed in over Remote Desktop, live 2026-11-18), else any of his. Null: he isn't signed in.
+    /// `sessions`: (id, WTS state (0 = active), the session user's SID or null).
+    public static uint? PickSession(IEnumerable<(uint Id, int State, string? Sid)> sessions, uint console, string sid)
+    {
+        var his = sessions.Where(s => string.Equals(s.Sid, sid, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (his.Count == 0) return null;
+        if (his.Any(s => s.Id == console)) return console;
+        return his.Where(s => s.State == 0).Select(s => (uint?)s.Id).FirstOrDefault() ?? his[0].Id;
+    }
+
     /// The service's DACL with an ACE letting his account start/stop/query it (so jc-client can bring a
     /// stopped helper back without UAC). Null when it already has one or the SDDL can't be read.
     public static string? GrantStart(string sddl, string sid)
