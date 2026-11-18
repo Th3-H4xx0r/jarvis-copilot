@@ -17,7 +17,7 @@ Found while mapping the current system
 - [ ] 10. Live: "Visual Studio Code" isn't found on the Mac (its process is "Code").
 - [ ] 11. Live: Anthropic API credit balance is empty — every @anthropic-api call (his Computer fallback/planner, Haiku) fails. HIS ACTION: top up, or switch the Computer node fallback.
 - [ ] 12. IT agent live: "install Docker Desktop on my PC" end to end (research ≥3 sources, phases with checks, Face ID admin steps, restart + sign-in wait, Done with every check passed; docker run hello-world on the PC).
-- [ ] 13. Live: wsl.exe writes UTF-16 even with WSL_UTF8=1 while WSL isn't installed — pc_shell/admin output reads "T\0h\0e\0…", so checks can't match. Decode it (jc-client + helper).
+- [x] 13. Live: wsl.exe writes UTF-16 even with WSL_UTF8=1 while WSL isn't installed — pc_shell/admin output reads "T\0h\0e\0…", so checks can't match. Decode it (jc-client + helper).
 - [ ] 14. Live: `jc-client update` run from the elevated SSH session left the OLD client running next to the new one (its restart can't find the pid file from that session) — two clients on one device id. Killed by hand 2026-11-18; fix the restart to find the running service another way.
 Live series (Terra fallback, Anthropic credits empty): Finder Downloads 4.6 s (Oct 5.6), Settings Wi-Fi 3.5 s (Oct 6.1, no surface misfire), Calendar 8.9 s (Oct 7.1), Calculator 18.9 s (planner wrote one '23*4' step: no batch), Notes false done (clicked Close), File › New Folder via agent-desktop menu path ✓, Wi-Fi name read ✓, VS Code not found, notifications wandered; PC: all three failed at open_app.
 
