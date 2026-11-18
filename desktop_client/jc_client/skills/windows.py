@@ -64,6 +64,8 @@ _APP_COMMANDS = {
     "paint": "mspaint.exe", "snipping tool": "snippingtool.exe", "control panel": "control.exe",
     "command prompt": "cmd.exe", "powershell": "powershell.exe", "terminal": "wt.exe",
     "windows terminal": "wt.exe", "edge": "msedge.exe", "microsoft edge": "msedge.exe",
+    "chrome": "chrome.exe", "google chrome": "chrome.exe", "firefox": "firefox.exe", "brave": "brave.exe",
+    "brave browser": "brave.exe", "safari": "msedge.exe",
 }
 # Start it; failing that, the Start menu's own app list (Store apps have no .exe on PATH).
 _OPEN_SCRIPT = (
@@ -71,6 +73,12 @@ _OPEN_SCRIPT = (
     "$a = Get-StartApps | Where-Object { $_.Name -like ('*' + $env:JC_APP + '*') } | Select-Object -First 1; "
     "if ($a) { Start-Process ('shell:AppsFolder\\' + $a.AppID) } else { throw } }"
 )
+
+
+def open_url_in(url: str, app: str) -> None:
+    """Open ``url`` in the browser he named (its everyday name mapped)."""
+    _ps("Start-Process -FilePath $env:JC_APP -ArgumentList $env:JC_ARG",
+        env={"JC_APP": app_command(app), "JC_ARG": url})
 
 
 def app_command(name: str) -> str:

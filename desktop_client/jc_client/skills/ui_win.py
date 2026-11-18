@@ -355,7 +355,7 @@ def _do(be, action, look_id, element, text, keys, direction, x, y, app, url) -> 
     if action == "open_url":
         if not str(url or "").startswith(("https://", "http://")):
             return {"ok": False, "error": "open_url needs an http(s) url"}
-        be.open_url(url)
+        be.open_url(url, app)
         time.sleep(0.8)
         return {"ok": True, "did": "open_url", "via": "app"}
     if action == "wait":
@@ -539,7 +539,7 @@ class _WinBackend:
     def click(self, x: float, y: float, count: int = 1) -> None:
         from jc_client.skills.common import _mouse
         from pynput.mouse import Button
-        m = _mouse()
+        _, m = _mouse()   # (Button, controller): the bare tuple crashed every cursor click (live)
         old = m.position
         m.position = (int(x), int(y))
         m.click(Button.left, count)
@@ -555,7 +555,7 @@ class _WinBackend:
 
     def scroll_at(self, x: float, y: float, direction: str) -> None:
         from jc_client.skills.common import _mouse
-        m = _mouse()
+        _, m = _mouse()
         old = m.position
         m.position = (int(x), int(y))
         m.scroll(0, 5 if direction == "up" else -5)
@@ -565,7 +565,15 @@ class _WinBackend:
         from jc_client.skills.windows import open_app
         open_app(name)
 
-    def open_url(self, url: str) -> None:
+    def open_url(self, url: str, app: Optional[str] = None) -> None:
+        # The browser he named (startfile with no default browser set pops Windows' app picker — live).
+        if app:
+            try:
+                from jc_client.skills.windows import open_url_in
+                open_url_in(url, app)
+                return
+            except Exception:  # noqa: BLE001
+                log.warning("open_url in %s failed; the default browser instead", app, exc_info=True)
         import os
         os.startfile(url)   # type: ignore[attr-defined]
 

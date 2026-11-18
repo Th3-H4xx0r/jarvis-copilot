@@ -93,3 +93,14 @@ def test_open_app_resolves_windows_app_names(monkeypatch):
     w.open_app("Calculator")
     script, env = seen[0]
     assert env == {"JC_APP": "calc.exe"} and "Get-StartApps" in script   # Start-menu apps as a fallback
+
+
+
+def test_open_url_in_a_named_browser(monkeypatch):
+    from jc_client.skills import windows as w
+    assert w.app_command("Google Chrome") == w.app_command("chrome") == "chrome.exe"
+    seen = []
+    monkeypatch.setattr(w, "_ps", lambda script, **kw: seen.append((script, kw.get("env"))) or "")
+    w.open_url_in("https://example.com/?q=a b", "Google Chrome")
+    script, env = seen[0]
+    assert env == {"JC_APP": "chrome.exe", "JC_ARG": "https://example.com/?q=a b"} and "-ArgumentList" in script

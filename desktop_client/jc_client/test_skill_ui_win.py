@@ -35,7 +35,7 @@ class FakeBackend:
     def type_text(self, text): self.calls.append(("type", text))
     def scroll_at(self, x, y, direction): self.calls.append(("scroll", direction))
     def open_app(self, name): self.calls.append(("open_app", name))
-    def open_url(self, url): self.calls.append(("open_url", url))
+    def open_url(self, url, app=None): self.calls.append(("open_url", url, app))
 
 
 @pytest.fixture
@@ -271,3 +271,34 @@ def test_missing_agent_desktop_says_where_it_looked(be, monkeypatch, tmp_path):
     monkeypatch.setattr(ui_win, "_ad_expected_path", lambda: str(tmp_path / "agent-desktop.exe"))
     out = ui_win.read_window(surface="taskbar")
     assert out["ok"] is False and str(tmp_path / "agent-desktop.exe") in out["error"]
+
+
+
+# ── live 2026-11-18: every PC cursor click crashed; open_url ignored the browser he named ──
+
+def test_backend_click_and_scroll_use_the_mouse_controller(monkeypatch):
+    import sys
+    import types
+
+    class Mouse:
+        def __init__(self):
+            self.position, self.clicks, self.scrolls = (5, 5), [], []
+
+        def click(self, button, count): self.clicks.append((button, count, self.position))
+        def scroll(self, dx, dy): self.scrolls.append((dy, self.position))
+
+    fake = types.ModuleType("pynput.mouse")
+    fake.Button = types.SimpleNamespace(left="L")
+    monkeypatch.setitem(sys.modules, "pynput", types.ModuleType("pynput"))
+    monkeypatch.setitem(sys.modules, "pynput.mouse", fake)
+    m = Mouse()
+    monkeypatch.setattr("jc_client.skills.common._mouse", lambda: (fake.Button, m))   # (Button, controller)
+    be_ = ui_win._WinBackend.__new__(ui_win._WinBackend)
+    be_.click(100, 200)
+    be_.scroll_at(100, 200, "down")
+    assert m.clicks == [("L", 1, (100, 200))] and m.scrolls and m.position == (5, 5)
+
+
+def test_pc_open_url_uses_the_named_browser(be):
+    out = ui_win.do_action("open_url", url="https://www.google.com/search?q=pcs", app="Google Chrome")
+    assert out["ok"] and ("open_url", "https://www.google.com/search?q=pcs", "Google Chrome") in be.calls
