@@ -68,12 +68,12 @@ def test_checkin_ignores_stale_intent(tmp_path):
 def test_keep_awake_sends_frame(tmp_path):
     rig = Rig(tmp_path)
     rig.store.keep_awake(MAC, True)
-    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "keep_awake": True})
+    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "ts": rig.t, "keep_awake": True})
     assert rig.store.checkin(MAC)["keep_awake"] is True
     rig.store.timer(MAC, False)
-    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "timer_on": False})
+    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "ts": rig.t, "timer_on": False})
     rig.store.let_sleep(MAC)
-    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "let_sleep": True})
+    assert rig.frames[-1] == (MAC, {"type": "mac_power_set", "ts": rig.t, "let_sleep": True})
     assert rig.store.checkin(MAC) == {"wake": False, "keep_awake": False, "timer_on": False}
 
 
@@ -159,7 +159,7 @@ def test_hello_resends_the_switches(tmp_path):
     rig.store.timer(MAC, False)
     rig.frames.clear()
     rig.store.sync(MAC)
-    assert rig.frames == [(MAC, {"type": "mac_power_set", "keep_awake": True, "timer_on": False})]
+    assert rig.frames == [(MAC, {"type": "mac_power_set", "ts": rig.t, "keep_awake": True, "timer_on": False})]
 
 
 def test_keep_awake_expires_after_12h(tmp_path):

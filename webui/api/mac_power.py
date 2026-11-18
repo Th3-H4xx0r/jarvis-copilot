@@ -34,7 +34,11 @@ MAC_TOPIC = "com.jarviscopilot.mac"
 _QUIET_ENDINGS = frozenset({"Not allowed", "No answer in 2 minutes"})
 _KIND_TITLE = {"sudo": "sudo needs your Mac password", "admin": "Admin password requested",
                "keychain": "Keychain wants your Mac password", "unlock": "Unlock your Mac",
-               "rdp": "Remote Desktop"}
+               "rdp": "Remote Desktop", "admin-run": "Run as admin on your PC",
+               "pc-run": "Approve a command on your PC"}
+# IT-agent approvals: the push shows why, never the command (the sheet shows the exact command), and a
+# helper failure is reported on the job card, not as "password not filled".
+_COMMAND_KINDS = frozenset({"admin-run", "pc-run"})
 
 
 def _default_path() -> Path:
@@ -273,14 +277,21 @@ class MacPowerStore:
         req = {"id": rid, "kind": kind, "context": str(data.get("context") or "")[:2400],
                "nonce": str(data.get("nonce") or ""), "created": data.get("created") or self._clock(),
                "expires": float(data.get("expires") or self._clock() + REQUEST_TTL), "device_id": did}
+        if kind in _COMMAND_KINDS:
+            req["why"] = str(data.get("why") or "")[:300]
         with self._lock:
             self._requests[rid] = req
         self._changed()
         try:
             title = "Unlock your PC" if kind == "unlock" and self._is_pc(did) else _KIND_TITLE.get(
                 kind, f"{self.noun(did)} password requested")
-            self._alert(title, _rdp_text(req["context"]) if kind == "rdp" else (req["context"] or "Tap to review"),
-                        {"kind": "mac_password", "id": rid, "device_id": did})
+            if kind in _COMMAND_KINDS:
+                body = req["why"][:120] or "Approve with Face ID"
+            elif kind == "rdp":
+                body = _rdp_text(req["context"])
+            else:
+                body = req["context"] or "Tap to review"
+            self._alert(title, body, {"kind": "mac_password", "id": rid, "device_id": did})
         except Exception:  # noqa: BLE001
             log.warning("Mac password push failed", exc_info=True)
 
@@ -291,7 +302,8 @@ class MacPowerStore:
         error = str(data.get("error") or "")
         # He said yes but the Mac couldn't fill it (not set up, wrong password,
         # dialog gone…): say why, or it looks like Allow did nothing.
-        if req is not None and not data.get("ok") and error and error not in _QUIET_ENDINGS:
+        if (req is not None and not data.get("ok") and error and error not in _QUIET_ENDINGS
+                and req.get("kind") not in _COMMAND_KINDS):
             try:
                 self._alert(f"{self.noun(did)} password not filled", error, {"kind": "mac_password_failed",
                                                                "id": req["id"], "device_id": did})

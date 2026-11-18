@@ -140,7 +140,10 @@ SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32
                                 "live_state",
                                 # Opens the phone's vault approval sheet (plugins/vault/service.py):
                                 # the server's to show, never a tool.
-                                "vault_show_approvals"})
+                                "vault_show_approvals",
+                                # The IT agent's PC terminal and Face ID admin relay (agent/it_agent/pc.py):
+                                # only its supervisor runs them, behind its classifier and phase gates.
+                                "pc_shell", "admin_run"})
 
 
 # ── Inbound device events ───────────────────────────────────────────────────
