@@ -90,3 +90,27 @@ final class HarnessFormatTests: XCTestCase {
         XCTAssertEqual(state.message.meta?.ms, 500)
     }
 }
+
+// The IT agent's card (W5 `it`): checks and sources live; a lost run names the phase it reached.
+final class HarnessJobITTests: XCTestCase {
+    func testITLine() {
+        var job = HarnessJob(id: "j", label: "IT agent", startedAt: 1)
+        XCTAssertNil(HarnessJobFormat.itLine(job))
+        job.it = HarnessJobIT(state: "working", phase: "Install", phaseNo: 2, phases: 4, checksPassed: 1, step: "winget",
+                              brief: "", sources: 5)
+        XCTAssertEqual(HarnessJobFormat.itLine(job), "Checks 1/4 passed · 5 sources")
+        job.it = HarnessJobIT(state: "researching", phase: "", phaseNo: 0, phases: 0, checksPassed: 0, step: "",
+                              brief: "", sources: 3)
+        XCTAssertEqual(HarnessJobFormat.itLine(job), "3 sources read")
+    }
+
+    func testLostITLineNamesPhase() {
+        let job = HarnessJob(json: ["id": "j", "label": "IT agent", "status": "lost", "started_at": 1,
+                                    "it": ["state": "working", "phase": "Enable WSL2", "phase_no": 2, "phases": 4,
+                                           "checks_passed": 1, "step": "", "brief": "Needs WSL2", "sources": 5]])!
+        XCTAssertEqual(HarnessJobFormat.line(job), "IT agent · stopped when the server restarted · reached phase 2/4 (Enable WSL2)")
+        XCTAssertEqual(job.it?.brief, "Needs WSL2")
+        XCTAssertEqual(HarnessJobFormat.line(HarnessJob(json: ["id": "k", "label": "IT agent", "status": "lost", "started_at": 1])!),
+                       "IT agent · stopped when the server restarted")
+    }
+}

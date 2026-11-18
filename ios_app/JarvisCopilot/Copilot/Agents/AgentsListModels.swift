@@ -235,9 +235,12 @@ struct AgentMacPower: Identifiable, Equatable {
 struct MacPasswordRequest: Identifiable, Equatable {
     let id: String
     let deviceId: String
-    /// "sudo", "admin", "keychain" or "unlock" — signed exactly as sent.
+    /// "sudo", "admin", "keychain", "unlock", "rdp", or the IT agent's "admin-run" / "pc-run" (the
+    /// context is then the exact command) — signed exactly as sent.
     let kind: String
     let context: String
+    /// Why the IT agent wants this command ("Enable WSL2"); empty for the other kinds.
+    let why: String
     let nonce: String
     let expires: Date
 
@@ -246,6 +249,7 @@ struct MacPasswordRequest: Identifiable, Equatable {
         deviceId = CodingJSON.text(json["device_id"])
         kind = CodingJSON.text(json["kind"])
         context = CodingJSON.text(json["context"])
+        why = CodingJSON.text(json["why"])
         nonce = CodingJSON.text(json["nonce"])
         expires = Date(timeIntervalSince1970: CodingJSON.double(json["expires"]) ?? 0)
     }

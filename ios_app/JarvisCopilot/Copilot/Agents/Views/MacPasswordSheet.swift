@@ -44,6 +44,13 @@ struct MacPasswordSheet: View {
                     InsetGroup { requestText }
                         .padding(.top, 16)
                 }
+                if let warning = MacPasswordSheetCopy.warning(kind: request.kind) {
+                    Text(warning)
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 10)
+                }
 
                 if let error {
                     Text(error)
@@ -59,7 +66,7 @@ struct MacPasswordSheet: View {
                                 action: over || answering != nil ? nil : { reply(allow: false) })
                     GradientButton("Allow", symbol: "faceid", busy: answering == true, full: true,
                                    action: over || answering != nil ? nil : { reply(allow: true) })
-                        .accessibilityHint("Confirms with Face ID, then your \(MacPasswordSheetCopy.isPC(request) ? "PC" : "Mac") types its password")
+                        .accessibilityHint(MacPasswordSheetCopy.allowHint(for: request))
                 }
                 .padding(.top, 20)
             }
@@ -103,11 +110,11 @@ struct MacPasswordSheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// The whole request: mono for a sudo command, plain text otherwise. Hugs a
-    /// short one, scrolls a long one (never cut short).
+    /// The whole request: mono for a command (sudo, the IT agent's), plain text otherwise. Hugs a
+    /// short one, scrolls a long one (never cut short): his Face ID signs exactly this text.
     private var requestText: some View {
         let text = Text(request.context)
-            .font(request.kind == "sudo" ? .system(size: 14, design: .monospaced) : JcText.body)
+            .font(MacPasswordSheetCopy.monospaced(kind: request.kind) ? .system(size: 14, design: .monospaced) : JcText.body)
             .foregroundStyle(JcTheme.text)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
@@ -156,6 +163,9 @@ enum MacPasswordSheetCopy {
     /// Where a request was asked from, for an rdp request ("from this iPhone" / "from the web");
     /// nil for the others.
     static func subtitle(for request: MacPasswordRequest) -> String? {
+        if itKinds.contains(request.kind) {
+            return request.why.isEmpty ? nil : "by the IT agent: \(request.why)"
+        }
         guard request.kind == "rdp" else { return nil }
         switch rdp(request.context).client {
         case "web": return "from the web"
@@ -172,6 +182,8 @@ enum MacPasswordSheetCopy {
         case "keychain": return "Keychain access"
         case "unlock": return "Unlock your Mac"
         case "rdp": return "Remote Desktop to your PC"
+        case "admin-run": return "Run as admin on your PC"
+        case "pc-run": return "Approve a command on your PC"
         default: return "Your Mac wants its password"
         }
     }
@@ -180,7 +192,7 @@ enum MacPasswordSheetCopy {
     static func symbol(kind: String) -> String {
         switch kind {
         case "keychain": return "key.fill"
-        case "sudo": return "apple.terminal.fill"
+        case "sudo", "admin-run", "pc-run": return "apple.terminal.fill"
         case "rdp": return "display"
         default: return "lock.laptopcomputer"
         }
@@ -193,9 +205,44 @@ enum MacPasswordSheetCopy {
         return !text.isEmpty && kind != "rdp" && !(kind == "unlock" && (text == "Unlock Mac" || text == "Unlock PC"))
     }
 
-    /// The PC asks only for its unlock (its jc-client says "Unlock PC") and Remote Desktop.
+    /// The PC asks for its unlock (its jc-client says "Unlock PC"), Remote Desktop and the IT agent's commands.
     static func isPC(_ request: MacPasswordRequest) -> Bool {
-        request.kind == "rdp" || (request.kind == "unlock" && request.context.hasPrefix("Unlock PC"))
+        request.kind == "rdp" || itKinds.contains(request.kind)
+            || (request.kind == "unlock" && request.context.hasPrefix("Unlock PC"))
+    }
+
+    /// The IT agent's commands: admin-run runs elevated, pc-run (a destructive one) as him.
+    static let itKinds: Set<String> = ["admin-run", "pc-run"]
+
+    /// A command is shown in mono, exactly as it will run.
+    static func monospaced(kind: String) -> Bool { kind == "sudo" || itKinds.contains(kind) }
+
+    /// What the Face ID prompt says.
+    static func faceIDReason(for request: MacPasswordRequest) -> String {
+        switch request.kind {
+        case "admin-run": return "Run as admin on your PC"
+        case "pc-run": return "Run this command on your PC"
+        case "rdp": return title(for: request)
+        default: return "Type your \(isPC(request) ? "PC" : "Mac") password"
+        }
+    }
+
+    /// VoiceOver's hint on Allow.
+    static func allowHint(for request: MacPasswordRequest) -> String {
+        switch request.kind {
+        case "admin-run": return "Confirms with Face ID, then your PC runs this command once as admin"
+        case "pc-run": return "Confirms with Face ID, then your PC runs this command once"
+        default: return "Confirms with Face ID, then your \(isPC(request) ? "PC" : "Mac") types its password"
+        }
+    }
+
+    /// The line under an IT command: it runs once, and only if he asked for it.
+    static func warning(kind: String) -> String? {
+        switch kind {
+        case "admin-run": return "Runs once as admin on your PC. Approve only if you asked for this."
+        case "pc-run": return "Runs once on your PC. Approve only if you asked for this."
+        default: return nil
+        }
     }
 }
 

@@ -52,6 +52,8 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
     var approval: Approval?
     /// The newest pictures the job saved (chat_image), as media sources.
     var images: [MarkdownImage] = []
+    /// An IT agent run: its phase, checks and research (W5); nil for other jobs.
+    var it: HarnessJobIT?
 
     /// One approval a running job is paused on (`job_card.approval` on the server).
     struct Approval: Equatable, Hashable, Sendable {
@@ -118,11 +120,35 @@ struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
             guard let src = row["src"] as? String, !src.isEmpty else { return nil }
             return MarkdownImage(alt: row["caption"] as? String ?? "", source: ChatMedia.mediaSource(src))
         }.suffix(4).map { $0 }
+        it = HarnessJobIT(json: json["it"] as? [String: Any])
     }
 
     var isRunning: Bool { status == "running" }
     /// Over for good ("lost" = the server says a restart cut it short).
     var hasEnded: Bool { ["done", "failed", "stopped", "lost"].contains(status) }
+}
+
+/// An IT agent run on its job card (`job_card.it`, W5): where it is, how many phase checks passed and
+/// what its research found.
+struct HarnessJobIT: Equatable, Hashable, Sendable {
+    var state: String
+    var phase: String
+    var phaseNo: Int
+    var phases: Int
+    var checksPassed: Int
+    var step: String
+    var brief: String
+    var sources: Int
+}
+
+extension HarnessJobIT {
+    init?(json: [String: Any]?) {
+        guard let json else { return nil }
+        func int(_ key: String) -> Int { (json[key] as? NSNumber)?.intValue ?? 0 }
+        self.init(state: json["state"] as? String ?? "", phase: json["phase"] as? String ?? "", phaseNo: int("phase_no"),
+                  phases: int("phases"), checksPassed: int("checks_passed"), step: json["step"] as? String ?? "",
+                  brief: json["brief"] as? String ?? "", sources: int("sources"))
+    }
 }
 
 /// Who answered a reply, from the server's `_meta` (stored on the message) or
@@ -270,8 +296,17 @@ enum HarnessJobFormat {
             return "\(job.label) · finished in \(ran)\(steps)"
         case "failed": return "\(job.label) · couldn't finish (after \(ran))"
         case "stopped": return "\(job.label) · stopped after \(ran)"
-        default: return "\(job.label) · stopped when the server restarted"
+        default:
+            let reached = job.it.map { $0.phases > 0 ? " · reached phase \($0.phaseNo)/\($0.phases) (\($0.phase))" : "" } ?? ""
+            return "\(job.label) · stopped when the server restarted\(reached)"
         }
+    }
+
+    /// An IT run's progress: "4 sources read" while it researches, then "Checks 1/4 passed · 5 sources"
+    /// (the web card's words). Nil for other jobs.
+    static func itLine(_ job: HarnessJob) -> String? {
+        guard let it = job.it else { return nil }
+        return it.phases > 0 ? "Checks \(it.checksPassed)/\(it.phases) passed · \(it.sources) sources" : "\(it.sources) sources read"
     }
 }
 

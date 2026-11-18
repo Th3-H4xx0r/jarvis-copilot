@@ -1178,6 +1178,7 @@
 		D6D0F3C3E6579EAA9659F185 /* InmoNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACD1635DE11C50EF98505B2 /* InmoNavigationTests.swift */; };
 		D6DBBFDA82AFF3C8152A7C16 /* HoloDropPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3699A367DD0BB7C6C6AF2D2 /* HoloDropPage.swift */; };
 		D6F3A884729078C0D869295C /* IMessageMemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8DD80430DCF8030A4C4B3E /* IMessageMemoryAPI.swift */; };
+		D751BAA38F824218D935992F /* PcAdminRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4AED5A15B6A62EBCF8B6DDD /* PcAdminRunTests.swift */; };
 		D76C1BF618CBBE541A40D03A /* WearableArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7864490CBD79D96EC84DEE07 /* WearableArt.swift */; };
 		D77550FB5E921E7BCFB9BE3A /* ProfilesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 056DD31ABA27162A9A80A666 /* ProfilesStore.swift */; };
 		D7CEDEB9510DC3173F7B8A7B /* IslandModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7092ACC37A0C23D9431E399F /* IslandModelsTests.swift */; };
@@ -2306,6 +2307,7 @@
 		A3F89193A08A684698BC94D5 /* VoiceControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceControls.swift; sourceTree = "<group>"; };
 		A4515750C14DE5BA184BE9DF /* ButtonLiveState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ButtonLiveState.swift; sourceTree = "<group>"; };
 		A4772431738F5BBF9EEF2999 /* CarPlayCarTabTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlayCarTabTests.swift; sourceTree = "<group>"; };
+		A4AED5A15B6A62EBCF8B6DDD /* PcAdminRunTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcAdminRunTests.swift; sourceTree = "<group>"; };
 		A4EEFFC51554853D9366A083 /* VoiceLaunch.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunch.swift; sourceTree = "<group>"; };
 		A525B24E6E393BB06F66E26E /* DataSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DataSkills.swift; sourceTree = "<group>"; };
 		A52AEDA51B48386E32A0590E /* CarToyotaHome.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarToyotaHome.swift; sourceTree = "<group>"; };
@@ -4300,6 +4302,7 @@
 				2AC131B1B9F378B9070838B3 /* PcStatsLayoutTests.swift */,
 				370B4AA481C344AEA123F577 /* ComputerToolsTests.swift */,
 				0B6B642522A481B412813525 /* RemoteDesktopTests.swift */,
+				A4AED5A15B6A62EBCF8B6DDD /* PcAdminRunTests.swift */,
 			);
 			name = Agents;
 			path = Agents;
@@ -5991,6 +5994,7 @@
 				50F448802C770CE57FBFDB13 /* PcStatsLayoutTests.swift in Sources */,
 				32BD5592A9DE39035CA8A842 /* ComputerToolsTests.swift in Sources */,
 				65D04508227DA22BEA7C8321 /* RemoteDesktopTests.swift in Sources */,
+				D751BAA38F824218D935992F /* PcAdminRunTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

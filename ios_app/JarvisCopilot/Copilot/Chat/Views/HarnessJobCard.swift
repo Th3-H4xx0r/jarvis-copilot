@@ -33,6 +33,20 @@ struct HarnessJobCard: View {
                     ChatImageViewer(images: job.images, start: start.index)
                 }
             }
+            if let brief = job.it?.brief, !brief.isEmpty {
+                // What the IT agent's research found: requirements, the route, the checks it will run.
+                DisclosureGroup("Brief") {
+                    Text(brief)
+                        .foregroundStyle(JcTheme.muted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                }
+                .font(.footnote)
+                .tint(JcTheme.muted)
+                .foregroundStyle(JcTheme.muted)
+            }
             if let approval = job.approval, let onAnswer {
                 HarnessJobApprovalRow(approval: approval, onAnswer: onAnswer)
             }
@@ -61,6 +75,9 @@ struct HarnessJobCard: View {
                         }
                     }
                     Text(HarnessJobFormat.detail(job)).foregroundStyle(JcTheme.muted)
+                    if let line = HarnessJobFormat.itLine(job) {
+                        Text(line).foregroundStyle(JcTheme.muted)
+                    }
                 }
                 .font(.footnote)
                 .lineLimit(1)
