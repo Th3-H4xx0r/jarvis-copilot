@@ -46,6 +46,16 @@
     return (live && live[card.id]) || card;
   }
 
+  // An IT agent run (card.it, W5): "4 sources read" while it researches, then the checks that passed.
+  function itLine(card) {
+    const it = card && card.it;
+    if (!it) return null;
+    const sources = Number(it.sources) || 0;
+    const phases = Number(it.phases) || 0;
+    return phases > 0 ? `Checks ${Number(it.checks_passed) || 0}/${phases} passed · ${sources} sources`
+      : `${sources} sources read`;
+  }
+
   function view(card, now) {
     const label = String(card.label || 'Background');
     const ran = (Number(card.completed_at) || now) - (Number(card.started_at) || now);
@@ -64,6 +74,8 @@
       v.line = `${label} · stopped after ${duration(ran)}`;
     } else {
       v.line = `${label} · stopped when the server restarted`;
+      const it = card.it;
+      if (it && Number(it.phases) > 0) v.line += ` · reached phase ${it.phase_no}/${it.phases} (${it.phase})`;
     }
     return v;
   }
@@ -116,6 +128,14 @@
       `${i.caption ? ` data-caption="${esc(i.caption)}"` : ''} loading="lazy">`).join('') + `</div>`;
   }
 
+  // The IT agent's checks line and its research brief (folded) under the live step.
+  function itHtml(card) {
+    const line = itLine(card);
+    if (line == null) return '';
+    const brief = card.it.brief ? `<details class="harness-job-brief"><summary>Brief</summary>${esc(card.it.brief)}</details>` : '';
+    return `<div class="harness-job-it">${esc(line)}</div>${brief}`;
+  }
+
   function cardHtml(card, now) {
     const ap = waitingOn(card);
     if (card.approval && !ap && card.activity === 'Needs your approval') {
@@ -133,7 +153,7 @@
       `<span class="harness-job-dot" aria-hidden="true"></span>` +
       `<div class="harness-job-main"><div class="harness-job-title"><button type="button" class="harness-job-open" ${open}><b>${esc(v.title)}</b></button>` +
       (v.model ? ` <span class="harness-job-model">${esc(v.model)}</span>` : '') + `</div>` +
-      `<div class="harness-job-detail">${esc(v.detail)}</div>${thumbsHtml(card)}</div>` +
+      `<div class="harness-job-detail">${esc(v.detail)}</div>${itHtml(card)}${thumbsHtml(card)}</div>` +
       `<span class="harness-job-clock">${esc(v.clock)}</span>` +
       (card.stopping
         ? `<button type="button" class="harness-job-stop" disabled>Stopping…</button>`
@@ -310,7 +330,7 @@
         return;
       }
       // Anywhere else on a card opens the job's own chat view.
-      if (t.closest('button:not([data-job-open]), a, input, select, textarea')) return;
+      if (t.closest('button:not([data-job-open]), a, input, select, textarea, details')) return;
       const el = t.closest('.harness-job[data-job-id]');
       const viewer = typeof self !== 'undefined' ? self.HarnessJobView : null;
       if (el && viewer) viewer.open(_sid(), el.dataset.jobId);
@@ -318,5 +338,5 @@
   }
 
   return { clock, duration, resolve, view, merge, cardHtml, renderInto, refresh, apply, catchUp, stop,
-           onCard, cardFor, respond, isAnswered, waitingOn };
+           onCard, cardFor, respond, isAnswered, waitingOn, itLine };
 });

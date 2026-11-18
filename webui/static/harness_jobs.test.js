@@ -216,3 +216,27 @@ test('a running card shows the newest pictures the job found', () => {
   assert.equal((html.match(/<img /g) || []).length, 2);
   assert.doesNotMatch(J.cardHtml(card({ steps: 1 }), 1010), /harness-job-thumbs/);
 });
+
+// ── the IT agent's card (W5 `it` field) ────────────────────────────────────
+
+test('itLine shows checks and sources', () => {
+  assert.equal(J.itLine({ it: { phases: 4, checks_passed: 1, sources: 5 } }), 'Checks 1/4 passed · 5 sources');
+  assert.equal(J.itLine({ it: { state: 'researching', phases: 0, sources: 3 } }), '3 sources read');
+  assert.equal(J.itLine(card()), null);
+});
+
+test('lost IT card names the phase it reached', () => {
+  assert.equal(J.view({ label: 'IT agent', status: 'lost', started_at: 1,
+    it: { phase: 'Enable WSL2', phase_no: 2, phases: 4 } }, 2).line,
+    'IT agent · stopped when the server restarted · reached phase 2/4 (Enable WSL2)');
+  assert.equal(J.view({ label: 'IT agent', status: 'lost', started_at: 1, it: { phases: 0 } }, 2).line,
+    'IT agent · stopped when the server restarted');
+});
+
+test('brief is escaped inside a details block', () => {
+  const html = J.cardHtml(card({ label: 'IT agent',
+    it: { state: 'working', phases: 2, checks_passed: 1, sources: 4, brief: 'Needs <b>WSL2</b>' } }), 1010);
+  assert.match(html, /<div class="harness-job-it">Checks 1\/2 passed · 4 sources<\/div>/);
+  assert.match(html, /<details class="harness-job-brief"><summary>Brief<\/summary>Needs &lt;b&gt;WSL2&lt;\/b&gt;<\/details>/);
+  assert.doesNotMatch(J.cardHtml(card(), 1010), /harness-job-it|harness-job-brief/);
+});

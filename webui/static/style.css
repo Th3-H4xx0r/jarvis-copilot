@@ -3868,6 +3868,26 @@ main.main.showing-security > #mainSecurity{display:flex;flex-direction:column;}
 .harness-job-detail {
   margin-top: 2px;
 }
+/* The IT agent's run: checks passed + its research brief (folded). */
+.harness-job-it,
+.harness-job-brief {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+.harness-job-it {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.harness-job-brief summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.harness-job-brief[open] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .harness-job-clock {
   flex: 0 0 auto;
   color: var(--muted);
