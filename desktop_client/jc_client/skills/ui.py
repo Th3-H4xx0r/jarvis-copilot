@@ -595,6 +595,15 @@ def _open_menu(ax, pid) -> str | None:
         return None
 
 
+def _read_opened(before: dict, opened: str):
+    """The menu / popover a move just opened, read through agent-desktop (None to look as usual)."""
+    ad = _ad_client()
+    if ad is None:
+        return None
+    got = _safe_read_ad(ad, before.get("pid"), before.get("app"), opened, 400, 1024, _capture, time.monotonic())
+    return got if got.get("ok") else None
+
+
 def _safe_read_ad(*args) -> dict:
     try:
         return _read_ad(*args)
@@ -981,7 +990,11 @@ def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
             target = {}
         if before and before.get("surface"):
             target["surface"] = before["surface"]
-        res["look"] = reader(**target)
+        opened = res.get("opened") if before else None
+        got = _read_opened(before, opened) if opened else None
+        res["look"] = got if got else reader(**target)
+        if got:
+            landed = "yes"  # it opened a menu / popover: that's what the next move picks from
         nxt = res["look"] if isinstance(res["look"], dict) else {}
         same_view = before and (nxt.get("engine") or "ax") == (before.get("engine") or "ax") \
             and nxt.get("surface") == before.get("surface")  # two engines' signatures never match

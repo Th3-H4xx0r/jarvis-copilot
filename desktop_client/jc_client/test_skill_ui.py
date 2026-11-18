@@ -734,3 +734,22 @@ def test_ad_read_exception_falls_back(monkeypatch):
     monkeypatch.setattr(ui.ui_ad, "read", boom)
     r = ui.read_window(app="calc", ax=FakeAX(_window()), capture=_capture)
     assert r["ok"] and r["engine"] == "ax" and "bad tree" in r["engine_note"]
+
+
+def test_a_menu_opened_by_a_click_is_the_next_look(monkeypatch):
+    """Live: clicking the menu-bar Wi-Fi item / File opened a menu, the next look re-read the menu bar,
+    "nothing changed" ×3 → stuck. The next look must read the menu that opened."""
+    opened = {"ok": True, "data": {"disposition": {"delivery": "delivered_unverified"}, "surfaces": ["menu"]}}
+    menu = {"ok": True, "data": {"app": "Calc", "snapshot_id": "s6", "tree": {
+        "role": "menu", "bounds": _bounds(120, 70, 160, 200), "children": [
+            {"role": "menuitem", "name": "New Folder", "ref_id": "@s6:e1", "bounds": _bounds(120, 80, 160, 20)}]}}}
+    ad = FakeAD(AD_WINDOW, opened, menu)
+    _web_app(monkeypatch, ad)
+    monkeypatch.setattr(ui, "_capture", _capture)
+    ax = FakeAX(_window())
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    out = ui.do_and_look("click", reader=lambda **kw: pytest.fail("must read the opened menu"),
+                         look_id=r["look_id"], element=1)
+    assert out["look"]["surface"] == "menu" and out["look"]["elements"][0]["label"] == "New Folder"
+    assert out["landed"] == "yes" and ad.calls[-1][1]["surface"] == "menu"

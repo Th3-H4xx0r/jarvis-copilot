@@ -154,3 +154,12 @@ def test_act_error_carries_the_code():
     out = ui_ad.act(Client({"ok": False, "error": {"code": "ACTION_NOT_SUPPORTED", "message": "no press"}}),
                     "@s1:e1", "click")
     assert out["ok"] is False and out["code"] == "ACTION_NOT_SUPPORTED"
+
+
+def test_act_reports_a_menu_it_opened():
+    for surfaces in (["menu"], [{"kind": "menu", "id": "m1"}], [{"surface": "popover"}]):
+        env = {"ok": True, "data": {"disposition": {"delivery": "delivered_unverified"}, "surfaces": surfaces}}
+        out = ui_ad.act(Client(env), "@s1:e1", "click")
+        assert out["opened"] in ("menu", "popover"), surfaces
+    plain = ui_ad.act(Client({"ok": True, "data": {"disposition": {"delivery": "delivered_verified"}}}), "@s1:e1", "click")
+    assert "opened" not in plain

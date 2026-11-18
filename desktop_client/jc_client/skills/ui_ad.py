@@ -137,6 +137,19 @@ def read(client, *, app, surface, max_elements: int = 400, headed_ok: bool = Fal
             "elements": elements, "texts": texts, "snapshot_id": data.get("snapshot_id")}
 
 
+_OVERLAYS = ("menu", "popover", "sheet", "alert")
+
+
+def _opened(surfaces) -> str | None:
+    """The overlay a move left open ("menu", "popover", "sheet", "alert"), from ``data.surfaces``."""
+    for item in surfaces or []:
+        kind = item if isinstance(item, str) else (item.get("kind") or item.get("surface") or item.get("type")
+                                                   if isinstance(item, dict) else None)
+        if str(kind or "") in _OVERLAYS:
+            return str(kind)
+    return None
+
+
 def act(client, adref: str, action: str, *, text=None, direction=None, role: str = "") -> dict:
     """Click / fill / scroll one ref; ``{"ok", "did", "via", "landed"}`` or ``{"ok": False, "error", "landed"}``."""
     if action == "click":
@@ -150,7 +163,11 @@ def act(client, adref: str, action: str, *, text=None, direction=None, role: str
         return {"ok": False, "error": f"agent-desktop can't {action}", "landed": "no"}
     envelope = client.call(tool, args, timeout=_CALL_S)
     if envelope.get("ok"):
-        return {"ok": True, "did": action, "via": "agent-desktop", "landed": landed(envelope)}
+        out = {"ok": True, "did": action, "via": "agent-desktop", "landed": landed(envelope)}
+        opened = _opened((envelope.get("data") or {}).get("surfaces"))
+        if opened:
+            out["opened"] = opened  # the next look reads it (the menu bar itself doesn't change)
+        return out
     err = envelope.get("error") or {}
     if err.get("code") == "STALE_REF":
         message = _STALE
