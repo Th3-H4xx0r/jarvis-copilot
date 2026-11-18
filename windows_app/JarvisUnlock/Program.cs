@@ -486,7 +486,10 @@ internal static unsafe class Typist
         if (_desk != IntPtr.Zero) CloseDesktop(_desk);
         _desk = desk;
         var name = DesktopName(desk);
-        if (name.Equals("Winlogon", StringComparison.OrdinalIgnoreCase)) return LockView.SignIn;
+        // A UAC prompt (consent.exe) also sits on the secure desktop, over an unlocked PC: never a
+        // sign-in screen, so nothing is pressed or typed into it.
+        if (name.Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
+            return ForegroundExe().Equals("consent.exe", StringComparison.OrdinalIgnoreCase) ? LockView.Unlocked : LockView.SignIn;
         if (!name.Equals("Default", StringComparison.OrdinalIgnoreCase)) return LockView.Unknown;
         return ForegroundExe().Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? LockView.Picture : LockView.Unlocked;
     }
