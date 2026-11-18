@@ -119,9 +119,23 @@ internal static class Installer
         else
             Sc("create", Program.ServiceName, "binPath=", bin, "start=", "auto", "obj=", "LocalSystem", "DisplayName=", "Jarvis Unlock");
         Sc("description", Program.ServiceName, "Types your Windows password on the lock screen when you unlock the PC from your iPhone with Face ID, and runs the admin commands you approve there.");
+        GrantStart(sid);
         var started = Sc("start", Program.ServiceName);
         Log.Write($"installed for {sid} (start {started})");
         return 0;
+    }
+
+    /// Let his account start/stop the service: jc-client brings a stopped helper back without UAC (live
+    /// 2026-11-18 it had been stopped and admin steps failed). Every admin run still needs his signature.
+    private static void GrantStart(string sid)
+    {
+        var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+        psi.ArgumentList.Add("sdshow");
+        psi.ArgumentList.Add(Program.ServiceName);
+        string sddl;
+        using (var p = Process.Start(psi)!) { sddl = p.StandardOutput.ReadToEnd().Trim(); p.WaitForExit(15000); }
+        if (AdminRun.GrantStart(sddl, sid) is { } granted)
+            Log.Write($"service start right for {sid}: sdset exit {Sc("sdset", Program.ServiceName, granted)}");
     }
 
     public static int Uninstall()

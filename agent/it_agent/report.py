@@ -14,7 +14,7 @@ def _cmd(detail: str) -> str:
 
 
 def outcome_line(run: Run) -> str:
-    n, d, r = _n(run), str(run.end_detail or "").rstrip("."), run.rethinks
+    n, d, r = _n(run), str(run.end_detail or "").rstrip("."), run.phase_rethinks
     if n == 0 and run.end_reason in ("stopped", "error"):
         return ("Stopped before any phase started." if run.end_reason == "stopped"
                 else f"Something went wrong before I started: {d}.")
@@ -29,6 +29,7 @@ def outcome_line(run: Run) -> str:
         "signin_timeout": f"Your PC restarted but no one signed in within {d} minutes, so I stopped at phase {n}.",
         "pc_offline": f"Your PC went offline and didn't come back within {d} minutes (phase {n}).",
         "plan_failed": "I couldn't get a plan where every phase has a check I can verify.",
+        "admin_unavailable": f"Admin steps can't run right now ({d}). Nothing ran elevated; I stopped at phase {n}.",
         "not_asked": ("I only change your PC when you ask for it in your own words, so I stopped after the research. "
                       "Ask me again yourself (for example: \"install Docker Desktop on my PC\")."),
         "gave_up": f"I stopped at phase {n}: {d}",

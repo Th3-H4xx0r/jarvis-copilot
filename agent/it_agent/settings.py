@@ -75,5 +75,6 @@ def _int(value, default: int, low: int, high: int) -> int:
 def limits(config=None) -> Limits:
     s = _section(config)
     return Limits(max_rethinks=_int(s.get("max_rethinks"), 3, 0, 10),
+                  max_total_rethinks=_int(s.get("max_total_rethinks"), 8, 0, 30),
                   reboot_wait_minutes=_int(s.get("reboot_wait_minutes"), 60, 5, 240),
                   offline_wait_minutes=_int(s.get("offline_wait_minutes"), 30, 1, 240))

@@ -65,3 +65,18 @@ def test_helper_pipe_retries_a_busy_pipe():
 def test_helper_pipe_bad_reply_is_an_error():
     out = helper_pipe.admin_run("x", "n", 1, "s", 60, opener=lambda p: Pipe(b"garbage\n"))
     assert out["ok"] is False and "helper" in out["error"].lower()
+
+
+def test_a_stopped_helper_is_started_and_tried_again():
+    # Live 2026-11-18: the helper service had been stopped; jc-client starts it (the installer lets him).
+    pipe = Pipe(b'{"ok":true,"exit_code":0,"output":"","truncated":false,"timed_out":false,"duration_ms":1}\n')
+    opened, started = [], []
+
+    def opener(path):
+        opened.append(1)
+        if not started:
+            raise FileNotFoundError(2, "No such file")
+        return pipe
+    out = helper_pipe.admin_run("x", "n", 1, "s", 60, opener=opener, start_helper=lambda: started.append(1) or True,
+                                connect_wait_s=2.0)
+    assert started == [1] and out["ok"] is True

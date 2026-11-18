@@ -110,7 +110,8 @@ class CheckResult:
 
 @dataclass
 class Limits:
-    max_rethinks: int = 3
+    max_rethinks: int = 3            # per phase
+    max_total_rethinks: int = 8      # per run
     reboot_wait_minutes: int = 60
     offline_wait_minutes: int = 30
     settle_s: float = 15.0
@@ -134,6 +135,7 @@ class Run:
     phases: list = field(default_factory=list)
     phase_index: int = 0
     rethinks: int = 0
+    phase_rethinks: int = 0      # rethinks spent on the phase now running (reset when one passes)
     steps_run: int = 0
     step_label: str = ""
     log: list = field(default_factory=list)

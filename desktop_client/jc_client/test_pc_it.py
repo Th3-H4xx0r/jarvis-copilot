@@ -164,3 +164,11 @@ def test_a_gui_app_holding_the_pipe_does_not_hang_the_step(monkeypatch):
                                popen=_popen(Proc(b"started\r\n", held=True), []))
     assert time.monotonic() - start < 2
     assert out["timed_out"] is False and out["exit_code"] == 0 and out["stdout"] == "started\n"
+
+
+def test_clixml_after_other_text_reads_as_text():
+    # Live: wsl.exe's own text came first on stderr, then PowerShell's CLIXML error block.
+    err = ('The Windows Subsystem for Linux is not installed.\r\n#< CLIXML\r\n<Objs Version="1.1.0.1" '
+           'xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">Get-Thing : bad_x000D__x000A_</S></Objs>')
+    out = pc_it.run_powershell("x", 30, popen=_popen(Proc(b"", err.encode(), code=1), []))
+    assert out["stderr"] == "The Windows Subsystem for Linux is not installed.\nGet-Thing : bad"

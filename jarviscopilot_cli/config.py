@@ -755,7 +755,8 @@ DEFAULT_CONFIG = {
     # Claude Code CLI).
     "it_agent": {
         "supervisor_model": "",
-        "max_rethinks": 3,
+        "max_rethinks": 3,          # per phase
+        "max_total_rethinks": 8,    # per run
         "reboot_wait_minutes": 60,
         "offline_wait_minutes": 30,
     },

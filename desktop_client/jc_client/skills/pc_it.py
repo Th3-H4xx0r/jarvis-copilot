@@ -78,15 +78,19 @@ def _kill_tree(pid: int) -> None:
 
 
 def _clixml(text: str) -> str:
-    """PowerShell writes errors as CLIXML on stderr when it's redirected: keep only their text."""
-    if not text.startswith("#< CLIXML"):
+    """PowerShell writes errors as CLIXML on stderr when it's redirected: keep only their text. A tool's own
+    stderr (wsl.exe's) can come first (live), so the block is found wherever it starts."""
+    at = text.find("#< CLIXML")
+    if at < 0:
         return text
-    parts = _CLIXML_ERROR.findall(text)
+    head, xml = text[:at], text[at:]
+    parts = _CLIXML_ERROR.findall(xml)
     if not parts:
         return text
     def plain(s: str) -> str:
         return html.unescape(re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), s))
-    return "".join(plain(p) for p in parts).replace("\r\n", "\n").rstrip("\n")
+    body = "".join(plain(p) for p in parts).replace("\r\n", "\n").rstrip("\n")
+    return f"{head.rstrip(chr(10))}\n{body}" if head.strip() else body
 
 
 def _text(raw) -> str:

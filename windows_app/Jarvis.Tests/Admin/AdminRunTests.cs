@@ -150,6 +150,26 @@ public class AdminRunTests
     }
 
     [Fact]
+    public void PlainErrors_ClixmlAfterAToolsOwnText()
+    {
+        var err = "The Windows Subsystem for Linux is not installed.\n#< CLIXML\r\n<Objs Version=\"1.1.0.1\" " +
+                  "xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><S S=\"Error\">Get-Thing : bad_x000D__x000A_</S></Objs>";
+        Assert.Equal("The Windows Subsystem for Linux is not installed.\nGet-Thing : bad", AdminRun.PlainErrors(err));
+    }
+
+    [Fact]
+    public void GrantStart_AddsHisAceBeforeTheSacl_Once()
+    {
+        const string Sid = "S-1-5-21-1-2-3-1001";
+        var sddl = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWLOCRRC;;;IU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
+        var granted = AdminRun.GrantStart(sddl, Sid)!;
+        Assert.Equal("D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWLOCRRC;;;IU)(A;;RPWPLCRC;;;S-1-5-21-1-2-3-1001)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)", granted);
+        Assert.Null(AdminRun.GrantStart(granted, Sid));
+        Assert.Equal("D:(A;;LC;;;SY)(A;;RPWPLCRC;;;" + Sid + ")", AdminRun.GrantStart("D:(A;;LC;;;SY)", Sid));
+        Assert.Null(AdminRun.GrantStart("garbage", Sid));
+    }
+
+    [Fact]
     public void ValidKey_AcceptsOnlyUncompressedP256Points()
     {
         var (pub, _) = Phone();

@@ -65,7 +65,8 @@ def _do_phase(run: Run, phase: Phase, deps: Deps, limits: Limits):
     for j, step in enumerate(phase.steps, 1):
         _stop_check(deps)
         label = _label(step)
-        _set(run, deps, "approval" if needs_face_id(step, run.request_text) else "working", label)
+        face = needs_face_id(step, run.request_text)
+        _set(run, deps, "approval" if face else "working", label)
         res = run_step(step, run, deps)
         run.steps_run += 1
         _log_step(run, step, res)
@@ -77,6 +78,8 @@ def _do_phase(run: Run, phase: Phase, deps: Deps, limits: Limits):
             raise _End("failed", "approval_timeout", step.command)
         if res.status == "stopped":
             raise _End("stopped", "stopped")
+        if face and res.status == "error":   # the approval/admin path itself is down: no plan can fix that
+            raise _End("failed", "admin_unavailable", res.detail or "the admin path didn't answer")
         if res.status == "offline":
             _wait_back(run, deps, limits)
             break                      # straight to the check; the step isn't re-run
@@ -146,10 +149,12 @@ def _drive(run: Run, deps: Deps, limits: Limits) -> None:
         failure = _do_phase(run, run.phases[run.phase_index], deps, limits)
         if failure is None:
             run.phase_index += 1
+            run.phase_rethinks = 0
             continue
-        if run.rethinks >= limits.max_rethinks:
+        if run.phase_rethinks >= limits.max_rethinks or run.rethinks >= limits.max_total_rethinks:
             raise _End("failed", "check_failed", failure)
         run.rethinks += 1
+        run.phase_rethinks += 1
         _set(run, deps, "rethinking")
         try:
             new = ask_json(deps.ask, "plan", rethink_prompt(run, failure), parse_rethink, max_tokens=4000)

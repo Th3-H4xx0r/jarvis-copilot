@@ -241,3 +241,33 @@ def test_plan_rules_carry_the_windows_virtualization_quirk():
     text = plan_prompt("install Docker Desktop", Brief("s", [], "winget", ["docker --version"], []), {}, False)
     assert "HypervisorPresent" in text and "VirtualizationFirmwareEnabled" in text
     assert "say why" in text
+
+
+def test_every_phase_gets_its_own_rethinks():
+    # Live 2026-11-18: phase 1 used all 3 of the run's rethinks on a Windows quirk; phase 2's first hiccup ended it.
+    nope = ShellResult("ran", 1, "nope")
+    first = "docker --version"
+    second = "docker info"
+    s = Script(phases=[phase("One", check=first), phase("Two", check=second)],
+               rethinks=[{"phases": [phase("One again", check=first), phase("Two", check=second)]}] * 2
+                        + [{"phases": [phase("Two again", check=second)]}] * 2,
+               check_results={first: [nope, nope, nope, nope, ShellResult("ran", 0, "ok")],
+                              second: [nope, nope, nope, nope, ShellResult("ran", 0, "ok")]})
+    run = run_task(_run(), s.deps(), L(max_rethinks=3, max_total_rethinks=8))
+    assert run.status == "done" and run.rethinks == 4
+
+
+def test_total_rethinks_are_capped():
+    nope = ShellResult("ran", 1, "nope")
+    s = Script(phases=[phase("One")], rethinks=[{"phases": [phase("One")]}] * 9,
+               check_results={"docker --version": nope})
+    run = run_task(_run(), s.deps(), L(max_rethinks=5, max_total_rethinks=2))
+    assert run.end_reason == "check_failed" and run.rethinks == 2
+
+
+def test_admin_path_down_stops_plainly_without_rethinks():
+    s = Script(phases=[phase("WSL", step="wsl --install --no-distribution", kind="admin")],
+               admin_result=ShellResult("error", error="The Jarvis helper isn't running on this PC."))
+    run = run_task(_run(), s.deps(), L())
+    assert run.end_reason == "admin_unavailable" and run.rethinks == 0 and run.status == "failed"
+    assert "helper isn't running" in run.report and "nothing ran elevated" in run.report.lower()

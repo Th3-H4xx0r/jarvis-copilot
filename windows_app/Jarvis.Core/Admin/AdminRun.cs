@@ -98,12 +98,27 @@ public static class AdminRun
     /// PowerShell writes errors as CLIXML when stderr is redirected: keep only their text.
     public static string PlainErrors(string stderr)
     {
-        if (!stderr.StartsWith("#< CLIXML", StringComparison.Ordinal)) return stderr;
-        var parts = ClixmlError.Matches(stderr).Select(m => m.Groups[1].Value).ToList();
+        // A tool's own stderr (wsl.exe's) can come first: find the block wherever it starts (live).
+        var at = stderr.IndexOf("#< CLIXML", StringComparison.Ordinal);
+        if (at < 0) return stderr;
+        var parts = ClixmlError.Matches(stderr[at..]).Select(m => m.Groups[1].Value).ToList();
         if (parts.Count == 0) return stderr;
         var text = string.Concat(parts.Select(p => WebUtility.HtmlDecode(
-            XmlEscape.Replace(p, m => ((char)Convert.ToInt32(m.Groups[1].Value, 16)).ToString()))));
-        return text.Replace("\r\n", "\n").TrimEnd('\n');
+            XmlEscape.Replace(p, m => ((char)Convert.ToInt32(m.Groups[1].Value, 16)).ToString()))))
+            .Replace("\r\n", "\n").TrimEnd('\n');
+        var head = stderr[..at].TrimEnd('\n', '\r');
+        return head.Trim().Length > 0 ? head + "\n" + text : text;
+    }
+
+    /// The service's DACL with an ACE letting his account start/stop/query it (so jc-client can bring a
+    /// stopped helper back without UAC). Null when it already has one or the SDDL can't be read.
+    public static string? GrantStart(string sddl, string sid)
+    {
+        var s = sddl.Trim();
+        if (!s.StartsWith("D:", StringComparison.Ordinal) || s.Contains(";;;" + sid + ")", StringComparison.OrdinalIgnoreCase)) return null;
+        var ace = $"(A;;RPWPLCRC;;;{sid})";
+        var sacl = s.IndexOf("S:", StringComparison.Ordinal);
+        return sacl < 0 ? s + ace : s[..sacl] + ace + s[sacl..];
     }
 
     /// A pinned key: the iPhone's x9.63 P-256 point (04 ‖ X ‖ Y, 65 bytes).
