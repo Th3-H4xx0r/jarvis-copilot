@@ -123,6 +123,9 @@ class Run:
     device_id: str
     device_name: str
     screen_allowed: bool = False
+    # His own words this turn ask for something on the PC (it_jobs.asked_for_pc): without it the run
+    # researches and answers but never changes the PC (an email or page the chat read can't start one).
+    pc_allowed: bool = False
     state: str = "researching"
     status: str = "running"
     end_reason: str = ""

@@ -4,7 +4,7 @@ import json
 import pytest
 
 from agent.it_agent.model import Phase, PlanError, Run, Step, Check, activity_line, card_it
-from agent.it_agent.plans import (ask_json, extract_json, parse_brief, parse_pick, parse_plan)
+from agent.it_agent.plans import (ask_json, extract_json, parse_brief, parse_pick, parse_plan, parse_queries)
 
 GOOD = {"phases": [{"name": "Install", "steps": [{"kind": "shell", "command": "winget --version"}],
                     "check": {"kind": "shell", "command": "winget --version", "expect": {"exit_code": 0}}}]}
@@ -103,3 +103,31 @@ def test_activity_line_copy():
 def test_destructive_check_rejected():
     with pytest.raises(PlanError, match="phase 1 check must not change anything: deletes files"):
         parse_plan(_plan(check={"kind": "shell", "command": "Remove-Item C:\\x", "expect": {"exit_code": 0}}))
+
+
+def test_check_that_tests_nothing_is_rejected():
+    with pytest.raises(PlanError, match="phase 1 check must test something"):
+        parse_plan(_plan(check={"kind": "shell", "command": "docker --version", "expect": {"exit_code": None}}))
+
+
+def test_malformed_expect_is_reasked_not_crashed():
+    replies = [_plan(check={"kind": "shell", "command": "docker --version", "expect": "Docker version"}), json.dumps(GOOD)]
+    prompts = []
+    ask_json(lambda p, prompt, n: (prompts.append(prompt), replies.pop(0))[1], "plan", "P", parse_plan, max_tokens=10)
+    assert len(prompts) == 2 and "expect" in prompts[1]
+
+
+def test_string_lists_are_not_split_into_letters():
+    with pytest.raises(PlanError):
+        parse_queries('{"queries": "docker install"}')
+    brief = parse_brief('{"route": "winget", "checks": "docker --version", "requirements": "WSL2"}', [])
+    assert brief.checks == ["docker --version"] and brief.requirements == ["WSL2"]
+
+
+def test_research_only_needs_a_real_true():
+    assert parse_brief('{"route": "r", "checks": ["x"], "research_only": "false"}', []).research_only is False
+
+
+def test_hidden_characters_in_commands_are_rejected():
+    with pytest.raises(PlanError, match="hidden characters"):
+        parse_plan(_plan(steps=[{"kind": "admin", "command": "echo safe\u202e;del C:\\x", "why": "x"}]))

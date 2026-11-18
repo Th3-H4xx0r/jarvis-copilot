@@ -261,9 +261,11 @@ public static partial class PcPowerPane
                 }), unlock.HasPassword ? Th.Button("Forget", unlock.ForgetPassword) : new TextBlock()),
                 unlock.HasPassword ? "Saved. What you type on the lock screen." : "What you type on the lock screen. Kept encrypted on this PC; it never leaves it.");
             var installed = Unlock.PcUnlock.HelperInstalled;
+            var install = Th.Button(Core.Unlock.UnlockSetup.HelperButton(installed), () => _ = Install(), primary: !installed);
             helperRow.Content = Pane.Labeled("Unlock helper",
-                installed ? Th.Text(Core.Unlock.UnlockSetup.HelperLine(true), 13, "JcSetSecondary") : Th.Button("Install", () => _ = Install()),
-                "Windows lets nothing type on its lock screen except a system helper. Installing asks Face ID on your iPhone, then Windows' Yes.");
+                installed ? Th.Row(10, Th.Text(Core.Unlock.UnlockSetup.HelperLine(true), 13, "JcSetSecondary"), install) : install,
+                "Windows lets nothing type on its lock screen except a system helper; it also runs the admin steps you approve. "
+                + "Installing asks Face ID on your iPhone, then Windows' Yes. Reinstall after trusting a new iPhone.");
         }
 
         async Task Trust()

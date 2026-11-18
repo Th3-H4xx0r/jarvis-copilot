@@ -191,3 +191,18 @@ def test_build_deps_routes_models_and_parses_research(monkeypatch):
     assert deps.should_stop() is False
     escalation.update_job("j1", stop_requested=True)
     assert deps.should_stop() is True
+
+
+def test_pc_changes_need_his_own_words():
+    assert it_jobs.asked_for_pc("install docker desktop on my pc", False)
+    assert it_jobs.asked_for_pc("fix my wifi", False)
+    assert not it_jobs.asked_for_pc("summarize my email", False)
+    assert it_jobs.asked_for_pc("", True)
+
+
+def test_start_passes_whether_he_asked(monkeypatch):
+    _setup_start(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(it_jobs, "make_runner", lambda *a, **k: seen.update(kw=k) or (lambda job: ""))
+    it_jobs.start_it_job("s1", "install Docker Desktop")
+    assert seen["kw"]["pc_allowed"] is True

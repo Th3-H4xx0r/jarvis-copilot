@@ -61,4 +61,37 @@ final class PcAdminRunTests: XCTestCase {
         let rdp = request(kind: "rdp", context: "{\"device\":\"Pranav-Desktop\",\"client\":\"ios\"}", why: "")
         XCTAssertEqual(MacPasswordSheetCopy.faceIDReason(for: rdp), MacPasswordSheetCopy.title(for: rdp))
     }
+
+    // Bug sweep 2026-11-18 (B2, B6, B1).
+    private let hex = String(repeating: "a", count: 32)
+
+    func testOnlyKnownKindsAndBrokerNoncesAreSigned() {
+        func req(_ kind: String, _ nonce: String) -> MacPasswordRequest {
+            MacPasswordRequest(json: ["id": "r", "kind": kind, "context": "dir", "nonce": nonce, "expires": 2_000_000_000])
+        }
+        XCTAssertNil(MacPasswordApproval.refusal(for: req("admin-run", hex)))
+        XCTAssertNil(MacPasswordApproval.refusal(for: req("unlock", hex)))
+        XCTAssertNotNil(MacPasswordApproval.refusal(for: req("admin-run|x", "y")))   // a disguised approval
+        XCTAssertNotNil(MacPasswordApproval.refusal(for: req("unlock", "x|y")))
+        XCTAssertNotNil(MacPasswordApproval.refusal(for: req("something-new", hex)))
+    }
+
+    func testHiddenCharactersInACommandAreNotSigned() {
+        func req(_ context: String) -> MacPasswordRequest {
+            MacPasswordRequest(json: ["id": "r", "kind": "admin-run", "context": context, "nonce": hex, "expires": 2_000_000_000])
+        }
+        XCTAssertNotNil(MacPasswordApproval.refusal(for: req("echo safe\u{202E};del C:\\x")))
+        XCTAssertNotNil(MacPasswordApproval.refusal(for: req("dir\u{200B}")))
+        XCTAssertNil(MacPasswordApproval.refusal(for: req("dir\nwhoami\t/groups")))
+    }
+
+    func testHelperInstallMustTrustThisIPhone() {
+        let mine = Data([0x04] + [UInt8](repeating: 1, count: 64)).base64EncodedString()
+        let other = Data([0x04] + [UInt8](repeating: 2, count: 64)).base64EncodedString()
+        let exe = "\"C:\\Users\\krish\\AppData\\Local\\Programs\\Jarvis\\app\\JarvisUnlock.exe\" --install S-1-5-21-1-2-3-1001"
+        XCTAssertTrue(PcAdminCopy.trustsAnotherKey("\(exe) \(other)", own: mine))
+        XCTAssertFalse(PcAdminCopy.trustsAnotherKey("\(exe) \(mine)", own: mine))
+        XCTAssertFalse(PcAdminCopy.trustsAnotherKey(exe, own: mine))   // no key: the helper keeps the one it has
+        XCTAssertTrue(PcAdminCopy.trustsAnotherKey("\(exe) \(mine)", own: nil))
+    }
 }

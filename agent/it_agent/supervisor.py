@@ -7,6 +7,7 @@ import json
 import logging
 
 from agent.it_agent.executor import needs_face_id, run_check, run_step
+from agent.it_agent.handover import past_limits
 from agent.it_agent.model import FACTS_SCRIPT, Deps, Limits, Phase, PlanError, Run, Step
 from agent.it_agent.plans import ask_json, parse_plan, parse_rethink
 from agent.it_agent.prompts import plan_prompt, rethink_prompt
@@ -96,6 +97,8 @@ def _do_phase(run: Run, phase: Phase, deps: Deps, limits: Limits):
     _stop_check(deps)
     _set(run, deps, "checking", "")
     chk = run_check(phase.check, deps, limits.settle_s)
+    if not chk.passed and deps.should_stop():
+        raise _End("stopped", "stopped")
     if not chk.passed and chk.detail == "PC offline":
         _wait_back(run, deps, limits)
         _set(run, deps, "checking", "")
@@ -126,7 +129,11 @@ def _drive(run: Run, deps: Deps, limits: Limits) -> None:
     run.add_log("research", f"{len(run.brief.sources)} sources read · route: {run.brief.route}")
     deps.progress(run)
     if run.brief.research_only:
-        raise _End("done", "research_only")
+        if not past_limits(run.goal):
+            raise _End("done", "research_only")
+        run.add_log("research", "the brief said research-only, but this is a job on the PC: planning it")
+    if not run.pc_allowed:
+        raise _End("failed", "not_asked")
     _set(run, deps, "planning")
     try:
         run.phases = ask_json(deps.ask, "plan", plan_prompt(run.goal, run.brief, run.facts, run.screen_allowed),
@@ -151,6 +158,11 @@ def _drive(run: Run, deps: Deps, limits: Limits) -> None:
         if isinstance(new, str):
             raise _End("failed", "gave_up", new)
         run.add_log("rethink", f"rethink {run.rethinks}: {len(new)} new phases after: {failure}")
+        failed = run.phases[run.phase_index]
+        if not any(p.check == failed.check for p in new):
+            # The check that failed still has to pass: new phases can't swap it for an easier one.
+            name = failed.name if failed.name.startswith("Re-check: ") else f"Re-check: {failed.name}"
+            new = list(new) + [Phase(name=name, steps=[], check=failed.check)]
         run.phases = run.phases[:run.phase_index] + new
     raise _End("done", "checks_passed")
 

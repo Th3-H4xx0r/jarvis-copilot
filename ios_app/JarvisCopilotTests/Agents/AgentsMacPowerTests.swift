@@ -23,7 +23,7 @@ final class AgentsMacPowerTests: XCTestCase {
       ],
       "password_requests": [
         {"id": "pw-1", "device_id": "mac-1", "kind": "sudo", "context": "sudo in jarvis: brew install jq",
-         "nonce": "abc123", "expires": 1700000120}
+         "nonce": "0123456789abcdef0123456789abcdef", "expires": 1700000120}
       ]
     }
     """#
@@ -62,7 +62,7 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(request.deviceId, "mac-1")
         XCTAssertEqual(request.kind, "sudo")
         XCTAssertEqual(request.context, "sudo in jarvis: brew install jq")
-        XCTAssertEqual(request.nonce, "abc123")
+        XCTAssertEqual(request.nonce, "0123456789abcdef0123456789abcdef")
         XCTAssertEqual(request.expires, Date(timeIntervalSince1970: 1700000120))
         XCTAssertFalse(list.isEmpty, "a Mac card alone is something to show")
     }
@@ -232,7 +232,7 @@ final class AgentsMacPowerTests: XCTestCase {
         XCTAssertEqual(body["signature"] as? String, Data([0x30, 0x01, 0x02]).base64EncodedString())
         let ts = try XCTUnwrap(body["ts"] as? Int)
         XCTAssertGreaterThanOrEqual(ts, before)
-        XCTAssertEqual(signer.signed, MacPasswordWire.message(kind: "sudo", nonce: "abc123", ts: ts,
+        XCTAssertEqual(signer.signed, MacPasswordWire.message(kind: "sudo", nonce: "0123456789abcdef0123456789abcdef", ts: ts,
                                                                   context: request.context))
     }
 

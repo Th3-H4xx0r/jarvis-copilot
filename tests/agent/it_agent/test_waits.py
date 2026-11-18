@@ -89,3 +89,9 @@ def test_waits_stop_on_card_stop():
     assert wait_for_pc(_run(), deps, 30).status == "stopped"
     deps2, _ = _deps(Clock(), online=lambda: True, stop=lambda: True)
     assert restart_and_wait(_run(), deps2, Limits(), "x").status == "stopped"
+
+
+def test_stop_while_the_restart_waits_for_face_id():
+    clock = Clock()
+    deps, _ = _deps(clock, online=lambda: True, admin_status="stopped")
+    assert restart_and_wait(_run(), deps, Limits(), "x").status == "stopped"

@@ -81,7 +81,7 @@ def _check_once(check: Check, deps: Deps) -> CheckResult:
 
 def run_check(check: Check, deps: Deps, settle_s: float) -> CheckResult:
     first = _check_once(check, deps)
-    if first.passed:
+    if first.passed or deps.should_stop():
         return first
     deps.sleep(settle_s)   # an install can need a moment before its command answers
     return _check_once(check, deps)

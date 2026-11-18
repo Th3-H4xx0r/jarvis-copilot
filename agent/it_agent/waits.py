@@ -25,6 +25,8 @@ def restart_and_wait(run: Run, deps: Deps, limits: Limits, phase_name: str) -> W
     run.state = "restarting"
     deps.progress(run)
     res = deps.admin(RESTART_COMMAND, f"Restart to finish: {phase_name}"[:300], 60)
+    if res.status == "stopped":
+        return WaitOutcome("stopped")
     if res.status in ("denied", "approval_timeout"):
         return WaitOutcome(res.status, res.error)
     if res.status != "ran" or res.exit_code not in (0, None):

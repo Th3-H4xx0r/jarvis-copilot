@@ -55,12 +55,34 @@ enum MacPasswordApproval {
     /// cancels Face ID — nothing is sent then.
     static func allow(_ request: MacPasswordRequest, api: AgentsAPI,
                       signer: any CarSigner = SecureEnclaveCarSigner.shared) async throws {
+        if let why = refusal(for: request) { throw Refused(errorDescription: why) }
         let auth = try await signer.authenticate(reason: MacPasswordSheetCopy.faceIDReason(for: request))
         let ts = Int(Date().timeIntervalSince1970)
         let signature = try await signer.sign(MacPasswordWire.message(kind: request.kind, nonce: request.nonce, ts: ts,
                                                       context: request.context), auth: auth)
         try await api.macPasswordAnswer(id: request.id, decision: "allow", ts: ts,
                                         signature: signature.base64EncodedString())
+    }
+
+    /// What this iPhone signs for: a server can't invent a kind (a "|" in it would shift the signed fields
+    /// and pass one approval off as another), only the broker's nonce shape, and never an IT command with
+    /// characters that make it read differently from what runs.
+    static let signedKinds: Set<String> = ["sudo", "admin", "keychain", "unlock", "rdp", "admin-run", "pc-run"]
+
+    struct Refused: LocalizedError { let errorDescription: String? }
+
+    /// Why this request can't be approved here; nil when it can.
+    static func refusal(for request: MacPasswordRequest) -> String? {
+        guard signedKinds.contains(request.kind),
+              request.nonce.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else {
+            return "This request doesn't look right, so it wasn't approved."
+        }
+        if MacPasswordSheetCopy.itKinds.contains(request.kind),
+           request.context.unicodeScalars.contains(where: { ($0.properties.generalCategory == .format
+               || $0.properties.generalCategory == .control) && !"\n\t\r".unicodeScalars.contains($0) }) {
+            return "This command has hidden characters, so it wasn't approved."
+        }
+        return nil
     }
 
     /// No Face ID: saying no can't type anything.

@@ -11,6 +11,7 @@ import base64
 import html
 import re
 import subprocess
+import threading
 import time
 from typing import Optional
 
@@ -18,6 +19,11 @@ PRELUDE = ("$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[T
            "$env:WSL_UTF8='1'\n"
            "$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'"
            "+[Environment]::GetEnvironmentVariable('Path','User')")
+# After the command: exit with its own code. PowerShell -EncodedCommand otherwise ends 0/1, losing winget's
+# "already installed" and an installer's 3010 "restart required" (outside what his Face ID signs).
+EXIT_FOOTER = ("$jcOk = $?; if (-not $jcOk) { if ($global:LASTEXITCODE) { exit $global:LASTEXITCODE } "
+               "else { exit 1 } }; exit 0")
+READ_GRACE_S = 3.0   # once PowerShell exits, how long its output gets (an app it started may hold the pipe)
 ARGV = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand"]
 SHELL_MAX_CHARS = 8000
 ADMIN_MAX_CHARS = 2400       # the server, the phone and the helper all carry the whole signed command
@@ -40,7 +46,21 @@ def _clamp(value, default: int, low: int, high: int) -> int:
 
 
 def encoded(command: str) -> str:
-    return base64.b64encode((PRELUDE + "\n" + command).encode("utf-16-le")).decode("ascii")
+    return base64.b64encode((PRELUDE + "\n" + command + "\n" + EXIT_FOOTER).encode("utf-16-le")).decode("ascii")
+
+
+def _pump(stream, buf: bytearray) -> None:
+    read = getattr(stream, "read1", None) or stream.read
+    try:
+        while True:
+            chunk = read(65536)
+            if not chunk:
+                return
+            buf.extend(chunk)
+            if len(buf) > 400_000:   # keep the tail
+                del buf[:len(buf) - 200_000]
+    except (OSError, ValueError):
+        return
 
 
 def _kill_tree(pid: int) -> None:
@@ -85,18 +105,29 @@ def run_powershell(command: str, timeout_s, *, popen=subprocess.Popen, kill_tree
     start = clock()
     proc = popen(ARGV + [encoded(command)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                  stderr=subprocess.PIPE, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    out, err = bytearray(), bytearray()
+    readers = [threading.Thread(target=_pump, args=(stream, buf), name="jc-pc-shell-out", daemon=True)
+               for stream, buf in ((proc.stdout, out), (proc.stderr, err))]
+    for r in readers:
+        r.start()
     timed_out = False
-    try:
-        out, err = proc.communicate(timeout=t)
+    try:   # wait for PowerShell itself, not its pipes: an app it started keeps them open
+        proc.wait(timeout=t)
     except subprocess.TimeoutExpired:
         timed_out = True
         kill_tree(proc.pid)
         try:
-            out, err = proc.communicate(timeout=5)
-        except Exception:  # noqa: BLE001 — a grandchild still holds the pipe: give up on its output
-            out, err = b"", b""
-    stdout, stderr = _text(out), _clixml(_text(err))
-    return {"ok": True, "exit_code": None if timed_out else proc.returncode, "stdout": stdout[-STDOUT_TAIL:],
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    deadline = time.monotonic() + READ_GRACE_S
+    for r in readers:
+        r.join(max(0.0, deadline - time.monotonic()))
+    stdout, stderr = _text(bytes(out)), _clixml(_text(bytes(err)))
+    code = None if timed_out else proc.returncode
+    if isinstance(code, int) and code >= 2 ** 31:   # a Windows exit code is a DWORD: winget's are negative
+        code -= 2 ** 32
+    return {"ok": True, "exit_code": code, "stdout": stdout[-STDOUT_TAIL:],
             "stderr": stderr[-STDERR_TAIL:], "truncated": len(stdout) > STDOUT_TAIL or len(stderr) > STDERR_TAIL,
             "timed_out": timed_out, "duration_ms": int((clock() - start) * 1000)}
 

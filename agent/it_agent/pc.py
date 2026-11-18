@@ -77,7 +77,7 @@ def _failed(device_id: str, out: dict, routed: str) -> ShellResult:
         return ShellResult(error, error=error, routed=routed)
     if device_id not in set(_bridge().connected_device_ids()):
         return ShellResult("offline", error=error, routed=routed)
-    if "did not respond" in error:
+    if "did not respond" in error or "timed out" in error:   # the server's wait, or jc-client's watchdog
         return ShellResult("timeout", error=error, routed=routed)
     return ShellResult("error", error=error, routed=routed)
 
@@ -88,6 +88,8 @@ def shell(device_id: str, command: str, timeout_s: int, should_stop: Callable[[]
     res = out.get("result") if out.get("ok") else None
     if not isinstance(res, dict):
         return _failed(device_id, out, "shell")
+    if res.get("ok") is False:   # jc-client refused it (too long): it never ran
+        return ShellResult("error", error=str(res.get("error") or "the PC refused the command"))
     text = "\n".join(p for p in (str(res.get("stdout") or ""), str(res.get("stderr") or "")) if p)
     return ShellResult("timeout" if res.get("timed_out") else "ran", res.get("exit_code"), text,
                        truncated=bool(res.get("truncated")), duration_ms=int(res.get("duration_ms") or 0),

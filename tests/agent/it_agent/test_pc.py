@@ -156,3 +156,11 @@ def test_pc_tools_are_never_model_tools():
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "webui"))
     from api import device_bridge
     assert {"pc_shell", "admin_run"} <= device_bridge.SERVER_ONLY_SKILLS
+
+
+def test_refused_and_watchdog_results_are_labelled(bridge):
+    bridge(result={"ok": True, "result": {"ok": False, "error": "command too long (max 8000 characters)"}})
+    r = pc.shell("pc", "x", 60, never)
+    assert r.status == "error" and "too long" in r.error
+    bridge(result={"ok": False, "error": "skill 'pc_shell' timed out after 135s"})
+    assert pc.shell("pc", "x", 120, never).status == "timeout"

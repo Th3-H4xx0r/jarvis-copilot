@@ -20,11 +20,14 @@ public class AdminRunTests
         return (pub, m => Convert.ToBase64String(key.SignData(m, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)));
     }
 
-    private static AdminRunRequest Signed(Func<byte[], string> sign, string signedCommand, string command, string nonce = "n1",
+    private static string Hex(char c) => new(c, 32);   // the broker's nonce: 32 lowercase hex
+
+    private static AdminRunRequest Signed(Func<byte[], string> sign, string signedCommand, string command, string? nonce = null,
                                           string kind = AdminRun.Kind, long? ts = null)
     {
         var t = ts ?? Now.ToUnixTimeSeconds();
-        return new AdminRunRequest(command, nonce, t, sign(UnlockApproval.Message(kind, nonce, t, signedCommand)), 600);
+        var n = nonce ?? Hex('1');
+        return new AdminRunRequest(command, n, t, sign(UnlockApproval.Message(kind, n, t, signedCommand)), 600);
     }
 
     [Fact]
@@ -67,10 +70,22 @@ public class AdminRunTests
         var (pub, sign) = Phone();
         var (otherPub, _) = Phone();
         const string No = "Your iPhone's approval didn't check out on the PC.";
-        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir ", "a"), pub, new UnlockApproval(), Now));
-        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", "b", kind: "unlock"), pub, new UnlockApproval(), Now));
-        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", "c"), otherPub, new UnlockApproval(), Now));
-        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", "d"), pub, new UnlockApproval(), Now.AddMinutes(6)));
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir ", Hex('a')), pub, new UnlockApproval(), Now));
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", Hex('b'), kind: "unlock"), pub, new UnlockApproval(), Now));
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", Hex('c')), otherPub, new UnlockApproval(), Now));
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", Hex('d')), pub, new UnlockApproval(), Now.AddMinutes(6)));
+    }
+
+    [Fact]
+    public void Refusal_NonceMustBeTheBrokersHex()
+    {
+        // A server that sent the phone kind "admin-run|x" and nonce "y" gets a signature over
+        // "…|admin-run|x|y|…": replayed here with nonce "x|y" it must not check out (bug sweep B2).
+        var (pub, sign) = Phone();
+        const string No = "Your iPhone's approval didn't check out on the PC.";
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", "x|y"), pub, new UnlockApproval(), Now));
+        Assert.Equal(No, AdminRun.Refusal(Signed(sign, "dir", "dir", new string('A', 32)), pub, new UnlockApproval(), Now));
+        Assert.Null(AdminRun.Refusal(Signed(sign, "dir", "dir", Hex('e')), pub, new UnlockApproval(), Now));
     }
 
     [Fact]
@@ -96,8 +111,9 @@ public class AdminRunTests
     {
         var decoded = Encoding.Unicode.GetString(Convert.FromBase64String(AdminRun.EncodedCommand("wsl --status")));
         Assert.StartsWith("$ProgressPreference='SilentlyContinue'", decoded);
-        Assert.EndsWith("\nwsl --status", decoded);
-        Assert.Equal(AdminRun.Prelude + "\nwsl --status", decoded);
+        Assert.Equal(AdminRun.Prelude + "\nwsl --status\n" + AdminRun.ExitFooter, decoded);
+        Assert.Equal("$jcOk = $?; if (-not $jcOk) { if ($global:LASTEXITCODE) { exit $global:LASTEXITCODE } else { exit 1 } }; exit 0",
+                     AdminRun.ExitFooter);
         Assert.Equal("$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $env:WSL_UTF8='1'\n" +
                      "$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User')",
                      AdminRun.Prelude);

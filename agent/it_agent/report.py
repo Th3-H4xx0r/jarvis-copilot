@@ -29,6 +29,8 @@ def outcome_line(run: Run) -> str:
         "signin_timeout": f"Your PC restarted but no one signed in within {d} minutes, so I stopped at phase {n}.",
         "pc_offline": f"Your PC went offline and didn't come back within {d} minutes (phase {n}).",
         "plan_failed": "I couldn't get a plan where every phase has a check I can verify.",
+        "not_asked": ("I only change your PC when you ask for it in your own words, so I stopped after the research. "
+                      "Ask me again yourself (for example: \"install Docker Desktop on my PC\")."),
         "gave_up": f"I stopped at phase {n}: {d}",
         "stopped": f"Stopped at phase {n}. A command that was already running on the PC may still finish.",
         "error": f"Something went wrong at phase {n}: {d}.",
@@ -37,11 +39,11 @@ def outcome_line(run: Run) -> str:
 
 
 def _phase_line(i: int, p: Phase) -> str:
+    what = p.check.command if p.check.kind == "shell" else f"screen: {p.check.app}"
     if p.status == "passed":
-        what = p.check.command if p.check.kind == "shell" else f"screen: {p.check.app}"
         return f"✓ {i}. {p.name} — check passed: `{what}`"
     if p.status == "failed":
-        return f"✗ {i}. {p.name} — {p.detail}"
+        return f"✗ {i}. {p.name} — {p.detail} (check: `{what}`)"
     if p.status == "running":
         return f"■ {i}. {p.name} — stopped here"
     return f"· {i}. {p.name} — not reached"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from typing import Callable
 
 from agent.it_agent.classify import classify
@@ -37,8 +38,19 @@ def _clamp(value, default: int, low: int, high: int) -> int:
     return max(low, min(high, v))
 
 
+def _strs(value) -> list:
+    """A list of non-empty strings; one string is one item (never split into letters)."""
+    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    return [str(v).strip() for v in items if str(v).strip()]
+
+
+def _hidden(text: str) -> bool:
+    """Characters that make a command read differently from what runs (bidi overrides, zero-width, controls)."""
+    return any(unicodedata.category(c) in ("Cf", "Cc") and c not in "\t\n\r" for c in text)
+
+
 def parse_queries(text) -> list:
-    qs = [str(q).strip() for q in (extract_json(text).get("queries") or []) if str(q).strip()]
+    qs = _strs(extract_json(text).get("queries"))
     if not 2 <= len(qs) <= 5:
         raise PlanError("give 2–5 search queries")
     return qs
@@ -61,8 +73,8 @@ def parse_pick(text, allowed: list) -> list:
 def parse_brief(text, sources) -> Brief:
     d = extract_json(text)
     route = str(d.get("route") or "").strip()
-    checks = [str(c).strip() for c in (d.get("checks") or []) if str(c).strip()]
-    research_only = bool(d.get("research_only"))
+    checks = _strs(d.get("checks"))
+    research_only = d.get("research_only") is True   # a real JSON true: "false" is not a yes
     answer = str(d.get("answer") or "").strip()
     if not route:
         raise PlanError("the brief needs a route")
@@ -71,7 +83,7 @@ def parse_brief(text, sources) -> Brief:
     if not research_only and not checks:
         raise PlanError("the brief needs the checks to run")
     return Brief(summary=str(d.get("summary") or "").strip(),
-                 requirements=[str(r).strip() for r in (d.get("requirements") or []) if str(r).strip()],
+                 requirements=_strs(d.get("requirements")),
                  route=route, checks=checks, sources=list(sources or []), research_only=research_only,
                  answer=answer)
 
@@ -83,7 +95,11 @@ def _check(i: int, raw) -> Check:
     if kind not in CHECK_KINDS:
         raise PlanError(f"phase {i} check kind must be shell or screen")
     expect = raw.get("expect") or {}
+    if not isinstance(expect, dict):
+        raise PlanError(f"phase {i} check expect must be an object like {{\"exit_code\": 0, \"contains\": \"…\"}}")
     command = str(raw.get("command") or "").strip()
+    if _hidden(command):
+        raise PlanError(f"phase {i} check command has hidden characters")
     if kind == "shell" and not command:
         raise PlanError(f"phase {i} check needs a command")
     if command:
@@ -99,6 +115,8 @@ def _check(i: int, raw) -> Check:
         except re.error as exc:
             raise PlanError(f"phase {i} expect.regex doesn't compile: {exc}") from None
     exit_code = expect.get("exit_code", 0 if kind == "shell" else None)
+    if kind == "shell" and exit_code is None and not (contains or regex or expect.get("not_contains")):
+        raise PlanError(f"phase {i} check must test something (exit_code, contains, not_contains or regex)")
     return Check(kind=kind, command=command, app=str(raw.get("app") or ""),
                  timeout_s=_clamp(raw.get("timeout_s"), 120, 5, 600),
                  exit_code=None if exit_code is None else _clamp(exit_code, 0, -2**31, 2**31),
@@ -119,6 +137,8 @@ def _step(i: int, j: int, raw) -> Step:
             raise PlanError(f"phase {i} step {j}: command too long (max {cap} characters)")
         if _RESTART.search(command):
             raise PlanError(f"phase {i} step {j}: restart commands aren't steps; set restart_after")
+        if _hidden(command):
+            raise PlanError(f"phase {i} step {j}: the command has hidden characters (bidi, zero-width or control)")
     codes = raw.get("ok_exit_codes") or [0]
     return Step(kind=kind, command=command, goal=str(raw.get("goal") or "").strip(),
                 why=str(raw.get("why") or "").strip(), timeout_s=_clamp(raw.get("timeout_s"), 300, 5, 1800),
@@ -157,9 +177,12 @@ def ask_json(ask: Callable, purpose: str, prompt: str, parse: Callable, *, max_t
     """Ask, parse, and re-ask with the rule the reply broke; PlanError after ``tries`` failures."""
     last, current = "", prompt
     for _ in range(tries):
+        reply = ask(purpose, current, max_tokens)
         try:
-            return parse(ask(purpose, current, max_tokens))
+            return parse(reply)
         except PlanError as exc:
             last = str(exc)
-            current = prompt + f"\n\nYour last reply was rejected: {last}. Reply again with ONLY the JSON."
+        except (AttributeError, TypeError, ValueError, KeyError) as exc:   # a field of the wrong type
+            last = f"malformed reply ({type(exc).__name__}: {exc})"
+        current = prompt + f"\n\nYour last reply was rejected: {last}. Reply again with ONLY the JSON."
     raise PlanError(f"gave up after {tries} tries: {last}")

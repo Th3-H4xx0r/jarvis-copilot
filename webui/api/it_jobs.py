@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 import api.harness_runner as hr
@@ -19,6 +20,14 @@ IT_PARENT = {"kind": "background", "node_id": "it", "node_label": "IT agent"}
 _NODE = {"id": "it", "label": "IT agent", "deliver": "notify"}
 _TRAIL = 12
 _last_key: dict = {}          # job_id → (phase_index, state) last saved on the chat's card
+# His own words ask for a job on the PC: an IT verb or the PC itself.
+_ASKS_PC = re.compile(r"\b(?:install|uninstall|reinstall|update|upgrade|set\s*up|setup|configure|enable|disable|"
+                      r"fix|repair|troubleshoot|diagnose|remove|delete|clean\s*up|pc|computer|laptop|windows)\b", re.I)
+
+
+def asked_for_pc(request_text: str, screen_allowed: bool) -> bool:
+    """Whether this turn's own words (never text the chat read) ask for something on the PC."""
+    return bool(screen_allowed or _ASKS_PC.search(str(request_text or "")))
 
 
 def supervisor_ref():
@@ -129,12 +138,12 @@ def build_deps(job_id: str, session_id: str, run: Run, ref: str) -> Deps:
 
 
 def make_runner(session_id: str, goal: str, request_text: str, screen_allowed: bool, ref: str, device_id: str,
-                device_name: str):
+                device_name: str, pc_allowed: bool = False):
     def _run(job: dict) -> str:
         job_id = job.get("job_id")
         started = time.time()
         run = Run(goal=goal, request_text=request_text, device_id=device_id, device_name=device_name,
-                  screen_allowed=screen_allowed)
+                  screen_allowed=screen_allowed, pc_allowed=pc_allowed)
         power, held = None, False
         try:   # hold the PC awake for the run, then put his setting back
             power = _power()
@@ -198,7 +207,8 @@ def start_it_job(task_id: str, goal: str) -> dict:
         return {"ok": False, "error": error}
     job_id = escalation.start_escalation(
         session_id=sid, reason="it_task", summary=goal, model=ref,
-        runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name),
+        runner=make_runner(sid, goal, request_text, screen_allowed, ref, device_id, device_name,
+                           pc_allowed=asked_for_pc(request_text, screen_allowed)),
         parent={**IT_PARENT, "question": request_text or goal}, origin=hr.job_origin(sid, "chat"))
     if "~" in str(task_id):
         _attach_to_parent_reply(sid, job_id)

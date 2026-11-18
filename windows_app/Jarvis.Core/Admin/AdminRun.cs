@@ -29,6 +29,15 @@ public static class AdminRun
         "$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $env:WSL_UTF8='1'\n" +
         "$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User')";
 
+    /// After the command (outside what his Face ID signs): exit with the command's own code — PowerShell
+    /// -EncodedCommand otherwise ends 0/1, losing an installer's 3010 "restart required". Same as jc-client's.
+    public const string ExitFooter =
+        "$jcOk = $?; if (-not $jcOk) { if ($global:LASTEXITCODE) { exit $global:LASTEXITCODE } else { exit 1 } }; exit 0";
+
+    /// The broker's nonce (secrets.token_hex(16)). Anything else is refused: a "|" in a nonce or kind could
+    /// shift the signed fields (`…|admin-run|x|y|…`) and pass a disguised approval off as this kind.
+    private static readonly Regex NonceShape = new("^[0-9a-f]{32}$");
+
     private static readonly Regex ClixmlError = new("<S S=\"Error\">(.*?)</S>", RegexOptions.Singleline);
     private static readonly Regex XmlEscape = new("_x([0-9A-Fa-f]{4})_");
 
@@ -60,13 +69,14 @@ public static class AdminRun
     {
         if (!ValidKey(pinnedKey)) return "Trust your iPhone in Jarvis Settings → PC power, then reinstall the helper.";
         if (r.Command.Length > MaxCommandChars) return "The command is too long to sign.";
+        if (!NonceShape.IsMatch(r.Nonce)) return "Your iPhone's approval didn't check out on the PC.";
         return approval.Verify(r.Command, Kind, r.Nonce, r.Ts, r.Signature, pinnedKey!, now)
             ? null
             : "Your iPhone's approval didn't check out on the PC.";
     }
 
     public static string EncodedCommand(string command) =>
-        Convert.ToBase64String(Encoding.Unicode.GetBytes(Prelude + "\n" + command));
+        Convert.ToBase64String(Encoding.Unicode.GetBytes(Prelude + "\n" + command + "\n" + ExitFooter));
 
     /// stdout then stderr (each cleaned, errors as text), the tail kept when it's long.
     public static (string Output, bool Truncated) Cap(string stdout, string stderr)

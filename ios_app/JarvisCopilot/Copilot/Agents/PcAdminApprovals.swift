@@ -21,6 +21,13 @@ struct PcAdminApprovalDomain: FaceIDApprovalDomain {
     var warning: String? { "Approve only if you asked for this. Windows will still ask at the PC." }
 
     func approve(_ approval: FaceIDApproval, proof: ToyotaApprover.Proof) async throws -> FaceIDApprovals.Answer {
+        // Installing the unlock helper copies an approval key into Program Files; from then on that key's
+        // signatures run admin commands. Only ever this iPhone's own key (the PC's per-user copy can be rewritten).
+        if PcAdminCopy.trustsAnotherKey(approval.detail ?? "", own: try? SecureEnclaveCarSigner.shared.publicKey()) {
+            _ = try? await api.post(prefix + "/approvals/\(approval.id)/deny")
+            return FaceIDApprovals.Answer(text: "Not approved: this would make your PC trust a different iPhone. Trust this iPhone "
+                                                + "in Jarvis Settings → PC power on the PC, then reinstall the helper.", ok: false)
+        }
         let o = try await api.post(prefix + "/approvals/\(approval.id)/approve",
                                    json: ["ts": proof.ts, "signature": proof.signature], timeout: 60).object()
         let ok = o["ok"] as? Bool ?? true
@@ -58,6 +65,16 @@ struct PcAdminApprovalDomain: FaceIDApprovalDomain {
 }
 
 enum PcAdminCopy {
+    /// A helper install (`JarvisUnlock.exe --install <sid> <key>`) that would pin a key other than this
+    /// iPhone's. No key in the command: the helper keeps the one it has.
+    static func trustsAnotherKey(_ command: String, own: String?) -> Bool {
+        let pattern = #"--install\s+S-1-[0-9-]+\s+([A-Za-z0-9+/=]{40,})"#
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: command, range: NSRange(command.startIndex..., in: command)),
+              let r = Range(m.range(at: 1), in: command) else { return false }
+        return String(command[r]) != own
+    }
+
     static func title(source: String) -> String {
         let name = source.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty || name == "Jarvis" ? "Run as admin on your PC" : "Run as admin on \(name)"

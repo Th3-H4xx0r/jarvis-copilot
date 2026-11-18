@@ -69,8 +69,8 @@ class Script:
                     approved=lambda c, w, t: ShellResult("ran", 0, "ok", routed="approved"))
 
 
-def _run(goal="install Docker Desktop"):
-    return Run(goal=goal, request_text=goal + " on my pc", device_id="pc", device_name="PC")
+def _run(goal="install Docker Desktop", pc_allowed=True):
+    return Run(goal=goal, request_text=goal + " on my pc", device_id="pc", device_name="PC", pc_allowed=pc_allowed)
 
 
 def L(**kw):
@@ -91,9 +91,10 @@ def test_never_done_unless_every_check_passed():
 
 
 def test_failed_check_rethinks_then_succeeds():
+    nope = ShellResult("ran", 1, "nope")
     s = Script(phases=[phase("Install", check="docker --version")],
                rethinks=[{"phases": [phase("Install again", check="docker info")]}],
-               check_results={"docker --version": ShellResult("ran", 1, "nope")})
+               check_results={"docker --version": [nope, nope, ShellResult("ran", 0, "Docker version 27")]})
     run = run_task(_run(), s.deps(), L())
     assert run.status == "done" and run.rethinks == 1 and run.phases[0].name == "Install again"
 
@@ -189,3 +190,44 @@ def test_log_markdown_has_brief_phases_and_log():
     md = log_markdown(run)
     assert md.startswith("# IT task: install Docker Desktop") and "Needs WSL2" in md
     assert "## Phases" in md and "## Log" in md and DOCKER in md
+
+
+# Bug sweep 2026-11-18.
+HELLO = "docker run hello-world"
+
+
+def test_rethink_cannot_drop_the_failing_check():
+    s = Script(phases=[phase("Install", check=HELLO)],
+               rethinks=[{"phases": [phase("Try again", check="docker --version")]}] * 5,
+               check_results={HELLO: ShellResult("ran", 1, "engine not running")})
+    run = run_task(_run(), s.deps(), L(max_rethinks=2))
+    assert run.status == "failed" and not run.report.startswith("**Done:") and HELLO in run.report
+
+
+def test_rethink_that_fixes_it_passes_the_original_check_too():
+    fail = ShellResult("ran", 1, "engine not running")
+    s = Script(phases=[phase("Install", check=HELLO)],
+               rethinks=[{"phases": [phase("Start the engine", check="docker --version")]}],
+               check_results={HELLO: [fail, fail, ShellResult("ran", 0, "Hello from Docker!")]})
+    run = run_task(_run(), s.deps(), L())
+    assert run.status == "done" and any(p.check.command == HELLO and p.status == "passed" for p in run.phases)
+
+
+def test_pc_changes_need_his_own_words():
+    s = Script()
+    run = run_task(_run(pc_allowed=False), s.deps(), L())
+    assert run.end_reason == "not_asked" and run.status == "failed" and DOCKER not in s.shells
+    assert "own words" in run.report
+
+
+def test_research_only_claim_ignored_for_an_install():
+    s = Script(brief={"summary": "s", "route": "winget", "checks": ["docker --version"], "research_only": True,
+                      "answer": "Just install it."})
+    run = run_task(_run(), s.deps(), L())
+    assert run.end_reason == "checks_passed" and DOCKER in s.shells
+
+
+def test_stop_during_a_check_ends_stopped_not_failed():
+    s = Script(check_results={"docker --version": ShellResult("ran", 1, "nope")}, stop_after=3)
+    run = run_task(_run(), s.deps(), L())
+    assert run.status == "stopped" and run.rethinks == 0 and "Stopped at phase 1" in run.report
