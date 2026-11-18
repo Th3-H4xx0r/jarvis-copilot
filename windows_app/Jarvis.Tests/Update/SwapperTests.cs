@@ -32,7 +32,14 @@ public sealed class FakePs : IProcessOps
     public readonly List<string> Ops = new();
     public bool Exits = true;
     public bool Alive = true;
-    public bool WaitExit(int pid, TimeSpan timeout) { Ops.Add($"WaitExit({pid},{timeout.TotalSeconds})"); return Exits; }
+    /// When set, WaitExit answers these in turn (then repeats the last).
+    public Queue<bool>? ExitAnswers;
+    public bool WaitExit(int pid, TimeSpan timeout)
+    {
+        Ops.Add($"WaitExit({pid},{timeout.TotalSeconds})");
+        if (ExitAnswers is { Count: > 0 } q) return q.Count > 1 ? q.Dequeue() : q.Peek();
+        return Exits;
+    }
     public void Kill(int pid) => Ops.Add($"Kill({pid})");
     public int Start(string exe) { Ops.Add($"Start({exe})"); return 777; }
     public bool AliveAfter(int pid, TimeSpan wait) { Ops.Add($"AliveAfter({pid},{wait.TotalSeconds})"); return Alive; }
@@ -87,15 +94,15 @@ public class SwapperTests
     }
 
     [Fact]
-    public void Swapper_RenameLockedThreeTimes_RestoresOld()
+    public void Swapper_RenameLockedEveryTry_RestoresOld()
     {
         var s = Make();
         _fs.LockedSource = Staged;
-        _fs.LockedTimes = 3;
+        _fs.LockedTimes = Swapper.Tries;
         Assert.Equal(1, s.Run(42, App, Staged, "Jarvis.exe"));
-        Assert.Equal(3, _fs.Ops.Count(o => o.StartsWith($"Move!({Staged}")));
+        Assert.Equal(Swapper.Tries, _fs.Ops.Count(o => o.StartsWith($"Move!({Staged}")));
         Assert.Equal($"Move({Old}->{App})", _fs.Ops.Last());
-        Assert.Equal(new[] { TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500) }, _sleeps);
+        Assert.Equal(Enumerable.Repeat(Swapper.RetryGap, Swapper.Tries - 1), _sleeps);
         Assert.Equal($"Start({Exe})", _ps.Ops.Last());
         Assert.StartsWith("restored", _log.Last());
     }
@@ -114,7 +121,7 @@ public class SwapperTests
     {
         var s = Make();
         _fs.LockedSource = App;
-        _fs.LockedTimes = 3;
+        _fs.LockedTimes = Swapper.Tries;
         Assert.Equal(1, s.Run(42, App, Staged, "Jarvis.exe"));
         Assert.DoesNotContain(_fs.Ops, o => o.StartsWith($"Move({Staged}"));
         Assert.Equal($"Start({Exe})", _ps.Ops.Last());
@@ -123,8 +130,38 @@ public class SwapperTests
     [Fact]
     public void Swapper_OldAppNeverExits_KilledAfter60s()
     {
-        _ps.Exits = false;
+        _ps.ExitAnswers = new Queue<bool>(new[] { false, true });
         Assert.Equal(0, Make().Run(42, App, Staged, "Jarvis.exe"));
-        Assert.Equal(new[] { "WaitExit(42,60)", "Kill(42)" }, _ps.Ops.Take(2));
+        Assert.Equal(new[] { "WaitExit(42,60)", "Kill(42)", "WaitExit(42,10)" }, _ps.Ops.Take(3));
+    }
+
+    [Fact]
+    public void Swapper_KillThatDoesntTake_EndsItByPath()
+    {
+        // Live 2026-11-18: the app hung on exit, the kill didn't take, and the restart hit its
+        // single-instance lock — he was left with no app at all.
+        _ps.ExitAnswers = new Queue<bool>(new[] { false, false, true });
+        Assert.Equal(0, Make().Run(42, App, Staged, "Jarvis.exe"));
+        Assert.Equal(new[] { "WaitExit(42,60)", "Kill(42)", "WaitExit(42,10)", $"KillByPath({Exe})", "WaitExit(42,10)" },
+                     _ps.Ops.Take(5));
+    }
+
+    [Fact]
+    public void Swapper_FailedSwapClearsAStuckInstanceBeforeRestarting()
+    {
+        var s = Make();
+        _ps.Exits = false;   // the old one never goes
+        _fs.LockedSource = App;
+        _fs.LockedTimes = Swapper.Tries;
+        Assert.Equal(1, s.Run(42, App, Staged, "Jarvis.exe"));
+        var start = _ps.Ops.LastIndexOf($"Start({Exe})");
+        Assert.True(start > 0 && _ps.Ops[start - 1] == $"KillByPath({Exe})");
+    }
+
+    [Fact]
+    public void Swapper_GivesAKilledAppTimeToLetGo()
+    {
+        // Live: the move right after the kill failed "being used by another process" three times in 1 s.
+        Assert.True(Swapper.Tries * Swapper.RetryGap.TotalSeconds >= 8);
     }
 }

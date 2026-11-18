@@ -32,9 +32,14 @@ public partial class App : Application
             // `Jarvis.exe --diag …` while Jarvis runs: hand the switch to the running one.
             if (Array.IndexOf(e.Args, "--diag") is var d and >= 0 && d + 1 < e.Args.Length)
                 AppHost.QueueDiag(e.Args[(d + 1)..]);
-            _single.SignalFirst();
-            Shutdown();
-            return;
+            // The running one shows the island and says so; one that doesn't answer is stuck (live 2026-11-18:
+            // its window and tray gone, every launch did nothing): end it and take over.
+            if (_single.SignalFirstAndWait(TimeSpan.FromSeconds(5)) || !_single.TakeOverFromStuck(FileLog.For("app")))
+            {
+                Shutdown();
+                return;
+            }
+            FileLog.Write("app", "took over from a Jarvis that wasn't answering");
         }
         Jarvis.Ui.K.EnableCapsules();
         _host = new AppHost(Dispatcher);
@@ -47,13 +52,19 @@ public partial class App : Application
         {
             if (AppHost.TakeQueuedDiag() is { } diag) _host?.Diag(diag);
             else _host?.ShowIsland();
+            _single?.Acknowledge();
         }));
         _host.Start(e.Args);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _host?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        // Never block the UI thread on async clean-up (that deadlocked: window gone, process alive), and
+        // whatever happens, end the process — a foreground thread can't keep a closed Jarvis running.
+        var code = e.ApplicationExitCode;
+        ExitGuard.Arm(ExitGuard.HardExitAfter, () => Environment.Exit(code));
+        if (_host is { } host)
+            ExitGuard.RunBounded(() => host.DisposeAsync().AsTask(), ExitGuard.CleanupBudget, line => FileLog.Write("app", line));
         _single?.Dispose();
         base.OnExit(e);
     }

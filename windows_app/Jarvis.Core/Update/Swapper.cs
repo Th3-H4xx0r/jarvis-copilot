@@ -22,9 +22,12 @@ public interface IProcessOps
 public sealed class Swapper
 {
     public static readonly TimeSpan ExitWait = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan KillWait = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan AliveWait = TimeSpan.FromSeconds(15);
-    public static readonly TimeSpan RetryGap = TimeSpan.FromMilliseconds(500);
-    public const int Tries = 3;
+    // A killed app's children (WebView2 among them) let go of its folder a few seconds later (live: three
+    // tries in one second all failed "being used by another process").
+    public static readonly TimeSpan RetryGap = TimeSpan.FromSeconds(1);
+    public const int Tries = 10;
 
     private readonly ISwapFs _fs;
     private readonly IProcessOps _ps;
@@ -49,12 +52,20 @@ public sealed class Swapper
         {
             _log($"Jarvis ({pid}) didn't exit in {ExitWait.TotalSeconds:0} s; killing it");
             _ps.Kill(pid);
+            if (!_ps.WaitExit(pid, KillWait))
+            {
+                _log($"Jarvis ({pid}) is still running after the kill; ending every {exeName} in {app}");
+                _ps.KillByPath(exe);
+                if (!_ps.WaitExit(pid, KillWait)) _log($"Jarvis ({pid}) won't end");
+            }
         }
         if (_fs.Exists(old)) TryDelete(old);
 
         if (!Retry(() => _fs.Move(app, old)))
         {
             _log("couldn't move the old app aside");
+            // A stuck old one would swallow the restart (its single-instance lock): end it first.
+            if (!_ps.WaitExit(pid, TimeSpan.Zero)) TryKillByPath(exe);
             TryStart(exe);
             return 1;
         }
@@ -104,6 +115,12 @@ public sealed class Swapper
     {
         try { _fs.DeleteTree(path); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log($"couldn't delete {path}: {e.Message}"); }
+    }
+
+    private void TryKillByPath(string exe)
+    {
+        try { _ps.KillByPath(exe); }
+        catch (Exception e) { _log($"kill failed: {e.Message}"); }
     }
 
     private void TryStart(string exe)

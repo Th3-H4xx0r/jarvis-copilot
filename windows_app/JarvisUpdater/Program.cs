@@ -78,7 +78,19 @@ internal sealed class RealProcessOps : IProcessOps
             p.Kill(entireProcessTree: true);
             p.WaitForExit(5000);
         }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException) { }
+        catch (ArgumentException) { }   // already gone
+        catch (Exception) { Taskkill($"/F /T /PID {pid}"); }   // never a silent no-op (live 2026-11-18)
+    }
+
+    private static void Taskkill(string args)
+    {
+        try
+        {
+            using var t = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), args)
+                { UseShellExecute = false, CreateNoWindow = true });
+            t?.WaitForExit(10000);
+        }
+        catch (Exception) { }
     }
 
     public int Start(string exe)
@@ -114,7 +126,10 @@ internal sealed class RealProcessOps : IProcessOps
                         p.WaitForExit(5000);
                     }
                 }
-                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    try { Taskkill($"/F /T /PID {p.Id}"); } catch (InvalidOperationException) { }
+                }
             }
         }
     }
