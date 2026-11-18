@@ -116,6 +116,15 @@ public class AdminRunTests
     }
 
     [Fact]
+    public void Cap_ReadsUtf16TextFromWsl()
+    {
+        // wsl.exe writes UTF-16LE while WSL isn't installed; read as UTF-8 every other char is a NUL (live).
+        var asRead = new string("The Windows Subsystem for Linux is not installed.\r\r\n".SelectMany(c => new[] { c, '\0' }).ToArray());
+        Assert.Equal(("The Windows Subsystem for Linux is not installed.\n", false), AdminRun.Cap(asRead, ""));
+        Assert.Equal(("ok\nwsl: no", false), AdminRun.Cap("ok", new string("wsl: no".SelectMany(c => new[] { c, '\0' }).ToArray())));
+    }
+
+    [Fact]
     public void PlainErrors_ReadsClixmlAsText()
     {
         var clixml = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\">" +

@@ -68,11 +68,21 @@ public static class AdminRun
     public static string EncodedCommand(string command) =>
         Convert.ToBase64String(Encoding.Unicode.GetBytes(Prelude + "\n" + command));
 
-    /// stdout then stderr, the tail kept when it's long.
+    /// stdout then stderr (each cleaned, errors as text), the tail kept when it's long.
     public static (string Output, bool Truncated) Cap(string stdout, string stderr)
     {
+        stdout = Clean(stdout);
+        stderr = PlainErrors(Clean(stderr));
         var both = stdout.Length > 0 && stderr.Length > 0 ? stdout + "\n" + stderr : stdout + stderr;
         return both.Length > MaxOutputChars ? (both[^MaxOutputChars..], true) : (both, false);
+    }
+
+    /// UTF-16 text read as UTF-8 (wsl.exe writes UTF-16LE whatever the console says, live): a quarter or
+    /// more NUL characters means that, so drop them. Line ends fold to "\n".
+    public static string Clean(string s)
+    {
+        if (s.Length > 0 && s.Count(c => c == '\0') * 4 >= s.Length) s = s.Replace("\0", "");
+        return s.Replace("\r\r\n", "\n").Replace("\r\n", "\n");
     }
 
     /// PowerShell writes errors as CLIXML when stderr is redirected: keep only their text.

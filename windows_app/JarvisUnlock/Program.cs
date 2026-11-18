@@ -309,7 +309,7 @@ internal static class Service
                 Log.Write($"admin_run not run ({r.Error}): {Short(req.Command)}");
                 return Error(r.Error);
             }
-            var (output, truncated) = AdminRun.Cap(r.Stdout, AdminRun.PlainErrors(r.Stderr));
+            var (output, truncated) = AdminRun.Cap(r.Stdout, r.Stderr);
             Log.Write($"admin_run exit {(r.Exit is { } c ? c.ToString() : "timed out")} in {r.Ms} ms: {Short(req.Command)}");
             return AdminRun.Reply(r.Exit, output, truncated, r.TimedOut, r.Ms);
         }

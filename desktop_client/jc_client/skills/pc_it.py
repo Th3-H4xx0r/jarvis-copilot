@@ -71,8 +71,12 @@ def _clixml(text: str) -> str:
 
 def _text(raw) -> str:
     if isinstance(raw, bytes):
+        # wsl.exe (and a few other tools) write UTF-16LE whatever the console says — WSL_UTF8 is ignored
+        # while WSL isn't installed: a quarter or more NUL bytes means UTF-16 text, so drop the NULs.
+        if raw and raw.count(b"\x00") * 4 >= len(raw):
+            raw = raw.replace(b"\x00", b"")
         raw = raw.decode("utf-8", errors="replace")
-    return str(raw or "").replace("\r\n", "\n")
+    return str(raw or "").replace("\r\r\n", "\n").replace("\r\n", "\n")
 
 
 def run_powershell(command: str, timeout_s, *, popen=subprocess.Popen, kill_tree=_kill_tree,

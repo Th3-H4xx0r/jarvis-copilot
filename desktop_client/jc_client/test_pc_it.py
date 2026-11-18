@@ -119,3 +119,13 @@ def test_admin_run_without_pc_power():
     pc_it.set_power(None)
     out = pc_it.admin_run("dism /online", "x", 600)
     assert out["ok"] is False and out["status"] == "failed" and out["error"] == "PC power isn't running in jc-client"
+
+
+def test_utf16_output_from_wsl_is_decoded():
+    # wsl.exe ignores WSL_UTF8 while WSL isn't installed and writes UTF-16LE (seen live on his PC).
+    raw = "The Windows Subsystem for Linux is not installed.\r\r\n".encode("utf-16-le")
+    out = pc_it.run_powershell("wsl --status", 30, popen=_popen(Proc(b"", raw, code=1), []))
+    assert out["stderr"] == "The Windows Subsystem for Linux is not installed.\n"
+    mixed = b"PS line\r\n" + "wsl says hi\r\r\n".encode("utf-16-le")
+    out = pc_it.run_powershell("x", 30, popen=_popen(Proc(mixed), []))
+    assert out["stdout"] == "PS line\nwsl says hi\n"
