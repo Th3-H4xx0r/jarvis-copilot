@@ -10,7 +10,9 @@
     <RootNamespace>JarvisUnlock</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The same Remote Desktop on/off script the app's Set up runs (no other Core code). -->
+    <!-- The same Remote Desktop on/off script the app's Set up runs, and the lock-screen typing
+         decisions (both tested in Jarvis.Tests; no other Core code). -->
     <Compile Include="..\Jarvis.Core\Remote\RdpSetup.cs" Link="RdpSetup.cs" />
+    <Compile Include="..\Jarvis.Core\Unlock\LockScreenTypist.cs" Link="LockScreenTypist.cs" />
   </ItemGroup>
 </Project>

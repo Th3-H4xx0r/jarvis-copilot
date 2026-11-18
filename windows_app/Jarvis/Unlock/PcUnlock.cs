@@ -16,7 +16,8 @@ namespace Jarvis.Unlock;
 /// Unlock PC from his iPhone (the Mac's "Unlock Mac"). jc-client asks his iPhone for Face ID and
 /// broadcasts `password_fill` with the signed yes; this checks the signature against the iPhone
 /// key pinned here, decrypts his Windows password (DPAPI, this Windows account only) and hands it
-/// to the JarvisUnlock service, which types it on the lock screen only if it's showing. Set up in
+/// to the JarvisUnlock service, which types it on the lock screen only if it's showing and then
+/// checks Windows really unlocked; anything less comes back as ok:false with why. Set up in
 /// Settings → PC power: trust the iPhone's key, save the password, install the helper (Face ID +
 /// UAC). The server never sees the password.
 public sealed class PcUnlock
@@ -96,13 +97,13 @@ public sealed class PcUnlock
         string? error = null;
         try { error = await Task.Run(() => Fill(m)); }
         catch (Exception e) { error = "Unlock failed: " + e.Message; }
-        _log($"fill {rid}: {error ?? "typed"}");
+        _log($"fill {rid}: {error ?? "unlocked"}");
         var reply = new JsonObject { ["type"] = "password_fill_result", ["request_id"] = rid, ["ok"] = error == null };
         if (error != null) reply["error"] = error;
         await _link.RequestAsync(reply, TimeSpan.FromSeconds(10));
     }
 
-    /// Null when the password was typed; otherwise why not.
+    /// Null when the password was typed and Windows unlocked; otherwise why not.
     private string? Fill(JsonObject m)
     {
         if (J.S(m["kind"]) != "unlock") return "This PC only fills its lock screen.";
@@ -123,7 +124,7 @@ public sealed class PcUnlock
             pipe.Flush();
             using var reader = new StreamReader(pipe, Encoding.UTF8);
             var answer = J.Parse(reader.ReadLine() ?? "{}");
-            return J.B(answer["ok"]) ? null : J.S(answer["error"]) is { Length: > 0 } e ? e : "The unlock helper didn't type it.";
+            return UnlockReply.Error(answer);
         }
         catch (TimeoutException) { return "The unlock helper isn't running. Reinstall it in Settings → PC power."; }
         catch (IOException e) { return "Couldn't reach the unlock helper: " + e.Message; }

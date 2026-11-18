@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Jarvis.Core.Unlock;
 
 namespace JarvisUnlock;
 
@@ -15,8 +17,9 @@ namespace JarvisUnlock;
 /// with Face ID + UAC. The Jarvis app — after checking his iPhone's Face ID signature — sends it
 /// the password over a pipe only his account can open; the service starts a copy of itself on
 /// the sign-in desktop of the console session, which lifts the lock-screen picture if it's up and
-/// types into the PIN / password box, never anywhere else. Nothing is
-/// stored here and nothing is typed anywhere else.
+/// types into the PIN / password box, never anywhere else; then it checks Windows really unlocked
+/// (the typist watches the screen, the service asks Windows whose session is on the console) and
+/// says so when it didn't. Nothing is stored here and nothing is typed anywhere else.
 ///
 ///   JarvisUnlock.exe --install &lt;user SID&gt;   (elevated: copies itself to Program Files, registers, starts)
 ///   JarvisUnlock.exe --uninstall              (elevated)
@@ -252,14 +255,16 @@ internal static class Service
 
     private static string Error(string why) => new JsonObject { ["ok"] = false, ["error"] = why }.ToJsonString();
 
-    /// Starts `--type` as SYSTEM in the console session, on its sign-in desktop, and hands it the
-    /// password on stdin.
+    /// Starts `--type` as SYSTEM in the console session, on its sign-in desktop, hands it the
+    /// password on stdin, then confirms with Windows: `{"ok":true,"checked":true}` only when his
+    /// session is unlocked on the console (Jarvis.Core.Unlock.UnlockOutcome decides).
     private static string TypeOnLockScreen(string password)
     {
         var session = WTSGetActiveConsoleSessionId();
-        if (session == 0xFFFFFFFF) return Error("No one is signed in at the PC.");
+        if (session == ConsoleSession.None) return Error("No one is signed in at the PC.");
         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, out var own)) return Error("Couldn't read the service's token.");
         var token = IntPtr.Zero;
+        int? exit;
         try
         {
             if (!DuplicateTokenEx(own, MAXIMUM_ALLOWED, IntPtr.Zero, 2 /* impersonation */, 1 /* primary */, out token))
@@ -287,25 +292,62 @@ internal static class Service
             }
             catch (IOException) { }
             stdin.Dispose();
-            var waited = WaitForSingleObject(pi.hProcess, 25000);
+            // Reach + settle + typing + watch is ~19 s at worst; past that it's stuck: end it.
+            var waited = WaitForSingleObject(pi.hProcess, 22000);
+            if (waited != 0) TerminateProcess(pi.hProcess, 1);
             GetExitCodeProcess(pi.hProcess, out var code);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
-            if (waited != 0) return Error("The lock screen didn't respond.");
-            Log.Write($"type finished: {code}");
-            return code switch
-            {
-                0 => new JsonObject { ["ok"] = true }.ToJsonString(),
-                3 => Error("The PC isn't locked."),
-                5 => Error("The sign-in screen didn't come up."),
-                _ => Error($"Typing on the lock screen failed ({code})."),
-            };
+            exit = waited == 0 ? unchecked((int)code) : null;
         }
         finally
         {
             if (token != IntPtr.Zero) CloseHandle(token);
             CloseHandle(own);
         }
+        // Windows' side: whose session is on the console now, and is it unlocked. A sign-in after
+        // Remote Desktop reconnects his session a moment after Enter: look for up to 4 s.
+        var error = UnlockOutcome.Error(exit, session, ReadConsole());
+        for (var i = 0; error != null && !UnlockOutcome.Final(exit) && i < 16; i++)
+        {
+            Thread.Sleep(250);
+            error = UnlockOutcome.Error(exit, session, ReadConsole());
+        }
+        var now = ReadConsole();
+        Log.Write($"type finished: {(exit is { } c ? c.ToString() : "timed out")} in session {session}; console {now.Id} his={now.His} active={now.Active} {now.Lock} -> {error ?? "unlocked"}");
+        return error == null ? new JsonObject { ["ok"] = true, ["checked"] = true }.ToJsonString() : Error(error);
+    }
+
+    /// The console session as Windows reports it: its id, whether it's his account's (its user token's
+    /// SID), connected (WTSActive) and its lock flag (WTSSessionInfoEx).
+    private static ConsoleSession ReadConsole()
+    {
+        var id = WTSGetActiveConsoleSessionId();
+        if (id == ConsoleSession.None) return new ConsoleSession(id, false, false, ConsoleLock.Unknown);
+        var his = false;
+        if (WTSQueryUserToken(id, out var user))
+        {
+            try { his = string.Equals(new WindowsIdentity(user).User?.Value, _sid, StringComparison.OrdinalIgnoreCase); }
+            catch (Exception e) when (e is ArgumentException or SecurityException or UnauthorizedAccessException) { }
+            finally { CloseHandle(user); }
+        }
+        var active = false;
+        var lockState = ConsoleLock.Unknown;
+        if (WTSQuerySessionInformationW(IntPtr.Zero, id, 25 /* WTSSessionInfoEx */, out var buf, out var bytes))
+        {
+            try
+            {
+                // WTSINFOEXW: Level (DWORD), then the 8-byte-aligned WTSINFOEX_LEVEL1_W:
+                // SessionId @8, SessionState @12 (0 = WTSActive), SessionFlags @16 (0 lock, 1 unlock).
+                if (bytes >= 20 && Marshal.ReadInt32(buf, 0) == 1)
+                {
+                    active = Marshal.ReadInt32(buf, 12) == 0;
+                    lockState = Marshal.ReadInt32(buf, 16) switch { 0 => ConsoleLock.Locked, 1 => ConsoleLock.Unlocked, _ => ConsoleLock.Unknown };
+                }
+            }
+            finally { WTSFreeMemory(buf); }
+        }
+        return new ConsoleSession(id, his, active, lockState);
     }
 
     // ── Win32 ───────────────────────────────────────────────────────────
@@ -371,6 +413,18 @@ internal static class Service
     private static extern uint WaitForSingleObject(IntPtr handle, uint ms);
 
     [DllImport("kernel32.dll")]
+    private static extern bool TerminateProcess(IntPtr process, uint code);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQueryUserToken(uint session, out IntPtr token);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSQuerySessionInformationW(IntPtr server, uint session, int infoClass, out IntPtr buffer, out int bytes);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
+
+    [DllImport("kernel32.dll")]
     private static extern bool GetExitCodeProcess(IntPtr process, out uint code);
 
     [DllImport("kernel32.dll")]
@@ -378,61 +432,63 @@ internal static class Service
 }
 
 /// The copy started in the console session (as SYSTEM). It types only into the sign-in screen,
-/// judged from what's on screen:
-///   • the lock-screen picture (LockApp on the normal desktop): press Space to lift it, wait for
-///     the sign-in screen;
-///   • the sign-in screen (the secure Winlogon desktop, PIN or password box): type, press Enter.
-/// Exit 0 typed, 3 not locked, 5 the sign-in screen never came up.
+/// judged from what's on screen, and follows Jarvis.Core.Unlock.LockScreenTypist: lift the picture
+/// (or a leftover "enter your PIN" dialog) with Space, wait for the box, clear it, type, Enter, then
+/// watch up to 8 s for his desktop to come back. Exit codes: TypistExit.
 internal static unsafe class Typist
 {
-    private static readonly TimeSpan Reach = TimeSpan.FromSeconds(8);
-
-    private enum Screen { Unlocked, Picture, SignIn }
+    private static IntPtr _desk;
 
     public static int Run()
     {
         var password = Console.In.ReadLine() ?? "";
-        if (password.Length == 0) return 4;
-        if (Look() == Screen.Unlocked) return 3;   // nothing pressed at all
-        var started = DateTime.UtcNow;
-        var lastNudge = DateTime.MinValue;
-        while (DateTime.UtcNow - started < Reach)
+        if (password.Length == 0) return TypistExit.NoPassword;
+        var typist = new LockScreenTypist(password.Length, DateTimeOffset.UtcNow);
+        while (true)
         {
-            switch (Look())
+            foreach (var step in typist.Next(Look(), DateTimeOffset.UtcNow))
             {
-                case Screen.Unlocked:
-                    return 3;
-                case Screen.SignIn:
-                    // Give the PIN / password box a moment to take focus, then make sure it's still up.
-                    Thread.Sleep(lastNudge == DateTime.MinValue ? 300 : 900);
-                    if (Look() != Screen.SignIn) continue;
-                    foreach (var ch in password) Unicode(ch);
-                    Thread.Sleep(80);
-                    Key(0x0D /* Enter */);
-                    return 0;
-                case Screen.Picture:
-                    if (DateTime.UtcNow - lastNudge > TimeSpan.FromSeconds(1.5))
-                    {
-                        Key(0x20 /* Space: lifts the picture */);
-                        lastNudge = DateTime.UtcNow;
-                    }
-                    break;
+                switch (step)
+                {
+                    case TypistStep.Done done:
+                        return done.Exit;
+                    case TypistStep.Press press:
+                        Key(press.Vk);
+                        break;
+                    case TypistStep.Wait wait:
+                        Thread.Sleep(wait.For);
+                        break;
+                    case TypistStep.Clear clear:
+                        Key(0x23 /* End */);
+                        for (var i = 0; i < clear.Backspaces; i++) { Key(0x08 /* Backspace */); Thread.Sleep(10); }
+                        break;
+                    case TypistStep.TypePassword:
+                        foreach (var ch in password) Unicode(ch);
+                        break;
+                }
             }
-            Thread.Sleep(150);
         }
-        return 5;
     }
 
-    /// What's on screen, read from the screen itself (Windows' session-lock flag isn't reliable):
-    /// the secure Winlogon desktop is the sign-in screen; LockApp in front on the normal desktop is
-    /// the lock-screen picture; anything else is an unlocked PC. Attaches this thread to the
-    /// input desktop, so keys go there.
-    private static Screen Look()
+    /// What's on screen, read from the screen itself (Windows' session-lock flag isn't reliable for
+    /// this): the secure Winlogon desktop is the sign-in screen; LockApp in front on the normal desktop
+    /// is the lock-screen picture; the normal desktop otherwise is unlocked; anything unreadable is
+    /// Unknown (never "unlocked"). Attaches this thread to the input desktop, so keys go there.
+    private static LockView Look()
     {
         var desk = OpenInputDesktop(0, false, 0x01FF /* DESKTOP_ALL */);
-        if (desk == IntPtr.Zero || !SetThreadDesktop(desk)) return Screen.Unlocked;
-        if (DesktopName(desk).Equals("Winlogon", StringComparison.OrdinalIgnoreCase)) return Screen.SignIn;
-        return ForegroundExe().Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? Screen.Picture : Screen.Unlocked;
+        if (desk == IntPtr.Zero) return LockView.Unknown;
+        if (!SetThreadDesktop(desk))
+        {
+            CloseDesktop(desk);
+            return LockView.Unknown;
+        }
+        if (_desk != IntPtr.Zero) CloseDesktop(_desk);
+        _desk = desk;
+        var name = DesktopName(desk);
+        if (name.Equals("Winlogon", StringComparison.OrdinalIgnoreCase)) return LockView.SignIn;
+        if (!name.Equals("Default", StringComparison.OrdinalIgnoreCase)) return LockView.Unknown;
+        return ForegroundExe().Equals("LockApp.exe", StringComparison.OrdinalIgnoreCase) ? LockView.Picture : LockView.Unlocked;
     }
 
     private static string DesktopName(IntPtr desk)
@@ -503,6 +559,9 @@ internal static unsafe class Typist
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetThreadDesktop(IntPtr desk);
+
+    [DllImport("user32.dll")]
+    private static extern bool CloseDesktop(IntPtr desk);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetUserObjectInformationW(IntPtr obj, int index, char* info, int length, out int needed);
