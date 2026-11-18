@@ -7,6 +7,8 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <lwip/inet.h>
+#include <lwip/sockets.h>
 #include <mbedtls/base64.h>
 #include <wifi_manager.h>
 
@@ -159,6 +161,45 @@ void RegisterPodTools() {
           R"({"type":"object","properties":{}})", [](const cJSON*, cJSON* out) -> std::string {
               cJSON_AddBoolToObject(out, "ok", true);
               RebootSoon();
+              return std::string();
+          });
+
+    // Wake-on-LAN: the Pod never sleeps, so the server wakes the PC through it first (live
+    // 2026-11-18: only the Mac could send, and it sleeps too). Same packets as jc-client's wol_send.
+    t.Add("wol_send", "Send a Wake-on-LAN magic packet on the home network to wake a sleeping computer "
+          "(e.g. the Windows PC). The Jarvis Pod never sleeps, so it can wake the PC while the Mac is asleep.",
+          R"({"type":"object","properties":{"mac":{"type":"string","description":"The computer's network (MAC) address"},)"
+          R"("ip":{"type":"string","description":"Its last IPv4 address, optional: the packet also goes straight to it"}},)"
+          R"("required":["mac"]})",
+          [](const cJSON* args, cJSON* out) -> std::string {
+              const cJSON* m = cJSON_GetObjectItem(args, "mac");
+              uint8_t mac[6];
+              if (!cJSON_IsString(m) || !logic::ParseMac(m->valuestring, mac)) return "bad MAC address";
+              const cJSON* ip = cJSON_GetObjectItem(args, "ip");
+              const auto targets = logic::WolTargets(cJSON_IsString(ip) ? ip->valuestring : "");
+              const auto packet = logic::MagicPacket(mac);
+              int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+              if (s < 0) return "couldn't open a network socket";
+              int yes = 1;
+              setsockopt(s, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+              int sent = 0;
+              for (int round = 0; round < 3; ++round) {
+                  for (const auto& target : targets) {
+                      const auto colon = target.rfind(':');
+                      sockaddr_in to = {};
+                      to.sin_family = AF_INET;
+                      to.sin_port = htons(static_cast<uint16_t>(std::stoi(target.substr(colon + 1))));
+                      if (inet_aton(target.substr(0, colon).c_str(), &to.sin_addr) == 0) continue;
+                      if (sendto(s, packet.data(), packet.size(), 0, reinterpret_cast<sockaddr*>(&to), sizeof(to)) ==
+                          static_cast<int>(packet.size())) {
+                          ++sent;
+                      }
+                  }
+              }
+              close(s);
+              if (sent == 0) return "couldn't send the wake packet (is the Pod on Wi-Fi?)";
+              cJSON_AddBoolToObject(out, "ok", true);
+              cJSON_AddNumberToObject(out, "sent", sent);
               return std::string();
           });
 

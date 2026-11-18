@@ -3,6 +3,7 @@
 #include <cJSON.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 
@@ -534,6 +535,56 @@ int ClampEndPauseMs(int ms) { return std::max(kEndPauseMinMs, std::min(kEndPause
 EndTimings EndTimingsFor(int end_pause_ms) {
     const int64_t pause = ClampEndPauseMs(end_pause_ms);
     return EndTimings{pause, pause + 50, std::max<int64_t>(1500, pause + 900), std::min<int64_t>(300, pause)};
+}
+
+// ---- wake-on-LAN --------------------------------------------------------------
+bool ParseMac(const std::string& text, uint8_t out[6]) {
+    std::string hex;
+    for (char ch : text) {
+        if (ch == ':' || ch == '-') continue;
+        if (!isxdigit(static_cast<unsigned char>(ch))) return false;
+        hex += ch;
+    }
+    if (hex.size() != 12) return false;
+    for (int i = 0; i < 6; ++i) out[i] = static_cast<uint8_t>(std::stoi(hex.substr(i * 2, 2), nullptr, 16));
+    return true;
+}
+
+std::vector<uint8_t> MagicPacket(const uint8_t mac[6]) {
+    std::vector<uint8_t> p(6, 0xFF);
+    for (int i = 0; i < 16; ++i) p.insert(p.end(), mac, mac + 6);
+    return p;
+}
+
+static bool ValidIpv4(const std::string& ip) {
+    int parts = 0, value = -1, digits = 0;
+    for (size_t i = 0; i <= ip.size(); ++i) {
+        if (i == ip.size() || ip[i] == '.') {
+            if (digits == 0 || value > 255) return false;
+            ++parts; value = -1; digits = 0;
+        } else if (isdigit(static_cast<unsigned char>(ip[i])) && digits < 3) {
+            value = (value < 0 ? 0 : value * 10) + (ip[i] - '0'); ++digits;
+        } else {
+            return false;
+        }
+    }
+    return parts == 4;
+}
+
+std::vector<std::string> WolTargets(const std::string& ip) {
+    std::vector<std::string> hosts = {"255.255.255.255"};
+    if (ValidIpv4(ip)) {
+        hosts.push_back(ip);
+        hosts.push_back(ip.substr(0, ip.rfind('.')) + ".255");
+    }
+    std::vector<std::string> out;
+    for (auto& h : hosts) {
+        for (int port : {9, 7}) {
+            std::string t = h + ":" + std::to_string(port);
+            if (std::find(out.begin(), out.end(), t) == out.end()) out.push_back(t);
+        }
+    }
+    return out;
 }
 
 }  // namespace jarvis::logic

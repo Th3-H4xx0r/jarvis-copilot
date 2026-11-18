@@ -142,6 +142,23 @@ int main() {
         CHECK(EndTimingsFor(2000).server_end_quiet_ms < EndTimingsFor(2000).vad_silence_ms);
     }
 
+    // Wake-on-LAN (wol_send): the Pod never sleeps, so it wakes the PC when the Mac can't (live 2026-11-18).
+    {
+        uint8_t mac[6];
+        CHECK(ParseMac("F4-28-9D-62-3A-FF", mac) && mac[0] == 0xF4 && mac[5] == 0xFF);
+        CHECK(ParseMac("f4:28:9d:62:3a:ff", mac) && mac[2] == 0x9D);
+        CHECK(ParseMac("f4289d623aff", mac));
+        CHECK(!ParseMac("f4:28:9d:62:3a", mac) && !ParseMac("zz:28:9d:62:3a:ff", mac) && !ParseMac("", mac));
+        auto pkt = MagicPacket(mac);
+        CHECK(pkt.size() == 102 && pkt[0] == 0xFF && pkt[5] == 0xFF && pkt[6] == 0xF4 && pkt[101] == 0xFF);
+        CHECK(pkt[6 + 6 * 15] == 0xF4);
+        // Like jc-client's send_wol: broadcast, plus straight to the PC and its /24 broadcast, ports 9 and 7.
+        auto t = WolTargets("192.168.1.72");
+        CHECK(t.size() == 6 && t[0] == "255.255.255.255:9" && t[1] == "255.255.255.255:7");
+        CHECK(t[2] == "192.168.1.72:9" && t[4] == "192.168.1.255:9" && t[5] == "192.168.1.255:7");
+        CHECK(WolTargets("").size() == 2 && WolTargets("not-an-ip").size() == 2 && WolTargets("1.2.3.999").size() == 2);
+    }
+
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

@@ -93,4 +93,13 @@ struct EndTimings {
 };
 EndTimings EndTimingsFor(int end_pause_ms);
 
+// ---- wake-on-LAN (the wol_send skill) -----------------------------------------
+// "F4-28-9D-62-3A-FF", "f4:28:9d:62:3a:ff" or "f4289d623aff" → 6 bytes; false when it isn't a MAC.
+bool ParseMac(const std::string& text, uint8_t out[6]);
+// 6 × 0xFF then the MAC 16 times (102 bytes).
+std::vector<uint8_t> MagicPacket(const uint8_t mac[6]);
+// "host:port" targets in send order: the broadcast, then (with a valid IPv4) the PC itself and its
+// /24 broadcast — a sleeping Wi-Fi card only hears what its access point passes on — on ports 9 and 7.
+std::vector<std::string> WolTargets(const std::string& ip);
+
 }  // namespace jarvis::logic
