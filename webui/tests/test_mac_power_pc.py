@@ -189,3 +189,64 @@ def test_row_says_when_the_jarvis_app_isnt_running(tmp_path):
     assert _row(rig, PC)["app_running"] is True and rig.store.app_down(PC) is False
     rig.store.on_status(MAC, {"state": "awake", "held": False})
     assert _row(rig, MAC)["app_running"] is None and rig.store.app_down(MAC) is False
+
+
+POD = "dev-pod"
+
+
+def _pod_rig(tmp_path, connected):
+    rig = Rig(tmp_path, connected=connected, skills={MAC: ["wol_send"], POD: ["wol_send", "pod_status"]})
+    rig.store._os_of = lambda d: {PC: "windows", MAC: "macos", PHONE: "macos"}.get(d, "")
+    rig.store._name_of = lambda d: {MAC: "MacBook", PC: "Pranav-Desktop", POD: "Jarvis Pod"}.get(d, "")
+    return rig
+
+
+def test_wake_pc_prefers_the_always_on_pod(tmp_path):
+    # Live 2026-11-18: only the Mac could send, and it sleeps too — Wake PC failed.
+    rig = _pod_rig(tmp_path, connected={MAC, POD})
+    rig.store.on_status(PC, PC_STATUS)
+    out = rig.store.wake(PC)
+    assert out == {"ok": True, "sent": True, "via": "Jarvis Pod"}
+    assert rig.invokes == [(POD, "wol_send", {"mac": "aa:bb:cc:dd:ee:ff"})]
+
+
+def test_wake_pc_falls_back_to_the_next_sender(tmp_path):
+    rig = _pod_rig(tmp_path, connected={MAC, POD})
+    sent = []
+    rig.store._invoke = lambda d, s, a: (sent.append(d) or
+                                         ({"ok": False, "error": "busy"} if d == POD else {"ok": True, "result": {"ok": True}}))
+    rig.store.on_status(PC, PC_STATUS)
+    assert rig.store.wake(PC) == {"ok": True, "sent": True, "via": "MacBook"} and sent == [POD, MAC]
+
+
+def test_wake_pc_with_no_sender_awake_waits_for_the_macs_checkin(tmp_path):
+    rig = _pod_rig(tmp_path, connected={PHONE})
+    rig.store.on_status(MAC, {"state": "awake", "held": False})   # a known Mac, its wake timer on
+    rig.store.on_status(PC, dict(PC_STATUS, wifi_ip="192.168.1.80"))
+    out = rig.store.wake(PC)
+    assert out == {"ok": True, "pending": True, "via": "MacBook", "within_min": 15}
+    assert rig.invokes == [] and rig.store.device(PC)["wake_requested_at"] == rig.t
+    answer = rig.store.checkin(MAC)
+    assert answer["wol"] == [{"mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.80"}] and answer["wake"] is False
+    rig.store.on_status(PC, PC_STATUS)                            # it woke: nothing more to send
+    assert "wol" not in rig.store.checkin(MAC)
+
+
+def test_a_pending_pc_wake_expires(tmp_path):
+    rig = _pod_rig(tmp_path, connected={PHONE})
+    rig.store.on_status(MAC, {"state": "awake", "held": False})
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.wake(PC)
+    rig.t += 1300
+    assert "wol" not in rig.store.checkin(MAC)
+
+
+def test_a_mac_that_connects_sends_the_pending_pc_wake(tmp_path):
+    rig = _pod_rig(tmp_path, connected={PHONE})
+    rig.store._spawn = lambda fn: fn()
+    rig.store.on_status(MAC, {"state": "awake", "held": False})
+    rig.store.on_status(PC, PC_STATUS)
+    rig.store.wake(PC)
+    rig.connected.add(MAC)
+    rig.store.sync(MAC)
+    assert (MAC, "wol_send", {"mac": "aa:bb:cc:dd:ee:ff"}) in rig.invokes

@@ -116,6 +116,11 @@ def helper_call(op: str, **kw) -> dict:
         return {"ok": False, "error": f"power helper: {exc}"}
 
 
+def _send_wol(**args) -> dict:
+    from jc_client.skills.common import wol_send
+    return wol_send(**args)
+
+
 class MacPower:
     def __init__(self, helper: Callable[..., dict], up: Callable[[dict], None],
                  checkin: Callable[[], dict], sessions: Callable[[], list], *,
@@ -130,6 +135,7 @@ class MacPower:
         self._helper = helper
         self._up = up
         self._checkin = checkin
+        self._wol = _send_wol   # a sleeping PC's owed wake (the server's check-in answer "wol")
         self._sessions = sessions
         self._pending_password = pending_password
         self._battery = battery
@@ -240,6 +246,7 @@ class MacPower:
             if not isinstance(answer, dict):
                 self._quiet_since = None
                 return True
+            self._send_owed_wakes(answer.get("wol"))
             self._set_manual(bool(answer.get("keep_awake")), now)
             self.timer_on = answer.get("timer_on") is not False
             percent, on_ac = self._battery()
@@ -256,6 +263,20 @@ class MacPower:
             self._quiet_since = None
         self.tick()
         return True
+
+    def _send_owed_wakes(self, owed) -> None:
+        """Magic packets for PCs no one awake could wake (Wake PC while everything slept). UDP: instant,
+        so the Mac still goes straight back to sleep; a bad entry never keeps it up."""
+        for item in owed if isinstance(owed, list) else []:
+            if not isinstance(item, dict) or not item.get("mac"):
+                continue
+            try:
+                args = {"mac": str(item["mac"])}
+                if item.get("ip"):
+                    args["ip"] = str(item["ip"])
+                self._wol(**args)
+            except Exception:  # noqa: BLE001
+                log.info("owed PC wake not sent", exc_info=True)
 
     def request_wake(self) -> None:
         """A Wake Mac push reached the app."""

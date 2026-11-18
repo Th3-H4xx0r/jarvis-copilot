@@ -25,6 +25,7 @@ from typing import Callable, Iterable, Optional
 log = logging.getLogger(__name__)
 
 INTENT_MAX = 1200.0       # a wake request older than this is forgotten
+CHECKIN_EVERY = 900.0     # the sleeping Mac's timer check-in (jc_client/mac_power.py CHECKIN)
 KEEP_AWAKE_MAX = 12 * 3600.0   # "Keep Mac awake" turns itself off after this
 PC_STATUS_FRESH = 150.0        # the PC reports every 60 s: three missed reports = not awake
 SLEEP_QUIET = 10.0             # an "awake" report this soon after a sleep mark is its last one going down
@@ -70,6 +71,7 @@ class MacPowerStore:
         self._os_of = os_of
         self._skills_of = skills_of
         self._name_of = name_of
+        self._spawn = lambda fn: threading.Thread(target=fn, daemon=True, name="mac-power-wol").start()
         self._lock = threading.RLock()
         self._requests: dict = {}
         try:
@@ -114,30 +116,69 @@ class MacPowerStore:
         """"PC" for the Windows PC, "Mac" otherwise — what his messages call it."""
         return "PC" if self._is_pc(did) else "Mac"
 
+    def _wol_args(self, did: str) -> dict:
+        status = (self._devices.get(did) or {}).get("status") or {}
+        args = {"mac": str(status.get("wifi_mac") or "")}
+        if status.get("wifi_ip"):
+            args["ip"] = str(status["wifi_ip"])   # also straight to it: some routers hold broadcasts
+        return args
+
     def _wake_pc(self, did: str) -> dict:
-        """Wake-on-wireless-LAN: a magic packet from another computer on the home network."""
+        """Wake-on-wireless-LAN: a magic packet from another device on the home network — the always-on
+        Pod first, then a computer; with none awake, the Mac sends it when it next wakes (its timer
+        check-in, at most 15 minutes away). Live 2026-11-18: only the Mac could send, and it sleeps too."""
         status = (self._devices.get(did) or {}).get("status") or {}
         wake = status.get("wake") or {}
         if wake.get("capable") is False:
             return {"ok": False, "error": "This PC's Wi-Fi adapter can't be woken remotely."}
-        mac = str(status.get("wifi_mac") or "")
-        if not mac:
+        if not status.get("wifi_mac"):
             return {"ok": False, "error": "The PC hasn't told Jarvis its network address yet."}
         senders = [d for d in self._connected() if d != did and "wol_send" in set(self._skills_of(d))]
-        senders.sort(key=lambda d: self._os_of(d) != "macos")      # the Mac first
-        if not senders:
-            return {"ok": False, "error": "No other computer is online to wake the PC."}
-        via = self._name_of(senders[0]) or "your other computer"
-        args = {"mac": mac}
-        if status.get("wifi_ip"):
-            args["ip"] = str(status["wifi_ip"])   # also straight to it: some routers hold broadcasts
-        res = self._invoke(senders[0], "wol_send", args) or {}
-        inner = res.get("result") if isinstance(res.get("result"), dict) else {}
-        if not res.get("ok") or inner.get("ok") is False:
-            return {"ok": False, "error": f"{via} couldn't send the wake signal: "
-                                          f"{inner.get('error') or res.get('error') or 'no answer'}"}
-        self._update(did, wake_requested_at=self._clock())  # only once the signal went (else "Waking…" stuck)
-        return {"ok": True, "sent": True, "via": via}
+        # Never-sleeping devices (the Pod) first, then the Mac, then any other computer.
+        senders.sort(key=lambda d: {"macos": 1, "windows": 2}.get(self._os_of(d) or "", 0))
+        args, last = self._wol_args(did), ""
+        for sender in senders:
+            via = self._name_of(sender) or "your other computer"
+            res = self._invoke(sender, "wol_send", dict(args)) or {}
+            inner = res.get("result") if isinstance(res.get("result"), dict) else {}
+            if res.get("ok") and inner.get("ok") is not False:
+                self._update(did, wake_requested_at=self._clock())  # only once the signal went (else "Waking…" stuck)
+                return {"ok": True, "sent": True, "via": via}
+            last = f"{via} couldn't send the wake signal: {inner.get('error') or res.get('error') or 'no answer'}"
+        mac = self._sleeping_mac_sender(did)
+        if mac:
+            # Nobody awake can send it: keep the wake pending for the Mac's next check-in (or its connect).
+            self._update(did, wake_requested_at=self._clock())
+            d = self.device(mac)
+            if (d.get("push") or {}).get("token"):
+                try:
+                    self._push(d["push"]["token"], d["push"].get("env") or "")
+                except Exception:  # noqa: BLE001
+                    log.warning("Wake Mac push (for the PC) failed", exc_info=True)
+            return {"ok": True, "pending": True, "via": self._name_of(mac) or "your Mac",
+                    "within_min": int(CHECKIN_EVERY // 60)}
+        return {"ok": False, "error": last or "No other computer is online to wake the PC."}
+
+    def _sleeping_mac_sender(self, pc: str) -> str:
+        """A known Mac whose wake timer is on (it checks in every 15 minutes even asleep)."""
+        awake = set(self._connected())   # an awake Mac that failed won't check in until it sleeps
+        with self._lock:
+            for did, d in self._devices.items():
+                if (did != pc and did not in awake and not self._is_pc(did) and d.get("timer_on", True)
+                        and (d.get("status") or {})):
+                    return did
+        return ""
+
+    def _pending_pc_wakes(self) -> list:
+        """Magic packets owed to PCs whose wake no one awake could send (newest INTENT_MAX)."""
+        now, out = self._clock(), []
+        with self._lock:
+            for did, d in self._devices.items():
+                at = d.get("wake_requested_at")
+                if self._is_pc(did) and at is not None and now - float(at) <= INTENT_MAX \
+                        and (d.get("status") or {}).get("wifi_mac") and did not in set(self._connected()):
+                    out.append(self._wol_args(did))
+        return out
 
     def wake(self, did: str) -> dict:
         if self._is_pc(did):
@@ -171,6 +212,10 @@ class MacPowerStore:
                 d["sleeping_at"] = None   # it connected: awake again
                 self._save()
         self._send(did, frame)
+        if not self._is_pc(did) and "wol_send" in set(self._skills_of(did)):
+            owed = self._pending_pc_wakes()
+            if owed:
+                self._spawn(lambda: [self._invoke(did, "wol_send", a) for a in owed])
 
     def keep_awake(self, did: str, on: bool) -> dict:
         self._update(did, keep_awake=bool(on), keep_awake_at=self._clock())
@@ -236,6 +281,9 @@ class MacPowerStore:
                 d["wake_requested_at"] = None
                 self._save()
             out = {"wake": wake, "keep_awake": self._keep(d), "timer_on": bool(d["timer_on"])}
+        owed = self._pending_pc_wakes() if not self._is_pc(did) else []
+        if owed:
+            out["wol"] = owed   # the Mac sends these during its dark wake, then sleeps again
         if wake:
             self._changed()
         return out

@@ -311,3 +311,24 @@ def test_clamshell_mode_with_a_display_is_not_forced_to_sleep():
     rig.helper.calls.clear()
     rig.power.tick()
     assert rig.ops() == ["hold"]
+
+
+def test_a_quiet_checkin_sends_the_pcs_owed_wake_then_sleeps():
+    # Live 2026-11-18: with the Mac asleep nothing could wake the PC; its check-in now sends the signal.
+    owed = [{"mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.72"}]
+    rig = Rig(reason="rtc/Alarm", checkin={"wake": False, "keep_awake": False, "timer_on": True, "wol": owed})
+    sent = []
+    rig.power._wol = lambda **kw: sent.append(kw) or {"ok": True}
+    rig.power.on_will_sleep()
+    rig.t += CHECKIN
+    assert rig.power.on_did_wake() is False and sent == owed     # sent, then straight back to sleep
+    assert rig.ops()[-1] == "sleepnow"
+
+
+def test_a_bad_owed_wake_never_keeps_the_mac_up():
+    rig = Rig(reason="rtc/Alarm", checkin={"wake": False, "keep_awake": False, "timer_on": True,
+                                           "wol": [{"mac": "nope"}, "junk"]})
+    rig.power._wol = lambda **kw: (_ for _ in ()).throw(ValueError("bad mac"))
+    rig.power.on_will_sleep()
+    rig.t += CHECKIN
+    assert rig.power.on_did_wake() is False
