@@ -89,13 +89,21 @@ SURFACES = ["taskbar", "system-tray", "start-menu", "action-center", "menu", "sh
 _NO_SEMANTIC_PATH = frozenset({"POLICY_DENIED", "ACTION_NOT_SUPPORTED", "ACTION_FAILED"})
 
 
+_ad_warned = [False]
+
+
 def _ad_client():
     try:
-        from jc_client.agent_desktop_client import get
-        return get()
-    except Exception:
-        log.debug("agent-desktop unavailable", exc_info=True)
+        from jc_client import agent_desktop_client
+        return agent_desktop_client.get()
+    except Exception as exc:
+        if not _ad_warned[0]:  # once: every look would otherwise repeat it
+            _ad_warned[0] = True
+            log.warning("agent-desktop unavailable: %s", exc, exc_info=True)
         return None
+
+
+_ad_client_real = _ad_client
 
 
 def read_window(app: Optional[str] = None, max_elements: int = 250, width: int = 1024,

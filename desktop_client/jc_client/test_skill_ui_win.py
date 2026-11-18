@@ -248,3 +248,20 @@ def test_pc_ad_read_exception_falls_back(be, monkeypatch):
     monkeypatch.setattr(ui_win.ui_ad, "read", boom)
     out = ui_win.read_window(app="notepad")
     assert out["ok"] and out["engine"] == "uia" and "bad tree" in out["engine_note"]
+
+
+def test_ad_client_failure_is_logged_once(monkeypatch, caplog):
+    import logging
+    import jc_client.agent_desktop_client as adc_mod
+    monkeypatch.setattr(ui_win, "_ad_client", ui_win._ad_client_real)
+    monkeypatch.setattr(ui_win, "_ad_warned", [False])
+
+    def boom():
+        raise OSError("no access to the state dir")
+
+    monkeypatch.setattr(adc_mod, "get", boom)
+    with caplog.at_level(logging.WARNING, logger="jc_client.skills.ui_win"):
+        assert ui_win._ad_client() is None
+        assert ui_win._ad_client() is None
+    hits = [r for r in caplog.records if "agent-desktop" in r.getMessage()]
+    assert len(hits) == 1 and "no access to the state dir" in hits[0].getMessage()
